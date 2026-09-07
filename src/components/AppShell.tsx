@@ -7,11 +7,13 @@ import { GitReviewPanel } from "./GitReviewPanel";
 import { HelpDialog } from "./HelpDialog";
 import { MergeDialog } from "./MergeDialog";
 import { PathDialog } from "./PathDialog";
+import { PreferencesDialog } from "./PreferencesDialog";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { Workspace } from "./Workspace";
 import { SetupWizard } from "./SetupWizard";
 import { useAppShortcuts } from "../hooks/useAppShortcuts";
+import { useTheme } from "../hooks/useTheme";
 import { getChromeLayout, setChromeLayout, setSetupDismissed, wasSetupDismissed } from "../lib/preferences";
 import { useAgentStore } from "../stores/agentStore";
 import { useGitStore } from "../stores/gitStore";
@@ -26,6 +28,8 @@ const BrowserPanel = lazy(async () => {
 });
 
 export function AppShell() {
+  useTheme();
+
   const [setupOpen, setSetupOpen] = useState(() => !wasSetupDismissed());
   const project = useProjectStore((s) => s.project);
   const error = useProjectStore((s) => s.error);
@@ -151,6 +155,7 @@ export function AppShell() {
       <DiscardDialog />
       <MergeDialog />
       <HelpDialog />
+      <PreferencesDialog />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import {
   IconHelp,
   IconHome,
   IconPlus,
+  IconSettings,
   TaxzyMark,
 } from "./AppIcons";
 import { ProviderIcon } from "./ProviderIcon";
@@ -31,6 +32,7 @@ export function Sidebar() {
   const setPathDialogOpen = useUiStore((s) => s.setPathDialogOpen);
   const setBrowserOpen = useUiStore((s) => s.setBrowserOpen);
   const setHelpOpen = useUiStore((s) => s.setHelpOpen);
+  const setPreferencesOpen = useUiStore((s) => s.setPreferencesOpen);
   const browserOpen = useUiStore((s) => s.browserOpen);
   const gitPanelOpen = useLayoutStore((s) => s.gitPanelOpen);
   const toggleGitPanel = useLayoutStore((s) => s.toggleGitPanel);
@@ -228,6 +230,15 @@ export function Sidebar() {
         <button
           type="button"
           className="btn btn-icon ml-auto"
+          onClick={() => setPreferencesOpen(true)}
+          aria-label="Settings"
+          title="Settings"
+        >
+          <IconSettings />
+        </button>
+        <button
+          type="button"
+          className="btn btn-icon"
           onClick={() => setHelpOpen(true)}
           aria-label="Help"
           title="Help"

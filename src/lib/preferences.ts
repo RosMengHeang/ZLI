@@ -1,7 +1,10 @@
+import { normalizeThemeMode, type ThemeMode } from "./theme";
+
 const LAST_PROJECT_KEY = "taxzy:last-project-path";
 const SETUP_DISMISSED_KEY = "taxzy:setup-dismissed";
 const CHROME_LAYOUT_KEY = "taxzy:chrome-layout";
 const PANE_LAYOUT_KEY = "taxzy:pane-layout";
+export const THEME_MODE_KEY = "taxzy:theme-mode";
 
 export interface ChromeLayout {
   sidebar: number;
@@ -52,6 +55,14 @@ export function wasSetupDismissed(): boolean {
 
 export function setSetupDismissed(dismissed: boolean): void {
   write(SETUP_DISMISSED_KEY, dismissed ? "1" : "0");
+}
+
+export function getThemePreference(): ThemeMode {
+  return normalizeThemeMode(read(THEME_MODE_KEY));
+}
+
+export function setThemePreference(mode: ThemeMode): void {
+  write(THEME_MODE_KEY, mode);
 }
 
 function readJson<T>(key: string): T | null {

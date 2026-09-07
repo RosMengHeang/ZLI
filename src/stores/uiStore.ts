@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { getThemePreference, setThemePreference } from "../lib/preferences";
+import type { ThemeMode } from "../lib/theme";
 import type { Agent } from "../types";
 
 interface UiState {
@@ -9,6 +11,8 @@ interface UiState {
   discardOpen: boolean;
   mergeOpen: boolean;
   helpOpen: boolean;
+  preferencesOpen: boolean;
+  themeMode: ThemeMode;
   setBrowserOpen: (open: boolean) => void;
   setAddAgentOpen: (open: boolean) => void;
   setPathDialogOpen: (open: boolean) => void;
@@ -16,6 +20,8 @@ interface UiState {
   setDiscardOpen: (open: boolean) => void;
   setMergeOpen: (open: boolean) => void;
   setHelpOpen: (open: boolean) => void;
+  setPreferencesOpen: (open: boolean) => void;
+  setThemeMode: (mode: ThemeMode) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -26,6 +32,8 @@ export const useUiStore = create<UiState>((set) => ({
   discardOpen: false,
   mergeOpen: false,
   helpOpen: false,
+  preferencesOpen: false,
+  themeMode: getThemePreference(),
   setBrowserOpen: (browserOpen) => set({ browserOpen }),
   setAddAgentOpen: (open) => set({ addAgentOpen: open }),
   setPathDialogOpen: (open) => set({ pathDialogOpen: open }),
@@ -33,6 +41,11 @@ export const useUiStore = create<UiState>((set) => ({
   setDiscardOpen: (open) => set({ discardOpen: open }),
   setMergeOpen: (open) => set({ mergeOpen: open }),
   setHelpOpen: (open) => set({ helpOpen: open }),
+  setPreferencesOpen: (open) => set({ preferencesOpen: open }),
+  setThemeMode: (themeMode) => {
+    setThemePreference(themeMode);
+    set({ themeMode });
+  },
 }));
 
 export function selectedAgentWorktree(agent: Agent | undefined, fallback: string): string {
