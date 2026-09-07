@@ -15,12 +15,7 @@ export async function listAgentProviders(): Promise<AgentProvider[]> {
 
 export function launchAgent(request: LaunchAgentRequest): Promise<Agent> {
   return invokeCmd<Agent>(AGENT_COMMANDS.launch, {
-    name: request.name,
-    provider: request.provider,
-    cwd: request.cwd,
-    createWorktree: request.createWorktree,
-    cols: request.cols,
-    rows: request.rows,
+    request,
   });
 }
 

@@ -135,7 +135,8 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     setStartingIndex(0);
 
     if (failed > 0 && started === 0) {
-      setSetupError("None of the selected agents could start. Check the tool installation and try again.");
+      const lastError = useAgentStore.getState().launchError?.message;
+      setSetupError(lastError ?? "None of the selected agents could start. Check the tool installation and try again.");
       return;
     }
     onComplete();

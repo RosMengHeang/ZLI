@@ -4,13 +4,7 @@ import { PTY_COMMANDS } from "../types/commands";
 import { invokeCmd } from "./invoke";
 
 export function ptyCreate(request: CreatePtyRequest): Promise<TerminalSession> {
-  return invokeCmd<TerminalSession>(PTY_COMMANDS.create, {
-    cwd: request.cwd,
-    cols: request.cols,
-    rows: request.rows,
-    title: request.title,
-    argv: request.argv,
-  });
+  return invokeCmd<TerminalSession>(PTY_COMMANDS.create, { request });
 }
 
 export function ptyWrite(id: string, data: string): Promise<void> {
