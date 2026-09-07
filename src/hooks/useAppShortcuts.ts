@@ -11,6 +11,11 @@ export function useAppShortcuts(): void {
       if (event.isComposing || event.repeat) return;
       if (event.key === "Escape") {
         const ui = useUiStore.getState();
+        if (ui.preferencesOpen) {
+          ui.setPreferencesOpen(false);
+          event.preventDefault();
+          return;
+        }
         if (ui.helpOpen) {
           ui.setHelpOpen(false);
           event.preventDefault();

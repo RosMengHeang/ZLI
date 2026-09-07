@@ -14,7 +14,7 @@ export interface ChromeLayout {
 
 export const DEFAULT_CHROME_LAYOUT: ChromeLayout = {
   sidebar: 22,
-  browser: 32,
+  browser: 30,
   git: 34,
 };
 
@@ -75,17 +75,23 @@ function readJson<T>(key: string): T | null {
   }
 }
 
-export function getChromeLayout(): ChromeLayout {
+export function getChromeLayout(): Partial<ChromeLayout> {
   const stored = readJson<Partial<ChromeLayout>>(CHROME_LAYOUT_KEY);
   return {
-    sidebar: stored?.sidebar ?? DEFAULT_CHROME_LAYOUT.sidebar,
-    browser: stored?.browser ?? DEFAULT_CHROME_LAYOUT.browser,
-    git: stored?.git ?? DEFAULT_CHROME_LAYOUT.git,
+    sidebar: clampStoredPercentage(stored?.sidebar, 99),
+    browser: clampStoredPercentage(stored?.browser, 48),
+    git: clampStoredPercentage(stored?.git, 68),
   };
 }
 
-export function setChromeLayout(layout: ChromeLayout): void {
-  write(CHROME_LAYOUT_KEY, JSON.stringify(layout));
+export function setChromeLayout(layout: Partial<ChromeLayout>): void {
+  write(CHROME_LAYOUT_KEY, JSON.stringify({ ...getChromeLayout(), ...layout }));
+}
+
+function clampStoredPercentage(value: unknown, maximum: number): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.min(maximum, Math.max(1, value))
+    : undefined;
 }
 
 export function getPaneLayout(signature: string): number[] | null {

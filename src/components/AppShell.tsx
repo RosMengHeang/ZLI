@@ -14,7 +14,13 @@ import { Workspace } from "./Workspace";
 import { SetupWizard } from "./SetupWizard";
 import { useAppShortcuts } from "../hooks/useAppShortcuts";
 import { useTheme } from "../hooks/useTheme";
-import { getChromeLayout, setChromeLayout, setSetupDismissed, wasSetupDismissed } from "../lib/preferences";
+import { SHELL_LIMITS } from "../lib/chromePresentation";
+import {
+  getChromeLayout,
+  setChromeLayout,
+  setSetupDismissed,
+  wasSetupDismissed,
+} from "../lib/preferences";
 import { useAgentStore } from "../stores/agentStore";
 import { useGitStore } from "../stores/gitStore";
 import { useLayoutStore } from "../stores/layoutStore";
@@ -56,17 +62,6 @@ export function AppShell() {
     setSetupOpen(false);
   }
 
-  const defaultLayout: Record<string, number> = browserOpen
-    ? {
-        sidebar: chrome.sidebar,
-        center: Math.max(20, 100 - chrome.sidebar - chrome.browser),
-        browser: chrome.browser,
-      }
-    : {
-        sidebar: chrome.sidebar,
-        center: Math.max(20, 100 - chrome.sidebar),
-      };
-
   return (
     <div className="flex h-full min-h-0 flex-col bg-ink text-paper">
       <TopBar />
@@ -80,7 +75,7 @@ export function AppShell() {
           key={browserOpen ? "shell-browser" : "shell-main"}
           orientation="horizontal"
           className="h-full"
-          defaultLayout={defaultLayout}
+          resizeTargetMinimumSize={{ fine: 8, coarse: 20 }}
           onLayoutChanged={(layout, meta) => {
             if (!meta.isUserInteraction) return;
             const current = getChromeLayout();
@@ -91,7 +86,13 @@ export function AppShell() {
             });
           }}
         >
-          <Panel id="sidebar" defaultSize={String(chrome.sidebar)} minSize="16" maxSize="32">
+          <Panel
+            id="sidebar"
+            defaultSize={chrome.sidebar === undefined ? SHELL_LIMITS.sidebar.default : `${chrome.sidebar}%`}
+            minSize={SHELL_LIMITS.sidebar.min}
+            maxSize={SHELL_LIMITS.sidebar.max}
+            groupResizeBehavior="preserve-pixel-size"
+          >
             <Sidebar />
           </Panel>
           <Separator className="pane-handle pane-handle-h" />
@@ -100,7 +101,7 @@ export function AppShell() {
               <Group
                 orientation="vertical"
                 className="h-full"
-                defaultLayout={{ workspace: 100 - chrome.git, git: chrome.git }}
+                resizeTargetMinimumSize={{ fine: 8, coarse: 20 }}
                 onLayoutChanged={(layout, meta) => {
                   if (!meta.isUserInteraction) return;
                   const current = getChromeLayout();
@@ -110,11 +111,16 @@ export function AppShell() {
                   });
                 }}
               >
-                <Panel id="workspace" defaultSize={String(100 - chrome.git)} minSize="28">
+                <Panel id="workspace" minSize="28%">
                   <Workspace />
                 </Panel>
                 <Separator className="pane-handle pane-handle-v" />
-                <Panel id="git" defaultSize={String(chrome.git)} minSize="18">
+                <Panel
+                  id="git"
+                  defaultSize={chrome.git === undefined ? SHELL_LIMITS.git.default : `${chrome.git}%`}
+                  minSize={SHELL_LIMITS.git.min}
+                  maxSize={SHELL_LIMITS.git.max}
+                >
                   <div className="h-full px-3 pb-3">
                     <div className="workspace-tile h-full">
                       <GitReviewPanel />
@@ -129,7 +135,12 @@ export function AppShell() {
           {browserOpen ? (
             <>
               <Separator className="pane-handle pane-handle-h" />
-              <Panel id="browser" defaultSize={String(chrome.browser)} minSize="22" maxSize="48">
+              <Panel
+                id="browser"
+                defaultSize={chrome.browser === undefined ? SHELL_LIMITS.browser.default : `${chrome.browser}%`}
+                minSize={SHELL_LIMITS.browser.min}
+                maxSize={SHELL_LIMITS.browser.max}
+              >
                 <div className="h-full py-3 pr-3">
                   <div className="workspace-tile h-full">
                     <Suspense
