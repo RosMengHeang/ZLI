@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { canonicalProviderId } from "../lib/providerPresentation";
 
 /** Simple Icons (CC0) and official public brand marks, rendered at a consistent size. */
 const ANTHROPIC =
@@ -12,25 +13,6 @@ const GEMINI =
 
 const CURSOR =
   "M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23";
-
-export function canonicalProviderId(id: string): string {
-  if (id === "claude") return "claude-code";
-  if (id === "cursor") return "cursor-agent";
-  return id;
-}
-
-export const PROVIDER_ACCENTS: Record<string, string> = {
-  "claude-code": "#d4a37a",
-  claude: "#d4a37a",
-  codex: "#9ad7c2",
-  "cursor-agent": "#e8e8e8",
-  cursor: "#e8e8e8",
-  opencode: "#f0eeea",
-  gemini: "#9b87c4",
-  aider: "#fb923c",
-  goose: "#3ecc5f",
-  shell: "#6fbf4b",
-};
 
 interface Tile {
   bg: string;
@@ -55,7 +37,7 @@ const FALLBACK_TILE: Tile = { bg: "#21262d", fg: "#93c5fd", label: "Provider" };
 
 type IconSize = "sm" | "md" | "lg";
 
-const SIZE_PX: Record<IconSize, number> = { sm: 18, md: 22, lg: 28 };
+const SIZE_PX: Record<IconSize, number> = { sm: 24, md: 24, lg: 24 };
 
 interface ProviderIconProps {
   provider: string;
@@ -162,11 +144,6 @@ function markFor(id: string) {
     default:
       return <FallbackMark />;
   }
-}
-
-export function providerAccent(id: string | undefined): string {
-  if (!id) return PROVIDER_ACCENTS.shell;
-  return PROVIDER_ACCENTS[canonicalProviderId(id)] ?? "#2563eb";
 }
 
 export function ProviderIcon({ provider, size = "md", className = "" }: ProviderIconProps) {

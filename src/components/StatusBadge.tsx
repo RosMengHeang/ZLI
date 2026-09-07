@@ -1,33 +1,46 @@
 import type { AgentStatus, SessionStatus } from "../types";
+import {
+  statusPresentation,
+  type PresentedStatus,
+  type StatusTone,
+} from "../lib/statusPresentation";
 
-const STYLES: Record<string, string> = {
-  starting: "text-warn",
-  running: "text-ok",
-  exited: "text-mute",
-  killed: "text-mute",
-  failed: "text-danger",
-  error: "text-danger",
+const TONE_STYLES: Record<StatusTone, string> = {
+  success: "text-ok",
+  warning: "text-warn",
+  danger: "text-danger",
+  neutral: "text-mute",
 };
 
-const LABELS: Record<string, string> = {
-  starting: "Starting",
-  running: "Running",
-  exited: "Exited",
-  killed: "Stopped",
-  failed: "Failed",
-  error: "Error",
-};
+function presentedStatus(status: AgentStatus | SessionStatus): PresentedStatus {
+  switch (status) {
+    case "running":
+    case "starting":
+    case "failed":
+      return status;
+    case "error":
+      return "failed";
+    case "exited":
+    case "killed":
+      return "stopped";
+  }
+}
 
 export function StatusBadge({ status }: { status: AgentStatus | SessionStatus }) {
+  const presentation = statusPresentation(presentedStatus(status));
+
   return (
-    <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${STYLES[status] ?? "text-mute"}`}>
-      <span className="relative inline-flex h-1.5 w-1.5">
-        {status === "running" || status === "starting" ? (
-          <span className="absolute inset-0 animate-ping rounded-full bg-current opacity-40" />
-        ) : null}
-        <span className="relative inline-block h-1.5 w-1.5 rounded-full bg-current" />
-      </span>
-      {LABELS[status] ?? status}
+    <span
+      className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${TONE_STYLES[presentation.tone]}`}
+      aria-label={`Status: ${presentation.label}`}
+    >
+      <span
+        className="status-dot"
+        data-tone={presentation.tone}
+        data-animated={presentation.animated}
+        aria-hidden="true"
+      />
+      {presentation.label}
     </span>
   );
 }

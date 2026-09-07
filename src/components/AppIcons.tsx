@@ -25,7 +25,7 @@ function Svg({
 
 const stroke = {
   stroke: "currentColor",
-  strokeWidth: 1.4,
+  strokeWidth: 1.5,
   strokeLinecap: "round" as const,
   strokeLinejoin: "round" as const,
 };
@@ -285,6 +285,34 @@ export function IconChevronDown(props: IconProps) {
   return (
     <Svg {...props}>
       <path d="M4 6.2 8 10.2 12 6.2" {...stroke} />
+    </Svg>
+  );
+}
+
+export function IconArrowRight(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.2 8h9.6M9 4.2 12.8 8 9 11.8" {...stroke} />
+    </Svg>
+  );
+}
+
+export function IconMore(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="4" cy="8" r="0.9" fill="currentColor" />
+      <circle cx="8" cy="8" r="0.9" fill="currentColor" />
+      <circle cx="12" cy="8" r="0.9" fill="currentColor" />
+    </Svg>
+  );
+}
+
+export function IconRestart(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12.6 8A4.6 4.6 0 1 1 11.2 4.2" {...stroke} />
+      <path d="M11.1 2.4v2.6h2.6" {...stroke} />
+      <path d="M8 5.7v4.6" {...stroke} />
     </Svg>
   );
 }
