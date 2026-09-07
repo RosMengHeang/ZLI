@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { isCommandMissing, toAppError } from "../lib/errors";
 import { newId } from "../lib/ids";
+import { sessionFromAgent } from "../lib/terminalSessions";
 import { launchAgent, listAgentProviders, stopAgent } from "../tauri/agents";
 import { gitCreateWorktree } from "../tauri/git";
 import type { Agent, AgentProvider, AgentProviderId, AppError, LaunchAgentRequest } from "../types";
@@ -142,6 +143,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     try {
       try {
         const agent = await launchAgent(request);
+        useTerminalStore.getState().registerSession(sessionFromAgent(agent, 80, 24));
         set((state) => ({
           agents: { ...state.agents, [agent.id]: agent },
           selectedAgentId: agent.id,

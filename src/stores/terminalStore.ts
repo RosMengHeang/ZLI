@@ -8,6 +8,7 @@ import type { CreatePtyRequest, TerminalSession } from "../types";
 interface TerminalState {
   sessions: Record<string, TerminalSession>;
   upsert: (session: TerminalSession) => void;
+  registerSession: (session: TerminalSession) => void;
   markExited: (id: string, exitCode: number | null) => void;
   markError: (id: string, message: string) => void;
   createSession: (request: CreatePtyRequest) => Promise<TerminalSession>;
@@ -34,6 +35,13 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     set((state) => ({
       sessions: { ...state.sessions, [session.id]: { ...state.sessions[session.id], ...session } },
     })),
+
+  registerSession: (session) => {
+    set((state) => ({
+      sessions: { ...state.sessions, [session.id]: { ...state.sessions[session.id], ...session } },
+    }));
+    bindInput(session.id);
+  },
 
   markExited: (id, exitCode) =>
     set((state) => {

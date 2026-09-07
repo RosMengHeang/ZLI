@@ -2,11 +2,13 @@ import { create } from "zustand";
 import type { Agent } from "../types";
 
 interface UiState {
+  workspaceView: "agents" | "browser";
   addAgentOpen: boolean;
   pathDialogOpen: boolean;
   commitOpen: boolean;
   discardOpen: boolean;
   mergeOpen: boolean;
+  setWorkspaceView: (view: "agents" | "browser") => void;
   setAddAgentOpen: (open: boolean) => void;
   setPathDialogOpen: (open: boolean) => void;
   setCommitOpen: (open: boolean) => void;
@@ -15,11 +17,13 @@ interface UiState {
 }
 
 export const useUiStore = create<UiState>((set) => ({
+  workspaceView: "agents",
   addAgentOpen: false,
   pathDialogOpen: false,
   commitOpen: false,
   discardOpen: false,
   mergeOpen: false,
+  setWorkspaceView: (workspaceView) => set({ workspaceView }),
   setAddAgentOpen: (open) => set({ addAgentOpen: open }),
   setPathDialogOpen: (open) => set({ pathDialogOpen: open }),
   setCommitOpen: (open) => set({ commitOpen: open }),

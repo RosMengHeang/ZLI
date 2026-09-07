@@ -1,4 +1,5 @@
 import { useLayoutStore } from "../stores/layoutStore";
+import { useAgentStore } from "../stores/agentStore";
 import { useProjectStore } from "../stores/projectStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useUiStore } from "../stores/uiStore";
@@ -14,6 +15,9 @@ export function TopBar() {
   const toggleGitPanel = useLayoutStore((s) => s.toggleGitPanel);
   const addLeaf = useLayoutStore((s) => s.addLeaf);
   const createSession = useTerminalStore((s) => s.createSession);
+  const workspaceView = useUiStore((s) => s.workspaceView);
+  const setWorkspaceView = useUiStore((s) => s.setWorkspaceView);
+  const agentCount = useAgentStore((s) => Object.keys(s.agents).length);
 
   async function onOpenProject() {
     const result = await openFromDialog();
@@ -48,6 +52,20 @@ export function TopBar() {
       ) : (
         <div className="flex-1 text-[11px] text-[#8b8b8b]">No project open</div>
       )}
+      <div className="flex items-center border border-[#45474b] bg-[#252526] p-0.5" role="tablist" aria-label="Workspace views">
+        {(["agents", "browser"] as const).map((view) => (
+          <button
+            key={view}
+            type="button"
+            role="tab"
+            aria-selected={workspaceView === view}
+            className={`h-5 px-2 text-[10px] ${workspaceView === view ? "bg-[#0e639c] text-white" : "text-[#9b9da1] hover:bg-[#3e3e42] hover:text-white"}`}
+            onClick={() => setWorkspaceView(view)}
+          >
+            {view === "agents" ? `Agents${agentCount ? ` · ${agentCount}` : ""}` : "Browser"}
+          </button>
+        ))}
+      </div>
       <button
         type="button"
         className="h-6 px-2 text-[11px] text-[#cccccc] hover:bg-[#3e3e42]"

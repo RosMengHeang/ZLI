@@ -9,6 +9,8 @@ export interface TerminalEntry {
 }
 
 const entries = new Map<string, TerminalEntry>();
+const pendingOutput = new Map<string, Array<string | Uint8Array>>();
+const MAX_PENDING_CHUNKS = 128;
 let holding: HTMLDivElement | null = null;
 
 const XTERM_THEME = {
@@ -95,6 +97,11 @@ export const terminalRegistry = {
     const dataDisposable = handlers?.onData ? terminal.onData(handlers.onData) : null;
     const entry: TerminalEntry = { terminal, fit, host, dataDisposable };
     entries.set(id, entry);
+    const buffered = pendingOutput.get(id);
+    if (buffered) {
+      for (const data of buffered) terminal.write(data);
+      pendingOutput.delete(id);
+    }
     return entry;
   },
 
@@ -126,7 +133,13 @@ export const terminalRegistry = {
 
   write(id: string, data: string | Uint8Array): void {
     const entry = entries.get(id);
-    if (!entry) return;
+    if (!entry) {
+      const buffered = pendingOutput.get(id) ?? [];
+      buffered.push(data);
+      if (buffered.length > MAX_PENDING_CHUNKS) buffered.shift();
+      pendingOutput.set(id, buffered);
+      return;
+    }
     entry.terminal.write(data);
   },
 
@@ -141,5 +154,6 @@ export const terminalRegistry = {
     entry.terminal.dispose();
     entry.host.remove();
     entries.delete(id);
+    pendingOutput.delete(id);
   },
 };
