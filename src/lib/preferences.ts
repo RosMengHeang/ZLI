@@ -1,4 +1,5 @@
 import { normalizeThemeMode, type ThemeMode } from "./theme";
+import { SHELL_LIMITS } from "./chromePresentation";
 
 const LAST_PROJECT_KEY = "taxzy:last-project-path";
 const SETUP_DISMISSED_KEY = "taxzy:setup-dismissed";
@@ -12,11 +13,11 @@ export interface ChromeLayout {
   git: number;
 }
 
-export const DEFAULT_CHROME_LAYOUT: ChromeLayout = {
-  sidebar: 22,
-  browser: 30,
-  git: 34,
-};
+export const DEFAULT_CHROME_LAYOUT = {
+  sidebar: SHELL_LIMITS.sidebar.default,
+  browser: SHELL_LIMITS.browser.default,
+  git: SHELL_LIMITS.git.default,
+} as const;
 
 interface PaneLayoutSnapshot {
   signature: string;

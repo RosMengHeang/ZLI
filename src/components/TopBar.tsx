@@ -8,8 +8,10 @@ import {
   IconPlus,
   IconTerminal,
 } from "./AppIcons";
-import { toolbarDensityForWidth } from "../lib/chromePresentation";
+import { aggregateRunningStatus, toolbarDensityForWidth } from "../lib/chromePresentation";
 import { APP_SHORTCUTS } from "../lib/platform";
+import { statusPresentation } from "../lib/statusPresentation";
+import { useAgentStore } from "../stores/agentStore";
 import { useLayoutStore } from "../stores/layoutStore";
 import { useProjectStore } from "../stores/projectStore";
 import { useTerminalStore } from "../stores/terminalStore";
@@ -26,6 +28,9 @@ export function TopBar() {
   const paneTree = useLayoutStore((s) => s.paneTree);
   const addLeaf = useLayoutStore((s) => s.addLeaf);
   const createSession = useTerminalStore((s) => s.createSession);
+  const runningCount = useAgentStore(
+    (s) => Object.values(s.agents).filter((agent) => agent.status === "running").length,
+  );
   const [density, setDensity] = useState(() => toolbarDensityForWidth(window.innerWidth));
 
   useEffect(() => {
@@ -49,6 +54,8 @@ export function TopBar() {
   }
 
   const actionLabelClass = density === "compact" ? "hidden" : "inline";
+  const aggregateStatus = aggregateRunningStatus(runningCount);
+  const aggregatePresentation = statusPresentation(aggregateStatus.presentedStatus);
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-line bg-chrome px-3">
@@ -151,6 +158,20 @@ export function TopBar() {
           <IconGit />
           <span className={actionLabelClass}>Changes</span>
         </button>
+        <div
+          className="ml-1 flex shrink-0 items-center gap-1.5 pl-1 text-[11px] text-mute"
+          role="status"
+          aria-live="polite"
+          aria-label={`Agent status: ${aggregateStatus.label}`}
+        >
+          <span
+            className="status-dot"
+            data-tone={aggregatePresentation.tone}
+            data-animated={aggregatePresentation.animated}
+            aria-hidden="true"
+          />
+          <span>{aggregateStatus.label}</span>
+        </div>
       </div>
     </header>
   );

@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import {
   IconAgents,
   IconFolder,
@@ -13,6 +13,13 @@ import {
 import { ProviderIcon } from "./ProviderIcon";
 import { StatusBadge } from "./StatusBadge";
 import { displayPath } from "../lib/format";
+import {
+  currentSidebarDestination,
+  navigationTargetForDestination,
+  sidebarNavigationItems,
+  type BaseDestination,
+  type PrimaryDestination,
+} from "../lib/chromePresentation";
 import { APP_SHORTCUTS } from "../lib/platform";
 import { useAgentStore } from "../stores/agentStore";
 import { useGitStore } from "../stores/gitStore";
@@ -39,21 +46,21 @@ export function Sidebar() {
   const toggleGitPanel = useLayoutStore((s) => s.toggleGitPanel);
   const statusByPath = useGitStore((s) => s.statusByPath);
   const changedCount = project ? (statusByPath[project.path]?.changedFiles.length ?? 0) : 0;
-  const currentPage = gitPanelOpen ? "changes" : browserOpen ? "browser" : "workspace";
+  const [baseDestination, setBaseDestination] = useState<BaseDestination>("workspace");
+  const currentPage = currentSidebarDestination(baseDestination, browserOpen, gitPanelOpen);
+  const navigationItems = sidebarNavigationItems(currentPage);
 
-  function showWorkspace() {
-    toggleGitPanel(false);
-    setBrowserOpen(false);
-  }
-
-  function showBrowser() {
-    toggleGitPanel(false);
-    setBrowserOpen(true);
-  }
-
-  function showChanges() {
-    setBrowserOpen(false);
-    toggleGitPanel(true);
+  function navigateTo(destination: PrimaryDestination, requestedAgentId?: string) {
+    const target = navigationTargetForDestination(
+      destination,
+      agents.map((agent) => agent.id),
+      requestedAgentId ?? selectedAgentId,
+      baseDestination,
+    );
+    setBaseDestination(target.baseDestination);
+    setBrowserOpen(target.browserOpen);
+    toggleGitPanel(target.gitPanelOpen);
+    if (destination === "agents" && target.selectedAgentId) selectAgent(target.selectedAgentId);
   }
 
   function onListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -63,7 +70,7 @@ export function Sidebar() {
     const current = selectedAgentId ? agents.findIndex((agent) => agent.id === selectedAgentId) : -1;
     const delta = event.key === "ArrowDown" ? 1 : -1;
     const next = Math.min(agents.length - 1, Math.max(0, (current < 0 ? 0 : current) + delta));
-    selectAgent(agents[next].id);
+    navigateTo("agents", agents[next].id);
   }
 
   async function onOpenProject() {
@@ -81,44 +88,40 @@ export function Sidebar() {
       </div>
 
       <nav className="flex flex-col gap-0.5 px-2" aria-label="Workspace navigation">
-        <button
-          type="button"
-          className="nav-item"
-          data-active={currentPage === "workspace"}
-          aria-current={currentPage === "workspace" ? "page" : undefined}
-          onClick={showWorkspace}
-        >
-          <IconHome />
-          Workspace
-        </button>
-        <button
-          type="button"
-          className="nav-item"
-          data-active={currentPage === "browser"}
-          aria-current={currentPage === "browser" ? "page" : undefined}
-          onClick={showBrowser}
-          title={`Browser (${APP_SHORTCUTS.toggleBrowser})`}
-        >
-          <IconGlobe />
-          Browser
-        </button>
-        <button
-          type="button"
-          className="nav-item"
-          data-active={currentPage === "changes"}
-          aria-current={currentPage === "changes" ? "page" : undefined}
-          onClick={showChanges}
-          disabled={!project}
-          title={`Git review (${APP_SHORTCUTS.toggleGit})`}
-        >
-          <IconGit />
-          <span className="flex-1">Changes</span>
-          {changedCount > 0 ? (
-            <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-white">
-              {changedCount}
-            </span>
-          ) : null}
-        </button>
+        {navigationItems.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className="nav-item"
+            data-active={item.current}
+            aria-current={item.current ? "page" : undefined}
+            onClick={() => navigateTo(item.id)}
+            disabled={item.id === "changes" && !project}
+            title={
+              item.id === "browser"
+                ? `Browser (${APP_SHORTCUTS.toggleBrowser})`
+                : item.id === "changes"
+                  ? `Git review (${APP_SHORTCUTS.toggleGit})`
+                  : undefined
+            }
+          >
+            {item.id === "workspace" ? (
+              <IconHome />
+            ) : item.id === "agents" ? (
+              <IconAgents />
+            ) : item.id === "changes" ? (
+              <IconGit />
+            ) : (
+              <IconGlobe />
+            )}
+            <span className="flex-1">{item.label}</span>
+            {item.id === "changes" && changedCount > 0 ? (
+              <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                {changedCount}
+              </span>
+            ) : null}
+          </button>
+        ))}
       </nav>
 
       <section className="mt-4 border-t border-line px-2 pt-3" aria-labelledby="project-region-title">
@@ -196,7 +199,7 @@ export function Sidebar() {
                   <button
                     key={agent.id}
                     type="button"
-                    onClick={() => selectAgent(agent.id)}
+                    onClick={() => navigateTo("agents", agent.id)}
                     role="option"
                     aria-selected={active}
                     className={`w-full rounded-xl px-2 py-2 text-left transition-colors ${

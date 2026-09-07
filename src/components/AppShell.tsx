@@ -14,7 +14,7 @@ import { Workspace } from "./Workspace";
 import { SetupWizard } from "./SetupWizard";
 import { useAppShortcuts } from "../hooks/useAppShortcuts";
 import { useTheme } from "../hooks/useTheme";
-import { SHELL_LIMITS } from "../lib/chromePresentation";
+import { defaultShellSize, SHELL_LIMITS } from "../lib/chromePresentation";
 import {
   getChromeLayout,
   setChromeLayout,
@@ -88,7 +88,7 @@ export function AppShell() {
         >
           <Panel
             id="sidebar"
-            defaultSize={chrome.sidebar === undefined ? SHELL_LIMITS.sidebar.default : `${chrome.sidebar}%`}
+            defaultSize={defaultShellSize("sidebar", chrome.sidebar)}
             minSize={SHELL_LIMITS.sidebar.min}
             maxSize={SHELL_LIMITS.sidebar.max}
             groupResizeBehavior="preserve-pixel-size"
@@ -117,7 +117,7 @@ export function AppShell() {
                 <Separator className="pane-handle pane-handle-v" />
                 <Panel
                   id="git"
-                  defaultSize={chrome.git === undefined ? SHELL_LIMITS.git.default : `${chrome.git}%`}
+                  defaultSize={defaultShellSize("git", chrome.git)}
                   minSize={SHELL_LIMITS.git.min}
                   maxSize={SHELL_LIMITS.git.max}
                 >
@@ -137,7 +137,7 @@ export function AppShell() {
               <Separator className="pane-handle pane-handle-h" />
               <Panel
                 id="browser"
-                defaultSize={chrome.browser === undefined ? SHELL_LIMITS.browser.default : `${chrome.browser}%`}
+                defaultSize={defaultShellSize("browser", chrome.browser)}
                 minSize={SHELL_LIMITS.browser.min}
                 maxSize={SHELL_LIMITS.browser.max}
               >
