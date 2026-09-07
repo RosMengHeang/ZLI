@@ -1,0 +1,84 @@
+@import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
+
+@theme {
+  --font-sans: "Segoe UI", "Segoe UI Variable", system-ui, sans-serif;
+  --font-mono: "Cascadia Code", "Cascadia Mono", Consolas, "Courier New", ui-monospace, monospace;
+}
+
+:root {
+  color-scheme: dark;
+  --bg: #1e1e1e;
+  --bg-sidebar: #252526;
+  --bg-bar: #2d2d2d;
+  --bg-hover: #2a2d2e;
+  --bg-active: #37373d;
+  --bg-input: #3c3c3c;
+  --border: #3e3e42;
+  --text: #cccccc;
+  --text-muted: #8b8b8b;
+  --accent: #0e639c;
+  --accent-hover: #1177bb;
+  --danger: #f14c4c;
+  --warn: #cca700;
+  --ok: #89d185;
+  --add: #3fb950;
+  --del: #f85149;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  overflow: hidden;
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.xterm-host {
+  width: 100%;
+  height: 100%;
+}
+
+.xterm {
+  height: 100%;
+  padding: 4px 0 0 8px;
+}
+
+.xterm-viewport {
+  overflow-y: auto !important;
+}
+
+.pane-handle {
+  background: var(--border);
+  transition: background 80ms linear;
+}
+
+.pane-handle:hover {
+  background: var(--accent);
+}
+
+.pane-handle-h {
+  width: 4px;
+  cursor: col-resize;
+}
+
+.pane-handle-v {
+  height: 4px;
+  cursor: row-resize;
+}

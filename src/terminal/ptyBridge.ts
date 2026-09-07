@@ -1,0 +1,102 @@
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { toAppError } from "../lib/errors";
+import type { PtyErrorPayload, PtyExitPayload, SessionStatus } from "../types";
+import { PTY_EVENTS } from "../types/commands";
+import { useTerminalStore } from "../stores/terminalStore";
+import { terminalRegistry } from "./registry";
+
+let started = false;
+const unlistens: UnlistenFn[] = [];
+
+function payloadRecord(payload: unknown): Record<string, unknown> | null {
+  return payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
+}
+
+function payloadId(payload: unknown): string | null {
+  const rec = payloadRecord(payload);
+  if (!rec) return null;
+  const id = rec.id ?? rec.terminalId ?? rec.sessionId;
+  return typeof id === "string" ? id : null;
+}
+
+function toBytesOrString(data: unknown): string | Uint8Array | null {
+  if (typeof data === "string") return data;
+  if (Array.isArray(data) && data.every((n) => typeof n === "number")) {
+    return Uint8Array.from(data);
+  }
+  return null;
+}
+
+function handleOutput(payload: unknown): void {
+  const id = payloadId(payload);
+  const rec = payloadRecord(payload);
+  const raw = rec?.data ?? rec?.chunk ?? rec?.output;
+  if (!id) return;
+  const data = toBytesOrString(raw);
+  if (data === null) return;
+  terminalRegistry.write(id, data);
+}
+
+function handleStatus(payload: unknown): void {
+  const rec = payloadRecord(payload);
+  const id = payloadId(payload);
+  if (!id || !rec) return;
+  const status = rec.status;
+  if (status === "exited" || status === "killed") {
+    useTerminalStore.getState().markExited(id, null);
+    return;
+  }
+  if (status === "failed") {
+    useTerminalStore.getState().markError(id, "PTY session failed.");
+    return;
+  }
+  if (status === "running") {
+    const current = useTerminalStore.getState().sessions[id];
+    if (current) {
+      useTerminalStore.getState().upsert({ ...current, status: "running" as SessionStatus });
+    }
+  }
+}
+
+function handleExit(payload: unknown): void {
+  const rec = payloadRecord(payload) as PtyExitPayload | null;
+  const id = payloadId(payload);
+  if (!id) return;
+  const exitCode = typeof rec?.exitCode === "number" ? rec.exitCode : null;
+  useTerminalStore.getState().markExited(id, exitCode);
+}
+
+function handleError(payload: unknown): void {
+  const rec = payloadRecord(payload) as PtyErrorPayload | null;
+  const id = payloadId(payload);
+  if (!id) return;
+  const message = typeof rec?.message === "string" ? rec.message : "PTY error";
+  useTerminalStore.getState().markError(id, message);
+}
+
+export async function startPtyBridge(): Promise<void> {
+  if (started) return;
+  started = true;
+  try {
+    const outputEvents = [PTY_EVENTS.output, "terminal-output"];
+    const statusEvents = [PTY_EVENTS.status, "terminal-status"];
+    for (const name of outputEvents) {
+      unlistens.push(await listen(name, (event) => handleOutput(event.payload)));
+    }
+    for (const name of statusEvents) {
+      unlistens.push(await listen(name, (event) => handleStatus(event.payload)));
+    }
+    unlistens.push(await listen(PTY_EVENTS.exit, (event) => handleExit(event.payload)));
+    unlistens.push(await listen(PTY_EVENTS.error, (event) => handleError(event.payload)));
+  } catch (err) {
+    started = false;
+    const parsed = toAppError(err);
+    console.warn("PTY event bridge not available:", parsed.message);
+  }
+}
+
+export async function stopPtyBridge(): Promise<void> {
+  await Promise.all(unlistens.map((fn) => fn()));
+  unlistens.length = 0;
+  started = false;
+}

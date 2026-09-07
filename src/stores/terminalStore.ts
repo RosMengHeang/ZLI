@@ -1,0 +1,145 @@
+import { create } from "zustand";
+import { isCommandMissing, toAppError } from "../lib/errors";
+import { newId } from "../lib/ids";
+import { ptyClose, ptyCreate, ptyResize, ptyWrite } from "../tauri/terminal";
+import { terminalRegistry } from "../terminal/registry";
+import type { CreatePtyRequest, TerminalSession } from "../types";
+
+interface TerminalState {
+  sessions: Record<string, TerminalSession>;
+  upsert: (session: TerminalSession) => void;
+  markExited: (id: string, exitCode: number | null) => void;
+  markError: (id: string, message: string) => void;
+  createSession: (request: CreatePtyRequest) => Promise<TerminalSession>;
+  closeSession: (id: string) => Promise<void>;
+  resizeSession: (id: string, cols: number, rows: number) => Promise<void>;
+}
+
+function bindInput(id: string): void {
+  terminalRegistry.ensure(id, {
+    onData: (data) => {
+      const session = useTerminalStore.getState().sessions[id];
+      if (!session || session.status === "exited" || session.status === "killed" || session.status === "error" || session.status === "failed") return;
+      void ptyWrite(id, data).catch((err) => {
+        useTerminalStore.getState().markError(id, toAppError(err).message);
+      });
+    },
+  });
+}
+
+export const useTerminalStore = create<TerminalState>((set, get) => ({
+  sessions: {},
+
+  upsert: (session) =>
+    set((state) => ({
+      sessions: { ...state.sessions, [session.id]: { ...state.sessions[session.id], ...session } },
+    })),
+
+  markExited: (id, exitCode) =>
+    set((state) => {
+      const current = state.sessions[id];
+      if (!current) return state;
+      return {
+        sessions: {
+          ...state.sessions,
+          [id]: { ...current, status: "exited", exitCode, error: null },
+        },
+      };
+    }),
+
+  markError: (id, message) =>
+    set((state) => {
+      const current = state.sessions[id];
+      if (!current) return state;
+      return {
+        sessions: {
+          ...state.sessions,
+          [id]: { ...current, status: "error", error: message },
+        },
+      };
+    }),
+
+  createSession: async (request) => {
+    const placeholderId = newId();
+    const starting: TerminalSession = {
+      id: placeholderId,
+      cwd: request.cwd,
+      status: "starting",
+      title: request.title,
+      cols: request.cols,
+      rows: request.rows,
+    };
+    set((state) => ({ sessions: { ...state.sessions, [placeholderId]: starting } }));
+
+    try {
+      const created = await ptyCreate(request);
+      const session: TerminalSession = {
+        ...starting,
+        ...created,
+        id: created.id || placeholderId,
+        cwd: created.cwd || request.cwd,
+        status: created.status ?? "running",
+        title: created.title ?? request.title,
+      };
+      set((state) => {
+        const next = { ...state.sessions };
+        if (session.id !== placeholderId) delete next[placeholderId];
+        next[session.id] = session;
+        return { sessions: next };
+      });
+      bindInput(session.id);
+      return session;
+    } catch (err) {
+      const parsed = toAppError(err);
+      const failed: TerminalSession = {
+        ...starting,
+        status: "error",
+        error: isCommandMissing(parsed)
+          ? "PTY backend is not available yet (pty_create)."
+          : parsed.message,
+      };
+      set((state) => ({ sessions: { ...state.sessions, [placeholderId]: failed } }));
+      return failed;
+    }
+  },
+
+  closeSession: async (id) => {
+    const session = get().sessions[id];
+    try {
+      if (session && session.status !== "error" && session.status !== "failed") {
+        await ptyClose(id);
+      }
+    } catch (err) {
+      const parsed = toAppError(err);
+      if (!isCommandMissing(parsed)) {
+        get().markError(id, parsed.message);
+      }
+    } finally {
+      terminalRegistry.dispose(id);
+      set((state) => {
+        const next = { ...state.sessions };
+        delete next[id];
+        return { sessions: next };
+      });
+    }
+  },
+
+  resizeSession: async (id, cols, rows) => {
+    const session = get().sessions[id];
+    if (!session || session.status !== "running") return;
+    set((state) => ({
+      sessions: {
+        ...state.sessions,
+        [id]: { ...session, cols, rows },
+      },
+    }));
+    try {
+      await ptyResize(id, cols, rows);
+    } catch (err) {
+      const parsed = toAppError(err);
+      if (!isCommandMissing(parsed)) {
+        get().markError(id, parsed.message);
+      }
+    }
+  },
+}));
