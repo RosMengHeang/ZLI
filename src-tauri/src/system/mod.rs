@@ -1,4 +1,5 @@
 use crate::error::BackendError;
+use std::collections::HashSet;
 use std::env;
 #[cfg(windows)]
 use std::ffi::OsString;
@@ -15,6 +16,10 @@ pub fn shell_candidates(is_windows: bool) -> Vec<&'static str> {
 pub fn find_executable(candidates: &[&str]) -> Option<PathBuf> {
     let path_var = env::var_os("PATH")?;
     let path_entries: Vec<PathBuf> = env::split_paths(&path_var).collect();
+    let mut checked = HashSet::new();
+
+    #[cfg(windows)]
+    let extensions = pathext_values();
 
     for candidate in candidates {
         let candidate_path = Path::new(candidate);
@@ -26,12 +31,18 @@ pub fn find_executable(candidates: &[&str]) -> Option<PathBuf> {
         }
 
         for directory in &path_entries {
-            let direct = directory.join(candidate);
             #[cfg(windows)]
             if Path::new(candidate).extension().is_none() {
-                if let Some(path) = find_with_pathext(directory, candidate) {
+                if let Some(path) = find_with_pathext(directory, candidate, &extensions, &mut checked)
+                {
                     return Some(path);
                 }
+                continue;
+            }
+
+            let direct = directory.join(candidate);
+            if !checked.insert(direct.clone()) {
+                continue;
             }
 
             #[cfg(not(windows))]
@@ -40,7 +51,7 @@ pub fn find_executable(candidates: &[&str]) -> Option<PathBuf> {
             }
 
             #[cfg(windows)]
-            if Path::new(candidate).extension().is_some() && is_executable_file(&direct) {
+            if is_executable_file(&direct) {
                 return Some(direct);
             }
         }
@@ -49,12 +60,13 @@ pub fn find_executable(candidates: &[&str]) -> Option<PathBuf> {
 }
 
 #[cfg(windows)]
-fn find_with_pathext(directory: &Path, candidate: &str) -> Option<PathBuf> {
+fn pathext_values() -> Vec<String> {
     let extensions =
         env::var_os("PATHEXT").unwrap_or_else(|| OsString::from(".COM;.EXE;.BAT;.CMD"));
     let mut extension_values: Vec<String> = extensions
         .to_string_lossy()
         .split(';')
+        .filter(|item| !item.is_empty())
         .map(str::to_owned)
         .collect();
     if !extension_values
@@ -63,8 +75,21 @@ fn find_with_pathext(directory: &Path, candidate: &str) -> Option<PathBuf> {
     {
         extension_values.push(".PS1".to_owned());
     }
-    for extension in extension_values {
+    extension_values
+}
+
+#[cfg(windows)]
+fn find_with_pathext(
+    directory: &Path,
+    candidate: &str,
+    extensions: &[String],
+    checked: &mut HashSet<PathBuf>,
+) -> Option<PathBuf> {
+    for extension in extensions {
         let path = directory.join(format!("{candidate}{extension}"));
+        if !checked.insert(path.clone()) {
+            continue;
+        }
         if is_executable_file(&path) {
             return Some(path);
         }

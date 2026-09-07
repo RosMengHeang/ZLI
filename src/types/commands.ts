@@ -24,7 +24,7 @@ export const PTY_COMMANDS = {
 
 export const AGENT_COMMANDS = {
   listProviders: "list_agent_providers",
-  detectProviders: "detect_providers",
+  detectProviders: "detect_agent_providers",
   launch: "launch_agent",
   stop: "stop_agent",
   list: "list_agents",

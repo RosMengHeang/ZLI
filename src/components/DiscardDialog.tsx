@@ -64,50 +64,50 @@ export function DiscardDialog() {
       danger
     >
       {!agent ? (
-        <p className="text-[12px]">Select an agent first.</p>
+        <p className="text-[13px]">Select an agent first.</p>
       ) : !isolated ? (
         <div className="flex flex-col gap-3">
-          <p className="text-[12px] leading-5">
+          <p className="text-[13px] leading-5">
             This agent is using the project working tree, not an isolated worktree. Discarding it
             here would risk destroying your own uncommitted work, so it is blocked.
           </p>
-          <p className="font-mono text-[11px] text-[#8b8b8b]">{agent.cwd}</p>
+          <p className="font-mono text-[12px] text-mute">{agent.cwd}</p>
           <div className="flex justify-end">
-            <button type="button" className="h-7 px-3 hover:bg-[#3e3e42]" onClick={() => setOpen(false)}>
+            <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
               Close
             </button>
           </div>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          <p className="text-[12px] leading-5">
+          <p className="text-[13px] leading-5">
             This removes the isolated worktree and may delete uncommitted files. It is not
             reversible from this app.
           </p>
-          <div className="border border-[#5a1d1d] bg-[#3a1515] px-2 py-2 font-mono text-[11px] leading-5">
+          <div className="banner banner-error font-mono text-[12px] leading-5">
             <div>Branch: {agent.branch}</div>
             <div>Worktree: {agent.worktreePath}</div>
             <div>{changed} changed files may be lost.</div>
           </div>
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] text-[#8b8b8b]">
-              Type <span className="font-mono text-white">{confirmWord}</span> to confirm
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[12px] text-mute">
+              Type <span className="font-mono text-paper">{confirmWord}</span> to confirm
             </span>
             <input
-              className="h-7 border border-[#5a1d1d] bg-[#3c3c3c] px-2 font-mono outline-none focus:border-[#f14c4c]"
+              className="field border-[#5a2430] font-mono"
               value={typed}
               onChange={(event) => setTyped(event.target.value)}
               autoFocus
             />
           </label>
-          {error ? <div className="text-[11px] text-[#f14c4c]">{error.message}</div> : null}
+          {error ? <div className="banner banner-error">{error.message}</div> : null}
           <div className="flex justify-end gap-2">
-            <button type="button" className="h-7 px-3 hover:bg-[#3e3e42]" onClick={() => setOpen(false)}>
+            <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
               Cancel
             </button>
             <button
               type="button"
-              className="h-7 bg-[#8b1e1e] px-3 text-white hover:bg-[#a32525] disabled:opacity-40"
+              className="btn btn-danger"
               disabled={busy || typed.trim().toLowerCase() !== confirmWord}
               onClick={() => void onDiscard()}
             >

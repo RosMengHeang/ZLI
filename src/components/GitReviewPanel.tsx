@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
+import { ProviderIcon } from "./ProviderIcon";
 import { DiffViewer } from "./DiffViewer";
 import { fileStatusLabel, formatPlusMinus } from "../lib/format";
 import { useAgentStore } from "../stores/agentStore";
@@ -26,37 +27,63 @@ export function GitReviewPanel() {
   const setCommitOpen = useUiStore((s) => s.setCommitOpen);
   const setDiscardOpen = useUiStore((s) => s.setDiscardOpen);
   const setMergeOpen = useUiStore((s) => s.setMergeOpen);
+  const [aborting, setAborting] = useState(false);
 
   useEffect(() => {
-    if (worktreePath) void refresh(worktreePath);
+    if (!worktreePath) return;
+    void refresh(worktreePath, { minIntervalMs: 1500 });
+    const id = window.setInterval(() => {
+      if (document.hidden) return;
+      void refresh(worktreePath, { quiet: true, minIntervalMs: 4000 });
+    }, 8000);
+    return () => window.clearInterval(id);
   }, [worktreePath, refresh]);
 
   if (!project) return null;
 
   const files = status?.changedFiles ?? [];
   const selectedDiff = selectedPath ? diffs[`${worktreePath}::${selectedPath}`] : undefined;
-  const title = agent
-    ? `${agent.name} — ${providerDisplayName(agent.provider)}`
-    : `${project.name} — working tree`;
+  const title = agent ? agent.name : project.name;
+  const subtitle = agent ? providerDisplayName(agent.provider) : "Working tree";
+
+  function onFileListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    if (files.length === 0) return;
+    event.preventDefault();
+    const current = selectedPath ? files.findIndex((file) => file.path === selectedPath) : -1;
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    const next = Math.min(files.length - 1, Math.max(0, (current < 0 ? 0 : current) + delta));
+    void loadDiff(worktreePath, files[next].path);
+  }
+
+  async function onAbortMerge() {
+    if (!project) return;
+    setAborting(true);
+    try {
+      await abortMerge(project.repositoryRoot);
+    } catch {
+      /* store error */
+    } finally {
+      setAborting(false);
+    }
+  }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#1e1e1e]">
-      <div className="flex h-7 shrink-0 items-center gap-2 border-b border-[#3e3e42] bg-[#2d2d2d] px-2">
-        <span className="truncate text-[11px] font-medium text-white">{title}</span>
-        <span className="text-[11px] text-[#8b8b8b]">
-          {status ? `${files.length} files` : "—"}
-        </span>
+    <div className="flex h-full min-h-0 flex-col bg-ink">
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line bg-chrome px-3">
+        {agent ? <ProviderIcon provider={agent.provider} size="sm" /> : null}
+        <span className="truncate text-[13px] font-medium text-paper">{title}</span>
+        <span className="truncate text-[11px] text-mute">{subtitle}</span>
+        <span className="text-[11px] text-mute">{status ? `${files.length} files` : "—"}</span>
         {status && !status.clean ? (
-          <span className="text-[11px] text-[#89d185]">
-            {formatPlusMinus(status.additions, status.deletions)}
-          </span>
+          <span className="font-mono text-[11px] text-ok">{formatPlusMinus(status.additions, status.deletions)}</span>
         ) : (
-          <span className="text-[11px] text-[#8b8b8b]">{status?.clean ? "clean" : ""}</span>
+          <span className="text-[11px] text-mute">{status?.clean ? "Clean" : ""}</span>
         )}
         <span className="ml-auto flex items-center gap-1">
           <button
             type="button"
-            className="h-5 px-1.5 text-[11px] text-[#cccccc] hover:bg-[#3e3e42]"
+            className="btn btn-ghost h-7"
             onClick={() => void refresh(worktreePath)}
             disabled={loading || !worktreePath}
           >
@@ -64,23 +91,18 @@ export function GitReviewPanel() {
           </button>
           <button
             type="button"
-            className="h-5 px-1.5 text-[11px] text-[#cccccc] hover:bg-[#3e3e42] disabled:opacity-40"
+            className="btn btn-primary h-7"
             onClick={() => setCommitOpen(true)}
             disabled={!status || status.clean}
           >
             Commit
           </button>
-          <button
-            type="button"
-            className="h-5 px-1.5 text-[11px] text-[#cccccc] hover:bg-[#3e3e42] disabled:opacity-40"
-            onClick={() => setMergeOpen(true)}
-            disabled={!agent}
-          >
+          <button type="button" className="btn btn-quiet h-7" onClick={() => setMergeOpen(true)} disabled={!agent}>
             Merge
           </button>
           <button
             type="button"
-            className="h-5 px-1.5 text-[11px] text-[#f14c4c] hover:bg-[#3e3e42] disabled:opacity-40"
+            className="btn btn-ghost h-7 text-danger hover:text-danger"
             onClick={() => setDiscardOpen(true)}
             disabled={!agent}
           >
@@ -90,44 +112,59 @@ export function GitReviewPanel() {
       </div>
 
       {error ? (
-        <div className="border-b border-[#5a1d1d] bg-[#3a1515] px-2 py-1 text-[11px] text-[#f14c4c]">
+        <div className="banner banner-error m-2" role="alert">
           {error.message}
-          {error.details ? <div className="mt-0.5 whitespace-pre-wrap text-[#d7a1a1]">{error.details}</div> : null}
+          {error.details ? <div className="mt-0.5 whitespace-pre-wrap opacity-80">{error.details}</div> : null}
+          <button
+            type="button"
+            className="btn btn-ghost mt-2 h-7"
+            onClick={() => void refresh(worktreePath)}
+            disabled={loading || !worktreePath}
+          >
+            Retry
+          </button>
         </div>
       ) : null}
 
       {mergeOutcome?.outcome === "conflict" ? (
-        <div className="border-b border-[#5a1d1d] bg-[#3a1515] px-2 py-1.5 text-[11px]">
-          <div className="font-medium text-[#f14c4c]">
+        <div className="banner banner-error m-2">
+          <div className="font-medium">
             Merge conflict: {mergeOutcome.sourceBranch} → {mergeOutcome.targetBranch}
           </div>
-          <ul className="mt-1 list-disc pl-4 text-[#d7a1a1]">
+          <ul className="mt-1 list-disc pl-4">
             {mergeOutcome.conflictedFiles.map((file) => (
               <li key={file}>{file}</li>
             ))}
           </ul>
           <button
             type="button"
-            className="mt-1 h-5 px-1.5 text-[11px] text-white hover:bg-[#5a1d1d]"
-            onClick={() => void abortMerge(project.repositoryRoot)}
+            className="btn btn-danger mt-2 h-7"
+            onClick={() => void onAbortMerge()}
+            disabled={aborting}
           >
-            Abort merge
+            {aborting ? "Aborting…" : "Abort merge"}
           </button>
         </div>
       ) : null}
 
       {mergeOutcome?.outcome === "success" ? (
-        <div className="border-b border-[#2d4a2d] bg-[#1b2e1b] px-2 py-1 text-[11px] text-[#89d185]">
+        <div className="banner banner-ok m-2">
           Merged {mergeOutcome.sourceBranch} into {mergeOutcome.targetBranch}
           {mergeOutcome.fastForward ? " (fast-forward)" : ""} · {mergeOutcome.commitHash.slice(0, 8)}
         </div>
       ) : null}
 
       <div className="flex min-h-0 flex-1">
-        <div className="w-[240px] shrink-0 overflow-auto border-r border-[#3e3e42]">
+        <div
+          className="w-[260px] shrink-0 overflow-auto border-r border-line"
+          role="listbox"
+          aria-label="Changed files"
+          tabIndex={0}
+          onKeyDown={onFileListKeyDown}
+        >
           {files.length === 0 ? (
-            <div className="px-2 py-3 text-[11px] text-[#8b8b8b]">
-              {status ? "Working tree clean." : "Git status not loaded."}
+            <div className="px-3 py-4 text-[12px] text-mute">
+              {status ? "Working tree is clean." : "Git status is not loaded yet."}
             </div>
           ) : (
             files.map((file) => {
@@ -137,20 +174,24 @@ export function GitReviewPanel() {
                 <button
                   key={file.path}
                   type="button"
-                  className={`flex w-full items-center gap-1.5 px-2 py-0.5 text-left font-mono text-[11px] hover:bg-[#2a2d2e] ${
-                    active ? "bg-[#37373d]" : ""
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-[12px] hover:bg-hover ${
+                    active ? "bg-raised" : ""
                   }`}
+                  role="option"
+                  aria-selected={active}
                   onClick={() => void loadDiff(worktreePath, file.path)}
                 >
-                  <span className={conflict ? "text-[#f14c4c]" : "text-[#cca700]"}>
+                  <span
+                    className={`w-4 text-center text-[10px] font-semibold ${
+                      conflict ? "text-danger" : file.status === "added" ? "text-ok" : "text-warn"
+                    }`}
+                  >
                     {fileStatusLabel(file.status)}
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-[#cccccc]" title={file.path}>
+                  <span className="min-w-0 flex-1 truncate text-paper" title={file.path}>
                     {file.path}
                   </span>
-                  <span className="text-[#8b8b8b]">
-                    {formatPlusMinus(file.additions, file.deletions)}
-                  </span>
+                  <span className="text-mute">{formatPlusMinus(file.additions, file.deletions)}</span>
                 </button>
               );
             })
@@ -158,11 +199,11 @@ export function GitReviewPanel() {
         </div>
         <div className="min-w-0 flex-1 overflow-hidden">
           {diffLoading ? (
-            <div className="p-3 text-[12px] text-[#8b8b8b]">Loading diff…</div>
+            <div className="p-4 text-[13px] text-mute">Loading diff…</div>
           ) : selectedDiff ? (
             <DiffViewer diff={selectedDiff.diff} binary={selectedDiff.binary} path={selectedDiff.path} />
           ) : (
-            <div className="p-3 text-[12px] text-[#8b8b8b]">Select a changed file to view its diff.</div>
+            <div className="p-4 text-[13px] text-mute">Select a changed file to view its diff.</div>
           )}
         </div>
       </div>

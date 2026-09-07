@@ -52,19 +52,20 @@ pub fn get_status(worktree_path: &str) -> Result<GitStatus, GitError> {
     let (branch, _detached) = current_branch(&dir);
     let mut changed_files = parse_porcelain(&dir)?;
 
-    let numstat = collect_numstat(&dir);
-    for file in &mut changed_files {
-        if file.status == FileStatus::Untracked {
-            if let Some((add, del)) = untracked_numstat(&dir, &file.path) {
-                file.additions = Some(add);
-                file.deletions = Some(del);
+    // Tracked line counts come from two `git diff --numstat` calls (worktree +
+    // index). Untracked files used to spawn `git diff --no-index` *per file*,
+    // which froze the UI on dirty trees — leave those counts unset instead.
+    if changed_files.iter().any(|file| file.status != FileStatus::Untracked) {
+        let numstat = collect_numstat(&dir);
+        for file in &mut changed_files {
+            if file.status == FileStatus::Untracked {
+                continue;
             }
-            continue;
-        }
-        let key = file.original_path.as_deref().unwrap_or(&file.path);
-        if let Some((add, del)) = numstat.get(key).or_else(|| numstat.get(file.path.as_str())) {
-            file.additions = Some(*add);
-            file.deletions = Some(*del);
+            let key = file.original_path.as_deref().unwrap_or(&file.path);
+            if let Some((add, del)) = numstat.get(key).or_else(|| numstat.get(file.path.as_str())) {
+                file.additions = Some(*add);
+                file.deletions = Some(*del);
+            }
         }
     }
 
@@ -80,6 +81,14 @@ pub fn get_status(worktree_path: &str) -> Result<GitStatus, GitError> {
         additions,
         deletions,
     })
+}
+
+/// Porcelain-only file list for callers that will fetch diffs themselves.
+/// Skips the extra `git diff --numstat` round-trips used by [`get_status`].
+pub fn list_changed_files(worktree_path: &str) -> Result<Vec<ChangedFile>, GitError> {
+    let dir = canonical_dir(worktree_path)?;
+    ensure_is_repo(&dir, worktree_path)?;
+    parse_porcelain(&dir)
 }
 
 fn ensure_is_repo(dir: &Path, original: &str) -> Result<(), GitError> {
@@ -220,31 +229,3 @@ fn merge_numstat(raw: &str, map: &mut HashMap<String, (u32, u32)>) {
     }
 }
 
-/// Best-effort insertion count for an untracked file via `git diff --no-index`
-/// against the OS null device. Returns `None` for binary files or if the
-/// probe fails for any reason — callers treat that as "not available".
-fn untracked_numstat(dir: &Path, rel_path: &str) -> Option<(u32, u32)> {
-    let null_device = if cfg!(windows) { "NUL" } else { "/dev/null" };
-    let out = run_git(
-        dir,
-        &["diff", "--no-index", "--numstat", null_device, rel_path],
-    );
-    // --no-index intentionally exits 1 when a diff exists, which run_git
-    // treats as failure; re-run manually via the probe helper semantics.
-    let stdout = match out {
-        Ok(o) => o.stdout,
-        Err(GitError::GitCommandFailed { .. }) => {
-            let (_, probe) = super::process::run_git_probe(
-                dir,
-                &["diff", "--no-index", "--numstat", null_device, rel_path],
-            );
-            probe.stdout
-        }
-        Err(_) => return None,
-    };
-    let line = stdout.lines().next()?;
-    let mut parts = line.splitn(3, '\t');
-    let add = parts.next()?.parse::<u32>().ok()?;
-    let del = parts.next()?.parse::<u32>().ok()?;
-    Some((add, del))
-}

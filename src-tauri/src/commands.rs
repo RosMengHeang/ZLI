@@ -105,9 +105,19 @@ pub(crate) fn validate_create_request(request: &CreatePtyRequest) -> Result<(), 
     Ok(())
 }
 
+async fn run_blocking<T, F>(work: F) -> Result<T, BackendError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, BackendError> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|err| BackendError::Internal(format!("background task failed: {err}")))?
+}
+
 fn create_terminal_impl(
     app: AppHandle,
-    manager: State<'_, PtyManager>,
+    manager: PtyManager,
     request: CreatePtyRequest,
 ) -> Result<TerminalSession, BackendError> {
     validate_create_request(&request)?;
@@ -120,128 +130,131 @@ fn create_terminal_impl(
 }
 
 #[tauri::command]
-pub fn pty_create(
+pub async fn pty_create(
     app: AppHandle,
     manager: State<'_, PtyManager>,
     request: CreatePtyRequest,
 ) -> Result<TerminalSession, BackendError> {
-    create_terminal_impl(app, manager, request)
+    let manager = manager.inner().clone();
+    run_blocking(move || create_terminal_impl(app, manager, request)).await
 }
 
 #[tauri::command]
-pub fn create_terminal(
+pub async fn create_terminal(
     app: AppHandle,
     manager: State<'_, PtyManager>,
     request: CreatePtyRequest,
 ) -> Result<TerminalSession, BackendError> {
-    create_terminal_impl(app, manager, request)
+    let manager = manager.inner().clone();
+    run_blocking(move || create_terminal_impl(app, manager, request)).await
 }
 
-fn write_terminal_impl(
+#[tauri::command]
+pub async fn pty_write(
     manager: State<'_, PtyManager>,
     id: String,
     data: String,
 ) -> Result<(), BackendError> {
+    let manager = manager.inner().clone();
     manager.write(&id, &data)
 }
 
 #[tauri::command]
-pub fn pty_write(
+pub async fn write_terminal(
     manager: State<'_, PtyManager>,
     id: String,
     data: String,
 ) -> Result<(), BackendError> {
-    write_terminal_impl(manager, id, data)
+    let manager = manager.inner().clone();
+    manager.write(&id, &data)
 }
 
 #[tauri::command]
-pub fn write_terminal(
-    manager: State<'_, PtyManager>,
-    id: String,
-    data: String,
-) -> Result<(), BackendError> {
-    write_terminal_impl(manager, id, data)
-}
-
-fn resize_terminal_impl(
+pub async fn pty_resize(
     manager: State<'_, PtyManager>,
     id: String,
     cols: u16,
     rows: u16,
 ) -> Result<(), BackendError> {
+    let manager = manager.inner().clone();
     validate_dimensions_request(cols, rows)?;
     manager.resize(&id, cols, rows)
 }
 
 #[tauri::command]
-pub fn pty_resize(
+pub async fn resize_terminal(
     manager: State<'_, PtyManager>,
     id: String,
     cols: u16,
     rows: u16,
 ) -> Result<(), BackendError> {
-    resize_terminal_impl(manager, id, cols, rows)
+    let manager = manager.inner().clone();
+    validate_dimensions_request(cols, rows)?;
+    manager.resize(&id, cols, rows)
 }
 
 #[tauri::command]
-pub fn resize_terminal(
-    manager: State<'_, PtyManager>,
-    id: String,
-    cols: u16,
-    rows: u16,
-) -> Result<(), BackendError> {
-    resize_terminal_impl(manager, id, cols, rows)
-}
-
-fn kill_terminal_impl(manager: State<'_, PtyManager>, id: String) -> Result<(), BackendError> {
-    manager.kill(&id)
+pub async fn pty_close(manager: State<'_, PtyManager>, id: String) -> Result<(), BackendError> {
+    let manager = manager.inner().clone();
+    run_blocking(move || manager.kill(&id)).await
 }
 
 #[tauri::command]
-pub fn pty_close(manager: State<'_, PtyManager>, id: String) -> Result<(), BackendError> {
-    kill_terminal_impl(manager, id)
+pub async fn kill_terminal(manager: State<'_, PtyManager>, id: String) -> Result<(), BackendError> {
+    let manager = manager.inner().clone();
+    run_blocking(move || manager.kill(&id)).await
+}
+
+async fn detect_providers_impl(force: bool) -> Result<Vec<AgentProvider>, BackendError> {
+    run_blocking(move || Ok(agents::detect_providers_cached(force))).await
 }
 
 #[tauri::command]
-pub fn kill_terminal(manager: State<'_, PtyManager>, id: String) -> Result<(), BackendError> {
-    kill_terminal_impl(manager, id)
+pub async fn list_agent_providers() -> Result<Vec<AgentProvider>, BackendError> {
+    detect_providers_impl(false).await
 }
 
 #[tauri::command]
-pub fn list_agent_providers() -> Result<Vec<AgentProvider>, BackendError> {
-    Ok(agents::detect_providers())
+pub async fn detect_agent_providers() -> Result<Vec<AgentProvider>, BackendError> {
+    detect_providers_impl(true).await
 }
 
 #[tauri::command]
-pub fn detect_agent_providers() -> Result<Vec<AgentProvider>, BackendError> {
-    list_agent_providers()
+pub async fn detect_providers() -> Result<Vec<AgentProvider>, BackendError> {
+    detect_providers_impl(true).await
 }
 
 #[tauri::command]
-pub fn launch_agent(
+pub async fn launch_agent(
     app: AppHandle,
     manager: State<'_, PtyManager>,
     agents: State<'_, AgentManager>,
     request: LaunchAgentRequest,
 ) -> Result<Agent, BackendError> {
-    agents.launch(request, &manager, Arc::new(AppEventSink { app }))
+    let pty = manager.inner().clone();
+    let agents = agents.inner().clone();
+    run_blocking(move || agents.launch(request, &pty, Arc::new(AppEventSink { app }))).await
 }
 
 #[tauri::command]
-pub fn stop_agent(
+pub async fn stop_agent(
     manager: State<'_, PtyManager>,
     agents: State<'_, AgentManager>,
     id: String,
 ) -> Result<(), BackendError> {
-    agents.stop(&id, &manager)
+    let pty = manager.inner().clone();
+    let agents = agents.inner().clone();
+    run_blocking(move || agents.stop(&id, &pty)).await
 }
 
 #[tauri::command]
-pub fn list_agents(
+pub async fn list_agents(
     manager: State<'_, PtyManager>,
     agents: State<'_, AgentManager>,
 ) -> Result<Vec<Agent>, BackendError> {
-    agents.list(&manager)
+    let pty = manager.inner().clone();
+    let agents = agents.inner().clone();
+    run_blocking(move || agents.list(&pty)).await
 }
 
 #[cfg(test)]

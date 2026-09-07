@@ -1,73 +1,239 @@
-import { StatusBadge } from "./StatusBadge";
+import {
+  IconAgents,
+  IconFolder,
+  IconGit,
+  IconGlobe,
+  IconHelp,
+  IconHome,
+  IconPlus,
+  TaxzyMark,
+} from "./AppIcons";
+import { ProviderIcon } from "./ProviderIcon";
+import { APP_SHORTCUTS } from "../lib/platform";
+import { displayPath } from "../lib/format";
 import { useAgentStore } from "../stores/agentStore";
 import { useGitStore } from "../stores/gitStore";
+import { useLayoutStore } from "../stores/layoutStore";
+import { useProjectStore } from "../stores/projectStore";
 import { useUiStore } from "../stores/uiStore";
 import { providerDisplayName } from "../types";
+import type { KeyboardEvent } from "react";
 
 export function Sidebar() {
   const agentMap = useAgentStore((s) => s.agents);
   const agents = Object.values(agentMap);
   const selectedAgentId = useAgentStore((s) => s.selectedAgentId);
   const selectAgent = useAgentStore((s) => s.selectAgent);
+  const project = useProjectStore((s) => s.project);
+  const loading = useProjectStore((s) => s.loading);
+  const openFromDialog = useProjectStore((s) => s.openFromDialog);
   const setAddAgentOpen = useUiStore((s) => s.setAddAgentOpen);
+  const setPathDialogOpen = useUiStore((s) => s.setPathDialogOpen);
+  const setBrowserOpen = useUiStore((s) => s.setBrowserOpen);
+  const setHelpOpen = useUiStore((s) => s.setHelpOpen);
+  const browserOpen = useUiStore((s) => s.browserOpen);
+  const gitPanelOpen = useLayoutStore((s) => s.gitPanelOpen);
+  const toggleGitPanel = useLayoutStore((s) => s.toggleGitPanel);
   const statusByPath = useGitStore((s) => s.statusByPath);
+  const changedCount = project ? (statusByPath[project.path]?.changedFiles.length ?? 0) : 0;
+  const nav =
+    gitPanelOpen ? "changes" : browserOpen ? "browser" : "workspace";
+
+  function onListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    if (agents.length === 0) return;
+    event.preventDefault();
+    const current = selectedAgentId ? agents.findIndex((agent) => agent.id === selectedAgentId) : -1;
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    const next = Math.min(agents.length - 1, Math.max(0, (current < 0 ? 0 : current) + delta));
+    selectAgent(agents[next].id);
+  }
+
+  async function onOpenProject() {
+    const result = await openFromDialog();
+    if (result === "failed") setPathDialogOpen(true);
+  }
 
   return (
-    <aside className="flex h-full min-w-0 flex-col bg-[#252526]">
-      <div className="flex h-7 items-center justify-between border-b border-[#3e3e42] px-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-[#8b8b8b]">
-          Agents
-        </span>
+    <aside className="flex h-full min-w-0 flex-col border-r border-line bg-panel">
+      <div className="flex items-center gap-2 px-3 pb-3 pt-3.5">
+        <TaxzyMark className="h-7 w-7" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-[14px] font-semibold tracking-tight text-paper">Taxzy</span>
+            <span className="beta-badge">BETA</span>
+          </div>
+        </div>
+      </div>
+
+      <nav className="flex flex-col gap-0.5 px-2" aria-label="Workspace">
         <button
           type="button"
-          className="px-1 text-[12px] text-[#cccccc] hover:bg-[#3e3e42]"
-          onClick={() => setAddAgentOpen(true)}
-          title="Add agent"
+          className="nav-item"
+          data-active={nav === "workspace"}
+          onClick={() => toggleGitPanel(false)}
         >
-          +
+          <IconHome />
+          Workspace
+        </button>
+        <button
+          type="button"
+          className="nav-item"
+          data-active={false}
+          onClick={() => {
+            toggleGitPanel(false);
+            if (agents[0]) selectAgent(agents[0].id);
+          }}
+        >
+          <IconAgents />
+          Agents
+        </button>
+        <button
+          type="button"
+          className="nav-item"
+          data-active={nav === "browser"}
+          onClick={() => setBrowserOpen(true)}
+          title={`Browser (${APP_SHORTCUTS.toggleBrowser})`}
+        >
+          <IconGlobe />
+          Browser
+        </button>
+        <button
+          type="button"
+          className="nav-item"
+          data-active={nav === "changes"}
+          onClick={() => toggleGitPanel(true)}
+          disabled={!project}
+          title={`Git review (${APP_SHORTCUTS.toggleGit})`}
+        >
+          <IconGit />
+          <span className="flex-1">Changes</span>
+          {changedCount > 0 ? (
+            <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-white">
+              {changedCount}
+            </span>
+          ) : null}
+        </button>
+      </nav>
+
+      {project ? (
+        <div className="mx-2 mt-3 rounded-xl border border-line bg-ink px-3 py-2.5">
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 text-mute">
+              <IconFolder />
+            </span>
+            <div className="min-w-0">
+              <div className="truncate text-[13px] font-medium text-paper">{project.name}</div>
+              <div className="mt-0.5 truncate font-mono text-[11px] text-mute" title={project.path}>
+                {displayPath(project.path, 36)}
+              </div>
+              <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
+                <span className="text-branch">{project.currentBranch}</span>
+                <span className="text-line">•</span>
+                {project.clean ? (
+                  <span className="inline-flex items-center gap-1 text-ok">
+                    <span className="status-dot" />
+                    Clean
+                  </span>
+                ) : (
+                  <span className="text-warn">Dirty</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mx-2 mt-3 rounded-xl border border-dashed border-line px-3 py-3 text-[12px] leading-5 text-mute">
+          Open a Git folder to start a workspace.
+        </div>
+      )}
+
+      <div className="mt-3 grid grid-cols-2 gap-1.5 px-2">
+        <button
+          type="button"
+          className="btn btn-quiet h-8"
+          onClick={() => void onOpenProject()}
+          disabled={loading}
+          title={`Open project (${APP_SHORTCUTS.openProject})`}
+        >
+          <IconFolder />
+          Open Folder
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary h-8"
+          onClick={() => setAddAgentOpen(true)}
+          disabled={!project}
+          title={`New agent (${APP_SHORTCUTS.addAgent})`}
+        >
+          <IconPlus />
+          New Agent
         </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto">
+
+      <div
+        className="mt-3 min-h-0 flex-1 overflow-auto px-2 pb-2"
+        role="listbox"
+        aria-label="Agents"
+        tabIndex={0}
+        onKeyDown={onListKeyDown}
+      >
         {agents.length === 0 ? (
-          <div className="px-2 py-3 text-[11px] leading-5 text-[#8b8b8b]">
-            No agents yet. Launch Claude Code, Codex, Cursor Agent, or a terminal.
+          <div className="rounded-xl border border-dashed border-line px-3 py-4 text-[12px] leading-5 text-mute">
+            No agents yet. Launch Claude Code, Codex, Cursor, Gemini, or a terminal.
           </div>
         ) : (
-          agents.map((agent) => {
-            const gitPath = agent.worktreePath || agent.cwd;
-            const changed = statusByPath[gitPath]?.changedFiles.length ?? 0;
-            const active = agent.id === selectedAgentId;
-            return (
-              <button
-                key={agent.id}
-                type="button"
-                onClick={() => selectAgent(agent.id)}
-                className={`block w-full border-b border-[#2d2d2d] px-2 py-1.5 text-left hover:bg-[#2a2d2e] ${
-                  active ? "bg-[#37373d]" : ""
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate font-medium text-white">{agent.name}</span>
-                  <StatusBadge status={agent.status} />
-                </div>
-                <div className="truncate text-[11px] text-[#9cdcfe]">
-                  {providerDisplayName(agent.provider)}
-                </div>
-                <div className="flex items-center justify-between gap-2 text-[11px] text-[#8b8b8b]">
-                  <span className="truncate">{agent.branch || "—"}</span>
-                  {changed > 0 ? (
-                    <span className="text-[#cca700]">{changed} files</span>
-                  ) : null}
-                </div>
-                {agent.error ? (
-                  <div className="mt-0.5 truncate text-[11px] text-[#f14c4c]" title={agent.error}>
-                    {agent.error}
+          <div className="flex flex-col gap-1">
+            {agents.map((agent) => {
+              const active = agent.id === selectedAgentId;
+              const running = agent.status === "running" || agent.status === "starting";
+              return (
+                <button
+                  key={agent.id}
+                  type="button"
+                  onClick={() => selectAgent(agent.id)}
+                  role="option"
+                  aria-selected={active}
+                  className={`w-full rounded-xl px-2 py-2 text-left transition-colors ${
+                    active ? "bg-raised" : "hover:bg-hover"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <ProviderIcon provider={agent.provider} size="md" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-medium text-paper">{agent.name}</div>
+                      <div className="mt-0.5 truncate text-[11px] text-mute">
+                        {providerDisplayName(agent.provider)}
+                        {agent.branch ? ` · ${agent.branch}` : ""}
+                      </div>
+                    </div>
+                    {running ? <span className="status-dot" aria-label="Active" /> : null}
                   </div>
-                ) : null}
-              </button>
-            );
-          })
+                  {agent.error ? (
+                    <div className="mt-1 truncate text-[11px] text-danger" title={agent.error}>
+                      {agent.error}
+                    </div>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
         )}
+      </div>
+
+      <div className="flex items-center gap-2 border-t border-line px-3 py-2 text-[11px] text-mute">
+        <span>CPU —</span>
+        <span className="text-line">|</span>
+        <span>RAM —</span>
+        <button
+          type="button"
+          className="btn btn-icon ml-auto"
+          onClick={() => setHelpOpen(true)}
+          aria-label="Help"
+          title="Help"
+        >
+          <IconHelp />
+        </button>
       </div>
     </aside>
   );

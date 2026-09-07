@@ -3,6 +3,8 @@ import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Webview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { IconBack, IconExternal, IconForward, IconGlobe, IconReload } from "./AppIcons";
+import { rafThrottle } from "../lib/schedule";
 import { isTauriRuntime } from "../tauri/invoke";
 
 const STARTER_LINKS = [
@@ -43,6 +45,11 @@ export function BrowserPanel() {
       await webview.setSize(new LogicalSize(rect.width, rect.height));
     }
 
+    const throttledBounds = rafThrottle(() => {
+      const webview = nativeWebviewRef.current;
+      if (webview) void updateBounds(webview);
+    });
+
     async function mountWebview() {
       setNativeError(null);
       const previous = await Webview.getByLabel("browser-panel");
@@ -62,12 +69,12 @@ export function BrowserPanel() {
         dragDropEnabled: false,
       });
       nativeWebviewRef.current = webview;
-      const handleWindowResize = () => void updateBounds(webview);
+      const handleWindowResize = () => throttledBounds();
       await webview.once("tauri://error", () => {
         if (!cancelled) setNativeError("The page could not be loaded in the embedded browser.");
       });
       await webview.setAutoResize(false);
-      observer = new ResizeObserver(() => void updateBounds(webview));
+      observer = new ResizeObserver(() => throttledBounds());
       observer.observe(viewport);
       window.addEventListener("resize", handleWindowResize);
       removeWindowResizeListener = () => window.removeEventListener("resize", handleWindowResize);
@@ -87,6 +94,7 @@ export function BrowserPanel() {
 
     return () => {
       cancelled = true;
+      throttledBounds.cancel();
       observer?.disconnect();
       removeWindowResizeListener?.();
       removeWindowResizeListener = null;
@@ -145,44 +153,46 @@ export function BrowserPanel() {
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-[#1b1c1e]">
-      <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-[#34363a] bg-[#242629] px-2">
+    <section className="flex h-full min-h-0 flex-col bg-ink">
+      <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-line bg-chrome px-2">
         <button
           type="button"
           aria-label="Back"
           title="Back"
-          className="h-6 w-6 text-[15px] text-[#a9abad] hover:bg-[#3b3e42] hover:text-white disabled:opacity-30"
+          className="btn btn-icon"
           onClick={goBack}
           disabled={historyIndex <= 0}
         >
-          ‹
+          <IconBack />
         </button>
         <button
           type="button"
           aria-label="Forward"
           title="Forward"
-          className="h-6 w-6 text-[15px] text-[#a9abad] hover:bg-[#3b3e42] hover:text-white disabled:opacity-30"
+          className="btn btn-icon"
           onClick={goForward}
           disabled={historyIndex >= history.length - 1}
         >
-          ›
+          <IconForward />
         </button>
         <button
           type="button"
           aria-label="Reload"
           title="Reload"
-          className="h-6 w-6 text-[13px] text-[#a9abad] hover:bg-[#3b3e42] hover:text-white disabled:opacity-30"
+          className="btn btn-icon"
           onClick={reload}
           disabled={!currentUrl}
         >
-          ↻
+          <IconReload />
         </button>
         <form className="flex min-w-0 flex-1" onSubmit={submit}>
-          <label className="flex min-w-0 flex-1 items-center border border-[#45484d] bg-[#1c1e20] px-2 focus-within:border-[#4ec9b0]">
-            <span className="mr-2 text-[10px] text-[#6f7479]">⌕</span>
+          <label className="flex min-w-0 flex-1 items-center rounded-lg border border-line bg-ink px-2.5 focus-within:border-accent">
+            <span className="mr-2 text-mute">
+              <IconGlobe className="h-3.5 w-3.5" />
+            </span>
             <input
               aria-label="Web address"
-              className="min-w-0 flex-1 bg-transparent py-1 text-[11px] text-[#d4d4d4] outline-none placeholder:text-[#6f7479]"
+              className="min-w-0 flex-1 bg-transparent py-1.5 text-[12px] text-paper outline-none placeholder:text-mute"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={onUrlKeyDown}
@@ -190,23 +200,24 @@ export function BrowserPanel() {
               spellCheck={false}
             />
           </label>
-          <button type="submit" className="ml-1 h-6 bg-[#0e639c] px-2 text-[10px] text-white hover:bg-[#1177bb]">
+          <button type="submit" className="btn btn-primary ml-1.5 h-8">
             Go
           </button>
         </form>
         <button
           type="button"
-          className="hidden h-6 px-2 text-[10px] text-[#9b9da1] hover:bg-[#3b3e42] hover:text-white sm:block"
+          className="btn btn-ghost hidden sm:inline-flex"
           onClick={() => void openExternally()}
           disabled={!currentUrl}
         >
+          <IconExternal />
           Open externally
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 bg-[#151719]">
+      <div className="min-h-0 flex-1 bg-ink">
         {currentUrl ? (
-          <div ref={viewportRef} className="relative h-full w-full bg-[#202326]">
+          <div ref={viewportRef} className="relative h-full w-full bg-panel">
             {!nativeBrowser ? (
               <iframe
                 key={`${currentUrl}:${frameVersion}`}
@@ -216,21 +227,23 @@ export function BrowserPanel() {
                 referrerPolicy="strict-origin-when-cross-origin"
               />
             ) : nativeError ? (
-              <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-[#f4b183]">
+              <div className="flex h-full items-center justify-center px-6 text-center text-[12px] text-warn">
                 {nativeError}
               </div>
             ) : (
-              <div className="flex h-full items-center justify-center text-[11px] text-[#7f858b]">Loading page…</div>
+              <div className="flex h-full items-center justify-center text-[12px] text-mute">Loading page…</div>
             )}
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center px-6">
-            <div className="w-full max-w-xl border border-[#34383d] bg-[#202326] p-6">
+          <div className="empty-panel px-6">
+            <div className="w-full max-w-xl rounded-xl border border-line bg-panel p-6">
               <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center bg-[#284653] text-lg text-[#4ec9b0]">⌁</div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-raised text-accent">
+                  <IconGlobe className="h-5 w-5" />
+                </div>
                 <div>
-                  <div className="text-[14px] font-semibold text-white">Browse beside your agents</div>
-                  <p className="mt-1 text-[11px] leading-5 text-[#92979d]">
+                  <div className="text-[16px] font-semibold text-paper">Browse beside your agents</div>
+                  <p className="mt-1 text-[12px] leading-5 text-mute">
                     Look up docs, inspect a GitHub issue, or keep a reference page open while the workspace runs.
                   </p>
                 </div>
@@ -240,15 +253,15 @@ export function BrowserPanel() {
                   <button
                     key={link.url}
                     type="button"
-                    className="border border-[#45484d] bg-[#272a2d] px-3 py-1.5 text-[10px] text-[#c6c9cc] hover:border-[#4ec9b0] hover:text-white"
+                    className="btn btn-quiet h-8"
                     onClick={() => navigate(link.url)}
                   >
                     {link.label}
                   </button>
                 ))}
               </div>
-              <div className="mt-5 border-t border-[#34383d] pt-3 text-[10px] leading-5 text-[#6f7479]">
-                Some sites prevent embedded views. If a page is blank, use “Open externally” in the browser toolbar.
+              <div className="mt-5 border-t border-line pt-3 text-[11px] leading-5 text-mute">
+                Some sites prevent embedded views. If a page is blank, use Open externally in the toolbar.
               </div>
             </div>
           </div>

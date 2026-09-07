@@ -39,33 +39,29 @@ export function MergeDialog() {
   return (
     <Modal title="Merge agent branch" open={open} onClose={() => setOpen(false)}>
       {!agent || !project ? (
-        <p className="text-[12px]">Select an agent with a branch first.</p>
+        <p className="text-[13px]">Select an agent with a branch first.</p>
       ) : (
         <form className="flex flex-col gap-3" onSubmit={(event) => void onMerge(event)}>
-          <p className="text-[12px] leading-5">
-            Merge <span className="font-mono text-[#9cdcfe]">{agent.branch}</span> into the
+          <p className="text-[13px] leading-5 text-mute">
+            Merge <span className="font-mono text-branch">{agent.branch}</span> into the
             repository root. Conflicts are left in place for you to resolve or abort — nothing is
             force-reset.
           </p>
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] text-[#8b8b8b]">Target branch</span>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[12px] text-mute">Target branch</span>
             <input
-              className="h-7 border border-[#3e3e42] bg-[#3c3c3c] px-2 font-mono outline-none focus:border-[#0e639c]"
+              className="field font-mono"
               value={target}
               onChange={(event) => setTarget(event.target.value)}
               placeholder={project.baseBranch}
             />
           </label>
-          {error ? <div className="text-[11px] text-[#f14c4c]">{error.message}</div> : null}
+          {error ? <div className="banner banner-error">{error.message}</div> : null}
           <div className="flex justify-end gap-2">
-            <button type="button" className="h-7 px-3 hover:bg-[#3e3e42]" onClick={() => setOpen(false)}>
+            <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
               Cancel
             </button>
-            <button
-              type="submit"
-              className="h-7 bg-[#0e639c] px-3 text-white hover:bg-[#1177bb] disabled:opacity-40"
-              disabled={busy}
-            >
+            <button type="submit" className="btn btn-primary" disabled={busy}>
               {busy ? "Merging…" : "Merge"}
             </button>
           </div>

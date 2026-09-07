@@ -3,7 +3,7 @@
 use super::error::GitError;
 use super::paths::canonical_dir;
 use super::process::{run_git, run_git_probe};
-use super::status::{get_status, ChangedFile, FileStatus};
+use super::status::{list_changed_files, ChangedFile, FileStatus};
 use serde::Serialize;
 use std::path::Path;
 
@@ -22,11 +22,10 @@ pub struct FileDiff {
 /// `None` returns a diff entry per changed file.
 pub fn get_diff(worktree_path: &str, file_path: Option<&str>) -> Result<Vec<FileDiff>, GitError> {
     let dir = canonical_dir(worktree_path)?;
-    let status = get_status(worktree_path)?;
+    let changed = list_changed_files(worktree_path)?;
     let has_head = run_git_probe(&dir, &["rev-parse", "--verify", "-q", "HEAD"]).0;
 
-    let files: Vec<&ChangedFile> = status
-        .changed_files
+    let files: Vec<&ChangedFile> = changed
         .iter()
         .filter(|f| match file_path {
             Some(target) => f.path == target || f.original_path.as_deref() == Some(target),

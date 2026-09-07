@@ -7,6 +7,26 @@ import { terminalRegistry } from "./registry";
 
 let started = false;
 const unlistens: UnlistenFn[] = [];
+const pendingOutput = new Map<string, string[]>();
+let outputFrame = 0;
+
+function flushPendingOutput(): void {
+  outputFrame = 0;
+  for (const [id, chunks] of pendingOutput) {
+    if (chunks.length === 1) terminalRegistry.write(id, chunks[0]);
+    else terminalRegistry.write(id, chunks.join(""));
+  }
+  pendingOutput.clear();
+}
+
+function queueOutput(id: string, data: string): void {
+  const chunks = pendingOutput.get(id);
+  if (chunks) chunks.push(data);
+  else pendingOutput.set(id, [data]);
+  if (!outputFrame) {
+    outputFrame = requestAnimationFrame(flushPendingOutput);
+  }
+}
 
 function payloadRecord(payload: unknown): Record<string, unknown> | null {
   return payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
@@ -34,6 +54,10 @@ function handleOutput(payload: unknown): void {
   if (!id) return;
   const data = toBytesOrString(raw);
   if (data === null) return;
+  if (typeof data === "string") {
+    queueOutput(id, data);
+    return;
+  }
   terminalRegistry.write(id, data);
 }
 
@@ -96,6 +120,9 @@ export async function startPtyBridge(): Promise<void> {
 }
 
 export async function stopPtyBridge(): Promise<void> {
+  if (outputFrame) cancelAnimationFrame(outputFrame);
+  outputFrame = 0;
+  flushPendingOutput();
   await Promise.all(unlistens.map((fn) => fn()));
   unlistens.length = 0;
   started = false;

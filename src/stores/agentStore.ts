@@ -18,7 +18,7 @@ interface AgentState {
   selectedAgentId: string | null;
   launchError: AppError | null;
   launching: boolean;
-  loadProviders: () => Promise<void>;
+  loadProviders: (force?: boolean) => Promise<void>;
   selectAgent: (id: string | null) => void;
   launch: (input: {
     name: string;
@@ -81,10 +81,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   launchError: null,
   launching: false,
 
-  loadProviders: async () => {
-    set({ providersError: null });
+  loadProviders: async (force = false) => {
+    if (!force && get().providersLoaded && !get().providersError) return;
+    set({ providersError: null, providersLoaded: force ? false : get().providersLoaded });
     try {
-      const detected = await listAgentProviders();
+      const detected = await listAgentProviders(force);
       set({
         providers: mergeProviders(detected),
         providersLoaded: true,

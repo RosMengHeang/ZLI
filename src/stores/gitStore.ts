@@ -29,7 +29,7 @@ interface GitState {
   error: AppError | null;
   mergeOutcome: MergeOutcome | null;
   lastCommit: CommitResult | null;
-  refresh: (worktreePath: string) => Promise<GitStatus | null>;
+  refresh: (worktreePath: string, options?: { quiet?: boolean; minIntervalMs?: number }) => Promise<GitStatus | null>;
   loadDiff: (worktreePath: string, filePath: string) => Promise<void>;
   selectFile: (path: string | null) => void;
   commit: (request: CommitRequest) => Promise<CommitResult>;
@@ -47,6 +47,10 @@ function diffKey(worktreePath: string, filePath: string): string {
   return `${worktreePath}::${filePath}`;
 }
 
+const refreshSeq = new Map<string, number>();
+const lastRefreshAt = new Map<string, number>();
+let diffSeq = 0;
+
 export const useGitStore = create<GitState>((set, get) => ({
   statusByPath: {},
   diffs: {},
@@ -57,25 +61,43 @@ export const useGitStore = create<GitState>((set, get) => ({
   mergeOutcome: null,
   lastCommit: null,
 
-  refresh: async (worktreePath) => {
-    set({ loading: true, error: null });
+  refresh: async (worktreePath, options) => {
+    const quiet = options?.quiet ?? false;
+    const minIntervalMs = options?.minIntervalMs ?? 0;
+    const cached = get().statusByPath[worktreePath];
+    const now = Date.now();
+    if (minIntervalMs > 0 && cached && now - (lastRefreshAt.get(worktreePath) ?? 0) < minIntervalMs) {
+      return cached;
+    }
+
+    const seq = (refreshSeq.get(worktreePath) ?? 0) + 1;
+    refreshSeq.set(worktreePath, seq);
+    set({
+      loading: quiet && cached ? get().loading : true,
+      error: quiet ? get().error : null,
+    });
     try {
       const status = await gitStatus(worktreePath);
+      if (refreshSeq.get(worktreePath) !== seq) return get().statusByPath[worktreePath] ?? status;
+      lastRefreshAt.set(worktreePath, Date.now());
       set((state) => ({
         statusByPath: { ...state.statusByPath, [worktreePath]: status },
         loading: false,
       }));
       return status;
     } catch (err) {
-      set({ loading: false, error: toAppError(err) });
+      if (refreshSeq.get(worktreePath) !== seq) return get().statusByPath[worktreePath] ?? null;
+      set({ loading: false, error: quiet ? get().error : toAppError(err) });
       return null;
     }
   },
 
   loadDiff: async (worktreePath, filePath) => {
+    const seq = ++diffSeq;
     set({ diffLoading: true, error: null, selectedPath: filePath });
     try {
       const files = await gitDiff(worktreePath, filePath);
+      if (seq !== diffSeq) return;
       const match = files.find((file) => file.path === filePath) ?? files[0];
       if (match) {
         set((state) => ({
@@ -86,6 +108,7 @@ export const useGitStore = create<GitState>((set, get) => ({
         set({ diffLoading: false });
       }
     } catch (err) {
+      if (seq !== diffSeq) return;
       set({ diffLoading: false, error: toAppError(err) });
     }
   },

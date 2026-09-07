@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -29,6 +30,8 @@ pub struct LaunchAgentRequest {
     pub name: String,
     pub provider: String,
     pub cwd: String,
+    #[serde(default)]
+    pub create_worktree: bool,
     #[serde(default)]
     pub cols: Option<u16>,
     #[serde(default)]
@@ -57,14 +60,15 @@ pub struct Agent {
     pub error: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct AgentManager {
-    agents: Mutex<std::collections::HashMap<String, Agent>>,
+    agents: Arc<Mutex<std::collections::HashMap<String, Agent>>>,
 }
 
 impl AgentManager {
     pub fn new() -> Self {
         Self {
-            agents: Mutex::new(std::collections::HashMap::new()),
+            agents: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -81,20 +85,38 @@ impl AgentManager {
             let (spec, executable) = resolve_provider(provider_id)?;
             (Some(spec), Some(executable))
         };
+
+        let mut launch_cwd = request.cwd.clone();
+        let mut branch = String::new();
+        let mut worktree_path = None;
+        if request.create_worktree {
+            let created = crate::git::worktree::create_worktree(
+                crate::git::worktree::CreateWorktreeRequest {
+                    repository_root: request.cwd.clone(),
+                    provider: request.provider.clone(),
+                    base_branch: None,
+                },
+            )
+            .map_err(|err| BackendError::InvalidInput(err.to_string()))?;
+            launch_cwd = created.worktree_path.clone();
+            branch = created.branch;
+            worktree_path = Some(created.worktree_path);
+        }
+
         let session = match executable {
             Some(executable) => {
                 let (launcher, args) = launcher_for_executable(executable)?;
                 pty.spawn_agent_with_size_args(
                     launcher,
                     args,
-                    Some(&request.cwd),
+                    Some(&launch_cwd),
                     request.cols.unwrap_or(120),
                     request.rows.unwrap_or(30),
                     sink,
                 )?
             }
             None => pty.create_shell_with_size(
-                Some(&request.cwd),
+                Some(&launch_cwd),
                 request.cols.unwrap_or(120),
                 request.rows.unwrap_or(30),
                 sink,
@@ -116,8 +138,8 @@ impl AgentManager {
                 .unwrap_or_else(|| "shell".to_owned()),
             terminal_id: session.id,
             cwd: session.cwd,
-            branch: String::new(),
-            worktree_path: None,
+            branch,
+            worktree_path,
             status: AgentStatus::Running,
             error: None,
         };
@@ -290,7 +312,39 @@ pub fn resolve_provider(provider_id: &str) -> Result<(ProviderSpec, PathBuf), Ba
     Ok((spec, executable))
 }
 
+struct ProviderSnapshot {
+    fetched_at: Instant,
+    providers: Vec<AgentProvider>,
+}
+
+static PROVIDER_CACHE: Mutex<Option<ProviderSnapshot>> = Mutex::new(None);
+const PROVIDER_CACHE_TTL: Duration = Duration::from_secs(20);
+
 pub fn detect_providers() -> Vec<AgentProvider> {
+    detect_providers_cached(false)
+}
+
+pub fn detect_providers_cached(force: bool) -> Vec<AgentProvider> {
+    if !force {
+        if let Ok(cache) = PROVIDER_CACHE.lock() {
+            if let Some(snapshot) = cache.as_ref() {
+                if snapshot.fetched_at.elapsed() < PROVIDER_CACHE_TTL {
+                    return snapshot.providers.clone();
+                }
+            }
+        }
+    }
+    let providers = scan_providers();
+    if let Ok(mut cache) = PROVIDER_CACHE.lock() {
+        *cache = Some(ProviderSnapshot {
+            fetched_at: Instant::now(),
+            providers: providers.clone(),
+        });
+    }
+    providers
+}
+
+fn scan_providers() -> Vec<AgentProvider> {
     provider_specs()
         .into_iter()
         .map(|spec| {
@@ -359,6 +413,7 @@ mod tests {
                     name: "runtime-test".to_owned(),
                     provider: provider.id,
                     cwd: directory.path().to_string_lossy().into_owned(),
+                    create_worktree: false,
                     cols: Some(80),
                     rows: Some(24),
                 },

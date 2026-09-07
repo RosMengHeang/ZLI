@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { toAppError } from "../lib/errors";
 import { isCommandMissing } from "../lib/errors";
+import { setLastProjectPath } from "../lib/preferences";
 import {
   pickProjectDirectory,
   repositoryToProject,
@@ -31,7 +32,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
         return "cancelled";
       }
       const info = await validateRepository(selected);
-      set({ project: repositoryToProject(info), loading: false, error: null });
+      const project = repositoryToProject(info);
+      setLastProjectPath(project.path);
+      set({ project, loading: false, error: null });
       return "opened";
     } catch (err) {
       const parsed = toAppError(err);
@@ -58,7 +61,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
     set({ loading: true, error: null });
     try {
       const info = await validateRepository(trimmed);
-      set({ project: repositoryToProject(info), loading: false, error: null });
+      const project = repositoryToProject(info);
+      setLastProjectPath(project.path);
+      set({ project, loading: false, error: null });
       return true;
     } catch (err) {
       set({ loading: false, error: toAppError(err) });

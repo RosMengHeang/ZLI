@@ -1,5 +1,8 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
+import { IconClose, IconSplitDown, IconSplitRight } from "./AppIcons";
+import { ProviderIcon } from "./ProviderIcon";
 import { StatusBadge } from "./StatusBadge";
+import { rafThrottle } from "../lib/schedule";
 import { useAgentStore } from "../stores/agentStore";
 import { useLayoutStore } from "../stores/layoutStore";
 import { useTerminalStore } from "../stores/terminalStore";
@@ -11,21 +14,9 @@ interface TerminalPaneProps {
   terminalId: string;
 }
 
-const PROVIDER_ACCENTS: Record<string, string> = {
-  "claude-code": "#d29922",
-  codex: "#4ec9b0",
-  "cursor-agent": "#9cdcfe",
-  opencode: "#c586c0",
-  gemini: "#8cc84b",
-  aider: "#f97583",
-  goose: "#f2cc60",
-  shell: "#808080",
-};
-
-export function TerminalPane({ paneId, terminalId }: TerminalPaneProps) {
+export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const session = useTerminalStore((s) => s.sessions[terminalId]);
-  const resizeSession = useTerminalStore((s) => s.resizeSession);
   const activePaneId = useLayoutStore((s) => s.activePaneId);
   const setActivePane = useLayoutStore((s) => s.setActivePane);
   const splitActive = useLayoutStore((s) => s.splitActive);
@@ -42,19 +33,25 @@ export function TerminalPane({ paneId, terminalId }: TerminalPaneProps) {
     const el = containerRef.current;
     if (!el || !hasXterm) return;
     terminalRegistry.attach(terminalId, el);
-    const observer = new ResizeObserver(() => {
+    const onResize = rafThrottle(() => {
       const dim = terminalRegistry.fit(terminalId);
       if (dim && dim.cols > 0 && dim.rows > 0) {
-        void resizeSession(terminalId, dim.cols, dim.rows);
+        useTerminalStore.getState().resizeSession(terminalId, dim.cols, dim.rows);
       }
     });
+    const observer = new ResizeObserver(() => onResize());
     observer.observe(el);
-    if (active) terminalRegistry.focus(terminalId);
+    onResize();
     return () => {
+      onResize.cancel();
       observer.disconnect();
       terminalRegistry.detach(terminalId, el);
     };
-  }, [terminalId, hasXterm, active, resizeSession]);
+  }, [terminalId, hasXterm]);
+
+  useEffect(() => {
+    if (active && hasXterm) terminalRegistry.focus(terminalId);
+  }, [active, hasXterm, terminalId]);
 
   function onFocusPane() {
     setActivePane(paneId);
@@ -86,55 +83,60 @@ export function TerminalPane({ paneId, terminalId }: TerminalPaneProps) {
   const title = agent?.name ?? session?.title ?? "Terminal";
   const provider = agent ? providerDisplayName(agent.provider) : "Shell";
   const status = session?.status ?? "starting";
-  const accent = agent ? PROVIDER_ACCENTS[agent.provider] ?? "#4ec9b0" : PROVIDER_ACCENTS.shell;
 
   return (
     <div
-      className={`flex h-full min-h-0 min-w-0 flex-col ${active ? "ring-1 ring-inset ring-[#0e639c]" : ""}`}
+      className={`flex h-full min-h-0 min-w-0 flex-col ${active ? "ring-1 ring-inset ring-accent/80" : ""}`}
       onMouseDown={onFocusPane}
     >
-      <div className="flex h-7 shrink-0 items-center gap-2 border-b border-[#3e3e42] bg-[#292b2e] px-2" style={{ borderTop: `2px solid ${accent}` }}>
-        <span className="truncate text-[11px] font-medium text-white">{title}</span>
-        <span className="truncate text-[11px] text-[#8b8b8b]">{provider}</span>
+      <div
+        className="flex h-9 shrink-0 items-center gap-2 border-b border-line bg-chrome px-2.5"
+      >
+        <ProviderIcon provider={agent?.provider ?? "shell"} size="sm" />
+        <span className="truncate text-[12px] font-medium text-paper">{title}</span>
+        <span className="truncate text-[11px] text-mute">{provider}</span>
         <StatusBadge status={status} />
         <span className="ml-auto flex items-center gap-0.5">
           <button
             type="button"
-            className="px-1 text-[11px] text-[#8b8b8b] hover:bg-[#3e3e42] hover:text-white"
+            className="btn btn-icon"
             title="Split right"
+            aria-label="Split right"
             onClick={() => void onSplit("horizontal")}
           >
-            ‖
+            <IconSplitRight />
           </button>
           <button
             type="button"
-            className="px-1 text-[11px] text-[#8b8b8b] hover:bg-[#3e3e42] hover:text-white"
+            className="btn btn-icon"
             title="Split down"
+            aria-label="Split down"
             onClick={() => void onSplit("vertical")}
           >
-            ═
+            <IconSplitDown />
           </button>
           <button
             type="button"
-            className="px-1 text-[11px] text-[#8b8b8b] hover:bg-[#3e3e42] hover:text-white"
+            className="btn btn-icon"
             title="Close pane"
+            aria-label="Close pane"
             onClick={onClose}
           >
-            ×
+            <IconClose />
           </button>
         </span>
       </div>
       {status === "error" || status === "failed" || status === "exited" || status === "killed" ? (
-        <div className="border-b border-[#3e3e42] bg-[#2a1f1f] px-2 py-1 text-[11px] text-[#f14c4c]">
+        <div className="banner banner-error rounded-none border-x-0">
           {status === "exited" || status === "killed"
             ? `Process ${status}${session?.exitCode != null ? ` (${session.exitCode})` : ""}.`
             : session?.error ?? "Terminal failed to start."}
         </div>
       ) : null}
       {status === "starting" && !hasXterm ? (
-        <div className="px-2 py-1 text-[11px] text-[#cca700]">Starting terminal…</div>
+        <div className="px-2 py-1 text-[12px] text-warn">Starting terminal…</div>
       ) : null}
-      <div ref={containerRef} className="min-h-0 min-w-0 flex-1 bg-[#1e1e1e]" />
+      <div ref={containerRef} className="min-h-0 min-w-0 flex-1 bg-black" />
     </div>
   );
-}
+});

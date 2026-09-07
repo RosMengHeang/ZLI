@@ -3,9 +3,17 @@ import { basename } from "../lib/format";
 import { toAppError } from "../lib/errors";
 import type { ProjectInfo, RepositoryInfo } from "../types";
 import { GIT_COMMANDS } from "../types/commands";
-import { invokeCmd } from "./invoke";
+import { invokeCmd, isTauriRuntime } from "./invoke";
+
+const PICKER_UNAVAILABLE = {
+  code: "plugin_unavailable",
+  message: "Folder picker is unavailable. Enter a repository path instead.",
+};
 
 export async function pickProjectDirectory(): Promise<string | null> {
+  if (!isTauriRuntime()) {
+    throw PICKER_UNAVAILABLE;
+  }
   try {
     const selected = await open({
       directory: true,
@@ -16,7 +24,11 @@ export async function pickProjectDirectory(): Promise<string | null> {
     if (Array.isArray(selected)) return selected[0] ?? null;
     return selected;
   } catch (err) {
-    throw toAppError(err);
+    const parsed = toAppError(err);
+    if (/invoke/i.test(parsed.message) || parsed.code === "plugin_unavailable") {
+      throw PICKER_UNAVAILABLE;
+    }
+    throw parsed;
   }
 }
 

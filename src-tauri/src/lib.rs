@@ -8,9 +8,9 @@ pub mod system;
 mod git;
 
 use commands::{
-    create_terminal, detect_agent_providers, kill_terminal, launch_agent, list_agent_providers,
-    list_agents, pty_close, pty_create, pty_resize, pty_write, resize_terminal, stop_agent,
-    write_terminal,
+    create_terminal, detect_agent_providers, detect_providers, kill_terminal, launch_agent,
+    list_agent_providers, list_agents, pty_close, pty_create, pty_resize, pty_write,
+    resize_terminal, stop_agent, write_terminal,
 };
 use git::commands::{
     git_abort_merge, git_commit, git_create_worktree, git_delete_branch, git_diff,
@@ -44,6 +44,7 @@ pub fn run() {
             kill_terminal,
             list_agent_providers,
             detect_agent_providers,
+            detect_providers,
             launch_agent,
             stop_agent,
             list_agents,

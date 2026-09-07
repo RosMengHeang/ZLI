@@ -38,42 +38,36 @@ export function CommitDialog() {
   return (
     <Modal title="Commit" open={open} onClose={() => setOpen(false)}>
       <form className="flex flex-col gap-3" onSubmit={(event) => void onSubmit(event)}>
-        <div className="text-[11px] text-[#8b8b8b]">
+        <div className="text-[12px] text-mute">
           {agent ? `${agent.name} · ${agent.branch}` : project?.name} — {worktreePath}
         </div>
         <textarea
-          className="h-24 resize-none border border-[#3e3e42] bg-[#3c3c3c] p-2 font-mono text-[12px] outline-none focus:border-[#0e639c]"
+          className="field field-area"
           value={message}
           onChange={(event) => setMessage(event.target.value)}
           placeholder="Commit message"
           required
           autoFocus
         />
-        <label className="flex items-center gap-2">
+        <label className="flex items-center gap-2 text-[13px]">
           <input
             type="checkbox"
             checked={stageAll}
             onChange={(event) => setStageAll(event.target.checked)}
           />
-          <span>Stage all changes (`git add -A`) before commit</span>
+          <span>Stage all changes before commit</span>
         </label>
-        {error?.code === "nothingToCommit" || error ? (
-          <div className="text-[11px] text-[#f14c4c]">{error.message}</div>
-        ) : null}
+        {error ? <div className="banner banner-error">{error.message}</div> : null}
         {lastCommit ? (
-          <div className="text-[11px] text-[#8b8b8b]">
+          <div className="font-mono text-[11px] text-mute">
             Last commit: {lastCommit.shortHash} {lastCommit.message}
           </div>
         ) : null}
         <div className="flex justify-end gap-2">
-          <button type="button" className="h-7 px-3 hover:bg-[#3e3e42]" onClick={() => setOpen(false)}>
+          <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
             Cancel
           </button>
-          <button
-            type="submit"
-            className="h-7 bg-[#0e639c] px-3 text-white hover:bg-[#1177bb] disabled:opacity-40"
-            disabled={busy || !message.trim()}
-          >
+          <button type="submit" className="btn btn-primary" disabled={busy || !message.trim()}>
             {busy ? "Committing…" : "Commit"}
           </button>
         </div>

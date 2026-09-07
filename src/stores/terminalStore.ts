@@ -13,17 +13,58 @@ interface TerminalState {
   markError: (id: string, message: string) => void;
   createSession: (request: CreatePtyRequest) => Promise<TerminalSession>;
   closeSession: (id: string) => Promise<void>;
-  resizeSession: (id: string, cols: number, rows: number) => Promise<void>;
+  resizeSession: (id: string, cols: number, rows: number) => void;
+}
+
+const lastSize = new Map<string, string>();
+const resizeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function clearResizeState(id: string): void {
+  lastSize.delete(id);
+  const timer = resizeTimers.get(id);
+  if (timer) clearTimeout(timer);
+  resizeTimers.delete(id);
 }
 
 function bindInput(id: string): void {
+  let pending = "";
+  let flushScheduled = false;
+  const flush = () => {
+    flushScheduled = false;
+    const data = pending;
+    pending = "";
+    if (!data) return;
+    const session = useTerminalStore.getState().sessions[id];
+    if (
+      !session ||
+      session.status === "exited" ||
+      session.status === "killed" ||
+      session.status === "error" ||
+      session.status === "failed"
+    ) {
+      return;
+    }
+    void ptyWrite(id, data).catch((err) => {
+      useTerminalStore.getState().markError(id, toAppError(err).message);
+    });
+  };
   terminalRegistry.ensure(id, {
     onData: (data) => {
       const session = useTerminalStore.getState().sessions[id];
-      if (!session || session.status === "exited" || session.status === "killed" || session.status === "error" || session.status === "failed") return;
-      void ptyWrite(id, data).catch((err) => {
-        useTerminalStore.getState().markError(id, toAppError(err).message);
-      });
+      if (
+        !session ||
+        session.status === "exited" ||
+        session.status === "killed" ||
+        session.status === "error" ||
+        session.status === "failed"
+      ) {
+        return;
+      }
+      pending += data;
+      if (!flushScheduled) {
+        flushScheduled = true;
+        queueMicrotask(flush);
+      }
     },
   });
 }
@@ -123,6 +164,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         get().markError(id, parsed.message);
       }
     } finally {
+      clearResizeState(id);
       terminalRegistry.dispose(id);
       set((state) => {
         const next = { ...state.sessions };
@@ -132,22 +174,25 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     }
   },
 
-  resizeSession: async (id, cols, rows) => {
+  resizeSession: (id, cols, rows) => {
     const session = get().sessions[id];
     if (!session || session.status !== "running") return;
-    set((state) => ({
-      sessions: {
-        ...state.sessions,
-        [id]: { ...session, cols, rows },
-      },
-    }));
-    try {
-      await ptyResize(id, cols, rows);
-    } catch (err) {
-      const parsed = toAppError(err);
-      if (!isCommandMissing(parsed)) {
-        get().markError(id, parsed.message);
-      }
-    }
+    const key = `${cols}x${rows}`;
+    if (lastSize.get(id) === key) return;
+    lastSize.set(id, key);
+    const previous = resizeTimers.get(id);
+    if (previous) clearTimeout(previous);
+    resizeTimers.set(
+      id,
+      setTimeout(() => {
+        resizeTimers.delete(id);
+        void ptyResize(id, cols, rows).catch((err) => {
+          const parsed = toAppError(err);
+          if (!isCommandMissing(parsed)) {
+            useTerminalStore.getState().markError(id, parsed.message);
+          }
+        });
+      }, 48),
+    );
   },
 }));

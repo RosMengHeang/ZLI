@@ -27,12 +27,29 @@ test("registers a launched agent as a running terminal session", async () => {
   });
 });
 
-test("keeps two columns for a multi-terminal workspace grid", async () => {
-  const { gridColumnsFor } = await import("../src/lib/workspaceLayout.ts");
+test("describes a non-uniform 3-pane split instead of an equal grid", async () => {
+  const { layoutSignature, collectSplitSizeList, restoreSplitSizes } = await import(
+    "../src/lib/workspaceLayout.ts"
+  );
 
-  assert.equal(gridColumnsFor(0), 1);
-  assert.equal(gridColumnsFor(1), 1);
-  assert.equal(gridColumnsFor(2), 2);
-  assert.equal(gridColumnsFor(4), 2);
-  assert.equal(gridColumnsFor(6), 2);
+  const tree = {
+    type: "split",
+    id: "root",
+    direction: "horizontal",
+    sizes: [62, 38],
+    first: { type: "leaf", id: "a", terminalId: "t1" },
+    second: {
+      type: "split",
+      id: "stack",
+      direction: "vertical",
+      sizes: [50, 50],
+      first: { type: "leaf", id: "b", terminalId: "t2" },
+      second: { type: "leaf", id: "c", terminalId: "t3" },
+    },
+  };
+
+  assert.equal(layoutSignature(tree), "h(L,v(L,L))");
+  assert.deepEqual(collectSplitSizeList(tree), [62, 38, 50, 50]);
+  const restored = restoreSplitSizes(tree, "h(L,v(L,L))", [70, 30, 40, 60]);
+  assert.deepEqual(collectSplitSizeList(restored), [70, 30, 40, 60]);
 });

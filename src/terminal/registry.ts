@@ -14,26 +14,26 @@ const MAX_PENDING_CHUNKS = 128;
 let holding: HTMLDivElement | null = null;
 
 const XTERM_THEME = {
-  background: "#1e1e1e",
-  foreground: "#d4d4d4",
-  cursor: "#aeafad",
-  cursorAccent: "#1e1e1e",
-  selectionBackground: "#264f78",
-  black: "#1e1e1e",
-  red: "#f44747",
-  green: "#6a9955",
-  yellow: "#dcdcaa",
-  blue: "#569cd6",
-  magenta: "#c586c0",
-  cyan: "#4ec9b0",
-  white: "#d4d4d4",
-  brightBlack: "#808080",
-  brightRed: "#f44747",
-  brightGreen: "#6a9955",
-  brightYellow: "#dcdcaa",
-  brightBlue: "#569cd6",
-  brightMagenta: "#c586c0",
-  brightCyan: "#4ec9b0",
+  background: "#0b0e14",
+  foreground: "#e5e7eb",
+  cursor: "#2563eb",
+  cursorAccent: "#0b0e14",
+  selectionBackground: "#1e3a5f",
+  black: "#0b0e14",
+  red: "#ef4444",
+  green: "#22c55e",
+  yellow: "#eab308",
+  blue: "#60a5fa",
+  magenta: "#c084fc",
+  cyan: "#22d3ee",
+  white: "#e5e7eb",
+  brightBlack: "#9ca3af",
+  brightRed: "#f87171",
+  brightGreen: "#4ade80",
+  brightYellow: "#facc15",
+  brightBlue: "#93c5fd",
+  brightMagenta: "#d8b4fe",
+  brightCyan: "#67e8f9",
   brightWhite: "#ffffff",
 };
 
@@ -78,12 +78,15 @@ export const terminalRegistry = {
 
     const terminal = new Terminal({
       cursorBlink: true,
-      fontFamily: '"Cascadia Code", "Cascadia Mono", Consolas, "Courier New", monospace',
+      fontFamily: '"IBM Plex Mono", "Cascadia Mono", Consolas, "Courier New", monospace',
       fontSize: 13,
       lineHeight: 1.2,
       theme: XTERM_THEME,
-      scrollback: 5000,
+      scrollback: 2500,
       allowProposedApi: true,
+      ...(typeof navigator !== "undefined" && /win/i.test(navigator.platform)
+        ? { windowsPty: { backend: "conpty" as const } }
+        : {}),
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);

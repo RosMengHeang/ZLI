@@ -9,7 +9,8 @@ export function displayPath(path: string, max = 56): string {
   return `…${path.slice(-(max - 1))}`;
 }
 
-export function formatPlusMinus(additions: number | null, deletions: number | null): string {
+export function formatPlusMinus(additions: number | null | undefined, deletions: number | null | undefined): string {
+  if (additions == null && deletions == null) return "";
   const add = additions ?? 0;
   const del = deletions ?? 0;
   return `+${add} −${del}`;
