@@ -41,11 +41,15 @@
 - `src/components/setup/SetupAgentsStep.tsx` — agent configuration step.
 - `src/components/setup/SetupReviewStep.tsx` — launch summary and progress step.
 - `src/lib/browserNavigation.ts` — pure address normalization and history transitions.
+- `src/lib/statusPresentation.ts` — user-visible status labels, tones, and animation state.
+- `src/lib/dialogBehavior.ts` — safe dialog-dismissal decisions.
+- `src/lib/gitPresentation.ts` — accessible changed-file status labels.
 - `tests/uiTheme.test.mjs` — theme preference and resolution regression tests.
-- `tests/uiContract.test.mjs` — token, icon, focus, and reduced-motion source contracts.
+- `tests/statusPresentation.test.mjs` — visible status behavior tests.
 - `tests/chromePresentation.test.mjs` — responsive shell presentation tests.
 - `tests/setupModel.test.mjs` — setup count and launch-plan tests.
 - `tests/browserNavigation.test.mjs` — browser address/history tests.
+- `tests/presentationBehavior.test.mjs` — dialog dismissal and Git status-label tests.
 
 ### Existing files with focused changes
 
@@ -188,7 +192,8 @@ git commit -m "feat(ui): add system-aware theme engine"
 ### Task 2: Quiet Native tokens, controls, and icon contract
 
 **Files:**
-- Create: `tests/uiContract.test.mjs`
+- Create: `src/lib/statusPresentation.ts`
+- Create: `tests/statusPresentation.test.mjs`
 - Modify: `src/index.css`
 - Modify: `src/components/AppIcons.tsx`
 - Modify: `src/components/ProviderIcon.tsx`
@@ -198,41 +203,29 @@ git commit -m "feat(ui): add system-aware theme engine"
 - Consumes: `[data-theme="light"]` and `[data-theme="dark"]` from Task 1.
 - Produces: semantic tokens `--app-canvas`, `--sidebar`, `--surface`, `--surface-raised`, `--separator`, `--text-primary`, `--text-secondary`, `--accent`, `--control-radius`, `--tile-radius`, `--dialog-radius`, `--motion-fast`, and `--motion-panel`.
 - Produces: reusable `.btn`, `.btn-primary`, `.btn-quiet`, `.btn-icon`, `.field`, `.surface-dialog`, `.workspace-tile`, `.nav-item`, `.banner`, and `.status-dot` contracts.
+- Produces: `statusPresentation(status)` so status text, semantic tone, and animation are derived from one tested contract.
 
-- [ ] **Step 1: Write the failing source-contract test**
+- [ ] **Step 1: Write the failing status-presentation test**
 
 ```js
-// tests/uiContract.test.mjs
+// tests/statusPresentation.test.mjs
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("global CSS defines both themes and native interaction contracts", async () => {
-  const css = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
-  for (const token of [
-    "--app-canvas", "--sidebar", "--surface", "--surface-raised", "--separator",
-    "--text-primary", "--text-secondary", "--accent", "--control-radius",
-    "--tile-radius", "--dialog-radius", "--motion-fast", "--motion-panel",
-  ]) assert.match(css, new RegExp(`${token}:`));
-  assert.match(css, /\[data-theme=["']light["']\]/);
-  assert.match(css, /prefers-reduced-motion:\s*reduce/);
-  assert.match(css, /:focus-visible/);
-});
-
-test("shell controls use SVG icons instead of text glyphs", async () => {
-  const icons = await readFile(new URL("../src/components/AppIcons.tsx", import.meta.url), "utf8");
-  for (const name of ["IconClose", "IconReload", "IconSearch", "IconMore", "IconSun", "IconMoon"])
-    assert.match(icons, new RegExp(`export function ${name}`));
-  assert.match(icons, /strokeLinecap:\s*["']round["']/);
-  assert.match(icons, /strokeWidth:\s*1\.5/);
+test("maps process state to text, semantic tone, and motion", async () => {
+  const { statusPresentation } = await import("../src/lib/statusPresentation.ts");
+  assert.deepEqual(statusPresentation("running"), { label: "Running", tone: "success", animated: true });
+  assert.deepEqual(statusPresentation("starting"), { label: "Starting", tone: "warning", animated: true });
+  assert.deepEqual(statusPresentation("failed"), { label: "Failed", tone: "danger", animated: false });
+  assert.deepEqual(statusPresentation("stopped"), { label: "Stopped", tone: "neutral", animated: false });
 });
 ```
 
-- [ ] **Step 2: Run the contract test and verify it fails on missing tokens/icons**
+- [ ] **Step 2: Run the focused test and verify the helper is missing**
 
-Run: `node --test tests/uiContract.test.mjs`
+Run: `node --experimental-strip-types --test tests/statusPresentation.test.mjs`
 
-Expected: FAIL listing missing semantic tokens and icon exports.
+Expected: FAIL with `ERR_MODULE_NOT_FOUND` for `src/lib/statusPresentation.ts`.
 
 - [ ] **Step 3: Replace legacy chrome colors with the semantic token system**
 
@@ -272,11 +265,13 @@ Map existing Tailwind theme aliases (`ink`, `panel`, `chrome`, `raised`, `line`,
 
 Add the missing icons using the existing `Svg` wrapper and shared 1.5px rounded-stroke object. Keep provider logos in their uniform 24px optical container. Update `StatusBadge` so every color state has visible text and an `aria-label`.
 
+Implement `statusPresentation(status)` as a total switch returning the four literal objects asserted above, and make `StatusBadge` consume it. CSS and SVG rendering are verified by TypeScript/Vite compilation and the real visual acceptance in Task 8; they do not receive source-text change-detector tests.
+
 - [ ] **Step 4: Run contract tests, the complete Node suite, lint, and build**
 
-Run: `node --test tests/uiContract.test.mjs`
+Run: `node --experimental-strip-types --test tests/statusPresentation.test.mjs`
 
-Expected: 2 tests pass.
+Expected: 1 test passes.
 
 Run: `npm test`
 
@@ -293,7 +288,7 @@ Expected: TypeScript and Vite complete successfully.
 - [ ] **Step 5: Commit the visual foundation**
 
 ```powershell
-git add tests/uiContract.test.mjs src/index.css src/components/AppIcons.tsx src/components/ProviderIcon.tsx src/components/StatusBadge.tsx
+git add src/lib/statusPresentation.ts tests/statusPresentation.test.mjs src/index.css src/components/AppIcons.tsx src/components/ProviderIcon.tsx src/components/StatusBadge.tsx
 git commit -m "feat(ui): establish quiet native design system"
 ```
 
@@ -653,6 +648,9 @@ git commit -m "feat(ui): refine browser inspector experience"
 ### Task 7: Git review, dialogs, and failure-state hierarchy
 
 **Files:**
+- Create: `src/lib/dialogBehavior.ts`
+- Create: `src/lib/gitPresentation.ts`
+- Create: `tests/presentationBehavior.test.mjs`
 - Modify: `src/components/GitReviewPanel.tsx`
 - Modify: `src/components/DiffViewer.tsx`
 - Modify: `src/components/Modal.tsx`
@@ -667,39 +665,41 @@ git commit -m "feat(ui): refine browser inspector experience"
 **Interfaces:**
 - Consumes: Task 2 dialog/control/banner contracts and existing Git store actions.
 - Produces: consistent dialog title/description/content/action structure and readable Git review at narrow heights.
+- Produces: `canDismissDialog({ dismissible, busy })` and `changedFileLabel({ status, path })`.
 
-- [ ] **Step 1: Add failing dialog and Git source-contract tests**
-
-Add to `tests/perfUsability.test.mjs`:
+- [ ] **Step 1: Write failing dialog and Git presentation tests**
 
 ```js
-import { readFile } from "node:fs/promises";
+// tests/presentationBehavior.test.mjs
+import assert from "node:assert/strict";
+import test from "node:test";
 
-test("modal exposes description and safe-dismiss contracts", async () => {
-  const source = await readFile(new URL("../src/components/Modal.tsx", import.meta.url), "utf8");
-  assert.match(source, /description\?: string/);
-  assert.match(source, /dismissible\?: boolean/);
-  assert.match(source, /aria-describedby/);
-  assert.match(source, /data-dialog-actions/);
+test("prevents incidental dismissal while a dialog is busy", async () => {
+  const { canDismissDialog } = await import("../src/lib/dialogBehavior.ts");
+  assert.equal(canDismissDialog({ dismissible: true, busy: false }), true);
+  assert.equal(canDismissDialog({ dismissible: true, busy: true }), false);
+  assert.equal(canDismissDialog({ dismissible: false, busy: false }), false);
 });
 
-test("Git review labels changed-file state without relying on color", async () => {
-  const source = await readFile(new URL("../src/components/GitReviewPanel.tsx", import.meta.url), "utf8");
-  assert.ok(source.includes('aria-label={`${file.status}: ${file.path}`}'));
-  assert.match(source, /Changed files/);
-  assert.match(source, /Commit changes/);
+test("describes changed files without relying on status color", async () => {
+  const { changedFileLabel } = await import("../src/lib/gitPresentation.ts");
+  assert.equal(changedFileLabel({ status: "M", path: "src/App.tsx" }), "Modified: src/App.tsx");
+  assert.equal(changedFileLabel({ status: "A", path: "README.md" }), "Added: README.md");
+  assert.equal(changedFileLabel({ status: "?", path: "notes.txt" }), "Untracked: notes.txt");
 });
 ```
 
-- [ ] **Step 2: Run focused tests and verify the contracts fail**
+- [ ] **Step 2: Run focused tests and verify both helpers are missing**
 
-Run: `node --experimental-strip-types --test tests/perfUsability.test.mjs`
+Run: `node --experimental-strip-types --test tests/presentationBehavior.test.mjs`
 
-Expected: FAIL on missing modal props/action marker or Git labels.
+Expected: FAIL with `ERR_MODULE_NOT_FOUND` for `dialogBehavior.ts` or `gitPresentation.ts`.
 
 - [ ] **Step 3: Implement native dialog and Git review hierarchy**
 
 Extend `ModalProps` with `description?: string` and `dismissible?: boolean`. Render the description below the title, connect it with `aria-describedby`, and mark the footer container with `data-dialog-actions`. Escape and backdrop close only when `dismissible !== false`; focus trapping and restoration remain unchanged.
+
+Implement `canDismissDialog({ dismissible, busy })` as `dismissible && !busy` and use it for Escape, backdrop, and close-button behavior. Implement `changedFileLabel` with explicit `M`, `A`, `D`, `R`, and `?` mappings plus a `Changed` fallback; `GitReviewPanel` uses the returned label for each file option.
 
 Update each dialog to provide explicit descriptions and action labels: “Add agent,” “Commit changes,” “Merge branch,” “Discard changes,” and “Open project.” Busy destructive dialogs pass `dismissible={false}`. Put validation beside its field and operation failures above the action row.
 
@@ -707,9 +707,9 @@ In `GitReviewPanel`, keep branch, count, and additions/deletions in the left hea
 
 - [ ] **Step 4: Run focused, frontend, and Rust checks**
 
-Run: `node --experimental-strip-types --test tests/perfUsability.test.mjs`
+Run: `node --experimental-strip-types --test tests/presentationBehavior.test.mjs tests/perfUsability.test.mjs`
 
-Expected: all tests in the file pass.
+Expected: all tests in both files pass.
 
 Run: `npm test`
 
@@ -730,7 +730,7 @@ Expected: exit 0.
 - [ ] **Step 5: Commit inspector and dialog polish**
 
 ```powershell
-git add src/components/GitReviewPanel.tsx src/components/DiffViewer.tsx src/components/Modal.tsx src/components/AddAgentDialog.tsx src/components/CommitDialog.tsx src/components/MergeDialog.tsx src/components/DiscardDialog.tsx src/components/PathDialog.tsx src/components/HelpDialog.tsx tests/perfUsability.test.mjs
+git add src/lib/dialogBehavior.ts src/lib/gitPresentation.ts tests/presentationBehavior.test.mjs src/components/GitReviewPanel.tsx src/components/DiffViewer.tsx src/components/Modal.tsx src/components/AddAgentDialog.tsx src/components/CommitDialog.tsx src/components/MergeDialog.tsx src/components/DiscardDialog.tsx src/components/PathDialog.tsx src/components/HelpDialog.tsx tests/perfUsability.test.mjs
 git commit -m "feat(ui): unify review and dialog interactions"
 ```
 
