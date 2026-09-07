@@ -28,8 +28,8 @@ export interface TerminalSession {
   error?: string | null;
 }
 
-/** Matches `src-tauri/src/agents/mod.rs` ids (`claude`/`codex`/`cursor`) plus local shell. */
-export type AgentProviderId = "claude" | "codex" | "cursor" | "shell";
+/** Provider IDs are backend-defined so newly detected CLIs can appear without a frontend release. */
+export type AgentProviderId = string;
 
 export interface AgentProvider {
   id: AgentProviderId;
@@ -219,14 +219,23 @@ export const PROVIDER_CATALOG: {
   id: AgentProviderId;
   displayName: string;
 }[] = [
-  { id: "claude", displayName: "Claude Code" },
+  { id: "claude-code", displayName: "Claude Code" },
   { id: "codex", displayName: "Codex" },
-  { id: "cursor", displayName: "Cursor Agent" },
+  { id: "cursor-agent", displayName: "Cursor Agent" },
+  { id: "opencode", displayName: "OpenCode" },
+  { id: "gemini", displayName: "Gemini CLI" },
+  { id: "aider", displayName: "Aider" },
+  { id: "goose", displayName: "Goose" },
   { id: "shell", displayName: "Terminal" },
 ];
 
 export function providerDisplayName(id: string): string {
-  return PROVIDER_CATALOG.find((p) => p.id === id)?.displayName ?? id;
+  const aliases: Record<string, string> = {
+    claude: "claude-code",
+    cursor: "cursor-agent",
+  };
+  const canonicalId = aliases[id] ?? id;
+  return PROVIDER_CATALOG.find((p) => p.id === canonicalId)?.displayName ?? id;
 }
 
 /** Git worktree slugs from the git backend comments. */

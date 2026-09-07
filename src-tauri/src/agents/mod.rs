@@ -220,6 +220,10 @@ const CURSOR_CANDIDATES: &[&str] = &[
     "cursor-agent.ps1",
     "agent.ps1",
 ];
+const OPENCODE_CANDIDATES: &[&str] = &["opencode", "opencode.exe", "opencode.cmd", "opencode.ps1"];
+const GEMINI_CANDIDATES: &[&str] = &["gemini", "gemini.exe", "gemini.cmd", "gemini.ps1"];
+const AIDER_CANDIDATES: &[&str] = &["aider", "aider.exe", "aider.cmd", "aider.ps1"];
+const GOOSE_CANDIDATES: &[&str] = &["goose", "goose.exe", "goose.cmd", "goose.ps1"];
 
 pub fn provider_specs() -> Vec<ProviderSpec> {
     vec![
@@ -238,6 +242,26 @@ pub fn provider_specs() -> Vec<ProviderSpec> {
             display_name: "Cursor Agent",
             candidates: CURSOR_CANDIDATES,
         },
+        ProviderSpec {
+            id: "opencode",
+            display_name: "OpenCode",
+            candidates: OPENCODE_CANDIDATES,
+        },
+        ProviderSpec {
+            id: "gemini",
+            display_name: "Gemini CLI",
+            candidates: GEMINI_CANDIDATES,
+        },
+        ProviderSpec {
+            id: "aider",
+            display_name: "Aider",
+            candidates: AIDER_CANDIDATES,
+        },
+        ProviderSpec {
+            id: "goose",
+            display_name: "Goose",
+            candidates: GOOSE_CANDIDATES,
+        },
     ]
 }
 
@@ -246,6 +270,10 @@ pub fn provider_spec(provider_id: &str) -> Option<ProviderSpec> {
         "claude" | "claude-code" => "claude-code",
         "codex" => "codex",
         "cursor" | "cursor-agent" => "cursor-agent",
+        "opencode" => "opencode",
+        "gemini" | "gemini-cli" => "gemini",
+        "aider" => "aider",
+        "goose" => "goose",
         _ => return None,
     };
     provider_specs()
@@ -290,7 +318,7 @@ mod tests {
     #[test]
     fn provider_specs_include_reasonable_cli_variants() {
         let specs = provider_specs();
-        assert_eq!(specs.len(), 3);
+        assert_eq!(specs.len(), 7);
         assert!(specs
             .iter()
             .find(|spec| spec.id == "claude-code")
@@ -306,6 +334,12 @@ mod tests {
         let cursor = specs.iter().find(|spec| spec.id == "cursor-agent").unwrap();
         assert!(cursor.candidates.contains(&"cursor-agent"));
         assert!(cursor.candidates.contains(&"agent"));
+        assert!(specs
+            .iter()
+            .find(|spec| spec.id == "opencode")
+            .unwrap()
+            .candidates
+            .contains(&"opencode"));
     }
 
     #[test]

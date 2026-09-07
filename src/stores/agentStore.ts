@@ -38,14 +38,18 @@ function unavailableProviders(): AgentProvider[] {
 }
 
 function mergeProviders(detected: AgentProvider[]): AgentProvider[] {
-  return PROVIDER_CATALOG.map((item) => {
+  const normalizeId = (id: string): string => {
+    if (id === "claude") return "claude-code";
+    if (id === "cursor") return "cursor-agent";
+    return id;
+  };
+  const normalized = detected.map((provider) => ({
+    ...provider,
+    id: normalizeId(String(provider.id)),
+  }));
+  const known = PROVIDER_CATALOG.map((item) => {
     const match = detected.find((provider) => {
-      const id = String(provider.id);
-      return (
-        id === item.id ||
-        (item.id === "claude" && (id === "claude-code" || id === "claude")) ||
-        (item.id === "cursor" && (id === "cursor-agent" || id === "cursor"))
-      );
+      return normalizeId(String(provider.id)) === item.id;
     });
     if (!match) {
       return {
@@ -57,10 +61,14 @@ function mergeProviders(detected: AgentProvider[]): AgentProvider[] {
     }
     return {
       ...match,
+      id: normalizeId(String(match.id)),
       displayName: match.displayName || item.displayName,
       installed: Boolean(match.installed),
     };
   });
+  const knownIds = new Set(PROVIDER_CATALOG.map((item) => item.id));
+  const extras = normalized.filter((provider) => !knownIds.has(provider.id));
+  return [...known, ...extras];
 }
 
 export const useAgentStore = create<AgentState>((set, get) => ({

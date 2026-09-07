@@ -17,7 +17,7 @@ export function AddAgentDialog() {
   const launchError = useAgentStore((s) => s.launchError);
   const project = useProjectStore((s) => s.project);
   const [name, setName] = useState("");
-  const [provider, setProvider] = useState<AgentProviderId>("claude");
+  const [provider, setProvider] = useState<AgentProviderId>("claude-code");
   const [createWorktree, setCreateWorktree] = useState(true);
 
   useEffect(() => {

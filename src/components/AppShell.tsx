@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { AddAgentDialog } from "./AddAgentDialog";
 import { CommitDialog } from "./CommitDialog";
@@ -9,6 +9,7 @@ import { PathDialog } from "./PathDialog";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { Workspace } from "./Workspace";
+import { SetupWizard } from "./SetupWizard";
 import { useAgentStore } from "../stores/agentStore";
 import { useGitStore } from "../stores/gitStore";
 import { useLayoutStore } from "../stores/layoutStore";
@@ -16,6 +17,7 @@ import { useProjectStore } from "../stores/projectStore";
 import { startPtyBridge } from "../terminal/ptyBridge";
 
 export function AppShell() {
+  const [setupOpen, setSetupOpen] = useState(true);
   const project = useProjectStore((s) => s.project);
   const error = useProjectStore((s) => s.error);
   const gitPanelOpen = useLayoutStore((s) => s.gitPanelOpen);
@@ -40,7 +42,7 @@ export function AppShell() {
           {error.message}
         </div>
       ) : null}
-      <div className="min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1">
         <Group orientation="horizontal" className="h-full">
           <Panel defaultSize="18" minSize="12" maxSize="32">
             <Sidebar />
@@ -62,6 +64,7 @@ export function AppShell() {
             )}
           </Panel>
         </Group>
+        {setupOpen ? <SetupWizard onComplete={() => setSetupOpen(false)} /> : null}
       </div>
       <footer className="flex h-5 shrink-0 items-center gap-3 border-t border-[#3e3e42] bg-[#007acc] px-2 text-[11px] text-white">
         <span>{project ? project.currentBranch : "no repo"}</span>
