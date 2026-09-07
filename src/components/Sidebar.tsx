@@ -5,7 +5,8 @@ import { useUiStore } from "../stores/uiStore";
 import { providerDisplayName } from "../types";
 
 export function Sidebar() {
-  const agents = useAgentStore((s) => Object.values(s.agents));
+  const agentMap = useAgentStore((s) => s.agents);
+  const agents = Object.values(agentMap);
   const selectedAgentId = useAgentStore((s) => s.selectedAgentId);
   const selectAgent = useAgentStore((s) => s.selectAgent);
   const setAddAgentOpen = useUiStore((s) => s.setAddAgentOpen);
