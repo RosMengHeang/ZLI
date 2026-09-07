@@ -4,9 +4,9 @@
 @import "@fontsource/ibm-plex-mono/latin-500.css";
 
 @theme {
-  --font-sans: Inter, "Segoe UI Variable Text", "Segoe UI", "SF Pro Text", system-ui, sans-serif;
-  --font-brand: Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
+  --font-sans: "Segoe UI Variable Text", "SF Pro Text", system-ui, sans-serif;
+  --font-brand: "Segoe UI Variable Text", "SF Pro Text", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
   --color-ink: var(--app-canvas);
   --color-panel: var(--sidebar);
   --color-chrome: var(--surface);
@@ -55,9 +55,7 @@
   --border: var(--color-line);
   --text: var(--color-paper);
   --text-muted: var(--color-mute);
-  --accent: var(--color-accent);
   --accent-hover: var(--color-accent-hover);
-  --danger: var(--color-danger);
   --warn: var(--color-warn);
   --ok: var(--color-ok);
   --add: #22c55e;
@@ -187,7 +185,7 @@ select {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.35rem;
+  gap: 4px;
   height: 28px;
   padding: 0 0.75rem;
   border: 1px solid transparent;
@@ -274,10 +272,10 @@ select {
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 0.65rem;
+  gap: 8px;
   min-height: 32px;
   border-radius: var(--control-radius);
-  padding: 0 0.6rem;
+  padding: 0 8px;
   color: var(--text-secondary);
   text-align: left;
   transition: background var(--ease), color var(--ease);
@@ -326,7 +324,7 @@ input[type="radio"] {
 
 .banner {
   border-radius: var(--control-radius);
-  padding: 0.6rem 0.75rem;
+  padding: 8px 12px;
   font-size: 12px;
   line-height: 1.45;
 }
@@ -352,7 +350,7 @@ input[type="radio"] {
 .provider-card {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
+  gap: 8px;
   width: 100%;
   border: 1px solid var(--color-line);
   border-radius: 10px;
