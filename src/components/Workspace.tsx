@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import { BrowserPanel } from "./BrowserPanel";
 import { TerminalPane } from "./TerminalPane";
+import { gridColumnsFor } from "../lib/workspaceLayout";
 import { useLayoutStore } from "../stores/layoutStore";
 import { collectLeaves } from "../stores/paneTree";
 import { useAgentStore } from "../stores/agentStore";
@@ -11,14 +11,13 @@ export function Workspace() {
   const project = useProjectStore((s) => s.project);
   const paneTree = useLayoutStore((s) => s.paneTree);
   const setAddAgentOpen = useUiStore((s) => s.setAddAgentOpen);
-  const workspaceView = useUiStore((s) => s.workspaceView);
-  const setWorkspaceView = useUiStore((s) => s.setWorkspaceView);
+  const setBrowserOpen = useUiStore((s) => s.setBrowserOpen);
   const agents = useAgentStore((s) => s.agents);
   const leaves = useMemo(() => collectLeaves(paneTree), [paneTree]);
   const agentCount = Object.keys(agents).length;
   const runningCount = Object.values(agents).filter((agent) => agent.status === "running").length;
 
-  if (!project && workspaceView === "agents") {
+  if (!project) {
     return (
       <div className="flex h-full items-center justify-center bg-[#1e1e1e]">
         <div className="max-w-md px-6 text-center">
@@ -36,36 +35,18 @@ export function Workspace() {
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#1b1c1e]">
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-[#34363a] bg-[#242629] px-3">
         <div className="flex items-center gap-3">
-          <span className="text-[11px] font-semibold text-white">{workspaceView === "agents" ? "Agent workspace" : "Browser"}</span>
-          {workspaceView === "agents" ? (
-            <span className="text-[10px] text-[#7f858b]">{runningCount}/{agentCount} running · {leaves.length} panes</span>
-          ) : (
-            <span className="text-[10px] text-[#7f858b]">Research without leaving your workspace</span>
-          )}
+          <span className="text-[11px] font-semibold text-white">Agent workspace</span>
+          <span className="text-[10px] text-[#7f858b]">{runningCount}/{agentCount} running · {leaves.length} panes · 2-column grid</span>
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            className={`h-6 px-2 text-[10px] ${workspaceView === "agents" ? "bg-[#0e639c] text-white" : "text-[#9b9da1] hover:bg-[#3b3e42] hover:text-white"}`}
-            onClick={() => setWorkspaceView("agents")}
-          >
-            Grid
-          </button>
-          <button
-            type="button"
-            className={`h-6 px-2 text-[10px] ${workspaceView === "browser" ? "bg-[#0e639c] text-white" : "text-[#9b9da1] hover:bg-[#3b3e42] hover:text-white"}`}
-            onClick={() => setWorkspaceView("browser")}
-          >
-            Browser
-          </button>
-        </div>
+        <button
+          type="button"
+          className="h-6 border border-[#45484d] px-2 text-[10px] text-[#c5c8cb] hover:border-[#4ec9b0] hover:text-white"
+          onClick={() => setBrowserOpen(true)}
+        >
+          Open browser
+        </button>
       </div>
-
-      <div className={`min-h-0 flex-1 ${workspaceView === "browser" ? "block" : "hidden"}`}>
-        <BrowserPanel />
-      </div>
-
-      <div className={`min-h-0 flex-1 ${workspaceView === "agents" ? "block" : "hidden"}`}>
+      <div className="min-h-0 flex-1">
         {!paneTree ? (
           <div className="flex h-full items-center justify-center bg-[#1e1e1e]">
             <div className="max-w-md px-6 text-center">
@@ -84,7 +65,7 @@ export function Workspace() {
                 <button
                   type="button"
                   className="h-7 border border-[#45484d] px-3 text-[11px] text-[#c5c8cb] hover:border-[#4ec9b0] hover:text-white"
-                  onClick={() => setWorkspaceView("browser")}
+                  onClick={() => setBrowserOpen(true)}
                 >
                   Open browser
                 </button>
@@ -94,7 +75,7 @@ export function Workspace() {
         ) : (
           <div
             className="grid h-full min-h-0 auto-rows-[minmax(240px,1fr)] gap-2 overflow-auto bg-[#151719] p-2"
-            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))" }}
+            style={{ gridTemplateColumns: `repeat(${gridColumnsFor(leaves.length)}, minmax(0, 1fr))` }}
           >
             {leaves.map((leaf) => (
               <div key={leaf.id} className="min-h-[240px] min-w-0 overflow-hidden border border-[#34383d] bg-[#1e1e1e] shadow-[0_8px_24px_rgba(0,0,0,0.16)]">

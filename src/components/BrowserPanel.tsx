@@ -1,5 +1,9 @@
-import { useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { Webview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isTauriRuntime } from "../tauri/invoke";
 
 const STARTER_LINKS = [
   { label: "GitHub", url: "https://github.com" },
@@ -18,7 +22,79 @@ export function BrowserPanel() {
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [draft, setDraft] = useState("");
   const [frameVersion, setFrameVersion] = useState(0);
+  const [nativeError, setNativeError] = useState<string | null>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const nativeWebviewRef = useRef<Webview | null>(null);
+  const nativeBrowser = isTauriRuntime();
   const currentUrl = history[historyIndex] ?? "";
+
+  useEffect(() => {
+    if (!nativeBrowser || !currentUrl) return;
+    let cancelled = false;
+    let observer: ResizeObserver | null = null;
+    let removeWindowResizeListener: (() => void) | null = null;
+
+    async function updateBounds(webview: Webview) {
+      const viewport = viewportRef.current;
+      if (!viewport || cancelled) return;
+      const rect = viewport.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      await webview.setPosition(new LogicalPosition(rect.left, rect.top));
+      await webview.setSize(new LogicalSize(rect.width, rect.height));
+    }
+
+    async function mountWebview() {
+      setNativeError(null);
+      const previous = await Webview.getByLabel("browser-panel");
+      await previous?.close().catch(() => undefined);
+      if (cancelled) return;
+
+      const viewport = viewportRef.current;
+      if (!viewport) return;
+      const rect = viewport.getBoundingClientRect();
+      const webview = new Webview(getCurrentWindow(), "browser-panel", {
+        url: currentUrl,
+        x: rect.left,
+        y: rect.top,
+        width: Math.max(1, rect.width),
+        height: Math.max(1, rect.height),
+        focus: false,
+        dragDropEnabled: false,
+      });
+      nativeWebviewRef.current = webview;
+      const handleWindowResize = () => void updateBounds(webview);
+      await webview.once("tauri://error", () => {
+        if (!cancelled) setNativeError("The page could not be loaded in the embedded browser.");
+      });
+      await webview.setAutoResize(false);
+      observer = new ResizeObserver(() => void updateBounds(webview));
+      observer.observe(viewport);
+      window.addEventListener("resize", handleWindowResize);
+      removeWindowResizeListener = () => window.removeEventListener("resize", handleWindowResize);
+
+      if (cancelled) {
+        observer.disconnect();
+        removeWindowResizeListener();
+        removeWindowResizeListener = null;
+        await webview.close().catch(() => undefined);
+        return;
+      }
+    }
+
+    void mountWebview().catch((error) => {
+      if (!cancelled) setNativeError(error instanceof Error ? error.message : String(error));
+    });
+
+    return () => {
+      cancelled = true;
+      observer?.disconnect();
+      removeWindowResizeListener?.();
+      removeWindowResizeListener = null;
+      const webview = nativeWebviewRef.current;
+      nativeWebviewRef.current = null;
+      void webview?.close().catch(() => undefined);
+    };
+  }, [currentUrl, frameVersion, nativeBrowser]);
 
   function navigate(value: string) {
     const normalized = normalizeUrl(value);
@@ -130,13 +206,23 @@ export function BrowserPanel() {
 
       <div className="min-h-0 flex-1 bg-[#151719]">
         {currentUrl ? (
-          <iframe
-            key={`${currentUrl}:${frameVersion}`}
-            title="Taxzy browser"
-            src={currentUrl}
-            className="h-full w-full border-0 bg-white"
-            referrerPolicy="strict-origin-when-cross-origin"
-          />
+          <div ref={viewportRef} className="relative h-full w-full bg-[#202326]">
+            {!nativeBrowser ? (
+              <iframe
+                key={`${currentUrl}:${frameVersion}`}
+                title="Taxzy browser"
+                src={currentUrl}
+                className="h-full w-full border-0 bg-white"
+                referrerPolicy="strict-origin-when-cross-origin"
+              />
+            ) : nativeError ? (
+              <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-[#f4b183]">
+                {nativeError}
+              </div>
+            ) : (
+              <div className="flex h-full items-center justify-center text-[11px] text-[#7f858b]">Loading page…</div>
+            )}
+          </div>
         ) : (
           <div className="flex h-full items-center justify-center px-6">
             <div className="w-full max-w-xl border border-[#34383d] bg-[#202326] p-6">

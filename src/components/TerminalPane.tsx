@@ -11,6 +11,17 @@ interface TerminalPaneProps {
   terminalId: string;
 }
 
+const PROVIDER_ACCENTS: Record<string, string> = {
+  "claude-code": "#d29922",
+  codex: "#4ec9b0",
+  "cursor-agent": "#9cdcfe",
+  opencode: "#c586c0",
+  gemini: "#8cc84b",
+  aider: "#f97583",
+  goose: "#f2cc60",
+  shell: "#808080",
+};
+
 export function TerminalPane({ paneId, terminalId }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const session = useTerminalStore((s) => s.sessions[terminalId]);
@@ -75,13 +86,14 @@ export function TerminalPane({ paneId, terminalId }: TerminalPaneProps) {
   const title = agent?.name ?? session?.title ?? "Terminal";
   const provider = agent ? providerDisplayName(agent.provider) : "Shell";
   const status = session?.status ?? "starting";
+  const accent = agent ? PROVIDER_ACCENTS[agent.provider] ?? "#4ec9b0" : PROVIDER_ACCENTS.shell;
 
   return (
     <div
       className={`flex h-full min-h-0 min-w-0 flex-col ${active ? "ring-1 ring-inset ring-[#0e639c]" : ""}`}
       onMouseDown={onFocusPane}
     >
-      <div className="flex h-6 shrink-0 items-center gap-2 border-b border-[#3e3e42] bg-[#2d2d2d] px-2">
+      <div className="flex h-7 shrink-0 items-center gap-2 border-b border-[#3e3e42] bg-[#292b2e] px-2" style={{ borderTop: `2px solid ${accent}` }}>
         <span className="truncate text-[11px] font-medium text-white">{title}</span>
         <span className="truncate text-[11px] text-[#8b8b8b]">{provider}</span>
         <StatusBadge status={status} />

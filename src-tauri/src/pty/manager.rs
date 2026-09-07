@@ -184,6 +184,12 @@ impl PtyManager {
 
         let mut command = CommandBuilder::new(&executable);
         command.cwd(&cwd);
+        // Keep coding CLIs in their color-capable mode inside the PTY. The
+        // frontend's xterm renderer preserves and interprets these ANSI/VT
+        // sequences for the terminal grid.
+        command.env("TERM", "xterm-256color");
+        command.env("COLORTERM", "truecolor");
+        command.env("FORCE_COLOR", "1");
         command.args(args);
         let child = pair
             .slave

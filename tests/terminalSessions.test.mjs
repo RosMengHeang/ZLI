@@ -26,3 +26,13 @@ test("registers a launched agent as a running terminal session", async () => {
     error: null,
   });
 });
+
+test("keeps two columns for a multi-terminal workspace grid", async () => {
+  const { gridColumnsFor } = await import("../src/lib/workspaceLayout.ts");
+
+  assert.equal(gridColumnsFor(0), 1);
+  assert.equal(gridColumnsFor(1), 1);
+  assert.equal(gridColumnsFor(2), 2);
+  assert.equal(gridColumnsFor(4), 2);
+  assert.equal(gridColumnsFor(6), 2);
+});

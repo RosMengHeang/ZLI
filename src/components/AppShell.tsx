@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { AddAgentDialog } from "./AddAgentDialog";
+import { BrowserPanel } from "./BrowserPanel";
 import { CommitDialog } from "./CommitDialog";
 import { DiscardDialog } from "./DiscardDialog";
 import { GitReviewPanel } from "./GitReviewPanel";
@@ -14,6 +15,7 @@ import { useAgentStore } from "../stores/agentStore";
 import { useGitStore } from "../stores/gitStore";
 import { useLayoutStore } from "../stores/layoutStore";
 import { useProjectStore } from "../stores/projectStore";
+import { useUiStore } from "../stores/uiStore";
 import { startPtyBridge } from "../terminal/ptyBridge";
 
 export function AppShell() {
@@ -23,6 +25,7 @@ export function AppShell() {
   const gitPanelOpen = useLayoutStore((s) => s.gitPanelOpen);
   const loadProviders = useAgentStore((s) => s.loadProviders);
   const refresh = useGitStore((s) => s.refresh);
+  const browserOpen = useUiStore((s) => s.browserOpen);
 
   useEffect(() => {
     void startPtyBridge();
@@ -63,6 +66,14 @@ export function AppShell() {
               <Workspace />
             )}
           </Panel>
+          {browserOpen ? (
+            <>
+              <Separator className="pane-handle pane-handle-h" />
+              <Panel defaultSize="30" minSize="22" maxSize="46">
+                <BrowserPanel />
+              </Panel>
+            </>
+          ) : null}
         </Group>
         {setupOpen ? <SetupWizard onComplete={() => setSetupOpen(false)} /> : null}
       </div>
