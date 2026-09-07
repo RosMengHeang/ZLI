@@ -7,6 +7,11 @@ pub mod system;
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod git;
 
+use commands::{
+    create_terminal, detect_agent_providers, kill_terminal, launch_agent, list_agent_providers,
+    list_agents, pty_close, pty_create, pty_resize, pty_write, resize_terminal, stop_agent,
+    write_terminal,
+};
 use git::commands::{
     git_abort_merge, git_commit, git_create_worktree, git_delete_branch, git_diff,
     git_list_worktrees, git_merge, git_remove_worktree, git_status, git_validate_repository,
@@ -23,9 +28,24 @@ fn greet(name: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(pty::PtyManager::default())
+        .manage(agents::AgentManager::default())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             greet,
+            pty_create,
+            pty_write,
+            pty_resize,
+            pty_close,
+            create_terminal,
+            write_terminal,
+            resize_terminal,
+            kill_terminal,
+            list_agent_providers,
+            detect_agent_providers,
+            launch_agent,
+            stop_agent,
+            list_agents,
             git_validate_repository,
             git_create_worktree,
             git_list_worktrees,

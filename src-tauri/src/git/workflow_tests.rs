@@ -146,7 +146,10 @@ fn refuses_to_remove_dirty_worktree_without_explicit_force() {
     })
     .expect_err("removal without force must be refused");
     assert!(matches!(err, GitError::DirtyWorktree { .. }));
-    assert!(Path::new(&created.worktree_path).exists(), "nothing should have been deleted");
+    assert!(
+        Path::new(&created.worktree_path).exists(),
+        "nothing should have been deleted"
+    );
 
     let removed = remove_worktree(RemoveWorktreeRequest {
         repository_root: repo_path,
@@ -214,5 +217,5 @@ fn detects_merge_conflicts_and_leaves_them_for_manual_resolution() {
     let status = get_status(&repo_path).expect("status after abort");
     assert!(status.clean);
     let restored = fs::read_to_string(repo.path().join("README.md")).unwrap();
-    assert_eq!(restored, "base's version\n");
+    assert_eq!(restored.replace("\r\n", "\n"), "base's version\n");
 }
