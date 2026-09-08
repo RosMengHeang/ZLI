@@ -9,7 +9,7 @@ import { rafThrottle } from "../lib/schedule";
 import { isTauriRuntime } from "../tauri/invoke";
 import { useUiStore } from "../stores/uiStore";
 import { nextBrowserRequest, normalizeBrowserInput, pushBrowserHistory } from "../lib/browserNavigation";
-import { nativeBrowserBounds } from "../lib/chromePresentation";
+import { nativeBrowserBounds, nativeBrowserHiddenBounds } from "../lib/chromePresentation";
 
 const STARTER_LINKS = [
   { label: "GitHub", url: "https://github.com" },
@@ -123,11 +123,10 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       setNativeError(null);
       const viewport = viewportRef.current;
       if (!viewport) return;
-      const rect = viewport.getBoundingClientRect();
       const label = `browser-panel-${++webviewSequence}`;
       nativeLabelRef.current = label;
       expectedNavigationRef.current = request.url;
-      const bounds = nativeBrowserBounds(rect);
+      const bounds = nativeBrowserHiddenBounds();
       const webview = new Webview(getCurrentWindow(), label, {
         url: request.url,
         x: bounds.x,
@@ -186,8 +185,13 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       nativeWebviewRef.current = null;
       if (nativeLabelRef.current === webview?.label) nativeLabelRef.current = null;
       if (webview) {
-        void webview.hide().catch(() => undefined);
-        void webview.close().catch(() => undefined);
+        const webviewToClose = webview;
+        const hiddenBounds = nativeBrowserHiddenBounds();
+        void webviewToClose.hide()
+          .then(() => webviewToClose.setPosition(new LogicalPosition(hiddenBounds.x, hiddenBounds.y)))
+          .then(() => webviewToClose.setSize(new LogicalSize(hiddenBounds.width, hiddenBounds.height)))
+          .then(() => webviewToClose.close())
+          .catch(() => undefined);
       }
     };
   }, [request, nativeBrowser]);
@@ -195,9 +199,37 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
   useEffect(() => {
     const webview = nativeWebviewRef.current;
     if (!webview) return;
-    void (shouldHideNativeView ? webview.hide() : webview.show()).catch((error) => {
-      setNativeError(error instanceof Error ? error.message : String(error));
+    const activeWebview = webview;
+    let cancelled = false;
+
+    async function syncVisibility() {
+      if (shouldHideNativeView) {
+        await activeWebview.hide();
+        if (cancelled) return;
+        const bounds = nativeBrowserHiddenBounds();
+        await activeWebview.setPosition(new LogicalPosition(bounds.x, bounds.y));
+        if (cancelled) return;
+        await activeWebview.setSize(new LogicalSize(bounds.width, bounds.height));
+        return;
+      }
+
+      const viewport = viewportRef.current;
+      if (!viewport) return;
+      const rect = viewport.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const bounds = nativeBrowserBounds(rect);
+      await activeWebview.setPosition(new LogicalPosition(bounds.x, bounds.y));
+      if (cancelled) return;
+      await activeWebview.setSize(new LogicalSize(bounds.width, bounds.height));
+      if (!cancelled) await activeWebview.show();
+    }
+
+    void syncVisibility().catch((error) => {
+      if (!cancelled) setNativeError(error instanceof Error ? error.message : String(error));
     });
+    return () => {
+      cancelled = true;
+    };
   }, [shouldHideNativeView]);
 
   function navigate(value: string) {

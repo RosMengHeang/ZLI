@@ -55,7 +55,7 @@ test("uses unit-aware defaults while retaining stored percentage layouts", async
 });
 
 test("keeps the browser split on the right and normalizes native view bounds", async () => {
-  const { browserShellLayout, nativeBrowserBounds } = await import("../src/lib/chromePresentation.ts");
+  const { browserShellLayout, nativeBrowserBounds, nativeBrowserHiddenBounds } = await import("../src/lib/chromePresentation.ts");
   assert.deepEqual(browserShellLayout?.(), {
     side: "right",
     defaultSize: "34%",
@@ -69,6 +69,12 @@ test("keeps the browser split on the right and normalizes native view bounds", a
     height: 701,
   });
   assert.deepEqual(nativeBrowserBounds?.({ left: -3, top: -2, width: 0, height: -1 }), {
+    x: 0,
+    y: 0,
+    width: 1,
+    height: 1,
+  });
+  assert.deepEqual(nativeBrowserHiddenBounds?.(), {
     x: 0,
     y: 0,
     width: 1,

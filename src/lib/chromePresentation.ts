@@ -56,6 +56,10 @@ export function nativeBrowserBounds(rect: BrowserViewportRect): NativeBrowserBou
   };
 }
 
+export function nativeBrowserHiddenBounds(): NativeBrowserBounds {
+  return { x: 0, y: 0, width: 1, height: 1 };
+}
+
 export function toolbarDensityForWidth(width: number): ToolbarDensity {
   return width < 1100 ? "compact" : "comfortable";
 }
