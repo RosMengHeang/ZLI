@@ -1,11 +1,12 @@
 @import "tailwindcss";
 @import "@xterm/xterm/css/xterm.css";
+@import "@fontsource-variable/bricolage-grotesque/wght.css";
 @import "@fontsource/ibm-plex-mono/latin-400.css";
 @import "@fontsource/ibm-plex-mono/latin-500.css";
 
 @theme {
   --font-sans: "Segoe UI Variable Text", "SF Pro Text", system-ui, sans-serif;
-  --font-brand: "Segoe UI Variable Text", "SF Pro Text", system-ui, sans-serif;
+  --font-brand: "Bricolage Grotesque", "Segoe UI Variable Text", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
   --color-ink: var(--app-canvas);
   --color-panel: var(--sidebar);
@@ -30,20 +31,20 @@
 :root,
 [data-theme="dark"] {
   color-scheme: dark;
-  --app-canvas: #161618;
-  --sidebar: #1f1f22;
-  --surface: #252528;
-  --surface-raised: #2c2c30;
-  --separator: rgb(255 255 255 / 8%);
-  --text-primary: #f4f4f5;
-  --text-secondary: #a1a1a6;
-  --accent: #0a84ff;
+  --app-canvas: #15171a;
+  --sidebar: #1b1e22;
+  --surface: #23272d;
+  --surface-raised: #2b3037;
+  --separator: rgb(255 255 255 / 10%);
+  --text-primary: #edf1f5;
+  --text-secondary: #a3abb5;
+  --accent: #6ea8fe;
   --success: #30d158;
   --warning: #ffd60a;
   --danger: #ff453a;
-  --control-radius: 10px;
-  --tile-radius: 14px;
-  --dialog-radius: 16px;
+  --control-radius: 8px;
+  --tile-radius: 11px;
+  --dialog-radius: 12px;
   --motion-fast: 160ms cubic-bezier(0.22, 1, 0.36, 1);
   --motion-panel: 220ms cubic-bezier(0.22, 1, 0.36, 1);
   --bg: var(--color-ink);
@@ -65,14 +66,14 @@
 
 [data-theme="light"] {
   color-scheme: light;
-  --app-canvas: #ececef;
-  --sidebar: #f4f4f6;
+  --app-canvas: #eef0f3;
+  --sidebar: #f5f6f8;
   --surface: #ffffff;
   --surface-raised: #fafafb;
   --separator: rgb(0 0 0 / 9%);
   --text-primary: #1d1d1f;
   --text-secondary: #6e6e73;
-  --accent: #007aff;
+  --accent: #1769e0;
   --success: #248a3d;
   --warning: #b25000;
   --danger: #d70015;
@@ -179,6 +180,7 @@ select {
   border: 1px solid var(--separator);
   border-radius: var(--tile-radius);
   background: var(--surface);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 14%);
 }
 
 .taxchat-shell {
@@ -196,7 +198,7 @@ select {
   flex: 0 0 auto;
   padding: 15px 16px 13px;
   border-bottom: 1px solid var(--separator);
-  background: color-mix(in srgb, var(--surface) 90%, var(--app-canvas));
+  background: var(--surface);
 }
 
 .taxchat-title-row,
@@ -236,7 +238,7 @@ select {
   gap: 5px;
   padding: 4px 7px;
   border: 1px solid color-mix(in srgb, var(--success) 35%, var(--separator));
-  border-radius: 999px;
+  border-radius: 6px;
   color: var(--success);
   font-family: var(--font-mono);
   font-size: 10px;
@@ -395,8 +397,8 @@ select {
   display: flex;
   min-width: 0;
   border: 1px solid var(--separator);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--surface-raised) 76%, transparent);
+  border-radius: 7px;
+  background: var(--surface-raised);
 }
 
 .taxchat-message-rail {
@@ -478,7 +480,7 @@ select {
   flex: 0 0 auto;
   padding: 10px 12px 12px;
   border-top: 1px solid var(--separator);
-  background: color-mix(in srgb, var(--surface) 88%, var(--app-canvas));
+  background: var(--surface);
 }
 
 .taxchat-composer-row {
@@ -547,6 +549,513 @@ select {
   .taxchat-participant,
   .taxchat-composer textarea {
     transition: none;
+  }
+}
+
+/* Taxzy visual refinement
+   The workbench uses one focal accent for active state, solid graphite planes
+   for hierarchy, and restrained radii so terminal, browser, and TaxChat read
+   as tools in one room instead of a stack of floating cards. */
+.app-shell {
+  background: var(--app-canvas);
+}
+
+.app-shell > .relative {
+  background: var(--app-canvas);
+}
+
+.topbar {
+  height: 60px;
+  gap: 20px;
+  padding-inline: 18px;
+  background: var(--surface);
+}
+
+.topbar-project {
+  flex-basis: 32%;
+  gap: 10px;
+}
+
+.topbar-project-mark {
+  height: 28px;
+  width: 28px;
+  border-radius: 7px;
+  background: var(--surface-raised);
+}
+
+.topbar-project-name {
+  font-family: var(--font-brand);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.topbar-overline,
+.topbar-context {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.topbar-center {
+  flex: 1;
+  justify-content: center;
+  gap: 12px;
+}
+
+.topbar-layout-switcher {
+  gap: 1px;
+  border-left: 1px solid var(--separator);
+  padding-left: 10px;
+}
+
+.topbar-tools {
+  gap: 1px;
+}
+
+.topbar-layout-switcher .btn-icon,
+.topbar-tools .btn {
+  border-radius: 6px;
+}
+
+.topbar-tools .btn {
+  color: var(--text-secondary);
+}
+
+.topbar-tools .btn[aria-pressed="true"] {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+
+.topbar-actions {
+  flex-basis: 32%;
+  gap: 8px;
+}
+
+.topbar-agent-button {
+  border-radius: 7px;
+  font-weight: 600;
+}
+
+.topbar-status {
+  min-height: 28px;
+  padding-left: 10px;
+}
+
+.topbar-taxchat-mark {
+  display: inline-grid;
+  height: 17px;
+  width: 17px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 7px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.sidebar-shell {
+  background: var(--sidebar);
+}
+
+.sidebar-brand {
+  min-height: 70px;
+  padding-inline: 14px;
+}
+
+.sidebar-brand-name {
+  font-family: var(--font-brand);
+  font-size: 15px;
+  letter-spacing: -0.035em;
+}
+
+.sidebar-brand-caption {
+  font-size: 10px;
+}
+
+.sidebar-workspaces-header {
+  min-height: 48px;
+  padding: 13px 14px 4px;
+}
+
+.sidebar-section-title {
+  font-family: var(--font-brand);
+  font-size: 13px;
+  letter-spacing: -0.015em;
+}
+
+.sidebar-section-count {
+  min-width: 18px;
+  background: var(--surface-raised);
+}
+
+.sidebar-search {
+  padding: 6px 12px 10px;
+}
+
+.sidebar-search input {
+  height: 32px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--app-canvas);
+}
+
+.sidebar-search input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.sidebar-workspace-list {
+  padding-inline: 10px;
+}
+
+.workspace-project-button {
+  min-height: 48px;
+  border-radius: 7px;
+  padding-right: 8px;
+}
+
+.workspace-project-button:hover,
+.workspace-project-button[data-active="true"] {
+  border-color: transparent;
+  background: var(--surface);
+}
+
+.workspace-project-button[data-active="true"] {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.workspace-project-mark {
+  height: 23px;
+  width: 23px;
+  border-radius: 5px;
+  background: var(--surface-raised);
+}
+
+.workspace-project-name {
+  font-family: var(--font-brand);
+  font-size: 12px;
+}
+
+.workspace-agent-list {
+  margin-left: 19px;
+  border-left-color: color-mix(in srgb, var(--text-primary) 14%, transparent);
+  padding-left: 8px;
+}
+
+.workspace-agent-row {
+  min-height: 34px;
+  border-radius: 6px;
+}
+
+.workspace-agent-row:hover,
+.workspace-agent-row[data-active="true"] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.sidebar-current-project {
+  background: color-mix(in srgb, var(--surface) 48%, transparent);
+}
+
+.sidebar-current-dot {
+  width: 6px;
+  height: 6px;
+  box-shadow: none;
+}
+
+.sidebar-footer-button {
+  border-radius: 6px;
+}
+
+.workspace-tile {
+  border-radius: 10px;
+  box-shadow: 0 6px 16px rgb(0 0 0 / 16%);
+}
+
+.terminal-pane {
+  position: relative;
+  background: #0b0e14;
+}
+
+.terminal-pane.is-active {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 72%, transparent);
+}
+
+.terminal-pane-header {
+  height: 44px;
+  padding-inline: 10px;
+  background: var(--surface);
+}
+
+.terminal-pane-header .btn-icon {
+  height: 26px;
+  width: 26px;
+  border-radius: 6px;
+}
+
+.terminal-pane-body {
+  background: #0b0e14 !important;
+}
+
+.terminal-starting {
+  border-left: 2px solid var(--accent);
+  color: #cbd5e1;
+}
+
+.browser-shell {
+  background: var(--app-canvas);
+}
+
+.browser-toolbar {
+  height: 48px;
+  gap: 5px;
+  padding-inline: 9px;
+  background: var(--surface);
+}
+
+.browser-toolbar .btn-icon {
+  border-radius: 6px;
+}
+
+.browser-toolbar form label {
+  border-radius: 6px;
+  background: var(--app-canvas);
+}
+
+.browser-toolbar form label:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.browser-toolbar .btn-primary {
+  border-radius: 6px;
+}
+
+.browser-viewport-shell {
+  padding: 8px;
+  background: var(--app-canvas);
+}
+
+.browser-viewport {
+  overflow: hidden;
+  border: 1px solid var(--separator);
+  border-radius: 7px;
+}
+
+.browser-empty-state {
+  padding: 24px;
+}
+
+.browser-empty-card {
+  border-radius: 10px;
+  box-shadow: 0 8px 22px rgb(0 0 0 / 14%);
+}
+
+.taxchat-shell {
+  background: var(--surface);
+}
+
+.taxchat-header {
+  padding: 17px 16px 14px;
+}
+
+.taxchat-kicker,
+.taxchat-section-label {
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.taxchat-title {
+  font-size: 21px;
+}
+
+.taxchat-local-badge {
+  border-radius: 5px;
+  background: transparent;
+}
+
+.taxchat-participants {
+  padding-block: 11px 12px;
+  background: var(--surface);
+}
+
+.taxchat-participant {
+  min-height: 30px;
+  border-radius: 6px;
+  background: var(--surface-raised);
+}
+
+.taxchat-transcript {
+  padding: 16px 14px 20px;
+  background: var(--app-canvas);
+}
+
+.taxchat-empty-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 7px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.taxchat-message {
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.taxchat-message-rail {
+  width: 2px;
+  flex-basis: 2px;
+  border-radius: 7px 0 0 7px;
+}
+
+.taxchat-composer {
+  padding: 11px 12px 13px;
+  background: var(--surface);
+}
+
+.taxchat-composer textarea {
+  border-radius: 7px;
+  background: var(--app-canvas);
+}
+
+.taxchat-send-button {
+  border-radius: 6px;
+}
+
+.setup-screen {
+  background: var(--app-canvas);
+}
+
+.setup-container {
+  max-width: 1240px;
+}
+
+.setup-topbar {
+  min-height: 68px;
+  background: var(--app-canvas);
+}
+
+.setup-topbar > div:first-child p:first-child {
+  font-family: var(--font-brand);
+  font-size: 15px;
+}
+
+.setup-progress {
+  gap: 2px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.setup-progress-item {
+  border-radius: 6px;
+}
+
+.setup-progress-item[data-active="true"] {
+  background: var(--surface-raised);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.setup-page-title,
+.setup-section-title {
+  font-family: var(--font-brand);
+}
+
+.setup-page-title {
+  font-size: clamp(32px, 4vw, 46px);
+}
+
+.setup-content-grid {
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 26px;
+}
+
+.setup-main-card {
+  padding: 32px;
+  background: var(--surface);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 12%);
+}
+
+.setup-side-card {
+  border-color: transparent;
+  border-left-color: var(--separator);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 9px 0 9px 24px;
+}
+
+.setup-provider-grid {
+  gap: 9px;
+}
+
+.setup-provider-card {
+  border-radius: 10px;
+  background: var(--surface-raised);
+  transition: border-color var(--ease), background var(--ease);
+}
+
+.setup-provider-card:hover:not([data-disabled="true"]) {
+  transform: none;
+}
+
+.setup-provider-card[data-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-raised));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.setup-path-form {
+  border-radius: 9px;
+  background: var(--surface-raised);
+}
+
+.setup-project-confirmation {
+  border-radius: 9px;
+}
+
+@media (max-width: 760px) {
+  .topbar {
+    height: 52px;
+    gap: 7px;
+    padding-inline: 10px;
+  }
+
+  .topbar-project {
+    flex-basis: 44%;
+  }
+
+  .topbar-center {
+    display: none;
+  }
+
+  .topbar-actions {
+    flex-basis: auto;
+    gap: 3px;
+  }
+
+  .topbar-tools .btn {
+    width: 30px;
+    padding-inline: 0;
+  }
+
+  .topbar-agent-button {
+    width: 31px;
+    padding-inline: 0;
+  }
+
+  .topbar-status {
+    display: none;
+  }
+
+  .setup-content-grid {
+    gap: 0;
+  }
+
+  .setup-main-card {
+    padding: 22px;
   }
 }
 
@@ -634,9 +1143,7 @@ select {
   align-items: center;
   gap: 16px;
   border-bottom: 1px solid var(--separator);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, white), var(--surface)),
-    var(--surface);
+  background: var(--surface);
   padding: 0 16px;
 }
 
@@ -671,9 +1178,8 @@ select {
   color: var(--text-secondary);
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.02em;
   line-height: 1;
-  text-transform: uppercase;
 }
 
 .topbar-project-name {
@@ -691,7 +1197,7 @@ select {
   max-width: 180px;
   overflow: hidden;
   border: 1px solid var(--separator);
-  border-radius: 999px;
+  border-radius: 5px;
   background: var(--surface-raised);
   color: var(--text-secondary);
   font-family: var(--font-mono);
@@ -719,10 +1225,10 @@ select {
   display: flex;
   align-items: center;
   gap: 2px;
-  border: 1px solid var(--separator);
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--app-canvas) 68%, var(--surface));
-  padding: 3px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
 }
 
 .topbar-layout-switcher .btn-icon,
@@ -751,7 +1257,7 @@ select {
 .topbar-agent-button {
   height: 32px;
   padding-inline: 12px;
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: none;
 }
 
 .topbar-status {
@@ -939,7 +1445,7 @@ select {
   min-width: 18px;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: 5px;
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-secondary);
   font-size: 10px;
@@ -959,7 +1465,7 @@ select {
   bottom: 2px;
   height: 10px;
   width: 10px;
-  border-radius: 999px;
+  border-radius: 5px;
   background: var(--sidebar);
   color: var(--accent);
 }
@@ -1210,7 +1716,7 @@ select {
   height: 7px;
   width: 7px;
   flex: 0 0 auto;
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--success);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 12%, transparent);
 }
@@ -1396,9 +1902,7 @@ input[type="radio"] {
   height: 100%;
   align-items: center;
   justify-content: center;
-  background:
-    radial-gradient(1200px 420px at 50% -10%, rgba(37, 99, 235, 0.12), transparent 55%),
-    var(--color-ink);
+  background: var(--color-ink);
 }
 
 .beta-badge {
@@ -1459,10 +1963,7 @@ input[type="radio"] {
 }
 
 .setup-screen {
-  background:
-    radial-gradient(900px 420px at 18% -8%, rgb(10 132 255 / 13%), transparent 68%),
-    radial-gradient(760px 380px at 92% 22%, rgb(48 209 88 / 5%), transparent 72%),
-    var(--app-canvas);
+  background: var(--app-canvas);
 }
 
 .setup-container {
@@ -1482,8 +1983,7 @@ input[type="radio"] {
   gap: 20px;
   min-height: 72px;
   border-bottom: 1px solid var(--separator);
-  background: color-mix(in srgb, var(--app-canvas) 88%, transparent);
-  backdrop-filter: blur(18px);
+  background: var(--app-canvas);
 }
 
 .setup-progress {
@@ -1519,7 +2019,7 @@ input[type="radio"] {
 .setup-progress-item[data-active="true"] {
   background: var(--surface-raised);
   color: var(--text-primary);
-  box-shadow: 0 1px 5px rgb(0 0 0 / 14%);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 .setup-progress-item[data-complete="true"] {
@@ -1561,9 +2061,8 @@ input[type="radio"] {
   color: var(--accent);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.11em;
+  letter-spacing: 0.02em;
   line-height: 1.3;
-  text-transform: uppercase;
 }
 
 .setup-page-title {
@@ -1592,9 +2091,9 @@ input[type="radio"] {
 .setup-main-card,
 .setup-side-card {
   border: 1px solid var(--separator);
-  border-radius: 18px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
-  box-shadow: 0 18px 44px rgb(0 0 0 / 11%);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 12%);
 }
 
 .setup-main-card {
@@ -1702,7 +2201,7 @@ input[type="radio"] {
 .setup-provider-card[data-selected="true"] {
   border-color: color-mix(in srgb, var(--accent) 72%, var(--separator));
   background: color-mix(in srgb, var(--accent) 8%, var(--surface-raised));
-  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .setup-provider-card[data-disabled="true"] {

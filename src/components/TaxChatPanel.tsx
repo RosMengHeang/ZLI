@@ -112,7 +112,7 @@ export function TaxChatPanel() {
       <header className="taxchat-header">
         <div className="taxchat-title-row">
           <div>
-            <div className="taxchat-kicker">Shared agent room</div>
+            <div className="taxchat-kicker">Agent room</div>
             <h2 className="taxchat-title">TaxChat</h2>
           </div>
           <span className="taxchat-local-badge"><span aria-hidden="true">●</span> Local only</span>
@@ -178,7 +178,7 @@ export function TaxChatPanel() {
       <div ref={transcriptRef} className="taxchat-transcript" aria-live="polite" aria-label="TaxChat transcript">
         {!room ? (
           <div className="taxchat-empty-state">
-            <div className="taxchat-empty-mark" aria-hidden="true">✦</div>
+            <div className="taxchat-empty-mark" aria-hidden="true">TC</div>
             <h3>Coordinate the team in one room</h3>
             <p>Ask the selected agents a question. They can send findings to each other when collaboration helps.</p>
             <span>Messages stay inside the local terminal sessions.</span>

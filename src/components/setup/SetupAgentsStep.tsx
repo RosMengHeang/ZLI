@@ -100,7 +100,7 @@ export function SetupAgentsStep(props: Props) {
               </div>
 
               <div className="mt-4 flex items-center justify-between gap-3">
-                <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-mute">
+                <span className="text-[11px] font-medium text-mute">
                   Agents
                 </span>
                 <div

@@ -39,7 +39,7 @@ export function CommitDialog() {
     <Modal title="Commit changes" description="Save the selected working tree changes in a Git commit." open={open} busy={busy} onClose={() => setOpen(false)}>
       <form className="flex flex-col gap-3" onSubmit={(event) => void onSubmit(event)}>
         <div className="text-[12px] text-mute">
-          {agent ? `${agent.name} · ${agent.branch}` : project?.name} — {worktreePath}
+          {agent ? `${agent.name} · ${agent.branch}` : project?.name}, {worktreePath}
         </div>
         <textarea
           className="field field-area"

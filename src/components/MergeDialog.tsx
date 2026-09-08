@@ -44,7 +44,7 @@ export function MergeDialog() {
         <form className="flex flex-col gap-3" onSubmit={(event) => void onMerge(event)}>
           <p className="text-[13px] leading-5 text-mute">
             Merge <span className="font-mono text-branch">{agent.branch}</span> into the
-            repository root. Conflicts are left in place for you to resolve or abort — nothing is
+            repository root. Conflicts are left in place for you to resolve or abort. Nothing is
             force-reset.
           </p>
           <label className="flex flex-col gap-1.5">

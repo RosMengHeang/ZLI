@@ -159,7 +159,7 @@ export function TopBar() {
             aria-label="Toggle TaxChat"
             aria-pressed={taxChatOpen}
           >
-            <span aria-hidden="true">✦</span>
+            <span className="topbar-taxchat-mark" aria-hidden="true">TC</span>
             <span className="topbar-action-label">TaxChat</span>
           </button>
           <button

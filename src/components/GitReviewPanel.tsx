@@ -76,7 +76,7 @@ export function GitReviewPanel() {
         {agent ? <ProviderIcon provider={agent.provider} size="sm" /> : null}
         <span className="truncate text-[13px] font-medium text-paper">{title}</span>
         <span className="truncate text-[11px] text-mute">{subtitle}</span>
-        <span className="text-[11px] text-mute">{status ? `${files.length} files` : "—"}</span>
+        <span className="text-[11px] text-mute">{status ? `${files.length} files` : "No files"}</span>
         {status && !status.clean ? (
           <span className="font-mono text-[11px] text-ok">{formatPlusMinus(status.additions, status.deletions)}</span>
         ) : (

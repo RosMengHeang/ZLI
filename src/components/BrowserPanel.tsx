@@ -316,8 +316,8 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-ink">
-      <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-line bg-chrome px-2">
+    <section className="browser-shell flex h-full min-h-0 flex-col bg-ink">
+      <div className="browser-toolbar flex h-11 shrink-0 items-center gap-1.5 border-b border-line bg-chrome px-2">
         <button
           type="button"
           aria-label="Back"
@@ -379,9 +379,9 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 bg-ink">
+      <div className="browser-viewport-shell min-h-0 flex-1 bg-ink">
         {currentUrl ? (
-          <div ref={viewportRef} className="relative h-full w-full bg-panel">
+          <div ref={viewportRef} className="browser-viewport relative h-full w-full bg-panel">
             {!nativeBrowser ? (
               <iframe
                 key={`${currentUrl}:${request.sequence}`}
@@ -404,8 +404,8 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
             )}
           </div>
         ) : (
-          <div className="empty-panel px-6">
-            <div className="w-full max-w-xl rounded-xl border border-line bg-panel p-6">
+          <div className="browser-empty-state empty-panel px-6">
+            <div className="browser-empty-card w-full max-w-xl border border-line bg-panel p-6">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-raised text-accent">
                   <IconGlobe className="h-5 w-5" />

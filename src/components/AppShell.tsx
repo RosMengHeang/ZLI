@@ -103,7 +103,7 @@ export function AppShell() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-ink text-paper">
+    <div className="app-shell flex h-full min-h-0 flex-col bg-ink text-paper">
       {!setupOpen ? <TopBar /> : null}
       {error && !project ? (
         <div className="banner banner-error mx-3 mt-2" role="alert">

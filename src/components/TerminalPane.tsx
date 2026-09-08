@@ -159,12 +159,14 @@ export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: T
 
   return (
     <div
-      className={`flex h-full min-h-0 min-w-0 flex-col ${active ? "ring-1 ring-inset ring-accent/80" : ""}`}
+      className={`terminal-pane flex h-full min-h-0 min-w-0 flex-col ${active ? "is-active ring-1 ring-inset ring-accent/80" : ""}`}
+      data-active={active}
+      data-status={status}
       style={{ borderTop: `2px solid ${providerAccent(agent?.provider ?? session?.provider)}` }}
       onMouseDown={onFocusPane}
     >
       <div
-        className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-chrome px-3"
+        className="terminal-pane-header flex h-12 shrink-0 items-center gap-2 border-b border-line bg-chrome px-3"
       >
         <ProviderIcon provider={agent?.provider ?? "shell"} size="sm" />
         <span className="min-w-0 flex-1">
@@ -221,9 +223,9 @@ export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: T
           </div> : null}
         </div>
       ) : null}
-      <div className="relative min-h-0 min-w-0 flex-1 bg-[#0b0e14]">
+      <div className="terminal-pane-body relative min-h-0 min-w-0 flex-1 bg-[#0b0e14]">
         {status === "starting" ? (
-          <div role="status" className="pointer-events-none absolute left-3 top-2 z-10 rounded-lg bg-[#0b0e14] px-2 py-1 text-[12px] text-slate-300">Starting terminal…</div>
+          <div role="status" className="terminal-starting pointer-events-none absolute left-3 top-2 z-10 px-2 py-1 text-[12px] text-slate-300">Starting terminal…</div>
         ) : null}
         <div ref={containerRef} className="h-full min-h-0 min-w-0" />
       </div>
