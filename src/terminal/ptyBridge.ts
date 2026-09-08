@@ -6,7 +6,6 @@ import { useTerminalStore } from "../stores/terminalStore";
 import {
   createPtyLifecycleFanout,
   createPtyOutputFanout,
-  type PtyLifecycleEvent,
   type PtyLifecycleListener,
   type PtyOutputListener,
 } from "../lib/ptyEventFanout";
