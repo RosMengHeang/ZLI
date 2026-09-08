@@ -3,12 +3,29 @@ import { toAppError } from "../lib/errors";
 import type { PtyErrorPayload, PtyExitPayload, SessionStatus } from "../types";
 import { PTY_EVENTS } from "../types/commands";
 import { useTerminalStore } from "../stores/terminalStore";
+import {
+  createPtyLifecycleFanout,
+  createPtyOutputFanout,
+  type PtyLifecycleEvent,
+  type PtyLifecycleListener,
+  type PtyOutputListener,
+} from "../lib/ptyEventFanout";
 import { terminalRegistry } from "./registry";
 
 let started = false;
 const unlistens: UnlistenFn[] = [];
 const pendingOutput = new Map<string, string[]>();
 let outputFrame = 0;
+const outputFanout = createPtyOutputFanout();
+const lifecycleFanout = createPtyLifecycleFanout();
+
+export function subscribePtyOutput(listener: PtyOutputListener): () => void {
+  return outputFanout.subscribe(listener);
+}
+
+export function subscribePtyLifecycle(listener: PtyLifecycleListener): () => void {
+  return lifecycleFanout.subscribe(listener);
+}
 
 function flushPendingOutput(): void {
   outputFrame = 0;
@@ -55,9 +72,11 @@ function handleOutput(payload: unknown): void {
   const data = toBytesOrString(raw);
   if (data === null) return;
   if (typeof data === "string") {
+    outputFanout.publish(id, data);
     queueOutput(id, data);
     return;
   }
+  outputFanout.publish(id, new TextDecoder().decode(data));
   terminalRegistry.write(id, data);
 }
 
@@ -68,10 +87,12 @@ function handleStatus(payload: unknown): void {
   const status = rec.status;
   if (status === "exited" || status === "killed") {
     useTerminalStore.getState().markExited(id, null);
+    lifecycleFanout.publish({ type: "exit", terminalId: id });
     return;
   }
   if (status === "failed") {
     useTerminalStore.getState().markError(id, "PTY session failed.");
+    lifecycleFanout.publish({ type: "error", terminalId: id, message: "PTY session failed." });
     return;
   }
   if (status === "running") {
@@ -79,6 +100,7 @@ function handleStatus(payload: unknown): void {
     if (current) {
       useTerminalStore.getState().upsert({ ...current, status: "running" as SessionStatus });
     }
+    lifecycleFanout.publish({ type: "status", terminalId: id });
   }
 }
 
@@ -88,6 +110,7 @@ function handleExit(payload: unknown): void {
   if (!id) return;
   const exitCode = typeof rec?.exitCode === "number" ? rec.exitCode : null;
   useTerminalStore.getState().markExited(id, exitCode);
+  lifecycleFanout.publish({ type: "exit", terminalId: id });
 }
 
 function handleError(payload: unknown): void {
@@ -96,6 +119,7 @@ function handleError(payload: unknown): void {
   if (!id) return;
   const message = typeof rec?.message === "string" ? rec.message : "PTY error";
   useTerminalStore.getState().markError(id, message);
+  lifecycleFanout.publish({ type: "error", terminalId: id, message });
 }
 
 export async function startPtyBridge(): Promise<void> {
