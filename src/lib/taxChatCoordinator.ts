@@ -105,14 +105,8 @@ export function createTaxChatCoordinator(options: TaxChatCoordinatorOptions): Ta
       inactivityTimer = null;
       if (status === "running") setStatus("idle", "No new TaxChat messages.");
     }, settings.inactivityMs);
-    if (
-      typeof inactivityTimer === "object" &&
-      inactivityTimer !== null &&
-      "unref" in inactivityTimer &&
-      typeof inactivityTimer.unref === "function"
-    ) {
-      inactivityTimer.unref();
-    }
+    const nodeTimer = inactivityTimer as unknown as { unref?: () => void };
+    nodeTimer.unref?.();
   }
 
   function setStatus(next: TaxChatRoomStatus, reason?: string): void {
