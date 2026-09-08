@@ -14,7 +14,7 @@ import { Workspace } from "./Workspace";
 import { SetupWizard } from "./SetupWizard";
 import { useAppShortcuts } from "../hooks/useAppShortcuts";
 import { useTheme } from "../hooks/useTheme";
-import { defaultShellSize, SHELL_LIMITS } from "../lib/chromePresentation";
+import { browserShellLayout, defaultShellSize, SHELL_LIMITS } from "../lib/chromePresentation";
 import {
   getChromeLayout,
   setChromeLayout,
@@ -42,6 +42,7 @@ export function AppShell() {
   const refresh = useGitStore((s) => s.refresh);
   const browserOpen = useUiStore((s) => s.browserOpen);
   const chrome = getChromeLayout();
+  const browserLayout = browserShellLayout();
 
   useAppShortcuts();
 
@@ -72,7 +73,7 @@ export function AppShell() {
         <Group
           key={browserOpen ? "shell-browser" : "shell-main"}
           orientation="horizontal"
-          className="h-full"
+          className={`shell-group h-full ${browserOpen ? "shell-group-with-browser" : ""}`}
           resizeTargetMinimumSize={{ fine: 8, coarse: 20 }}
           onLayoutChanged={(layout, meta) => {
             if (!meta.isUserInteraction) return;
@@ -94,7 +95,7 @@ export function AppShell() {
             <Sidebar />
           </Panel>
           <Separator className="pane-handle pane-handle-h" />
-          <Panel id="center" minSize="32" className="min-h-0 min-w-0">
+          <Panel id="center" minSize="32" className="shell-center-panel min-h-0 min-w-0">
             {gitPanelOpen ? (
               <Group
                 orientation="vertical"
@@ -135,9 +136,10 @@ export function AppShell() {
               <Separator className="pane-handle pane-handle-h" />
               <Panel
                 id="browser"
-                defaultSize={defaultShellSize("browser", chrome.browser)}
-                minSize={SHELL_LIMITS.browser.min}
-                maxSize={SHELL_LIMITS.browser.max}
+                defaultSize={defaultShellSize("browser", chrome.browser) || browserLayout.defaultSize}
+                minSize={browserLayout.minSize}
+                maxSize={browserLayout.maxSize}
+                className="shell-browser-panel min-h-0 min-w-0"
               >
                 <div className="h-full py-3 pr-3">
                   <div className="workspace-tile h-full">

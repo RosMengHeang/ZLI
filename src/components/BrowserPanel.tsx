@@ -9,6 +9,7 @@ import { rafThrottle } from "../lib/schedule";
 import { isTauriRuntime } from "../tauri/invoke";
 import { useUiStore } from "../stores/uiStore";
 import { nextBrowserRequest, normalizeBrowserInput, pushBrowserHistory } from "../lib/browserNavigation";
+import { nativeBrowserBounds } from "../lib/chromePresentation";
 
 const STARTER_LINKS = [
   { label: "GitHub", url: "https://github.com" },
@@ -108,8 +109,9 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       if (!viewport || cancelled) return;
       const rect = viewport.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
-      await webview.setPosition(new LogicalPosition(rect.left, rect.top));
-      await webview.setSize(new LogicalSize(rect.width, rect.height));
+      const bounds = nativeBrowserBounds(rect);
+      await webview.setPosition(new LogicalPosition(bounds.x, bounds.y));
+      await webview.setSize(new LogicalSize(bounds.width, bounds.height));
     }
 
     const throttledBounds = rafThrottle(() => {
@@ -125,12 +127,13 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       const label = `browser-panel-${++webviewSequence}`;
       nativeLabelRef.current = label;
       expectedNavigationRef.current = request.url;
+      const bounds = nativeBrowserBounds(rect);
       const webview = new Webview(getCurrentWindow(), label, {
         url: request.url,
-        x: rect.left,
-        y: rect.top,
-        width: Math.max(1, rect.width),
-        height: Math.max(1, rect.height),
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
         focus: false,
         dragDropEnabled: false,
         backgroundColor: [11, 14, 20, 255],
@@ -142,6 +145,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
         }).catch(reject);
       });
       if (cancelled) {
+        await webview.hide().catch(() => undefined);
         await webview.close().catch(() => undefined);
         return;
       }
@@ -149,9 +153,11 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       nativeWebviewRef.current = webview;
       const handleWindowResize = () => throttledBounds();
       await webview.setAutoResize(false);
-      if (shouldHideNativeViewRef.current) await webview.hide();
-      else await webview.show();
+      // A newly-created native child can briefly cover the entire Tauri view.
+      // Keep it hidden until its final sibling-panel bounds have been applied.
+      await webview.hide();
       await updateBounds(webview);
+      if (!shouldHideNativeViewRef.current) await webview.show();
       observer = new ResizeObserver(() => throttledBounds());
       observer.observe(viewport);
       window.addEventListener("resize", handleWindowResize);
@@ -179,7 +185,10 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       const webview = nativeWebviewRef.current;
       nativeWebviewRef.current = null;
       if (nativeLabelRef.current === webview?.label) nativeLabelRef.current = null;
-      void webview?.close().catch(() => undefined);
+      if (webview) {
+        void webview.hide().catch(() => undefined);
+        void webview.close().catch(() => undefined);
+      }
     };
   }, [request, nativeBrowser]);
 

@@ -12,9 +12,41 @@ export interface NavigationTarget {
 
 export const SHELL_LIMITS = {
   sidebar: { default: "228px", min: "196px", max: "300px" },
-  browser: { default: "30%", min: "320px", max: "48%" },
+  browser: { default: "34%", min: "360px", max: "50%" },
   git: { default: "34%", min: "220px", max: "68%" },
 } as const;
+
+export interface BrowserViewportRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export interface NativeBrowserBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export function browserShellLayout() {
+  return {
+    side: "right" as const,
+    defaultSize: SHELL_LIMITS.browser.default,
+    minSize: SHELL_LIMITS.browser.min,
+    maxSize: SHELL_LIMITS.browser.max,
+  };
+}
+
+export function nativeBrowserBounds(rect: BrowserViewportRect): NativeBrowserBounds {
+  return {
+    x: Math.max(0, Math.round(rect.left)),
+    y: Math.max(0, Math.round(rect.top)),
+    width: Math.max(1, Math.round(rect.width)),
+    height: Math.max(1, Math.round(rect.height)),
+  };
+}
 
 export function toolbarDensityForWidth(width: number): ToolbarDensity {
   return width < 1100 ? "compact" : "comfortable";
