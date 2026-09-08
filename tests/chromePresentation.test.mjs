@@ -55,7 +55,7 @@ test("uses unit-aware defaults while retaining stored percentage layouts", async
 });
 
 test("keeps the browser split on the right and normalizes native view bounds", async () => {
-  const { browserShellLayout, nativeBrowserBounds, nativeBrowserHiddenBounds } = await import("../src/lib/chromePresentation.ts");
+  const { browserShellLayout, nativeBrowserBounds, nativeBrowserHiddenBounds, nativeBrowserRectIsUsable } = await import("../src/lib/chromePresentation.ts");
   assert.deepEqual(browserShellLayout?.(), {
     side: "right",
     defaultSize: "34%",
@@ -80,6 +80,18 @@ test("keeps the browser split on the right and normalizes native view bounds", a
     width: 1,
     height: 1,
   });
+  assert.equal(nativeBrowserRectIsUsable?.(
+    { left: 612, top: 52, width: 488, height: 701 },
+    { width: 1280, height: 800 },
+  ), true);
+  assert.equal(nativeBrowserRectIsUsable?.(
+    { left: -1, top: 52, width: 488, height: 701 },
+    { width: 1280, height: 800 },
+  ), false);
+  assert.equal(nativeBrowserRectIsUsable?.(
+    { left: 900, top: 52, width: 488, height: 701 },
+    { width: 1280, height: 800 },
+  ), false);
 });
 
 test("uses a readable TaxChat split beside the terminal grid", async () => {
@@ -88,5 +100,6 @@ test("uses a readable TaxChat split beside the terminal grid", async () => {
     defaultSize: "38%",
     minSize: "320px",
     maxSize: "48%",
+    terminalMinSize: "0%",
   });
 });

@@ -4,6 +4,10 @@ export type LayoutPreset = "even" | "focus-left" | "grid";
 
 export const TERMINAL_MINIMUM = { width: 360, height: 220 } as const;
 
+export function workspacePanelMinSize(size: number, allowCompression = false): string {
+  return allowCompression ? "0%" : `${size}px`;
+}
+
 export function minimumWorkspaceSize(node: PaneNode): { width: number; height: number } {
   if (node.type === "leaf") return { ...TERMINAL_MINIMUM };
   const first = minimumWorkspaceSize(node.first);

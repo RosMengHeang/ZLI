@@ -11,7 +11,6 @@ import { useProjectStore } from "../stores/projectStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useUiStore } from "../stores/uiStore";
 import { PROVIDER_CATALOG } from "../types";
-import { minimumWorkspaceSize } from "../lib/workspaceLayout";
 import { taxChatShellLayout } from "../lib/chromePresentation";
 
 function seedPreviewPanes(count = 3) {
@@ -35,8 +34,10 @@ export function Workspace() {
   const paneTree = useLayoutStore((s) => s.paneTree);
   const setAddAgentOpen = useUiStore((s) => s.setAddAgentOpen);
   const setBrowserOpen = useUiStore((s) => s.setBrowserOpen);
+  const browserOpen = useUiStore((s) => s.browserOpen);
   const taxChatOpen = useUiStore((s) => s.taxChatOpen);
   const preview = !isTauriRuntime();
+  const taxChatLayout = taxChatShellLayout();
 
   if (!project && !paneTree) {
     return (
@@ -97,33 +98,33 @@ export function Workspace() {
             </div>
           </div>
         ) : taxChatOpen ? (
-          <Group orientation="horizontal" className="h-full min-h-0 min-w-0">
+          <Group orientation="horizontal" className="h-full min-h-0 min-w-0 w-full">
             <Panel
               id="taxchat-terminals"
               defaultSize="62%"
-              minSize={`${minimumWorkspaceSize(paneTree).width}px`}
+              minSize={taxChatLayout.terminalMinSize}
               className="min-h-0 min-w-0"
             >
-              <div className="h-full" style={{ minWidth: minimumWorkspaceSize(paneTree).width, minHeight: minimumWorkspaceSize(paneTree).height }}>
-                <PaneTreeView node={paneTree} />
+              <div className="h-full min-h-0 min-w-0 overflow-hidden">
+                <PaneTreeView node={paneTree} allowCompression />
               </div>
             </Panel>
             <Separator className="pane-handle pane-handle-h" />
             <Panel
               id="taxchat"
-              defaultSize={taxChatShellLayout().defaultSize}
-              minSize={taxChatShellLayout().minSize}
-              maxSize={taxChatShellLayout().maxSize}
+              defaultSize={taxChatLayout.defaultSize}
+              minSize={taxChatLayout.minSize}
+              maxSize={taxChatLayout.maxSize}
               className="min-h-0 min-w-0"
             >
-              <div className="workspace-tile h-full">
+              <div className="workspace-tile h-full min-h-0 min-w-0">
                 <TaxChatPanel />
               </div>
             </Panel>
           </Group>
         ) : (
-          <div className="h-full" style={{ minWidth: minimumWorkspaceSize(paneTree).width, minHeight: minimumWorkspaceSize(paneTree).height }}>
-            <PaneTreeView node={paneTree} />
+          <div className="h-full min-h-0 min-w-0 overflow-hidden">
+            <PaneTreeView node={paneTree} allowCompression={browserOpen} />
           </div>
         )}
       </div>

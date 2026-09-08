@@ -81,11 +81,11 @@ export function AppShell() {
         </div>
       ) : null}
       <div className="relative min-h-0 flex-1">
-        <div className="h-full" hidden={setupOpen} inert={setupOpen}>
+        <div className="h-full min-w-0" hidden={setupOpen} inert={setupOpen}>
         <Group
           key={browserOpen ? "shell-browser" : "shell-main"}
           orientation="horizontal"
-          className={`shell-group h-full ${browserOpen ? "shell-group-with-browser" : ""}`}
+          className={`shell-group h-full min-w-0 ${browserOpen ? "shell-group-with-browser" : ""}`}
           resizeTargetMinimumSize={{ fine: 8, coarse: 20 }}
           onLayoutChanged={(layout, meta) => {
             if (!meta.isUserInteraction) return;

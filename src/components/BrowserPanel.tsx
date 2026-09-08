@@ -9,7 +9,11 @@ import { rafThrottle } from "../lib/schedule";
 import { isTauriRuntime } from "../tauri/invoke";
 import { useUiStore } from "../stores/uiStore";
 import { nextBrowserRequest, normalizeBrowserInput, pushBrowserHistory } from "../lib/browserNavigation";
-import { nativeBrowserBounds, nativeBrowserHiddenBounds } from "../lib/chromePresentation";
+import {
+  nativeBrowserBounds,
+  nativeBrowserHiddenBounds,
+  nativeBrowserRectIsUsable,
+} from "../lib/chromePresentation";
 
 const STARTER_LINKS = [
   { label: "GitHub", url: "https://github.com" },
@@ -27,6 +31,15 @@ interface BrowserNavigationEvent {
   label: string;
   url: string;
   phase: "started" | "finished";
+}
+
+async function collapseNativeWebview(webview: Webview, isCancelled?: () => boolean): Promise<void> {
+  const bounds = nativeBrowserHiddenBounds();
+  await webview.hide();
+  if (isCancelled?.()) return;
+  await webview.setPosition(new LogicalPosition(bounds.x, bounds.y));
+  if (isCancelled?.()) return;
+  await webview.setSize(new LogicalSize(bounds.width, bounds.height));
 }
 
 export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
@@ -104,19 +117,30 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
     let observer: ResizeObserver | null = null;
     let removeWindowResizeListener: (() => void) | null = null;
 
-    async function updateBounds(webview: Webview) {
+    async function updateBounds(webview: Webview): Promise<boolean> {
       const viewport = viewportRef.current;
-      if (!viewport || cancelled) return;
+      if (!viewport || cancelled) return false;
       const rect = viewport.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return;
+      if (!nativeBrowserRectIsUsable(rect, { width: window.innerWidth, height: window.innerHeight })) {
+        await collapseNativeWebview(webview, () => cancelled);
+        return false;
+      }
       const bounds = nativeBrowserBounds(rect);
       await webview.setPosition(new LogicalPosition(bounds.x, bounds.y));
+      if (cancelled) return false;
       await webview.setSize(new LogicalSize(bounds.width, bounds.height));
+      return !cancelled;
     }
 
     const throttledBounds = rafThrottle(() => {
       const webview = nativeWebviewRef.current;
-      if (webview) void updateBounds(webview);
+      if (webview) {
+        void updateBounds(webview).then((usable) => {
+          if (usable && !cancelled && !shouldHideNativeViewRef.current) {
+            void webview.show().catch(() => undefined);
+          }
+        }).catch(() => undefined);
+      }
     });
 
     async function mountWebview() {
@@ -155,8 +179,12 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       // A newly-created native child can briefly cover the entire Tauri view.
       // Keep it hidden until its final sibling-panel bounds have been applied.
       await webview.hide();
-      await updateBounds(webview);
-      if (!shouldHideNativeViewRef.current) await webview.show();
+      if (cancelled) {
+        await webview.close().catch(() => undefined);
+        return;
+      }
+      const usable = await updateBounds(webview);
+      if (usable && !shouldHideNativeViewRef.current) await webview.show();
       observer = new ResizeObserver(() => throttledBounds());
       observer.observe(viewport);
       window.addEventListener("resize", handleWindowResize);
@@ -186,10 +214,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       if (nativeLabelRef.current === webview?.label) nativeLabelRef.current = null;
       if (webview) {
         const webviewToClose = webview;
-        const hiddenBounds = nativeBrowserHiddenBounds();
-        void webviewToClose.hide()
-          .then(() => webviewToClose.setPosition(new LogicalPosition(hiddenBounds.x, hiddenBounds.y)))
-          .then(() => webviewToClose.setSize(new LogicalSize(hiddenBounds.width, hiddenBounds.height)))
+        void collapseNativeWebview(webviewToClose)
           .then(() => webviewToClose.close())
           .catch(() => undefined);
       }
@@ -204,19 +229,17 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
 
     async function syncVisibility() {
       if (shouldHideNativeView) {
-        await activeWebview.hide();
-        if (cancelled) return;
-        const bounds = nativeBrowserHiddenBounds();
-        await activeWebview.setPosition(new LogicalPosition(bounds.x, bounds.y));
-        if (cancelled) return;
-        await activeWebview.setSize(new LogicalSize(bounds.width, bounds.height));
+        await collapseNativeWebview(activeWebview, () => cancelled);
         return;
       }
 
       const viewport = viewportRef.current;
       if (!viewport) return;
       const rect = viewport.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return;
+      if (!nativeBrowserRectIsUsable(rect, { width: window.innerWidth, height: window.innerHeight })) {
+        await collapseNativeWebview(activeWebview, () => cancelled);
+        return;
+      }
       const bounds = nativeBrowserBounds(rect);
       await activeWebview.setPosition(new LogicalPosition(bounds.x, bounds.y));
       if (cancelled) return;

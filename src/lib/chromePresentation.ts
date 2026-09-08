@@ -23,6 +23,11 @@ export interface BrowserViewportRect {
   height: number;
 }
 
+export interface BrowserViewportSize {
+  width: number;
+  height: number;
+}
+
 export interface NativeBrowserBounds {
   x: number;
   y: number;
@@ -44,6 +49,7 @@ export function taxChatShellLayout() {
     defaultSize: "38%",
     minSize: "320px",
     maxSize: "48%",
+    terminalMinSize: "0%",
   } as const;
 }
 
@@ -58,6 +64,14 @@ export function nativeBrowserBounds(rect: BrowserViewportRect): NativeBrowserBou
 
 export function nativeBrowserHiddenBounds(): NativeBrowserBounds {
   return { x: 0, y: 0, width: 1, height: 1 };
+}
+
+export function nativeBrowserRectIsUsable(
+  rect: BrowserViewportRect,
+  viewport: BrowserViewportSize,
+): boolean {
+  return rect.left >= 0 && rect.top >= 0 && rect.width > 0 && rect.height > 0 &&
+    rect.left + rect.width <= viewport.width && rect.top + rect.height <= viewport.height;
 }
 
 export function toolbarDensityForWidth(width: number): ToolbarDensity {

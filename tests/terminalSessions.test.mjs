@@ -11,12 +11,14 @@ test("grid places four terminals in two columns and two rows", async () => {
 });
 
 test("keeps four terminal canvases readable through nested resizing", async () => {
-  const { minimumWorkspaceSize } = await import("../src/lib/workspaceLayout.ts");
+  const { minimumWorkspaceSize, workspacePanelMinSize } = await import("../src/lib/workspaceLayout.ts");
   const leaf = (id) => ({ type: "leaf", id, terminalId: id });
   const column = (id) => ({ type: "split", id, direction: "vertical", sizes: [50, 50], first: leaf(`${id}1`), second: leaf(`${id}2`) });
   const grid = { type: "split", id: "grid", direction: "horizontal", sizes: [50, 50], first: column("left"), second: column("right") };
   assert.deepEqual(minimumWorkspaceSize(leaf("single")), { width: 360, height: 220 });
   assert.deepEqual(minimumWorkspaceSize(grid), { width: 728, height: 448 });
+  assert.equal(workspacePanelMinSize(360), "360px");
+  assert.equal(workspacePanelMinSize(360, true), "0%");
   grid.sizes = [30, 70];
   assert.deepEqual(minimumWorkspaceSize(grid), { width: 728, height: 448 });
 });
