@@ -23,10 +23,8 @@ const primitiveNames = [
 ];
 
 test("the Taxzy shadcn foundation matches the approved design contract", async () => {
-  const [componentsSource, tsconfigSource, viteSource, css, design] =
-    await Promise.all([
+  const [componentsSource, viteSource, css, design] = await Promise.all([
       readFile(path.join(projectRoot, "components.json"), "utf8"),
-      readFile(path.join(projectRoot, "tsconfig.json"), "utf8"),
       readFile(path.join(projectRoot, "vite.config.ts"), "utf8"),
       readFile(path.join(projectRoot, "src/index.css"), "utf8"),
       readFile(
@@ -57,7 +55,7 @@ test("the Taxzy shadcn foundation matches the approved design contract", async (
   assert.deepEqual(tsconfig.compilerOptions.paths["@/*"], ["./src/*"]);
   assert.match(viteSource, /alias:\s*\{[\s\S]*["']?@["']?\s*:/);
 
-  await Promise.all(
+  const primitiveSources = await Promise.all(
     primitiveNames.map((name) =>
       readFile(
         path.join(projectRoot, `src/components/ui/${name}.tsx`),
@@ -66,6 +64,19 @@ test("the Taxzy shadcn foundation matches the approved design contract", async (
     ),
   );
   await readFile(path.join(projectRoot, "src/lib/utils.ts"), "utf8");
+
+  const primitiveSource = primitiveSources.join("\n");
+  assert.doesNotMatch(
+    primitiveSource,
+    /(?:linear|radial|conic)-gradient\(|\bgradient-[^\s"']+/,
+  );
+  assert.doesNotMatch(primitiveSource, /\bglow\b|\bdrop-shadow(?:-|\b)/);
+  assert.doesNotMatch(primitiveSource, /\buppercase\b/);
+  assert.doesNotMatch(
+    primitiveSource,
+    /\banimate-(?!none\b)[^\s"']+|\btransition-all\b/,
+  );
+  assert.doesNotMatch(primitiveSource, /\brounded-full\b/);
 
   assert.match(design, /ENERGY 1 \/ RHYTHM 2 \/ MOTION 1/);
   assert.match(

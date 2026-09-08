@@ -15,7 +15,24 @@ export default defineConfig(() => ({
     },
   },
   build: {
-    chunkSizeWarningLimit: 700,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: "react-vendor",
+              test: /node_modules[\\/](?:react|react-dom|scheduler)[\\/]/,
+              priority: 20,
+            },
+            {
+              name: "terminal-vendor",
+              test: /node_modules[\\/]@xterm[\\/]/,
+              priority: 20,
+            },
+          ],
+        },
+      },
+    },
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

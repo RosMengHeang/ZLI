@@ -11,9 +11,9 @@ export interface StatusPresentation {
 export function statusPresentation(status: PresentedStatus): StatusPresentation {
   switch (status) {
     case "running":
-      return { label: "Running", tone: "success", animated: true };
+      return { label: "Running", tone: "success", animated: false };
     case "starting":
-      return { label: "Starting", tone: "warning", animated: true };
+      return { label: "Starting", tone: "warning", animated: false };
     case "failed":
       return { label: "Failed", tone: "danger", animated: false };
     case "stopped":

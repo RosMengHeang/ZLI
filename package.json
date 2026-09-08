@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "node --disable-warning=ExperimentalWarning --experimental-strip-types --test tests/*.test.mjs",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "test:ui": "node --test tests/uiDesignContract.test.mjs",
     "preview": "vite preview",
     "lint": "eslint src",
     "tauri": "tauri"
