@@ -72,6 +72,7 @@ test("coordinator retains successes, catches errors, and retries only failures",
     "./setup/SetupProjectStep": { SetupProjectStep: "ProjectStep" },
     "./setup/SetupAgentsStep": { SetupAgentsStep: "AgentsStep" },
     "./setup/SetupReviewStep": { SetupReviewStep: "ReviewStep" },
+    "@/components/ui/button": { Button: "button" },
   };
   const source = readFileSync(
     new URL("../src/components/SetupWizard.tsx", import.meta.url),
@@ -251,4 +252,17 @@ test("provider cards report installed state and selected quantity", async () => 
     { id: "codex", installed: true, count: 4, selected: true },
     { id: "claude-code", installed: false, count: 0, selected: false },
   ]);
+});
+
+test("workspace entry requires an opened repository", async () => {
+  const { canEnterWorkspace } = await import("../src/components/setup/setupModel.ts");
+  assert.equal(canEnterWorkspace(null), false);
+  assert.equal(canEnterWorkspace({ path: "D:/project" }), true);
+});
+
+test("setup avoids bypass and marketing filler", () => {
+  const source = readFileSync(new URL("../src/components/SetupWizard.tsx", import.meta.url), "utf8");
+  for (const filler of ["Skip for now", "Welcome to Taxzy", "A clear starting point", "One project. Every agent in view."]) {
+    assert.doesNotMatch(source, new RegExp(filler.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
 });

@@ -116,6 +116,10 @@ export function plannedAgentCount(
   return rows.reduce((total, row) => total + clampAgentCount(row.count), 0);
 }
 
+export function canEnterWorkspace(project: { path: string } | null | undefined): boolean {
+  return Boolean(project?.path.trim());
+}
+
 export function expandLaunchPlan(rows: AgentDraft[]): LaunchPlanItem[] {
   return rows.flatMap((row) => {
     const count = clampAgentCount(row.count);

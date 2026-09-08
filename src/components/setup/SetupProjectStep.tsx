@@ -1,5 +1,7 @@
 import type { ProjectInfo } from "../../types";
-import { IconArrowRight, IconFolder, IconGit } from "../AppIcons";
+import { IconArrowRight, IconFolder } from "../AppIcons";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 interface Props {
   project: ProjectInfo | null;
@@ -17,37 +19,33 @@ interface Props {
 export function SetupProjectStep(props: Props) {
   return (
     <section aria-labelledby="project-title" className="setup-project-step">
-      <div className="setup-project-mark">
-        <IconGit />
-      </div>
-      <p className="setup-eyebrow">Local Git repository</p>
-      <h2 id="project-title" className="setup-section-title mt-2">
-        Start with the project you want to build
-      </h2>
-      <p className="setup-section-copy mt-2 max-w-xl">
-        Taxzy keeps every agent focused on the same codebase while giving each
-        one its own clear workspace.
+      <h1 id="project-title" className="setup-section-title">
+        Choose a repository
+      </h1>
+      <p className="setup-section-copy mt-2">
+        Select the local Git project your agents will work in.
       </p>
 
       <div className="setup-project-actions">
-        <button
+        <Button
           type="button"
-          className="btn btn-primary min-h-11 px-5"
+          className="min-h-9 px-4"
           disabled={props.loading}
           onClick={props.onChoose}
         >
           <IconFolder />
           {props.loading ? "Opening project…" : "Choose repository folder"}
           {!props.loading ? <IconArrowRight /> : null}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="btn btn-ghost min-h-11"
+          variant="ghost"
+          className="min-h-9"
           disabled={props.loading}
           onClick={props.onManual}
         >
           Enter path manually
-        </button>
+        </Button>
       </div>
 
       {props.manual && (
@@ -60,8 +58,8 @@ export function SetupProjectStep(props: Props) {
         >
           <label className="min-w-0 flex-1 text-xs text-mute">
             Repository path
-            <input
-              className="field mt-1 font-mono"
+            <Input
+              className="mt-1 font-mono"
               value={props.path}
               onChange={(event) => props.onPath(event.target.value)}
               disabled={props.loading}
@@ -69,13 +67,14 @@ export function SetupProjectStep(props: Props) {
               placeholder="D:\\Projects\\my-app"
             />
           </label>
-          <button
+          <Button
             type="submit"
-            className="btn btn-quiet self-end min-h-8"
+            variant="secondary"
+            className="self-end min-h-8"
             disabled={props.loading || !props.path.trim()}
           >
             Open path
-          </button>
+          </Button>
         </form>
       )}
 
@@ -101,15 +100,15 @@ export function SetupProjectStep(props: Props) {
               </span>
             </p>
           </div>
-          <button
+          <Button
             type="button"
-            className="btn btn-primary min-h-9 shrink-0"
+            className="min-h-9 shrink-0"
             disabled={props.loading}
             onClick={props.onContinue}
           >
             Configure agents
             <IconArrowRight />
-          </button>
+          </Button>
         </div>
       )}
     </section>

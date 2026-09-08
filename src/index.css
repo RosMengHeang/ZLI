@@ -595,6 +595,60 @@ select {
   }
 }
 
+.setup-container {
+  max-width: 920px;
+  padding: 0 28px 40px;
+}
+
+.setup-topbar {
+  grid-template-columns: 1fr auto 1fr;
+  min-height: 48px;
+  gap: 12px;
+}
+
+.setup-progress {
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.setup-progress-item,
+.setup-progress-number {
+  border-radius: 5px;
+}
+
+.setup-progress-item[data-active="true"] {
+  background: var(--surface-raised);
+  box-shadow: none;
+}
+
+.setup-main {
+  max-width: 760px;
+  padding-top: clamp(28px, 7vh, 60px);
+}
+
+.setup-content-single {
+  width: 100%;
+}
+
+.setup-main-card {
+  min-height: 0;
+  border-radius: 8px;
+  padding: clamp(22px, 4vw, 34px);
+  box-shadow: none;
+}
+
+.setup-project-step {
+  min-height: 0;
+  padding: 2px;
+}
+
+.setup-project-actions {
+  margin-top: 22px;
+}
+
 /* Connected desktop frame */
 .app-frame-content {
   display: flex;
@@ -715,6 +769,84 @@ select {
   .topbar[data-density="compact"] .topbar-status-label {
     display: none;
   }
+}
+
+/* Focused setup flow */
+.setup-container {
+  max-width: 920px;
+  padding: 0 28px 40px;
+}
+
+.setup-topbar {
+  grid-template-columns: 1fr auto 1fr;
+  min-height: 48px;
+  gap: 12px;
+}
+
+.setup-progress {
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.setup-progress-item {
+  min-height: 30px;
+  border-radius: 6px;
+  padding: 0 9px;
+}
+
+.setup-progress-item[data-active="true"] {
+  background: var(--surface-raised);
+  box-shadow: none;
+}
+
+.setup-progress-number {
+  height: 16px;
+  width: 16px;
+  border-radius: 5px;
+  font-size: 9px;
+}
+
+.setup-main {
+  max-width: 760px;
+  padding-top: clamp(28px, 7vh, 60px);
+}
+
+.setup-heading-block {
+  margin-bottom: 20px;
+}
+
+.setup-page-title {
+  margin-top: 0;
+  font-size: clamp(27px, 4vw, 36px);
+  letter-spacing: -0.035em;
+}
+
+.setup-page-subtitle {
+  margin-top: 7px;
+  font-size: 13px;
+}
+
+.setup-content-single {
+  width: 100%;
+}
+
+.setup-main-card {
+  min-height: 0;
+  border-radius: 8px;
+  padding: clamp(22px, 4vw, 34px);
+  box-shadow: none;
+}
+
+.setup-project-step {
+  min-height: 0;
+  padding: 2px;
+}
+
+.setup-project-actions {
+  margin-top: 22px;
 }
 
 /* Taxzy visual refinement
@@ -2606,3 +2738,16 @@ input[type="radio"] {
     transform: none !important;
   }
 }
+
+/* Final setup composition overrides */
+.setup-container { max-width: 920px; padding: 0 28px 40px; }
+.setup-topbar { grid-template-columns: 1fr auto 1fr; min-height: 48px; gap: 12px; }
+.setup-progress { gap: 2px; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.setup-progress-item,
+.setup-progress-number { border-radius: 5px; }
+.setup-progress-item[data-active="true"] { background: var(--surface-raised); box-shadow: none; }
+.setup-main { max-width: 760px; padding-top: clamp(28px, 7vh, 60px); }
+.setup-content-single { width: 100%; }
+.setup-main-card { min-height: 0; border-radius: 8px; padding: clamp(22px, 4vw, 34px); box-shadow: none; }
+.setup-project-step { min-height: 0; padding: 2px; }
+.setup-project-actions { margin-top: 22px; }
