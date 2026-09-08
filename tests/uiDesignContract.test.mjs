@@ -1,15 +1,150 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { readConfigFile, sys } from "typescript";
+import { build } from "vite";
 
-test("the Taxzy UI keeps an intentional workspace visual contract", async () => {
-  const css = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
-  const design = await readFile(new URL("../DESIGN.md", import.meta.url), "utf8");
+const projectRoot = fileURLToPath(new URL("..", import.meta.url));
+const primitiveNames = [
+  "button",
+  "input",
+  "badge",
+  "separator",
+  "tooltip",
+  "dialog",
+  "tabs",
+  "scroll-area",
+  "collapsible",
+  "dropdown-menu",
+  "resizable",
+];
 
-  assert.match(design, /ENERGY 2 \/\s*RHYTHM 2 \/\s*MOTION 1/);
-  assert.match(design, /Bricolage Grotesque/);
-  assert.match(css, /--font-brand: "Bricolage Grotesque"/);
-  assert.match(css, /\.app-shell\s*\{/);
-  assert.doesNotMatch(css, /radial-gradient\(/);
+test("the Taxzy shadcn foundation matches the approved design contract", async () => {
+  const [componentsSource, tsconfigSource, viteSource, css, design] =
+    await Promise.all([
+      readFile(path.join(projectRoot, "components.json"), "utf8"),
+      readFile(path.join(projectRoot, "tsconfig.json"), "utf8"),
+      readFile(path.join(projectRoot, "vite.config.ts"), "utf8"),
+      readFile(path.join(projectRoot, "src/index.css"), "utf8"),
+      readFile(
+        path.join(
+          projectRoot,
+          "docs/superpowers/specs/2026-09-09-macos-shadcn-workspace-design.md",
+        ),
+        "utf8",
+      ),
+    ]);
+
+  const components = JSON.parse(componentsSource);
+  const tsconfigPath = path.join(projectRoot, "tsconfig.json");
+  const parsedTsconfig = readConfigFile(tsconfigPath, sys.readFile);
+  assert.equal(parsedTsconfig.error, undefined);
+  const tsconfig = parsedTsconfig.config;
+
+  assert.equal(components.style, "new-york");
+  assert.equal(components.rsc, false);
+  assert.equal(components.tsx, true);
+  assert.equal(components.tailwind.config, "");
+  assert.equal(components.tailwind.css, "src/index.css");
+  assert.equal(components.tailwind.cssVariables, true);
+  assert.equal(components.aliases.components, "@/components");
+  assert.equal(components.aliases.ui, "@/components/ui");
+  assert.equal(components.aliases.utils, "@/lib/utils");
+
+  assert.deepEqual(tsconfig.compilerOptions.paths["@/*"], ["./src/*"]);
+  assert.match(viteSource, /alias:\s*\{[\s\S]*["']?@["']?\s*:/);
+
+  await Promise.all(
+    primitiveNames.map((name) =>
+      readFile(
+        path.join(projectRoot, `src/components/ui/${name}.tsx`),
+        "utf8",
+      ),
+    ),
+  );
+  await readFile(path.join(projectRoot, "src/lib/utils.ts"), "utf8");
+
+  assert.match(design, /ENERGY 1 \/ RHYTHM 2 \/ MOTION 1/);
+  assert.match(
+    css,
+    /--font-sans:\s*-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable", sans-serif;/,
+  );
+  assert.match(css, /--font-mono:\s*"IBM Plex Mono"/);
+
+  const exactTokens = [
+    "--app-canvas: #1c1c1e",
+    "--sidebar: #202022",
+    "--surface: #28282a",
+    "--surface-raised: #323235",
+    "--separator: #3a3a3c",
+    "--text-primary: #f5f5f7",
+    "--text-secondary: #a1a1a6",
+    "--accent: #0a84ff",
+    "--app-canvas: #f2f2f7",
+    "--sidebar: #f7f7f8",
+    "--surface: #ffffff",
+    "--surface-raised: #f2f2f4",
+    "--separator: #d1d1d6",
+    "--text-primary: #1d1d1f",
+    "--text-secondary: #6e6e73",
+    "--accent: #007aff",
+  ];
+
+  for (const token of exactTokens) {
+    assert.match(css, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+
+  assert.doesNotMatch(css, /(?:linear|radial|conic)-gradient\(/);
+  assert.doesNotMatch(css, /text-shadow|filter:\s*drop-shadow/);
   assert.doesNotMatch(css, /text-transform:\s*uppercase/);
+});
+
+test("all local UI primitives bundle through the public @ alias boundary", async () => {
+  const contractDirectory = await mkdtemp(
+    path.join(tmpdir(), "taxzy-ui-contract-"),
+  );
+  const entryPath = path.join(contractDirectory, "ui-contract.tsx");
+  const imports = primitiveNames
+    .map(
+      (name, index) =>
+        `import * as primitive${index} from "@/components/ui/${name}";`,
+    )
+    .join("\n");
+
+  try {
+    await writeFile(
+      entryPath,
+      `${imports}\nexport const localUiBoundary = [${primitiveNames
+        .map((_, index) => `primitive${index}`)
+        .join(", ")}];\n`,
+      "utf8",
+    );
+
+    const result = await build({
+      configFile: path.join(projectRoot, "vite.config.ts"),
+      logLevel: "silent",
+      build: {
+        write: false,
+        lib: {
+          entry: entryPath,
+          formats: ["es"],
+          fileName: "ui-contract",
+        },
+      },
+    });
+
+    const outputs = Array.isArray(result) ? result : [result];
+    assert.ok(
+      outputs.some((output) =>
+        output.output.some(
+          (item) => item.type === "chunk" && item.fileName === "ui-contract.js",
+        ),
+      ),
+    );
+  } finally {
+    await rm(contractDirectory, { recursive: true, force: true });
+  }
 });

@@ -1,13 +1,39 @@
 @import "tailwindcss";
 @import "@xterm/xterm/css/xterm.css";
-@import "@fontsource-variable/bricolage-grotesque/wght.css";
 @import "@fontsource/ibm-plex-mono/latin-400.css";
 @import "@fontsource/ibm-plex-mono/latin-500.css";
 
-@theme {
-  --font-sans: "Segoe UI Variable Text", "SF Pro Text", system-ui, sans-serif;
-  --font-brand: "Bricolage Grotesque", "Segoe UI Variable Text", system-ui, sans-serif;
+@custom-variant dark (&:is([data-theme="dark"] *));
+
+@theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable", sans-serif;
+  --font-brand: var(--font-sans);
   --font-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+@theme {
   --color-ink: var(--app-canvas);
   --color-panel: var(--sidebar);
   --color-chrome: var(--surface);
@@ -31,20 +57,37 @@
 :root,
 [data-theme="dark"] {
   color-scheme: dark;
-  --app-canvas: #15171a;
-  --sidebar: #1b1e22;
-  --surface: #23272d;
-  --surface-raised: #2b3037;
-  --separator: rgb(255 255 255 / 10%);
-  --text-primary: #edf1f5;
-  --text-secondary: #a3abb5;
-  --accent: #6ea8fe;
+  --radius: 6px;
+  --app-canvas: #1c1c1e;
+  --sidebar: #202022;
+  --surface: #28282a;
+  --surface-raised: #323235;
+  --separator: #3a3a3c;
+  --text-primary: #f5f5f7;
+  --text-secondary: #a1a1a6;
+  --accent: #0a84ff;
   --success: #30d158;
   --warning: #ffd60a;
   --danger: #ff453a;
-  --control-radius: 8px;
-  --tile-radius: 11px;
-  --dialog-radius: 12px;
+  --background: var(--app-canvas);
+  --foreground: var(--text-primary);
+  --card: var(--surface);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface-raised);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--accent);
+  --primary-foreground: #ffffff;
+  --secondary: var(--surface-raised);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-raised);
+  --muted-foreground: var(--text-secondary);
+  --accent-foreground: #ffffff;
+  --destructive: var(--danger);
+  --input: var(--separator);
+  --ring: var(--accent);
+  --control-radius: 6px;
+  --tile-radius: 8px;
+  --dialog-radius: 8px;
   --motion-fast: 160ms cubic-bezier(0.22, 1, 0.36, 1);
   --motion-panel: 220ms cubic-bezier(0.22, 1, 0.36, 1);
   --bg: var(--color-ink);
@@ -66,14 +109,14 @@
 
 [data-theme="light"] {
   color-scheme: light;
-  --app-canvas: #eef0f3;
-  --sidebar: #f5f6f8;
+  --app-canvas: #f2f2f7;
+  --sidebar: #f7f7f8;
   --surface: #ffffff;
-  --surface-raised: #fafafb;
-  --separator: rgb(0 0 0 / 9%);
+  --surface-raised: #f2f2f4;
+  --separator: #d1d1d6;
   --text-primary: #1d1d1f;
   --text-secondary: #6e6e73;
-  --accent: #1769e0;
+  --accent: #007aff;
   --success: #248a3d;
   --warning: #b25000;
   --danger: #d70015;
@@ -1940,26 +1983,6 @@ input[type="radio"] {
 
 .status-dot[data-tone="neutral"] {
   color: var(--text-secondary);
-}
-
-.status-dot[data-animated="true"]::after {
-  content: "";
-  position: absolute;
-  inset: -3px;
-  border: 1px solid currentColor;
-  border-radius: inherit;
-  animation: status-pulse 1.4s ease-out infinite;
-}
-
-@keyframes status-pulse {
-  from {
-    opacity: 0.55;
-    transform: scale(0.55);
-  }
-  to {
-    opacity: 0;
-    transform: scale(1.2);
-  }
 }
 
 .setup-screen {
