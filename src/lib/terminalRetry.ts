@@ -15,16 +15,32 @@ const pending = new Map<string, Promise<void>>();
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((listener) => listener());
 
+function startExclusive(id: string, operation: () => Promise<void>): { task: Promise<void>; started: boolean } {
+  const existing = pending.get(id);
+  if (existing) return { task: existing, started: false };
+  const task = Promise.resolve().then(operation).finally(() => {
+    pending.delete(id);
+    notify();
+  });
+  pending.set(id, task);
+  notify();
+  return { task, started: true };
+}
+
 export const terminalRetry = {
   subscribe(listener: () => void) {
     listeners.add(listener);
     return () => { listeners.delete(listener); };
   },
   isRetrying: (id: string) => pending.has(id),
+  async runExclusive(id: string, operation: () => Promise<void>): Promise<boolean> {
+    const { task, started } = startExclusive(id, operation);
+    if (!started) return false;
+    await task;
+    return true;
+  },
   run<T extends TerminalSession>(id: string, operations: RetryOperations<T>): Promise<void> {
-    const existing = pending.get(id);
-    if (existing) return existing;
-    const task = Promise.resolve().then(async () => {
+    return startExclusive(id, async () => {
       try {
         if (!operations.isCurrent()) return;
         await operations.closeOriginal();
@@ -41,13 +57,7 @@ export const terminalRetry = {
         await operations.releaseOriginal();
       } catch (error) {
         if (operations.isCurrent()) operations.fail(error);
-      } finally {
-        pending.delete(id);
-        notify();
       }
-    });
-    pending.set(id, task);
-    notify();
-    return task;
+    }).task;
   },
 };

@@ -6,6 +6,8 @@ import { useLayoutStore } from "../stores/layoutStore";
 import { useProjectStore } from "../stores/projectStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useUiStore } from "../stores/uiStore";
+import { toAppError } from "../lib/errors";
+import { terminalRetry } from "../lib/terminalRetry";
 
 export function DiscardDialog() {
   const open = useUiStore((s) => s.discardOpen);
@@ -17,11 +19,15 @@ export function DiscardDialog() {
   const statusByPath = useGitStore((s) => s.statusByPath);
   const discardWorktree = useGitStore((s) => s.discardWorktree);
   const error = useGitStore((s) => s.error);
+  const stopSession = useTerminalStore((s) => s.stopSession);
   const closeSession = useTerminalStore((s) => s.closeSession);
+  const markExited = useTerminalStore((s) => s.markExited);
+  const markError = useTerminalStore((s) => s.markError);
   const paneTreeLeaves = useLayoutStore((s) => s.leaves);
   const closePane = useLayoutStore((s) => s.closePane);
   const [busy, setBusy] = useState(false);
   const [typed, setTyped] = useState("");
+  const [operationError, setOperationError] = useState<string | null>(null);
 
   const isolated =
     Boolean(agent?.worktreePath) &&
@@ -36,21 +42,33 @@ export function DiscardDialog() {
   async function onDiscard() {
     if (!agent || !project || !isolated || typed.trim().toLowerCase() !== confirmWord) return;
     setBusy(true);
+    setOperationError(null);
     try {
-      await discardWorktree({
-        repositoryRoot: project.repositoryRoot,
-        worktreePath: agent.worktreePath as string,
-        branch: agent.branch,
+      const started = await terminalRetry.runExclusive(agent.terminalId, async () => {
+        await stopSession(agent.terminalId);
+        markExited(agent.terminalId, null);
+        await discardWorktree({
+          repositoryRoot: project.repositoryRoot,
+          worktreePath: agent.worktreePath as string,
+          branch: agent.branch,
+        });
+        const closed = await closeSession(agent.terminalId);
+        if (!closed) throw new Error("The terminal could not be closed after removing the worktree.");
+        for (const leaf of paneTreeLeaves()) {
+          if (leaf.terminalId === agent.terminalId) closePane(leaf.id);
+        }
+        removeAgent(agent.id);
       });
-      for (const leaf of paneTreeLeaves()) {
-        if (leaf.terminalId === agent.terminalId) closePane(leaf.id);
+      if (!started) {
+        setOperationError("Wait for the terminal operation to finish, then try again.");
+        return;
       }
-      await closeSession(agent.terminalId);
-      removeAgent(agent.id);
       setTyped("");
       setOpen(false);
-    } catch {
-      /* store error */
+    } catch (caught) {
+      const message = toAppError(caught).message;
+      markError(agent.terminalId, message);
+      setOperationError(message);
     } finally {
       setBusy(false);
     }
@@ -102,7 +120,7 @@ export function DiscardDialog() {
               autoFocus
             />
           </label>
-          {error ? <div className="banner banner-error">{error.message}</div> : null}
+          {operationError || error ? <div className="banner banner-error">{operationError ?? error?.message}</div> : null}
           <div data-dialog-actions className="flex justify-end gap-2">
             <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setOpen(false)}>
               Cancel

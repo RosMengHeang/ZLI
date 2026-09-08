@@ -32,6 +32,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
   const savedUrl = useUiStore((state) => state.browserUrl);
   const [history, setHistory] = useState<string[]>(() => savedUrl ? [savedUrl] : []);
   const [historyIndex, setHistoryIndex] = useState(savedUrl ? 0 : -1);
+  const [requestedUrl, setRequestedUrl] = useState(savedUrl);
   const [draft, setDraft] = useState(savedUrl);
   const [frameVersion, setFrameVersion] = useState(0);
   const [nativeError, setNativeError] = useState<string | null>(null);
@@ -96,7 +97,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
   }, [nativeBrowser]);
 
   useEffect(() => {
-    if (!nativeBrowser || !currentUrl) return;
+    if (!nativeBrowser || !requestedUrl) return;
     let cancelled = false;
     let observer: ResizeObserver | null = null;
     let removeWindowResizeListener: (() => void) | null = null;
@@ -122,9 +123,9 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       const rect = viewport.getBoundingClientRect();
       const label = `browser-panel-${++webviewSequence}`;
       nativeLabelRef.current = label;
-      expectedNavigationRef.current = currentUrl;
+      expectedNavigationRef.current = requestedUrl;
       const webview = new Webview(getCurrentWindow(), label, {
-        url: currentUrl,
+        url: requestedUrl,
         x: rect.left,
         y: rect.top,
         width: Math.max(1, rect.width),
@@ -179,7 +180,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       if (nativeLabelRef.current === webview?.label) nativeLabelRef.current = null;
       void webview?.close().catch(() => undefined);
     };
-  }, [currentUrl, frameVersion, nativeBrowser]);
+  }, [requestedUrl, frameVersion, nativeBrowser]);
 
   useEffect(() => {
     const webview = nativeWebviewRef.current;
@@ -201,6 +202,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
     setHistoryIndex(next.index);
     setNativeError(null);
     setDraft(normalized);
+    setRequestedUrl(normalized);
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -221,6 +223,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
     expectedNavigationRef.current = history[next];
     setHistoryIndex(next);
     setDraft(history[next]);
+    setRequestedUrl(history[next]);
   }
 
   function goForward() {
@@ -229,6 +232,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
     expectedNavigationRef.current = history[next];
     setHistoryIndex(next);
     setDraft(history[next]);
+    setRequestedUrl(history[next]);
   }
 
   function reload() {

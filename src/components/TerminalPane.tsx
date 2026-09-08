@@ -24,7 +24,6 @@ interface TerminalPaneProps {
 export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [closing, setClosing] = useState(false);
   const retrying = useSyncExternalStore(terminalRetry.subscribe, () => terminalRetry.isRetrying(terminalId));
   const session = useTerminalStore((s) => s.sessions[terminalId]);
   const activePaneId = useLayoutStore((s) => s.activePaneId);
@@ -81,26 +80,29 @@ export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: T
   }
 
   async function onClose() {
-    if (closing) return;
-    const references = useLayoutStore.getState().leaves().filter((leaf) => leaf.terminalId === terminalId);
-    if (references.length > 1) {
-      closePane(paneId);
-      return;
-    }
+    await terminalRetry.runExclusive(terminalId, async () => {
+      const references = useLayoutStore.getState().leaves().filter((leaf) => leaf.terminalId === terminalId);
+      const stillCurrent = () => useLayoutStore.getState().leaves().some(
+        (leaf) => leaf.id === paneId && leaf.terminalId === terminalId,
+      );
+      if (!stillCurrent()) return;
+      if (references.length > 1) {
+        closePane(paneId);
+        return;
+      }
 
-    setClosing(true);
-    const closed = await closeSession(terminalId);
-    if (closed) {
-      closePane(paneId);
-      if (agent) useAgentStore.getState().remove(agent.id);
-    } else {
-      setDetailsOpen(true);
-      setClosing(false);
-    }
+      const closed = await closeSession(terminalId);
+      if (closed && stillCurrent()) {
+        closePane(paneId);
+        if (agent) useAgentStore.getState().remove(agent.id);
+      } else if (!closed && stillCurrent()) {
+        setDetailsOpen(true);
+      }
+    });
   }
 
   async function onRetry() {
-    if (!session) return;
+    if (!session || terminalRetry.isRetrying(terminalId)) return;
     let restartedAgent: Agent | undefined;
     const isCurrent = () => useLayoutStore.getState().leaves().some((leaf) => leaf.id === paneId && leaf.terminalId === terminalId);
     await terminalRetry.run(terminalId, {
@@ -194,7 +196,7 @@ export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: T
             className="btn btn-icon"
             title="Close pane"
             aria-label="Close pane"
-            disabled={retrying || closing}
+            disabled={retrying}
             onClick={() => void onClose()}
           >
             <IconClose />

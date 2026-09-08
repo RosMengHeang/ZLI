@@ -83,3 +83,24 @@ test("backend close failure prevents another process and preserves scrollback", 
   assert.deepEqual(f.state.disposed, []);
   assert.deepEqual(f.state.errors, ["close failed"]);
 });
+
+test("exclusive close and retry operations cannot overlap", async () => {
+  const { terminalRetry } = await import("../src/lib/terminalRetry.ts");
+  const gate = deferred();
+  let closeRuns = 0;
+  let competingRuns = 0;
+  const close = terminalRetry.runExclusive("owned", async () => {
+    closeRuns++;
+    await gate.promise;
+  });
+  const competing = await terminalRetry.runExclusive("owned", async () => {
+    competingRuns++;
+  });
+  assert.equal(competing, false);
+  assert.equal(terminalRetry.isRetrying("owned"), true);
+  gate.resolve();
+  assert.equal(await close, true);
+  assert.equal(closeRuns, 1);
+  assert.equal(competingRuns, 0);
+  assert.equal(terminalRetry.isRetrying("owned"), false);
+});
