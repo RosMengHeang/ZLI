@@ -12,7 +12,7 @@ test("publishes pixel-safe shell limits", async () => {
   const { SHELL_LIMITS } = await import("../src/lib/chromePresentation.ts");
   assert.deepEqual(SHELL_LIMITS.sidebar, { default: "232px", min: "200px", max: "300px" });
   assert.deepEqual(SHELL_LIMITS.browser, { default: "34%", min: "360px", max: "50%" });
-  assert.deepEqual(SHELL_LIMITS.git, { default: "34%", min: "220px", max: "68%" });
+  assert.deepEqual(SHELL_LIMITS.git, { default: "400px", min: "340px", max: "480px" });
 });
 
 test("presents all four primary destinations with Agents selectable", async () => {
@@ -108,14 +108,4 @@ test("collapses the project rail when the workspace becomes too narrow", async (
   assert.equal(sidebarCollapsedForWidth(859, false), true);
   assert.equal(sidebarCollapsedForWidth(860, false), false);
   assert.equal(sidebarCollapsedForWidth(1200, true), true);
-});
-
-test("uses a readable TaxChat split beside the terminal grid", async () => {
-  const { taxChatShellLayout } = await import("../src/lib/chromePresentation.ts");
-  assert.deepEqual(taxChatShellLayout(), {
-    defaultSize: "38%",
-    minSize: "320px",
-    maxSize: "48%",
-    terminalMinSize: "0%",
-  });
 });

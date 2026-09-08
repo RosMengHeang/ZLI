@@ -11,6 +11,11 @@ export function useAppShortcuts(): void {
       if (event.isComposing || event.repeat) return;
       if (event.key === "Escape") {
         const ui = useUiStore.getState();
+        if (ui.commandPaletteOpen) {
+          ui.setCommandPaletteOpen(false);
+          event.preventDefault();
+          return;
+        }
         if (ui.preferencesOpen) {
           ui.setPreferencesOpen(false);
           event.preventDefault();
@@ -46,6 +51,18 @@ export function useAppShortcuts(): void {
           event.preventDefault();
           return;
         }
+        const layout = useLayoutStore.getState();
+        if (layout.focusedPaneId) {
+          layout.clearFocusPane();
+          event.preventDefault();
+        }
+        return;
+      }
+
+      if (isModKey(event) && !event.shiftKey && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        const ui = useUiStore.getState();
+        ui.setCommandPaletteOpen(!ui.commandPaletteOpen);
         return;
       }
 
@@ -82,8 +99,8 @@ export function useAppShortcuts(): void {
       }
     }
 
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 }
 

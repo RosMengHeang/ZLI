@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { AddAgentDialog } from "./AddAgentDialog";
 import { CommitDialog } from "./CommitDialog";
@@ -11,10 +11,19 @@ import { PreferencesDialog } from "./PreferencesDialog";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { Workspace } from "./Workspace";
+import { TaxChatPanel } from "./TaxChatPanel";
 import { SetupWizard } from "./SetupWizard";
 import { useAppShortcuts } from "../hooks/useAppShortcuts";
 import { useTheme } from "../hooks/useTheme";
-import { APP_FRAME, browserShellLayout, defaultShellSize, SHELL_LIMITS, sidebarCollapsedForWidth } from "../lib/chromePresentation";
+import {
+  APP_FRAME,
+  defaultShellSize,
+  SHELL_LIMITS,
+  sidebarCollapsedForWidth,
+  utilityShellLayout,
+  visibleUtilityPanes,
+  type UtilityPaneId,
+} from "../lib/chromePresentation";
 import { agentBelongsToProject } from "../lib/workspaceRegistry";
 import {
   getChromeLayout,
@@ -30,11 +39,30 @@ import { useUiStore } from "../stores/uiStore";
 import { ptyWrite } from "../tauri/terminal";
 import { startPtyBridge, subscribePtyLifecycle, subscribePtyOutput } from "../terminal/ptyBridge";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { CommandPalette } from "./CommandPalette";
 
 const BrowserPanel = lazy(async () => {
   const mod = await import("./BrowserPanel");
   return { default: mod.BrowserPanel };
 });
+
+function UtilityPaneContent({ id, obscured }: { id: UtilityPaneId; obscured: boolean }) {
+  if (id === "browser") {
+    return (
+      <Suspense
+        fallback={
+          <div className="flex h-full items-center justify-center text-[12px] text-mute">
+            Loading browser…
+          </div>
+        }
+      >
+        <BrowserPanel obscured={obscured} />
+      </Suspense>
+    );
+  }
+  if (id === "taxchat") return <TaxChatPanel />;
+  return <GitReviewPanel />;
+}
 
 export function AppShell() {
   useTheme();
@@ -48,10 +76,20 @@ export function AppShell() {
   const restoreWorkspaceAgents = useAgentStore((s) => s.restoreWorkspaceAgents);
   const refresh = useGitStore((s) => s.refresh);
   const browserOpen = useUiStore((s) => s.browserOpen);
+  const taxChatOpen = useUiStore((s) => s.taxChatOpen);
   const sidebarCollapsed = useWorkspaceStore((s) => s.collapsed);
   const setSidebarCollapsed = useWorkspaceStore((s) => s.setCollapsed);
   const chrome = getChromeLayout();
-  const browserLayout = browserShellLayout();
+  const utilityPanes = visibleUtilityPanes({
+    browserOpen,
+    taxChatOpen,
+    changesOpen: gitPanelOpen,
+  });
+  const utilityLayout = utilityShellLayout(utilityPanes);
+  const storedUtilitySize =
+    utilityPanes.length === 1 && utilityPanes[0] === "changes" ? chrome.git : chrome.browser;
+  const utilityDefaultSize =
+    storedUtilitySize === undefined ? utilityLayout.defaultSize : `${storedUtilitySize}%`;
   const restoreAttempted = useRef(false);
   const activeProjectRoot = useRef<string | null>(null);
 
@@ -149,80 +187,62 @@ export function AppShell() {
             <TopBar />
             {error && !project ? <div className="banner banner-error mx-3 mt-2" role="alert">{error.message}</div> : null}
             <div className="min-h-0 flex-1">
-            <Group
-              key={browserOpen ? "shell-browser" : "shell-main"}
-              orientation="horizontal"
-              className={`shell-group h-full min-w-0 ${browserOpen ? "shell-group-with-browser" : ""}`}
-              resizeTargetMinimumSize={{ fine: 8, coarse: 20 }}
-              onLayoutChanged={(layout, meta) => {
-                if (!meta.isUserInteraction) return;
-                const current = getChromeLayout();
-                setChromeLayout({ ...current, browser: layout.browser ?? current.browser });
-              }}
-            >
-            <Panel id="center" minSize="32" className="shell-center-panel min-h-0 min-w-0">
-            {gitPanelOpen ? (
               <Group
-                orientation="vertical"
-                className="h-full"
+                key={`workspace-utilities-${utilityPanes.join("-") || "none"}`}
+                orientation="horizontal"
+                className="shell-group h-full min-w-0"
                 resizeTargetMinimumSize={{ fine: 8, coarse: 20 }}
                 onLayoutChanged={(layout, meta) => {
-                  if (!meta.isUserInteraction) return;
+                  if (!meta.isUserInteraction || utilityPanes.length === 0) return;
                   const current = getChromeLayout();
-                  setChromeLayout({
-                    ...current,
-                    git: layout.git ?? current.git,
-                  });
+                  const utilitySize = layout.utility;
+                  if (utilitySize === undefined) return;
+                  setChromeLayout(
+                    utilityPanes.length === 1 && utilityPanes[0] === "changes"
+                      ? { ...current, git: utilitySize }
+                      : { ...current, browser: utilitySize },
+                  );
                 }}
               >
-                <Panel id="workspace" minSize="28%">
+                <Panel id="center" minSize="360px" className="shell-center-panel min-h-0 min-w-0">
                   <Workspace />
                 </Panel>
-                <Separator className="pane-handle pane-handle-v" />
-                <Panel
-                  id="git"
-                  defaultSize={defaultShellSize("git", chrome.git)}
-                  minSize={SHELL_LIMITS.git.min}
-                  maxSize={SHELL_LIMITS.git.max}
-                >
-                  <div className="h-full px-3 pb-3">
-                    <div className="workspace-tile h-full">
-                      <GitReviewPanel />
-                    </div>
-                  </div>
-                </Panel>
-              </Group>
-            ) : (
-              <Workspace />
-            )}
-          </Panel>
-          {browserOpen ? (
-            <>
-              <Separator className="pane-handle pane-handle-h" />
-              <Panel
-                id="browser"
-                defaultSize={defaultShellSize("browser", chrome.browser) || browserLayout.defaultSize}
-                minSize={browserLayout.minSize}
-                maxSize={browserLayout.maxSize}
-                className="shell-browser-panel min-h-0 min-w-0"
-              >
-                <div className="h-full py-3 pr-3">
-                  <div className="workspace-tile h-full">
-                    <Suspense
-                      fallback={
-                        <div className="flex h-full items-center justify-center text-[12px] text-mute">
-                          Loading browser…
-                        </div>
-                      }
+                {utilityPanes.length > 0 ? (
+                  <>
+                    <Separator className="pane-handle pane-handle-h" />
+                    <Panel
+                      id="utility"
+                      defaultSize={utilityDefaultSize}
+                      minSize={utilityLayout.minSize}
+                      maxSize={utilityLayout.maxSize}
+                      className="shell-utility-panel min-h-0 min-w-0"
                     >
-                      <BrowserPanel obscured={setupOpen} />
-                    </Suspense>
-                  </div>
-                </div>
-              </Panel>
-            </>
-          ) : null}
-            </Group>
+                      <Group
+                        key={`utility-stack-${utilityPanes.join("-")}`}
+                        orientation="vertical"
+                        className="h-full min-h-0"
+                        resizeTargetMinimumSize={{ fine: 8, coarse: 20 }}
+                      >
+                        {utilityPanes.map((paneId, index) => (
+                          <Fragment key={paneId}>
+                            {index > 0 ? <Separator className="pane-handle pane-handle-v" /> : null}
+                            <Panel
+                              id={`utility-${paneId}`}
+                              defaultSize={`${100 / utilityPanes.length}%`}
+                              minSize="140px"
+                              className="min-h-0 min-w-0"
+                            >
+                              <div className="workspace-tile h-full min-h-0 min-w-0 overflow-hidden">
+                                <UtilityPaneContent id={paneId} obscured={setupOpen} />
+                              </div>
+                            </Panel>
+                          </Fragment>
+                        ))}
+                      </Group>
+                    </Panel>
+                  </>
+                ) : null}
+              </Group>
             </div>
           </Panel>
         </Group>
@@ -236,6 +256,7 @@ export function AppShell() {
       <MergeDialog />
       <HelpDialog />
       <PreferencesDialog />
+      <CommandPalette />
     </div>
     </TooltipProvider>
   );

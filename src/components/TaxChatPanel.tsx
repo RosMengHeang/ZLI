@@ -106,21 +106,14 @@ export function TaxChatPanel() {
   }
 
   const status = room?.status ?? "ready";
-  const messageCount = room?.messages.length ?? 0;
-
   return (
     <section className="taxchat-shell" aria-label="TaxChat">
       <header className="taxchat-header">
         <div className="taxchat-title-row">
           <h2 className="taxchat-title">TaxChat</h2>
-        </div>
-        <div className="taxchat-meta-row">
           <span className={`taxchat-status ${TONE_CLASS[taxChatStatusTone(status)]}`}>
             <span className="taxchat-status-dot" aria-hidden="true" />
             {taxChatStatusLabel(status)}
-          </span>
-          <span className="taxchat-meta-copy">
-            {room ? `Round ${room.round} · ${messageCount} messages` : "Choose agents, then start a room"}
           </span>
           <div className="taxchat-actions" role="group" aria-label="TaxChat controls">
             {!roomIsRunning && status !== "paused" && status !== "idle" ? (
@@ -148,7 +141,6 @@ export function TaxChatPanel() {
       </header>
 
       <div className="taxchat-participants" aria-label="TaxChat participants">
-        <div className="taxchat-section-label">Participants</div>
         <div className="taxchat-participant-list">
           {availableAgents.length ? availableAgents.map((agent) => {
             const selected = selectedIds.includes(agent.id);
@@ -176,10 +168,9 @@ export function TaxChatPanel() {
       <div ref={transcriptRef} className="taxchat-transcript" aria-live="polite" aria-label="TaxChat transcript">
         {!room ? (
           <div className="taxchat-empty-state">
-            <div className="taxchat-empty-mark" aria-hidden="true">TC</div>
-            <h3>Coordinate the team in one room</h3>
-            <p>Ask the selected agents a question. They can send findings to each other when collaboration helps.</p>
-            <span>Messages stay inside the local terminal sessions.</span>
+            <h3>TaxChat</h3>
+            <p>Coordinate your agents.</p>
+            <span>Ask the team together or mention one agent directly.</span>
           </div>
         ) : room.messages.length === 0 ? (
           <div className="taxchat-empty-state compact">
@@ -193,7 +184,6 @@ export function TaxChatPanel() {
               const tone = TONE_CLASS[taxChatMessageTone(message)];
               return (
                 <article key={message.id} className={`taxchat-message ${tone} taxchat-message-${message.kind}`}>
-                  <div className="taxchat-message-rail" aria-hidden="true" />
                   <div className="taxchat-message-content">
                     <div className="taxchat-message-head">
                       <div className="taxchat-message-sender">

@@ -26,7 +26,7 @@ function presentedStatus(status: AgentStatus | SessionStatus): PresentedStatus {
   }
 }
 
-export function StatusBadge({ status }: { status: AgentStatus | SessionStatus }) {
+export function StatusBadge({ status, compact = false }: { status: AgentStatus | SessionStatus; compact?: boolean }) {
   const presentation = statusPresentation(presentedStatus(status));
 
   return (
@@ -40,7 +40,7 @@ export function StatusBadge({ status }: { status: AgentStatus | SessionStatus })
         data-animated={presentation.animated}
         aria-hidden="true"
       />
-      {presentation.label}
+      {compact ? <span className="sr-only">{presentation.label}</span> : presentation.label}
     </span>
   );
 }

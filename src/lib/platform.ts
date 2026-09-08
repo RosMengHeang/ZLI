@@ -12,6 +12,7 @@ export function modShortcutLabel(rest: string): string {
 }
 
 export const APP_SHORTCUTS = {
+  commandPalette: modShortcutLabel("K"),
   openProject: modShortcutLabel("Shift+O"),
   addTerminal: modShortcutLabel("Shift+`"),
   addAgent: modShortcutLabel("Shift+A"),

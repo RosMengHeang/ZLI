@@ -3,10 +3,12 @@ import {
   IconChevronDown,
   IconFolder,
   IconHelp,
+  IconMore,
   IconPlus,
   IconSettings,
   TaxzyMark,
 } from "./AppIcons";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { ProviderIcon } from "./ProviderIcon";
 import { StatusBadge } from "./StatusBadge";
 import {
@@ -28,6 +30,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 function savedAgentMatches(agent: Agent, recipe: WorkspaceAgentResume): boolean {
   return agent.resumeId === recipe.resumeId || (agent.name === recipe.name && agent.provider === recipe.provider);
@@ -48,6 +57,8 @@ export function Sidebar() {
   const setHelpOpen = useUiStore((state) => state.setHelpOpen);
   const setPreferencesOpen = useUiStore((state) => state.setPreferencesOpen);
   const toggleGitPanel = useLayoutStore((state) => state.toggleGitPanel);
+  const addLeaf = useLayoutStore((state) => state.addLeaf);
+  const createSession = useTerminalStore((state) => state.createSession);
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const activeProjectRoot = useWorkspaceStore((state) => state.activeProjectRoot);
   const collapsed = useWorkspaceStore((state) => state.collapsed);
@@ -92,29 +103,57 @@ export function Sidebar() {
     if (opened && agent) selectAgent(agent.id);
   }
 
+  async function copyText(value: string): Promise<void> {
+    await navigator.clipboard.writeText(value);
+  }
+
+  async function openProjectTerminal(workspace: WorkspaceRecord): Promise<void> {
+    if (!await openWorkspace(workspace)) return;
+    const session = await createSession({ cwd: workspace.project.path, cols: 80, rows: 24, title: "Terminal" });
+    addLeaf(session.id);
+  }
+
+  function focusAgent(agent: Agent): void {
+    selectAgent(agent.id);
+    const layout = useLayoutStore.getState();
+    const pane = layout.leaves().find((leaf) => leaf.terminalId === agent.terminalId);
+    if (pane && layout.focusedPaneId !== pane.id) layout.toggleFocusPane(pane.id);
+  }
+
   function renderAgentRow(workspace: WorkspaceRecord, recipe: WorkspaceAgentResume, agent: Agent | null) {
     const active = Boolean(agent && agent.id === selectedAgentId && isActive(workspace));
     const terminal = agent ? terminalSessions[agent.terminalId] : undefined;
     const displayedStatus = terminal?.status ?? agent?.status;
     const saved = !agent;
     return (
-      <Button
-        key={recipe.resumeId}
-        type="button"
-        variant="ghost"
-        className="workspace-agent-row"
-        data-active={active}
-        data-saved={saved}
-        onClick={() => void onAgentClick(workspace, agent)}
-        title={saved ? `${recipe.name} will relaunch when this project opens` : `Open ${recipe.name}`}
-      >
-        <ProviderIcon provider={recipe.provider} size="sm" />
-        <span className="workspace-agent-copy">
+      <div key={recipe.resumeId} className="workspace-agent-row-shell" data-active={active}>
+        <Button
+          type="button"
+          variant="ghost"
+          className="workspace-agent-row"
+          data-active={active}
+          data-saved={saved}
+          onClick={() => void onAgentClick(workspace, agent)}
+          title={saved ? `${recipe.name} will relaunch when this project opens` : `${recipe.name}${agent?.branch ? ` · ${agent.branch}` : ""}`}
+        >
+          {displayedStatus ? <StatusBadge status={displayedStatus} compact /> : <span className="status-dot" data-tone="neutral" aria-hidden="true" />}
+          <ProviderIcon provider={recipe.provider} size="sm" />
           <span className="workspace-agent-name">{recipe.name}</span>
-          <span className="workspace-agent-meta">{recipe.provider}{agent?.branch ? ` · ${agent.branch}` : ""}</span>
-        </span>
-        {displayedStatus ? <StatusBadge status={displayedStatus} /> : <span className="workspace-agent-saved">Saved</span>}
-      </Button>
+        </Button>
+        {agent ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-xs" className="workspace-agent-menu" aria-label={`${recipe.name} actions`}><IconMore /></Button></DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-44">
+              <DropdownMenuItem onSelect={() => focusAgent(agent)}>Focus</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void revealItemInDir(agent.worktreePath || agent.cwd)}><IconFolder />Open worktree</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void copyText(agent.branch)}>Copy branch name</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onSelect={() => void useAgentStore.getState().stop(agent.id)}>Stop</DropdownMenuItem>
+              <DropdownMenuItem variant="destructive" onSelect={() => { selectAgent(agent.id); useUiStore.getState().setDiscardOpen(true); }}>Remove…</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+      </div>
     );
   }
 
@@ -163,6 +202,14 @@ export function Sidebar() {
               <IconPlus />
             </Button>
           ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-xs" className="workspace-project-menu" aria-label={`${workspace.project.name} actions`}><IconMore /></Button></DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-44">
+              <DropdownMenuItem onSelect={() => void revealItemInDir(workspace.project.path)}><IconFolder />Open folder</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void copyText(workspace.project.path)}>Copy path</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void openProjectTerminal(workspace)}>Open terminal</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         {expanded ? (
           <div className="workspace-agent-list" role="list" aria-label={`${workspace.project.name} agents`}>

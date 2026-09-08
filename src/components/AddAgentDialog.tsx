@@ -20,6 +20,7 @@ export function AddAgentDialog() {
   const launchError = useAgentStore((s) => s.launchError);
   const project = useProjectStore((s) => s.project);
   const [name, setName] = useState("");
+  const [search, setSearch] = useState("");
   const [provider, setProvider] = useState<AgentProviderId>("claude-code");
   const [createWorktree, setCreateWorktree] = useState(true);
 
@@ -29,6 +30,9 @@ export function AddAgentDialog() {
 
   const selected = providers.find((item) => item.id === provider);
   const available = provider === "shell" || Boolean(selected?.installed);
+  const visibleProviders = PROVIDER_CATALOG.filter((item) =>
+    item.displayName.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
+  );
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -55,25 +59,22 @@ export function AddAgentDialog() {
           </div>
         ) : null}
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[12px] text-mute">Name</span>
-          <Input
-            className="field"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Backend"
-            autoFocus
-          />
-        </label>
+        <Input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search agents…"
+          aria-label="Search agents"
+          autoFocus
+        />
 
         <fieldset className="flex flex-col gap-2">
           <legend className="mb-1 text-[12px] text-mute">Provider</legend>
-          <div className="grid max-h-[min(52vh,28rem)] gap-1.5 overflow-auto pr-0.5" role="radiogroup" aria-label="Provider">
-            {PROVIDER_CATALOG.map((item) => {
+          <div className="grid max-h-[min(42vh,22rem)] gap-1 overflow-auto pr-0.5" role="radiogroup" aria-label="Provider">
+            {visibleProviders.map((item) => {
               const detected = providers.find((p) => p.id === item.id);
               const installed = Boolean(detected?.installed);
               const launchable = item.id === "shell" || installed;
-              const statusLabel = installed ? "Installed" : item.id === "shell" ? "Always ready" : "Not found";
+              const statusLabel = installed ? "Installed" : item.id === "shell" ? "Built in" : "Not found";
               return (
                 <button
                   key={item.id}
@@ -86,20 +87,26 @@ export function AddAgentDialog() {
                   onClick={() => setProvider(item.id)}
                 >
                   <ProviderIcon provider={item.id} size="md" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-medium text-paper">{item.displayName}</span>
-                    <span className="block truncate font-mono text-[11px] text-mute">
-                      {detected?.executable || (item.id === "shell" ? "System shell" : item.id)}
-                    </span>
-                  </span>
+                  <span className="min-w-0 flex-1 truncate text-left text-[13px] font-medium text-paper">{item.displayName}</span>
                   <span className={`text-[11px] ${installed ? "text-ok" : launchable ? "text-mute" : "text-danger"}`}>
                     {statusLabel}
                   </span>
                 </button>
               );
             })}
+            {!visibleProviders.length ? <p className="px-2 py-6 text-center text-[12px] text-mute">No matching agents</p> : null}
           </div>
         </fieldset>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[12px] text-mute">Agent name</span>
+          <Input
+            className="field"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Backend"
+          />
+        </label>
 
         <label className="flex items-center gap-2 text-[13px]">
           <input

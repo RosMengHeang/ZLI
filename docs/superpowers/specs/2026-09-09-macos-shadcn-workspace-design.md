@@ -14,21 +14,21 @@ Redesign the complete Taxzy desktop interface into a quiet, compact macOS-style 
 
 ## Application frame
 
-The frame uses a 48px unified titlebar. The sidebar brand region occupies the same height and shares the titlebar bottom separator so the two areas read as a single piece of chrome. The titlebar contains only the active project and branch, compact layout controls, pane toggles, Add agent, and aggregate agent status. Remove the `Workspace` overline and `Workspace layout` label.
+The frame uses a 48px unified titlebar. The sidebar brand region occupies the same height and shares the titlebar bottom separator so the two areas read as a single piece of chrome. The titlebar contains only the active project and branch, a command entry, pane toggles, layout menu, and Add agent. Remove the `Workspace` overline, aggregate duplicate status, and redundant layout labels.
 
 The left sidebar is 232px by default and collapses to a 52px icon rail. It contains the Taxzy identity, a Projects heading with one open-folder action, optional project filtering when useful, nested project and agent rows, then Preferences and Help. Remove `Local agent workspace`, the duplicated Current project block, and explanatory filler.
 
 ## Workspace and panes
 
-The central terminal canvas stays dominant. Terminal panes use compact headers with provider identity, agent name, status, branch when present, and working actions only. Provider color is a narrow semantic identity marker, not a glow or background wash.
+The central terminal canvas stays dominant. Terminal panes use compact headers with provider identity, agent name, status, branch when present, and controls revealed on hover. Double-click or the focus control shows one existing terminal without recreating its xterm or PTY; Escape restores the grid.
 
-Browser remains a right-side resizable pane. TaxChat remains a resizable pane beside terminals. Changes remains a resizable bottom pane. Any combination can be open, and all separators must remain operable without content overlap or horizontal overflow.
+Browser, TaxChat, and Changes share one resizable right utility column. A single tool uses the full column; multiple tools stack vertically with independent separators. Changes remains a restrained 340-480px inspector when opened alone. Any combination can be open without nesting horizontal splits, overlapping content, or forcing the terminal grid into unusable strips.
 
 Pane surfaces use one-pixel separators and 6-8px radii only where a contained panel needs a visible edge. Avoid nested cards, large shadows, floating glass effects, gradients, and ornamental borders.
 
 ## Setup flow
 
-Setup is a focused three-stage flow: repository, agents, launch. A repository is required before entering the workspace. Remove `Skip for now`, the welcome eyebrow, the marketing summary card, numbered benefit copy, and duplicate explanations.
+Setup is a compact repository, agent selection, and launch flow without numbered wizard chrome. A repository is required before entering the workspace. Remove `Skip for now`, the welcome eyebrow, the marketing summary card, numbered benefit copy, and duplicate explanations.
 
 The repository screen presents one title, one short sentence, a primary folder picker, and a secondary manual path option. Agent selection uses compact provider rows with installed state and a quantity stepper. Advanced names and worktrees remain available through a disclosure. Launch review shows only project, agent mix, availability problems, and the start action.
 
@@ -40,10 +40,10 @@ Use Lucide icons through the shadcn convention. Controls must have labels or too
 
 ## Visual tokens
 
-- UI font: `-apple-system`, `BlinkMacSystemFont`, `SF Pro Text`, `Segoe UI Variable`, sans-serif.
-- Terminal and paths: IBM Plex Mono.
-- Dark canvas `#1c1c1e`, sidebar/titlebar `#202022`, surface `#28282a`, raised surface `#323235`, border `#3a3a3c`, text `#f5f5f7`, muted text `#a1a1a6`, accent `#0a84ff`.
-- Light canvas `#f2f2f7`, sidebar/titlebar `#f7f7f8`, surface `#ffffff`, raised surface `#f2f2f4`, border `#d1d1d6`, text `#1d1d1f`, muted text `#6e6e73`, accent `#007aff`.
+- UI font: Inter, `-apple-system`, `BlinkMacSystemFont`, `Segoe UI`, sans-serif.
+- Terminal and paths: JetBrains Mono, SFMono-Regular, Consolas, monospace.
+- Dark canvas `#181818`, sidebar `#202020`, surface `#212121`, raised surface `#262626`, hover `#2a2a2a`, selected `#303030`, border `#333333`, subtle border `#2b2b2b`, text `#ececec`, muted text `#a1a1aa`, accent `#ffffff`.
+- Light canvas `#fafaf9`, sidebar `#f5f5f4`, surface `#ffffff`, hover `#f5f5f4`, selected `#ececea`, border `#e7e7e5`, subtle border `#efefec`, text `#171717`, muted text `#737373`, accent `#111111`.
 - Success, warning, and destructive colors appear only for real status or consequences.
 - No gradients, glow, uppercase utility labels, excessive pills, or decorative badges.
 
@@ -65,4 +65,3 @@ Below 1100px, hide nonessential toolbar labels and use tooltips. Below 860px, co
 - Dark and light themes remain legible and visually consistent.
 - Keyboard focus, accessible names, loading, empty, disabled, and error states are preserved.
 - Existing project persistence, agents, terminal grid, browser bounds, TaxChat coordination, and Git operations continue to work.
-

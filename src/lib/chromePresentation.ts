@@ -2,6 +2,7 @@ export type ToolbarDensity = "compact" | "comfortable";
 export type PrimaryDestination = "workspace" | "agents" | "changes" | "browser";
 export type BaseDestination = Extract<PrimaryDestination, "workspace" | "agents">;
 export type ShellRegion = keyof typeof SHELL_LIMITS;
+export type UtilityPaneId = "browser" | "taxchat" | "changes";
 
 export interface NavigationTarget {
   baseDestination: BaseDestination;
@@ -13,7 +14,7 @@ export interface NavigationTarget {
 export const SHELL_LIMITS = {
   sidebar: { default: "232px", min: "200px", max: "300px" },
   browser: { default: "34%", min: "360px", max: "50%" },
-  git: { default: "34%", min: "220px", max: "68%" },
+  git: { default: "400px", min: "340px", max: "480px" },
 } as const;
 
 export const APP_FRAME = {
@@ -50,13 +51,35 @@ export function browserShellLayout() {
   };
 }
 
-export function taxChatShellLayout() {
+export function changesShellLayout() {
   return {
-    defaultSize: "38%",
-    minSize: "320px",
-    maxSize: "48%",
-    terminalMinSize: "0%",
-  } as const;
+    side: "right" as const,
+    defaultSize: SHELL_LIMITS.git.default,
+    minSize: SHELL_LIMITS.git.min,
+    maxSize: SHELL_LIMITS.git.max,
+  };
+}
+
+export function visibleUtilityPanes(state: {
+  browserOpen: boolean;
+  taxChatOpen: boolean;
+  changesOpen: boolean;
+}): UtilityPaneId[] {
+  const panes: UtilityPaneId[] = [];
+  if (state.browserOpen) panes.push("browser");
+  if (state.taxChatOpen) panes.push("taxchat");
+  if (state.changesOpen) panes.push("changes");
+  return panes;
+}
+
+export function utilityShellLayout(panes: readonly UtilityPaneId[]) {
+  if (panes.length === 1 && panes[0] === "changes") return changesShellLayout();
+  return {
+    side: "right" as const,
+    defaultSize: "40%",
+    minSize: "360px",
+    maxSize: "52%",
+  };
 }
 
 export function nativeBrowserBounds(rect: BrowserViewportRect): NativeBrowserBounds {

@@ -22,12 +22,15 @@ import {
 interface LayoutState {
   paneTree: PaneNode | null;
   activePaneId: PaneId | null;
+  focusedPaneId: PaneId | null;
   gitPanelOpen: boolean;
   autoArrange: boolean;
   addLeaf: (terminalId: TerminalId) => PaneId;
   splitActive: (terminalId: TerminalId, direction: SplitDirection) => PaneId;
   closePane: (paneId: PaneId) => TerminalId | null;
   setActivePane: (paneId: PaneId) => void;
+  toggleFocusPane: (paneId: PaneId) => void;
+  clearFocusPane: () => void;
   focusTerminal: (terminalId: TerminalId) => void;
   toggleGitPanel: (open?: boolean) => void;
   resetProject: () => void;
@@ -52,6 +55,7 @@ function persist(tree: PaneNode | null): void {
 export const useLayoutStore = create<LayoutState>((set, get) => ({
   paneTree: null,
   activePaneId: null,
+  focusedPaneId: null,
   gitPanelOpen: false,
   autoArrange: true,
 
@@ -60,12 +64,12 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
     const leaf: PaneNode = { type: "leaf", id: leafId, terminalId };
     const { paneTree, activePaneId, autoArrange } = get();
     if (!paneTree) {
-      set({ paneTree: leaf, activePaneId: leafId });
+      set({ paneTree: leaf, activePaneId: leafId, focusedPaneId: null });
       return leafId;
     }
     const splitFrom = activePaneId ?? firstLeafId(paneTree);
     if (!splitFrom) {
-      set({ paneTree: leaf, activePaneId: leafId });
+      set({ paneTree: leaf, activePaneId: leafId, focusedPaneId: null });
       return leafId;
     }
     const next = autoArrange
@@ -73,7 +77,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       : splitLeaf(paneTree, splitFrom, terminalId, preferredSplitDirection(paneTree, splitFrom));
     const created = collectLeaves(next).find((item) => item.terminalId === terminalId);
     persist(next);
-    set({ paneTree: next, activePaneId: created?.id ?? leafId });
+    set({ paneTree: next, activePaneId: created?.id ?? leafId, focusedPaneId: null });
     return created?.id ?? leafId;
   },
 
@@ -83,7 +87,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
     const next = withRestoredSizes(splitLeaf(paneTree, activePaneId, terminalId, direction));
     const created = collectLeaves(next).find((item) => item.terminalId === terminalId);
     persist(next);
-    set({ paneTree: next, activePaneId: created?.id ?? activePaneId, autoArrange: false });
+    set({ paneTree: next, activePaneId: created?.id ?? activePaneId, focusedPaneId: null, autoArrange: false });
     return created?.id ?? activePaneId;
   },
 
@@ -97,11 +101,20 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
     persist(restored);
     const nextActive =
       activePaneId === paneId ? firstLeafId(restored) : activePaneId && restored ? activePaneId : firstLeafId(restored);
-    set({ paneTree: restored, activePaneId: nextActive });
+    set((state) => ({
+      paneTree: restored,
+      activePaneId: nextActive,
+      focusedPaneId: state.focusedPaneId === paneId ? null : state.focusedPaneId,
+    }));
     return closing?.terminalId ?? null;
   },
 
   setActivePane: (paneId) => set({ activePaneId: paneId }),
+  toggleFocusPane: (paneId) => set((state) => ({
+    activePaneId: paneId,
+    focusedPaneId: state.focusedPaneId === paneId ? null : paneId,
+  })),
+  clearFocusPane: () => set({ focusedPaneId: null }),
 
   focusTerminal: (terminalId) => {
     const paneId = leafIdForTerminal(get().paneTree, terminalId);
@@ -111,7 +124,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
   toggleGitPanel: (open) =>
     set((state) => ({ gitPanelOpen: open ?? !state.gitPanelOpen })),
 
-  resetProject: () => set({ paneTree: null, activePaneId: null, gitPanelOpen: false }),
+  resetProject: () => set({ paneTree: null, activePaneId: null, focusedPaneId: null, gitPanelOpen: false }),
 
   setSplitSizes: (splitId, sizes) => {
     const { paneTree } = get();

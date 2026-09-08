@@ -14,6 +14,11 @@ export function findLeaf(node: PaneNode | null, paneId: PaneId): PaneNode | null
   return findLeaf(node.first, paneId) ?? findLeaf(node.second, paneId);
 }
 
+export function visiblePaneTree(node: PaneNode | null, focusedPaneId: PaneId | null): PaneNode | null {
+  if (!node || !focusedPaneId) return node;
+  return findLeaf(node, focusedPaneId) ?? node;
+}
+
 export function replaceNode(node: PaneNode, targetId: PaneId, next: PaneNode): PaneNode {
   if (node.id === targetId) return next;
   if (node.type === "leaf") return node;

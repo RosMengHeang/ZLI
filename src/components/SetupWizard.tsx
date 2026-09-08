@@ -20,8 +20,6 @@ import {
   type LaunchProgress,
 } from "./setup/setupModel";
 
-const STEPS = ["Workspace", "Agents", "Launch"];
-
 export function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const project = useProjectStore((state) => state.project);
   const loading = useProjectStore((state) => state.loading);
@@ -176,35 +174,7 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
             <p className="text-[13px] font-semibold tracking-tight">Taxzy</p>
           </div>
 
-          <nav className="setup-progress" aria-label="Setup progress">
-            {STEPS.map((label, index) => {
-              const complete = Boolean(index < step || (index === 0 && project));
-              const active = step === index;
-              return (
-                <Button
-                  key={label}
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="setup-progress-item"
-                  data-active={active}
-                  data-complete={complete}
-                  aria-current={active ? "step" : undefined}
-                  disabled={
-                    busy ||
-                    progress !== null ||
-                    (index === 0 && retained.length > 0) ||
-                    (index > 0 && !project) ||
-                    loading
-                  }
-                  onClick={() => setStep(index)}
-                >
-                  <span className="setup-progress-number">{complete ? "✓" : index + 1}</span>
-                  <span>{label}</span>
-                </Button>
-              );
-            })}
-          </nav>
+          <span className="flex-1" aria-hidden="true" />
 
           <div className="flex items-center gap-1">
             <Button
@@ -252,6 +222,11 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
                   }}
                   onOpenPath={() => {
                     void openFromPath(path).then((opened) => {
+                      if (opened) setStep(1);
+                    });
+                  }}
+                  onOpenRecent={(recentPath) => {
+                    void openFromPath(recentPath).then((opened) => {
                       if (opened) setStep(1);
                     });
                   }}

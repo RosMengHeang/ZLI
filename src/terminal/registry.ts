@@ -14,12 +14,12 @@ const MAX_PENDING_CHUNKS = 128;
 let holding: HTMLDivElement | null = null;
 
 const XTERM_THEME = {
-  background: "#0b0e14",
+  background: "#17191c",
   foreground: "#e5e7eb",
-  cursor: "#2563eb",
-  cursorAccent: "#0b0e14",
-  selectionBackground: "#1e3a5f",
-  black: "#0b0e14",
+  cursor: "#ececec",
+  cursorAccent: "#17191c",
+  selectionBackground: "#3f3f46",
+  black: "#17191c",
   red: "#ef4444",
   green: "#22c55e",
   yellow: "#eab308",
@@ -78,7 +78,7 @@ export const terminalRegistry = {
 
     const terminal = new Terminal({
       cursorBlink: true,
-      fontFamily: '"IBM Plex Mono", "Cascadia Mono", Consolas, monospace',
+      fontFamily: '"JetBrains Mono", "SFMono-Regular", Consolas, monospace',
       fontSize: 13,
       lineHeight: 1.2,
       theme: XTERM_THEME,

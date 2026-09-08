@@ -3,7 +3,7 @@
 ## Design read
 
 Reading this as: a local developer workspace for people coordinating several
-coding agents, in a restrained graphite workbench style, dial ENERGY 2 /
+coding agents, in a restrained charcoal workbench style, dial ENERGY 1 /
 RHYTHM 2 / MOTION 1.
 
 ## Identity
@@ -15,29 +15,28 @@ are tools that share the same work surface.
 
 ## Palette
 
-- Canvas: `#15171A`, a deep neutral that keeps terminal text comfortable.
-- Sidebar: `#1B1E22`, a slightly lifted graphite plane for navigation.
-- Surface: `#23272D`, the shared pane and chrome surface.
-- Raised surface: `#2B3037`, reserved for controls and focused content.
-- Accent: `#6EA8FE`, used only for active workspace state and the primary action.
+- Canvas: `#181818`, a soft charcoal that keeps terminal text comfortable.
+- Sidebar: `#202020`, a slightly lifted navigation plane.
+- Surface: `#212121`, shared pane and chrome color.
+- Raised surface: `#262626`, reserved for controls and focused content.
+- Accent: white in dark mode and `#111111` in light mode, reserved for primary actions.
 - Status colors: green, amber, and red are reserved for real process state.
 
 ## Typography
 
-- Bricolage Grotesque carries the Taxzy name and screen headings because its
-  compact, slightly human shapes make a technical tool feel authored.
-- Segoe UI Variable carries controls and body copy because it is native-feeling
-  and legible on Windows.
-- IBM Plex Mono is limited to paths, branches, timestamps, and terminal output.
+- Inter with native system fallbacks carries controls and body copy for a quiet,
+  platform-appropriate desktop rhythm.
+- JetBrains Mono with SFMono-Regular and Consolas fallbacks is limited to paths,
+  branches, timestamps, and terminal output.
 
 ## Composition principles
 
 - The left tree is the persistent home for project and agent context.
-- The center workbench is the focal point. Browser and TaxChat dock beside it,
-  never float above it.
-- Pane borders are quiet separators. A single active blue spine communicates
-  focus; provider colors appear only on terminal headers because they identify
-  the running tool.
+- The center workbench is the focal point. Browser, TaxChat, and Changes share
+  one resizable utility column and stack vertically when used together. They
+  never float above or overlap the terminal grid.
+- Pane boundaries are quiet separators. Provider identity comes from the tool
+  icon, while color is reserved for process and Git meaning.
 - Empty states explain the next action. Numbers and status labels come from
   real project or process state.
 - Motion is limited to focus, resizing, and status transitions. No decorative

@@ -111,6 +111,22 @@ export function IconClose(props: IconProps) {
   );
 }
 
+export function IconMaximize(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M6.2 2.8H2.8v3.4M9.8 2.8h3.4v3.4M6.2 13.2H2.8V9.8M9.8 13.2h3.4V9.8" {...stroke} />
+    </Svg>
+  );
+}
+
+export function IconMinimize(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M2.8 6.2h3.4V2.8M13.2 6.2H9.8V2.8M2.8 9.8h3.4v3.4M13.2 9.8H9.8v3.4" {...stroke} />
+    </Svg>
+  );
+}
+
 export function IconBack(props: IconProps) {
   return (
     <Svg {...props}>

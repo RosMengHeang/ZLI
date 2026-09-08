@@ -2,6 +2,7 @@ import type { ProjectInfo } from "../../types";
 import { IconArrowRight, IconFolder } from "../AppIcons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
 
 interface Props {
   project: ProjectInfo | null;
@@ -13,10 +14,13 @@ interface Props {
   onManual: () => void;
   onChoose: () => void;
   onOpenPath: () => void;
+  onOpenRecent: (path: string) => void;
   onContinue: () => void;
 }
 
 export function SetupProjectStep(props: Props) {
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const recent = workspaces.slice(0, 5);
   return (
     <section aria-labelledby="project-title" className="setup-project-step">
       <h1 id="project-title" className="setup-section-title">
@@ -83,6 +87,26 @@ export function SetupProjectStep(props: Props) {
           {props.error}
         </p>
       )}
+
+      {!props.project && recent.length ? (
+        <div className="setup-recent-projects">
+          <p className="mb-2 text-[11px] font-medium text-mute">Recent</p>
+          {recent.map((workspace) => (
+            <Button
+              key={workspace.root}
+              type="button"
+              variant="ghost"
+              className="setup-recent-project"
+              disabled={props.loading}
+              onClick={() => props.onOpenRecent(workspace.project.path)}
+            >
+              <IconFolder />
+              <span className="min-w-0 flex-1 truncate text-left">{workspace.project.name}</span>
+              <span className="truncate font-mono text-[11px] text-mute">{workspace.project.currentBranch}</span>
+            </Button>
+          ))}
+        </div>
+      ) : null}
 
       {props.project && (
         <div className="setup-project-confirmation">

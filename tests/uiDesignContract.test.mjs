@@ -81,27 +81,34 @@ test("the Taxzy shadcn foundation matches the approved design contract", async (
   assert.match(design, /ENERGY 1 \/ RHYTHM 2 \/ MOTION 1/);
   assert.match(
     css,
-    /--font-sans:\s*-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable", sans-serif;/,
+    /--font-sans:\s*Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;/,
   );
-  assert.match(css, /--font-mono:\s*"IBM Plex Mono"/);
+  assert.match(css, /--font-mono:\s*"JetBrains Mono", "SFMono-Regular", Consolas, monospace/);
 
   const exactTokens = [
-    "--app-canvas: #1c1c1e",
-    "--sidebar: #202022",
-    "--surface: #28282a",
-    "--surface-raised: #323235",
-    "--separator: #3a3a3c",
-    "--text-primary: #f5f5f7",
-    "--text-secondary: #a1a1a6",
-    "--accent: #0a84ff",
-    "--app-canvas: #f2f2f7",
-    "--sidebar: #f7f7f8",
+    "--app-canvas: #181818",
+    "--sidebar: #202020",
+    "--surface: #212121",
+    "--surface-raised: #262626",
+    "--surface-hover: #2a2a2a",
+    "--surface-selected: #303030",
+    "--separator: #333333",
+    "--border-subtle: #2b2b2b",
+    "--text-primary: #ececec",
+    "--text-secondary: #a1a1aa",
+    "--text-tertiary: #737373",
+    "--accent: #ffffff",
+    "--app-canvas: #fafaf9",
+    "--sidebar: #f5f5f4",
     "--surface: #ffffff",
-    "--surface-raised: #f2f2f4",
-    "--separator: #d1d1d6",
-    "--text-primary: #1d1d1f",
-    "--text-secondary: #6e6e73",
-    "--accent: #007aff",
+    "--surface-hover: #f5f5f4",
+    "--surface-selected: #ececea",
+    "--separator: #e7e7e5",
+    "--border-subtle: #efefec",
+    "--text-primary: #171717",
+    "--text-secondary: #737373",
+    "--text-tertiary: #a3a3a3",
+    "--accent: #111111",
   ];
 
   for (const token of exactTokens) {

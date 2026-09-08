@@ -265,4 +265,5 @@ test("setup avoids bypass and marketing filler", () => {
   for (const filler of ["Skip for now", "Welcome to Taxzy", "A clear starting point", "One project. Every agent in view."]) {
     assert.doesNotMatch(source, new RegExp(filler.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
+  assert.doesNotMatch(source, /setup-progress/);
 });

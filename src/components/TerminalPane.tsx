@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { IconClose, IconSplitDown, IconSplitRight } from "./AppIcons";
+import { IconClose, IconMaximize, IconMinimize, IconMore, IconReload, IconSplitDown, IconSplitRight } from "./AppIcons";
 import { ProviderIcon } from "./ProviderIcon";
 import { StatusBadge } from "./StatusBadge";
 import { rafThrottle } from "../lib/schedule";
@@ -8,7 +8,6 @@ import { useLayoutStore } from "../stores/layoutStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { terminalRegistry } from "../terminal/registry";
 import { providerDisplayName } from "../types";
-import { providerAccent } from "../lib/providerPresentation";
 import { launchAgent } from "../tauri/agents";
 import { sessionFromAgent } from "../lib/terminalSessions";
 import { replaceNode } from "../stores/paneTree";
@@ -17,6 +16,13 @@ import { terminalRetry } from "../lib/terminalRetry";
 import type { Agent } from "../types";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface TerminalPaneProps {
   paneId: string;
@@ -30,6 +36,8 @@ export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: T
   const session = useTerminalStore((s) => s.sessions[terminalId]);
   const activePaneId = useLayoutStore((s) => s.activePaneId);
   const setActivePane = useLayoutStore((s) => s.setActivePane);
+  const focusedPaneId = useLayoutStore((s) => s.focusedPaneId);
+  const toggleFocusPane = useLayoutStore((s) => s.toggleFocusPane);
   const splitActive = useLayoutStore((s) => s.splitActive);
   const closePane = useLayoutStore((s) => s.closePane);
   const closeSession = useTerminalStore((s) => s.closeSession);
@@ -38,6 +46,7 @@ export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: T
     Object.values(s.agents).find((item) => item.terminalId === terminalId),
   );
   const active = activePaneId === paneId;
+  const focused = focusedPaneId === paneId;
   const hasXterm = terminalRegistry.has(terminalId);
 
   useEffect(() => {
@@ -158,28 +167,43 @@ export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: T
   const title = agent?.name ?? session?.title ?? "Terminal";
   const provider = agent ? providerDisplayName(agent.provider) : "Shell";
   const status = session?.status ?? "starting";
+  const secondary = agent?.branch || (provider !== title ? provider : "");
 
   return (
     <div
-      className={`terminal-pane flex h-full min-h-0 min-w-0 flex-col ${active ? "is-active ring-1 ring-inset ring-accent/80" : ""}`}
+      className={`terminal-pane flex h-full min-h-0 min-w-0 flex-col ${active ? "is-active" : ""}`}
       data-active={active}
       data-status={status}
-      style={{ borderTop: `2px solid ${providerAccent(agent?.provider ?? session?.provider)}` }}
       onMouseDown={onFocusPane}
+      onKeyDownCapture={(event) => {
+        if (event.key === "Escape" && focused) {
+          event.preventDefault();
+          useLayoutStore.getState().clearFocusPane();
+        }
+      }}
     >
       <div
-        className="terminal-pane-header flex h-12 shrink-0 items-center gap-2 border-b border-line bg-chrome px-3"
+        className="terminal-pane-header flex h-10 shrink-0 items-center gap-2 bg-chrome px-3"
+        onDoubleClick={() => toggleFocusPane(paneId)}
       >
         <ProviderIcon provider={agent?.provider ?? "shell"} size="sm" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[12px] font-medium text-paper">{title}</span>
-          <span className="block truncate text-[11px] text-mute">{provider}</span>
+          {secondary ? <span className="block truncate text-[11px] text-mute">{secondary}</span> : null}
         </span>
         <StatusBadge status={status} />
-        <span className="flex shrink-0 items-center">
-          <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon-xs" aria-label="Split right" onClick={() => void onSplit("horizontal")}><IconSplitRight /></Button></TooltipTrigger><TooltipContent>Split right</TooltipContent></Tooltip>
-          <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon-xs" aria-label="Split down" onClick={() => void onSplit("vertical")}><IconSplitDown /></Button></TooltipTrigger><TooltipContent>Split down</TooltipContent></Tooltip>
-          <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon-xs" aria-label="Close pane" disabled={retrying} onClick={() => void onClose()}><IconClose /></Button></TooltipTrigger><TooltipContent>Close pane</TooltipContent></Tooltip>
+        <span className="terminal-pane-controls flex shrink-0 items-center">
+          <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon-xs" aria-label={focused ? "Return to grid" : "Focus terminal"} onClick={() => toggleFocusPane(paneId)}>{focused ? <IconMinimize /> : <IconMaximize />}</Button></TooltipTrigger><TooltipContent>{focused ? "Return to grid" : "Focus terminal"}</TooltipContent></Tooltip>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-xs" aria-label="Terminal actions"><IconMore /></Button></DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onSelect={() => void onSplit("horizontal")}><IconSplitRight />Split right</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void onSplit("vertical")}><IconSplitDown />Split down</DropdownMenuItem>
+              <DropdownMenuItem disabled={retrying} onSelect={() => void onRetry()}><IconReload />Restart</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" disabled={retrying} onSelect={() => void onClose()}><IconClose />Close pane</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </span>
       </div>
       {status === "error" || status === "failed" || status === "exited" || status === "killed" ? (
@@ -200,7 +224,7 @@ export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: T
           </div> : null}
         </div>
       ) : null}
-      <div className="terminal-pane-body relative min-h-0 min-w-0 flex-1 bg-[#0b0e14]">
+      <div className="terminal-pane-body relative min-h-0 min-w-0 flex-1 bg-[#17191c]">
         {status === "starting" ? (
           <div role="status" className="terminal-starting pointer-events-none absolute left-3 top-2 z-10 px-2 py-1 text-[12px] text-slate-300">Starting terminal…</div>
         ) : null}

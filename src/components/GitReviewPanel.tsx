@@ -9,6 +9,8 @@ import { useUiStore } from "../stores/uiStore";
 import { providerDisplayName } from "../types";
 import { changedFileLabel } from "../lib/gitPresentation";
 import { Button } from "./ui/button";
+import { IconMore } from "./AppIcons";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "./ui/dropdown-menu";
 
 export function GitReviewPanel() {
   const project = useProjectStore((s) => s.project);
@@ -74,47 +76,36 @@ export function GitReviewPanel() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-ink">
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line bg-chrome px-3">
-        {agent ? <ProviderIcon provider={agent.provider} size="sm" /> : null}
-        <span className="truncate text-[13px] font-medium text-paper">{title}</span>
-        <span className="truncate text-[11px] text-mute">{subtitle}</span>
-        <span className="text-[11px] text-mute">{status ? `${files.length} files` : "No files"}</span>
+        <span className="text-[13px] font-semibold text-paper">Changes</span>
+        <span className="text-[11px] text-mute">{status ? files.length : 0}</span>
         {status && !status.clean ? (
-          <span className="font-mono text-[11px] text-ok">{formatPlusMinus(status.additions, status.deletions)}</span>
-        ) : (
-          <span className="text-[11px] text-mute">{status?.clean ? "Clean" : ""}</span>
-        )}
+          <span className="flex gap-1 font-mono text-[11px]"><span className="text-ok">+{status.additions}</span><span className="text-danger">−{status.deletions}</span></span>
+        ) : null}
         <span className="ml-auto flex items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => void refresh(worktreePath)}
-            disabled={loading || !worktreePath}
-          >
-            {loading ? "Refreshing…" : "Refresh"}
-          </Button>
           <Button
             type="button"
             size="sm"
             onClick={() => setCommitOpen(true)}
             disabled={!status || status.clean}
           >
-            Commit changes
+            Commit
           </Button>
-          <Button type="button" variant="secondary" size="sm" onClick={() => setMergeOpen(true)} disabled={!agent}>
-            Merge branch
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="text-danger hover:text-danger"
-            onClick={() => setDiscardOpen(true)}
-            disabled={!agent}
-          >
-            Discard
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-sm" aria-label="Changes actions"><IconMore /></Button></DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuItem disabled={loading || !worktreePath} onSelect={() => void refresh(worktreePath)}>{loading ? "Refreshing…" : "Refresh"}</DropdownMenuItem>
+              <DropdownMenuItem disabled={!agent} onSelect={() => setMergeOpen(true)}>Merge branch</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" disabled={!agent} onSelect={() => setDiscardOpen(true)}>Discard worktree</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </span>
+      </div>
+
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line px-3 text-[11px] text-mute">
+        {agent ? <ProviderIcon provider={agent.provider} size="sm" /> : null}
+        <span className="min-w-0 flex-1 truncate text-paper">{title}</span>
+        <span className="truncate">{subtitle}</span>
       </div>
 
       {error ? (
@@ -164,9 +155,9 @@ export function GitReviewPanel() {
         </div>
       ) : null}
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col">
         <div
-          className="w-[210px] min-[980px]:w-[260px] shrink-0 overflow-auto border-r border-line"
+          className="h-44 shrink-0 overflow-auto border-b border-line"
           role="listbox"
           aria-label="Changed files"
           tabIndex={0}
@@ -208,7 +199,7 @@ export function GitReviewPanel() {
             })
           )}
         </div>
-        <div className="min-w-0 flex-1 overflow-hidden">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           {diffLoading ? (
             <div className="p-4 text-[13px] text-mute">Loading diff…</div>
           ) : selectedDiff ? (

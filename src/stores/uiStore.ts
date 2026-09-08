@@ -7,6 +7,7 @@ interface UiState {
   browserOpen: boolean;
   browserUrl: string;
   taxChatOpen: boolean;
+  commandPaletteOpen: boolean;
   setBrowserUrl: (url: string) => void;
   addAgentOpen: boolean;
   pathDialogOpen: boolean;
@@ -18,6 +19,7 @@ interface UiState {
   themeMode: ThemeMode;
   setBrowserOpen: (open: boolean) => void;
   setTaxChatOpen: (open: boolean) => void;
+  setCommandPaletteOpen: (open: boolean) => void;
   setAddAgentOpen: (open: boolean) => void;
   setPathDialogOpen: (open: boolean) => void;
   setCommitOpen: (open: boolean) => void;
@@ -32,6 +34,7 @@ export const useUiStore = create<UiState>((set) => ({
   browserOpen: false,
   browserUrl: "",
   taxChatOpen: false,
+  commandPaletteOpen: false,
   setBrowserUrl: (browserUrl) => set({ browserUrl }),
   addAgentOpen: false,
   pathDialogOpen: false,
@@ -43,6 +46,7 @@ export const useUiStore = create<UiState>((set) => ({
   themeMode: getThemePreference(),
   setBrowserOpen: (browserOpen) => set({ browserOpen }),
   setTaxChatOpen: (taxChatOpen) => set({ taxChatOpen }),
+  setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
   setAddAgentOpen: (open) => set({ addAgentOpen: open }),
   setPathDialogOpen: (open) => set({ pathDialogOpen: open }),
   setCommitOpen: (open) => set({ commitOpen: open }),
