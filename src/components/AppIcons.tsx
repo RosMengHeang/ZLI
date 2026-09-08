@@ -111,6 +111,15 @@ export function IconClose(props: IconProps) {
   );
 }
 
+export function IconFolderOpen(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M1.4 6.2h12.9l-1.4 6.1a1.5 1.5 0 0 1-1.5 1.2H2.8a1.5 1.5 0 0 1-1.4-1.8l1.1-5.5Z" {...stroke} />
+      <path d="M2.1 6.2V4.8a1.5 1.5 0 0 1 1.5-1.5h3.1l1.2 1.4h4.5a1.5 1.5 0 0 1 1.5 1.5" {...stroke} />
+    </Svg>
+  );
+}
+
 export function IconMaximize(props: IconProps) {
   return (
     <Svg {...props}>

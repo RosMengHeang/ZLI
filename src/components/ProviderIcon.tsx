@@ -43,6 +43,7 @@ interface ProviderIconProps {
   provider: string;
   size?: IconSize;
   className?: string;
+  bare?: boolean;
 }
 
 function MonoPath({ d, title }: { d: string; title: string }) {
@@ -146,20 +147,20 @@ function markFor(id: string) {
   }
 }
 
-export function ProviderIcon({ provider, size = "md", className = "" }: ProviderIconProps) {
+export function ProviderIcon({ provider, size = "md", className = "", bare = false }: ProviderIconProps) {
   const id = canonicalProviderId(provider);
   const tile = TILES[id] ?? FALLBACK_TILE;
-  const px = SIZE_PX[size];
+  const px = bare ? 18 : SIZE_PX[size];
   const style: CSSProperties = {
     width: px,
     height: px,
-    background: tile.bg,
+    background: bare ? "transparent" : tile.bg,
     color: tile.fg,
   };
 
   return (
     <span
-      className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[6px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] ${className}`}
+      className={`inline-flex shrink-0 items-center justify-center overflow-hidden ${bare ? "rounded-none shadow-none" : "rounded-[6px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]"} ${className}`}
       style={style}
       role="img"
       aria-label={tile.label}

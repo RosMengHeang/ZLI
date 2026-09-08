@@ -32,6 +32,12 @@ are tools that share the same work surface.
 ## Composition principles
 
 - The left tree is the persistent home for project and agent context.
+- Closed and open folder glyphs carry project expansion state, removing the
+  need for project initials, count badges, and a second disclosure icon.
+- Agent rows are indented beneath their project and use bare provider marks so
+  identity is visible without adding another layer of colored tiles.
+- Project details appear in one raised hover card because metadata and actions
+  are useful on demand but would make every navigation row noisy if persistent.
 - The center workbench is the focal point. Browser, TaxChat, and Changes share
   one resizable utility column and stack vertically when used together. They
   never float above or overlap the terminal grid.

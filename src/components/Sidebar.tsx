@@ -1,11 +1,13 @@
 import { useState } from "react";
 import {
-  IconChevronDown,
   IconFolder,
+  IconFolderOpen,
+  IconGit,
   IconHelp,
   IconMore,
   IconPlus,
   IconSettings,
+  IconTerminal,
   TaxzyMark,
 } from "./AppIcons";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -17,8 +19,8 @@ import {
   type WorkspaceAgentResume,
   type WorkspaceRecord,
 } from "../lib/workspaceRegistry";
-import { displayPath } from "../lib/format";
 import { APP_SHORTCUTS } from "../lib/platform";
+import { projectExpansionAfterSelection, projectHoverDetails } from "../lib/sidebarPresentation";
 import { useAgentStore } from "../stores/agentStore";
 import { useLayoutStore } from "../stores/layoutStore";
 import { useProjectStore } from "../stores/projectStore";
@@ -30,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -94,6 +97,17 @@ export function Sidebar() {
     return true;
   }
 
+  async function onProjectClick(workspace: WorkspaceRecord): Promise<void> {
+    const active = isActive(workspace);
+    const expanded = isExpanded(workspace);
+    const nextExpanded = projectExpansionAfterSelection({ active, expanded });
+    if (active) {
+      if (nextExpanded !== expanded) toggleExpanded(workspace.root);
+      return;
+    }
+    await openWorkspace(workspace);
+  }
+
   async function onOpenProject(): Promise<void> {
     await openFromDialog();
   }
@@ -136,9 +150,9 @@ export function Sidebar() {
           onClick={() => void onAgentClick(workspace, agent)}
           title={saved ? `${recipe.name} will relaunch when this project opens` : `${recipe.name}${agent?.branch ? ` · ${agent.branch}` : ""}`}
         >
-          {displayedStatus ? <StatusBadge status={displayedStatus} compact /> : <span className="status-dot" data-tone="neutral" aria-hidden="true" />}
-          <ProviderIcon provider={recipe.provider} size="sm" />
+          <ProviderIcon provider={recipe.provider} size="sm" bare className="workspace-agent-logo" />
           <span className="workspace-agent-name">{recipe.name}</span>
+          {displayedStatus ? <StatusBadge status={displayedStatus} compact /> : <span className="status-dot" data-tone="neutral" aria-hidden="true" />}
         </Button>
         {agent ? (
           <DropdownMenu>
@@ -167,27 +181,59 @@ export function Sidebar() {
     }));
     const listedIds = new Set(listedAgents.flatMap(({ agent }) => (agent ? [agent.id] : [])));
     const unlistedAgents = projectAgents.filter((agent) => !listedIds.has(agent.id));
+    const details = projectHoverDetails({
+      name: workspace.project.name,
+      agentCount: listedAgents.length + unlistedAgents.length,
+      branch: workspace.project.currentBranch || workspace.project.baseBranch,
+      path: workspace.project.path,
+    });
 
     return (
       <section key={workspace.root} className="workspace-tree-group" data-active={active}>
         <div className="workspace-project-row">
-          <Button
-            type="button"
-            variant="ghost"
-            className="workspace-project-button"
-            data-active={active}
-            aria-expanded={expanded}
-            onClick={() => void openWorkspace(workspace)}
-            title={workspace.project.path}
-          >
-            <IconChevronDown className={`workspace-project-chevron ${expanded ? "is-expanded" : ""}`} />
-            <span className="workspace-project-mark" aria-hidden="true">{workspace.project.name.slice(0, 1).toUpperCase()}</span>
-            <span className="workspace-project-copy">
-              <span className="workspace-project-name">{workspace.project.name}</span>
-              <span className="workspace-project-path">{displayPath(workspace.project.path, 28)}</span>
-            </span>
-            <span className="workspace-project-count">{workspace.agents.length || projectAgents.length || ""}</span>
-          </Button>
+          <HoverCard>
+            <HoverCardTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                className="workspace-project-button"
+                data-active={active}
+                aria-expanded={expanded}
+                onClick={() => void onProjectClick(workspace)}
+              >
+                {expanded ? <IconFolderOpen className="workspace-project-folder" /> : <IconFolder className="workspace-project-folder" />}
+                <span className="workspace-project-name">{workspace.project.name}</span>
+              </Button>
+            </HoverCardTrigger>
+            <HoverCardContent side="right" align="start" className="workspace-project-hover-card">
+              <div className="workspace-project-hover-heading">
+                {expanded ? <IconFolderOpen /> : <IconFolder />}
+                <span>{details.name}</span>
+              </div>
+              <div className="workspace-project-hover-count">{details.agentLabel}</div>
+              <div className="workspace-project-hover-meta">
+                <IconGit />
+                <span>{details.branch}</span>
+              </div>
+              <div className="workspace-project-hover-meta">
+                <IconFolder />
+                <span title={details.path}>{details.path}</span>
+              </div>
+              <div className="workspace-project-hover-actions">
+                <Button type="button" variant="ghost" onClick={() => void revealItemInDir(details.path)}>
+                  <IconFolder />
+                  Open folder
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => void copyText(details.path)}>
+                  Copy path
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => void openProjectTerminal(workspace)}>
+                  <IconTerminal />
+                  Open terminal
+                </Button>
+              </div>
+            </HoverCardContent>
+          </HoverCard>
           {active ? (
             <Button
               type="button"
@@ -288,10 +334,12 @@ export function Sidebar() {
         </Button>
       </div>
 
-      <label className="sidebar-search">
-        <span className="sr-only">Filter projects</span>
-        <Input value={projectSearch} onChange={(event) => setProjectSearch(event.target.value)} placeholder="Filter projects" />
-      </label>
+      {workspaces.length > 5 ? (
+        <label className="sidebar-search">
+          <span className="sr-only">Filter projects</span>
+          <Input value={projectSearch} onChange={(event) => setProjectSearch(event.target.value)} placeholder="Filter projects" />
+        </label>
+      ) : null}
 
       <ScrollArea className="sidebar-workspace-list">
         {filteredWorkspaces.length ? filteredWorkspaces.map(renderWorkspace) : (
