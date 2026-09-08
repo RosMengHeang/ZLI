@@ -2,10 +2,13 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Webview } from "@tauri-apps/api/webview";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { IconBack, IconExternal, IconForward, IconGlobe, IconReload } from "./AppIcons";
 import { rafThrottle } from "../lib/schedule";
 import { isTauriRuntime } from "../tauri/invoke";
+import { useUiStore } from "../stores/uiStore";
+import { normalizeBrowserInput, pushBrowserHistory } from "../lib/browserNavigation";
 
 const STARTER_LINKS = [
   { label: "GitHub", url: "https://github.com" },
@@ -13,22 +16,84 @@ const STARTER_LINKS = [
   { label: "npm", url: "https://www.npmjs.com" },
 ];
 
-function normalizeUrl(value: string): string {
-  const trimmed = value.trim();
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
+let webviewSequence = 0;
+
+interface BrowserPanelProps {
+  obscured?: boolean;
 }
 
-export function BrowserPanel() {
-  const [history, setHistory] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const [draft, setDraft] = useState("");
+interface BrowserNavigationEvent {
+  label: string;
+  url: string;
+  phase: "started" | "finished";
+}
+
+export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
+  const savedUrl = useUiStore((state) => state.browserUrl);
+  const [history, setHistory] = useState<string[]>(() => savedUrl ? [savedUrl] : []);
+  const [historyIndex, setHistoryIndex] = useState(savedUrl ? 0 : -1);
+  const [draft, setDraft] = useState(savedUrl);
   const [frameVersion, setFrameVersion] = useState(0);
   const [nativeError, setNativeError] = useState<string | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const nativeWebviewRef = useRef<Webview | null>(null);
+  const nativeLabelRef = useRef<string | null>(null);
+  const expectedNavigationRef = useRef<string | null>(savedUrl || null);
+  const historyRef = useRef(history);
+  const historyIndexRef = useRef(historyIndex);
   const nativeBrowser = isTauriRuntime();
+  const dialogOpen = useUiStore((state) =>
+    state.addAgentOpen || state.pathDialogOpen || state.commitOpen || state.discardOpen ||
+    state.mergeOpen || state.helpOpen || state.preferencesOpen,
+  );
+  const shouldHideNativeView = obscured || dialogOpen;
+  const shouldHideNativeViewRef = useRef(shouldHideNativeView);
+  shouldHideNativeViewRef.current = shouldHideNativeView;
   const currentUrl = history[historyIndex] ?? "";
+  historyRef.current = history;
+  historyIndexRef.current = historyIndex;
+  useEffect(() => { useUiStore.getState().setBrowserUrl(currentUrl); }, [currentUrl]);
+
+  useEffect(() => {
+    if (!nativeBrowser) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<BrowserNavigationEvent>("browser-navigation", ({ payload }) => {
+      if (disposed || payload.label !== nativeLabelRef.current) return;
+      const observed = normalizeBrowserInput(payload.url);
+      if (!observed) return;
+      const currentHistory = historyRef.current;
+      const currentIndex = historyIndexRef.current;
+      if (currentIndex < 0) return;
+      const current = currentHistory[currentIndex];
+      let nextHistory = currentHistory;
+      let nextIndex = currentIndex;
+
+      if (observed !== current) {
+        if (expectedNavigationRef.current) {
+          nextHistory = currentHistory.map((entry, index) => index === currentIndex ? observed : entry);
+        } else {
+          const next = pushBrowserHistory(currentHistory, currentIndex, observed);
+          nextHistory = next.history;
+          nextIndex = next.index;
+          expectedNavigationRef.current = observed;
+        }
+        historyRef.current = nextHistory;
+        historyIndexRef.current = nextIndex;
+        setHistory(nextHistory);
+        setHistoryIndex(nextIndex);
+      }
+      setDraft(observed);
+      if (payload.phase === "finished") expectedNavigationRef.current = null;
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unlisten = cleanup;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [nativeBrowser]);
 
   useEffect(() => {
     if (!nativeBrowser || !currentUrl) return;
@@ -52,14 +117,13 @@ export function BrowserPanel() {
 
     async function mountWebview() {
       setNativeError(null);
-      const previous = await Webview.getByLabel("browser-panel");
-      await previous?.close().catch(() => undefined);
-      if (cancelled) return;
-
       const viewport = viewportRef.current;
       if (!viewport) return;
       const rect = viewport.getBoundingClientRect();
-      const webview = new Webview(getCurrentWindow(), "browser-panel", {
+      const label = `browser-panel-${++webviewSequence}`;
+      nativeLabelRef.current = label;
+      expectedNavigationRef.current = currentUrl;
+      const webview = new Webview(getCurrentWindow(), label, {
         url: currentUrl,
         x: rect.left,
         y: rect.top,
@@ -67,13 +131,25 @@ export function BrowserPanel() {
         height: Math.max(1, rect.height),
         focus: false,
         dragDropEnabled: false,
+        backgroundColor: [11, 14, 20, 255],
       });
+      await new Promise<void>((resolve, reject) => {
+        void webview.once("tauri://created", () => resolve()).catch(reject);
+        void webview.once("tauri://error", (event) => {
+          reject(new Error(`The embedded browser could not be created: ${String(event.payload)}`));
+        }).catch(reject);
+      });
+      if (cancelled) {
+        await webview.close().catch(() => undefined);
+        return;
+      }
+
       nativeWebviewRef.current = webview;
       const handleWindowResize = () => throttledBounds();
-      await webview.once("tauri://error", () => {
-        if (!cancelled) setNativeError("The page could not be loaded in the embedded browser.");
-      });
       await webview.setAutoResize(false);
+      if (shouldHideNativeViewRef.current) await webview.hide();
+      else await webview.show();
+      await updateBounds(webview);
       observer = new ResizeObserver(() => throttledBounds());
       observer.observe(viewport);
       window.addEventListener("resize", handleWindowResize);
@@ -100,15 +176,30 @@ export function BrowserPanel() {
       removeWindowResizeListener = null;
       const webview = nativeWebviewRef.current;
       nativeWebviewRef.current = null;
+      if (nativeLabelRef.current === webview?.label) nativeLabelRef.current = null;
       void webview?.close().catch(() => undefined);
     };
   }, [currentUrl, frameVersion, nativeBrowser]);
 
+  useEffect(() => {
+    const webview = nativeWebviewRef.current;
+    if (!webview) return;
+    void (shouldHideNativeView ? webview.hide() : webview.show()).catch((error) => {
+      setNativeError(error instanceof Error ? error.message : String(error));
+    });
+  }, [shouldHideNativeView]);
+
   function navigate(value: string) {
-    const normalized = normalizeUrl(value);
-    if (normalized === "https://") return;
-    setHistory((current) => [...current.slice(0, historyIndex + 1), normalized]);
-    setHistoryIndex((current) => current + 1);
+    const normalized = normalizeBrowserInput(value);
+    if (!normalized) {
+      setNativeError("Enter a valid http or https address.");
+      return;
+    }
+    const next = pushBrowserHistory(history, historyIndex, normalized);
+    expectedNavigationRef.current = normalized;
+    setHistory(next.history);
+    setHistoryIndex(next.index);
+    setNativeError(null);
     setDraft(normalized);
   }
 
@@ -127,6 +218,7 @@ export function BrowserPanel() {
   function goBack() {
     if (historyIndex <= 0) return;
     const next = historyIndex - 1;
+    expectedNavigationRef.current = history[next];
     setHistoryIndex(next);
     setDraft(history[next]);
   }
@@ -134,12 +226,14 @@ export function BrowserPanel() {
   function goForward() {
     if (historyIndex >= history.length - 1) return;
     const next = historyIndex + 1;
+    expectedNavigationRef.current = history[next];
     setHistoryIndex(next);
     setDraft(history[next]);
   }
 
   function reload() {
     if (!currentUrl) return;
+    expectedNavigationRef.current = currentUrl;
     setFrameVersion((current) => current + 1);
   }
 
@@ -196,7 +290,7 @@ export function BrowserPanel() {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={onUrlKeyDown}
-              placeholder="Search or enter a web address"
+              placeholder="Enter a web address"
               spellCheck={false}
             />
           </label>
@@ -206,12 +300,13 @@ export function BrowserPanel() {
         </form>
         <button
           type="button"
-          className="btn btn-ghost hidden sm:inline-flex"
+          className="btn btn-icon"
+          title="Open externally"
+          aria-label="Open externally"
           onClick={() => void openExternally()}
           disabled={!currentUrl}
         >
           <IconExternal />
-          Open externally
         </button>
       </div>
 
@@ -227,8 +322,13 @@ export function BrowserPanel() {
                 referrerPolicy="strict-origin-when-cross-origin"
               />
             ) : nativeError ? (
-              <div className="flex h-full items-center justify-center px-6 text-center text-[12px] text-warn">
-                {nativeError}
+              <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+                <p role="alert" className="text-[13px] font-medium text-paper">This page could not open inside Taxzy</p>
+                <p className="max-w-sm break-words text-[12px] text-mute">{nativeError}</p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  <button type="button" className="btn btn-primary" onClick={reload}>Retry</button>
+                  <button type="button" className="btn btn-quiet" onClick={() => void openExternally()}>Open externally</button>
+                </div>
               </div>
             ) : (
               <div className="flex h-full items-center justify-center text-[12px] text-mute">Loading page…</div>

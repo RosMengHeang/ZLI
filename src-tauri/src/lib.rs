@@ -16,6 +16,7 @@ use git::commands::{
     git_abort_merge, git_commit, git_create_worktree, git_delete_branch, git_diff,
     git_list_worktrees, git_merge, git_remove_worktree, git_status, git_validate_repository,
 };
+use tauri::{Emitter, webview::PageLoadEvent};
 
 // Placeholder demo command from the create-tauri-app template; left in place
 // so the scaffolded frontend's demo button keeps working until the real UI
@@ -28,6 +29,23 @@ fn greet(name: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .on_page_load(|webview, payload| {
+            if !webview.label().starts_with("browser-panel-") {
+                return;
+            }
+            let phase = match payload.event() {
+                PageLoadEvent::Started => "started",
+                PageLoadEvent::Finished => "finished",
+            };
+            let _ = webview.window().emit(
+                "browser-navigation",
+                serde_json::json!({
+                    "label": webview.label(),
+                    "url": payload.url().as_str(),
+                    "phase": phase,
+                }),
+            );
+        })
         .manage(pty::PtyManager::default())
         .manage(agents::AgentManager::default())
         .plugin(tauri_plugin_dialog::init())

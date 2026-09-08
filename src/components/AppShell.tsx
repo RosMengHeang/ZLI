@@ -64,13 +64,14 @@ export function AppShell() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-ink text-paper">
-      <TopBar />
+      {!setupOpen ? <TopBar /> : null}
       {error && !project ? (
         <div className="banner banner-error mx-3 mt-2" role="alert">
           {error.message}
         </div>
       ) : null}
       <div className="relative min-h-0 flex-1">
+        <div className="h-full" hidden={setupOpen} inert={setupOpen}>
         <Group
           key={browserOpen ? "shell-browser" : "shell-main"}
           orientation="horizontal"
@@ -150,7 +151,7 @@ export function AppShell() {
                         </div>
                       }
                     >
-                      <BrowserPanel />
+                      <BrowserPanel obscured={setupOpen} />
                     </Suspense>
                   </div>
                 </div>
@@ -158,6 +159,7 @@ export function AppShell() {
             </>
           ) : null}
         </Group>
+        </div>
         {setupOpen ? <SetupWizard onComplete={dismissSetup} /> : null}
       </div>
       <AddAgentDialog />

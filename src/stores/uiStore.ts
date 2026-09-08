@@ -5,6 +5,8 @@ import type { Agent } from "../types";
 
 interface UiState {
   browserOpen: boolean;
+  browserUrl: string;
+  setBrowserUrl: (url: string) => void;
   addAgentOpen: boolean;
   pathDialogOpen: boolean;
   commitOpen: boolean;
@@ -26,6 +28,8 @@ interface UiState {
 
 export const useUiStore = create<UiState>((set) => ({
   browserOpen: false,
+  browserUrl: "",
+  setBrowserUrl: (browserUrl) => set({ browserUrl }),
   addAgentOpen: false,
   pathDialogOpen: false,
   commitOpen: false,
