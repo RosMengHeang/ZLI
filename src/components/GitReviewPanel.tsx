@@ -8,6 +8,7 @@ import { useProjectStore } from "../stores/projectStore";
 import { useUiStore } from "../stores/uiStore";
 import { providerDisplayName } from "../types";
 import { changedFileLabel } from "../lib/gitPresentation";
+import { Button } from "./ui/button";
 
 export function GitReviewPanel() {
   const project = useProjectStore((s) => s.project);
@@ -83,33 +84,36 @@ export function GitReviewPanel() {
           <span className="text-[11px] text-mute">{status?.clean ? "Clean" : ""}</span>
         )}
         <span className="ml-auto flex items-center gap-1">
-          <button
+          <Button
             type="button"
-            className="btn btn-ghost h-7"
+            variant="ghost"
+            size="sm"
             onClick={() => void refresh(worktreePath)}
             disabled={loading || !worktreePath}
           >
             {loading ? "Refreshing…" : "Refresh"}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="btn btn-primary h-7"
+            size="sm"
             onClick={() => setCommitOpen(true)}
             disabled={!status || status.clean}
           >
             Commit changes
-          </button>
-          <button type="button" className="btn btn-quiet h-7" onClick={() => setMergeOpen(true)} disabled={!agent}>
+          </Button>
+          <Button type="button" variant="secondary" size="sm" onClick={() => setMergeOpen(true)} disabled={!agent}>
             Merge branch
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="btn btn-ghost h-7 text-danger hover:text-danger"
+            variant="ghost"
+            size="sm"
+            className="text-danger hover:text-danger"
             onClick={() => setDiscardOpen(true)}
             disabled={!agent}
           >
             Discard
-          </button>
+          </Button>
         </span>
       </div>
 
@@ -117,14 +121,16 @@ export function GitReviewPanel() {
         <div className="banner banner-error m-2" role="alert">
           {error.message}
           {error.details ? <div className="mt-0.5 whitespace-pre-wrap opacity-80">{error.details}</div> : null}
-          <button
+          <Button
             type="button"
-            className="btn btn-ghost mt-2 h-7"
+            variant="ghost"
+            size="sm"
+            className="mt-2"
             onClick={() => void refresh(worktreePath)}
             disabled={loading || !worktreePath}
           >
             Retry
-          </button>
+          </Button>
         </div>
       ) : null}
 
@@ -138,14 +144,16 @@ export function GitReviewPanel() {
               <li key={file}>{file}</li>
             ))}
           </ul>
-          <button
+          <Button
             type="button"
-            className="btn btn-danger mt-2 h-7"
+            variant="destructive"
+            size="sm"
+            className="mt-2"
             onClick={() => void onAbortMerge()}
             disabled={aborting}
           >
             {aborting ? "Aborting…" : "Abort merge"}
-          </button>
+          </Button>
         </div>
       ) : null}
 

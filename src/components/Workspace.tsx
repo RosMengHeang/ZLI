@@ -12,6 +12,7 @@ import { useTerminalStore } from "../stores/terminalStore";
 import { useUiStore } from "../stores/uiStore";
 import { PROVIDER_CATALOG } from "../types";
 import { taxChatShellLayout } from "../lib/chromePresentation";
+import { Button } from "./ui/button";
 
 function seedPreviewPanes(count = 3) {
   const addLeaf = useLayoutStore.getState().addLeaf;
@@ -55,9 +56,9 @@ export function Workspace() {
             ))}
           </div>
           {preview ? (
-            <button type="button" className="btn btn-quiet mt-5 h-8 px-3.5" onClick={() => seedPreviewPanes(3)}>
+            <Button type="button" variant="secondary" size="sm" className="mt-5" onClick={() => seedPreviewPanes(3)}>
               Preview 3-pane layout
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>
@@ -76,23 +77,23 @@ export function Workspace() {
                 Launch an agent to give it a pane, or open a terminal and work beside the team.
               </p>
               <div className="mt-5 flex justify-center gap-2">
-                <button
+                <Button
                   type="button"
-                  className="btn btn-primary h-8 px-3.5"
+                  size="sm"
                   onClick={() => setAddAgentOpen(true)}
                   title={`Add agent (${APP_SHORTCUTS.addAgent})`}
                 >
                   <IconPlus />
                   Add agent
-                </button>
-                <button type="button" className="btn btn-quiet h-8 px-3.5" onClick={() => setBrowserOpen(true)}>
+                </Button>
+                <Button type="button" variant="secondary" size="sm" onClick={() => setBrowserOpen(true)}>
                   <IconGlobe />
                   Open browser
-                </button>
+                </Button>
                 {preview ? (
-                  <button type="button" className="btn btn-ghost h-8 px-3.5" onClick={() => seedPreviewPanes(3)}>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => seedPreviewPanes(3)}>
                     Preview layout
-                  </button>
+                  </Button>
                 ) : null}
               </div>
             </div>

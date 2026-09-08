@@ -4,6 +4,8 @@ import { useAgentStore } from "../stores/agentStore";
 import { useGitStore } from "../stores/gitStore";
 import { useProjectStore } from "../stores/projectStore";
 import { useUiStore } from "../stores/uiStore";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 
 export function MergeDialog() {
   const open = useUiStore((s) => s.mergeOpen);
@@ -49,7 +51,7 @@ export function MergeDialog() {
           </p>
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] text-mute">Target branch</span>
-            <input
+            <Input
               className="field font-mono"
               value={target}
               onChange={(event) => setTarget(event.target.value)}
@@ -58,12 +60,12 @@ export function MergeDialog() {
           </label>
           {error ? <div className="banner banner-error">{error.message}</div> : null}
         <div data-dialog-actions className="flex justify-end gap-2">
-          <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setOpen(false)}>
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>
               Cancel
-            </button>
-            <button type="submit" className="btn btn-primary" disabled={busy}>
+            </Button>
+            <Button type="submit" disabled={busy}>
               {busy ? "Merging…" : "Merge branch"}
-            </button>
+            </Button>
           </div>
         </form>
       )}

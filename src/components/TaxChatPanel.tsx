@@ -12,6 +12,7 @@ import { agentBelongsToProject } from "../lib/workspaceRegistry";
 import { useAgentStore } from "../stores/agentStore";
 import { useProjectStore } from "../stores/projectStore";
 import { useTaxChatStore } from "../stores/taxChatStore";
+import { Button } from "@/components/ui/button";
 
 const TONE_CLASS = {
   accent: "taxchat-tone-accent",
@@ -111,11 +112,7 @@ export function TaxChatPanel() {
     <section className="taxchat-shell" aria-label="TaxChat">
       <header className="taxchat-header">
         <div className="taxchat-title-row">
-          <div>
-            <div className="taxchat-kicker">Agent room</div>
-            <h2 className="taxchat-title">TaxChat</h2>
-          </div>
-          <span className="taxchat-local-badge"><span aria-hidden="true">●</span> Local only</span>
+          <h2 className="taxchat-title">TaxChat</h2>
         </div>
         <div className="taxchat-meta-row">
           <span className={`taxchat-status ${TONE_CLASS[taxChatStatusTone(status)]}`}>
@@ -127,24 +124,24 @@ export function TaxChatPanel() {
           </span>
           <div className="taxchat-actions" role="group" aria-label="TaxChat controls">
             {!roomIsRunning && status !== "paused" && status !== "idle" ? (
-              <button type="button" className="btn btn-primary h-7 px-2.5" onClick={startRoom} disabled={!descriptors.length}>
+              <Button type="button" size="sm" className="h-7 px-2.5" onClick={startRoom} disabled={!descriptors.length}>
                 Start TaxChat
-              </button>
+              </Button>
             ) : null}
             {roomIsRunning ? (
-              <button type="button" className="btn btn-ghost h-7 px-2.5" onClick={() => pause()}>
+              <Button type="button" variant="ghost" size="sm" className="h-7 px-2.5" onClick={() => pause()}>
                 Pause
-              </button>
+              </Button>
             ) : null}
             {status === "paused" || status === "idle" ? (
-              <button type="button" className="btn btn-primary h-7 px-2.5" onClick={continueRoom}>
+              <Button type="button" size="sm" className="h-7 px-2.5" onClick={continueRoom}>
                 Continue
-              </button>
+              </Button>
             ) : null}
             {room && status !== "stopped" ? (
-              <button type="button" className="btn btn-ghost h-7 px-2.5 text-danger" onClick={stop}>
+              <Button type="button" variant="ghost" size="sm" className="h-7 px-2.5 text-danger" onClick={stop}>
                 Stop
-              </button>
+              </Button>
             ) : null}
           </div>
         </div>
@@ -156,9 +153,10 @@ export function TaxChatPanel() {
           {availableAgents.length ? availableAgents.map((agent) => {
             const selected = selectedIds.includes(agent.id);
             return (
-              <button
+              <Button
                 key={agent.id}
                 type="button"
+                variant="ghost"
                 className={`taxchat-participant ${selected ? "is-selected" : ""}`}
                 onClick={() => toggleAgent(agent.id)}
                 aria-pressed={selected}
@@ -167,7 +165,7 @@ export function TaxChatPanel() {
                 <ProviderIcon provider={agent.provider} size="sm" />
                 <span>{agent.name}</span>
                 <span className="taxchat-participant-check" aria-hidden="true">{selected ? "✓" : "＋"}</span>
-              </button>
+              </Button>
             );
           }) : (
             <span className="taxchat-empty-copy">Launch an agent to add a participant.</span>
@@ -248,9 +246,9 @@ export function TaxChatPanel() {
             rows={3}
             aria-label="TaxChat message"
           />
-          <button type="button" className="btn btn-primary taxchat-send-button" onClick={() => void sendMessage()} disabled={!roomIsRunning || !draft.trim()}>
+          <Button type="button" className="taxchat-send-button" onClick={() => void sendMessage()} disabled={!roomIsRunning || !draft.trim()}>
             Send
-          </button>
+          </Button>
         </div>
       </footer>
     </section>

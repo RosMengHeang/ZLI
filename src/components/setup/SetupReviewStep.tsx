@@ -2,6 +2,7 @@ import type { ProjectInfo } from "../../types";
 import { providerDisplayName } from "../../types";
 import { ProviderIcon } from "../ProviderIcon";
 import type { LaunchProgress } from "./setupModel";
+import { Button } from "../ui/button";
 
 interface Props {
   project: ProjectInfo | null;
@@ -41,13 +42,15 @@ export function SetupReviewStep(props: Props) {
               {props.detectionError}
             </p>
           )}
-          <button
-            className="btn btn-quiet mt-2"
+          <Button
+            variant="secondary"
+            size="sm"
+            className="mt-2"
             disabled={props.scanning || props.busy}
             onClick={props.onRescan}
           >
             {props.scanning ? "Scanning…" : "Rescan"}
-          </button>
+          </Button>
         </div>
       )}
       <ol
@@ -94,29 +97,29 @@ export function SetupReviewStep(props: Props) {
       {failed && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <p className="text-mute">Successful launches are retained. Retry starts only failed agents.</p>
-          <button type="button" className="btn btn-quiet" disabled={props.busy} onClick={props.onBack}>Edit failed agents</button>
+          <Button type="button" variant="secondary" size="sm" disabled={props.busy} onClick={props.onBack}>Edit failed agents</Button>
         </div>
       )}
       <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
         {!props.attempted ? (
-          <button
-            className="btn btn-ghost"
+          <Button
+            variant="ghost"
             disabled={props.busy}
             onClick={props.onBack}
           >
             Back
-          </button>
+          </Button>
         ) : (
-          <button
-            className="btn btn-ghost"
+          <Button
+            variant="ghost"
             disabled={props.busy}
             onClick={props.onFinish}
           >
             Open workspace
-          </button>
+          </Button>
         )}
-        <button
-          className="btn btn-primary min-h-10"
+        <Button
+          className="min-h-10"
           disabled={
             props.busy ||
             props.scanning ||
@@ -132,7 +135,7 @@ export function SetupReviewStep(props: Props) {
               : props.items.length
                 ? "Start agents"
                 : "Open workspace"}
-        </button>
+        </Button>
       </div>
     </section>
   );

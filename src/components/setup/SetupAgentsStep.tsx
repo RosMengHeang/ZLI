@@ -7,6 +7,8 @@ import {
   providerSelectionState,
   type AgentDraft,
 } from "./setupModel";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 
 interface Props {
   rows: AgentDraft[];
@@ -45,7 +47,6 @@ export function SetupAgentsStep(props: Props) {
     <section aria-labelledby="agents-title" className="setup-agents-step">
       <div className="setup-section-heading">
         <div>
-          <p className="setup-eyebrow">Detected on this computer</p>
           <h2 id="agents-title" className="setup-section-title">
             Choose your agent mix
           </h2>
@@ -54,14 +55,15 @@ export function SetupAgentsStep(props: Props) {
             provider should run.
           </p>
         </div>
-        <button
+        <Button
           type="button"
-          className="btn btn-quiet"
+          variant="secondary"
+          size="sm"
           disabled={props.scanning}
           onClick={props.onRescan}
         >
           {props.scanning ? "Scanning…" : "Rescan"}
-        </button>
+        </Button>
       </div>
 
       {props.error && (
@@ -148,8 +150,8 @@ export function SetupAgentsStep(props: Props) {
               <div key={row.id} className="setup-advanced-row">
                 <label className="min-w-0 flex-1 text-xs text-mute">
                   {providerDisplayName(row.provider)} name
-                  <input
-                    className="field mt-1"
+                  <Input
+                    className="mt-1"
                     value={row.role}
                     placeholder={providerDisplayName(row.provider)}
                     onChange={(event) =>
@@ -192,9 +194,9 @@ export function SetupAgentsStep(props: Props) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
+          <Button
             type="button"
-            className="btn btn-ghost"
+            variant="ghost"
             disabled={props.projectLocked}
             title={
               props.projectLocked
@@ -204,14 +206,14 @@ export function SetupAgentsStep(props: Props) {
             onClick={props.onBack}
           >
             Back
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="btn btn-primary min-h-10"
+            className="min-h-10"
             onClick={props.onContinue}
           >
             Review launch
-          </button>
+          </Button>
         </div>
       </div>
     </section>

@@ -14,6 +14,9 @@ import {
   nativeBrowserHiddenBounds,
   nativeBrowserRectIsUsable,
 } from "../lib/chromePresentation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const STARTER_LINKS = [
   { label: "GitHub", url: "https://github.com" },
@@ -318,44 +321,44 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
   return (
     <section className="browser-shell flex h-full min-h-0 flex-col bg-ink">
       <div className="browser-toolbar flex h-11 shrink-0 items-center gap-1.5 border-b border-line bg-chrome px-2">
-        <button
+        <Tooltip><TooltipTrigger asChild><Button
           type="button"
           aria-label="Back"
-          title="Back"
-          className="btn btn-icon"
+          variant="ghost"
+          size="icon-sm"
           onClick={goBack}
           disabled={historyIndex <= 0}
         >
           <IconBack />
-        </button>
-        <button
+        </Button></TooltipTrigger><TooltipContent>Back</TooltipContent></Tooltip>
+        <Tooltip><TooltipTrigger asChild><Button
           type="button"
           aria-label="Forward"
-          title="Forward"
-          className="btn btn-icon"
+          variant="ghost"
+          size="icon-sm"
           onClick={goForward}
           disabled={historyIndex >= history.length - 1}
         >
           <IconForward />
-        </button>
-        <button
+        </Button></TooltipTrigger><TooltipContent>Forward</TooltipContent></Tooltip>
+        <Tooltip><TooltipTrigger asChild><Button
           type="button"
           aria-label="Reload"
-          title="Reload"
-          className="btn btn-icon"
+          variant="ghost"
+          size="icon-sm"
           onClick={reload}
           disabled={!currentUrl}
         >
           <IconReload />
-        </button>
+        </Button></TooltipTrigger><TooltipContent>Reload</TooltipContent></Tooltip>
         <form className="flex min-w-0 flex-1" onSubmit={submit}>
           <label className="flex min-w-0 flex-1 items-center rounded-lg border border-line bg-ink px-2.5 focus-within:border-accent">
             <span className="mr-2 text-mute">
               <IconGlobe className="h-3.5 w-3.5" />
             </span>
-            <input
+            <Input
               aria-label="Web address"
-              className="min-w-0 flex-1 bg-transparent py-1.5 text-[12px] text-paper outline-none placeholder:text-mute"
+              className="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 text-[12px] shadow-none focus-visible:ring-0"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={onUrlKeyDown}
@@ -363,20 +366,20 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
               spellCheck={false}
             />
           </label>
-          <button type="submit" className="btn btn-primary ml-1.5 h-8">
+          <Button type="submit" size="sm" className="ml-1.5 h-8">
             Go
-          </button>
+          </Button>
         </form>
-        <button
+        <Tooltip><TooltipTrigger asChild><Button
           type="button"
-          className="btn btn-icon"
-          title="Open externally"
+          variant="ghost"
+          size="icon-sm"
           aria-label="Open externally"
           onClick={() => void openExternally()}
           disabled={!currentUrl}
         >
           <IconExternal />
-        </button>
+        </Button></TooltipTrigger><TooltipContent>Open externally</TooltipContent></Tooltip>
       </div>
 
       <div className="browser-viewport-shell min-h-0 flex-1 bg-ink">
@@ -395,8 +398,8 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
                 <p role="alert" className="text-[13px] font-medium text-paper">This page could not open inside Taxzy</p>
                 <p className="max-w-sm break-words text-[12px] text-mute">{nativeError}</p>
                 <div className="flex flex-wrap justify-center gap-2">
-                  <button type="button" className="btn btn-primary" onClick={reload}>Retry</button>
-                  <button type="button" className="btn btn-quiet" onClick={() => void openExternally()}>Open externally</button>
+                  <Button type="button" onClick={reload}>Retry</Button>
+                  <Button type="button" variant="secondary" onClick={() => void openExternally()}>Open externally</Button>
                 </div>
               </div>
             ) : (
@@ -405,32 +408,21 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
           </div>
         ) : (
           <div className="browser-empty-state empty-panel px-6">
-            <div className="browser-empty-card w-full max-w-xl border border-line bg-panel p-6">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-raised text-accent">
-                  <IconGlobe className="h-5 w-5" />
-                </div>
-                <div>
-                  <div className="text-[16px] font-semibold text-paper">Browse beside your agents</div>
-                  <p className="mt-1 text-[12px] leading-5 text-mute">
-                    Look up docs, inspect a GitHub issue, or keep a reference page open while the workspace runs.
-                  </p>
-                </div>
-              </div>
-              <div className="mt-5 flex flex-wrap gap-2">
+            <div className="browser-empty-card w-full max-w-sm p-5 text-center">
+              <IconGlobe className="mx-auto h-5 w-5 text-mute" />
+              <div className="mt-3 text-[14px] font-semibold text-paper">Open a page</div>
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
                 {STARTER_LINKS.map((link) => (
-                  <button
+                  <Button
                     key={link.url}
                     type="button"
-                    className="btn btn-quiet h-8"
+                    variant="secondary"
+                    size="sm"
                     onClick={() => navigate(link.url)}
                   >
                     {link.label}
-                  </button>
+                  </Button>
                 ))}
-              </div>
-              <div className="mt-5 border-t border-line pt-3 text-[11px] leading-5 text-mute">
-                Some sites prevent embedded views. If a page is blank, use Open externally in the toolbar.
               </div>
             </div>
           </div>

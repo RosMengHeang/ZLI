@@ -15,6 +15,8 @@ import { replaceNode } from "../stores/paneTree";
 import { toAppError } from "../lib/errors";
 import { terminalRetry } from "../lib/terminalRetry";
 import type { Agent } from "../types";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface TerminalPaneProps {
   paneId: string;
@@ -175,34 +177,9 @@ export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: T
         </span>
         <StatusBadge status={status} />
         <span className="flex shrink-0 items-center">
-          <button
-            type="button"
-            className="btn btn-icon"
-            title="Split right"
-            aria-label="Split right"
-            onClick={() => void onSplit("horizontal")}
-          >
-            <IconSplitRight />
-          </button>
-          <button
-            type="button"
-            className="btn btn-icon"
-            title="Split down"
-            aria-label="Split down"
-            onClick={() => void onSplit("vertical")}
-          >
-            <IconSplitDown />
-          </button>
-          <button
-            type="button"
-            className="btn btn-icon"
-            title="Close pane"
-            aria-label="Close pane"
-            disabled={retrying}
-            onClick={() => void onClose()}
-          >
-            <IconClose />
-          </button>
+          <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon-xs" aria-label="Split right" onClick={() => void onSplit("horizontal")}><IconSplitRight /></Button></TooltipTrigger><TooltipContent>Split right</TooltipContent></Tooltip>
+          <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon-xs" aria-label="Split down" onClick={() => void onSplit("vertical")}><IconSplitDown /></Button></TooltipTrigger><TooltipContent>Split down</TooltipContent></Tooltip>
+          <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon-xs" aria-label="Close pane" disabled={retrying} onClick={() => void onClose()}><IconClose /></Button></TooltipTrigger><TooltipContent>Close pane</TooltipContent></Tooltip>
         </span>
       </div>
       {status === "error" || status === "failed" || status === "exited" || status === "killed" ? (
@@ -212,8 +189,8 @@ export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: T
               {status === "exited" || status === "killed" ? "Process ended" : "Terminal needs attention"}
             </span>
             <span className="flex gap-2">
-              <button type="button" className="btn btn-quiet" disabled={retrying} onClick={() => void onRetry()}>{retrying ? "Retrying…" : "Retry"}</button>
-              <button type="button" className="btn btn-quiet" aria-expanded={detailsOpen} aria-controls={`terminal-details-${paneId}`} onClick={() => setDetailsOpen((open) => !open)}>Details</button>
+              <Button type="button" variant="secondary" size="sm" disabled={retrying} onClick={() => void onRetry()}>{retrying ? "Retrying…" : "Retry"}</Button>
+              <Button type="button" variant="ghost" size="sm" aria-expanded={detailsOpen} aria-controls={`terminal-details-${paneId}`} onClick={() => setDetailsOpen((open) => !open)}>Details</Button>
             </span>
           </div>
           {detailsOpen ? <div id={`terminal-details-${paneId}`} className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] text-mute">

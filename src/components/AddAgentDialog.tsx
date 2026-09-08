@@ -6,6 +6,8 @@ import { useProjectStore } from "../stores/projectStore";
 import { useUiStore } from "../stores/uiStore";
 import type { AgentProviderId } from "../types";
 import { PROVIDER_CATALOG } from "../types";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 
 export function AddAgentDialog() {
   const open = useUiStore((s) => s.addAgentOpen);
@@ -47,15 +49,15 @@ export function AddAgentDialog() {
         {providersError ? (
           <div className="banner banner-error">
             {providersError.message}
-            <button type="button" className="ml-2 underline" onClick={() => void loadProviders(true)}>
+            <Button type="button" variant="link" size="sm" className="ml-1 h-auto p-0" onClick={() => void loadProviders(true)}>
               Retry
-            </button>
+            </Button>
           </div>
         ) : null}
 
         <label className="flex flex-col gap-1.5">
           <span className="text-[12px] text-mute">Name</span>
-          <input
+          <Input
             className="field"
             value={name}
             onChange={(event) => setName(event.target.value)}
@@ -122,12 +124,12 @@ export function AddAgentDialog() {
         {launchError ? <div className="banner banner-error">{launchError.message}</div> : null}
 
         <div data-dialog-actions className="flex justify-end gap-2">
-          <button type="button" className="btn btn-ghost" disabled={launching} onClick={() => setOpen(false)}>
+          <Button type="button" variant="ghost" disabled={launching} onClick={() => setOpen(false)}>
             Cancel
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={launching || !available}>
+          </Button>
+          <Button type="submit" disabled={launching || !available}>
             {launching ? "Launching…" : "Add agent"}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>

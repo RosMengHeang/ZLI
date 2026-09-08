@@ -8,6 +8,8 @@ import { useTerminalStore } from "../stores/terminalStore";
 import { useUiStore } from "../stores/uiStore";
 import { toAppError } from "../lib/errors";
 import { terminalRetry } from "../lib/terminalRetry";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 
 export function DiscardDialog() {
   const open = useUiStore((s) => s.discardOpen);
@@ -93,9 +95,9 @@ export function DiscardDialog() {
           </p>
           <p className="font-mono text-[12px] text-mute">{agent.cwd}</p>
           <div className="flex justify-end">
-          <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setOpen(false)}>
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>
               Close
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
@@ -113,7 +115,7 @@ export function DiscardDialog() {
             <span className="text-[12px] text-mute">
               Type <span className="font-mono text-paper">{confirmWord}</span> to confirm
             </span>
-            <input
+            <Input
               className="field border-[#5a2430] font-mono"
               value={typed}
               onChange={(event) => setTyped(event.target.value)}
@@ -122,17 +124,17 @@ export function DiscardDialog() {
           </label>
           {operationError || error ? <div className="banner banner-error">{operationError ?? error?.message}</div> : null}
           <div data-dialog-actions className="flex justify-end gap-2">
-            <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setOpen(false)}>
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="btn btn-danger"
+              variant="destructive"
               disabled={busy || typed.trim().toLowerCase() !== confirmWord}
               onClick={() => void onDiscard()}
             >
               {busy ? "Discarding…" : "Discard worktree"}
-            </button>
+            </Button>
           </div>
         </div>
       )}

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Modal } from "./Modal";
 import { useProjectStore } from "../stores/projectStore";
 import { useUiStore } from "../stores/uiStore";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 
 export function PathDialog() {
   const open = useUiStore((s) => s.pathDialogOpen);
@@ -27,7 +29,7 @@ export function PathDialog() {
           Folder picker needs the Tauri dialog plugin. You can still open a repository by path.
           Paths with spaces are supported.
         </p>
-        <input
+        <Input
           className="field font-mono"
           value={path}
           onChange={(event) => setPath(event.target.value)}
@@ -37,12 +39,12 @@ export function PathDialog() {
         />
         {error ? <div className="banner banner-error">{error.message}</div> : null}
         <div data-dialog-actions className="flex justify-end gap-2">
-          <button type="button" className="btn btn-ghost" disabled={loading} onClick={() => setOpen(false)}>
+          <Button type="button" variant="ghost" disabled={loading} onClick={() => setOpen(false)}>
             Cancel
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={loading}>
+          </Button>
+          <Button type="submit" disabled={loading}>
             {loading ? "Opening…" : "Open project"}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>

@@ -4,6 +4,7 @@ import { useAgentStore } from "../stores/agentStore";
 import { useGitStore } from "../stores/gitStore";
 import { useProjectStore } from "../stores/projectStore";
 import { useUiStore } from "../stores/uiStore";
+import { Button } from "./ui/button";
 
 export function CommitDialog() {
   const open = useUiStore((s) => s.commitOpen);
@@ -64,12 +65,12 @@ export function CommitDialog() {
           </div>
         ) : null}
         <div data-dialog-actions className="flex justify-end gap-2">
-          <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setOpen(false)}>
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>
             Cancel
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={busy || !message.trim()}>
+          </Button>
+          <Button type="submit" disabled={busy || !message.trim()}>
             {busy ? "Committing…" : "Commit changes"}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
