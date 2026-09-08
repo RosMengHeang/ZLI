@@ -52,6 +52,47 @@ export interface Agent {
   error?: string | null;
 }
 
+export type TaxChatRoomStatus = "ready" | "running" | "idle" | "paused" | "stopped";
+export type TaxChatMessageKind = "user" | "agent" | "delivery" | "system" | "error";
+export type TaxChatMessageStatus = "pending" | "delivered" | "failed" | "informational";
+
+export interface TaxChatParticipant {
+  agentId: AgentId;
+  status: "available" | "queued" | "delivering" | "unavailable";
+  routedCount: number;
+}
+
+export interface TaxChatMessage {
+  id: string;
+  senderId: string;
+  recipientIds: string[];
+  kind: TaxChatMessageKind;
+  body: string;
+  createdAt: string;
+  status: TaxChatMessageStatus;
+  round: number;
+}
+
+export interface TaxChatRoomSettings {
+  inactivityMs: number;
+  perAgentMessageLimit: number;
+  totalMessageLimit: number;
+}
+
+export interface TaxChatRoom {
+  id: string;
+  status: TaxChatRoomStatus;
+  participantIds: AgentId[];
+  messages: TaxChatMessage[];
+  round: number;
+}
+
+export interface TaxChatProtocolBlock {
+  senderId: AgentId;
+  recipient: AgentId | "all" | "user";
+  body: string;
+}
+
 export type FileStatus =
   | "added"
   | "modified"
