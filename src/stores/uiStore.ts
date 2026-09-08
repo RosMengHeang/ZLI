@@ -6,6 +6,7 @@ import type { Agent } from "../types";
 interface UiState {
   browserOpen: boolean;
   browserUrl: string;
+  taxChatOpen: boolean;
   setBrowserUrl: (url: string) => void;
   addAgentOpen: boolean;
   pathDialogOpen: boolean;
@@ -16,6 +17,7 @@ interface UiState {
   preferencesOpen: boolean;
   themeMode: ThemeMode;
   setBrowserOpen: (open: boolean) => void;
+  setTaxChatOpen: (open: boolean) => void;
   setAddAgentOpen: (open: boolean) => void;
   setPathDialogOpen: (open: boolean) => void;
   setCommitOpen: (open: boolean) => void;
@@ -29,6 +31,7 @@ interface UiState {
 export const useUiStore = create<UiState>((set) => ({
   browserOpen: false,
   browserUrl: "",
+  taxChatOpen: false,
   setBrowserUrl: (browserUrl) => set({ browserUrl }),
   addAgentOpen: false,
   pathDialogOpen: false,
@@ -39,6 +42,7 @@ export const useUiStore = create<UiState>((set) => ({
   preferencesOpen: false,
   themeMode: getThemePreference(),
   setBrowserOpen: (browserOpen) => set({ browserOpen }),
+  setTaxChatOpen: (taxChatOpen) => set({ taxChatOpen }),
   setAddAgentOpen: (open) => set({ addAgentOpen: open }),
   setPathDialogOpen: (open) => set({ pathDialogOpen: open }),
   setCommitOpen: (open) => set({ commitOpen: open }),

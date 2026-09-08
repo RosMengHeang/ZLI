@@ -199,7 +199,9 @@ export function createTaxChatCoordinator(options: TaxChatCoordinatorOptions): Ta
             transcript: transcriptWith(body, senderName),
           })}\r`,
         );
-        updateParticipant(agentId, { status: "available" });
+        if (participantMap.get(agentId)?.status !== "unavailable") {
+          updateParticipant(agentId, { status: "available" });
+        }
         appendMessage({
           senderId: "system",
           recipientIds: [agentId],

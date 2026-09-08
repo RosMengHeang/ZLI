@@ -83,6 +83,7 @@ export interface TaxChatRoom {
   id: string;
   status: TaxChatRoomStatus;
   participantIds: AgentId[];
+  participants: TaxChatParticipant[];
   messages: TaxChatMessage[];
   round: number;
 }
