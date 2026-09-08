@@ -24,8 +24,10 @@ import { useTerminalStore } from "../stores/terminalStore";
 import { useUiStore } from "../stores/uiStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import type { Agent } from "../types";
-
-export const COLLAPSED_SIDEBAR_SIZE = "58px";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 function savedAgentMatches(agent: Agent, recipe: WorkspaceAgentResume): boolean {
   return agent.resumeId === recipe.resumeId || (agent.name === recipe.name && agent.provider === recipe.provider);
@@ -96,9 +98,10 @@ export function Sidebar() {
     const displayedStatus = terminal?.status ?? agent?.status;
     const saved = !agent;
     return (
-      <button
+      <Button
         key={recipe.resumeId}
         type="button"
+        variant="ghost"
         className="workspace-agent-row"
         data-active={active}
         data-saved={saved}
@@ -111,7 +114,7 @@ export function Sidebar() {
           <span className="workspace-agent-meta">{recipe.provider}{agent?.branch ? ` · ${agent.branch}` : ""}</span>
         </span>
         {displayedStatus ? <StatusBadge status={displayedStatus} /> : <span className="workspace-agent-saved">Saved</span>}
-      </button>
+      </Button>
     );
   }
 
@@ -129,8 +132,9 @@ export function Sidebar() {
     return (
       <section key={workspace.root} className="workspace-tree-group" data-active={active}>
         <div className="workspace-project-row">
-          <button
+          <Button
             type="button"
+            variant="ghost"
             className="workspace-project-button"
             data-active={active}
             aria-expanded={expanded}
@@ -144,10 +148,12 @@ export function Sidebar() {
               <span className="workspace-project-path">{displayPath(workspace.project.path, 28)}</span>
             </span>
             <span className="workspace-project-count">{workspace.agents.length || projectAgents.length || ""}</span>
-          </button>
+          </Button>
           {active ? (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-xs"
               className="workspace-project-add"
               onClick={() => setAddAgentOpen(true)}
               disabled={!project}
@@ -155,7 +161,7 @@ export function Sidebar() {
               title={`Add agent (${APP_SHORTCUTS.addAgent})`}
             >
               <IconPlus />
-            </button>
+            </Button>
           ) : null}
         </div>
         {expanded ? (
@@ -168,9 +174,9 @@ export function Sidebar() {
               createWorktree: Boolean(agent.createWorktree),
             }, agent))}
             {!listedAgents.length && !unlistedAgents.length ? (
-              <button type="button" className="workspace-agent-empty" onClick={() => active && setAddAgentOpen(true)} disabled={!active}>
+              <Button type="button" variant="ghost" className="workspace-agent-empty" onClick={() => active && setAddAgentOpen(true)} disabled={!active}>
                 No agents yet
-              </button>
+              </Button>
             ) : null}
           </div>
         ) : null}
@@ -180,84 +186,81 @@ export function Sidebar() {
 
   if (collapsed) {
     return (
-      <aside className="sidebar-shell is-collapsed" aria-label="TaxChat navigation">
+      <aside className="sidebar-shell is-collapsed" aria-label="Taxzy navigation">
         <div className="sidebar-brand sidebar-brand-collapsed">
-          <TaxzyMark className="h-7 w-7" />
-          <button type="button" className="sidebar-collapse-button" onClick={() => setCollapsed(false)} aria-label="Expand sidebar" title="Expand sidebar">›</button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button type="button" variant="ghost" size="icon-sm" className="sidebar-brand-button" onClick={() => setCollapsed(false)} aria-label="Expand sidebar"><TaxzyMark className="h-6 w-6" /></Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Expand sidebar</TooltipContent>
+          </Tooltip>
         </div>
         <div className="sidebar-collapsed-actions">
-          <button type="button" className="sidebar-collapsed-button" onClick={() => void onOpenProject()} disabled={loading} aria-label="Open project" title="Open project"><IconPlus /></button>
+          <Button type="button" variant="ghost" size="icon-sm" className="sidebar-collapsed-button" onClick={() => void onOpenProject()} disabled={loading} aria-label="Open project" title="Open project"><IconPlus /></Button>
           {workspaces.map((workspace) => (
-            <button
+            <Button
               key={workspace.root}
               type="button"
+              variant="ghost"
+              size="icon-sm"
               className="sidebar-collapsed-project"
               data-active={isActive(workspace)}
               onClick={() => void openWorkspace(workspace)}
               title={workspace.project.name}
             >
               {workspace.project.name.slice(0, 1).toUpperCase()}
-            </button>
+            </Button>
           ))}
         </div>
         <div className="sidebar-footer sidebar-footer-collapsed">
-          <button type="button" className="sidebar-footer-button" onClick={() => setPreferencesOpen(true)} aria-label="Preferences" title="Preferences"><IconSettings /></button>
-          <button type="button" className="sidebar-footer-button" onClick={() => setHelpOpen(true)} aria-label="Help" title="Help"><IconHelp /></button>
+          <Button type="button" variant="ghost" size="icon-sm" className="sidebar-footer-button" onClick={() => setPreferencesOpen(true)} aria-label="Preferences" title="Preferences"><IconSettings /></Button>
+          <Button type="button" variant="ghost" size="icon-sm" className="sidebar-footer-button" onClick={() => setHelpOpen(true)} aria-label="Help" title="Help"><IconHelp /></Button>
         </div>
       </aside>
     );
   }
 
   return (
-    <aside className="sidebar-shell" aria-label="TaxChat navigation">
+    <aside className="sidebar-shell" aria-label="Taxzy navigation">
       <div className="sidebar-brand">
-        <TaxzyMark className="h-7 w-7" />
+        <TaxzyMark className="h-6 w-6" />
         <div className="sidebar-brand-copy">
-          <span className="sidebar-brand-name">TaxChat</span>
-          <span className="sidebar-brand-caption">Local agent workspace</span>
+          <span className="sidebar-brand-name">Taxzy</span>
         </div>
-        <button type="button" className="sidebar-collapse-button" onClick={() => setCollapsed(true)} aria-label="Collapse sidebar" title="Collapse sidebar">‹</button>
+        <Button type="button" variant="ghost" size="icon-xs" className="sidebar-collapse-button" onClick={() => setCollapsed(true)} aria-label="Collapse sidebar" title="Collapse sidebar">‹</Button>
       </div>
 
       <div className="sidebar-workspaces-header">
         <div>
-          <span className="sidebar-section-title">Workspaces</span>
+          <span className="sidebar-section-title">Projects</span>
           <span className="sidebar-section-count">{workspaces.length}</span>
         </div>
-        <button type="button" className="sidebar-add-button" onClick={() => void onOpenProject()} disabled={loading} aria-label="Open project" title={`Open project (${APP_SHORTCUTS.openProject})`}>
+        <Button type="button" variant="ghost" size="icon-sm" className="sidebar-add-button" onClick={() => void onOpenProject()} disabled={loading} aria-label="Open project" title={`Open project (${APP_SHORTCUTS.openProject})`}>
           <IconFolder />
           <IconPlus className="sidebar-add-plus" />
-        </button>
+        </Button>
       </div>
 
       <label className="sidebar-search">
-        <span className="sr-only">Filter workspaces</span>
-        <input value={projectSearch} onChange={(event) => setProjectSearch(event.target.value)} placeholder="Filter workspaces" />
+        <span className="sr-only">Filter projects</span>
+        <Input value={projectSearch} onChange={(event) => setProjectSearch(event.target.value)} placeholder="Filter projects" />
       </label>
 
-      <div className="sidebar-workspace-list">
+      <ScrollArea className="sidebar-workspace-list">
         {filteredWorkspaces.length ? filteredWorkspaces.map(renderWorkspace) : (
-          <button type="button" className="sidebar-empty-workspaces" onClick={() => void onOpenProject()} disabled={loading}>
+          <Button type="button" variant="ghost" className="sidebar-empty-workspaces" onClick={() => void onOpenProject()} disabled={loading}>
             <IconFolder />
             <span>{project ? "Saving this workspace…" : "Open a project to begin"}</span>
-          </button>
+          </Button>
         )}
-      </div>
-
-      <div className="sidebar-current-project">
-        <span className="sidebar-current-dot" />
-        <span className="sidebar-current-copy">
-          <span>Current project</span>
-          <strong>{project?.name ?? "None selected"}</strong>
-        </span>
-      </div>
+      </ScrollArea>
 
       <div className="sidebar-footer">
-        <button type="button" className="sidebar-footer-button sidebar-footer-button-wide" onClick={() => setPreferencesOpen(true)} aria-label="Preferences" title="Preferences">
+        <Button type="button" variant="ghost" className="sidebar-footer-button sidebar-footer-button-wide" onClick={() => setPreferencesOpen(true)} aria-label="Preferences" title="Preferences">
           <IconSettings />
           <span>Preferences</span>
-        </button>
-        <button type="button" className="sidebar-footer-button" onClick={() => setHelpOpen(true)} aria-label="Help" title="Help"><IconHelp /></button>
+        </Button>
+        <Button type="button" variant="ghost" size="icon-sm" className="sidebar-footer-button" onClick={() => setHelpOpen(true)} aria-label="Help" title="Help"><IconHelp /></Button>
       </div>
     </aside>
   );

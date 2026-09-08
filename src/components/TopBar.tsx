@@ -1,14 +1,7 @@
-import { useEffect, useState } from "react";
-import {
-  IconGit,
-  IconGlobe,
-  IconLayoutEven,
-  IconLayoutFocus,
-  IconLayoutGrid,
-  IconPlus,
-  IconTerminal,
-  TaxzyMark,
-} from "./AppIcons";
+import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
+import { IconGit, IconGlobe, IconLayoutEven, IconLayoutFocus, IconLayoutGrid, IconPlus, IconTerminal } from "./AppIcons";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { aggregateRunningStatus, toolbarDensityForWidth } from "../lib/chromePresentation";
 import { agentBelongsToProject } from "../lib/workspaceRegistry";
 import { APP_SHORTCUTS } from "../lib/platform";
@@ -18,6 +11,15 @@ import { useLayoutStore } from "../stores/layoutStore";
 import { useProjectStore } from "../stores/projectStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useUiStore } from "../stores/uiStore";
+
+function ToolbarButton({ label, children, ...props }: ComponentProps<typeof Button> & { label: string; children: ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild><Button aria-label={label} {...props}>{children}</Button></TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function TopBar() {
   const project = useProjectStore((s) => s.project);
@@ -35,28 +37,18 @@ export function TopBar() {
   const agentMap = useAgentStore((s) => s.agents);
   const agents = Object.values(agentMap).filter((agent) => !project || agentBelongsToProject(agent, project));
   const sessions = useTerminalStore((s) => s.sessions);
-  const runningCount = agents.filter((agent) =>
-    (sessions[agent.terminalId]?.status ?? agent.status) === "running",
-  ).length;
+  const runningCount = agents.filter((agent) => (sessions[agent.terminalId]?.status ?? agent.status) === "running").length;
   const [density, setDensity] = useState(() => toolbarDensityForWidth(window.innerWidth));
 
   useEffect(() => {
-    function updateDensity() {
-      setDensity(toolbarDensityForWidth(window.innerWidth));
-    }
-
+    const updateDensity = () => setDensity(toolbarDensityForWidth(window.innerWidth));
     window.addEventListener("resize", updateDensity);
     return () => window.removeEventListener("resize", updateDensity);
   }, []);
 
   async function onAddTerminal() {
     if (!project) return;
-    const session = await createSession({
-      cwd: project.path,
-      cols: 80,
-      rows: 24,
-      title: "Terminal",
-    });
+    const session = await createSession({ cwd: project.path, cols: 80, rows: 24, title: "Terminal" });
     addLeaf(session.id);
   }
 
@@ -65,142 +57,27 @@ export function TopBar() {
 
   return (
     <header className="topbar" data-density={density}>
-      <div className="topbar-project" aria-label="Current project">
-        <div className="topbar-project-mark" aria-hidden="true">
-          <TaxzyMark className="h-5 w-5" />
-        </div>
-        <div className="topbar-project-copy">
-          <span className="topbar-overline">Workspace</span>
-          <span className="topbar-project-name">
-            {project?.name ?? "No project open"}
-          </span>
-        </div>
-        {project ? (
-          <span className="topbar-branch" title={project.currentBranch}>
-            {project.currentBranch}
-          </span>
-        ) : (
-          <span className="topbar-project-hint">Choose a folder</span>
-        )}
+      <div className="topbar-project" aria-label="Project">
+        <span className="topbar-project-name">{project?.name ?? "No project open"}</span>
+        {project ? <span className="topbar-branch" title={project.currentBranch}>{project.currentBranch}</span> : null}
       </div>
-
       <div className="topbar-center">
-        <span className="topbar-context">Workspace layout</span>
-        <div
-          className="topbar-layout-switcher"
-          role="group"
-          aria-label="Layout presets"
-        >
-          <button
-            type="button"
-            className="btn btn-icon"
-            title="Even columns"
-            aria-label="Even columns"
-            disabled={!paneTree}
-            onClick={() => applyPreset("even")}
-          >
-            <IconLayoutEven />
-          </button>
-          <button
-            type="button"
-            className="btn btn-icon"
-            title="Tall left pane"
-            aria-label="Tall left pane"
-            disabled={!paneTree}
-            onClick={() => applyPreset("focus-left")}
-          >
-            <IconLayoutFocus />
-          </button>
-          <button
-            type="button"
-            className="btn btn-icon"
-            title="Grid layout"
-            aria-label="Grid layout"
-            disabled={!paneTree}
-            onClick={() => applyPreset("grid")}
-          >
-            <IconLayoutGrid />
-          </button>
+        <div className="topbar-layout-switcher" role="group" aria-label="Layout presets">
+          <ToolbarButton label="Even columns" variant="ghost" size="icon-sm" disabled={!paneTree} onClick={() => applyPreset("even")}><IconLayoutEven /></ToolbarButton>
+          <ToolbarButton label="Tall left pane" variant="ghost" size="icon-sm" disabled={!paneTree} onClick={() => applyPreset("focus-left")}><IconLayoutFocus /></ToolbarButton>
+          <ToolbarButton label="Grid layout" variant="ghost" size="icon-sm" disabled={!paneTree} onClick={() => applyPreset("grid")}><IconLayoutGrid /></ToolbarButton>
         </div>
       </div>
-
       <div className="topbar-actions">
-        <div className="topbar-tools" role="group" aria-label="Workspace tools">
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => void onAddTerminal()}
-            disabled={!project}
-            title={`Add terminal pane (${APP_SHORTCUTS.addTerminal})`}
-            aria-label="Add terminal pane"
-            aria-keyshortcuts={APP_SHORTCUTS.addTerminal}
-          >
-            <IconTerminal />
-            <span className="topbar-action-label">Terminal</span>
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => setBrowserOpen(!browserOpen)}
-            title={`Toggle browser (${APP_SHORTCUTS.toggleBrowser})`}
-            aria-label="Toggle browser"
-            aria-keyshortcuts={APP_SHORTCUTS.toggleBrowser}
-            aria-pressed={browserOpen}
-          >
-            <IconGlobe />
-            <span className="topbar-action-label">Browser</span>
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => setTaxChatOpen(!taxChatOpen)}
-            disabled={!project || runningCount === 0}
-            title="Toggle TaxChat"
-            aria-label="Toggle TaxChat"
-            aria-pressed={taxChatOpen}
-          >
-            <span className="topbar-taxchat-mark" aria-hidden="true">TC</span>
-            <span className="topbar-action-label">TaxChat</span>
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => toggleGitPanel()}
-            disabled={!project}
-            title={`Toggle changes (${APP_SHORTCUTS.toggleGit})`}
-            aria-label="Toggle changes"
-            aria-keyshortcuts={APP_SHORTCUTS.toggleGit}
-            aria-pressed={gitPanelOpen}
-          >
-            <IconGit />
-            <span className="topbar-action-label">Changes</span>
-          </button>
+        <div className="topbar-tools" role="group" aria-label="Tools">
+          <ToolbarButton label={`Add terminal (${APP_SHORTCUTS.addTerminal})`} variant="ghost" size="sm" disabled={!project} onClick={() => void onAddTerminal()} aria-keyshortcuts={APP_SHORTCUTS.addTerminal}><IconTerminal /><span className="topbar-action-label">Terminal</span></ToolbarButton>
+          <ToolbarButton label={`Toggle browser (${APP_SHORTCUTS.toggleBrowser})`} variant="ghost" size="sm" onClick={() => setBrowserOpen(!browserOpen)} aria-keyshortcuts={APP_SHORTCUTS.toggleBrowser} aria-pressed={browserOpen}><IconGlobe /><span className="topbar-action-label">Browser</span></ToolbarButton>
+          <ToolbarButton label="Toggle TaxChat" variant="ghost" size="sm" disabled={!project || runningCount === 0} onClick={() => setTaxChatOpen(!taxChatOpen)} aria-pressed={taxChatOpen}><span className="topbar-taxchat-mark" aria-hidden="true">TC</span><span className="topbar-action-label">TaxChat</span></ToolbarButton>
+          <ToolbarButton label={`Toggle changes (${APP_SHORTCUTS.toggleGit})`} variant="ghost" size="sm" disabled={!project} onClick={() => toggleGitPanel()} aria-keyshortcuts={APP_SHORTCUTS.toggleGit} aria-pressed={gitPanelOpen}><IconGit /><span className="topbar-action-label">Changes</span></ToolbarButton>
         </div>
-
-        <button
-          type="button"
-          className="btn btn-primary topbar-agent-button"
-          onClick={() => setAddAgentOpen(true)}
-          disabled={!project}
-          title={`Launch an agent (${APP_SHORTCUTS.addAgent})`}
-          aria-label="Launch an agent"
-          aria-keyshortcuts={APP_SHORTCUTS.addAgent}
-        >
-          <IconPlus />
-          <span className="topbar-action-label">Add agent</span>
-        </button>
-        <div
-          className="topbar-status"
-          role="status"
-          aria-live="polite"
-          aria-label={`Agent status: ${aggregateStatus.label}`}
-        >
-          <span
-            className="status-dot"
-            data-tone={aggregatePresentation.tone}
-            data-animated={aggregatePresentation.animated}
-            aria-hidden="true"
-          />
+        <Button size="sm" className="topbar-agent-button" onClick={() => setAddAgentOpen(true)} disabled={!project} aria-label="Add agent" aria-keyshortcuts={APP_SHORTCUTS.addAgent}><IconPlus /><span className="topbar-action-label">Add agent</span></Button>
+        <div className="topbar-status" role="status" aria-live="polite" aria-label={`Agent status: ${aggregateStatus.label}`}>
+          <span className="status-dot" data-tone={aggregatePresentation.tone} data-animated={aggregatePresentation.animated} aria-hidden="true" />
           <span className="topbar-status-label">{aggregateStatus.label}</span>
         </div>
       </div>

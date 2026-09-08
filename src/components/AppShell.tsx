@@ -8,13 +8,13 @@ import { HelpDialog } from "./HelpDialog";
 import { MergeDialog } from "./MergeDialog";
 import { PathDialog } from "./PathDialog";
 import { PreferencesDialog } from "./PreferencesDialog";
-import { COLLAPSED_SIDEBAR_SIZE, Sidebar } from "./Sidebar";
+import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { Workspace } from "./Workspace";
 import { SetupWizard } from "./SetupWizard";
 import { useAppShortcuts } from "../hooks/useAppShortcuts";
 import { useTheme } from "../hooks/useTheme";
-import { browserShellLayout, defaultShellSize, SHELL_LIMITS } from "../lib/chromePresentation";
+import { APP_FRAME, browserShellLayout, defaultShellSize, SHELL_LIMITS, sidebarCollapsedForWidth } from "../lib/chromePresentation";
 import { agentBelongsToProject } from "../lib/workspaceRegistry";
 import {
   getChromeLayout,
@@ -29,6 +29,7 @@ import { configureTaxChatRuntime, useTaxChatStore } from "../stores/taxChatStore
 import { useUiStore } from "../stores/uiStore";
 import { ptyWrite } from "../tauri/terminal";
 import { startPtyBridge, subscribePtyLifecycle, subscribePtyOutput } from "../terminal/ptyBridge";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const BrowserPanel = lazy(async () => {
   const mod = await import("./BrowserPanel");
@@ -48,12 +49,24 @@ export function AppShell() {
   const refresh = useGitStore((s) => s.refresh);
   const browserOpen = useUiStore((s) => s.browserOpen);
   const sidebarCollapsed = useWorkspaceStore((s) => s.collapsed);
+  const setSidebarCollapsed = useWorkspaceStore((s) => s.setCollapsed);
   const chrome = getChromeLayout();
   const browserLayout = browserShellLayout();
   const restoreAttempted = useRef(false);
   const activeProjectRoot = useRef<string | null>(null);
 
   useAppShortcuts();
+
+  useEffect(() => {
+    const collapseForViewport = () => {
+      if (sidebarCollapsedForWidth(window.innerWidth, useWorkspaceStore.getState().collapsed)) {
+        setSidebarCollapsed(true);
+      }
+    };
+    collapseForViewport();
+    window.addEventListener("resize", collapseForViewport);
+    return () => window.removeEventListener("resize", collapseForViewport);
+  }, [setSidebarCollapsed]);
 
   useEffect(() => {
     configureTaxChatRuntime({
@@ -103,41 +116,51 @@ export function AppShell() {
   }
 
   return (
+    <TooltipProvider>
     <div className="app-shell flex h-full min-h-0 flex-col bg-ink text-paper">
-      {!setupOpen ? <TopBar /> : null}
-      {error && !project ? (
-        <div className="banner banner-error mx-3 mt-2" role="alert">
-          {error.message}
-        </div>
-      ) : null}
       <div className="relative min-h-0 flex-1">
         <div className="h-full min-w-0" hidden={setupOpen} inert={setupOpen}>
         <Group
-          key={`${browserOpen ? "shell-browser" : "shell-main"}-${sidebarCollapsed ? "collapsed" : "expanded"}`}
+          key={`app-frame-${sidebarCollapsed ? "collapsed" : "expanded"}`}
           orientation="horizontal"
-          className={`shell-group h-full min-w-0 ${browserOpen ? "shell-group-with-browser" : ""}`}
+          className="app-frame h-full min-w-0"
           resizeTargetMinimumSize={{ fine: 8, coarse: 20 }}
           onLayoutChanged={(layout, meta) => {
             if (!meta.isUserInteraction) return;
             const current = getChromeLayout();
             setChromeLayout({
               sidebar: layout.sidebar ?? current.sidebar,
-              browser: layout.browser ?? current.browser,
+              browser: current.browser,
               git: current.git,
             });
           }}
         >
           <Panel
             id="sidebar"
-            defaultSize={sidebarCollapsed ? COLLAPSED_SIDEBAR_SIZE : defaultShellSize("sidebar", chrome.sidebar)}
-            minSize={sidebarCollapsed ? COLLAPSED_SIDEBAR_SIZE : SHELL_LIMITS.sidebar.min}
-            maxSize={sidebarCollapsed ? COLLAPSED_SIDEBAR_SIZE : SHELL_LIMITS.sidebar.max}
+            defaultSize={sidebarCollapsed ? APP_FRAME.collapsedSidebarWidth : defaultShellSize("sidebar", chrome.sidebar)}
+            minSize={sidebarCollapsed ? APP_FRAME.collapsedSidebarWidth : SHELL_LIMITS.sidebar.min}
+            maxSize={sidebarCollapsed ? APP_FRAME.collapsedSidebarWidth : SHELL_LIMITS.sidebar.max}
             groupResizeBehavior="preserve-pixel-size"
           >
             <Sidebar />
           </Panel>
           <Separator className="pane-handle pane-handle-h" />
-          <Panel id="center" minSize="32" className="shell-center-panel min-h-0 min-w-0">
+          <Panel id="app-content" minSize="32" className="app-frame-content min-h-0 min-w-0">
+            <TopBar />
+            {error && !project ? <div className="banner banner-error mx-3 mt-2" role="alert">{error.message}</div> : null}
+            <div className="min-h-0 flex-1">
+            <Group
+              key={browserOpen ? "shell-browser" : "shell-main"}
+              orientation="horizontal"
+              className={`shell-group h-full min-w-0 ${browserOpen ? "shell-group-with-browser" : ""}`}
+              resizeTargetMinimumSize={{ fine: 8, coarse: 20 }}
+              onLayoutChanged={(layout, meta) => {
+                if (!meta.isUserInteraction) return;
+                const current = getChromeLayout();
+                setChromeLayout({ ...current, browser: layout.browser ?? current.browser });
+              }}
+            >
+            <Panel id="center" minSize="32" className="shell-center-panel min-h-0 min-w-0">
             {gitPanelOpen ? (
               <Group
                 orientation="vertical"
@@ -199,6 +222,9 @@ export function AppShell() {
               </Panel>
             </>
           ) : null}
+            </Group>
+            </div>
+          </Panel>
         </Group>
         </div>
         {setupOpen ? <SetupWizard onComplete={dismissSetup} /> : null}
@@ -211,5 +237,6 @@ export function AppShell() {
       <HelpDialog />
       <PreferencesDialog />
     </div>
+    </TooltipProvider>
   );
 }

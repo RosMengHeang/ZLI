@@ -11,9 +11,15 @@ export interface NavigationTarget {
 }
 
 export const SHELL_LIMITS = {
-  sidebar: { default: "228px", min: "196px", max: "300px" },
+  sidebar: { default: "232px", min: "200px", max: "300px" },
   browser: { default: "34%", min: "360px", max: "50%" },
   git: { default: "34%", min: "220px", max: "68%" },
+} as const;
+
+export const APP_FRAME = {
+  headerHeight: "48px",
+  sidebarWidth: "232px",
+  collapsedSidebarWidth: "52px",
 } as const;
 
 export interface BrowserViewportRect {
@@ -76,6 +82,10 @@ export function nativeBrowserRectIsUsable(
 
 export function toolbarDensityForWidth(width: number): ToolbarDensity {
   return width < 1100 ? "compact" : "comfortable";
+}
+
+export function sidebarCollapsedForWidth(width: number, currentlyCollapsed: boolean): boolean {
+  return currentlyCollapsed || width < 860;
 }
 
 const PRIMARY_DESTINATIONS: ReadonlyArray<{ id: PrimaryDestination; label: string }> = [

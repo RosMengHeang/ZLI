@@ -10,7 +10,7 @@ test("uses compact toolbar chrome below the full desktop width", async () => {
 
 test("publishes pixel-safe shell limits", async () => {
   const { SHELL_LIMITS } = await import("../src/lib/chromePresentation.ts");
-  assert.deepEqual(SHELL_LIMITS.sidebar, { default: "228px", min: "196px", max: "300px" });
+  assert.deepEqual(SHELL_LIMITS.sidebar, { default: "232px", min: "200px", max: "300px" });
   assert.deepEqual(SHELL_LIMITS.browser, { default: "34%", min: "360px", max: "50%" });
   assert.deepEqual(SHELL_LIMITS.git, { default: "34%", min: "220px", max: "68%" });
 });
@@ -49,7 +49,7 @@ test("presents aggregate running state with a visible semantic label", async () 
 
 test("uses unit-aware defaults while retaining stored percentage layouts", async () => {
   const { defaultShellSize } = await import("../src/lib/chromePresentation.ts");
-  assert.equal(defaultShellSize?.("sidebar", undefined), "228px");
+  assert.equal(defaultShellSize?.("sidebar", undefined), "232px");
   assert.equal(defaultShellSize?.("sidebar", 22), "22%");
   assert.equal(defaultShellSize?.("browser", undefined), "34%");
 });
@@ -92,6 +92,22 @@ test("keeps the browser split on the right and normalizes native view bounds", a
     { left: 900, top: 52, width: 488, height: 701 },
     { width: 1280, height: 800 },
   ), false);
+});
+
+test("connects the titlebar and sidebar with one compact frame rhythm", async () => {
+  const { APP_FRAME } = await import("../src/lib/chromePresentation.ts");
+  assert.deepEqual(APP_FRAME, {
+    headerHeight: "48px",
+    sidebarWidth: "232px",
+    collapsedSidebarWidth: "52px",
+  });
+});
+
+test("collapses the project rail when the workspace becomes too narrow", async () => {
+  const { sidebarCollapsedForWidth } = await import("../src/lib/chromePresentation.ts");
+  assert.equal(sidebarCollapsedForWidth(859, false), true);
+  assert.equal(sidebarCollapsedForWidth(860, false), false);
+  assert.equal(sidebarCollapsedForWidth(1200, true), true);
 });
 
 test("uses a readable TaxChat split beside the terminal grid", async () => {
