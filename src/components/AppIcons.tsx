@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Folder, FolderOpen } from "lucide-react";
 
 interface IconProps {
   className?: string;
@@ -50,9 +51,12 @@ export function IconPlus(props: IconProps) {
 
 export function IconFolder(props: IconProps) {
   return (
-    <Svg {...props}>
-      <path d="M2.6 4.6h4.1l1.2 1.4h5.5A1.4 1.4 0 0 1 14.8 7.4v5.2A1.4 1.4 0 0 1 13.4 14H2.6A1.4 1.4 0 0 1 1.2 12.6V6A1.4 1.4 0 0 1 2.6 4.6Z" {...stroke} />
-    </Svg>
+    <Folder
+      className={props.className ?? "h-3.5 w-3.5"}
+      strokeWidth={1.5}
+      aria-hidden={props.title ? undefined : true}
+      aria-label={props.title}
+    />
   );
 }
 
@@ -113,10 +117,12 @@ export function IconClose(props: IconProps) {
 
 export function IconFolderOpen(props: IconProps) {
   return (
-    <Svg {...props}>
-      <path d="M1.4 6.2h12.9l-1.4 6.1a1.5 1.5 0 0 1-1.5 1.2H2.8a1.5 1.5 0 0 1-1.4-1.8l1.1-5.5Z" {...stroke} />
-      <path d="M2.1 6.2V4.8a1.5 1.5 0 0 1 1.5-1.5h3.1l1.2 1.4h4.5a1.5 1.5 0 0 1 1.5 1.5" {...stroke} />
-    </Svg>
+    <FolderOpen
+      className={props.className ?? "h-3.5 w-3.5"}
+      strokeWidth={1.5}
+      aria-hidden={props.title ? undefined : true}
+      aria-label={props.title}
+    />
   );
 }
 

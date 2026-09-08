@@ -5,8 +5,8 @@ export function canonicalProviderId(id: string): string {
 }
 
 export const PROVIDER_ACCENTS: Record<string, string> = {
-  "claude-code": "#d4a37a",
-  claude: "#d4a37a",
+  "claude-code": "#D97757",
+  claude: "#D97757",
   codex: "#9ad7c2",
   "cursor-agent": "#e8e8e8",
   cursor: "#e8e8e8",
@@ -16,6 +16,29 @@ export const PROVIDER_ACCENTS: Record<string, string> = {
   goose: "#3ecc5f",
   shell: "#6fbf4b",
 };
+
+export interface ProviderVisualIdentity {
+  mark: string;
+  label: string;
+  accent: string;
+}
+
+export function providerVisualIdentity(id: string): ProviderVisualIdentity {
+  const canonicalId = canonicalProviderId(id);
+  if (canonicalId === "claude-code") {
+    return {
+      mark: "claude",
+      label: "Claude Code",
+      accent: PROVIDER_ACCENTS[canonicalId],
+    };
+  }
+
+  return {
+    mark: canonicalId,
+    label: canonicalId,
+    accent: PROVIDER_ACCENTS[canonicalId] ?? "#2563eb",
+  };
+}
 
 export function providerAccent(id: string | undefined): string {
   if (!id) return PROVIDER_ACCENTS.shell;

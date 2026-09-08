@@ -81,7 +81,7 @@ test("the Taxzy shadcn foundation matches the approved design contract", async (
   assert.match(design, /ENERGY 1 \/ RHYTHM 2 \/ MOTION 1/);
   assert.match(
     css,
-    /--font-sans:\s*Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;/,
+    /--font-sans:\s*"Inter Variable", Inter, "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", sans-serif;/,
   );
   assert.match(css, /--font-mono:\s*"JetBrains Mono", "SFMono-Regular", Consolas, monospace/);
 
