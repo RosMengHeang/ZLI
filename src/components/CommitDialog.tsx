@@ -36,7 +36,7 @@ export function CommitDialog() {
   }
 
   return (
-    <Modal title="Commit" open={open} onClose={() => setOpen(false)}>
+    <Modal title="Commit changes" description="Save the selected working tree changes in a Git commit." open={open} busy={busy} onClose={() => setOpen(false)}>
       <form className="flex flex-col gap-3" onSubmit={(event) => void onSubmit(event)}>
         <div className="text-[12px] text-mute">
           {agent ? `${agent.name} · ${agent.branch}` : project?.name} — {worktreePath}
@@ -63,12 +63,12 @@ export function CommitDialog() {
             Last commit: {lastCommit.shortHash} {lastCommit.message}
           </div>
         ) : null}
-        <div className="flex justify-end gap-2">
-          <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
+        <div data-dialog-actions className="flex justify-end gap-2">
+          <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setOpen(false)}>
             Cancel
           </button>
           <button type="submit" className="btn btn-primary" disabled={busy || !message.trim()}>
-            {busy ? "Committing…" : "Commit"}
+            {busy ? "Committing…" : "Commit changes"}
           </button>
         </div>
       </form>

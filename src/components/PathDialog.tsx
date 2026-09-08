@@ -21,7 +21,7 @@ export function PathDialog() {
   }
 
   return (
-    <Modal title="Open project path" open={open} onClose={() => setOpen(false)}>
+    <Modal title="Open project" description="Enter the path to a local Git repository." open={open} busy={loading} onClose={() => setOpen(false)}>
       <form className="flex flex-col gap-3" onSubmit={(event) => void onSubmit(event)}>
         <p className="text-[13px] leading-5 text-mute">
           Folder picker needs the Tauri dialog plugin. You can still open a repository by path.
@@ -36,12 +36,12 @@ export function PathDialog() {
           autoFocus
         />
         {error ? <div className="banner banner-error">{error.message}</div> : null}
-        <div className="flex justify-end gap-2">
-          <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
+        <div data-dialog-actions className="flex justify-end gap-2">
+          <button type="button" className="btn btn-ghost" disabled={loading} onClick={() => setOpen(false)}>
             Cancel
           </button>
           <button type="submit" className="btn btn-primary" disabled={loading}>
-            {loading ? "Opening…" : "Open"}
+            {loading ? "Opening…" : "Open project"}
           </button>
         </div>
       </form>

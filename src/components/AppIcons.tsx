@@ -300,9 +300,9 @@ export function IconArrowRight(props: IconProps) {
 export function IconMore(props: IconProps) {
   return (
     <Svg {...props}>
-      <circle cx="4" cy="8" r="0.9" fill="currentColor" />
-      <circle cx="8" cy="8" r="0.9" fill="currentColor" />
-      <circle cx="12" cy="8" r="0.9" fill="currentColor" />
+      <circle cx="4" cy="8" r="0.9" {...stroke} />
+      <circle cx="8" cy="8" r="0.9" {...stroke} />
+      <circle cx="12" cy="8" r="0.9" {...stroke} />
     </Svg>
   );
 }

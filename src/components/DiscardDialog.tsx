@@ -60,6 +60,8 @@ export function DiscardDialog() {
     <Modal
       title={agent ? `Discard ${agent.name} agent work?` : "Discard agent work?"}
       open={open}
+      busy={busy}
+      description="Review the affected worktree before discarding its changes."
       onClose={() => setOpen(false)}
       danger
     >
@@ -73,7 +75,7 @@ export function DiscardDialog() {
           </p>
           <p className="font-mono text-[12px] text-mute">{agent.cwd}</p>
           <div className="flex justify-end">
-            <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
+          <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setOpen(false)}>
               Close
             </button>
           </div>
@@ -101,8 +103,8 @@ export function DiscardDialog() {
             />
           </label>
           {error ? <div className="banner banner-error">{error.message}</div> : null}
-          <div className="flex justify-end gap-2">
-            <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
+          <div data-dialog-actions className="flex justify-end gap-2">
+            <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setOpen(false)}>
               Cancel
             </button>
             <button

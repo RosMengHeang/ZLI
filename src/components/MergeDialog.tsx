@@ -37,7 +37,7 @@ export function MergeDialog() {
   }
 
   return (
-    <Modal title="Merge agent branch" open={open} onClose={() => setOpen(false)}>
+    <Modal title="Merge branch" description="Review the source and target before combining changes." open={open} busy={busy} onClose={() => setOpen(false)}>
       {!agent || !project ? (
         <p className="text-[13px]">Select an agent with a branch first.</p>
       ) : (
@@ -57,12 +57,12 @@ export function MergeDialog() {
             />
           </label>
           {error ? <div className="banner banner-error">{error.message}</div> : null}
-          <div className="flex justify-end gap-2">
-            <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
+        <div data-dialog-actions className="flex justify-end gap-2">
+          <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setOpen(false)}>
               Cancel
             </button>
             <button type="submit" className="btn btn-primary" disabled={busy}>
-              {busy ? "Merging…" : "Merge"}
+              {busy ? "Merging…" : "Merge branch"}
             </button>
           </div>
         </form>

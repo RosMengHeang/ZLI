@@ -7,6 +7,7 @@ import { useGitStore } from "../stores/gitStore";
 import { useProjectStore } from "../stores/projectStore";
 import { useUiStore } from "../stores/uiStore";
 import { providerDisplayName } from "../types";
+import { changedFileLabel } from "../lib/gitPresentation";
 
 export function GitReviewPanel() {
   const project = useProjectStore((s) => s.project);
@@ -44,7 +45,8 @@ export function GitReviewPanel() {
   const files = status?.changedFiles ?? [];
   const selectedDiff = selectedPath ? diffs[`${worktreePath}::${selectedPath}`] : undefined;
   const title = agent ? agent.name : project.name;
-  const subtitle = agent ? providerDisplayName(agent.provider) : "Working tree";
+  const branch = agent?.branch || project.currentBranch;
+  const subtitle = `${agent ? providerDisplayName(agent.provider) : "Working tree"} · ${branch}`;
 
   function onFileListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -95,10 +97,10 @@ export function GitReviewPanel() {
             onClick={() => setCommitOpen(true)}
             disabled={!status || status.clean}
           >
-            Commit
+            Commit changes
           </button>
           <button type="button" className="btn btn-quiet h-7" onClick={() => setMergeOpen(true)} disabled={!agent}>
-            Merge
+            Merge branch
           </button>
           <button
             type="button"
@@ -156,7 +158,7 @@ export function GitReviewPanel() {
 
       <div className="flex min-h-0 flex-1">
         <div
-          className="w-[260px] shrink-0 overflow-auto border-r border-line"
+          className="w-[210px] min-[980px]:w-[260px] shrink-0 overflow-auto border-r border-line"
           role="listbox"
           aria-label="Changed files"
           tabIndex={0}
@@ -173,6 +175,7 @@ export function GitReviewPanel() {
               return (
                 <button
                   key={file.path}
+                  aria-label={changedFileLabel(file)}
                   type="button"
                   className={`flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-[12px] hover:bg-hover ${
                     active ? "bg-raised" : ""

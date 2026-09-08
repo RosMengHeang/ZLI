@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useId, type ReactNode } from "react";
+import { canDismissDialog } from "../lib/dialogBehavior";
 import { IconClose } from "./AppIcons";
 
 interface ModalProps {
@@ -8,6 +9,9 @@ interface ModalProps {
   children: ReactNode;
   width?: number;
   danger?: boolean;
+  busy?: boolean;
+  description?: string;
+  dismissible?: boolean;
 }
 
 function focusableIn(root: HTMLElement): HTMLElement[] {
@@ -18,9 +22,14 @@ function focusableIn(root: HTMLElement): HTMLElement[] {
   ).filter((el) => !el.hasAttribute("disabled") && el.tabIndex !== -1);
 }
 
-export function Modal({ title, open, onClose, children, width = 420, danger }: ModalProps) {
+export function Modal({ title, open, onClose, children, width = 420, danger, busy = false, description, dismissible = true }: ModalProps) {
+  const titleId = useId();
+  const descriptionId = useId();
+  const blocked = !canDismissDialog({ dismissible, busy });
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  const busyRef = useRef(blocked);
+  useEffect(() => { busyRef.current = blocked; }, [blocked]);
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -42,7 +51,7 @@ export function Modal({ title, open, onClose, children, width = 420, danger }: M
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        onCloseRef.current();
+        if (!busyRef.current) onCloseRef.current();
         return;
       }
       if (event.key !== "Tab" || !root) return;
@@ -74,31 +83,32 @@ export function Modal({ title, open, onClose, children, width = 420, danger }: M
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/55 pt-[12vh]"
-      onClick={() => onCloseRef.current()}
+      onClick={() => { if (!busyRef.current) onCloseRef.current(); }}
     >
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="modal-title"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         className="surface-dialog outline-none"
-        style={{ width }}
+        style={{ width, maxWidth: "calc(100vw - 32px)", maxHeight: "80vh", overflowY: "auto" }}
         onClick={(event) => event.stopPropagation()}
       >
         <div
           className={`flex h-10 items-center justify-between border-b border-line px-3 ${
-            danger ? "bg-[#2a151a]" : "bg-chrome"
+            danger ? "bg-chrome text-danger" : "bg-chrome"
           }`}
         >
-          <h2 id="modal-title" className="text-[13px] font-semibold tracking-tight">
+          <h2 id={titleId} className="text-[13px] font-semibold tracking-tight">
             {title}
           </h2>
-          <button type="button" className="btn btn-icon" onClick={() => onCloseRef.current()} aria-label="Close">
+          <button type="button" className="btn btn-icon" disabled={blocked} onClick={() => onCloseRef.current()} aria-label="Close" title="Close dialog">
             <IconClose />
           </button>
         </div>
-        <div className="p-4">{children}</div>
+        <div className="p-4">{description ? <p id={descriptionId} className="mb-4 text-[12px] leading-5 text-mute">{description}</p> : null}{children}</div>
       </div>
     </div>
   );

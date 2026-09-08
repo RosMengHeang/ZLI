@@ -42,7 +42,7 @@ export function AddAgentDialog() {
   }
 
   return (
-    <Modal title="Add agent" open={open} onClose={() => setOpen(false)} width={520}>
+    <Modal title="Add agent" description="Choose a local tool and where it should work." open={open} busy={launching} onClose={() => setOpen(false)} width={520}>
       <form className="flex flex-col gap-4" onSubmit={(event) => void onSubmit(event)}>
         {providersError ? (
           <div className="banner banner-error">
@@ -121,12 +121,12 @@ export function AddAgentDialog() {
 
         {launchError ? <div className="banner banner-error">{launchError.message}</div> : null}
 
-        <div className="flex justify-end gap-2">
-          <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
+        <div data-dialog-actions className="flex justify-end gap-2">
+          <button type="button" className="btn btn-ghost" disabled={launching} onClick={() => setOpen(false)}>
             Cancel
           </button>
           <button type="submit" className="btn btn-primary" disabled={launching || !available}>
-            {launching ? "Launching…" : "Launch"}
+            {launching ? "Launching…" : "Add agent"}
           </button>
         </div>
       </form>
