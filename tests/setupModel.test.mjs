@@ -12,6 +12,7 @@ test("coordinator retains successes, catches errors, and retries only failures",
   let completed = 0;
   let browserOpened = false;
   const calls = [];
+  const retired = [];
   const project = {
     project: { name: "Project", path: "D:/project" },
     loading: false,
@@ -19,9 +20,10 @@ test("coordinator retains successes, catches errors, and retries only failures",
   const agents = {
     providers: [{ id: "codex", installed: true }],
     providersLoaded: true,
+    retireFailed: async (id) => { retired.push(id); },
     launch: async (request) => {
       calls.push(request);
-      if (calls.length === 2) throw new Error("CLI failed");
+      if (calls.length === 2) return { id: "failed-attempt", status: "error", error: "CLI failed" };
       return { id: String(calls.length), status: "running" };
     },
   };
@@ -115,14 +117,23 @@ test("coordinator retains successes, catches errors, and retries only failures",
     ["running", "failed", "running"],
   );
   assert.equal(partial.items[1].error, "CLI failed");
+  assert.deepEqual(retired, ["failed-attempt"]);
   assert.equal(completed, 0);
   assert.equal(browserOpened, false);
-  await partial.onStart();
+  partial.onBack();
+  const editing = find(render(), "AgentsStep");
+  assert.equal(editing.projectLocked, true);
+  assert.equal(editing.rows.length, 1);
+  editing.onUpdate("draft", { useWorktree: false });
+  editing.onContinue();
+  const revised = find(render(), "ReviewStep");
+  assert.equal(revised.items.filter((item) => item.status === "running").length, 2);
+  await revised.onStart();
   assert.deepEqual(
     calls.map((item) => item.name),
     ["codex 1", "codex 2", "codex 3", "codex 2"],
   );
-  assert.ok(calls.every((item) => item.createWorktree));
+  assert.equal(calls[3].createWorktree, false);
   assert.equal(completed, 1);
   assert.equal(browserOpened, true);
 });

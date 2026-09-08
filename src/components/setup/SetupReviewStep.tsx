@@ -92,9 +92,10 @@ export function SetupReviewStep(props: Props) {
         </p>
       )}
       {failed && (
-        <p className="mt-3 text-mute">
-          Successful launches are retained. Retry starts only failed agents.
-        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <p className="text-mute">Successful launches are retained. Retry starts only failed agents.</p>
+          <button type="button" className="btn btn-quiet" disabled={props.busy} onClick={props.onBack}>Edit failed agents</button>
+        </div>
       )}
       <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
         {!props.attempted ? (

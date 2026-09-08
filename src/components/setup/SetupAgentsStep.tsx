@@ -15,6 +15,7 @@ interface Props {
   onRemove: (id: string) => void;
   onMove: (id: string, offset: number) => void;
   onBack: () => void;
+  projectLocked?: boolean;
   onContinue: () => void;
 }
 
@@ -156,7 +157,7 @@ export function SetupAgentsStep(props: Props) {
         </p>
       )}
       <div className="mt-6 flex justify-between">
-        <button className="btn btn-ghost" onClick={props.onBack}>
+        <button className="btn btn-ghost" disabled={props.projectLocked} title={props.projectLocked ? "Running agents belong to this project" : undefined} onClick={props.onBack}>
           Back
         </button>
         <button className="btn btn-primary min-h-10" onClick={props.onContinue}>

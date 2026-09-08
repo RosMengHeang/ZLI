@@ -39,15 +39,17 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const [manual, setManual] = useState(false);
   const [rows, setRows] = useState<AgentDraft[]>([]);
   const [progress, setProgress] = useState<LaunchProgress[] | null>(null);
+  const [retained, setRetained] = useState<LaunchProgress[]>([]);
   const [busy, setBusy] = useState(false);
   const launchLock = useRef(false);
+  const failedAttempts = useRef(new Set<string>());
   useEffect(() => {
     void loadProviders();
   }, [loadProviders]);
 
   const plan: LaunchProgress[] =
     progress ??
-    expandLaunchPlan(rows).map((item) => ({ ...item, status: "waiting" }));
+    [...retained, ...expandLaunchPlan(rows).map((item): LaunchProgress => ({ ...item, status: "waiting" }))];
   const unavailable = [
     ...new Set(
       plan
@@ -79,6 +81,16 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
         useWorktree: provider !== "shell",
       },
     ]);
+  }
+
+  function editFailed() {
+    if (busy || !progress) { setStep(1); return; }
+    setRetained(progress.filter((item) => item.status === "running"));
+    setRows(progress.filter((item) => item.status !== "running").map((item) => ({
+      id: newId(), provider: item.provider, role: item.name, count: 1, useWorktree: item.useWorktree,
+    })));
+    setProgress(null);
+    setStep(1);
   }
 
   function updateRow(id: string, patch: Partial<AgentDraft>) {
@@ -132,6 +144,10 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
         setProgress([...next]);
         try {
           const item = next[index];
+          for (const id of failedAttempts.current) {
+            await useAgentStore.getState().retireFailed(id);
+            failedAttempts.current.delete(id);
+          }
           const agent = await launch({
             name: item.name,
             provider: item.provider,
@@ -140,6 +156,11 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
           const success =
             agent &&
             (agent.status === "running" || agent.status === "starting");
+          if (agent && !success) {
+            failedAttempts.current.add(agent.id);
+            await useAgentStore.getState().retireFailed(agent.id);
+            failedAttempts.current.delete(agent.id);
+          }
           next[index] = {
             ...item,
             status: success ? "running" : "failed",
@@ -180,7 +201,7 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
               data-active={step === index}
               aria-current={step === index ? "step" : undefined}
               disabled={
-                busy || progress !== null || (index > 0 && !project) || loading
+                busy || progress !== null || (index === 0 && retained.length > 0) || (index > 0 && !project) || loading
               }
               onClick={() => setStep(index)}
             >
@@ -264,7 +285,8 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
                     setRows((current) => current.filter((row) => row.id !== id))
                   }
                   onMove={moveRow}
-                  onBack={() => setStep(0)}
+                  projectLocked={retained.length > 0}
+                  onBack={() => { if (!retained.length) setStep(0); }}
                   onContinue={() => setStep(2)}
                 />
               )}
@@ -280,7 +302,7 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
                   onRescan={() => {
                     void loadProviders(true);
                   }}
-                  onBack={() => setStep(1)}
+                  onBack={editFailed}
                   onStart={start}
                   onFinish={finish}
                 />
@@ -299,7 +321,7 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
                   {project?.path}
                 </p>
                 <p className="mt-4 text-mute">
-                  {plannedAgentCount(rows)} planned agents
+                  {retained.length + plannedAgentCount(rows)} total agents
                 </p>
                 <ul className="mt-2 space-y-2">
                   {rows.map((row) => (

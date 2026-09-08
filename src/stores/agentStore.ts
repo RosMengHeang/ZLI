@@ -27,6 +27,7 @@ interface AgentState {
   }) => Promise<Agent | null>;
   stop: (id: string) => Promise<void>;
   remove: (id: string) => void;
+  retireFailed: (id: string) => Promise<void>;
 }
 
 function unavailableProviders(): AgentProvider[] {
@@ -235,6 +236,18 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         [id]: { ...agent, status: "exited" },
       },
     }));
+  },
+
+  retireFailed: async (id) => {
+    const agent = get().agents[id];
+    if (!agent) return;
+    if (agent.status === "running" || agent.status === "starting") throw new Error("Cannot retire a running agent.");
+    await useTerminalStore.getState().closeSession(agent.terminalId);
+    if (useTerminalStore.getState().sessions[agent.terminalId]) throw new Error("Could not stop the failed terminal. Try again before starting a replacement.");
+    for (const leaf of useLayoutStore.getState().leaves()) {
+      if (leaf.terminalId === agent.terminalId) useLayoutStore.getState().closePane(leaf.id);
+    }
+    get().remove(id);
   },
 
   remove: (id) =>
