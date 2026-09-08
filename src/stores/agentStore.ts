@@ -9,6 +9,7 @@ import { PROVIDER_CATALOG, worktreeProviderSlug } from "../types";
 import { useLayoutStore } from "./layoutStore";
 import { useProjectStore } from "./projectStore";
 import { useTerminalStore } from "./terminalStore";
+import { useWorkspaceStore } from "./workspaceStore";
 
 interface AgentState {
   agents: Record<string, Agent>;
@@ -24,7 +25,9 @@ interface AgentState {
     name: string;
     provider: AgentProviderId;
     createWorktree: boolean;
+    resumeId?: string;
   }) => Promise<Agent | null>;
+  restoreWorkspaceAgents: (project: { repositoryRoot: string; path: string }) => Promise<void>;
   stop: (id: string) => Promise<void>;
   remove: (id: string) => void;
   retireFailed: (id: string) => Promise<void>;
@@ -114,7 +117,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     if (agent) useLayoutStore.getState().focusTerminal(agent.terminalId);
   },
 
-  launch: async ({ name, provider, createWorktree }) => {
+  launch: async ({ name, provider, createWorktree, resumeId }) => {
     const project = useProjectStore.getState().project;
     if (!project) {
       const error = { code: "no_project", message: "Open a project before launching an agent." };
@@ -141,18 +144,31 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       cols: 80,
       rows: 24,
     };
+    const stableResumeId = resumeId ?? newId();
 
     try {
       try {
         const agent = await launchAgent(request);
         useTerminalStore.getState().registerSession(sessionFromAgent(agent, 80, 24));
+        const trackedAgent = {
+          ...agent,
+          projectRoot: project.repositoryRoot,
+          resumeId: stableResumeId,
+          createWorktree,
+        };
         set((state) => ({
-          agents: { ...state.agents, [agent.id]: agent },
-          selectedAgentId: agent.id,
+          agents: { ...state.agents, [trackedAgent.id]: trackedAgent },
+          selectedAgentId: trackedAgent.id,
           launching: false,
         }));
-        useLayoutStore.getState().addLeaf(agent.terminalId);
-        return agent;
+        useWorkspaceStore.getState().saveAgent(project.repositoryRoot, {
+          resumeId: stableResumeId,
+          name: trackedAgent.name,
+          provider: trackedAgent.provider,
+          createWorktree,
+        });
+        useLayoutStore.getState().addLeaf(trackedAgent.terminalId);
+        return trackedAgent;
       } catch (err) {
         const parsed = toAppError(err);
         if (!isCommandMissing(parsed)) throw parsed;
@@ -195,6 +211,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               ? "exited"
               : "error",
         error: session.error,
+        projectRoot: project.repositoryRoot,
+        resumeId: stableResumeId,
+        createWorktree,
       };
       set((state) => ({
         agents: { ...state.agents, [agent.id]: agent },
@@ -204,12 +223,35 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           ? { code: "agent_launch_error", message: agent.error }
           : null,
       }));
+      useWorkspaceStore.getState().saveAgent(project.repositoryRoot, {
+        resumeId: stableResumeId,
+        name: agent.name,
+        provider: agent.provider,
+        createWorktree,
+      });
       useLayoutStore.getState().addLeaf(agent.terminalId);
       return agent;
     } catch (err) {
       const parsed = toAppError(err);
       set({ launching: false, launchError: parsed });
       return null;
+    }
+  },
+
+  restoreWorkspaceAgents: async (project) => {
+    const saved = useWorkspaceStore.getState().getWorkspace(project.repositoryRoot)?.agents ?? [];
+    for (const recipe of saved) {
+      const existing = Object.values(get().agents).find((agent) =>
+        agent.projectRoot?.toLocaleLowerCase() === project.repositoryRoot.toLocaleLowerCase() &&
+        (agent.resumeId === recipe.resumeId || (agent.name === recipe.name && agent.provider === recipe.provider)),
+      );
+      if (existing) continue;
+      await get().launch({
+        name: recipe.name,
+        provider: recipe.provider,
+        createWorktree: recipe.createWorktree,
+        resumeId: recipe.resumeId,
+      });
     }
   },
 
@@ -236,6 +278,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         [id]: { ...agent, status: "exited" },
       },
     }));
+    if (agent.projectRoot && agent.resumeId) {
+      useWorkspaceStore.getState().forgetAgent(agent.projectRoot, agent.resumeId);
+    }
   },
 
   retireFailed: async (id) => {
@@ -250,7 +295,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     get().remove(id);
   },
 
-  remove: (id) =>
+  remove: (id) => {
+    const agent = get().agents[id];
+    if (agent?.projectRoot && agent.resumeId) {
+      useWorkspaceStore.getState().forgetAgent(agent.projectRoot, agent.resumeId);
+    }
     set((state) => {
       const next = { ...state.agents };
       delete next[id];
@@ -258,5 +307,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         agents: next,
         selectedAgentId: state.selectedAgentId === id ? null : state.selectedAgentId,
       };
-    }),
+    });
+  },
 }));

@@ -30,6 +30,7 @@ interface LayoutState {
   setActivePane: (paneId: PaneId) => void;
   focusTerminal: (terminalId: TerminalId) => void;
   toggleGitPanel: (open?: boolean) => void;
+  resetProject: () => void;
   setSplitSizes: (splitId: PaneId, sizes: [number, number]) => void;
   applyPreset: (preset: LayoutPreset) => void;
   persistTreeSizes: () => void;
@@ -109,6 +110,8 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
 
   toggleGitPanel: (open) =>
     set((state) => ({ gitPanelOpen: open ?? !state.gitPanelOpen })),
+
+  resetProject: () => set({ paneTree: null, activePaneId: null, gitPanelOpen: false }),
 
   setSplitSizes: (splitId, sizes) => {
     const { paneTree } = get();

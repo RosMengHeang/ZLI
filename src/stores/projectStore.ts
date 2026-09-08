@@ -8,6 +8,7 @@ import {
   validateRepository,
 } from "../tauri/project";
 import type { AppError, ProjectInfo } from "../types";
+import { useWorkspaceStore } from "./workspaceStore";
 
 interface ProjectState {
   project: ProjectInfo | null;
@@ -34,6 +35,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       const info = await validateRepository(selected);
       const project = repositoryToProject(info);
       setLastProjectPath(project.path);
+      useWorkspaceStore.getState().rememberProject(project);
       set({ project, loading: false, error: null });
       return "opened";
     } catch (err) {
@@ -63,6 +65,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       const info = await validateRepository(trimmed);
       const project = repositoryToProject(info);
       setLastProjectPath(project.path);
+      useWorkspaceStore.getState().rememberProject(project);
       set({ project, loading: false, error: null });
       return true;
     } catch (err) {

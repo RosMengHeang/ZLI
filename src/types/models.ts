@@ -50,6 +50,10 @@ export interface Agent {
   worktreePath: string | null;
   status: AgentStatus;
   error?: string | null;
+  /** Frontend-only workspace metadata used to restore this agent after restart. */
+  projectRoot?: string;
+  resumeId?: string;
+  createWorktree?: boolean;
 }
 
 export type TaxChatRoomStatus = "ready" | "running" | "idle" | "paused" | "stopped";

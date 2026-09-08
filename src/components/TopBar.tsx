@@ -10,6 +10,7 @@ import {
   TaxzyMark,
 } from "./AppIcons";
 import { aggregateRunningStatus, toolbarDensityForWidth } from "../lib/chromePresentation";
+import { agentBelongsToProject } from "../lib/workspaceRegistry";
 import { APP_SHORTCUTS } from "../lib/platform";
 import { statusPresentation } from "../lib/statusPresentation";
 import { useAgentStore } from "../stores/agentStore";
@@ -32,7 +33,7 @@ export function TopBar() {
   const addLeaf = useLayoutStore((s) => s.addLeaf);
   const createSession = useTerminalStore((s) => s.createSession);
   const agentMap = useAgentStore((s) => s.agents);
-  const agents = Object.values(agentMap);
+  const agents = Object.values(agentMap).filter((agent) => !project || agentBelongsToProject(agent, project));
   const sessions = useTerminalStore((s) => s.sessions);
   const runningCount = agents.filter((agent) =>
     (sessions[agent.terminalId]?.status ?? agent.status) === "running",

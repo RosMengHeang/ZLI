@@ -1,260 +1,263 @@
-import { useState, type KeyboardEvent } from "react";
+import { useState } from "react";
 import {
-  IconAgents,
+  IconChevronDown,
   IconFolder,
-  IconGit,
-  IconGlobe,
   IconHelp,
-  IconHome,
   IconPlus,
   IconSettings,
   TaxzyMark,
 } from "./AppIcons";
 import { ProviderIcon } from "./ProviderIcon";
 import { StatusBadge } from "./StatusBadge";
-import { displayPath } from "../lib/format";
 import {
-  currentSidebarDestination,
-  navigationTargetForDestination,
-  sidebarNavigationItems,
-  type BaseDestination,
-  type PrimaryDestination,
-} from "../lib/chromePresentation";
+  agentBelongsToProject,
+  workspaceRootKey,
+  type WorkspaceAgentResume,
+  type WorkspaceRecord,
+} from "../lib/workspaceRegistry";
+import { displayPath } from "../lib/format";
 import { APP_SHORTCUTS } from "../lib/platform";
 import { useAgentStore } from "../stores/agentStore";
-import { useGitStore } from "../stores/gitStore";
 import { useLayoutStore } from "../stores/layoutStore";
 import { useProjectStore } from "../stores/projectStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useUiStore } from "../stores/uiStore";
-import { providerDisplayName } from "../types";
+import { useWorkspaceStore } from "../stores/workspaceStore";
+import type { Agent } from "../types";
+
+export const COLLAPSED_SIDEBAR_SIZE = "58px";
+
+function savedAgentMatches(agent: Agent, recipe: WorkspaceAgentResume): boolean {
+  return agent.resumeId === recipe.resumeId || (agent.name === recipe.name && agent.provider === recipe.provider);
+}
 
 export function Sidebar() {
-  const agentMap = useAgentStore((s) => s.agents);
+  const agentMap = useAgentStore((state) => state.agents);
   const agents = Object.values(agentMap);
-  const terminalSessions = useTerminalStore((s) => s.sessions);
-  const selectedAgentId = useAgentStore((s) => s.selectedAgentId);
-  const selectAgent = useAgentStore((s) => s.selectAgent);
-  const project = useProjectStore((s) => s.project);
-  const loading = useProjectStore((s) => s.loading);
-  const openFromDialog = useProjectStore((s) => s.openFromDialog);
-  const setAddAgentOpen = useUiStore((s) => s.setAddAgentOpen);
-  const setPathDialogOpen = useUiStore((s) => s.setPathDialogOpen);
-  const setBrowserOpen = useUiStore((s) => s.setBrowserOpen);
-  const setHelpOpen = useUiStore((s) => s.setHelpOpen);
-  const setPreferencesOpen = useUiStore((s) => s.setPreferencesOpen);
-  const browserOpen = useUiStore((s) => s.browserOpen);
-  const gitPanelOpen = useLayoutStore((s) => s.gitPanelOpen);
-  const toggleGitPanel = useLayoutStore((s) => s.toggleGitPanel);
-  const statusByPath = useGitStore((s) => s.statusByPath);
-  const changedCount = project ? (statusByPath[project.path]?.changedFiles.length ?? 0) : 0;
-  const [baseDestination, setBaseDestination] = useState<BaseDestination>("workspace");
-  const currentPage = currentSidebarDestination(baseDestination, browserOpen, gitPanelOpen);
-  const navigationItems = sidebarNavigationItems(currentPage);
+  const terminalSessions = useTerminalStore((state) => state.sessions);
+  const selectedAgentId = useAgentStore((state) => state.selectedAgentId);
+  const selectAgent = useAgentStore((state) => state.selectAgent);
+  const project = useProjectStore((state) => state.project);
+  const loading = useProjectStore((state) => state.loading);
+  const openFromDialog = useProjectStore((state) => state.openFromDialog);
+  const openFromPath = useProjectStore((state) => state.openFromPath);
+  const setAddAgentOpen = useUiStore((state) => state.setAddAgentOpen);
+  const setBrowserOpen = useUiStore((state) => state.setBrowserOpen);
+  const setHelpOpen = useUiStore((state) => state.setHelpOpen);
+  const setPreferencesOpen = useUiStore((state) => state.setPreferencesOpen);
+  const toggleGitPanel = useLayoutStore((state) => state.toggleGitPanel);
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const activeProjectRoot = useWorkspaceStore((state) => state.activeProjectRoot);
+  const collapsed = useWorkspaceStore((state) => state.collapsed);
+  const expandedProjectRoots = useWorkspaceStore((state) => state.expandedProjectRoots);
+  const setCollapsed = useWorkspaceStore((state) => state.setCollapsed);
+  const setActiveProject = useWorkspaceStore((state) => state.setActiveProject);
+  const toggleExpanded = useWorkspaceStore((state) => state.toggleExpanded);
+  const [projectSearch, setProjectSearch] = useState("");
 
-  function navigateTo(destination: PrimaryDestination, requestedAgentId?: string) {
-    const target = navigationTargetForDestination(
-      destination,
-      agents.map((agent) => agent.id),
-      requestedAgentId ?? selectedAgentId,
-      baseDestination,
+  const filteredWorkspaces = projectSearch.trim()
+    ? workspaces.filter((workspace) =>
+        `${workspace.project.name} ${workspace.project.path}`.toLocaleLowerCase().includes(projectSearch.trim().toLocaleLowerCase()),
+      )
+    : workspaces;
+
+  function isActive(workspace: WorkspaceRecord): boolean {
+    return workspaceRootKey(workspace.root) === workspaceRootKey(activeProjectRoot ?? "");
+  }
+
+  function isExpanded(workspace: WorkspaceRecord): boolean {
+    return expandedProjectRoots.some((root) => workspaceRootKey(root) === workspaceRootKey(workspace.root));
+  }
+
+  async function openWorkspace(workspace: WorkspaceRecord): Promise<boolean> {
+    if (!isActive(workspace)) {
+      const opened = await openFromPath(workspace.project.path);
+      if (!opened) return false;
+    }
+    setActiveProject(workspace.root);
+    if (!isExpanded(workspace)) toggleExpanded(workspace.root);
+    setBrowserOpen(false);
+    toggleGitPanel(false);
+    return true;
+  }
+
+  async function onOpenProject(): Promise<void> {
+    await openFromDialog();
+  }
+
+  async function onAgentClick(workspace: WorkspaceRecord, agent: Agent | null): Promise<void> {
+    const opened = await openWorkspace(workspace);
+    if (opened && agent) selectAgent(agent.id);
+  }
+
+  function renderAgentRow(workspace: WorkspaceRecord, recipe: WorkspaceAgentResume, agent: Agent | null) {
+    const active = Boolean(agent && agent.id === selectedAgentId && isActive(workspace));
+    const terminal = agent ? terminalSessions[agent.terminalId] : undefined;
+    const displayedStatus = terminal?.status ?? agent?.status;
+    const saved = !agent;
+    return (
+      <button
+        key={recipe.resumeId}
+        type="button"
+        className="workspace-agent-row"
+        data-active={active}
+        data-saved={saved}
+        onClick={() => void onAgentClick(workspace, agent)}
+        title={saved ? `${recipe.name} will relaunch when this project opens` : `Open ${recipe.name}`}
+      >
+        <ProviderIcon provider={recipe.provider} size="sm" />
+        <span className="workspace-agent-copy">
+          <span className="workspace-agent-name">{recipe.name}</span>
+          <span className="workspace-agent-meta">{recipe.provider}{agent?.branch ? ` · ${agent.branch}` : ""}</span>
+        </span>
+        {displayedStatus ? <StatusBadge status={displayedStatus} /> : <span className="workspace-agent-saved">Saved</span>}
+      </button>
     );
-    setBaseDestination(target.baseDestination);
-    setBrowserOpen(target.browserOpen);
-    toggleGitPanel(target.gitPanelOpen);
-    if (destination === "agents" && target.selectedAgentId) selectAgent(target.selectedAgentId);
   }
 
-  function onListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    if (agents.length === 0) return;
-    event.preventDefault();
-    const current = selectedAgentId ? agents.findIndex((agent) => agent.id === selectedAgentId) : -1;
-    const delta = event.key === "ArrowDown" ? 1 : -1;
-    const next = Math.min(agents.length - 1, Math.max(0, (current < 0 ? 0 : current) + delta));
-    navigateTo("agents", agents[next].id);
+  function renderWorkspace(workspace: WorkspaceRecord) {
+    const active = isActive(workspace);
+    const expanded = isExpanded(workspace);
+    const projectAgents = agents.filter((agent) => agentBelongsToProject(agent, workspace.project));
+    const listedAgents = workspace.agents.map((recipe) => ({
+      recipe,
+      agent: projectAgents.find((candidate) => savedAgentMatches(candidate, recipe)) ?? null,
+    }));
+    const listedIds = new Set(listedAgents.flatMap(({ agent }) => (agent ? [agent.id] : [])));
+    const unlistedAgents = projectAgents.filter((agent) => !listedIds.has(agent.id));
+
+    return (
+      <section key={workspace.root} className="workspace-tree-group" data-active={active}>
+        <div className="workspace-project-row">
+          <button
+            type="button"
+            className="workspace-project-button"
+            data-active={active}
+            aria-expanded={expanded}
+            onClick={() => void openWorkspace(workspace)}
+            title={workspace.project.path}
+          >
+            <IconChevronDown className={`workspace-project-chevron ${expanded ? "is-expanded" : ""}`} />
+            <span className="workspace-project-mark" aria-hidden="true">{workspace.project.name.slice(0, 1).toUpperCase()}</span>
+            <span className="workspace-project-copy">
+              <span className="workspace-project-name">{workspace.project.name}</span>
+              <span className="workspace-project-path">{displayPath(workspace.project.path, 28)}</span>
+            </span>
+            <span className="workspace-project-count">{workspace.agents.length || projectAgents.length || ""}</span>
+          </button>
+          {active ? (
+            <button
+              type="button"
+              className="workspace-project-add"
+              onClick={() => setAddAgentOpen(true)}
+              disabled={!project}
+              aria-label={`Add agent to ${workspace.project.name}`}
+              title={`Add agent (${APP_SHORTCUTS.addAgent})`}
+            >
+              <IconPlus />
+            </button>
+          ) : null}
+        </div>
+        {expanded ? (
+          <div className="workspace-agent-list" role="list" aria-label={`${workspace.project.name} agents`}>
+            {listedAgents.map(({ recipe, agent }) => renderAgentRow(workspace, recipe, agent))}
+            {unlistedAgents.map((agent) => renderAgentRow(workspace, {
+              resumeId: agent.resumeId ?? agent.id,
+              name: agent.name,
+              provider: agent.provider,
+              createWorktree: Boolean(agent.createWorktree),
+            }, agent))}
+            {!listedAgents.length && !unlistedAgents.length ? (
+              <button type="button" className="workspace-agent-empty" onClick={() => active && setAddAgentOpen(true)} disabled={!active}>
+                No agents yet
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+    );
   }
 
-  async function onOpenProject() {
-    const result = await openFromDialog();
-    if (result === "failed") setPathDialogOpen(true);
+  if (collapsed) {
+    return (
+      <aside className="sidebar-shell is-collapsed" aria-label="TaxChat navigation">
+        <div className="sidebar-brand sidebar-brand-collapsed">
+          <TaxzyMark className="h-7 w-7" />
+          <button type="button" className="sidebar-collapse-button" onClick={() => setCollapsed(false)} aria-label="Expand sidebar" title="Expand sidebar">›</button>
+        </div>
+        <div className="sidebar-collapsed-actions">
+          <button type="button" className="sidebar-collapsed-button" onClick={() => void onOpenProject()} disabled={loading} aria-label="Open project" title="Open project"><IconPlus /></button>
+          {workspaces.map((workspace) => (
+            <button
+              key={workspace.root}
+              type="button"
+              className="sidebar-collapsed-project"
+              data-active={isActive(workspace)}
+              onClick={() => void openWorkspace(workspace)}
+              title={workspace.project.name}
+            >
+              {workspace.project.name.slice(0, 1).toUpperCase()}
+            </button>
+          ))}
+        </div>
+        <div className="sidebar-footer sidebar-footer-collapsed">
+          <button type="button" className="sidebar-footer-button" onClick={() => setPreferencesOpen(true)} aria-label="Preferences" title="Preferences"><IconSettings /></button>
+          <button type="button" className="sidebar-footer-button" onClick={() => setHelpOpen(true)} aria-label="Help" title="Help"><IconHelp /></button>
+        </div>
+      </aside>
+    );
   }
 
   return (
-    <aside className="flex h-full min-w-0 flex-col border-r border-line bg-panel">
-      <div className="flex items-center gap-2 px-3 pb-3 pt-3.5">
+    <aside className="sidebar-shell" aria-label="TaxChat navigation">
+      <div className="sidebar-brand">
         <TaxzyMark className="h-7 w-7" />
-        <span className="min-w-0 flex-1 truncate text-[14px] font-semibold tracking-tight text-paper">
-          Taxzy
+        <div className="sidebar-brand-copy">
+          <span className="sidebar-brand-name">TaxChat</span>
+          <span className="sidebar-brand-caption">Local agent workspace</span>
+        </div>
+        <button type="button" className="sidebar-collapse-button" onClick={() => setCollapsed(true)} aria-label="Collapse sidebar" title="Collapse sidebar">‹</button>
+      </div>
+
+      <div className="sidebar-workspaces-header">
+        <div>
+          <span className="sidebar-section-title">Workspaces</span>
+          <span className="sidebar-section-count">{workspaces.length}</span>
+        </div>
+        <button type="button" className="sidebar-add-button" onClick={() => void onOpenProject()} disabled={loading} aria-label="Open project" title={`Open project (${APP_SHORTCUTS.openProject})`}>
+          <IconFolder />
+          <IconPlus className="sidebar-add-plus" />
+        </button>
+      </div>
+
+      <label className="sidebar-search">
+        <span className="sr-only">Filter workspaces</span>
+        <input value={projectSearch} onChange={(event) => setProjectSearch(event.target.value)} placeholder="Filter workspaces" />
+      </label>
+
+      <div className="sidebar-workspace-list">
+        {filteredWorkspaces.length ? filteredWorkspaces.map(renderWorkspace) : (
+          <button type="button" className="sidebar-empty-workspaces" onClick={() => void onOpenProject()} disabled={loading}>
+            <IconFolder />
+            <span>{project ? "Saving this workspace…" : "Open a project to begin"}</span>
+          </button>
+        )}
+      </div>
+
+      <div className="sidebar-current-project">
+        <span className="sidebar-current-dot" />
+        <span className="sidebar-current-copy">
+          <span>Current project</span>
+          <strong>{project?.name ?? "None selected"}</strong>
         </span>
       </div>
 
-      <nav className="flex flex-col gap-0.5 px-2" aria-label="Workspace navigation">
-        {navigationItems.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className="nav-item"
-            data-active={item.current}
-            aria-current={item.current ? "page" : undefined}
-            onClick={() => navigateTo(item.id)}
-            disabled={item.id === "changes" && !project}
-            title={
-              item.id === "browser"
-                ? `Browser (${APP_SHORTCUTS.toggleBrowser})`
-                : item.id === "changes"
-                  ? `Git review (${APP_SHORTCUTS.toggleGit})`
-                  : undefined
-            }
-          >
-            {item.id === "workspace" ? (
-              <IconHome />
-            ) : item.id === "agents" ? (
-              <IconAgents />
-            ) : item.id === "changes" ? (
-              <IconGit />
-            ) : (
-              <IconGlobe />
-            )}
-            <span className="flex-1">{item.label}</span>
-            {item.id === "changes" && changedCount > 0 ? (
-              <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                {changedCount}
-              </span>
-            ) : null}
-          </button>
-        ))}
-      </nav>
-
-      <section className="mt-4 border-t border-line px-2 pt-3" aria-labelledby="project-region-title">
-        <div className="mb-2 flex items-center justify-between px-1">
-          <h2 id="project-region-title" className="text-[10px] font-semibold uppercase tracking-[0.08em] text-mute">
-            Project
-          </h2>
-          <button
-            type="button"
-            className="btn btn-icon"
-            onClick={() => void onOpenProject()}
-            disabled={loading}
-            title={`Open project (${APP_SHORTCUTS.openProject})`}
-            aria-label="Open project"
-          >
-            <IconFolder />
-          </button>
-        </div>
-
-        {project ? (
-          <div className="rounded-xl border border-line bg-ink px-3 py-2.5">
-            <div className="truncate text-[13px] font-medium text-paper">{project.name}</div>
-            <div className="mt-0.5 truncate font-mono text-[11px] text-mute" title={project.path}>
-              {displayPath(project.path, 36)}
-            </div>
-            <div className="mt-2 flex min-w-0 items-center gap-1.5 text-[11px]">
-              <span className="truncate text-branch">{project.currentBranch}</span>
-              <span className="text-line" aria-hidden="true">•</span>
-              <span className={`shrink-0 ${project.clean ? "text-ok" : "text-warn"}`}>
-                {project.clean ? "Clean" : "Dirty"}
-              </span>
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-dashed border-line px-3 py-3 text-[12px] leading-5 text-mute">
-            Open a Git folder to start a workspace.
-          </div>
-        )}
-      </section>
-
-      <section className="mt-4 flex min-h-0 flex-1 flex-col border-t border-line pt-3" aria-labelledby="agents-region-title">
-        <div className="mb-2 flex items-center justify-between px-3">
-          <h2 id="agents-region-title" className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-mute">
-            <IconAgents />
-            Agents
-          </h2>
-          <button
-            type="button"
-            className="btn btn-icon"
-            onClick={() => setAddAgentOpen(true)}
-            disabled={!project}
-            title={`New agent (${APP_SHORTCUTS.addAgent})`}
-            aria-label="New agent"
-          >
-            <IconPlus />
-          </button>
-        </div>
-
-        <div
-          className="min-h-0 flex-1 overflow-auto px-2 pb-2"
-          role="listbox"
-          aria-label="Agents"
-          tabIndex={0}
-          onKeyDown={onListKeyDown}
-        >
-          {agents.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-line px-3 py-4 text-[12px] leading-5 text-mute">
-              No agents yet. Launch Claude Code, Codex, Cursor, Gemini, or a terminal.
-            </div>
-          ) : (
-            <div className="flex flex-col gap-1">
-              {agents.map((agent) => {
-                const active = agent.id === selectedAgentId;
-                const terminal = terminalSessions[agent.terminalId];
-                const displayedStatus = terminal?.status ?? agent.status;
-                const displayedError = terminal?.error ?? agent.error;
-                return (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    onClick={() => navigateTo("agents", agent.id)}
-                    role="option"
-                    aria-selected={active}
-                    className={`w-full rounded-xl px-2 py-2 text-left transition-colors ${
-                      active ? "bg-raised" : "hover:bg-hover"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <ProviderIcon provider={agent.provider} size="md" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] font-medium text-paper">{agent.name}</div>
-                        <div className="mt-0.5 truncate text-[11px] text-mute">
-                          {providerDisplayName(agent.provider)}
-                          {agent.branch ? ` · ${agent.branch}` : ""}
-                        </div>
-                      </div>
-                      <StatusBadge status={displayedStatus} />
-                    </div>
-                    {displayedError ? (
-                      <div className="mt-1 truncate text-[11px] text-danger" title={displayedError}>
-                        {displayedError}
-                      </div>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </section>
-
-      <div className="flex items-center gap-1 border-t border-line px-2 py-2" aria-label="Utilities">
-        <button
-          type="button"
-          className="btn btn-ghost flex-1 justify-start"
-          onClick={() => setPreferencesOpen(true)}
-          aria-label="Preferences"
-          title="Preferences"
-        >
+      <div className="sidebar-footer">
+        <button type="button" className="sidebar-footer-button sidebar-footer-button-wide" onClick={() => setPreferencesOpen(true)} aria-label="Preferences" title="Preferences">
           <IconSettings />
-          Preferences
+          <span>Preferences</span>
         </button>
-        <button
-          type="button"
-          className="btn btn-icon"
-          onClick={() => setHelpOpen(true)}
-          aria-label="Help"
-          title="Help"
-        >
-          <IconHelp />
-        </button>
+        <button type="button" className="sidebar-footer-button" onClick={() => setHelpOpen(true)} aria-label="Help" title="Help"><IconHelp /></button>
       </div>
     </aside>
   );

@@ -8,7 +8,9 @@ import {
   taxChatStatusTone,
   taxChatTimeLabel,
 } from "../lib/taxChatPresentation";
+import { agentBelongsToProject } from "../lib/workspaceRegistry";
 import { useAgentStore } from "../stores/agentStore";
+import { useProjectStore } from "../stores/projectStore";
 import { useTaxChatStore } from "../stores/taxChatStore";
 
 const TONE_CLASS = {
@@ -34,8 +36,12 @@ function messageSender(message: TaxChatMessage, agents: Agent[]): { label: strin
 
 export function TaxChatPanel() {
   const agentMap = useAgentStore((state) => state.agents);
+  const project = useProjectStore((state) => state.project);
   const agents = useMemo(() => Object.values(agentMap), [agentMap]);
-  const availableAgents = useMemo(() => agents.filter(activeAgent), [agents]);
+  const availableAgents = useMemo(
+    () => agents.filter((agent) => activeAgent(agent) && (!project || agentBelongsToProject(agent, project))),
+    [agents, project],
+  );
   const room = useTaxChatStore((state) => state.room);
   const selectedAgentIds = useTaxChatStore((state) => state.selectedAgentIds);
   const setSelectedAgentIds = useTaxChatStore((state) => state.setSelectedAgentIds);
