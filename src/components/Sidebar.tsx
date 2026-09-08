@@ -25,12 +25,14 @@ import { useAgentStore } from "../stores/agentStore";
 import { useGitStore } from "../stores/gitStore";
 import { useLayoutStore } from "../stores/layoutStore";
 import { useProjectStore } from "../stores/projectStore";
+import { useTerminalStore } from "../stores/terminalStore";
 import { useUiStore } from "../stores/uiStore";
 import { providerDisplayName } from "../types";
 
 export function Sidebar() {
   const agentMap = useAgentStore((s) => s.agents);
   const agents = Object.values(agentMap);
+  const terminalSessions = useTerminalStore((s) => s.sessions);
   const selectedAgentId = useAgentStore((s) => s.selectedAgentId);
   const selectAgent = useAgentStore((s) => s.selectAgent);
   const project = useProjectStore((s) => s.project);
@@ -195,6 +197,9 @@ export function Sidebar() {
             <div className="flex flex-col gap-1">
               {agents.map((agent) => {
                 const active = agent.id === selectedAgentId;
+                const terminal = terminalSessions[agent.terminalId];
+                const displayedStatus = terminal?.status ?? agent.status;
+                const displayedError = terminal?.error ?? agent.error;
                 return (
                   <button
                     key={agent.id}
@@ -215,11 +220,11 @@ export function Sidebar() {
                           {agent.branch ? ` · ${agent.branch}` : ""}
                         </div>
                       </div>
-                      <StatusBadge status={agent.status} />
+                      <StatusBadge status={displayedStatus} />
                     </div>
-                    {agent.error ? (
-                      <div className="mt-1 truncate text-[11px] text-danger" title={agent.error}>
-                        {agent.error}
+                    {displayedError ? (
+                      <div className="mt-1 truncate text-[11px] text-danger" title={displayedError}>
+                        {displayedError}
                       </div>
                     ) : null}
                   </button>

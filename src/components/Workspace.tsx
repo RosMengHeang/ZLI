@@ -9,6 +9,7 @@ import { useProjectStore } from "../stores/projectStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useUiStore } from "../stores/uiStore";
 import { PROVIDER_CATALOG } from "../types";
+import { minimumWorkspaceSize } from "../lib/workspaceLayout";
 
 function seedPreviewPanes(count = 3) {
   const addLeaf = useLayoutStore.getState().addLeaf;
@@ -60,7 +61,7 @@ export function Workspace() {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-ink">
-      <div className="min-h-0 flex-1 p-3">
+      <div className="min-h-0 flex-1 overflow-auto p-3">
         {!paneTree ? (
           <div className="empty-panel rounded-[var(--tile-radius)]">
             <div className="max-w-md px-6 text-center">
@@ -92,7 +93,9 @@ export function Workspace() {
             </div>
           </div>
         ) : (
-          <PaneTreeView node={paneTree} />
+          <div className="h-full" style={{ minWidth: minimumWorkspaceSize(paneTree).width, minHeight: minimumWorkspaceSize(paneTree).height }}>
+            <PaneTreeView node={paneTree} />
+          </div>
         )}
       </div>
     </div>

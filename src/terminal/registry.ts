@@ -78,7 +78,7 @@ export const terminalRegistry = {
 
     const terminal = new Terminal({
       cursorBlink: true,
-      fontFamily: '"IBM Plex Mono", "Cascadia Mono", Consolas, "Courier New", monospace',
+      fontFamily: '"IBM Plex Mono", "Cascadia Mono", Consolas, monospace',
       fontSize: 13,
       lineHeight: 1.2,
       theme: XTERM_THEME,

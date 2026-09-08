@@ -23,6 +23,7 @@ interface LayoutState {
   paneTree: PaneNode | null;
   activePaneId: PaneId | null;
   gitPanelOpen: boolean;
+  autoArrange: boolean;
   addLeaf: (terminalId: TerminalId) => PaneId;
   splitActive: (terminalId: TerminalId, direction: SplitDirection) => PaneId;
   closePane: (paneId: PaneId) => TerminalId | null;
@@ -51,11 +52,12 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
   paneTree: null,
   activePaneId: null,
   gitPanelOpen: false,
+  autoArrange: true,
 
   addLeaf: (terminalId) => {
     const leafId = newId();
     const leaf: PaneNode = { type: "leaf", id: leafId, terminalId };
-    const { paneTree, activePaneId } = get();
+    const { paneTree, activePaneId, autoArrange } = get();
     if (!paneTree) {
       set({ paneTree: leaf, activePaneId: leafId });
       return leafId;
@@ -65,8 +67,9 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       set({ paneTree: leaf, activePaneId: leafId });
       return leafId;
     }
-    const direction = preferredSplitDirection(paneTree, splitFrom);
-    const next = withRestoredSizes(splitLeaf(paneTree, splitFrom, terminalId, direction));
+    const next = autoArrange
+      ? arrangeLeaves([...collectLeaves(paneTree), { id: leafId, terminalId }], "grid")!
+      : splitLeaf(paneTree, splitFrom, terminalId, preferredSplitDirection(paneTree, splitFrom));
     const created = collectLeaves(next).find((item) => item.terminalId === terminalId);
     persist(next);
     set({ paneTree: next, activePaneId: created?.id ?? leafId });
@@ -79,7 +82,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
     const next = withRestoredSizes(splitLeaf(paneTree, activePaneId, terminalId, direction));
     const created = collectLeaves(next).find((item) => item.terminalId === terminalId);
     persist(next);
-    set({ paneTree: next, activePaneId: created?.id ?? activePaneId });
+    set({ paneTree: next, activePaneId: created?.id ?? activePaneId, autoArrange: false });
     return created?.id ?? activePaneId;
   },
 
@@ -89,7 +92,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
     const leaves = collectLeaves(paneTree);
     const closing = leaves.find((leaf) => leaf.id === paneId);
     const next = removePane(paneTree, paneId);
-    const restored = next && next.type === "split" ? withRestoredSizes(next) : next;
+    const restored = next;
     persist(restored);
     const nextActive =
       activePaneId === paneId ? firstLeafId(restored) : activePaneId && restored ? activePaneId : firstLeafId(restored);
@@ -112,7 +115,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
     if (!paneTree) return;
     const next = updateSplitSizes(paneTree, splitId, sizes);
     persist(next);
-    set({ paneTree: next });
+    set({ paneTree: next, autoArrange: false });
   },
 
   applyPreset: (preset) => {
@@ -121,12 +124,13 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
     const leaves = collectLeaves(paneTree);
     const next = arrangeLeaves(leaves, preset);
     if (!next) return;
-    const restored = next.type === "split" ? withRestoredSizes(next) : next;
+    const restored = next;
     persist(restored);
     const stillActive = leaves.some((leaf) => leaf.id === activePaneId);
     set({
       paneTree: restored,
       activePaneId: stillActive ? activePaneId : firstLeafId(restored),
+      autoArrange: false,
     });
   },
 

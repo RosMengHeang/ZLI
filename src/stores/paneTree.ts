@@ -1,5 +1,5 @@
 import type { LeafPane, PaneId, PaneNode, SplitDirection, SplitPaneNode, TerminalId } from "../types";
-import { newId } from "../lib/ids";
+import { newId } from "../lib/ids.ts";
 import type { LayoutPreset } from "../lib/workspaceLayout";
 
 export function collectLeaves(node: PaneNode | null): { id: PaneId; terminalId: TerminalId }[] {

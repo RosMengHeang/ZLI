@@ -12,7 +12,8 @@ interface TerminalState {
   markExited: (id: string, exitCode: number | null) => void;
   markError: (id: string, message: string) => void;
   createSession: (request: CreatePtyRequest) => Promise<TerminalSession>;
-  closeSession: (id: string) => Promise<void>;
+  stopSession: (id: string) => Promise<void>;
+  closeSession: (id: string) => Promise<boolean>;
   resizeSession: (id: string, cols: number, rows: number) => void;
 }
 
@@ -152,26 +153,32 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     }
   },
 
-  closeSession: async (id) => {
-    const session = get().sessions[id];
+  // Backend ownership is independent of UI error status. Keep xterm/scrollback
+  // until a replacement is accepted (or the user explicitly closes the pane).
+  stopSession: async (id) => {
     try {
-      if (session && session.status !== "error" && session.status !== "failed") {
-        await ptyClose(id);
-      }
+      await ptyClose(id);
     } catch (err) {
       const parsed = toAppError(err);
-      if (!isCommandMissing(parsed)) {
-        get().markError(id, parsed.message);
-      }
-    } finally {
-      clearResizeState(id);
-      terminalRegistry.dispose(id);
-      set((state) => {
-        const next = { ...state.sessions };
-        delete next[id];
-        return { sessions: next };
-      });
+      if (parsed.code !== "SessionNotFound" && parsed.code !== "sessionNotFound") throw parsed;
     }
+    clearResizeState(id);
+  },
+
+  closeSession: async (id) => {
+    try {
+      await get().stopSession(id);
+    } catch (err) {
+      get().markError(id, toAppError(err).message);
+      return false;
+    }
+    terminalRegistry.dispose(id);
+    set((state) => {
+      const next = { ...state.sessions };
+      delete next[id];
+      return { sessions: next };
+    });
+    return true;
   },
 
   resizeSession: (id, cols, rows) => {

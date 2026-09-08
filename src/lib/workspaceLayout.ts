@@ -2,6 +2,17 @@ import type { PaneNode } from "../types";
 
 export type LayoutPreset = "even" | "focus-left" | "grid";
 
+export const TERMINAL_MINIMUM = { width: 360, height: 220 } as const;
+
+export function minimumWorkspaceSize(node: PaneNode): { width: number; height: number } {
+  if (node.type === "leaf") return { ...TERMINAL_MINIMUM };
+  const first = minimumWorkspaceSize(node.first);
+  const second = minimumWorkspaceSize(node.second);
+  return node.direction === "horizontal"
+    ? { width: first.width + second.width + 8, height: Math.max(first.height, second.height) }
+    : { width: Math.max(first.width, second.width), height: first.height + second.height + 8 };
+}
+
 export function layoutSignature(node: PaneNode | null): string {
   if (!node) return "";
   if (node.type === "leaf") return "L";

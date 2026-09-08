@@ -28,9 +28,12 @@ export function TopBar() {
   const paneTree = useLayoutStore((s) => s.paneTree);
   const addLeaf = useLayoutStore((s) => s.addLeaf);
   const createSession = useTerminalStore((s) => s.createSession);
-  const runningCount = useAgentStore(
-    (s) => Object.values(s.agents).filter((agent) => agent.status === "running").length,
-  );
+  const agentMap = useAgentStore((s) => s.agents);
+  const agents = Object.values(agentMap);
+  const sessions = useTerminalStore((s) => s.sessions);
+  const runningCount = agents.filter((agent) =>
+    (sessions[agent.terminalId]?.status ?? agent.status) === "running",
+  ).length;
   const [density, setDensity] = useState(() => toolbarDensityForWidth(window.innerWidth));
 
   useEffect(() => {
