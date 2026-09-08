@@ -8,7 +8,7 @@ import { IconBack, IconExternal, IconForward, IconGlobe, IconReload } from "./Ap
 import { rafThrottle } from "../lib/schedule";
 import { isTauriRuntime } from "../tauri/invoke";
 import { useUiStore } from "../stores/uiStore";
-import { normalizeBrowserInput, pushBrowserHistory } from "../lib/browserNavigation";
+import { nextBrowserRequest, normalizeBrowserInput, pushBrowserHistory } from "../lib/browserNavigation";
 
 const STARTER_LINKS = [
   { label: "GitHub", url: "https://github.com" },
@@ -32,9 +32,8 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
   const savedUrl = useUiStore((state) => state.browserUrl);
   const [history, setHistory] = useState<string[]>(() => savedUrl ? [savedUrl] : []);
   const [historyIndex, setHistoryIndex] = useState(savedUrl ? 0 : -1);
-  const [requestedUrl, setRequestedUrl] = useState(savedUrl);
+  const [request, setRequest] = useState({ url: savedUrl, sequence: 0 });
   const [draft, setDraft] = useState(savedUrl);
-  const [frameVersion, setFrameVersion] = useState(0);
   const [nativeError, setNativeError] = useState<string | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const nativeWebviewRef = useRef<Webview | null>(null);
@@ -97,7 +96,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
   }, [nativeBrowser]);
 
   useEffect(() => {
-    if (!nativeBrowser || !requestedUrl) return;
+    if (!nativeBrowser || !request.url) return;
     let cancelled = false;
     let observer: ResizeObserver | null = null;
     let removeWindowResizeListener: (() => void) | null = null;
@@ -123,9 +122,9 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       const rect = viewport.getBoundingClientRect();
       const label = `browser-panel-${++webviewSequence}`;
       nativeLabelRef.current = label;
-      expectedNavigationRef.current = requestedUrl;
+      expectedNavigationRef.current = request.url;
       const webview = new Webview(getCurrentWindow(), label, {
-        url: requestedUrl,
+        url: request.url,
         x: rect.left,
         y: rect.top,
         width: Math.max(1, rect.width),
@@ -180,7 +179,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       if (nativeLabelRef.current === webview?.label) nativeLabelRef.current = null;
       void webview?.close().catch(() => undefined);
     };
-  }, [requestedUrl, frameVersion, nativeBrowser]);
+  }, [request, nativeBrowser]);
 
   useEffect(() => {
     const webview = nativeWebviewRef.current;
@@ -202,7 +201,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
     setHistoryIndex(next.index);
     setNativeError(null);
     setDraft(normalized);
-    setRequestedUrl(normalized);
+    setRequest((current) => nextBrowserRequest(normalized, current.sequence));
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -223,7 +222,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
     expectedNavigationRef.current = history[next];
     setHistoryIndex(next);
     setDraft(history[next]);
-    setRequestedUrl(history[next]);
+    setRequest((current) => nextBrowserRequest(history[next], current.sequence));
   }
 
   function goForward() {
@@ -232,13 +231,13 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
     expectedNavigationRef.current = history[next];
     setHistoryIndex(next);
     setDraft(history[next]);
-    setRequestedUrl(history[next]);
+    setRequest((current) => nextBrowserRequest(history[next], current.sequence));
   }
 
   function reload() {
     if (!currentUrl) return;
     expectedNavigationRef.current = currentUrl;
-    setFrameVersion((current) => current + 1);
+    setRequest((current) => nextBrowserRequest(currentUrl, current.sequence));
   }
 
   async function openExternally() {
@@ -319,7 +318,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
           <div ref={viewportRef} className="relative h-full w-full bg-panel">
             {!nativeBrowser ? (
               <iframe
-                key={`${currentUrl}:${frameVersion}`}
+                key={`${currentUrl}:${request.sequence}`}
                 title="Taxzy browser"
                 src={currentUrl}
                 className="h-full w-full border-0 bg-white"

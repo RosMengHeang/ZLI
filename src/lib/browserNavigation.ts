@@ -12,3 +12,12 @@ export function pushBrowserHistory(history: string[], index: number, url: string
   const next = [...history.slice(0, index + 1), url];
   return { history: next, index: next.length - 1 };
 }
+
+export interface BrowserRequest {
+  url: string;
+  sequence: number;
+}
+
+export function nextBrowserRequest(url: string, previousSequence: number): BrowserRequest {
+  return { url, sequence: previousSequence + 1 };
+}

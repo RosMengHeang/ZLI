@@ -11,3 +11,15 @@ test("new navigation after Back removes forward entries", async () => {
   const { pushBrowserHistory } = await import("../src/lib/browserNavigation.ts");
   assert.deepEqual(pushBrowserHistory(["a", "b"], 0, "c"), { history: ["a", "c"], index: 1 });
 });
+
+test("Back and Reload issue fresh requests after an in-page navigation", async () => {
+  const { nextBrowserRequest } = await import("../src/lib/browserNavigation.ts");
+  let request = { url: "https://a.example/", sequence: 0 };
+  const observedUrl = "https://b.example/";
+
+  request = nextBrowserRequest("https://a.example/", request.sequence);
+  assert.deepEqual(request, { url: "https://a.example/", sequence: 1 });
+
+  request = nextBrowserRequest(observedUrl, request.sequence);
+  assert.deepEqual(request, { url: observedUrl, sequence: 2 });
+});
