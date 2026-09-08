@@ -23,8 +23,10 @@ import { useAgentStore } from "../stores/agentStore";
 import { useGitStore } from "../stores/gitStore";
 import { useLayoutStore } from "../stores/layoutStore";
 import { useProjectStore } from "../stores/projectStore";
+import { configureTaxChatRuntime, useTaxChatStore } from "../stores/taxChatStore";
 import { useUiStore } from "../stores/uiStore";
-import { startPtyBridge } from "../terminal/ptyBridge";
+import { ptyWrite } from "../tauri/terminal";
+import { startPtyBridge, subscribePtyLifecycle, subscribePtyOutput } from "../terminal/ptyBridge";
 
 const BrowserPanel = lazy(async () => {
   const mod = await import("./BrowserPanel");
@@ -47,7 +49,17 @@ export function AppShell() {
   useAppShortcuts();
 
   useEffect(() => {
+    configureTaxChatRuntime({
+      transport: { write: ptyWrite },
+      bridge: {
+        subscribePtyOutput,
+        subscribePtyLifecycle,
+      },
+    });
     void startPtyBridge();
+    return () => {
+      useTaxChatStore.getState().reset();
+    };
   }, []);
 
   useEffect(() => {

@@ -1,6 +1,8 @@
+import { Group, Panel, Separator } from "react-resizable-panels";
 import { IconGlobe, IconPlus, TaxzyMark } from "./AppIcons";
 import { PaneTreeView } from "./PaneTreeView";
 import { ProviderIcon } from "./ProviderIcon";
+import { TaxChatPanel } from "./TaxChatPanel";
 import { APP_SHORTCUTS } from "../lib/platform";
 import { newId } from "../lib/ids";
 import { isTauriRuntime } from "../tauri/invoke";
@@ -10,6 +12,7 @@ import { useTerminalStore } from "../stores/terminalStore";
 import { useUiStore } from "../stores/uiStore";
 import { PROVIDER_CATALOG } from "../types";
 import { minimumWorkspaceSize } from "../lib/workspaceLayout";
+import { taxChatShellLayout } from "../lib/chromePresentation";
 
 function seedPreviewPanes(count = 3) {
   const addLeaf = useLayoutStore.getState().addLeaf;
@@ -32,6 +35,7 @@ export function Workspace() {
   const paneTree = useLayoutStore((s) => s.paneTree);
   const setAddAgentOpen = useUiStore((s) => s.setAddAgentOpen);
   const setBrowserOpen = useUiStore((s) => s.setBrowserOpen);
+  const taxChatOpen = useUiStore((s) => s.taxChatOpen);
   const preview = !isTauriRuntime();
 
   if (!project && !paneTree) {
@@ -61,7 +65,7 @@ export function Workspace() {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-ink">
-      <div className="min-h-0 flex-1 overflow-auto p-3">
+      <div className="min-h-0 flex-1 overflow-hidden p-3">
         {!paneTree ? (
           <div className="empty-panel rounded-[var(--tile-radius)]">
             <div className="max-w-md px-6 text-center">
@@ -92,6 +96,31 @@ export function Workspace() {
               </div>
             </div>
           </div>
+        ) : taxChatOpen ? (
+          <Group orientation="horizontal" className="h-full min-h-0 min-w-0">
+            <Panel
+              id="taxchat-terminals"
+              defaultSize="62%"
+              minSize={`${minimumWorkspaceSize(paneTree).width}px`}
+              className="min-h-0 min-w-0"
+            >
+              <div className="h-full" style={{ minWidth: minimumWorkspaceSize(paneTree).width, minHeight: minimumWorkspaceSize(paneTree).height }}>
+                <PaneTreeView node={paneTree} />
+              </div>
+            </Panel>
+            <Separator className="pane-handle pane-handle-h" />
+            <Panel
+              id="taxchat"
+              defaultSize={taxChatShellLayout().defaultSize}
+              minSize={taxChatShellLayout().minSize}
+              maxSize={taxChatShellLayout().maxSize}
+              className="min-h-0 min-w-0"
+            >
+              <div className="workspace-tile h-full">
+                <TaxChatPanel />
+              </div>
+            </Panel>
+          </Group>
         ) : (
           <div className="h-full" style={{ minWidth: minimumWorkspaceSize(paneTree).width, minHeight: minimumWorkspaceSize(paneTree).height }}>
             <PaneTreeView node={paneTree} />

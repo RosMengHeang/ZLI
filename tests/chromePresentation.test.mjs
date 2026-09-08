@@ -75,3 +75,12 @@ test("keeps the browser split on the right and normalizes native view bounds", a
     height: 1,
   });
 });
+
+test("uses a readable TaxChat split beside the terminal grid", async () => {
+  const { taxChatShellLayout } = await import("../src/lib/chromePresentation.ts");
+  assert.deepEqual(taxChatShellLayout(), {
+    defaultSize: "38%",
+    minSize: "320px",
+    maxSize: "48%",
+  });
+});

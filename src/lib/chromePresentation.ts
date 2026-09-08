@@ -39,6 +39,14 @@ export function browserShellLayout() {
   };
 }
 
+export function taxChatShellLayout() {
+  return {
+    defaultSize: "38%",
+    minSize: "320px",
+    maxSize: "48%",
+  } as const;
+}
+
 export function nativeBrowserBounds(rect: BrowserViewportRect): NativeBrowserBounds {
   return {
     x: Math.max(0, Math.round(rect.left)),

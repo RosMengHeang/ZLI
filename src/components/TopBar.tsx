@@ -23,6 +23,8 @@ export function TopBar() {
   const setAddAgentOpen = useUiStore((s) => s.setAddAgentOpen);
   const browserOpen = useUiStore((s) => s.browserOpen);
   const setBrowserOpen = useUiStore((s) => s.setBrowserOpen);
+  const taxChatOpen = useUiStore((s) => s.taxChatOpen);
+  const setTaxChatOpen = useUiStore((s) => s.setTaxChatOpen);
   const gitPanelOpen = useLayoutStore((s) => s.gitPanelOpen);
   const toggleGitPanel = useLayoutStore((s) => s.toggleGitPanel);
   const applyPreset = useLayoutStore((s) => s.applyPreset);
@@ -146,6 +148,18 @@ export function TopBar() {
           >
             <IconGlobe />
             <span className="topbar-action-label">Browser</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => setTaxChatOpen(!taxChatOpen)}
+            disabled={!project || runningCount === 0}
+            title="Toggle TaxChat"
+            aria-label="Toggle TaxChat"
+            aria-pressed={taxChatOpen}
+          >
+            <span aria-hidden="true">✦</span>
+            <span className="topbar-action-label">TaxChat</span>
           </button>
           <button
             type="button"

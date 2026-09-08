@@ -7,8 +7,9 @@ export interface TaxChatParserState {
 const OPEN_MARKER = "[[TAXCHAT:to=";
 const CLOSE_MARKER = "[[/TAXCHAT]]";
 const RECIPIENT_PATTERN = /^(?:[a-zA-Z0-9._:-]+|all|user)$/;
-const CSI_PATTERN = /\u001b\[[0-?]*[ -/]*[@-~]/g;
-const OSC_PATTERN = /\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g;
+const ESC = "\u001b";
+const CSI_PATTERN = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]`, "g");
+const OSC_PATTERN = new RegExp(`${ESC}\\][^\\u0007]*(?:\\u0007|${ESC}\\\\)`, "g");
 
 export function stripTaxChatAnsi(input: string): string {
   return input.replace(OSC_PATTERN, "").replace(CSI_PATTERN, "");
