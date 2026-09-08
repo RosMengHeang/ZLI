@@ -48,10 +48,12 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
   );
   const shouldHideNativeView = obscured || dialogOpen;
   const shouldHideNativeViewRef = useRef(shouldHideNativeView);
-  shouldHideNativeViewRef.current = shouldHideNativeView;
   const currentUrl = history[historyIndex] ?? "";
-  historyRef.current = history;
-  historyIndexRef.current = historyIndex;
+  useEffect(() => {
+    shouldHideNativeViewRef.current = shouldHideNativeView;
+    historyRef.current = history;
+    historyIndexRef.current = historyIndex;
+  }, [history, historyIndex, shouldHideNativeView]);
   useEffect(() => { useUiStore.getState().setBrowserUrl(currentUrl); }, [currentUrl]);
 
   useEffect(() => {
@@ -66,12 +68,12 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       const currentIndex = historyIndexRef.current;
       if (currentIndex < 0) return;
       const current = currentHistory[currentIndex];
-      let nextHistory = currentHistory;
-      let nextIndex = currentIndex;
-
       if (observed !== current) {
+        let nextHistory: string[];
+        let nextIndex: number;
         if (expectedNavigationRef.current) {
           nextHistory = currentHistory.map((entry, index) => index === currentIndex ? observed : entry);
+          nextIndex = currentIndex;
         } else {
           const next = pushBrowserHistory(currentHistory, currentIndex, observed);
           nextHistory = next.history;

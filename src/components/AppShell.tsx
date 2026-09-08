@@ -18,8 +18,6 @@ import { defaultShellSize, SHELL_LIMITS } from "../lib/chromePresentation";
 import {
   getChromeLayout,
   setChromeLayout,
-  setSetupDismissed,
-  wasSetupDismissed,
 } from "../lib/preferences";
 import { useAgentStore } from "../stores/agentStore";
 import { useGitStore } from "../stores/gitStore";
@@ -36,7 +34,7 @@ const BrowserPanel = lazy(async () => {
 export function AppShell() {
   useTheme();
 
-  const [setupOpen, setSetupOpen] = useState(() => !wasSetupDismissed());
+  const [setupOpen, setSetupOpen] = useState(true);
   const project = useProjectStore((s) => s.project);
   const error = useProjectStore((s) => s.error);
   const gitPanelOpen = useLayoutStore((s) => s.gitPanelOpen);
@@ -58,7 +56,6 @@ export function AppShell() {
   }, [project, loadProviders, refresh]);
 
   function dismissSetup() {
-    setSetupDismissed(true);
     setSetupOpen(false);
   }
 

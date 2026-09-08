@@ -104,8 +104,7 @@ test("coordinator retains successes, catches errors, and retries only failures",
       if (found) return found;
     }
   }
-  find(render(), "AgentsStep").onAdd("codex");
-  find(render(), "AgentsStep").onUpdate("draft", { count: 3 });
+  find(render(), "AgentsStep").onSetQuantity("codex", 3);
   find(render(), "AgentsStep").onContinue();
   const firstReview = find(render(), "ReviewStep");
   const launching = firstReview.onStart();
@@ -131,7 +130,7 @@ test("coordinator retains successes, catches errors, and retries only failures",
   await revised.onStart();
   assert.deepEqual(
     calls.map((item) => item.name),
-    ["codex 1", "codex 2", "codex 3", "codex 2"],
+    ["Codex 1", "Codex 2", "Codex 3", "Codex 2"],
   );
   assert.equal(calls[3].createWorktree, false);
   assert.equal(completed, 1);
@@ -211,4 +210,45 @@ test("expands rows into stable user-facing agent names", async () => {
       { provider: "shell", name: "shell", useWorktree: false },
     ],
   );
+});
+
+test("provider quantities create, update, and remove one launch row per provider", async () => {
+  const { setProviderQuantity } = await import(
+    "../src/components/setup/setupModel.ts"
+  );
+  const base = [];
+  const withCodex = setProviderQuantity(base, "codex", 3);
+  assert.deepEqual(withCodex, [
+    {
+      id: "provider-codex",
+      provider: "codex",
+      role: "Codex",
+      count: 3,
+      useWorktree: true,
+    },
+  ]);
+  const withShell = setProviderQuantity(withCodex, "shell", 2);
+  assert.equal(withShell.find((row) => row.provider === "codex").count, 3);
+  assert.equal(withShell.find((row) => row.provider === "shell").count, 2);
+  const updated = setProviderQuantity(withShell, "codex", 1);
+  assert.equal(updated.find((row) => row.provider === "codex").count, 1);
+  const removed = setProviderQuantity(updated, "codex", 0);
+  assert.deepEqual(removed.map((row) => row.provider), ["shell"]);
+});
+
+test("provider cards report installed state and selected quantity", async () => {
+  const { providerSelectionState } = await import(
+    "../src/components/setup/setupModel.ts"
+  );
+  const cards = providerSelectionState(
+    [
+      { id: "codex", displayName: "Codex", executable: "codex", installed: true },
+      { id: "claude-code", displayName: "Claude Code", executable: "", installed: false },
+    ],
+    [{ id: "draft", provider: "codex", role: "Codex", count: 4, useWorktree: true }],
+  );
+  assert.deepEqual(cards.map(({ id, installed, count, selected }) => ({ id, installed, count, selected })), [
+    { id: "codex", installed: true, count: 4, selected: true },
+    { id: "claude-code", installed: false, count: 0, selected: false },
+  ]);
 });

@@ -1,4 +1,8 @@
-import type { AgentProviderId } from "../../types";
+import {
+  providerDisplayName,
+  type AgentProvider,
+  type AgentProviderId,
+} from "../../types/models.ts";
 
 export const MIN_AGENT_COUNT = 1;
 export const MAX_AGENT_COUNT = 6;
@@ -28,6 +32,72 @@ export function clampAgentCount(count: number): number {
 export interface LaunchProgress extends LaunchPlanItem {
   status: "waiting" | "starting" | "running" | "failed";
   error?: string;
+}
+
+export interface ProviderSelection {
+  id: AgentProviderId;
+  displayName: string;
+  executable: string;
+  installed: boolean;
+  ready: boolean;
+  count: number;
+  selected: boolean;
+}
+
+export function clampProviderQuantity(quantity: number): number {
+  if (!Number.isFinite(quantity)) return 0;
+  return Math.min(MAX_AGENT_COUNT, Math.max(0, Math.trunc(quantity)));
+}
+
+export function setProviderQuantity(
+  rows: AgentDraft[],
+  provider: AgentProviderId,
+  quantity: number,
+): AgentDraft[] {
+  const count = clampProviderQuantity(quantity);
+  const firstIndex = rows.findIndex((row) => row.provider === provider);
+  const withoutDuplicates = rows.filter(
+    (row, index) => row.provider !== provider || index === firstIndex,
+  );
+
+  if (count === 0) {
+    return withoutDuplicates.filter((row) => row.provider !== provider);
+  }
+
+  if (firstIndex < 0) {
+    return [
+      ...rows,
+      {
+        id: `provider-${provider}`,
+        provider,
+        role: providerDisplayName(provider),
+        count,
+        useWorktree: provider !== "shell",
+      },
+    ];
+  }
+
+  return withoutDuplicates.map((row) =>
+    row.provider === provider ? { ...row, count } : row,
+  );
+}
+
+export function providerSelectionState(
+  providers: AgentProvider[],
+  rows: AgentDraft[],
+): ProviderSelection[] {
+  return providers.map((provider) => {
+    const count = rows
+      .filter((row) => row.provider === provider.id)
+      .reduce((total, row) => total + clampAgentCount(row.count), 0);
+    const ready = provider.id === "shell" || provider.installed;
+    return {
+      ...provider,
+      ready,
+      count,
+      selected: count > 0,
+    };
+  });
 }
 
 // Retry preserves the original plan and never schedules successful rows.

@@ -14,11 +14,12 @@ import {
   expandLaunchPlan,
   pendingLaunchIndexes,
   plannedAgentCount,
+  setProviderQuantity as updateProviderQuantity,
   type AgentDraft,
   type LaunchProgress,
 } from "./setup/setupModel";
 
-const STEPS = ["Project", "Agents", "Review"];
+const STEPS = ["Workspace", "Agents", "Launch"];
 
 export function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const project = useProjectStore((state) => state.project);
@@ -70,17 +71,8 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
     onComplete();
   }
 
-  function addRow(provider: AgentProviderId) {
-    setRows((current) => [
-      ...current,
-      {
-        id: newId(),
-        provider,
-        role: providerDisplayName(provider),
-        count: 1,
-        useWorktree: provider !== "shell",
-      },
-    ]);
+  function setProviderQuantity(provider: AgentProviderId, quantity: number) {
+    setRows((current) => updateProviderQuantity(current, provider, quantity));
   }
 
   function editFailed() {
@@ -105,18 +97,6 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
           : row,
       ),
     );
-  }
-
-  function moveRow(id: string, offset: number) {
-    setRows((current) => {
-      const from = current.findIndex((row) => row.id === id);
-      const to = from + offset;
-      if (from < 0 || to < 0 || to >= current.length) return current;
-      const next = [...current];
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved);
-      return next;
-    });
   }
 
   async function start() {
@@ -186,70 +166,98 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
     if (next.every((item) => item.status === "running")) finish();
   }
 
+  const heading = !project
+    ? "Choose a workspace"
+    : step === 1
+      ? "Configure your agents"
+      : "Review your launch";
+  const subheading = !project
+    ? "Open a local Git repository to get started."
+    : step === 1
+      ? "Pick the tools you want to run side by side."
+      : "Everything is ready for a focused workspace.";
+
   return (
-    <div className="absolute inset-0 z-40 grid grid-cols-[160px_minmax(0,1fr)] bg-ink text-paper">
-      <aside className="flex min-h-0 flex-col border-r border-line bg-panel p-3">
-        <div className="mb-8 flex items-center gap-2 px-2 py-2 font-semibold">
-          <TaxzyMark />
-          Taxzy
-        </div>
-        <nav aria-label="Setup progress" className="space-y-2">
-          {STEPS.map((label, index) => (
-            <button
-              key={label}
-              className="nav-item"
-              data-active={step === index}
-              aria-current={step === index ? "step" : undefined}
-              disabled={
-                busy || progress !== null || (index === 0 && retained.length > 0) || (index > 0 && !project) || loading
-              }
-              onClick={() => setStep(index)}
-            >
-              <span className="text-mute">{index + 1}</span>
-              {label}
-            </button>
-          ))}
-        </nav>
-        <div className="mt-auto space-y-1 pt-6">
-          <button
-            className="nav-item"
-            disabled={busy}
-            onClick={() => setHelpOpen(true)}
-          >
-            <IconHelp />
-            Help
-          </button>
-          <button
-            className="nav-item"
-            disabled={busy}
-            onClick={() => setPreferencesOpen(true)}
-          >
-            <IconSettings />
-            Preferences
-          </button>
-        </div>
-      </aside>
-      <main className="min-w-0 overflow-y-auto p-6 lg:p-8">
-        <div className="mx-auto max-w-5xl">
-          <header className="mb-6 flex items-start justify-between gap-4">
+    <div className="setup-screen absolute inset-0 z-40 overflow-y-auto text-paper">
+      <div className="setup-container">
+        <header className="setup-topbar">
+          <div className="flex items-center gap-2.5">
+            <TaxzyMark className="h-7 w-7" />
             <div>
-              <h1 className="text-[28px] font-semibold">
-                Set up your workspace
-              </h1>
-              <p className="mt-1 text-mute">
-                Project, tools, and a clear launch plan.
-              </p>
+              <p className="text-[14px] font-semibold tracking-tight">Taxzy</p>
+              <p className="text-[10px] text-mute">Agent workspace</p>
             </div>
+          </div>
+
+          <nav className="setup-progress" aria-label="Setup progress">
+            {STEPS.map((label, index) => {
+              const complete = Boolean(index < step || (index === 0 && project));
+              const active = step === index;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  className="setup-progress-item"
+                  data-active={active}
+                  data-complete={complete}
+                  aria-current={active ? "step" : undefined}
+                  disabled={
+                    busy ||
+                    progress !== null ||
+                    (index === 0 && retained.length > 0) ||
+                    (index > 0 && !project) ||
+                    loading
+                  }
+                  onClick={() => setStep(index)}
+                >
+                  <span className="setup-progress-number">{complete ? "✓" : index + 1}</span>
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+          </nav>
+
+          <div className="flex items-center gap-1">
             <button
-              className="btn btn-ghost"
+              type="button"
+              className="btn btn-ghost btn-icon"
+              disabled={busy}
+              onClick={() => setHelpOpen(true)}
+              aria-label="Help"
+              title="Help"
+            >
+              <IconHelp />
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              disabled={busy}
+              onClick={() => setPreferencesOpen(true)}
+              aria-label="Preferences"
+              title="Preferences"
+            >
+              <IconSettings />
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost ml-1"
               disabled={busy || loading}
               onClick={onComplete}
             >
               Skip for now
             </button>
-          </header>
-          <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_220px]">
-            <div className="min-w-0 rounded-2xl border border-line bg-chrome p-5">
+          </div>
+        </header>
+
+        <main className="setup-main">
+          <div className="setup-heading-block">
+            <p className="setup-eyebrow">{project ? "Workspace setup" : "Welcome to Taxzy"}</p>
+            <h1 className="setup-page-title">{heading}</h1>
+            <p className="setup-page-subtitle">{subheading}</p>
+          </div>
+
+          <div className="setup-content-grid">
+            <div className="setup-main-card">
               {step === 0 && (
                 <SetupProjectStep
                   project={project}
@@ -262,10 +270,13 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
                   onChoose={() => {
                     void openFromDialog().then((result) => {
                       if (result === "failed") setManual(true);
+                      if (result === "opened") setStep(1);
                     });
                   }}
                   onOpenPath={() => {
-                    void openFromPath(path);
+                    void openFromPath(path).then((opened) => {
+                      if (opened) setStep(1);
+                    });
                   }}
                   onContinue={() => setStep(1)}
                 />
@@ -279,14 +290,12 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
                   onRescan={() => {
                     void loadProviders(true);
                   }}
-                  onAdd={addRow}
+                  onSetQuantity={setProviderQuantity}
                   onUpdate={updateRow}
-                  onRemove={(id) =>
-                    setRows((current) => current.filter((row) => row.id !== id))
-                  }
-                  onMove={moveRow}
                   projectLocked={retained.length > 0}
-                  onBack={() => { if (!retained.length) setStep(0); }}
+                  onBack={() => {
+                    if (!retained.length) setStep(0);
+                  }}
                   onContinue={() => setStep(2)}
                 />
               )}
@@ -308,33 +317,60 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
                 />
               )}
             </div>
-            {(project || rows.length > 0) && (
-              <aside
-                className="min-w-0 rounded-2xl border border-line bg-chrome p-4"
-                aria-label="Workspace summary"
-              >
-                <h2 className="font-semibold">Workspace summary</h2>
-                <p className="mt-3 break-words">
-                  {project?.name ?? "Choose a project"}
-                </p>
-                <p className="mt-1 break-all font-mono text-xs text-mute">
-                  {project?.path}
-                </p>
-                <p className="mt-4 text-mute">
-                  {retained.length + plannedAgentCount(rows)} total agents
-                </p>
-                <ul className="mt-2 space-y-2">
-                  {rows.map((row) => (
-                    <li key={row.id} className="break-words text-xs">
-                      {row.count} × {row.role.trim() || row.provider}
-                    </li>
-                  ))}
-                </ul>
-              </aside>
-            )}
+
+            <aside className="setup-side-card" aria-label="Setup summary">
+              {!project ? (
+                <>
+                  <p className="setup-eyebrow">A clear starting point</p>
+                  <h2 className="mt-2 text-[16px] font-semibold leading-6">
+                    One project. Every agent in view.
+                  </h2>
+                  <p className="mt-3 text-[12px] leading-5 text-mute">
+                    Choose a repository first. Then Taxzy will detect the tools
+                    installed on your computer and let you decide how much
+                    parallel help you need.
+                  </p>
+                  <ol className="setup-benefit-list">
+                    <li><span>01</span> Open a local Git folder</li>
+                    <li><span>02</span> Choose providers and quantities</li>
+                    <li><span>03</span> Launch a calm, focused grid</li>
+                  </ol>
+                </>
+              ) : (
+                <>
+                  <p className="setup-eyebrow">Current workspace</p>
+                  <h2 className="mt-2 truncate text-[16px] font-semibold">
+                    {project.name}
+                  </h2>
+                  <p className="mt-2 break-all font-mono text-[11px] leading-5 text-mute">
+                    {project.path}
+                  </p>
+                  <div className="setup-side-stat">
+                    <span>Selected agents</span>
+                    <strong>{retained.length + plannedAgentCount(rows)}</strong>
+                  </div>
+                  <div className="mt-4 flex items-center gap-2 text-[11px]">
+                    <span className={project.clean ? "status-dot" : "status-dot"} data-tone={project.clean ? "success" : "warning"} />
+                    <span className={project.clean ? "text-ok" : "text-warn"}>
+                      {project.clean ? "Clean working tree" : "Uncommitted changes"}
+                    </span>
+                  </div>
+                  <ul className="mt-4 space-y-2 border-t border-line pt-4">
+                    {rows.length ? rows.map((row) => (
+                      <li key={row.id} className="flex items-center justify-between gap-3 text-[11px]">
+                        <span className="truncate text-mute">{providerDisplayName(row.provider)}</span>
+                        <span className="font-medium text-paper">× {row.count}</span>
+                      </li>
+                    )) : (
+                      <li className="text-[11px] text-mute">Choose a provider to see your mix.</li>
+                    )}
+                  </ul>
+                </>
+              )}
+            </aside>
           </div>
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }

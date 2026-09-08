@@ -1,8 +1,12 @@
 import type { AgentProvider, AgentProviderId } from "../../types";
 import { providerDisplayName } from "../../types";
-import { IconTrash } from "../AppIcons";
 import { ProviderIcon } from "../ProviderIcon";
-import type { AgentDraft } from "./setupModel";
+import {
+  clampProviderQuantity,
+  plannedAgentCount,
+  providerSelectionState,
+  type AgentDraft,
+} from "./setupModel";
 
 interface Props {
   rows: AgentDraft[];
@@ -10,23 +14,48 @@ interface Props {
   scanning: boolean;
   error?: string;
   onRescan: () => void;
-  onAdd: (provider: AgentProviderId) => void;
+  onSetQuantity: (provider: AgentProviderId, quantity: number) => void;
   onUpdate: (id: string, patch: Partial<AgentDraft>) => void;
-  onRemove: (id: string) => void;
-  onMove: (id: string, offset: number) => void;
   onBack: () => void;
   projectLocked?: boolean;
   onContinue: () => void;
 }
 
+function providerStatus(
+  ready: boolean,
+  installed: boolean,
+  scanning: boolean,
+): string {
+  if (scanning) return "Checking this computer…";
+  if (!ready) return "Not found · install CLI and rescan";
+  return installed ? "Ready to launch" : "Built-in terminal";
+}
+
 export function SetupAgentsStep(props: Props) {
+  const cards = providerSelectionState(props.providers, props.rows).sort(
+    (a, b) => Number(b.ready) - Number(a.ready),
+  );
+  const total = plannedAgentCount(props.rows);
+
+  function setQuantity(provider: AgentProviderId, quantity: number) {
+    props.onSetQuantity(provider, clampProviderQuantity(quantity));
+  }
+
   return (
-    <section aria-labelledby="agents-title">
-      <div className="flex items-center justify-between gap-3">
-        <h2 id="agents-title" className="text-[17px] font-semibold">
-          Choose your agents
-        </h2>
+    <section aria-labelledby="agents-title" className="setup-agents-step">
+      <div className="setup-section-heading">
+        <div>
+          <p className="setup-eyebrow">Detected on this computer</p>
+          <h2 id="agents-title" className="setup-section-title">
+            Choose your agent mix
+          </h2>
+          <p className="setup-section-copy">
+            Turn on the providers you want, then choose how many agents each
+            provider should run.
+          </p>
+        </div>
         <button
+          type="button"
           className="btn btn-quiet"
           disabled={props.scanning}
           onClick={props.onRescan}
@@ -34,135 +63,156 @@ export function SetupAgentsStep(props: Props) {
           {props.scanning ? "Scanning…" : "Rescan"}
         </button>
       </div>
-      <p className="mt-2 text-mute">
-        Add a local tool, then choose one to six copies for each row.
-      </p>
+
       {props.error && (
-        <p role="alert" className="mt-3 text-danger">
+        <p role="alert" className="banner banner-error mt-5">
           {props.error}
         </p>
       )}
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        {[...props.providers]
-          .sort(
-            (a, b) =>
-              Number(b.installed || b.id === "shell") -
-              Number(a.installed || a.id === "shell"),
-          )
-          .map((provider) => {
-            const ready = provider.id === "shell" || provider.installed;
-            return (
-              <button
-                key={provider.id}
-                className="provider-card"
-                disabled={!ready || props.scanning}
-                onClick={() => props.onAdd(provider.id)}
-              >
-                <ProviderIcon provider={provider.id} size="sm" />
-                <span className="min-w-0">
-                  <span className="block">{provider.displayName}</span>
-                  <span className="block text-xs text-mute">
-                    {props.scanning
-                      ? "Checking…"
-                      : ready
-                        ? "Add agent"
-                        : "Not found · install CLI, then rescan"}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-      </div>
-      <ol className="mt-5 space-y-3" aria-label="Planned agents">
-        {props.rows.map((row, index) => (
-          <li
-            key={row.id}
-            className="rounded-xl border border-line bg-raised p-3"
-          >
-            <div className="mb-3 flex items-center gap-2">
-              <ProviderIcon provider={row.provider} size="sm" />
-              <span className="flex-1 font-medium">
-                {providerDisplayName(row.provider)}
-              </span>
-              <button
-                className="btn btn-ghost"
-                disabled={index === 0}
-                onClick={() => props.onMove(row.id, -1)}
-                aria-label={`Move ${providerDisplayName(row.provider)} row ${index + 1} up`}
-              >
-                Move up
-              </button>
-              <button
-                className="btn btn-ghost"
-                disabled={index === props.rows.length - 1}
-                onClick={() => props.onMove(row.id, 1)}
-                aria-label={`Move ${providerDisplayName(row.provider)} row ${index + 1} down`}
-              >
-                Move down
-              </button>
-              <button
-                className="btn btn-icon"
-                title="Remove agent"
-                aria-label={`Remove ${providerDisplayName(row.provider)} row ${index + 1}`}
-                onClick={() => props.onRemove(row.id)}
-              >
-                <IconTrash />
-              </button>
-            </div>
-            <div className="flex gap-3">
-              <label className="min-w-0 flex-1 text-xs text-mute">
-                Role or name
-                <input
-                  className="field mt-1"
-                  value={row.role}
-                  placeholder={providerDisplayName(row.provider)}
-                  onChange={(event) =>
-                    props.onUpdate(row.id, { role: event.target.value })
-                  }
-                />
-              </label>
-              <label className="w-20 text-xs text-mute">
-                Quantity
-                <select
-                  className="field mt-1"
-                  value={row.count}
-                  onChange={(event) =>
-                    props.onUpdate(row.id, {
-                      count: Number(event.target.value),
-                    })
-                  }
+
+      <div className="setup-provider-grid" aria-label="Detected agent providers">
+        {cards.map((provider) => {
+          const canIncrease = provider.ready && provider.count < 6;
+          return (
+            <article
+              key={provider.id}
+              className="setup-provider-card"
+              data-selected={provider.selected}
+              data-disabled={!provider.ready}
+            >
+              <div className="flex min-w-0 items-start gap-3">
+                <ProviderIcon provider={provider.id} size="lg" />
+                <div className="min-w-0 flex-1">
+                  <h3 className="truncate text-[13px] font-semibold">
+                    {provider.displayName}
+                  </h3>
+                  <p className="mt-1 text-[11px] text-mute">
+                    {providerStatus(provider.ready, provider.installed, props.scanning)}
+                  </p>
+                </div>
+                <span
+                  className="setup-provider-check"
+                  data-visible={provider.selected}
+                  aria-hidden="true"
                 >
-                  {[1, 2, 3, 4, 5, 6].map((count) => (
-                    <option key={count}>{count}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <label className="mt-3 flex items-center gap-2 text-xs text-mute">
-              <input
-                type="checkbox"
-                checked={row.useWorktree}
-                onChange={(event) =>
-                  props.onUpdate(row.id, { useWorktree: event.target.checked })
-                }
-              />
-              Use an isolated Git worktree
-            </label>
-          </li>
-        ))}
-      </ol>
-      {!props.rows.length && (
-        <p className="mt-4 text-mute">
-          No agents selected. You can also add them after opening the workspace.
-        </p>
-      )}
-      <div className="mt-6 flex justify-between">
-        <button className="btn btn-ghost" disabled={props.projectLocked} title={props.projectLocked ? "Running agents belong to this project" : undefined} onClick={props.onBack}>
-          Back
-        </button>
-        <button className="btn btn-primary min-h-10" onClick={props.onContinue}>
-          Review
-        </button>
+                  ✓
+                </span>
+              </div>
+
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-mute">
+                  Agents
+                </span>
+                <div
+                  className="setup-quantity-control"
+                  role="group"
+                  aria-label={`${provider.displayName} agent quantity`}
+                >
+                  <button
+                    type="button"
+                    className="setup-quantity-button"
+                    disabled={props.scanning || provider.count === 0}
+                    onClick={() => setQuantity(provider.id, provider.count - 1)}
+                    aria-label={`Decrease ${provider.displayName} agents`}
+                  >
+                    −
+                  </button>
+                  <output
+                    className="setup-quantity-value"
+                    aria-live="polite"
+                    aria-label={`${provider.count} agents`}
+                  >
+                    {provider.count}
+                  </output>
+                  <button
+                    type="button"
+                    className="setup-quantity-button"
+                    disabled={props.scanning || !canIncrease}
+                    onClick={() => setQuantity(provider.id, provider.count + 1)}
+                    aria-label={`Increase ${provider.displayName} agents`}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
+      <details className="setup-advanced">
+        <summary>Customize names and Git worktrees</summary>
+        <div className="mt-4 space-y-3">
+          {props.rows.length ? (
+            props.rows.map((row) => (
+              <div key={row.id} className="setup-advanced-row">
+                <label className="min-w-0 flex-1 text-xs text-mute">
+                  {providerDisplayName(row.provider)} name
+                  <input
+                    className="field mt-1"
+                    value={row.role}
+                    placeholder={providerDisplayName(row.provider)}
+                    onChange={(event) =>
+                      props.onUpdate(row.id, { role: event.target.value })
+                    }
+                  />
+                </label>
+                <label className="setup-worktree-toggle">
+                  <input
+                    type="checkbox"
+                    checked={row.useWorktree}
+                    onChange={(event) =>
+                      props.onUpdate(row.id, {
+                        useWorktree: event.target.checked,
+                      })
+                    }
+                  />
+                  Isolated worktree
+                </label>
+              </div>
+            ))
+          ) : (
+            <p className="text-xs text-mute">
+              Select a provider above to customize its agent names or use
+              isolated Git worktrees.
+            </p>
+          )}
+        </div>
+      </details>
+
+      <div className="setup-step-footer">
+        <div>
+          <p className="text-[12px] font-medium text-paper">
+            {total
+              ? `${total} agent${total === 1 ? "" : "s"} selected`
+              : "No agents selected"}
+          </p>
+          <p className="mt-1 text-[11px] text-mute">
+            You can add more agents from the workspace later.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={props.projectLocked}
+            title={
+              props.projectLocked
+                ? "Running agents belong to this project"
+                : undefined
+            }
+            onClick={props.onBack}
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary min-h-10"
+            onClick={props.onContinue}
+          >
+            Review launch
+          </button>
+        </div>
       </div>
     </section>
   );
