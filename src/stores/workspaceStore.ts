@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   DEFAULT_WORKSPACE_REGISTRY,
   forgetWorkspaceAgent,
+  forgetWorkspaceAgents,
   normalizeWorkspaceRegistry,
   saveWorkspaceAgent,
   setWorkspaceActive,
@@ -41,6 +42,7 @@ interface WorkspaceState extends WorkspaceRegistry {
   setCollapsed: (collapsed: boolean) => void;
   saveAgent: (root: string, agent: WorkspaceAgentResume) => void;
   forgetAgent: (root: string, resumeId: string) => void;
+  forgetAgents: (root: string, resumeIds: string[]) => void;
   getWorkspace: (root: string) => WorkspaceRecord | undefined;
 }
 
@@ -60,6 +62,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     setCollapsed: (collapsed) => update(setWorkspaceCollapsed(get(), collapsed)),
     saveAgent: (root, agent) => update(saveWorkspaceAgent(get(), root, agent)),
     forgetAgent: (root, resumeId) => update(forgetWorkspaceAgent(get(), root, resumeId)),
+    forgetAgents: (root, resumeIds) => update(forgetWorkspaceAgents(get(), root, resumeIds)),
     getWorkspace: (root) => get().workspaces.find((workspace) => workspaceRootKey(workspace.root) === workspaceRootKey(root)),
   };
 });

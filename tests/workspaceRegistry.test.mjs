@@ -48,3 +48,29 @@ test("remembers projects, expansion state, and agent launch recipes", async () =
   assert.equal(agentBelongsToProject?.({ cwd: "D:/taxzy", projectRoot: "D:/taxzy" }, project("D:/taxzy")), true);
   assert.equal(agentBelongsToProject?.({ cwd: "D:/other" }, project("D:/taxzy")), false);
 });
+
+test("removes selected offline agent recipes without affecting active recipes", async () => {
+  const {
+    DEFAULT_WORKSPACE_REGISTRY,
+    forgetWorkspaceAgents,
+    saveWorkspaceAgent,
+    upsertWorkspace,
+  } = await import("../src/lib/workspaceRegistry.ts");
+
+  let registry = upsertWorkspace(DEFAULT_WORKSPACE_REGISTRY, project("D:/taxzy", "Taxzy"));
+  for (const resumeId of ["offline-1", "active-1", "offline-2"]) {
+    registry = saveWorkspaceAgent(registry, "D:/taxzy", {
+      resumeId,
+      name: resumeId,
+      provider: "codex",
+      createWorktree: true,
+    });
+  }
+
+  registry = forgetWorkspaceAgents(registry, "D:/taxzy", ["offline-1", "offline-2"]);
+
+  assert.deepEqual(
+    registry.workspaces[0].agents.map((agent) => agent.resumeId),
+    ["active-1"],
+  );
+});

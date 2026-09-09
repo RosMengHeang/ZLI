@@ -67,6 +67,8 @@ export function Sidebar() {
   const expandedProjectRoots = useWorkspaceStore((state) => state.expandedProjectRoots);
   const setActiveProject = useWorkspaceStore((state) => state.setActiveProject);
   const toggleExpanded = useWorkspaceStore((state) => state.toggleExpanded);
+  const forgetAgent = useWorkspaceStore((state) => state.forgetAgent);
+  const forgetAgents = useWorkspaceStore((state) => state.forgetAgents);
   const [projectSearch, setProjectSearch] = useState("");
 
   const filteredWorkspaces = projectSearch.trim()
@@ -157,10 +159,11 @@ export function Sidebar() {
           <span className="workspace-agent-name">{recipe.name}</span>
           {displayedStatus ? <StatusBadge status={displayedStatus} compact /> : <span className="status-dot" data-tone="neutral" aria-hidden="true" />}
         </Button>
-        {agent ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-xs" className="workspace-agent-menu" aria-label={`${recipe.name} actions`}><IconMore /></Button></DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-44">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-xs" className="workspace-agent-menu" aria-label={`${recipe.name} actions`}><IconMore /></Button></DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-44">
+            {agent ? (
+              <>
               <DropdownMenuItem onSelect={() => focusAgent(agent)}>Focus</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void revealItemInDir(agent.worktreePath || agent.cwd)}><IconFolder />Open worktree</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void copyText(agent.branch)}>Copy branch name</DropdownMenuItem>
@@ -170,9 +173,14 @@ export function Sidebar() {
               {hasIsolatedWorktree ? (
                 <DropdownMenuItem variant="destructive" onSelect={() => { selectAgent(agent.id); useUiStore.getState().setDiscardOpen(true); }}>Discard worktree…</DropdownMenuItem>
               ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
+              </>
+            ) : (
+              <DropdownMenuItem variant="destructive" onSelect={() => forgetAgent(workspace.root, recipe.resumeId)}>
+                Remove from sidebar
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     );
   }
@@ -185,6 +193,9 @@ export function Sidebar() {
       recipe,
       agent: projectAgents.find((candidate) => savedAgentMatches(candidate, recipe)) ?? null,
     }));
+    const offlineResumeIds = listedAgents
+      .filter(({ agent }) => !agent)
+      .map(({ recipe }) => recipe.resumeId);
     const listedIds = new Set(listedAgents.flatMap(({ agent }) => (agent ? [agent.id] : [])));
     const unlistedAgents = projectAgents.filter((agent) => !listedIds.has(agent.id));
     const details = projectHoverDetails({
@@ -260,6 +271,14 @@ export function Sidebar() {
               <DropdownMenuItem onSelect={() => void revealItemInDir(workspace.project.path)}><IconFolder />Open folder</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void copyText(workspace.project.path)}>Copy path</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void openProjectTerminal(workspace)}>Open terminal</DropdownMenuItem>
+              {offlineResumeIds.length ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem variant="destructive" onSelect={() => forgetAgents(workspace.root, offlineResumeIds)}>
+                    Remove all offline agents
+                  </DropdownMenuItem>
+                </>
+              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

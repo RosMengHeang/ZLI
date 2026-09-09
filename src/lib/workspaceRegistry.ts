@@ -114,6 +114,25 @@ export function forgetWorkspaceAgent(registry: WorkspaceRegistry, root: string, 
   };
 }
 
+export function forgetWorkspaceAgents(
+  registry: WorkspaceRegistry,
+  root: string,
+  resumeIds: string[],
+): WorkspaceRegistry {
+  const forgotten = new Set(resumeIds);
+  return {
+    ...registry,
+    workspaces: registry.workspaces.map((workspace) =>
+      workspaceRootKey(workspace.root) !== workspaceRootKey(root)
+        ? workspace
+        : {
+            ...workspace,
+            agents: workspace.agents.filter((agent) => !forgotten.has(agent.resumeId)),
+          },
+    ),
+  };
+}
+
 export function normalizeWorkspaceRegistry(value: unknown): WorkspaceRegistry {
   if (!value || typeof value !== "object") return DEFAULT_WORKSPACE_REGISTRY;
   const input = value as Partial<WorkspaceRegistry>;
