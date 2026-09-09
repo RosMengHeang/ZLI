@@ -8,6 +8,7 @@ import { HelpDialog } from "./HelpDialog";
 import { MergeDialog } from "./MergeDialog";
 import { PathDialog } from "./PathDialog";
 import { PreferencesDialog } from "./PreferencesDialog";
+import { WorktreeDialog } from "./WorktreeDialog";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { IconSidebar } from "./AppIcons";
@@ -279,6 +280,7 @@ export function AppShell() {
       <MergeDialog />
       <HelpDialog />
       <PreferencesDialog />
+      <WorktreeDialog />
       <CommandPalette />
     </div>
     </TooltipProvider>

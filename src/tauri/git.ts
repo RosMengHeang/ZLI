@@ -46,6 +46,10 @@ export function gitListWorktrees(repositoryRoot: string): Promise<WorktreeInfo[]
   return invokeCmd<WorktreeInfo[]>(GIT_COMMANDS.listWorktrees, { repositoryRoot });
 }
 
+export function gitPruneWorktrees(repositoryRoot: string): Promise<void> {
+  return invokeCmd<void>(GIT_COMMANDS.pruneWorktrees, { repositoryRoot });
+}
+
 export function gitRemoveWorktree(request: RemoveWorktreeRequest): Promise<RemovedWorktreeResult> {
   return invokeCmd<RemovedWorktreeResult>(GIT_COMMANDS.removeWorktree, { request });
 }

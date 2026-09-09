@@ -118,7 +118,8 @@ export function AddAgentDialog() {
         </label>
         {project ? (
           <div className="text-[12px] text-mute">
-            Base branch {project.baseBranch}. Isolation uses a dedicated worktree.
+            Base branch {project.baseBranch}. Each isolated agent gets separate files; remove old
+            checkouts from the project menu when you need disk space back.
           </div>
         ) : null}
 

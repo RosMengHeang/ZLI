@@ -59,6 +59,8 @@ export function Sidebar() {
   const setBrowserOpen = useUiStore((state) => state.setBrowserOpen);
   const setHelpOpen = useUiStore((state) => state.setHelpOpen);
   const setPreferencesOpen = useUiStore((state) => state.setPreferencesOpen);
+  const setWorktreeOpen = useUiStore((state) => state.setWorktreeOpen);
+  const setWorktreeProjectRoot = useUiStore((state) => state.setWorktreeProjectRoot);
   const toggleGitPanel = useLayoutStore((state) => state.toggleGitPanel);
   const addLeaf = useLayoutStore((state) => state.addLeaf);
   const createSession = useTerminalStore((state) => state.createSession);
@@ -271,6 +273,7 @@ export function Sidebar() {
               <DropdownMenuItem onSelect={() => void revealItemInDir(workspace.project.path)}><IconFolder />Open folder</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void copyText(workspace.project.path)}>Copy path</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void openProjectTerminal(workspace)}>Open terminal</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => { setWorktreeProjectRoot(workspace.project.repositoryRoot); setWorktreeOpen(true); }}>Manage worktrees</DropdownMenuItem>
               {offlineResumeIds.length ? (
                 <>
                   <DropdownMenuSeparator />

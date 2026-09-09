@@ -4,6 +4,7 @@ export const GIT_COMMANDS = {
   validateRepository: "git_validate_repository",
   createWorktree: "git_create_worktree",
   listWorktrees: "git_list_worktrees",
+  pruneWorktrees: "git_prune_worktrees",
   removeWorktree: "git_remove_worktree",
   deleteBranch: "git_delete_branch",
   status: "git_status",

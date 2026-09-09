@@ -121,6 +121,13 @@ pub fn list_worktrees(repository_root: &str) -> Result<Vec<WorktreeInfo>, GitErr
     Ok(parse_worktree_list(&out.stdout))
 }
 
+pub fn prune_worktrees(repository_root: &str) -> Result<(), GitError> {
+    let repo_dir = canonical_dir(repository_root)?;
+    ensure_is_repo(&repo_dir, repository_root)?;
+    run_git(&repo_dir, &["worktree", "prune"])?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoveWorktreeRequest {

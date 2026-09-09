@@ -49,6 +49,11 @@ pub async fn git_list_worktrees(repository_root: String) -> Result<Vec<WorktreeI
 }
 
 #[tauri::command]
+pub async fn git_prune_worktrees(repository_root: String) -> Result<(), GitError> {
+    run_blocking("git_prune_worktrees", move || worktree::prune_worktrees(&repository_root)).await
+}
+
+#[tauri::command]
 pub async fn git_remove_worktree(
     request: RemoveWorktreeRequest,
 ) -> Result<RemovedWorktreeResult, GitError> {

@@ -13,6 +13,8 @@ interface UiState {
   pathDialogOpen: boolean;
   commitOpen: boolean;
   discardOpen: boolean;
+  worktreeOpen: boolean;
+  worktreeProjectRoot: string | null;
   mergeOpen: boolean;
   helpOpen: boolean;
   preferencesOpen: boolean;
@@ -24,6 +26,8 @@ interface UiState {
   setPathDialogOpen: (open: boolean) => void;
   setCommitOpen: (open: boolean) => void;
   setDiscardOpen: (open: boolean) => void;
+  setWorktreeOpen: (open: boolean) => void;
+  setWorktreeProjectRoot: (root: string | null) => void;
   setMergeOpen: (open: boolean) => void;
   setHelpOpen: (open: boolean) => void;
   setPreferencesOpen: (open: boolean) => void;
@@ -40,6 +44,8 @@ export const useUiStore = create<UiState>((set) => ({
   pathDialogOpen: false,
   commitOpen: false,
   discardOpen: false,
+  worktreeOpen: false,
+  worktreeProjectRoot: null,
   mergeOpen: false,
   helpOpen: false,
   preferencesOpen: false,
@@ -51,6 +57,8 @@ export const useUiStore = create<UiState>((set) => ({
   setPathDialogOpen: (open) => set({ pathDialogOpen: open }),
   setCommitOpen: (open) => set({ commitOpen: open }),
   setDiscardOpen: (open) => set({ discardOpen: open }),
+  setWorktreeOpen: (open) => set({ worktreeOpen: open }),
+  setWorktreeProjectRoot: (worktreeProjectRoot) => set({ worktreeProjectRoot }),
   setMergeOpen: (open) => set({ mergeOpen: open }),
   setHelpOpen: (open) => set({ helpOpen: open }),
   setPreferencesOpen: (open) => set({ preferencesOpen: open }),
