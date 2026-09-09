@@ -865,15 +865,6 @@ select {
   padding: 0 10px;
 }
 
-.sidebar-brand-collapsed {
-  flex-direction: row;
-  padding: 0;
-}
-
-.sidebar-brand-button {
-  margin: auto;
-}
-
 .sidebar-brand-name {
   font-size: 13px;
   font-weight: 650;
@@ -1805,13 +1796,6 @@ select {
   padding: 0 12px;
 }
 
-.sidebar-brand-collapsed {
-  flex-direction: column;
-  justify-content: center;
-  gap: 7px;
-  padding: 8px 0;
-}
-
 .sidebar-brand-copy,
 .sidebar-current-copy,
 .workspace-project-copy,
@@ -1837,12 +1821,9 @@ select {
   font-size: 10px;
 }
 
-.sidebar-collapse-button,
 .sidebar-add-button,
 .workspace-project-add,
-.sidebar-footer-button,
-.sidebar-collapsed-button,
-.sidebar-collapsed-project {
+.sidebar-footer-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1853,19 +1834,9 @@ select {
   transition: background var(--ease), color var(--ease), border-color var(--ease);
 }
 
-.sidebar-collapse-button {
-  height: 28px;
-  width: 28px;
-  border-radius: 8px;
-  font-size: 21px;
-  line-height: 1;
-}
-
-.sidebar-collapse-button:hover,
 .sidebar-add-button:hover:not(:disabled),
 .workspace-project-add:hover:not(:disabled),
-.sidebar-footer-button:hover:not(:disabled),
-.sidebar-collapsed-button:hover:not(:disabled) {
+.sidebar-footer-button:hover:not(:disabled) {
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-primary);
 }
@@ -2195,10 +2166,6 @@ select {
   padding: 8px;
 }
 
-.sidebar-footer-collapsed {
-  flex-direction: column;
-}
-
 .sidebar-footer-button {
   min-height: 30px;
   min-width: 30px;
@@ -2211,45 +2178,6 @@ select {
   justify-content: flex-start;
   gap: 8px;
   font-size: 11px;
-}
-
-.sidebar-collapsed-actions {
-  display: flex;
-  min-height: 0;
-  flex: 1;
-  align-items: center;
-  flex-direction: column;
-  gap: 6px;
-  overflow: auto;
-  padding: 12px 0;
-}
-
-.sidebar-collapsed-button,
-.sidebar-collapsed-project {
-  height: 32px;
-  width: 32px;
-  flex: 0 0 32px;
-  border-radius: 9px;
-}
-
-.sidebar-collapsed-button {
-  border: 1px solid var(--separator);
-  color: var(--accent);
-}
-
-.sidebar-collapsed-project {
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--separator));
-  background: color-mix(in srgb, var(--accent) 8%, var(--sidebar));
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.sidebar-collapsed-project:hover,
-.sidebar-collapsed-project[data-active="true"] {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 18%, var(--sidebar));
-  color: var(--text-primary);
 }
 
 input[type="checkbox"],
@@ -3006,6 +2934,29 @@ input[type="radio"] {
 }
 
 /* Authoritative application frame overrides */
+.app-sidebar-toggle {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 30;
+  color: var(--text-secondary);
+}
+
+.app-sidebar-toggle:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.sidebar-brand {
+  min-height: 48px;
+  border-bottom: 0;
+  padding: 0 12px 0 48px;
+}
+
+.app-frame-content.is-sidebar-collapsed .topbar {
+  padding-left: 48px;
+}
+
 .topbar {
   height: 48px;
   gap: 12px;

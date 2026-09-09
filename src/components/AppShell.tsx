@@ -10,13 +10,14 @@ import { PathDialog } from "./PathDialog";
 import { PreferencesDialog } from "./PreferencesDialog";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
+import { IconSidebar } from "./AppIcons";
 import { Workspace } from "./Workspace";
 import { TaxChatPanel } from "./TaxChatPanel";
 import { SetupWizard } from "./SetupWizard";
 import { useAppShortcuts } from "../hooks/useAppShortcuts";
 import { useTheme } from "../hooks/useTheme";
 import {
-  APP_FRAME,
+  appFrameVisibility,
   defaultShellSize,
   SHELL_LIMITS,
   sidebarCollapsedForWidth,
@@ -38,7 +39,8 @@ import { configureTaxChatRuntime, useTaxChatStore } from "../stores/taxChatStore
 import { useUiStore } from "../stores/uiStore";
 import { ptyWrite } from "../tauri/terminal";
 import { startPtyBridge, subscribePtyLifecycle, subscribePtyOutput } from "../terminal/ptyBridge";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
 import { CommandPalette } from "./CommandPalette";
 
 const BrowserPanel = lazy(async () => {
@@ -79,6 +81,7 @@ export function AppShell() {
   const taxChatOpen = useUiStore((s) => s.taxChatOpen);
   const sidebarCollapsed = useWorkspaceStore((s) => s.collapsed);
   const setSidebarCollapsed = useWorkspaceStore((s) => s.setCollapsed);
+  const frameVisibility = appFrameVisibility(sidebarCollapsed);
   const chrome = getChromeLayout();
   const utilityPanes = visibleUtilityPanes({
     browserOpen,
@@ -158,6 +161,22 @@ export function AppShell() {
     <div className="app-shell flex h-full min-h-0 flex-col bg-ink text-paper">
       <div className="relative min-h-0 flex-1">
         <div className="h-full min-w-0" hidden={setupOpen} inert={setupOpen}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="app-sidebar-toggle"
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-pressed={!sidebarCollapsed}
+            >
+              <IconSidebar className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">{sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}</TooltipContent>
+        </Tooltip>
         <Group
           key={`app-frame-${sidebarCollapsed ? "collapsed" : "expanded"}`}
           orientation="horizontal"
@@ -173,17 +192,21 @@ export function AppShell() {
             });
           }}
         >
-          <Panel
-            id="sidebar"
-            defaultSize={sidebarCollapsed ? APP_FRAME.collapsedSidebarWidth : defaultShellSize("sidebar", chrome.sidebar)}
-            minSize={sidebarCollapsed ? APP_FRAME.collapsedSidebarWidth : SHELL_LIMITS.sidebar.min}
-            maxSize={sidebarCollapsed ? APP_FRAME.collapsedSidebarWidth : SHELL_LIMITS.sidebar.max}
-            groupResizeBehavior="preserve-pixel-size"
-          >
-            <Sidebar />
-          </Panel>
-          <Separator className="pane-handle pane-handle-h" />
-          <Panel id="app-content" minSize="32" className="app-frame-content min-h-0 min-w-0">
+          {frameVisibility.sidebar ? (
+            <>
+              <Panel
+                id="sidebar"
+                defaultSize={defaultShellSize("sidebar", chrome.sidebar)}
+                minSize={SHELL_LIMITS.sidebar.min}
+                maxSize={SHELL_LIMITS.sidebar.max}
+                groupResizeBehavior="preserve-pixel-size"
+              >
+                <Sidebar />
+              </Panel>
+              {frameVisibility.separator ? <Separator className="pane-handle pane-handle-h" /> : null}
+            </>
+          ) : null}
+          <Panel id="app-content" minSize="32" className={`app-frame-content min-h-0 min-w-0${sidebarCollapsed ? " is-sidebar-collapsed" : ""}`}>
             <TopBar />
             {error && !project ? <div className="banner banner-error mx-3 mt-2" role="alert">{error.message}</div> : null}
             <div className="min-h-0 flex-1">

@@ -32,6 +32,10 @@ are tools that share the same work surface.
 ## Composition principles
 
 - The left tree is the persistent home for project and agent context.
+- Collapsing the left tree removes it completely so the workbench gains the
+  full window width. One quiet panel control remains fixed at the top-left,
+  before the Taxzy mark when the tree is open and before project context when
+  it is closed.
 - Lucide's closed and open folder glyphs mirror the familiar ChatGPT desktop
   geometry and carry project expansion state, removing the
   need for project initials, count badges, and a second disclosure icon.

@@ -31,7 +31,6 @@ import type { Agent } from "../types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import {
   DropdownMenu,
@@ -64,9 +63,7 @@ export function Sidebar() {
   const createSession = useTerminalStore((state) => state.createSession);
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const activeProjectRoot = useWorkspaceStore((state) => state.activeProjectRoot);
-  const collapsed = useWorkspaceStore((state) => state.collapsed);
   const expandedProjectRoots = useWorkspaceStore((state) => state.expandedProjectRoots);
-  const setCollapsed = useWorkspaceStore((state) => state.setCollapsed);
   const setActiveProject = useWorkspaceStore((state) => state.setActiveProject);
   const toggleExpanded = useWorkspaceStore((state) => state.toggleExpanded);
   const [projectSearch, setProjectSearch] = useState("");
@@ -277,42 +274,6 @@ export function Sidebar() {
     );
   }
 
-  if (collapsed) {
-    return (
-      <aside className="sidebar-shell is-collapsed" aria-label="Taxzy navigation">
-        <div className="sidebar-brand sidebar-brand-collapsed">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button type="button" variant="ghost" size="icon-sm" className="sidebar-brand-button" onClick={() => setCollapsed(false)} aria-label="Expand sidebar"><TaxzyMark className="h-6 w-6" /></Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">Expand sidebar</TooltipContent>
-          </Tooltip>
-        </div>
-        <div className="sidebar-collapsed-actions">
-          <Button type="button" variant="ghost" size="icon-sm" className="sidebar-collapsed-button" onClick={() => void onOpenProject()} disabled={loading} aria-label="Open project" title="Open project"><IconPlus /></Button>
-          {workspaces.map((workspace) => (
-            <Button
-              key={workspace.root}
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="sidebar-collapsed-project"
-              data-active={isActive(workspace)}
-              onClick={() => void openWorkspace(workspace)}
-              title={workspace.project.name}
-            >
-              {workspace.project.name.slice(0, 1).toUpperCase()}
-            </Button>
-          ))}
-        </div>
-        <div className="sidebar-footer sidebar-footer-collapsed">
-          <Button type="button" variant="ghost" size="icon-sm" className="sidebar-footer-button" onClick={() => setPreferencesOpen(true)} aria-label="Preferences" title="Preferences"><IconSettings /></Button>
-          <Button type="button" variant="ghost" size="icon-sm" className="sidebar-footer-button" onClick={() => setHelpOpen(true)} aria-label="Help" title="Help"><IconHelp /></Button>
-        </div>
-      </aside>
-    );
-  }
-
   return (
     <aside className="sidebar-shell" aria-label="Taxzy navigation">
       <div className="sidebar-brand">
@@ -320,7 +281,6 @@ export function Sidebar() {
         <div className="sidebar-brand-copy">
           <span className="sidebar-brand-name">Taxzy</span>
         </div>
-        <Button type="button" variant="ghost" size="icon-xs" className="sidebar-collapse-button" onClick={() => setCollapsed(true)} aria-label="Collapse sidebar" title="Collapse sidebar">‹</Button>
       </div>
 
       <div className="sidebar-workspaces-header">

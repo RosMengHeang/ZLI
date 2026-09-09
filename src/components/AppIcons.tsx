@@ -126,6 +126,15 @@ export function IconFolderOpen(props: IconProps) {
   );
 }
 
+export function IconSidebar(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="2.2" y="2.7" width="11.6" height="10.6" rx="1.8" {...stroke} />
+      <path d="M6.1 2.9v10.2" {...stroke} />
+    </Svg>
+  );
+}
+
 export function IconMaximize(props: IconProps) {
   return (
     <Svg {...props}>

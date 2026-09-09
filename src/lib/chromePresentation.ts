@@ -20,8 +20,15 @@ export const SHELL_LIMITS = {
 export const APP_FRAME = {
   headerHeight: "48px",
   sidebarWidth: "232px",
-  collapsedSidebarWidth: "52px",
+  collapsedSidebarWidth: "0px",
 } as const;
+
+export function appFrameVisibility(collapsed: boolean) {
+  return {
+    sidebar: !collapsed,
+    separator: !collapsed,
+  };
+}
 
 export interface BrowserViewportRect {
   left: number;

@@ -95,12 +95,14 @@ test("keeps the browser split on the right and normalizes native view bounds", a
 });
 
 test("connects the titlebar and sidebar with one compact frame rhythm", async () => {
-  const { APP_FRAME } = await import("../src/lib/chromePresentation.ts");
+  const { APP_FRAME, appFrameVisibility } = await import("../src/lib/chromePresentation.ts");
   assert.deepEqual(APP_FRAME, {
     headerHeight: "48px",
     sidebarWidth: "232px",
-    collapsedSidebarWidth: "52px",
+    collapsedSidebarWidth: "0px",
   });
+  assert.deepEqual(appFrameVisibility(false), { sidebar: true, separator: true });
+  assert.deepEqual(appFrameVisibility(true), { sidebar: false, separator: false });
 });
 
 test("collapses the project rail when the workspace becomes too narrow", async () => {
