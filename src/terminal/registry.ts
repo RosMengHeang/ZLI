@@ -1,6 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
-import { terminalAppearance } from "../lib/terminalPresentation";
+import { applyTerminalSurface, terminalAppearance } from "../lib/terminalPresentation";
 
 export interface TerminalEntry {
   terminal: Terminal;
@@ -70,6 +70,7 @@ export const terminalRegistry = {
     host.dataset.terminalId = id;
     holdingTank().appendChild(host);
     terminal.open(host);
+    applyTerminalSurface(host);
 
     const dataDisposable = handlers?.onData ? terminal.onData(handlers.onData) : null;
     const entry: TerminalEntry = { terminal, fit, host, dataDisposable };

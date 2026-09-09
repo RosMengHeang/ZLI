@@ -1,6 +1,12 @@
 import type { ITerminalOptions } from "@xterm/xterm";
 
 export const TERMINAL_FONT_NAME = "JetBrains Mono Variable";
+const TERMINAL_BACKGROUND = "#1f2021";
+
+interface TerminalSurfaceElement {
+  style: { backgroundColor?: string };
+  querySelector(selector: string): TerminalSurfaceElement | null;
+}
 
 type TerminalAppearance = Pick<
   ITerminalOptions,
@@ -30,7 +36,7 @@ export function terminalAppearance(): TerminalAppearance {
     cursorStyle: "bar",
     cursorWidth: 1,
     theme: {
-      background: "#1f2021",
+      background: TERMINAL_BACKGROUND,
       foreground: "#d6d6d6",
       cursor: "#e8e8e8",
       cursorAccent: "#1f2021",
@@ -53,6 +59,12 @@ export function terminalAppearance(): TerminalAppearance {
       brightWhite: "#ffffff",
     },
   };
+}
+
+export function applyTerminalSurface(host: TerminalSurfaceElement): void {
+  host.style.backgroundColor = TERMINAL_BACKGROUND;
+  const xterm = host.querySelector(".xterm");
+  if (xterm) xterm.style.backgroundColor = TERMINAL_BACKGROUND;
 }
 
 export async function preloadTerminalFont(): Promise<boolean> {

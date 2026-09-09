@@ -40,3 +40,19 @@ test("terminal presentation uses stable compact metrics and restrained colors", 
     },
   });
 });
+
+test("terminal surface paints unused row space with the terminal background", async () => {
+  const presentation = await import("../src/lib/terminalPresentation.ts").catch(() => ({}));
+  const xterm = { style: {} };
+  const host = {
+    style: {},
+    querySelector(selector) {
+      return selector === ".xterm" ? xterm : null;
+    },
+  };
+
+  presentation.applyTerminalSurface?.(host);
+
+  assert.equal(host.style.backgroundColor, "#1f2021");
+  assert.equal(xterm.style.backgroundColor, "#1f2021");
+});
