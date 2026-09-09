@@ -5,12 +5,15 @@ pub mod error;
 pub mod pty;
 pub mod system;
 
+#[path = "control/event_hub.rs"]
+mod event_hub;
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod git;
 
 use commands::{
-    create_terminal, detect_agent_providers, detect_providers, kill_terminal, launch_agent,
-    list_agent_providers, list_agents, pty_close, pty_create, pty_resize, pty_write,
+    control_events_after, create_terminal, detect_agent_providers, detect_providers, kill_terminal,
+    launch_agent, list_agent_providers, list_agents, pty_close, pty_create, pty_resize, pty_write,
     resize_terminal, stop_agent, write_terminal,
 };
 use git::commands::{
@@ -18,7 +21,7 @@ use git::commands::{
     git_list_worktrees, git_merge, git_prune_worktrees, git_remove_worktree, git_status,
     git_validate_repository,
 };
-use tauri::{Emitter, webview::PageLoadEvent};
+use tauri::{webview::PageLoadEvent, Emitter};
 
 // Placeholder demo command from the create-tauri-app template; left in place
 // so the scaffolded frontend's demo button keeps working until the real UI
@@ -50,6 +53,7 @@ pub fn run() {
         })
         .manage(pty::PtyManager::default())
         .manage(agents::AgentManager::default())
+        .manage(event_hub::EventHub::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -68,6 +72,7 @@ pub fn run() {
             launch_agent,
             stop_agent,
             list_agents,
+            control_events_after,
             git_validate_repository,
             git_create_worktree,
             git_list_worktrees,

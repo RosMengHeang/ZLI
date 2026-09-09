@@ -1,5 +1,7 @@
 use crate::agents::{self, Agent, AgentManager, AgentProvider, LaunchAgentRequest};
+use crate::control::AgentEventEnvelope;
 use crate::error::BackendError;
+use crate::event_hub::EventHub;
 use crate::pty::{
     EventSink, PtyManager, TerminalOutputEvent, TerminalSession, TerminalStatus,
     TerminalStatusEvent,
@@ -26,6 +28,7 @@ pub struct CreatePtyRequest {
 #[derive(Clone)]
 struct AppEventSink {
     app: AppHandle,
+    event_hub: EventHub,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -83,6 +86,11 @@ impl EventSink for AppEventSink {
             TerminalStatus::Running => {}
         }
     }
+
+    fn emit_control(&self, event: AgentEventEnvelope) {
+        let event = self.event_hub.publish(event);
+        let _ = self.app.emit("control-event", event);
+    }
 }
 
 pub(crate) fn validate_dimensions_request(cols: u16, rows: u16) -> Result<(), BackendError> {
@@ -118,6 +126,7 @@ where
 fn create_terminal_impl(
     app: AppHandle,
     manager: PtyManager,
+    event_hub: EventHub,
     request: CreatePtyRequest,
 ) -> Result<TerminalSession, BackendError> {
     validate_create_request(&request)?;
@@ -125,7 +134,7 @@ fn create_terminal_impl(
         Some(&request.cwd),
         request.cols,
         request.rows,
-        Arc::new(AppEventSink { app }),
+        Arc::new(AppEventSink { app, event_hub }),
     )
 }
 
@@ -133,20 +142,24 @@ fn create_terminal_impl(
 pub async fn pty_create(
     app: AppHandle,
     manager: State<'_, PtyManager>,
+    event_hub: State<'_, EventHub>,
     request: CreatePtyRequest,
 ) -> Result<TerminalSession, BackendError> {
     let manager = manager.inner().clone();
-    run_blocking(move || create_terminal_impl(app, manager, request)).await
+    let event_hub = event_hub.inner().clone();
+    run_blocking(move || create_terminal_impl(app, manager, event_hub, request)).await
 }
 
 #[tauri::command]
 pub async fn create_terminal(
     app: AppHandle,
     manager: State<'_, PtyManager>,
+    event_hub: State<'_, EventHub>,
     request: CreatePtyRequest,
 ) -> Result<TerminalSession, BackendError> {
     let manager = manager.inner().clone();
-    run_blocking(move || create_terminal_impl(app, manager, request)).await
+    let event_hub = event_hub.inner().clone();
+    run_blocking(move || create_terminal_impl(app, manager, event_hub, request)).await
 }
 
 #[tauri::command]
@@ -229,11 +242,35 @@ pub async fn launch_agent(
     app: AppHandle,
     manager: State<'_, PtyManager>,
     agents: State<'_, AgentManager>,
+    event_hub: State<'_, EventHub>,
     request: LaunchAgentRequest,
 ) -> Result<Agent, BackendError> {
     let pty = manager.inner().clone();
     let agents = agents.inner().clone();
-    run_blocking(move || agents.launch(request, &pty, Arc::new(AppEventSink { app }))).await
+    let event_hub = event_hub.inner().clone();
+    run_blocking(move || {
+        let project_id = request.cwd.clone();
+        let sink = Arc::new(AppEventSink { app, event_hub });
+        let agent = agents.launch(request, &pty, sink)?;
+        let _ = pty.bind_agent(&agent.terminal_id, project_id, agent.id.clone());
+        Ok(agent)
+    })
+    .await
+}
+
+pub(crate) fn control_events_after_from_hub(
+    event_hub: &EventHub,
+    sequence: u64,
+) -> Vec<AgentEventEnvelope> {
+    event_hub.subscribe_after(sequence)
+}
+
+#[tauri::command]
+pub fn control_events_after(
+    event_hub: State<'_, EventHub>,
+    sequence: u64,
+) -> Vec<AgentEventEnvelope> {
+    control_events_after_from_hub(event_hub.inner(), sequence)
 }
 
 #[tauri::command]

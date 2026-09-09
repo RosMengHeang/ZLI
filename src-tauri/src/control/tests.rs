@@ -2,8 +2,15 @@ use super::{
     AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, AttentionStatus,
     ExecutionStatus,
 };
+use crate::commands::control_events_after_from_hub;
+use crate::event_hub::EventHub;
+use crate::pty::{
+    MemoryEventSink, PtyManager, TerminalOutputEvent, TerminalStatus, TerminalStatusEvent,
+};
 use serde::Serialize;
 use serde_json::json;
+use std::time::{Duration, Instant};
+use tempfile::tempdir;
 
 #[test]
 fn event_envelope_round_trips_with_schema_version_and_sequence() {
@@ -184,4 +191,185 @@ where
             json!(expected)
         );
     }
+}
+
+#[test]
+fn event_hub_assigns_monotonic_sequence_and_replays_after_cursor() {
+    let hub = EventHub::new(32);
+    let first = hub.publish(test_event("one"));
+    let second = hub.publish(test_event("two"));
+
+    assert_eq!(first.sequence, 1);
+    assert_eq!(second.sequence, 2);
+    assert_eq!(hub.latest_sequence(), 2);
+    let replay = hub.subscribe_after(1);
+    assert_eq!(replay.len(), 1);
+    assert_eq!(replay[0].event_id, "two");
+}
+
+#[test]
+fn event_hub_does_not_duplicate_event_ids() {
+    let hub = EventHub::new(32);
+    let first = hub.publish(test_event("same"));
+    let duplicate = hub.publish(test_event("same"));
+
+    assert_eq!(hub.len(), 1);
+    assert_eq!(hub.latest_sequence(), 1);
+    assert_eq!(duplicate, first);
+}
+
+#[test]
+fn event_hub_bounds_replay_and_ignores_a_newer_cursor() {
+    let hub = EventHub::new(2);
+    hub.publish(test_event("one"));
+    hub.publish(test_event("two"));
+    hub.publish(test_event("three"));
+
+    let replay = hub.subscribe_after(0);
+    assert_eq!(replay.len(), 2);
+    assert_eq!(replay[0].event_id, "two");
+    assert_eq!(replay[1].event_id, "three");
+    assert!(hub.subscribe_after(4).is_empty());
+}
+
+fn test_event(event_id: &str) -> AgentEventEnvelope {
+    AgentEventEnvelope::new(
+        event_id.into(),
+        "project-1".into(),
+        Some("agent-1".into()),
+        AgentEventKind::AgentOutput,
+        AgentEventPayload::Text {
+            text: event_id.into(),
+        },
+    )
+}
+
+#[test]
+fn mapped_pty_output_preserves_agent_identity_and_text() {
+    let event = PtyManager::agent_output_event(
+        "project-1",
+        "agent-1",
+        &TerminalOutputEvent {
+            terminal_id: "terminal-1".into(),
+            data: "hello from the PTY".into(),
+        },
+    );
+
+    assert_eq!(event.project_id, "project-1");
+    assert_eq!(event.agent_id.as_deref(), Some("agent-1"));
+    assert_eq!(event.source, AgentEventSource::Pty);
+    assert_eq!(event.kind, AgentEventKind::AgentOutput);
+    assert_eq!(
+        event.payload,
+        AgentEventPayload::Text {
+            text: "hello from the PTY".into(),
+        }
+    );
+}
+
+#[test]
+fn mapped_pty_statuses_produce_started_exited_and_failed_evidence() {
+    let cases = [
+        (
+            TerminalStatus::Running,
+            AgentEventKind::AgentStarted,
+            AgentEventPayload::Empty,
+        ),
+        (
+            TerminalStatus::Exited,
+            AgentEventKind::AgentExited,
+            AgentEventPayload::Exit { code: None },
+        ),
+        (
+            TerminalStatus::Killed,
+            AgentEventKind::AgentExited,
+            AgentEventPayload::Exit { code: None },
+        ),
+        (
+            TerminalStatus::Failed,
+            AgentEventKind::AgentFailed,
+            AgentEventPayload::Attention {
+                reason: "PTY reader stopped unexpectedly".into(),
+            },
+        ),
+    ];
+
+    for (status, expected_kind, expected_payload) in cases {
+        let event = PtyManager::agent_status_event(
+            "project-1",
+            "agent-1",
+            &TerminalStatusEvent {
+                terminal_id: "terminal-1".into(),
+                status,
+            },
+        );
+        assert_eq!(event.kind, expected_kind);
+        assert_eq!(event.payload, expected_payload);
+    }
+}
+
+#[test]
+fn control_events_after_replays_from_the_requested_sequence() {
+    let hub = EventHub::new(4);
+    hub.publish(test_event("one"));
+    hub.publish(test_event("two"));
+
+    let replay = control_events_after_from_hub(&hub, 1);
+    assert_eq!(replay.len(), 1);
+    assert_eq!(replay[0].event_id, "two");
+    assert!(control_events_after_from_hub(&hub, 3).is_empty());
+}
+
+#[test]
+fn mapped_pty_session_keeps_terminal_events_and_adds_control_evidence() {
+    let directory = tempdir().expect("temporary directory");
+    let manager = PtyManager::new();
+    let sink = MemoryEventSink::default();
+    let terminal = manager
+        .create_shell(
+            Some(directory.path().to_string_lossy().as_ref()),
+            sink.clone(),
+        )
+        .expect("create shell");
+
+    manager
+        .bind_agent(&terminal.id, "project-1".into(), "agent-1".into())
+        .expect("bind agent");
+    let marker = "CONTROL_EVENT_OUTPUT_MARKER";
+    manager
+        .write(&terminal.id, &format!("echo {marker}\r\n"))
+        .expect("write marker");
+
+    assert!(wait_for_control_event(&sink, |event| {
+        event.kind == AgentEventKind::AgentOutput
+            && matches!(&event.payload, AgentEventPayload::Text { text } if text.contains(marker))
+    }));
+    assert!(sink.contains(&terminal.id, marker));
+    assert!(sink
+        .statuses()
+        .iter()
+        .any(|event| event.status == TerminalStatus::Running));
+
+    manager.kill(&terminal.id).expect("kill shell");
+    assert!(wait_for_control_event(&sink, |event| {
+        event.kind == AgentEventKind::AgentExited
+    }));
+    assert!(sink
+        .statuses()
+        .iter()
+        .any(|event| event.status == TerminalStatus::Killed));
+}
+
+fn wait_for_control_event(
+    sink: &MemoryEventSink,
+    predicate: impl Fn(&AgentEventEnvelope) -> bool,
+) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if sink.control_events().iter().any(&predicate) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    false
 }

@@ -1,3 +1,4 @@
+use crate::control::{AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource};
 use crate::error::BackendError;
 use crate::system::{default_cwd, detect_shell};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
@@ -70,6 +71,7 @@ pub struct TerminalStatusEvent {
 pub trait EventSink: Send + Sync {
     fn emit_output(&self, event: TerminalOutputEvent);
     fn emit_status(&self, event: TerminalStatusEvent);
+    fn emit_control(&self, _event: AgentEventEnvelope) {}
 }
 
 struct ManagerInner {
@@ -90,6 +92,13 @@ struct SessionHandle {
     size: Mutex<(u16, u16)>,
     status: AtomicU8,
     sink: Arc<dyn EventSink>,
+    agent: Mutex<Option<AgentMapping>>,
+}
+
+#[derive(Clone)]
+struct AgentMapping {
+    project_id: String,
+    agent_id: String,
 }
 
 impl PtyManager {
@@ -215,6 +224,7 @@ impl PtyManager {
             size: Mutex::new((cols, rows)),
             status: AtomicU8::new(TerminalStatus::Running.as_u8()),
             sink: sink.clone(),
+            agent: Mutex::new(None),
         });
 
         self.inner
@@ -251,6 +261,100 @@ impl PtyManager {
         writer.write_all(data.as_bytes())?;
         writer.flush()?;
         Ok(())
+    }
+
+    pub fn bind_agent(
+        &self,
+        terminal_id: &str,
+        project_id: String,
+        agent_id: String,
+    ) -> Result<(), BackendError> {
+        let session = self.session(terminal_id)?;
+        let mapping = AgentMapping {
+            project_id,
+            agent_id,
+        };
+        *session
+            .agent
+            .lock()
+            .map_err(|_| BackendError::Internal("PTY agent mapping lock poisoned".into()))? =
+            Some(mapping.clone());
+
+        let status = TerminalStatusEvent {
+            terminal_id: terminal_id.to_owned(),
+            status: session.status(),
+        };
+        session
+            .sink
+            .emit_control(Self::agent_status_event_for_mapping(&mapping, &status));
+        Ok(())
+    }
+
+    pub(crate) fn agent_output_event(
+        project_id: &str,
+        agent_id: &str,
+        event: &TerminalOutputEvent,
+    ) -> AgentEventEnvelope {
+        Self::agent_event(
+            project_id,
+            agent_id,
+            AgentEventKind::AgentOutput,
+            AgentEventPayload::Text {
+                text: event.data.clone(),
+            },
+        )
+    }
+
+    pub(crate) fn agent_status_event(
+        project_id: &str,
+        agent_id: &str,
+        event: &TerminalStatusEvent,
+    ) -> AgentEventEnvelope {
+        let (kind, payload) = match event.status {
+            TerminalStatus::Running => (AgentEventKind::AgentStarted, AgentEventPayload::Empty),
+            TerminalStatus::Exited | TerminalStatus::Killed => (
+                AgentEventKind::AgentExited,
+                AgentEventPayload::Exit { code: None },
+            ),
+            TerminalStatus::Failed => (
+                AgentEventKind::AgentFailed,
+                AgentEventPayload::Attention {
+                    reason: "PTY reader stopped unexpectedly".to_owned(),
+                },
+            ),
+        };
+        Self::agent_event(project_id, agent_id, kind, payload)
+    }
+
+    fn agent_event(
+        project_id: &str,
+        agent_id: &str,
+        kind: AgentEventKind,
+        payload: AgentEventPayload,
+    ) -> AgentEventEnvelope {
+        let mut event = AgentEventEnvelope::new(
+            Uuid::new_v4().to_string(),
+            project_id.to_owned(),
+            Some(agent_id.to_owned()),
+            kind,
+            payload,
+        );
+        event.source = AgentEventSource::Pty;
+        event
+    }
+
+    fn agent_output_event_for_mapping(
+        mapping: &AgentMapping,
+        event: &TerminalOutputEvent,
+    ) -> AgentEventEnvelope {
+        Self::agent_output_event(&mapping.project_id, &mapping.agent_id, event)
+    }
+
+    fn agent_status_event_for_mapping(
+        mapping: &AgentMapping,
+        event: &TerminalStatusEvent,
+    ) -> AgentEventEnvelope {
+        Self::agent_status_event(&mapping.project_id, &mapping.agent_id, event)
     }
 
     pub fn resize(&self, id: &str, cols: u16, rows: u16) -> Result<(), BackendError> {
@@ -290,10 +394,12 @@ impl PtyManager {
 
         if session.mark_killed() {
             session.terminate();
-            session.sink.emit_status(TerminalStatusEvent {
+            let event = TerminalStatusEvent {
                 terminal_id: id.to_string(),
                 status: TerminalStatus::Killed,
-            });
+            };
+            session.sink.emit_status(event.clone());
+            session.emit_agent_status(&event);
         }
         Ok(())
     }
@@ -403,6 +509,27 @@ impl SessionHandle {
             let _ = child.wait();
         }
     }
+
+    fn agent_mapping(&self) -> Option<AgentMapping> {
+        self.agent
+            .lock()
+            .map(|mapping| mapping.clone())
+            .unwrap_or_default()
+    }
+
+    fn emit_agent_output(&self, event: &TerminalOutputEvent) {
+        if let Some(mapping) = self.agent_mapping() {
+            self.sink
+                .emit_control(PtyManager::agent_output_event_for_mapping(&mapping, event));
+        }
+    }
+
+    fn emit_agent_status(&self, event: &TerminalStatusEvent) {
+        if let Some(mapping) = self.agent_mapping() {
+            self.sink
+                .emit_control(PtyManager::agent_status_event_for_mapping(&mapping, event));
+        }
+    }
 }
 
 fn spawn_reader(
@@ -417,16 +544,22 @@ fn spawn_reader(
             loop {
                 match reader.read(&mut buffer) {
                     Ok(0) => break,
-                    Ok(size) => session.sink.emit_output(TerminalOutputEvent {
-                        terminal_id: session.id.to_string(),
-                        data: String::from_utf8_lossy(&buffer[..size]).into_owned(),
-                    }),
+                    Ok(size) => {
+                        let event = TerminalOutputEvent {
+                            terminal_id: session.id.to_string(),
+                            data: String::from_utf8_lossy(&buffer[..size]).into_owned(),
+                        };
+                        session.sink.emit_output(event.clone());
+                        session.emit_agent_output(&event);
+                    }
                     Err(_) => {
                         if session.mark_failed() {
-                            session.sink.emit_status(TerminalStatusEvent {
+                            let event = TerminalStatusEvent {
                                 terminal_id: session.id.to_string(),
                                 status: TerminalStatus::Failed,
-                            });
+                            };
+                            session.sink.emit_status(event.clone());
+                            session.emit_agent_status(&event);
                         }
                         break;
                     }
@@ -434,10 +567,12 @@ fn spawn_reader(
             }
 
             if session.mark_exited() {
-                session.sink.emit_status(TerminalStatusEvent {
+                let event = TerminalStatusEvent {
                     terminal_id: session.id.to_string(),
                     status: TerminalStatus::Exited,
-                });
+                };
+                session.sink.emit_status(event.clone());
+                session.emit_agent_status(&event);
             }
 
             if let Some(manager) = manager.upgrade() {
@@ -464,6 +599,7 @@ fn spawn_reader(
 pub struct MemoryEventSink {
     outputs: Arc<Mutex<Vec<TerminalOutputEvent>>>,
     statuses: Arc<Mutex<Vec<TerminalStatusEvent>>>,
+    control_events: Arc<Mutex<Vec<AgentEventEnvelope>>>,
 }
 
 #[cfg(test)]
@@ -479,9 +615,15 @@ impl MemoryEventSink {
             .unwrap_or(false)
     }
 
-    #[allow(dead_code)]
     pub fn statuses(&self) -> Vec<TerminalStatusEvent> {
         self.statuses
+            .lock()
+            .map(|items| items.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn control_events(&self) -> Vec<AgentEventEnvelope> {
+        self.control_events
             .lock()
             .map(|items| items.clone())
             .unwrap_or_default()
@@ -498,6 +640,12 @@ impl EventSink for MemoryEventSink {
 
     fn emit_status(&self, event: TerminalStatusEvent) {
         if let Ok(mut events) = self.statuses.lock() {
+            events.push(event);
+        }
+    }
+
+    fn emit_control(&self, event: AgentEventEnvelope) {
+        if let Ok(mut events) = self.control_events.lock() {
             events.push(event);
         }
     }
