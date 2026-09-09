@@ -2,6 +2,8 @@ import type { AgentProvider, AgentProviderId } from "../../types";
 import { providerDisplayName } from "../../types";
 import { ProviderIcon } from "../ProviderIcon";
 import {
+  MAX_AGENT_COUNT,
+  MAX_TOTAL_AGENT_COUNT,
   clampProviderQuantity,
   plannedAgentCount,
   providerSelectionState,
@@ -74,7 +76,10 @@ export function SetupAgentsStep(props: Props) {
 
       <div className="setup-provider-grid" aria-label="Detected agent providers">
         {cards.map((provider) => {
-          const canIncrease = provider.ready && provider.count < 6;
+          const canIncrease =
+            provider.ready &&
+            provider.count < MAX_AGENT_COUNT &&
+            total < MAX_TOTAL_AGENT_COUNT;
           return (
             <article
               key={provider.id}

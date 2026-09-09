@@ -157,7 +157,7 @@ test("retry schedules only failed agents and preserves successful entries", asyn
   assert.deepEqual(pendingLaunchIndexes(items, true), [4]);
 });
 
-test("normalizes invalid quantities and allows more than six agents across tools", async () => {
+test("normalizes invalid quantities and caps the launch plan at twelve agents", async () => {
   const { clampAgentCount, expandLaunchPlan, plannedAgentCount } =
     await import("../src/components/setup/setupModel.ts");
   for (const value of [NaN, Infinity, -Infinity, 0])
@@ -167,15 +167,16 @@ test("normalizes invalid quantities and allows more than six agents across tools
     id: provider,
     provider,
     role: "  Worker  ",
-    count: 6,
+    count: 8,
     useWorktree: false,
   }));
   assert.equal(plannedAgentCount(rows), 12);
   const plan = expandLaunchPlan(rows);
   assert.equal(plan.length, 12);
   assert.equal(plan[0].name, "Worker 1");
-  assert.equal(plan[5].name, "Worker 6");
-  assert.equal(plan[6].provider, "shell");
+  assert.equal(plan[7].name, "Worker 8");
+  assert.equal(plan[8].provider, "shell");
+  assert.equal(plan[11].provider, "shell");
   assert.deepEqual(expandLaunchPlan([]), []);
 });
 
@@ -185,9 +186,26 @@ test("clamps agent quantities and totals the launch plan", async () => {
 
   assert.equal(clampAgentCount(-2), 1);
   assert.equal(clampAgentCount(3), 3);
-  assert.equal(clampAgentCount(12), 6);
+  assert.equal(clampAgentCount(12), 12);
   assert.equal(plannedAgentCount([{ count: 2 }, { count: 3 }]), 5);
-  assert.equal(plannedAgentCount([{ count: -2 }, { count: 12 }]), 7);
+  assert.equal(plannedAgentCount([{ count: -2 }, { count: 12 }]), 12);
+});
+
+test("provider quantities cannot push the global agent total above twelve", async () => {
+  const { plannedAgentCount, setProviderQuantity } =
+    await import("../src/components/setup/setupModel.ts");
+  const rows = [
+    { id: "provider-codex", provider: "codex", role: "Codex", count: 8, useWorktree: true },
+    { id: "provider-shell", provider: "shell", role: "Shell", count: 3, useWorktree: false },
+  ];
+
+  const filled = setProviderQuantity(rows, "shell", 8);
+  assert.equal(filled.find((row) => row.provider === "shell").count, 4);
+  assert.equal(plannedAgentCount(filled), 12);
+
+  const rejected = setProviderQuantity(filled, "claude", 2);
+  assert.equal(rejected.some((row) => row.provider === "claude"), false);
+  assert.equal(plannedAgentCount(rejected), 12);
 });
 
 test("expands rows into stable user-facing agent names", async () => {

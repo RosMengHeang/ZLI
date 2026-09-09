@@ -5,7 +5,8 @@ import {
 } from "../../types/models.ts";
 
 export const MIN_AGENT_COUNT = 1;
-export const MAX_AGENT_COUNT = 6;
+export const MAX_AGENT_COUNT = 12;
+export const MAX_TOTAL_AGENT_COUNT = 12;
 
 export interface AgentDraft {
   id: string;
@@ -54,10 +55,16 @@ export function setProviderQuantity(
   provider: AgentProviderId,
   quantity: number,
 ): AgentDraft[] {
-  const count = clampProviderQuantity(quantity);
   const firstIndex = rows.findIndex((row) => row.provider === provider);
   const withoutDuplicates = rows.filter(
     (row, index) => row.provider !== provider || index === firstIndex,
+  );
+  const otherTotal = withoutDuplicates
+    .filter((row) => row.provider !== provider)
+    .reduce((total, row) => total + clampAgentCount(row.count), 0);
+  const count = Math.min(
+    clampProviderQuantity(quantity),
+    Math.max(0, MAX_TOTAL_AGENT_COUNT - otherTotal),
   );
 
   if (count === 0) {
@@ -113,7 +120,10 @@ export function pendingLaunchIndexes(
 export function plannedAgentCount(
   rows: Array<Pick<AgentDraft, "count">>,
 ): number {
-  return rows.reduce((total, row) => total + clampAgentCount(row.count), 0);
+  return Math.min(
+    MAX_TOTAL_AGENT_COUNT,
+    rows.reduce((total, row) => total + clampAgentCount(row.count), 0),
+  );
 }
 
 export function canEnterWorkspace(project: { path: string } | null | undefined): boolean {
@@ -130,5 +140,5 @@ export function expandLaunchPlan(rows: AgentDraft[]): LaunchPlanItem[] {
       name: count > 1 ? `${baseName} ${index + 1}` : baseName,
       useWorktree: row.useWorktree,
     }));
-  });
+  }).slice(0, MAX_TOTAL_AGENT_COUNT);
 }

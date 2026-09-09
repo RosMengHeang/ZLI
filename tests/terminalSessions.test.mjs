@@ -10,30 +10,48 @@ test("grid places four terminals in two columns and two rows", async () => {
   assert.deepEqual(collectLeaves(grid).map((leaf) => leaf.terminalId), ["a", "c", "b", "d"]);
 });
 
-test("grid places five terminals as a two-by-two block with a full-height right pane", async () => {
+test("grids from five through twelve use exactly two balanced columns", async () => {
   const { arrangeLeaves, collectLeaves } = await import("../src/stores/paneTree.ts");
-  const grid = arrangeLeaves(["a", "b", "c", "d", "e"].map((id) => ({ id, terminalId: id })), "grid");
+  const horizontalSplitCount = (node) =>
+    node.type === "leaf"
+      ? 0
+      : Number(node.direction === "horizontal") + horizontalSplitCount(node.first) + horizontalSplitCount(node.second);
 
-  assert.equal(grid.direction, "horizontal");
-  assert.deepEqual(grid.sizes, [66.67, 33.33]);
-  assert.equal(grid.first.direction, "horizontal");
-  assert.equal(grid.first.first.direction, "vertical");
-  assert.equal(grid.first.second.direction, "vertical");
-  assert.equal(grid.second.terminalId, "e");
-  assert.deepEqual(collectLeaves(grid.first).map((leaf) => leaf.terminalId), ["a", "c", "b", "d"]);
+  for (let count = 5; count <= 12; count += 1) {
+    const ids = Array.from({ length: count }, (_, index) => String(index + 1));
+    const grid = arrangeLeaves(ids.map((id) => ({ id, terminalId: id })), "grid");
+    const left = collectLeaves(grid.first).map((leaf) => leaf.terminalId);
+    const right = collectLeaves(grid.second).map((leaf) => leaf.terminalId);
+
+    assert.equal(grid.direction, "horizontal", `${count} panes need a two-column root`);
+    assert.equal(horizontalSplitCount(grid), 1, `${count} panes must not create a third column`);
+    assert.ok(Math.abs(left.length - right.length) <= 1, `${count} panes need balanced columns`);
+    assert.deepEqual(left, ids.filter((_, index) => index % 2 === 0));
+    assert.deepEqual(right, ids.filter((_, index) => index % 2 === 1));
+  }
 });
 
-test("grid places six terminals in three columns and two rows", async () => {
-  const { arrangeLeaves, collectLeaves } = await import("../src/stores/paneTree.ts");
-  const grid = arrangeLeaves(["a", "b", "c", "d", "e", "f"].map((id) => ({ id, terminalId: id })), "grid");
+test("two-column grids give every terminal in a column equal height", async () => {
+  const { arrangeLeaves } = await import("../src/stores/paneTree.ts");
+  const leafHeights = (node, height = 1) => {
+    if (node.type === "leaf") return [height];
+    const firstHeight = height * node.sizes[0] / 100;
+    const secondHeight = height * node.sizes[1] / 100;
+    return [
+      ...leafHeights(node.first, firstHeight),
+      ...leafHeights(node.second, secondHeight),
+    ];
+  };
 
-  assert.equal(grid.direction, "horizontal");
-  assert.deepEqual(grid.sizes, [66.67, 33.33]);
-  assert.equal(grid.first.direction, "horizontal");
-  assert.equal(grid.first.first.direction, "vertical");
-  assert.equal(grid.first.second.direction, "vertical");
-  assert.equal(grid.second.direction, "vertical");
-  assert.deepEqual(collectLeaves(grid).map((leaf) => leaf.terminalId), ["a", "d", "b", "e", "c", "f"]);
+  for (let count = 5; count <= 12; count += 1) {
+    const ids = Array.from({ length: count }, (_, index) => String(index + 1));
+    const grid = arrangeLeaves(ids.map((id) => ({ id, terminalId: id })), "grid");
+    for (const column of [grid.first, grid.second]) {
+      const heights = leafHeights(column);
+      const expected = 1 / heights.length;
+      heights.forEach((height) => assert.ok(Math.abs(height - expected) < 0.0001));
+    }
+  }
 });
 
 test("keeps four terminal canvases readable through nested resizing", async () => {
