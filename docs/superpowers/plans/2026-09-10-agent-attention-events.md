@@ -271,6 +271,9 @@ git commit -m "feat: add deterministic agent attention reducer"
 - Modify: `src/components/Sidebar.tsx`
 - Modify: `src/components/StatusBadge.tsx`
 - Modify: `src/components/TopBar.tsx`
+- Modify: `src/components/AppShell.tsx` (or a dedicated bootstrap hook)
+- Create: `src/tauri/control.ts`
+- Modify: `src-tauri/src/commands.rs` and `src-tauri/src/lib.rs` (registered acknowledgement commands)
 - Test: `tests/attentionStore.test.mjs`
 
 **Interfaces:**
@@ -300,6 +303,8 @@ Expected: FAIL because the store does not exist.
 - [ ] **Step 3: Implement the store**
 
 Subscribe once in the app bootstrap to the Tauri `control-event`. Validate the envelope with `isAgentEventEnvelope`, ignore already-seen event IDs, reduce each agent record, and expose selectors for project unread count and next unread agent. Dispatch acknowledgement commands through the future control client boundary; for this task use the existing typed Tauri invoke wrapper.
+
+Register backend acknowledgement commands and publish their normalized events through the existing hub. Subscribe before requesting replay, merge live and replay events by sequence/event ID, and dispose listeners on unmount. Acknowledgement errors must remain visible and must not silently mark an agent read. Use the binding snake_case event names throughout.
 
 - [ ] **Step 4: Render semantic statuses**
 
