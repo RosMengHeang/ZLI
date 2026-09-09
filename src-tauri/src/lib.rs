@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod commands;
+pub mod control;
 pub mod error;
 pub mod pty;
 pub mod system;
