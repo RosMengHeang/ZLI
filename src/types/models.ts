@@ -161,6 +161,7 @@ export interface WorktreeInfo {
   isMain: boolean;
   locked: boolean;
   prunable: boolean;
+  orphaned: boolean;
 }
 
 export interface RemoveWorktreeRequest {

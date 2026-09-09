@@ -13,6 +13,7 @@ use super::process::{run_git, run_git_probe};
 use super::repo::{determine_base_branch, is_clean};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 const BRANCH_PREFIX: &str = "swarm/";
@@ -26,6 +27,7 @@ pub struct WorktreeInfo {
     pub is_main: bool,
     pub locked: bool,
     pub prunable: bool,
+    pub orphaned: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -118,7 +120,9 @@ pub fn list_worktrees(repository_root: &str) -> Result<Vec<WorktreeInfo>, GitErr
     ensure_is_repo(&repo_dir, repository_root)?;
 
     let out = run_git(&repo_dir, &["worktree", "list", "--porcelain"])?;
-    Ok(parse_worktree_list(&out.stdout))
+    let mut worktrees = parse_worktree_list(&out.stdout);
+    append_orphaned_slots(&repo_dir, &mut worktrees)?;
+    Ok(worktrees)
 }
 
 pub fn prune_worktrees(repository_root: &str) -> Result<(), GitError> {
@@ -151,14 +155,29 @@ pub fn remove_worktree(req: RemoveWorktreeRequest) -> Result<RemovedWorktreeResu
     ensure_is_repo(&repo_dir, &req.repository_root)?;
     let target = canonical_dir(&req.worktree_path)?;
 
-    let worktrees =
+    let mut worktrees =
         parse_worktree_list(&run_git(&repo_dir, &["worktree", "list", "--porcelain"])?.stdout);
+    append_orphaned_slots(&repo_dir, &mut worktrees)?;
     let entry = worktrees
         .iter()
         .find(|w| Path::new(&w.path) == target)
         .ok_or_else(|| GitError::WorktreeNotFound {
             path: req.worktree_path.clone(),
         })?;
+    if entry.orphaned {
+        if !req.force && directory_has_entries(&target)? {
+            return Err(GitError::DirtyWorktree {
+                path: req.worktree_path.clone(),
+                message: "orphaned checkout contains files; pass force=true to discard them"
+                    .to_string(),
+            });
+        }
+        remove_directory(&target, req.force)?;
+        return Ok(RemovedWorktreeResult {
+            path: req.worktree_path,
+            forced: req.force,
+        });
+    }
     if entry.is_main {
         return Err(GitError::InvalidInput {
             message: "refusing to remove the repository's main worktree".to_string(),
@@ -179,7 +198,14 @@ pub fn remove_worktree(req: RemoveWorktreeRequest) -> Result<RemovedWorktreeResu
     }
     let path_str = target.to_string_lossy().into_owned();
     args.push(&path_str);
-    run_git(&repo_dir, &args)?;
+    if let Err(error) = run_git(&repo_dir, &args) {
+        if req.force && is_permission_error(&error) {
+            remove_directory(&target, true)?;
+            let _ = run_git(&repo_dir, &["worktree", "prune"]);
+        } else {
+            return Err(error);
+        }
+    }
 
     Ok(RemovedWorktreeResult {
         path: req.worktree_path,
@@ -250,6 +276,155 @@ fn ensure_is_repo(dir: &Path, original: &str) -> Result<(), GitError> {
             path: original.to_string(),
         });
     }
+    Ok(())
+}
+
+fn append_orphaned_slots(
+    repo_dir: &Path,
+    worktrees: &mut Vec<WorktreeInfo>,
+) -> Result<(), GitError> {
+    let root = sibling_worktrees_dir(repo_dir)?;
+    if !root.is_dir() {
+        return Ok(());
+    }
+    let registered: HashSet<String> = worktrees
+        .iter()
+        .map(|worktree| path_key(&worktree.path))
+        .collect();
+    for entry in std::fs::read_dir(&root).map_err(|error| GitError::Io {
+        message: format!(
+            "failed to inspect worktree storage '{}': {error}",
+            root.display()
+        ),
+    })? {
+        let entry = entry.map_err(|error| GitError::Io {
+            message: format!(
+                "failed to inspect worktree storage '{}': {error}",
+                root.display()
+            ),
+        })?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !is_agent_slot_name(name) {
+            continue;
+        }
+        let resolved = canonical_dir(path.to_string_lossy().as_ref())?;
+        if registered.contains(&path_key(&resolved.to_string_lossy())) {
+            continue;
+        }
+        worktrees.push(WorktreeInfo {
+            path: to_display_string(&resolved),
+            branch: None,
+            head: String::new(),
+            is_main: false,
+            locked: false,
+            prunable: false,
+            orphaned: true,
+        });
+    }
+    Ok(())
+}
+
+fn path_key(path: &str) -> String {
+    path.replace('\\', "/")
+        .trim_end_matches('/')
+        .to_ascii_lowercase()
+}
+
+fn is_agent_slot_name(name: &str) -> bool {
+    let Some((_, suffix)) = name.rsplit_once('-') else {
+        return false;
+    };
+    suffix.len() == 8
+        && suffix
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
+}
+
+fn directory_has_entries(path: &Path) -> Result<bool, GitError> {
+    let mut entries = std::fs::read_dir(path).map_err(|error| GitError::Io {
+        message: format!(
+            "failed to inspect worktree directory '{}': {error}",
+            path.display()
+        ),
+    })?;
+    Ok(entries
+        .next()
+        .transpose()
+        .map_err(|error| GitError::Io {
+            message: format!(
+                "failed to inspect worktree directory '{}': {error}",
+                path.display()
+            ),
+        })?
+        .is_some())
+}
+
+fn remove_directory(path: &Path, force: bool) -> Result<(), GitError> {
+    if force {
+        clear_readonly(path)?;
+        std::fs::remove_dir_all(path).map_err(|error| GitError::Io {
+            message: format!("failed to delete worktree directory '{}': {error}; close programs using this folder and retry", path.display()),
+        })
+    } else {
+        std::fs::remove_dir(path).map_err(|error| GitError::Io {
+            message: format!("failed to delete empty worktree directory '{}': {error}; close programs using this folder and retry", path.display()),
+        })
+    }
+}
+
+fn is_permission_error(error: &GitError) -> bool {
+    matches!(error, GitError::GitCommandFailed { message, .. } if {
+        let message = message.to_ascii_lowercase();
+        message.contains("permission denied") || message.contains("access is denied")
+    })
+}
+
+#[cfg(windows)]
+fn clear_readonly(path: &Path) -> Result<(), GitError> {
+    let metadata = std::fs::metadata(path).map_err(|error| GitError::Io {
+        message: format!(
+            "failed to inspect worktree directory '{}': {error}",
+            path.display()
+        ),
+    })?;
+    let mut permissions = metadata.permissions();
+    permissions.set_readonly(false);
+    std::fs::set_permissions(path, permissions).map_err(|error| GitError::Io {
+        message: format!(
+            "failed to clear read-only state from '{}': {error}",
+            path.display()
+        ),
+    })?;
+    if metadata.is_dir() {
+        for entry in std::fs::read_dir(path).map_err(|error| GitError::Io {
+            message: format!(
+                "failed to inspect worktree directory '{}': {error}",
+                path.display()
+            ),
+        })? {
+            clear_readonly(
+                &entry
+                    .map_err(|error| GitError::Io {
+                        message: format!(
+                            "failed to inspect worktree directory '{}': {error}",
+                            path.display()
+                        ),
+                    })?
+                    .path(),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn clear_readonly(_path: &Path) -> Result<(), GitError> {
     Ok(())
 }
 
@@ -350,6 +525,7 @@ fn parse_worktree_list(porcelain: &str) -> Vec<WorktreeInfo> {
                     is_main: result.is_empty(),
                     locked,
                     prunable,
+                    orphaned: false,
                 });
                 locked = false;
                 prunable = false;
@@ -378,6 +554,7 @@ fn parse_worktree_list(porcelain: &str) -> Vec<WorktreeInfo> {
             is_main: result.is_empty(),
             locked,
             prunable,
+            orphaned: false,
         });
     }
 

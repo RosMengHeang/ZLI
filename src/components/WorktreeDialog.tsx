@@ -53,7 +53,7 @@ export function WorktreeDialog() {
       setWorktrees(listed);
       const entries = await Promise.all(
         listed.map(async (worktree) => {
-          if (worktree.prunable) return [worktree.path, null] as const;
+          if (worktree.prunable || worktree.orphaned) return [worktree.path, null] as const;
           try {
             return [worktree.path, await gitStatus(worktree.path)] as const;
           } catch {
@@ -153,7 +153,7 @@ export function WorktreeDialog() {
                           {worktree.path}
                         </div>
                         <div className="mt-1 text-[11px] text-mute">
-                          {active ? "In use by a running agent" : worktree.prunable ? "Missing from disk" : status === undefined ? "Checking files…" : status === null ? "Status unavailable" : dirty ? `${status.changedFiles.length} changed file${status.changedFiles.length === 1 ? "" : "s"}` : "Clean checkout"}
+                          {active ? "In use by a running agent" : worktree.prunable ? "Missing from disk" : worktree.orphaned ? "Orphaned directory" : status === undefined ? "Checking files…" : status === null ? "Status unavailable" : dirty ? `${status.changedFiles.length} changed file${status.changedFiles.length === 1 ? "" : "s"}` : "Clean checkout"}
                         </div>
                       </div>
                       {active ? (

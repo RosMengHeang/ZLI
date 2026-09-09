@@ -9,7 +9,8 @@ test("keeps the main checkout out and finds ZLI-managed worktrees", async () => 
     { path: "D:/repo.worktrees/claude-a1", branch: "swarm/claude-code-a1", isMain: false, locked: false, prunable: false, head: "2" },
     { path: "D:/repo.worktrees/feature", branch: "feature/keep", isMain: false, locked: false, prunable: false, head: "3" },
     { path: "D:/missing", branch: "swarm/codex-b2", isMain: false, locked: false, prunable: true, head: "4" },
+    { path: "D:/orphan", branch: null, isMain: false, locked: false, prunable: false, orphaned: true, head: "" },
   ]);
 
-  assert.deepEqual(worktrees.map((worktree) => worktree.branch), ["swarm/claude-code-a1", "swarm/codex-b2"]);
+  assert.deepEqual(worktrees.map((worktree) => worktree.branch), ["swarm/claude-code-a1", "swarm/codex-b2", null]);
 });

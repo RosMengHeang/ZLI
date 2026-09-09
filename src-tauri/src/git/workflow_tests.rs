@@ -162,6 +162,35 @@ fn refuses_to_remove_dirty_worktree_without_explicit_force() {
 }
 
 #[test]
+fn lists_and_removes_an_empty_orphaned_agent_slot() {
+    let repo = init_repo();
+    let repo_path = repo.path().to_string_lossy().into_owned();
+    let worktrees_root = repo
+        .path()
+        .parent()
+        .unwrap()
+        .join(format!("{}.worktrees", repo.path().file_name().unwrap().to_string_lossy()));
+    let orphan = worktrees_root.join("claude-code-deadbeef");
+    fs::create_dir_all(&orphan).expect("create orphaned agent slot");
+
+    let listed = list_worktrees(&repo_path).expect("list worktrees");
+    let orphan_entry = listed
+        .iter()
+        .find(|worktree| Path::new(&worktree.path) == orphan)
+        .expect("orphaned slot should be listed");
+    assert!(orphan_entry.orphaned);
+
+    remove_worktree(RemoveWorktreeRequest {
+        repository_root: repo_path,
+        worktree_path: orphan.to_string_lossy().into_owned(),
+        force: false,
+    })
+    .expect("remove empty orphaned slot");
+    assert!(!orphan.exists());
+    fs::remove_dir_all(worktrees_root).expect("remove empty worktree storage directory");
+}
+
+#[test]
 fn detects_merge_conflicts_and_leaves_them_for_manual_resolution() {
     let repo = init_repo();
     let repo_path = repo.path().to_string_lossy().into_owned();
