@@ -125,3 +125,9 @@ test("attention quiet period and hysteresis require evidence and prevent repeate
     assert.equal(shouldPromoteToWaiting(state, evidence, 10000), false);
   }
 });
+
+test("high-confidence waiting evidence rejects invalid monotonic time", () => {
+  for (const now of [-1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    assert.equal(shouldPromoteToWaiting(initial(), { kind: "provider_hook" }, now), false, `now=${now}`);
+  }
+});

@@ -24,9 +24,9 @@ export type WaitingEvidence =
 export function shouldPromoteToWaiting(state: AttentionState, evidence: WaitingEvidence, now: number): boolean {
   if (state.attentionStatus !== "working"
     || (state.executionStatus !== "starting" && state.executionStatus !== "running")) return false;
+  if (!Number.isFinite(now) || now < 0) return false;
   if (evidence.kind !== "generic_output") return true;
   return evidence.lastOutputAt !== undefined
-    && Number.isFinite(now) && now >= 0
     && Number.isFinite(evidence.lastOutputAt) && evidence.lastOutputAt >= 0
     && now - evidence.lastOutputAt >= 5000;
 }
