@@ -23,8 +23,10 @@ test("attention lifecycle separates execution, attention, and acknowledgement", 
     ["attention_mark_all_read", "exited", "completed", 0],
     ["agent_started", "running", "working", 0],
     ["agent_failed", "error", "failed", 1],
-    ["agent_exited", "exited", "failed", 1],
+    ["agent_exited", "error", "failed", 1],
+    ["agent_started", "running", "working", 1],
     ["agent_paused", "paused", "paused", 1],
+    ["agent_started", "running", "working", 1],
     ["agent_stopped", "stopped", "offline", 1],
     ["agent_exited", "stopped", "offline", 1],
   ];
@@ -44,6 +46,35 @@ test("attention exit codes distinguish success, failure, and unknown outcome", (
   }
   assert.deepEqual(reduceAttention(initial(), event("agent_output", { type: "text", text: "Done! >" })), initial());
   assert.deepEqual(reduceAttention(initial(), event("browser_console_error")), initial());
+});
+
+test("terminal execution states reject stale lifecycle evidence until an agent starts", () => {
+  const terminalStates = [
+    { executionStatus: "error", attentionStatus: "failed", unread: true, unreadCount: 4 },
+    { executionStatus: "exited", attentionStatus: "completed", unread: false, unreadCount: 0 },
+    { executionStatus: "stopped", attentionStatus: "offline", unread: true, unreadCount: 2 },
+  ];
+  const staleKinds = [
+    "agent_prompt_detected",
+    "agent_waiting",
+    "agent_completed",
+    "agent_failed",
+    "agent_paused",
+    "agent_stopped",
+    "agent_exited",
+  ];
+
+  for (const state of terminalStates) {
+    for (const kind of staleKinds) {
+      assert.deepEqual(reduceAttention(state, event(kind)), state, `${state.executionStatus} + ${kind}`);
+    }
+    assert.deepEqual(reduceAttention(state, event("agent_started")), {
+      executionStatus: "running",
+      attentionStatus: "working",
+      unread: state.unread,
+      unreadCount: state.unreadCount,
+    }, `${state.executionStatus} + agent_started`);
+  }
 });
 
 test("attention notification derives once from the pre-event state with safe context", () => {
@@ -73,6 +104,19 @@ test("attention quiet period and hysteresis require evidence and prevent repeate
   assert.equal(shouldPromoteToWaiting(initial(), { ...evidence, lastOutputAt: 2000 }, 6000), false);
   assert.equal(shouldPromoteToWaiting(initial(), evidence, 999), false);
   assert.equal(shouldPromoteToWaiting(initial(), { kind: "generic_output" }, 6000), false);
+  for (const [lastOutputAt, now] of [
+    [-1, 6000],
+    [-6000, -1],
+    [Number.NaN, 6000],
+    [1000, Number.NaN],
+    [Number.POSITIVE_INFINITY, 6000],
+    [1000, Number.POSITIVE_INFINITY],
+    [Number.NEGATIVE_INFINITY, 6000],
+    [1000, Number.NEGATIVE_INFINITY],
+  ]) {
+    assert.equal(shouldPromoteToWaiting(initial(), { kind: "generic_output", lastOutputAt }, now), false,
+      `lastOutputAt=${lastOutputAt}, now=${now}`);
+  }
   for (const kind of ["provider_hook", "process_exit", "taxchat_delivery", "api", "provider_prompt"]) {
     assert.equal(shouldPromoteToWaiting(initial(), { kind }, 0), true, kind);
   }

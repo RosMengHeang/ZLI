@@ -91,14 +91,26 @@ fn attention_lifecycle_and_acknowledgement() {
         ),
         (
             AgentEventKind::AgentExited,
-            ExecutionStatus::Exited,
+            ExecutionStatus::Error,
             AttentionStatus::Failed,
+            1,
+        ),
+        (
+            AgentEventKind::AgentStarted,
+            ExecutionStatus::Running,
+            AttentionStatus::Working,
             1,
         ),
         (
             AgentEventKind::AgentPaused,
             ExecutionStatus::Paused,
             AttentionStatus::Paused,
+            1,
+        ),
+        (
+            AgentEventKind::AgentStarted,
+            ExecutionStatus::Running,
+            AttentionStatus::Working,
             1,
         ),
         (
@@ -122,6 +134,59 @@ fn attention_lifecycle_and_acknowledgement() {
         assert_eq!(state.attention_status, attention);
         assert_eq!(state.unread_count, unread);
         assert_eq!(state.unread, unread > 0);
+    }
+}
+
+#[test]
+fn terminal_execution_states_reject_stale_lifecycle_evidence_until_an_agent_starts() {
+    use super::attention::{AttentionReducer, AttentionState};
+    let terminal_states = [
+        AttentionState {
+            execution_status: ExecutionStatus::Error,
+            attention_status: AttentionStatus::Failed,
+            unread: true,
+            unread_count: 4,
+        },
+        AttentionState {
+            execution_status: ExecutionStatus::Exited,
+            attention_status: AttentionStatus::Completed,
+            unread: false,
+            unread_count: 0,
+        },
+        AttentionState {
+            execution_status: ExecutionStatus::Stopped,
+            attention_status: AttentionStatus::Offline,
+            unread: true,
+            unread_count: 2,
+        },
+    ];
+    let stale_kinds = [
+        AgentEventKind::AgentPromptDetected,
+        AgentEventKind::AgentWaiting,
+        AgentEventKind::AgentCompleted,
+        AgentEventKind::AgentFailed,
+        AgentEventKind::AgentPaused,
+        AgentEventKind::AgentStopped,
+        AgentEventKind::AgentExited,
+    ];
+
+    for state in terminal_states {
+        for kind in &stale_kinds {
+            let mut event = test_event("stale");
+            event.kind = kind.clone();
+            assert_eq!(AttentionReducer::apply(&state, &event), state);
+        }
+        let mut started = test_event("started");
+        started.kind = AgentEventKind::AgentStarted;
+        assert_eq!(
+            AttentionReducer::apply(&state, &started),
+            AttentionState {
+                execution_status: ExecutionStatus::Running,
+                attention_status: AttentionStatus::Working,
+                unread: state.unread,
+                unread_count: state.unread_count,
+            }
+        );
     }
 }
 

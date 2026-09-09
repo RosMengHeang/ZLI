@@ -26,9 +26,12 @@ export function shouldPromoteToWaiting(state: AttentionState, evidence: WaitingE
     || (state.executionStatus !== "starting" && state.executionStatus !== "running")) return false;
   if (evidence.kind !== "generic_output") return true;
   return evidence.lastOutputAt !== undefined
-    && Number.isFinite(now) && Number.isFinite(evidence.lastOutputAt)
+    && Number.isFinite(now) && now >= 0
+    && Number.isFinite(evidence.lastOutputAt) && evidence.lastOutputAt >= 0
     && now - evidence.lastOutputAt >= 5000;
 }
+
+const terminalExecutionStatuses: ReadonlySet<ExecutionStatus> = new Set(["error", "exited", "stopped"]);
 
 // Envelopes must be validated, ordered, and deduplicated by the caller.
 export function reduceAttention(state: AttentionState, event: AgentEventEnvelope): AttentionState {
@@ -37,6 +40,12 @@ export function reduceAttention(state: AttentionState, event: AgentEventEnvelope
     case "attention_ack":
     case "attention_mark_all_read":
       return { ...state, unread: false, unreadCount: 0 };
+    case "agent_started":
+      break;
+    default:
+      if (terminalExecutionStatuses.has(state.executionStatus)) return next;
+  }
+  switch (event.kind) {
     case "agent_started":
       next.executionStatus = "running";
       next.attentionStatus = "working";

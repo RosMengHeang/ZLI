@@ -67,6 +67,13 @@ pub fn should_promote_to_waiting(
 
 pub struct AttentionReducer;
 
+fn is_terminal_execution(status: &ExecutionStatus) -> bool {
+    matches!(
+        status,
+        ExecutionStatus::Error | ExecutionStatus::Exited | ExecutionStatus::Stopped
+    )
+}
+
 impl AttentionReducer {
     // Envelopes must be validated, ordered, and deduplicated by the caller.
     pub fn apply(state: &AttentionState, event: &AgentEventEnvelope) -> AttentionState {
@@ -77,6 +84,11 @@ impl AttentionReducer {
                 next.unread_count = 0;
                 return next;
             }
+            AgentEventKind::AgentStarted => {}
+            _ if is_terminal_execution(&state.execution_status) => return next,
+            _ => {}
+        }
+        match event.kind {
             AgentEventKind::AgentStarted => {
                 next.execution_status = ExecutionStatus::Running;
                 next.attention_status = AttentionStatus::Working;
