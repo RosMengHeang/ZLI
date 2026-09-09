@@ -163,12 +163,15 @@ impl AgentManager {
             .get(id)
             .map(|agent| agent.terminal_id.clone())
             .ok_or_else(|| BackendError::SessionNotFound(id.to_owned()))?;
-        pty.kill(&terminal_id)?;
-        if let Ok(mut agents) = self.agents.lock() {
-            if let Some(agent) = agents.get_mut(id) {
-                agent.status = AgentStatus::Exited;
+        if let Err(error) = pty.kill(&terminal_id) {
+            if !matches!(error, BackendError::SessionNotFound(_)) {
+                return Err(error);
             }
         }
+        self.agents
+            .lock()
+            .map_err(|_| BackendError::Internal("agent lock poisoned".into()))?
+            .remove(id);
         Ok(())
     }
 
@@ -516,6 +519,9 @@ bearer_token_env_var = "SWARMTERM_SESSION"
             .unwrap();
         assert_eq!(agent.status, super::AgentStatus::Running);
         assert_eq!(pty.session_count(), 1);
+        pty.kill(&agent.terminal_id).unwrap();
         agents.stop(&agent.id, &pty).unwrap();
+        assert_eq!(pty.session_count(), 0);
+        assert!(agents.list(&pty).unwrap().is_empty());
     }
 }

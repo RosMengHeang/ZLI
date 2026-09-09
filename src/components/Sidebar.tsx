@@ -50,6 +50,7 @@ export function Sidebar() {
   const terminalSessions = useTerminalStore((state) => state.sessions);
   const selectedAgentId = useAgentStore((state) => state.selectedAgentId);
   const selectAgent = useAgentStore((state) => state.selectAgent);
+  const removeAndStopAgent = useAgentStore((state) => state.removeAndStop);
   const project = useProjectStore((state) => state.project);
   const loading = useProjectStore((state) => state.loading);
   const openFromDialog = useProjectStore((state) => state.openFromDialog);
@@ -136,6 +137,11 @@ export function Sidebar() {
     const terminal = agent ? terminalSessions[agent.terminalId] : undefined;
     const displayedStatus = terminal?.status ?? agent?.status;
     const saved = !agent;
+    const hasIsolatedWorktree = Boolean(
+      agent?.worktreePath &&
+        agent.worktreePath !== workspace.project.repositoryRoot &&
+        agent.worktreePath !== workspace.project.path,
+    );
     return (
       <div key={recipe.resumeId} className="workspace-agent-row-shell" data-active={active}>
         <Button
@@ -160,7 +166,10 @@ export function Sidebar() {
               <DropdownMenuItem onSelect={() => void copyText(agent.branch)}>Copy branch name</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onSelect={() => void useAgentStore.getState().stop(agent.id)}>Stop</DropdownMenuItem>
-              <DropdownMenuItem variant="destructive" onSelect={() => { selectAgent(agent.id); useUiStore.getState().setDiscardOpen(true); }}>Remove…</DropdownMenuItem>
+              <DropdownMenuItem variant="destructive" onSelect={() => void removeAndStopAgent(agent.id)}>Remove agent</DropdownMenuItem>
+              {hasIsolatedWorktree ? (
+                <DropdownMenuItem variant="destructive" onSelect={() => { selectAgent(agent.id); useUiStore.getState().setDiscardOpen(true); }}>Discard worktree…</DropdownMenuItem>
+              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}

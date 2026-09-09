@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { isCommandMissing, toAppError } from "../lib/errors";
 import { newId } from "../lib/ids";
+import { releaseAgentResources } from "../lib/agentRemoval";
 import { sessionFromAgent } from "../lib/terminalSessions";
 import { launchAgent, listAgentProviders, stopAgent } from "../tauri/agents";
 import { gitCreateWorktree } from "../tauri/git";
@@ -29,6 +30,7 @@ interface AgentState {
   }) => Promise<Agent | null>;
   restoreWorkspaceAgents: (project: { repositoryRoot: string; path: string }) => Promise<void>;
   stop: (id: string) => Promise<void>;
+  removeAndStop: (id: string, beforeRemove?: () => Promise<unknown>) => Promise<boolean>;
   remove: (id: string) => void;
   retireFailed: (id: string) => Promise<void>;
 }
@@ -280,6 +282,50 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }));
     if (agent.projectRoot && agent.resumeId) {
       useWorkspaceStore.getState().forgetAgent(agent.projectRoot, agent.resumeId);
+    }
+  },
+
+  removeAndStop: async (id, beforeRemove) => {
+    const agent = get().agents[id];
+    if (!agent) return true;
+    set({ launchError: null });
+    const paneIds = useLayoutStore
+      .getState()
+      .leaves()
+      .filter((leaf) => leaf.terminalId === agent.terminalId)
+      .map((leaf) => leaf.id);
+    try {
+      await releaseAgentResources(
+        { agentId: id, terminalId: agent.terminalId, paneIds },
+        {
+          stopAgent: async (agentId) => {
+            try {
+              await stopAgent(agentId);
+            } catch (err) {
+              const parsed = toAppError(err);
+              if (
+                !isCommandMissing(parsed) &&
+                parsed.code !== "SessionNotFound" &&
+                parsed.code !== "sessionNotFound"
+              ) {
+                throw parsed;
+              }
+            }
+          },
+          closeTerminal: (terminalId) =>
+            useTerminalStore.getState().closeSession(terminalId),
+          closePane: (paneId) => useLayoutStore.getState().closePane(paneId),
+          beforeRemove,
+          removeAgent: (agentId) => get().remove(agentId),
+        },
+      );
+      set({ launchError: null });
+      return true;
+    } catch (err) {
+      const parsed = toAppError(err);
+      useTerminalStore.getState().markError(agent.terminalId, parsed.message);
+      set({ launchError: parsed });
+      return false;
     }
   },
 

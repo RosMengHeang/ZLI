@@ -2,9 +2,7 @@ import { useState } from "react";
 import { Modal } from "./Modal";
 import { useAgentStore } from "../stores/agentStore";
 import { useGitStore } from "../stores/gitStore";
-import { useLayoutStore } from "../stores/layoutStore";
 import { useProjectStore } from "../stores/projectStore";
-import { useTerminalStore } from "../stores/terminalStore";
 import { useUiStore } from "../stores/uiStore";
 import { toAppError } from "../lib/errors";
 import { terminalRetry } from "../lib/terminalRetry";
@@ -17,16 +15,10 @@ export function DiscardDialog() {
   const project = useProjectStore((s) => s.project);
   const selectedAgentId = useAgentStore((s) => s.selectedAgentId);
   const agent = useAgentStore((s) => (selectedAgentId ? s.agents[selectedAgentId] : undefined));
-  const removeAgent = useAgentStore((s) => s.remove);
+  const removeAndStopAgent = useAgentStore((s) => s.removeAndStop);
   const statusByPath = useGitStore((s) => s.statusByPath);
   const discardWorktree = useGitStore((s) => s.discardWorktree);
   const error = useGitStore((s) => s.error);
-  const stopSession = useTerminalStore((s) => s.stopSession);
-  const closeSession = useTerminalStore((s) => s.closeSession);
-  const markExited = useTerminalStore((s) => s.markExited);
-  const markError = useTerminalStore((s) => s.markError);
-  const paneTreeLeaves = useLayoutStore((s) => s.leaves);
-  const closePane = useLayoutStore((s) => s.closePane);
   const [busy, setBusy] = useState(false);
   const [typed, setTyped] = useState("");
   const [operationError, setOperationError] = useState<string | null>(null);
@@ -47,19 +39,19 @@ export function DiscardDialog() {
     setOperationError(null);
     try {
       const started = await terminalRetry.runExclusive(agent.terminalId, async () => {
-        await stopSession(agent.terminalId);
-        markExited(agent.terminalId, null);
-        await discardWorktree({
-          repositoryRoot: project.repositoryRoot,
-          worktreePath: agent.worktreePath as string,
-          branch: agent.branch,
-        });
-        const closed = await closeSession(agent.terminalId);
-        if (!closed) throw new Error("The terminal could not be closed after removing the worktree.");
-        for (const leaf of paneTreeLeaves()) {
-          if (leaf.terminalId === agent.terminalId) closePane(leaf.id);
+        const removed = await removeAndStopAgent(agent.id, () =>
+          discardWorktree({
+            repositoryRoot: project.repositoryRoot,
+            worktreePath: agent.worktreePath as string,
+            branch: agent.branch,
+          }),
+        );
+        if (!removed) {
+          throw (
+            useAgentStore.getState().launchError ??
+            new Error("The agent stopped, but its worktree could not be discarded.")
+          );
         }
-        removeAgent(agent.id);
       });
       if (!started) {
         setOperationError("Wait for the terminal operation to finish, then try again.");
@@ -69,7 +61,6 @@ export function DiscardDialog() {
       setOpen(false);
     } catch (caught) {
       const message = toAppError(caught).message;
-      markError(agent.terminalId, message);
       setOperationError(message);
     } finally {
       setBusy(false);
