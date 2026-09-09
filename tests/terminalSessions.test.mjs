@@ -10,6 +10,32 @@ test("grid places four terminals in two columns and two rows", async () => {
   assert.deepEqual(collectLeaves(grid).map((leaf) => leaf.terminalId), ["a", "c", "b", "d"]);
 });
 
+test("grid places five terminals as a two-by-two block with a full-height right pane", async () => {
+  const { arrangeLeaves, collectLeaves } = await import("../src/stores/paneTree.ts");
+  const grid = arrangeLeaves(["a", "b", "c", "d", "e"].map((id) => ({ id, terminalId: id })), "grid");
+
+  assert.equal(grid.direction, "horizontal");
+  assert.deepEqual(grid.sizes, [66.67, 33.33]);
+  assert.equal(grid.first.direction, "horizontal");
+  assert.equal(grid.first.first.direction, "vertical");
+  assert.equal(grid.first.second.direction, "vertical");
+  assert.equal(grid.second.terminalId, "e");
+  assert.deepEqual(collectLeaves(grid.first).map((leaf) => leaf.terminalId), ["a", "c", "b", "d"]);
+});
+
+test("grid places six terminals in three columns and two rows", async () => {
+  const { arrangeLeaves, collectLeaves } = await import("../src/stores/paneTree.ts");
+  const grid = arrangeLeaves(["a", "b", "c", "d", "e", "f"].map((id) => ({ id, terminalId: id })), "grid");
+
+  assert.equal(grid.direction, "horizontal");
+  assert.deepEqual(grid.sizes, [66.67, 33.33]);
+  assert.equal(grid.first.direction, "horizontal");
+  assert.equal(grid.first.first.direction, "vertical");
+  assert.equal(grid.first.second.direction, "vertical");
+  assert.equal(grid.second.direction, "vertical");
+  assert.deepEqual(collectLeaves(grid).map((leaf) => leaf.terminalId), ["a", "d", "b", "e", "c", "f"]);
+});
+
 test("keeps four terminal canvases readable through nested resizing", async () => {
   const { minimumWorkspaceSize, workspacePanelMinSize } = await import("../src/lib/workspaceLayout.ts");
   const leaf = (id) => ({ type: "leaf", id, terminalId: id });

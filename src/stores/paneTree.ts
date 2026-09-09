@@ -121,6 +121,15 @@ function stack(direction: SplitDirection, nodes: PaneNode[]): PaneNode {
   return nodes.reduce((acc, node) => splitOf(direction, acc, node));
 }
 
+function threeColumnGrid(first: PaneNode, second: PaneNode, third: PaneNode): PaneNode {
+  return splitOf(
+    "horizontal",
+    splitOf("horizontal", first, second),
+    third,
+    [66.67, 33.33],
+  );
+}
+
 function nestEven(nodes: PaneNode[], direction: SplitDirection): PaneNode {
   if (nodes.length === 1) return nodes[0];
   if (nodes.length === 2) return splitOf(direction, nodes[0], nodes[1]);
@@ -147,6 +156,20 @@ export function arrangeLeaves(
     if (nodes.length < 3) return nestEven(nodes, "horizontal");
     if (nodes.length === 3) {
       return splitOf("horizontal", nodes[0], stack("vertical", nodes.slice(1)), [58, 42]);
+    }
+    if (nodes.length === 5) {
+      return threeColumnGrid(
+        stack("vertical", [nodes[0], nodes[2]]),
+        stack("vertical", [nodes[1], nodes[3]]),
+        nodes[4],
+      );
+    }
+    if (nodes.length === 6) {
+      return threeColumnGrid(
+        stack("vertical", [nodes[0], nodes[3]]),
+        stack("vertical", [nodes[1], nodes[4]]),
+        stack("vertical", [nodes[2], nodes[5]]),
+      );
     }
     const left: PaneNode[] = [];
     const right: PaneNode[] = [];
