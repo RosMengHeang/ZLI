@@ -65,6 +65,8 @@ export function applyTerminalSurface(host: TerminalSurfaceElement): void {
   host.style.backgroundColor = TERMINAL_BACKGROUND;
   const xterm = host.querySelector(".xterm");
   if (xterm) xterm.style.backgroundColor = TERMINAL_BACKGROUND;
+  const viewport = host.querySelector(".xterm-viewport");
+  if (viewport) viewport.style.backgroundColor = TERMINAL_BACKGROUND;
 }
 
 export async function preloadTerminalFont(): Promise<boolean> {

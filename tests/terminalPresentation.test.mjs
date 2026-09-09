@@ -44,10 +44,13 @@ test("terminal presentation uses stable compact metrics and restrained colors", 
 test("terminal surface paints unused row space with the terminal background", async () => {
   const presentation = await import("../src/lib/terminalPresentation.ts").catch(() => ({}));
   const xterm = { style: {} };
+  const viewport = { style: {} };
   const host = {
     style: {},
     querySelector(selector) {
-      return selector === ".xterm" ? xterm : null;
+      if (selector === ".xterm") return xterm;
+      if (selector === ".xterm-viewport") return viewport;
+      return null;
     },
   };
 
@@ -55,4 +58,5 @@ test("terminal surface paints unused row space with the terminal background", as
 
   assert.equal(host.style.backgroundColor, "#1f2021");
   assert.equal(xterm.style.backgroundColor, "#1f2021");
+  assert.equal(viewport.style.backgroundColor, "#1f2021");
 });
