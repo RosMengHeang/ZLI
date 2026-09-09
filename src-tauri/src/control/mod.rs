@@ -1,3 +1,4 @@
+pub mod attention;
 mod events;
 
 pub use events::{

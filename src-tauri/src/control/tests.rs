@@ -13,6 +13,202 @@ use std::time::{Duration, Instant};
 use tempfile::tempdir;
 
 #[test]
+fn attention_lifecycle_and_acknowledgement() {
+    use super::attention::{AttentionReducer, AttentionState};
+    let mut state = AttentionState::default();
+    for (kind, execution, attention, unread) in [
+        (
+            AgentEventKind::AgentStarted,
+            ExecutionStatus::Running,
+            AttentionStatus::Working,
+            0,
+        ),
+        (
+            AgentEventKind::AgentWaiting,
+            ExecutionStatus::Running,
+            AttentionStatus::WaitingForYou,
+            1,
+        ),
+        (
+            AgentEventKind::AttentionAck,
+            ExecutionStatus::Running,
+            AttentionStatus::WaitingForYou,
+            0,
+        ),
+        (
+            AgentEventKind::AgentPromptDetected,
+            ExecutionStatus::Running,
+            AttentionStatus::WaitingForYou,
+            0,
+        ),
+        (
+            AgentEventKind::AgentOutput,
+            ExecutionStatus::Running,
+            AttentionStatus::WaitingForYou,
+            0,
+        ),
+        (
+            AgentEventKind::AgentStarted,
+            ExecutionStatus::Running,
+            AttentionStatus::Working,
+            0,
+        ),
+        (
+            AgentEventKind::AgentPromptDetected,
+            ExecutionStatus::Running,
+            AttentionStatus::WaitingForYou,
+            1,
+        ),
+        (
+            AgentEventKind::AgentCompleted,
+            ExecutionStatus::Running,
+            AttentionStatus::Completed,
+            2,
+        ),
+        (
+            AgentEventKind::AgentExited,
+            ExecutionStatus::Exited,
+            AttentionStatus::Completed,
+            2,
+        ),
+        (
+            AgentEventKind::AttentionMarkAllRead,
+            ExecutionStatus::Exited,
+            AttentionStatus::Completed,
+            0,
+        ),
+        (
+            AgentEventKind::AgentStarted,
+            ExecutionStatus::Running,
+            AttentionStatus::Working,
+            0,
+        ),
+        (
+            AgentEventKind::AgentFailed,
+            ExecutionStatus::Error,
+            AttentionStatus::Failed,
+            1,
+        ),
+        (
+            AgentEventKind::AgentExited,
+            ExecutionStatus::Exited,
+            AttentionStatus::Failed,
+            1,
+        ),
+        (
+            AgentEventKind::AgentPaused,
+            ExecutionStatus::Paused,
+            AttentionStatus::Paused,
+            1,
+        ),
+        (
+            AgentEventKind::AgentStopped,
+            ExecutionStatus::Stopped,
+            AttentionStatus::Offline,
+            1,
+        ),
+        (
+            AgentEventKind::AgentExited,
+            ExecutionStatus::Stopped,
+            AttentionStatus::Offline,
+            1,
+        ),
+    ] {
+        let mut event = test_event("attention");
+        event.kind = kind;
+        event.payload = AgentEventPayload::Empty;
+        state = AttentionReducer::apply(&state, &event);
+        assert_eq!(state.execution_status, execution);
+        assert_eq!(state.attention_status, attention);
+        assert_eq!(state.unread_count, unread);
+        assert_eq!(state.unread, unread > 0);
+    }
+}
+
+#[test]
+fn attention_exit_codes_and_notification_derivation() {
+    use super::attention::{derive_notification, AttentionReducer, AttentionState};
+    for (code, attention, unread) in [
+        (Some(0), AttentionStatus::Completed, 1),
+        (Some(7), AttentionStatus::Failed, 1),
+        (None, AttentionStatus::Offline, 0),
+    ] {
+        let mut event = test_event("exit");
+        event.kind = AgentEventKind::AgentExited;
+        event.payload = AgentEventPayload::Exit { code };
+        let state = AttentionReducer::apply(&AttentionState::default(), &event);
+        assert_eq!(state.execution_status, ExecutionStatus::Exited);
+        assert_eq!(state.attention_status, attention);
+        assert_eq!(state.unread_count, unread);
+    }
+    let mut event = test_event("waiting");
+    event.kind = AgentEventKind::AgentWaiting;
+    event.payload = AgentEventPayload::Attention {
+        reason: "\u{1b}[31m<script>secret\n".into(),
+    };
+    let initial = AttentionState::default();
+    let notification = derive_notification(&event, &initial).expect("waiting notification");
+    assert_eq!(notification.project_id, "project-1");
+    assert_eq!(notification.agent_id.as_deref(), Some("agent-1"));
+    assert!(!notification.message.contains("secret"));
+    let waiting = AttentionReducer::apply(&initial, &event);
+    assert!(derive_notification(&event, &waiting).is_none());
+    let mut ack = event.clone();
+    ack.kind = AgentEventKind::AttentionAck;
+    assert!(derive_notification(&event, &AttentionReducer::apply(&waiting, &ack)).is_none());
+    for kind in [
+        AgentEventKind::AgentOutput,
+        AgentEventKind::AgentPaused,
+        AgentEventKind::AgentStopped,
+        AgentEventKind::AgentMessageDelivered,
+        AgentEventKind::AttentionAck,
+    ] {
+        event.kind = kind;
+        assert!(derive_notification(&event, &initial).is_none());
+    }
+}
+
+#[test]
+fn attention_quiet_period_and_hysteresis() {
+    use super::attention::{
+        should_promote_to_waiting, AttentionReducer, AttentionState, WaitingEvidence,
+    };
+    let initial = AttentionState::default();
+    let evidence = WaitingEvidence::GenericOutput {
+        last_output_at: Some(1000),
+    };
+    assert!(!should_promote_to_waiting(&initial, &evidence, 5999));
+    assert!(should_promote_to_waiting(&initial, &evidence, 6000));
+    assert!(!should_promote_to_waiting(&initial, &evidence, 999));
+    assert!(!should_promote_to_waiting(
+        &initial,
+        &WaitingEvidence::GenericOutput {
+            last_output_at: None
+        },
+        6000
+    ));
+    for evidence in [
+        WaitingEvidence::ProviderHook,
+        WaitingEvidence::ProcessExit,
+        WaitingEvidence::TaxchatDelivery,
+        WaitingEvidence::Api,
+        WaitingEvidence::ProviderPrompt,
+    ] {
+        assert!(should_promote_to_waiting(&initial, &evidence, 0));
+    }
+    let mut event = test_event("waiting");
+    event.kind = AgentEventKind::AgentWaiting;
+    let waiting = AttentionReducer::apply(&initial, &event);
+    assert!(!should_promote_to_waiting(&waiting, &evidence, 10000));
+    event.kind = AgentEventKind::AttentionAck;
+    assert!(!should_promote_to_waiting(
+        &AttentionReducer::apply(&waiting, &event),
+        &evidence,
+        10000
+    ));
+}
+
+#[test]
 fn event_envelope_round_trips_with_schema_version_and_sequence() {
     let event = AgentEventEnvelope::new(
         "evt-1".into(),
