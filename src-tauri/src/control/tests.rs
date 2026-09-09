@@ -2,7 +2,7 @@ use super::{
     AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, AttentionStatus,
     ExecutionStatus,
 };
-use crate::commands::control_events_after_from_hub;
+use crate::commands::{control_events_after_from_hub, forward_control_event};
 use crate::event_hub::EventHub;
 use crate::pty::{
     MemoryEventSink, PtyManager, TerminalOutputEvent, TerminalStatus, TerminalStatusEvent,
@@ -196,8 +196,8 @@ where
 #[test]
 fn event_hub_assigns_monotonic_sequence_and_replays_after_cursor() {
     let hub = EventHub::new(32);
-    let first = hub.publish(test_event("one"));
-    let second = hub.publish(test_event("two"));
+    let first = hub.publish(test_event("one")).expect("publish one");
+    let second = hub.publish(test_event("two")).expect("publish two");
 
     assert_eq!(first.sequence, 1);
     assert_eq!(second.sequence, 2);
@@ -210,26 +210,66 @@ fn event_hub_assigns_monotonic_sequence_and_replays_after_cursor() {
 #[test]
 fn event_hub_does_not_duplicate_event_ids() {
     let hub = EventHub::new(32);
-    let first = hub.publish(test_event("same"));
+    let first = hub.publish(test_event("same")).expect("publish event");
     let duplicate = hub.publish(test_event("same"));
 
     assert_eq!(hub.len(), 1);
     assert_eq!(hub.latest_sequence(), 1);
-    assert_eq!(duplicate, first);
+    assert!(duplicate.is_none());
+    assert_eq!(hub.subscribe_after(0), vec![first]);
 }
 
 #[test]
 fn event_hub_bounds_replay_and_ignores_a_newer_cursor() {
     let hub = EventHub::new(2);
-    hub.publish(test_event("one"));
-    hub.publish(test_event("two"));
-    hub.publish(test_event("three"));
+    let _ = hub.publish(test_event("one"));
+    let _ = hub.publish(test_event("two"));
+    let _ = hub.publish(test_event("three"));
 
     let replay = hub.subscribe_after(0);
     assert_eq!(replay.len(), 2);
     assert_eq!(replay[0].event_id, "two");
     assert_eq!(replay[1].event_id, "three");
     assert!(hub.subscribe_after(4).is_empty());
+}
+
+#[test]
+fn event_hub_rejects_an_event_id_after_its_replay_entry_is_evicted() {
+    let hub = EventHub::new(2);
+    let _ = hub.publish(test_event("one"));
+    let _ = hub.publish(test_event("two"));
+    let _ = hub.publish(test_event("three"));
+
+    assert!(hub.publish(test_event("one")).is_none());
+
+    assert_eq!(hub.latest_sequence(), 3);
+    assert_eq!(hub.len(), 2);
+    let replay = hub.subscribe_after(0);
+    assert_eq!(
+        replay
+            .iter()
+            .map(|event| event.event_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["two", "three"]
+    );
+}
+
+#[test]
+fn control_forwarding_never_reemits_an_older_duplicate_sequence() {
+    let hub = EventHub::new(2);
+    let mut forwarded = Vec::new();
+
+    forward_control_event(&hub, test_event("a"), |event| forwarded.push(event));
+    forward_control_event(&hub, test_event("b"), |event| forwarded.push(event));
+    forward_control_event(&hub, test_event("a"), |event| forwarded.push(event));
+
+    assert_eq!(
+        forwarded
+            .iter()
+            .map(|event| (event.event_id.as_str(), event.sequence))
+            .collect::<Vec<_>>(),
+        vec![("a", 1), ("b", 2)]
+    );
 }
 
 fn test_event(event_id: &str) -> AgentEventEnvelope {
@@ -311,8 +351,8 @@ fn mapped_pty_statuses_produce_started_exited_and_failed_evidence() {
 #[test]
 fn control_events_after_replays_from_the_requested_sequence() {
     let hub = EventHub::new(4);
-    hub.publish(test_event("one"));
-    hub.publish(test_event("two"));
+    let _ = hub.publish(test_event("one"));
+    let _ = hub.publish(test_event("two"));
 
     let replay = control_events_after_from_hub(&hub, 1);
     assert_eq!(replay.len(), 1);
@@ -358,6 +398,53 @@ fn mapped_pty_session_keeps_terminal_events_and_adds_control_evidence() {
         .statuses()
         .iter()
         .any(|event| event.status == TerminalStatus::Killed));
+}
+
+#[test]
+fn agent_outcome_before_binding_is_retained_and_published_once() {
+    let directory = tempdir().expect("temporary directory");
+    let manager = PtyManager::new();
+    let sink = MemoryEventSink::awaiting_agent_binding();
+    let terminal = manager
+        .create_shell(
+            Some(directory.path().to_string_lossy().as_ref()),
+            sink.clone(),
+        )
+        .expect("spawn agent terminal");
+
+    manager.kill(&terminal.id).expect("record terminal outcome");
+    assert_eq!(
+        manager
+            .session_status(&terminal.id)
+            .expect("retained session"),
+        TerminalStatus::Killed
+    );
+    assert!(sink.control_events().is_empty());
+
+    manager
+        .bind_agent(&terminal.id, "project-1".into(), "agent-1".into())
+        .expect("bind completed agent");
+
+    let terminal_outcomes = sink
+        .statuses()
+        .into_iter()
+        .filter(|event| event.status != TerminalStatus::Running)
+        .collect::<Vec<_>>();
+    assert_eq!(terminal_outcomes.len(), 1);
+    let control_events = sink.control_events();
+    assert_eq!(control_events.len(), 1);
+    let control_outcomes = control_events
+        .iter()
+        .filter(|event| {
+            matches!(
+                event.kind,
+                AgentEventKind::AgentExited | AgentEventKind::AgentFailed
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(control_outcomes.len(), 1);
+    assert_eq!(control_outcomes[0].kind, AgentEventKind::AgentExited);
+    assert!(manager.session_status(&terminal.id).is_err());
 }
 
 fn wait_for_control_event(

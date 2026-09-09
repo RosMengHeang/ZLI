@@ -72,6 +72,9 @@ pub trait EventSink: Send + Sync {
     fn emit_output(&self, event: TerminalOutputEvent);
     fn emit_status(&self, event: TerminalStatusEvent);
     fn emit_control(&self, _event: AgentEventEnvelope) {}
+    fn waits_for_agent_binding(&self) -> bool {
+        false
+    }
 }
 
 struct ManagerInner {
@@ -274,19 +277,35 @@ impl PtyManager {
             project_id,
             agent_id,
         };
-        *session
-            .agent
-            .lock()
-            .map_err(|_| BackendError::Internal("PTY agent mapping lock poisoned".into()))? =
-            Some(mapping.clone());
-
-        let status = TerminalStatusEvent {
-            terminal_id: terminal_id.to_owned(),
-            status: session.status(),
-        };
-        session
-            .sink
-            .emit_control(Self::agent_status_event_for_mapping(&mapping, &status));
+        let status;
+        {
+            let mut agent = session
+                .agent
+                .lock()
+                .map_err(|_| BackendError::Internal("PTY agent mapping lock poisoned".into()))?;
+            if let Some(existing) = agent.as_ref() {
+                if existing.project_id == mapping.project_id
+                    && existing.agent_id == mapping.agent_id
+                {
+                    return Ok(());
+                }
+                return Err(BackendError::InvalidInput(
+                    "terminal is already bound to another agent".into(),
+                ));
+            }
+            *agent = Some(mapping.clone());
+            status = session.status();
+            let event = TerminalStatusEvent {
+                terminal_id: terminal_id.to_owned(),
+                status: status.clone(),
+            };
+            session
+                .sink
+                .emit_control(Self::agent_status_event_for_mapping(&mapping, &event));
+        }
+        if status != TerminalStatus::Running {
+            self.remove_if_current(session.id, &session);
+        }
         Ok(())
     }
 
@@ -389,17 +408,24 @@ impl PtyManager {
             .sessions
             .lock()
             .map_err(|_| BackendError::Internal("PTY session lock poisoned".into()))?
-            .remove(&id)
+            .get(&id)
+            .cloned()
             .ok_or_else(|| BackendError::SessionNotFound(id.to_string()))?;
 
-        if session.mark_killed() {
+        let (transitioned, control_event) = session.transition_status(TerminalStatus::Killed);
+        if transitioned {
             session.terminate();
             let event = TerminalStatusEvent {
                 terminal_id: id.to_string(),
                 status: TerminalStatus::Killed,
             };
             session.sink.emit_status(event.clone());
-            session.emit_agent_status(&event);
+            if let Some(control_event) = control_event {
+                session.sink.emit_control(control_event);
+            }
+        }
+        if !session.retain_until_agent_binding() {
+            self.remove_if_current(id, &session);
         }
         Ok(())
     }
@@ -524,11 +550,33 @@ impl SessionHandle {
         }
     }
 
-    fn emit_agent_status(&self, event: &TerminalStatusEvent) {
-        if let Some(mapping) = self.agent_mapping() {
-            self.sink
-                .emit_control(PtyManager::agent_status_event_for_mapping(&mapping, event));
+    fn transition_status(&self, status: TerminalStatus) -> (bool, Option<AgentEventEnvelope>) {
+        let agent = self
+            .agent
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let transitioned = match status {
+            TerminalStatus::Exited => self.mark_exited(),
+            TerminalStatus::Killed => self.mark_killed(),
+            TerminalStatus::Failed => self.mark_failed(),
+            TerminalStatus::Running => false,
+        };
+        if !transitioned {
+            return (false, None);
         }
+
+        let event = TerminalStatusEvent {
+            terminal_id: self.id.to_string(),
+            status,
+        };
+        let control_event = agent
+            .as_ref()
+            .map(|mapping| PtyManager::agent_status_event_for_mapping(mapping, &event));
+        (true, control_event)
+    }
+
+    fn retain_until_agent_binding(&self) -> bool {
+        self.sink.waits_for_agent_binding() && self.agent_mapping().is_none()
     }
 }
 
@@ -553,35 +601,44 @@ fn spawn_reader(
                         session.emit_agent_output(&event);
                     }
                     Err(_) => {
-                        if session.mark_failed() {
+                        let (transitioned, control_event) =
+                            session.transition_status(TerminalStatus::Failed);
+                        if transitioned {
                             let event = TerminalStatusEvent {
                                 terminal_id: session.id.to_string(),
                                 status: TerminalStatus::Failed,
                             };
                             session.sink.emit_status(event.clone());
-                            session.emit_agent_status(&event);
+                            if let Some(control_event) = control_event {
+                                session.sink.emit_control(control_event);
+                            }
                         }
                         break;
                     }
                 }
             }
 
-            if session.mark_exited() {
+            let (transitioned, control_event) = session.transition_status(TerminalStatus::Exited);
+            if transitioned {
                 let event = TerminalStatusEvent {
                     terminal_id: session.id.to_string(),
                     status: TerminalStatus::Exited,
                 };
                 session.sink.emit_status(event.clone());
-                session.emit_agent_status(&event);
+                if let Some(control_event) = control_event {
+                    session.sink.emit_control(control_event);
+                }
             }
 
-            if let Some(manager) = manager.upgrade() {
-                if let Ok(mut sessions) = manager.sessions.lock() {
-                    if sessions
-                        .get(&session.id)
-                        .is_some_and(|current| Arc::ptr_eq(current, &session))
-                    {
-                        sessions.remove(&session.id);
+            if !session.retain_until_agent_binding() {
+                if let Some(manager) = manager.upgrade() {
+                    if let Ok(mut sessions) = manager.sessions.lock() {
+                        if sessions
+                            .get(&session.id)
+                            .is_some_and(|current| Arc::ptr_eq(current, &session))
+                        {
+                            sessions.remove(&session.id);
+                        }
                     }
                 }
             }
@@ -600,10 +657,18 @@ pub struct MemoryEventSink {
     outputs: Arc<Mutex<Vec<TerminalOutputEvent>>>,
     statuses: Arc<Mutex<Vec<TerminalStatusEvent>>>,
     control_events: Arc<Mutex<Vec<AgentEventEnvelope>>>,
+    waits_for_agent_binding: bool,
 }
 
 #[cfg(test)]
 impl MemoryEventSink {
+    pub fn awaiting_agent_binding() -> Self {
+        Self {
+            waits_for_agent_binding: true,
+            ..Self::default()
+        }
+    }
+
     pub fn contains(&self, terminal_id: &str, marker: &str) -> bool {
         self.outputs
             .lock()
@@ -648,5 +713,9 @@ impl EventSink for MemoryEventSink {
         if let Ok(mut events) = self.control_events.lock() {
             events.push(event);
         }
+    }
+
+    fn waits_for_agent_binding(&self) -> bool {
+        self.waits_for_agent_binding
     }
 }

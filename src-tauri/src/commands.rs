@@ -29,6 +29,7 @@ pub struct CreatePtyRequest {
 struct AppEventSink {
     app: AppHandle,
     event_hub: EventHub,
+    waits_for_agent_binding: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -88,8 +89,23 @@ impl EventSink for AppEventSink {
     }
 
     fn emit_control(&self, event: AgentEventEnvelope) {
-        let event = self.event_hub.publish(event);
-        let _ = self.app.emit("control-event", event);
+        forward_control_event(&self.event_hub, event, |event| {
+            let _ = self.app.emit("control-event", event);
+        });
+    }
+
+    fn waits_for_agent_binding(&self) -> bool {
+        self.waits_for_agent_binding
+    }
+}
+
+pub(crate) fn forward_control_event(
+    event_hub: &EventHub,
+    event: AgentEventEnvelope,
+    emit: impl FnOnce(AgentEventEnvelope),
+) {
+    if let Some(event) = event_hub.publish(event) {
+        emit(event);
     }
 }
 
@@ -134,7 +150,11 @@ fn create_terminal_impl(
         Some(&request.cwd),
         request.cols,
         request.rows,
-        Arc::new(AppEventSink { app, event_hub }),
+        Arc::new(AppEventSink {
+            app,
+            event_hub,
+            waits_for_agent_binding: false,
+        }),
     )
 }
 
@@ -250,9 +270,13 @@ pub async fn launch_agent(
     let event_hub = event_hub.inner().clone();
     run_blocking(move || {
         let project_id = request.cwd.clone();
-        let sink = Arc::new(AppEventSink { app, event_hub });
+        let sink = Arc::new(AppEventSink {
+            app,
+            event_hub,
+            waits_for_agent_binding: true,
+        });
         let agent = agents.launch(request, &pty, sink)?;
-        let _ = pty.bind_agent(&agent.terminal_id, project_id, agent.id.clone());
+        pty.bind_agent(&agent.terminal_id, project_id, agent.id.clone())?;
         Ok(agent)
     })
     .await

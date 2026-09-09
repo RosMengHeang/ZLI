@@ -28,15 +28,10 @@ impl EventHub {
         }
     }
 
-    pub fn publish(&self, mut event: AgentEventEnvelope) -> AgentEventEnvelope {
+    pub fn publish(&self, mut event: AgentEventEnvelope) -> Option<AgentEventEnvelope> {
         let mut state = self.state();
         if state.event_ids.contains(&event.event_id) {
-            return state
-                .events
-                .iter()
-                .find(|stored| stored.event_id == event.event_id)
-                .cloned()
-                .expect("tracked event ID must have a replay entry");
+            return None;
         }
 
         state.sequence = state
@@ -44,16 +39,14 @@ impl EventHub {
             .checked_add(1)
             .expect("event sequence exhausted");
         event.sequence = state.sequence;
+        state.event_ids.insert(event.event_id.clone());
         if state.capacity > 0 {
             while state.events.len() >= state.capacity {
-                if let Some(evicted) = state.events.pop_front() {
-                    state.event_ids.remove(&evicted.event_id);
-                }
+                state.events.pop_front();
             }
-            state.event_ids.insert(event.event_id.clone());
             state.events.push_back(event.clone());
         }
-        event
+        Some(event)
     }
 
     pub fn subscribe_after(&self, cursor: u64) -> Vec<AgentEventEnvelope> {
