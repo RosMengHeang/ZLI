@@ -1,5 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
+import { terminalAppearance } from "../lib/terminalPresentation";
 
 export interface TerminalEntry {
   terminal: Terminal;
@@ -12,30 +13,6 @@ const entries = new Map<string, TerminalEntry>();
 const pendingOutput = new Map<string, Array<string | Uint8Array>>();
 const MAX_PENDING_CHUNKS = 128;
 let holding: HTMLDivElement | null = null;
-
-const XTERM_THEME = {
-  background: "#17191c",
-  foreground: "#e5e7eb",
-  cursor: "#ececec",
-  cursorAccent: "#17191c",
-  selectionBackground: "#3f3f46",
-  black: "#17191c",
-  red: "#ef4444",
-  green: "#22c55e",
-  yellow: "#eab308",
-  blue: "#60a5fa",
-  magenta: "#c084fc",
-  cyan: "#22d3ee",
-  white: "#e5e7eb",
-  brightBlack: "#9ca3af",
-  brightRed: "#f87171",
-  brightGreen: "#4ade80",
-  brightYellow: "#facc15",
-  brightBlue: "#93c5fd",
-  brightMagenta: "#d8b4fe",
-  brightCyan: "#67e8f9",
-  brightWhite: "#ffffff",
-};
 
 function holdingTank(): HTMLDivElement {
   if (holding && holding.isConnected) return holding;
@@ -77,11 +54,8 @@ export const terminalRegistry = {
     }
 
     const terminal = new Terminal({
+      ...terminalAppearance(),
       cursorBlink: true,
-      fontFamily: '"JetBrains Mono", "SFMono-Regular", Consolas, monospace',
-      fontSize: 13,
-      lineHeight: 1.2,
-      theme: XTERM_THEME,
       scrollback: 2500,
       allowProposedApi: true,
       ...(typeof navigator !== "undefined" && /win/i.test(navigator.platform)

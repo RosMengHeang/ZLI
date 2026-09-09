@@ -316,7 +316,7 @@ select {
 
 .xterm {
   height: 100%;
-  padding: 8px 0 0 10px;
+  padding: 0;
 }
 
 .xterm-viewport {
@@ -2975,7 +2975,7 @@ input[type="radio"] {
 }
 
 .terminal-pane {
-  background: #17191c;
+  background: #1f2021;
 }
 
 .terminal-pane.is-active {
@@ -2983,13 +2983,41 @@ input[type="radio"] {
 }
 
 .terminal-pane-header {
-  height: 40px;
+  height: 36px;
   border-bottom-color: var(--border-subtle);
   background: var(--surface);
 }
 
 .terminal-pane-body {
-  background: #17191c !important;
+  background: #1f2021 !important;
+}
+
+.terminal-screen {
+  padding: 10px 14px 8px;
+}
+
+.terminal-pane-provider-icon {
+  width: 18px !important;
+  height: 18px !important;
+}
+
+.terminal-pane-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.terminal-pane-title {
+  flex: 0 1 auto;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.terminal-pane-context {
+  min-width: 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
 }
 
 .pane-handle-h { width: 1px; }

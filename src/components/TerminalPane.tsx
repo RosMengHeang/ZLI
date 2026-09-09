@@ -62,6 +62,7 @@ export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: T
     const observer = new ResizeObserver(() => onResize());
     observer.observe(el);
     onResize();
+    void document.fonts?.ready.then(() => onResize());
     return () => {
       onResize.cancel();
       observer.disconnect();
@@ -183,13 +184,13 @@ export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: T
       }}
     >
       <div
-        className="terminal-pane-header flex h-10 shrink-0 items-center gap-2 bg-chrome px-3"
+        className="terminal-pane-header flex shrink-0 items-center gap-2 bg-chrome px-3"
         onDoubleClick={() => toggleFocusPane(paneId)}
       >
-        <ProviderIcon provider={agent?.provider ?? "shell"} size="sm" />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[12px] font-medium text-paper">{title}</span>
-          {secondary ? <span className="block truncate text-[11px] text-mute">{secondary}</span> : null}
+        <ProviderIcon provider={agent?.provider ?? "shell"} size="sm" bare className="terminal-pane-provider-icon" />
+        <span className="terminal-pane-heading min-w-0 flex-1">
+          <span className="terminal-pane-title truncate">{title}</span>
+          {secondary ? <span className="terminal-pane-context truncate">{secondary}</span> : null}
         </span>
         <StatusBadge status={status} />
         <span className="terminal-pane-controls flex shrink-0 items-center">
@@ -224,11 +225,11 @@ export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: T
           </div> : null}
         </div>
       ) : null}
-      <div className="terminal-pane-body relative min-h-0 min-w-0 flex-1 bg-[#17191c]">
+      <div className="terminal-pane-body relative min-h-0 min-w-0 flex-1">
         {status === "starting" ? (
           <div role="status" className="terminal-starting pointer-events-none absolute left-3 top-2 z-10 px-2 py-1 text-[12px] text-slate-300">Starting terminal…</div>
         ) : null}
-        <div ref={containerRef} className="h-full min-h-0 min-w-0" />
+        <div ref={containerRef} className="terminal-screen h-full min-h-0 min-w-0" />
       </div>
     </div>
   );

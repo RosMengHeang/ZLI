@@ -2,7 +2,9 @@ use crate::error::BackendError;
 use crate::pty::{EventSink, PtyManager, TerminalStatus};
 use crate::system::{detect_powershell, find_executable};
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::ffi::OsString;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -105,7 +107,10 @@ impl AgentManager {
 
         let session = match executable {
             Some(executable) => {
-                let (launcher, args) = launcher_for_executable(executable)?;
+                let (launcher, mut args) = launcher_for_executable(executable)?;
+                if let Some(spec) = provider.as_ref() {
+                    args.extend(runtime_codex_compatibility_args(spec.id));
+                }
                 pty.spawn_agent_with_size_args(
                     launcher,
                     args,
@@ -228,6 +233,75 @@ fn launcher_for_executable(executable: PathBuf) -> Result<(PathBuf, Vec<OsString
         ));
     }
     Ok((executable, Vec::new()))
+}
+
+fn codex_compatibility_args(
+    provider_id: &str,
+    has_swarmterm_session: bool,
+    config: &str,
+) -> Vec<String> {
+    if provider_id != "codex" || has_swarmterm_session {
+        return Vec::new();
+    }
+
+    let mut in_swarmterm = false;
+    let mut requires_session = false;
+    let mut enabled = true;
+    for raw_line in config.lines() {
+        let line = raw_line.trim();
+        if line.starts_with('[') && line.ends_with(']') {
+            if in_swarmterm {
+                break;
+            }
+            in_swarmterm = matches!(
+                line,
+                "[mcp_servers.swarmterm]" | "[mcp_servers.\"swarmterm\"]"
+            );
+            continue;
+        }
+        if !in_swarmterm {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            let key = key.trim();
+            let value = value.trim().trim_matches(['\'', '"']);
+            if key == "bearer_token_env_var" && value == "SWARMTERM_SESSION" {
+                requires_session = true;
+            } else if key == "enabled" && value.eq_ignore_ascii_case("false") {
+                enabled = false;
+            }
+        }
+    }
+
+    if requires_session && enabled {
+        vec![
+            "-c".to_owned(),
+            "mcp_servers.swarmterm.enabled=false".to_owned(),
+        ]
+    } else {
+        Vec::new()
+    }
+}
+
+fn runtime_codex_compatibility_args(provider_id: &str) -> Vec<OsString> {
+    let has_swarmterm_session =
+        env::var_os("SWARMTERM_SESSION").is_some_and(|value| !value.is_empty());
+    let codex_home = env::var_os("CODEX_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+                .filter(|value| !value.is_empty())
+                .map(|value| PathBuf::from(value).join(".codex"))
+        });
+    let config = codex_home
+        .and_then(|directory| fs::read_to_string(directory.join("config.toml")).ok())
+        .unwrap_or_default();
+
+    codex_compatibility_args(provider_id, has_swarmterm_session, &config)
+        .into_iter()
+        .map(OsString::from)
+        .collect()
 }
 
 const CLAUDE_CANDIDATES: &[&str] = &["claude", "claude.exe", "claude.cmd", "claude.ps1"];
@@ -364,7 +438,10 @@ fn scan_providers() -> Vec<AgentProvider> {
 
 #[cfg(test)]
 mod tests {
-    use super::{detect_providers, provider_specs, AgentManager, LaunchAgentRequest};
+    use super::{
+        codex_compatibility_args, detect_providers, provider_specs, AgentManager,
+        LaunchAgentRequest,
+    };
     use crate::pty::MemoryEventSink;
     use std::sync::Arc;
     use tempfile::tempdir;
@@ -394,6 +471,22 @@ mod tests {
             .unwrap()
             .candidates
             .contains(&"opencode"));
+    }
+
+    #[test]
+    fn codex_disables_only_a_stale_swarmterm_mcp_registration() {
+        let config = r#"
+[mcp_servers.swarmterm]
+url = "http://127.0.0.1:64832/mcp"
+bearer_token_env_var = "SWARMTERM_SESSION"
+"#;
+        assert_eq!(
+            codex_compatibility_args("codex", false, config),
+            vec!["-c", "mcp_servers.swarmterm.enabled=false"]
+        );
+        assert!(codex_compatibility_args("codex", true, config).is_empty());
+        assert!(codex_compatibility_args("claude-code", false, config).is_empty());
+        assert!(codex_compatibility_args("codex", false, "[mcp_servers.github]").is_empty());
     }
 
     #[test]

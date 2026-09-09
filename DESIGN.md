@@ -28,6 +28,9 @@ are tools that share the same work surface.
   machine, with Segoe UI Variable as the native Windows fallback.
 - JetBrains Mono with SFMono-Regular and Consolas fallbacks is limited to paths,
   branches, timestamps, and terminal output.
+- Terminal cells use a bundled, preloaded JetBrains Mono Variable face. Compact
+  metrics and muted ANSI colors preserve CLI artwork and keep multi-pane output
+  dense without reducing readability.
 
 ## Composition principles
 
