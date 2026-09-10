@@ -524,9 +524,7 @@ fn event_hub_rejects_an_event_id_after_its_replay_entry_is_evicted() {
 
 #[test]
 fn event_hub_attention_acceptance_preserves_lifecycle_and_terminal_precedence() {
-    use super::attention::{
-        should_promote_to_waiting, AttentionReducer, AttentionState, WaitingEvidence,
-    };
+    use super::attention::{AttentionReducer, AttentionState};
     use std::collections::HashMap;
 
     let hub = EventHub::new(32);
@@ -553,24 +551,6 @@ fn event_hub_attention_acceptance_preserves_lifecycle_and_terminal_precedence() 
             AgentEventKind::AgentStarted,
             AgentEventPayload::Empty,
             AgentEventSource::Runtime,
-        ),
-        (
-            "output-a",
-            "agent-a",
-            AgentEventKind::AgentOutput,
-            AgentEventPayload::Text {
-                text: "Approve changes? [y/N] >".into(),
-            },
-            AgentEventSource::Pty,
-        ),
-        (
-            "prompt-a",
-            "agent-a",
-            AgentEventKind::AgentPromptDetected,
-            AgentEventPayload::Attention {
-                reason: "provider_prompt".into(),
-            },
-            AgentEventSource::Provider,
         ),
         (
             "completed-a",
@@ -640,15 +620,6 @@ fn event_hub_attention_acceptance_preserves_lifecycle_and_terminal_precedence() 
         let previous = states.get(&agent_id).cloned().unwrap_or_default();
         let next = AttentionReducer::apply(&previous, &event);
         match event.event_id.as_str() {
-            "output-a" => {
-                assert_eq!(next.attention_status, AttentionStatus::Working);
-                let evidence = WaitingEvidence::GenericOutput {
-                    last_output_at: Some(1000),
-                };
-                assert!(!should_promote_to_waiting(&next, &evidence, 5999));
-                assert!(should_promote_to_waiting(&next, &evidence, 6000));
-            }
-            "prompt-a" => assert_eq!(next.attention_status, AttentionStatus::WaitingForYou),
             "completed-a" => {
                 assert_eq!(next.execution_status, ExecutionStatus::Running);
                 assert_eq!(next.attention_status, AttentionStatus::Completed);
@@ -660,7 +631,7 @@ fn event_hub_attention_acceptance_preserves_lifecycle_and_terminal_precedence() 
             "restart-a" => {
                 assert_eq!(next.execution_status, ExecutionStatus::Running);
                 assert_eq!(next.attention_status, AttentionStatus::Working);
-                assert_eq!(next.unread_count, 2);
+                assert_eq!(next.unread_count, 1);
             }
             "stale-completed-a" => {
                 assert_eq!(next.execution_status, ExecutionStatus::Error);
@@ -671,8 +642,8 @@ fn event_hub_attention_acceptance_preserves_lifecycle_and_terminal_precedence() 
         states.insert(agent_id, next);
     }
 
-    assert_eq!(hub.latest_sequence(), 11);
-    assert_eq!(ack.sequence, 11);
+    assert_eq!(hub.latest_sequence(), 9);
+    assert_eq!(ack.sequence, 9);
     assert_eq!(
         states.get("agent-a"),
         Some(&AttentionState {
@@ -690,6 +661,200 @@ fn event_hub_attention_acceptance_preserves_lifecycle_and_terminal_precedence() 
             unread: true,
             unread_count: 1,
         })
+    );
+}
+
+#[test]
+fn provider_prompt_detection_flows_from_pty_output_to_waiting_once() {
+    use super::attention::{AttentionReducer, AttentionState};
+    use crate::system::detect_powershell;
+    use std::ffi::OsString;
+
+    let directory = tempdir().expect("temporary directory");
+    let manager = PtyManager::new();
+    let sink = MemoryEventSink::awaiting_agent_binding();
+    let hub = EventHub::new(32);
+    let script = concat!(
+        "$escape = [char]27; ",
+        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); ",
+        "Write-Output 'ordinary progress >'; ",
+        "Start-Sleep -Milliseconds 750; ",
+        "[Console]::Out.Write(\"$escape[2K`r$escape[1m\"); ",
+        "[Console]::Out.Flush(); ",
+        "Start-Sleep -Milliseconds 75; ",
+        "[Console]::Out.Write([char]0x203A); ",
+        "[Console]::Out.Flush(); ",
+        "Start-Sleep -Milliseconds 75; ",
+        "[Console]::Out.Write(\"$escape[22m $escape[?25h\"); ",
+        "[Console]::Out.Flush(); ",
+        "Start-Sleep -Milliseconds 75; ",
+        "[Console]::Out.Write(\"$escape[2K`r$escape[1m$([char]0x203A)$escape[22m $escape[?25h\"); ",
+        "[Console]::Out.Flush(); ",
+        "[Console]::Out.Write(\"`r`nREDRAW_COMPLETE`r`n\"); ",
+        "[Console]::Out.Flush(); ",
+        "Start-Sleep -Seconds 2",
+    );
+    let terminal = manager
+        .spawn_agent_with_size_args(
+            detect_powershell().expect("detect PowerShell"),
+            vec![
+                OsString::from("-NoLogo"),
+                OsString::from("-NoProfile"),
+                OsString::from("-Command"),
+                OsString::from(script),
+            ],
+            Some(directory.path().to_string_lossy().as_ref()),
+            120,
+            30,
+            std::sync::Arc::new(sink.clone()),
+        )
+        .expect("spawn deterministic prompt fixture");
+    manager
+        .bind_agent(
+            &terminal.id,
+            "project-1".into(),
+            "agent-1".into(),
+            "codex".into(),
+        )
+        .expect("bind Codex provider identity");
+    assert!(wait_for_control_event(&sink, |event| {
+        event.kind == AgentEventKind::AgentPromptDetected
+    }));
+    assert!(wait_for_terminal_output(
+        &sink,
+        &terminal.id,
+        "REDRAW_COMPLETE"
+    ));
+
+    let control_events = sink.control_events();
+    assert!(control_events.iter().any(|event| {
+        event.kind == AgentEventKind::AgentOutput
+            && matches!(&event.payload, AgentEventPayload::Text { text } if text.contains("ordinary progress >"))
+    }));
+    assert!(sink.contains(&terminal.id, "ordinary progress >"));
+    for event in control_events {
+        hub.publish(event).expect("publish PTY evidence once");
+    }
+
+    let replay = hub.subscribe_after(0);
+    assert_eq!(
+        replay
+            .iter()
+            .filter(|event| event.kind == AgentEventKind::AgentPromptDetected)
+            .count(),
+        1
+    );
+    let state = replay
+        .iter()
+        .fold(AttentionState::default(), |state, event| {
+            AttentionReducer::apply(&state, event)
+        });
+    assert_eq!(state.execution_status, ExecutionStatus::Running);
+    assert_eq!(state.attention_status, AttentionStatus::WaitingForYou);
+    assert_eq!(state.unread_count, 1);
+    manager.kill(&terminal.id).expect("kill prompt fixture");
+}
+
+#[test]
+fn provider_prompt_detection_handles_claude_epochs_and_unknown_providers() {
+    use super::prompt_detector::AgentOutputNormalizer;
+
+    let prompt_count = |events: &[AgentEventEnvelope]| {
+        events
+            .iter()
+            .filter(|event| event.kind == AgentEventKind::AgentPromptDetected)
+            .count()
+    };
+    let mut claude = AgentOutputNormalizer::new("project-1", "agent-claude", "claude-code");
+    assert_eq!(
+        prompt_count(&claude.accept_output(b"\x1b[2K\r\x1b[1m\xe2\x9d")),
+        0
+    );
+    let detected = claude.accept_output(b"\xaf\x1b[22m \x1b[?25h");
+    assert_eq!(prompt_count(&detected), 1);
+    assert_eq!(detected[1].source, AgentEventSource::Provider);
+    assert_eq!(
+        detected[1].payload,
+        AgentEventPayload::Attention {
+            reason: "claude_code_prompt_marker".into(),
+        }
+    );
+    assert_eq!(
+        prompt_count(&claude.accept_output(b"\x1b[2K\r\x1b[1m\xe2\x9d\xaf\x1b[22m \x1b[?25h")),
+        0
+    );
+    assert_eq!(
+        prompt_count(&claude.accept_output(b"Applied the requested edit.\r\n")),
+        0
+    );
+    assert_eq!(
+        prompt_count(&claude.accept_output(b"\x1b[2K\r\x1b[1m\xe2\x9d\xaf\x1b[22m \x1b[?25h")),
+        0
+    );
+    claude.accept_input(b"x");
+    assert_eq!(
+        prompt_count(&claude.accept_output(b"\x1b[2K\r\x1b[1m\xe2\x9d\xaf\x1b[22m \x1b[?25h")),
+        0
+    );
+    claude.accept_input(b"\r");
+    assert_eq!(
+        prompt_count(&claude.accept_output(b"\x1b[2K\r\x1b[1m\xe2\x9d\xaf\x1b[22m \x1b[?25h")),
+        1
+    );
+
+    let mut unknown = AgentOutputNormalizer::new("project-1", "agent-unknown", "shell");
+    assert_eq!(
+        prompt_count(&unknown.accept_output(b"\x1b[2K\r\xe2\x80\xba \r\n\x1b[2K\r\xe2\x9d\xaf ")),
+        0
+    );
+    claude.clear();
+    assert_eq!(
+        prompt_count(&claude.accept_output(b"activity\r\n\xe2\x9d\xaf ")),
+        0
+    );
+}
+
+#[test]
+fn provider_prompt_detection_accepts_codex_screen_fixture_without_redraw_storms() {
+    use super::prompt_detector::AgentOutputNormalizer;
+
+    let prompt_count = |events: &[AgentEventEnvelope]| {
+        events
+            .iter()
+            .filter(|event| event.kind == AgentEventKind::AgentPromptDetected)
+            .count()
+    };
+    let frame = b"\x1b[?2026h\x1b[12;1H\xe2\x80\xba \x1b[13;1H? for shortcuts\x1b[?2026l";
+    let mut codex = AgentOutputNormalizer::new("project-1", "agent-codex", "codex");
+
+    assert_eq!(prompt_count(&codex.accept_output(frame)), 1);
+    assert_eq!(prompt_count(&codex.accept_output(frame)), 0);
+    codex.accept_input(b"\r");
+    assert_eq!(prompt_count(&codex.accept_output(frame)), 1);
+}
+
+#[test]
+fn provider_prompt_detection_does_not_treat_chunk_boundaries_as_line_boundaries() {
+    use super::prompt_detector::AgentOutputNormalizer;
+
+    let prompt_count = |events: &[AgentEventEnvelope]| {
+        events
+            .iter()
+            .filter(|event| event.kind == AgentEventKind::AgentPromptDetected)
+            .count()
+    };
+    let mut codex = AgentOutputNormalizer::new("project-1", "agent-codex", "codex");
+
+    assert_eq!(prompt_count(&codex.accept_output("›".as_bytes())), 0);
+    assert_eq!(
+        prompt_count(&codex.accept_output(b" ordinary progress\r\n")),
+        0
+    );
+
+    let mut codex = AgentOutputNormalizer::new("project-1", "agent-codex", "codex");
+    assert_eq!(
+        prompt_count(&codex.accept_output(b"\x1b[?2026h\xe2\x80\xba\x1b[?2026h ordinary\r\n")),
+        0
     );
 }
 
@@ -744,6 +909,40 @@ fn mapped_pty_output_preserves_agent_identity_and_text() {
             text: "hello from the PTY".into(),
         }
     );
+}
+
+#[test]
+fn output_before_binding_is_normalized_after_provider_metadata_arrives() {
+    let directory = tempdir().expect("temporary directory");
+    let manager = PtyManager::new();
+    let sink = MemoryEventSink::awaiting_agent_binding();
+    let terminal = manager
+        .create_shell(
+            Some(directory.path().to_string_lossy().as_ref()),
+            sink.clone(),
+        )
+        .expect("create agent terminal");
+    let marker = "OUTPUT_BEFORE_AGENT_BINDING";
+    manager
+        .write(&terminal.id, &format!("echo {marker}\r\n"))
+        .expect("write marker");
+    assert!(wait_for_terminal_output(&sink, &terminal.id, marker));
+    assert!(sink.control_events().is_empty());
+
+    manager
+        .bind_agent(
+            &terminal.id,
+            "project-1".into(),
+            "agent-1".into(),
+            "codex".into(),
+        )
+        .expect("bind agent with provider");
+
+    assert!(wait_for_control_event(&sink, |event| {
+        event.kind == AgentEventKind::AgentOutput
+            && matches!(&event.payload, AgentEventPayload::Text { text } if text.contains(marker))
+    }));
+    manager.kill(&terminal.id).expect("kill shell");
 }
 
 #[test]
@@ -832,7 +1031,12 @@ fn mapped_pty_session_keeps_terminal_events_and_adds_control_evidence() {
         .expect("create shell");
 
     manager
-        .bind_agent(&terminal.id, "project-1".into(), "agent-1".into())
+        .bind_agent(
+            &terminal.id,
+            "project-1".into(),
+            "agent-1".into(),
+            "codex".into(),
+        )
         .expect("bind agent");
     let marker = "CONTROL_EVENT_OUTPUT_MARKER";
     manager
@@ -881,7 +1085,12 @@ fn agent_outcome_before_binding_is_retained_and_published_once() {
     assert!(sink.control_events().is_empty());
 
     manager
-        .bind_agent(&terminal.id, "project-1".into(), "agent-1".into())
+        .bind_agent(
+            &terminal.id,
+            "project-1".into(),
+            "agent-1".into(),
+            "claude-code".into(),
+        )
         .expect("bind completed agent");
 
     let terminal_outcomes = sink
@@ -913,6 +1122,17 @@ fn wait_for_control_event(
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
         if sink.control_events().iter().any(&predicate) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    false
+}
+
+fn wait_for_terminal_output(sink: &MemoryEventSink, terminal_id: &str, marker: &str) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if sink.contains(terminal_id, marker) {
             return true;
         }
         std::thread::sleep(Duration::from_millis(20));

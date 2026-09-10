@@ -277,7 +277,12 @@ pub async fn launch_agent(
             waits_for_agent_binding: true,
         });
         let agent = agents.launch(request, &pty, sink)?;
-        pty.bind_agent(&agent.terminal_id, project_id, agent.id.clone())?;
+        pty.bind_agent(
+            &agent.terminal_id,
+            project_id,
+            agent.id.clone(),
+            agent.provider.clone(),
+        )?;
         Ok(agent)
     })
     .await

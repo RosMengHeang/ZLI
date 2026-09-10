@@ -7,6 +7,11 @@ const event = (kind, payload = { type: "empty" }, source = "runtime") => ({
   schemaVersion: 1, sequence: 1, eventId: "evt-1", projectId: "project-1", agentId: "agent-1",
   parentAgentId: null, timestamp: "2026-09-10T00:00:00Z", kind, source, payload,
 });
+const codexPromptEvidence = {
+  kind: "agent_prompt_detected",
+  source: "provider",
+  payload: { type: "attention", reason: "codex_prompt_marker" },
+};
 
 test("attention lifecycle separates execution, attention, and acknowledgement", () => {
   let state = initial();
@@ -176,12 +181,8 @@ test("Wave 1 store acceptance preserves lifecycle, acknowledgement, and project 
     [record("agent-1")?.executionStatus, record("agent-1")?.attentionStatus, record("agent-1")?.unreadCount],
     ["running", "working", 0],
   );
-  assert.equal(shouldPromoteToWaiting(initial(), { kind: "generic_output", lastOutputAt: 1000 }, 5999), false);
-  assert.equal(shouldPromoteToWaiting(initial(), { kind: "generic_output", lastOutputAt: 1000 }, 6000), true);
-
   apply({
-    eventId: "agent-1-provider-prompt", kind: "agent_prompt_detected", source: "provider",
-    payload: { type: "attention", reason: "provider_prompt" },
+    eventId: "agent-1-provider-prompt", ...codexPromptEvidence,
   });
   assert.equal(record("agent-1")?.attentionStatus, "waiting_for_you");
   apply({ eventId: "agent-1-completed", kind: "agent_completed" });
@@ -235,8 +236,7 @@ test("Wave 1 replay acceptance canonicalizes reordered events and rejects duplic
     payload: { type: "text", text: "Waiting-looking output >" },
   });
   const prompt = replayEvent({
-    sequence: 3, eventId: "prompt-a", agentId: "agent-a", kind: "agent_prompt_detected", source: "provider",
-    payload: { type: "attention", reason: "provider_prompt" },
+    sequence: 3, eventId: "prompt-a", agentId: "agent-a", ...codexPromptEvidence,
   });
   const completed = replayEvent({ sequence: 4, eventId: "completed-a", agentId: "agent-a", kind: "agent_completed" });
   const waiting = replayEvent({

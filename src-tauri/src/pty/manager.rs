@@ -1,3 +1,4 @@
+use crate::control::prompt_detector::AgentOutputNormalizer;
 use crate::control::{AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource};
 use crate::error::BackendError;
 use crate::system::{default_cwd, detect_shell};
@@ -16,6 +17,7 @@ const DEFAULT_COLS: u16 = 120;
 const DEFAULT_ROWS: u16 = 30;
 const MAX_COLS: u16 = 10_000;
 const MAX_ROWS: u16 = 10_000;
+const MAX_PENDING_AGENT_OUTPUT_BYTES: usize = 8192;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -96,12 +98,14 @@ struct SessionHandle {
     status: AtomicU8,
     sink: Arc<dyn EventSink>,
     agent: Mutex<Option<AgentMapping>>,
+    pending_agent_output: Mutex<Vec<u8>>,
 }
 
-#[derive(Clone)]
 struct AgentMapping {
     project_id: String,
     agent_id: String,
+    provider_id: String,
+    output_normalizer: AgentOutputNormalizer,
 }
 
 impl PtyManager {
@@ -228,6 +232,7 @@ impl PtyManager {
             status: AtomicU8::new(TerminalStatus::Running.as_u8()),
             sink: sink.clone(),
             agent: Mutex::new(None),
+            pending_agent_output: Mutex::new(Vec::new()),
         });
 
         self.inner
@@ -257,12 +262,19 @@ impl PtyManager {
         if session.status() != TerminalStatus::Running {
             return Err(BackendError::SessionNotFound(id.to_owned()));
         }
+        let mut agent = session
+            .agent
+            .lock()
+            .map_err(|_| BackendError::Internal("PTY agent mapping lock poisoned".into()))?;
         let mut writer = session
             .writer
             .lock()
             .map_err(|_| BackendError::Internal("PTY writer lock poisoned".into()))?;
         writer.write_all(data.as_bytes())?;
         writer.flush()?;
+        if let Some(mapping) = agent.as_mut() {
+            mapping.output_normalizer.accept_input(data.as_bytes());
+        }
         Ok(())
     }
 
@@ -271,11 +283,14 @@ impl PtyManager {
         terminal_id: &str,
         project_id: String,
         agent_id: String,
+        provider_id: String,
     ) -> Result<(), BackendError> {
         let session = self.session(terminal_id)?;
         let mapping = AgentMapping {
+            output_normalizer: AgentOutputNormalizer::new(&project_id, &agent_id, &provider_id),
             project_id,
             agent_id,
+            provider_id,
         };
         let status;
         {
@@ -286,6 +301,7 @@ impl PtyManager {
             if let Some(existing) = agent.as_ref() {
                 if existing.project_id == mapping.project_id
                     && existing.agent_id == mapping.agent_id
+                    && existing.provider_id == mapping.provider_id
                 {
                     return Ok(());
                 }
@@ -293,15 +309,31 @@ impl PtyManager {
                     "terminal is already bound to another agent".into(),
                 ));
             }
-            *agent = Some(mapping.clone());
             status = session.status();
+            let pending = if status == TerminalStatus::Running {
+                session.take_pending_agent_output()?
+            } else {
+                session.clear_pending_agent_output();
+                Vec::new()
+            };
+            *agent = Some(mapping);
+            let mapping = agent.as_mut().expect("agent mapping was just installed");
             let event = TerminalStatusEvent {
                 terminal_id: terminal_id.to_owned(),
                 status: status.clone(),
             };
             session
                 .sink
-                .emit_control(Self::agent_status_event_for_mapping(&mapping, &event));
+                .emit_control(Self::agent_status_event_for_mapping(mapping, &event));
+            if status == TerminalStatus::Running {
+                if !pending.is_empty() {
+                    for event in mapping.output_normalizer.accept_output(&pending) {
+                        session.sink.emit_control(event);
+                    }
+                }
+            } else {
+                mapping.output_normalizer.clear();
+            }
         }
         if status != TerminalStatus::Running {
             self.remove_if_current(session.id, &session);
@@ -309,6 +341,7 @@ impl PtyManager {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn agent_output_event(
         project_id: &str,
         agent_id: &str,
@@ -360,13 +393,6 @@ impl PtyManager {
         );
         event.source = AgentEventSource::Pty;
         event
-    }
-
-    fn agent_output_event_for_mapping(
-        mapping: &AgentMapping,
-        event: &TerminalOutputEvent,
-    ) -> AgentEventEnvelope {
-        Self::agent_output_event(&mapping.project_id, &mapping.agent_id, event)
     }
 
     fn agent_status_event_for_mapping(
@@ -536,22 +562,35 @@ impl SessionHandle {
         }
     }
 
-    fn agent_mapping(&self) -> Option<AgentMapping> {
+    fn has_agent_mapping(&self) -> bool {
         self.agent
             .lock()
-            .map(|mapping| mapping.clone())
-            .unwrap_or_default()
+            .map(|mapping| mapping.is_some())
+            .unwrap_or(false)
     }
 
-    fn emit_agent_output(&self, event: &TerminalOutputEvent) {
-        if let Some(mapping) = self.agent_mapping() {
-            self.sink
-                .emit_control(PtyManager::agent_output_event_for_mapping(&mapping, event));
+    fn emit_agent_output(&self, bytes: &[u8]) {
+        let events = {
+            let mut agent = self
+                .agent
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(mapping) = agent.as_mut() {
+                mapping.output_normalizer.accept_output(bytes)
+            } else {
+                if self.sink.waits_for_agent_binding() {
+                    self.append_pending_agent_output(bytes);
+                }
+                Vec::new()
+            }
+        };
+        for event in events {
+            self.sink.emit_control(event);
         }
     }
 
     fn transition_status(&self, status: TerminalStatus) -> (bool, Option<AgentEventEnvelope>) {
-        let agent = self
+        let mut agent = self
             .agent
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -563,6 +602,11 @@ impl SessionHandle {
         };
         if !transitioned {
             return (false, None);
+        }
+        if let Some(mapping) = agent.as_mut() {
+            mapping.output_normalizer.clear();
+        } else {
+            self.clear_pending_agent_output();
         }
 
         let event = TerminalStatusEvent {
@@ -576,7 +620,30 @@ impl SessionHandle {
     }
 
     fn retain_until_agent_binding(&self) -> bool {
-        self.sink.waits_for_agent_binding() && self.agent_mapping().is_none()
+        self.sink.waits_for_agent_binding() && !self.has_agent_mapping()
+    }
+
+    fn append_pending_agent_output(&self, bytes: &[u8]) {
+        if let Ok(mut pending) = self.pending_agent_output.lock() {
+            pending.extend_from_slice(bytes);
+            if pending.len() > MAX_PENDING_AGENT_OUTPUT_BYTES {
+                let overflow = pending.len() - MAX_PENDING_AGENT_OUTPUT_BYTES;
+                pending.drain(..overflow);
+            }
+        }
+    }
+
+    fn take_pending_agent_output(&self) -> Result<Vec<u8>, BackendError> {
+        self.pending_agent_output
+            .lock()
+            .map(|mut pending| std::mem::take(&mut *pending))
+            .map_err(|_| BackendError::Internal("PTY pending output lock poisoned".into()))
+    }
+
+    fn clear_pending_agent_output(&self) {
+        if let Ok(mut pending) = self.pending_agent_output.lock() {
+            pending.clear();
+        }
     }
 }
 
@@ -598,7 +665,7 @@ fn spawn_reader(
                             data: String::from_utf8_lossy(&buffer[..size]).into_owned(),
                         };
                         session.sink.emit_output(event.clone());
-                        session.emit_agent_output(&event);
+                        session.emit_agent_output(&buffer[..size]);
                     }
                     Err(_) => {
                         let (transitioned, control_event) =
