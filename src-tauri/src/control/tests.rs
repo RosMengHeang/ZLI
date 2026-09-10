@@ -359,6 +359,26 @@ fn snapshot_store_loads_missing_as_none_and_deletes_project_data() {
 }
 
 #[test]
+fn snapshot_store_safely_maps_repository_paths_without_changing_project_identity() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let store = SnapshotStore::new(root.path().to_path_buf());
+    let project_id = r"D:\work\taxzy";
+    store
+        .save_atomic(&ProjectSnapshot::empty(project_id.into()))
+        .expect("save path project");
+    let loaded = store
+        .load(project_id)
+        .expect("load path project")
+        .expect("snapshot");
+    assert_eq!(loaded.project_id, project_id);
+    assert!(!root.path().join("work").exists());
+    store
+        .delete_project(project_id)
+        .expect("delete path project");
+    assert!(store.load(project_id).expect("load deleted").is_none());
+}
+
+#[test]
 fn attention_lifecycle_and_acknowledgement() {
     use super::attention::{AttentionReducer, AttentionState};
     let mut state = AttentionState::default();

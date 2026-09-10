@@ -150,16 +150,34 @@ impl SnapshotStore {
     }
 
     fn project_dir(&self, project_id: &str) -> Result<PathBuf, SnapshotStoreError> {
-        if project_id.trim().is_empty()
-            || project_id == "."
-            || project_id == ".."
-            || project_id.contains(['/', '\\'])
-            || Path::new(project_id).components().count() != 1
-        {
+        if project_id.trim().is_empty() {
             return Err(SnapshotStoreError::InvalidProjectId);
         }
-        Ok(self.root.join(project_id))
+        Ok(self.root.join(project_storage_key(project_id)))
     }
+}
+
+fn project_storage_key(project_id: &str) -> String {
+    if project_id != "."
+        && project_id != ".."
+        && Path::new(project_id).components().count() == 1
+        && project_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return project_id.to_owned();
+    }
+    let mut encoded = String::with_capacity(project_id.len() * 2 + 1);
+    encoded.push('~');
+    for byte in project_id.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.') {
+            encoded.push(char::from(byte));
+        } else {
+            encoded.push('_');
+            encoded.push_str(&format!("{byte:02X}"));
+        }
+    }
+    encoded
 }
 
 #[cfg(not(windows))]
