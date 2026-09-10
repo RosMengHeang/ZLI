@@ -487,18 +487,18 @@ fn write_agent_input(
     data: &[u8],
 ) -> Result<(), BackendError> {
     {
-        let mut agent = agent
+        let mut writer = writer
             .lock()
-            .map_err(|_| BackendError::Internal("PTY agent mapping lock poisoned".into()))?;
-        if let Some(mapping) = agent.as_mut() {
-            mapping.output_normalizer.accept_input(data);
-        }
+            .map_err(|_| BackendError::Internal("PTY writer lock poisoned".into()))?;
+        writer.write_all(data)?;
+        writer.flush()?;
     }
-    let mut writer = writer
+    let mut agent = agent
         .lock()
-        .map_err(|_| BackendError::Internal("PTY writer lock poisoned".into()))?;
-    writer.write_all(data)?;
-    writer.flush()?;
+        .map_err(|_| BackendError::Internal("PTY agent mapping lock poisoned".into()))?;
+    if let Some(mapping) = agent.as_mut() {
+        mapping.output_normalizer.accept_input(data);
+    }
     Ok(())
 }
 

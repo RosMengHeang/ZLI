@@ -16,6 +16,114 @@ use std::time::{Duration, Instant};
 use tempfile::tempdir;
 
 use super::{ProjectSnapshot, SnapshotStore, SnapshotStoreError};
+use super::{RuntimeSession, SessionRegistry};
+
+fn test_runtime_session(session_id: &str, agent_id: &str) -> RuntimeSession {
+    RuntimeSession::detached_for_test(
+        session_id.to_owned(),
+        "project-1".to_owned(),
+        agent_id.to_owned(),
+        "codex".to_owned(),
+        "terminal-1".to_owned(),
+    )
+}
+
+#[test]
+fn detached_session_can_be_found_and_attached_by_session_id() {
+    let registry = SessionRegistry::default();
+    registry.insert(test_runtime_session("session-1", "agent-1"));
+    registry.detach("session-1").expect("detach");
+    let descriptor = registry.attach("session-1").expect("attach");
+    assert_eq!(descriptor.session_id, "session-1");
+    assert_eq!(descriptor.agent_id, "agent-1");
+    assert!(descriptor.attached);
+}
+
+#[test]
+fn detached_session_keeps_bounded_scrollback_without_forwarding_output() {
+    use crate::pty::TerminalOutputEvent;
+    let visible = MemoryEventSink::default();
+    let session = RuntimeSession::new(
+        super::SessionDescriptor {
+            session_id: "session-1".into(),
+            project_id: "project-1".into(),
+            agent_id: "agent-1".into(),
+            provider_id: "codex".into(),
+            terminal_id: "terminal-1".into(),
+            resume: None,
+            attached: false,
+        },
+        PtyManager::new(),
+        Some(std::sync::Arc::new(visible.clone())),
+        8,
+    );
+    let sink = session.event_sink();
+    sink.emit_output(TerminalOutputEvent {
+        terminal_id: "terminal-1".into(),
+        data: "123456".into(),
+    });
+    session.detach().expect("detach");
+    sink.emit_output(TerminalOutputEvent {
+        terminal_id: "terminal-1".into(),
+        data: "7890".into(),
+    });
+
+    assert!(visible.contains("terminal-1", "123456"));
+    assert!(!visible.contains("terminal-1", "7890"));
+    assert_eq!(session.scrollback().expect("scrollback"), "34567890");
+}
+
+#[test]
+fn older_checkpoint_generation_cannot_replace_a_newer_snapshot() {
+    use super::SessionManager;
+    let root = tempfile::tempdir().expect("temp dir");
+    let store = SnapshotStore::new(root.path().to_path_buf());
+    let manager = SessionManager::new(
+        std::sync::Arc::new(SessionRegistry::default()),
+        store.clone(),
+    );
+    let mut newer = ProjectSnapshot::empty("project-1".into());
+    newer.last_event_sequence = 20;
+    let mut older = ProjectSnapshot::empty("project-1".into());
+    older.last_event_sequence = 10;
+
+    assert!(manager.persist_generation(2, &newer).expect("newer save"));
+    assert!(!manager.persist_generation(1, &older).expect("stale save"));
+    assert_eq!(
+        store
+            .load("project-1")
+            .expect("load")
+            .expect("snapshot")
+            .last_event_sequence,
+        20
+    );
+}
+
+#[test]
+fn debounced_checkpoint_persists_only_the_latest_generation() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let store = SnapshotStore::new(root.path().to_path_buf());
+    let manager = std::sync::Arc::new(super::SessionManager::new(
+        std::sync::Arc::new(SessionRegistry::default()),
+        store.clone(),
+    ));
+    let mut first = ProjectSnapshot::empty("project-1".into());
+    first.last_event_sequence = 1;
+    let mut second = ProjectSnapshot::empty("project-1".into());
+    second.last_event_sequence = 2;
+    manager.schedule_checkpoint(first, Duration::from_millis(30));
+    manager.schedule_checkpoint(second, Duration::from_millis(30));
+    std::thread::sleep(Duration::from_millis(100));
+
+    assert_eq!(
+        store
+            .load("project-1")
+            .expect("load")
+            .expect("snapshot")
+            .last_event_sequence,
+        2
+    );
+}
 
 #[test]
 fn snapshot_store_round_trips_and_writes_schema_version() {
@@ -45,9 +153,10 @@ fn snapshot_store_preserves_unknown_fields_and_replaces_existing_snapshot() {
     snapshot.pane_tree = json!({ "type": "split", "ratio": 0.4 });
     store.save_atomic(&snapshot).expect("save first snapshot");
 
-    snapshot
-        .extensions
-        .insert("providerMetadata".into(), json!({ "resumeHint": "session-42" }));
+    snapshot.extensions.insert(
+        "providerMetadata".into(),
+        json!({ "resumeHint": "session-42" }),
+    );
     store
         .save_atomic(&snapshot)
         .expect("replace existing snapshot");
@@ -57,7 +166,10 @@ fn snapshot_store_preserves_unknown_fields_and_replaces_existing_snapshot() {
         .expect("load snapshot")
         .expect("snapshot exists");
     assert_eq!(loaded.pane_tree["type"], "split");
-    assert_eq!(loaded.extensions["providerMetadata"]["resumeHint"], "session-42");
+    assert_eq!(
+        loaded.extensions["providerMetadata"]["resumeHint"],
+        "session-42"
+    );
 }
 
 #[test]
@@ -88,14 +200,20 @@ fn snapshot_store_rejects_future_schema_versions_with_a_stable_error() {
 fn snapshot_store_loads_missing_as_none_and_deletes_project_data() {
     let root = tempfile::tempdir().expect("temp dir");
     let store = SnapshotStore::new(root.path().to_path_buf());
-    assert!(store.load("project-1").expect("load missing snapshot").is_none());
+    assert!(store
+        .load("project-1")
+        .expect("load missing snapshot")
+        .is_none());
 
     store
         .save_atomic(&ProjectSnapshot::empty("project-1".into()))
         .expect("save snapshot");
     store.delete_project("project-1").expect("delete project");
 
-    assert!(store.load("project-1").expect("load deleted snapshot").is_none());
+    assert!(store
+        .load("project-1")
+        .expect("load deleted snapshot")
+        .is_none());
     assert!(!root.path().join("control/projects/project-1").exists());
 }
 
