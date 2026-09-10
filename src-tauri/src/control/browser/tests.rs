@@ -328,3 +328,60 @@ fn browser_events_are_project_scoped_and_do_not_expose_grants() {
         .expect("serialize event")
         .contains("browser.read"));
 }
+
+#[test]
+fn browser_profile_grants_survive_surface_replacement_in_memory() {
+    let manager = BrowserManager::default();
+    let caller = identity("project-1", None, vec![Capability::BrowserControl]);
+    let first = manager
+        .register(
+            "project-1",
+            None,
+            "browser-panel-1",
+            "about:blank",
+            "default",
+        )
+        .expect("register first surface");
+    manager
+        .grant(&first.surface_id, BrowserCapability::Control)
+        .expect("grant browser control");
+    manager
+        .close(&first.surface_id)
+        .expect("close first surface");
+    manager
+        .authorize_project(&caller, "project-1", BrowserCapability::Control)
+        .expect("project profile stays granted");
+
+    let replacement = manager
+        .register(
+            "project-1",
+            None,
+            "browser-panel-2",
+            "https://example.com",
+            "default",
+        )
+        .expect("register replacement");
+    assert_eq!(replacement.capabilities, vec![BrowserCapability::Control]);
+}
+
+#[test]
+fn browser_checkpoint_keeps_safe_state_and_drops_secrets() {
+    let checkpoint = crate::control::persistence::sanitize_browser_checkpoint(json!({
+        "surfaceId": "surface-1",
+        "url": "https://localhost:3000",
+        "open": true,
+        "profileId": "default",
+        "capabilities": ["browser.read", "browser.download"],
+        "cookies": "secret-cookie",
+        "storage": { "token": "secret-token" },
+        "authorization": "Bearer secret",
+    }))
+    .expect("safe checkpoint");
+    assert_eq!(checkpoint["url"], "https://localhost:3000");
+    assert_eq!(checkpoint["capabilities"], json!(["browser.read"]));
+    let encoded = serde_json::to_string(&checkpoint).expect("serialize checkpoint");
+    assert!(!encoded.contains("secret"));
+    assert!(!encoded.contains("cookie"));
+    assert!(!encoded.contains("storage"));
+    assert!(!encoded.contains("authorization"));
+}

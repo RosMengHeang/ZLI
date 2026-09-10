@@ -3473,6 +3473,8 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "uuid",
+ "webview2-com",
+ "windows",
  "windows-sys 0.61.2",
 ]
 

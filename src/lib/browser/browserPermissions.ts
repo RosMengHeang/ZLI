@@ -64,3 +64,19 @@ export function setBrowserCapability(
   );
   return { profiles: [...profiles, { projectId, profileId, capabilities }] };
 }
+
+export function replaceBrowserCapabilities(
+  registry: BrowserPermissionRegistry,
+  projectId: string,
+  profileId: string,
+  capabilities: BrowserCapability[],
+): BrowserPermissionRegistry {
+  return normalizeBrowserPermissions({
+    profiles: [
+      ...registry.profiles.filter(
+        (profile) => profile.projectId !== projectId || profile.profileId !== profileId,
+      ),
+      { projectId, profileId, capabilities },
+    ],
+  });
+}

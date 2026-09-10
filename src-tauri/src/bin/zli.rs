@@ -146,20 +146,129 @@ fn parse_command(args: &[String]) -> Result<(ControlMethod, Value), String> {
             ))
         }
         (Some("browser"), Some("list")) => Ok((ControlMethod::BrowserList, json!({}))),
-        (Some("browser"), Some(action @ ("open" | "navigate"))) => Ok((
-            if action == "open" {
-                ControlMethod::BrowserOpen
-            } else {
-                ControlMethod::BrowserNavigate
-            },
-            json!({ "url": required(args.get(2), "URL")? }),
-        )),
+        (Some("browser"), Some(action)) => parse_browser_command(args, action),
         (Some("taxchat"), Some("send")) => Ok((
             ControlMethod::TaxChatSend,
             json!({ "body": joined(args, 2, "message")? }),
         )),
         _ => Err(usage()),
     }
+}
+
+#[cfg(windows)]
+fn parse_browser_command(args: &[String], action: &str) -> Result<(ControlMethod, Value), String> {
+    let managed_project = std::env::var("ZLI_PROJECT_ID")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    match action {
+        "open" => {
+            let project_id = option(args, "--project")
+                .map(str::to_owned)
+                .or(managed_project)
+                .ok_or_else(|| {
+                    "project is required; pass --project outside a managed agent".to_owned()
+                })?;
+            let url = option(args, "--url")
+                .or_else(|| {
+                    args.get(2)
+                        .filter(|value| !value.starts_with("--"))
+                        .map(String::as_str)
+                })
+                .ok_or_else(|| "URL is required".to_owned())?;
+            Ok((
+                ControlMethod::BrowserOpen,
+                json!({ "projectId": project_id, "url": url }),
+            ))
+        }
+        "navigate" => Ok((
+            ControlMethod::BrowserNavigate,
+            json!({
+                "surfaceId": required(args.get(2), "surface ID")?,
+                "url": required(args.get(3), "URL")?,
+            }),
+        )),
+        "snapshot" => {
+            let surface_id = required(args.get(2), "surface ID")?;
+            let mut params = json!({ "surfaceId": surface_id });
+            if let Some(selector) = option(args, "--selector") {
+                params["selector"] = Value::String(selector.to_owned());
+            }
+            if let Some(depth) = option(args, "--depth") {
+                params["maxDepth"] = Value::from(positive_integer(depth, "depth")?);
+            }
+            Ok((ControlMethod::BrowserSnapshot, params))
+        }
+        "click" => Ok((
+            ControlMethod::BrowserClick,
+            json!({
+                "surfaceId": required(args.get(2), "surface ID")?,
+                "selector": option(args, "--selector").or_else(|| args.get(3).map(String::as_str)).ok_or_else(|| "selector is required".to_owned())?,
+            }),
+        )),
+        "fill" => Ok((
+            ControlMethod::BrowserFill,
+            json!({
+                "surfaceId": required(args.get(2), "surface ID")?,
+                "selector": option(args, "--selector").or_else(|| args.get(3).map(String::as_str)).ok_or_else(|| "selector is required".to_owned())?,
+                "text": option(args, "--text").map(str::to_owned).unwrap_or_else(|| args.get(4..).unwrap_or_default().join(" ")),
+            }),
+        )),
+        "press" => Ok((
+            ControlMethod::BrowserPress,
+            json!({
+                "surfaceId": required(args.get(2), "surface ID")?,
+                "key": required(args.get(3), "key")?,
+            }),
+        )),
+        "eval" => Ok((
+            ControlMethod::BrowserEval,
+            json!({
+                "surfaceId": required(args.get(2), "surface ID")?,
+                "script": option(args, "--script").map(str::to_owned).unwrap_or(joined(args, 3, "script")?),
+            }),
+        )),
+        "wait" => {
+            let surface_id = required(args.get(2), "surface ID")?;
+            let condition = if let Some(selector) = option(args, "--selector") {
+                json!({ "kind": "selector", "selector": selector, "state": option(args, "--state") })
+            } else if let Some(url) = option(args, "--url") {
+                json!({ "kind": "url", "url": url })
+            } else if let Some(state) = option(args, "--load") {
+                json!({ "kind": "load", "state": state })
+            } else {
+                return Err("wait condition is required".into());
+            };
+            Ok((
+                ControlMethod::BrowserWait,
+                json!({
+                    "surfaceId": surface_id,
+                    "condition": condition,
+                    "timeoutMs": positive_integer(option(args, "--timeout").unwrap_or("30000"), "timeout")?,
+                }),
+            ))
+        }
+        "console" | "errors" | "screenshot" => {
+            let method = match action {
+                "console" => ControlMethod::BrowserConsole,
+                "errors" => ControlMethod::BrowserErrors,
+                _ => ControlMethod::BrowserScreenshot,
+            };
+            Ok((
+                method,
+                json!({ "surfaceId": required(args.get(2), "surface ID")? }),
+            ))
+        }
+        _ => Err(usage()),
+    }
+}
+
+#[cfg(windows)]
+fn positive_integer(value: &str, label: &str) -> Result<u64, String> {
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|value| *value > 0)
+        .ok_or_else(|| format!("{label} must be a positive integer"))
 }
 
 #[cfg(windows)]
@@ -228,7 +337,7 @@ fn joined(args: &[String], start: usize, label: &str) -> Result<String, String> 
 
 #[cfg(windows)]
 fn usage() -> String {
-    "unknown command. Try: status | agents | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | session list | session resume <id> | browser list | taxchat send <message>".into()
+    "unknown command. Try: status | agents | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | session list | session resume <id> | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message>".into()
 }
 
 #[cfg(windows)]

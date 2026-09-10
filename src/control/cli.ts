@@ -76,10 +76,60 @@ function command(
   }
   if (group === "browser") {
     if (action === "list") return ["browser.list", {}];
-    if (action === "open" || action === "navigate") {
-      required(args[0], "URL is required");
-      return [`browser.${action}` as ControlMethod, { url: args[0] }];
+    if (action === "open") {
+      const projectId = option(args, "--project") ?? environment.projectId;
+      const url = option(args, "--url") ?? positional(args)[0];
+      required(projectId, "Project is required");
+      required(url, "URL is required");
+      return ["browser.open", { projectId, url }];
     }
+    const values = positional(args);
+    const surfaceId = values[0];
+    if (["navigate", "wait", "snapshot", "click", "fill", "press", "eval", "console", "errors", "screenshot"].includes(action ?? "")) required(surfaceId, "Surface ID is required");
+    if (action === "navigate") {
+      required(values[1], "URL is required");
+      return ["browser.navigate", { surfaceId, url: values[1] }];
+    }
+    if (action === "snapshot") {
+      const depth = option(args, "--depth");
+      const selector = option(args, "--selector");
+      return ["browser.snapshot", { surfaceId, ...(selector ? { selector } : {}), ...(depth ? { maxDepth: positiveInteger(depth, "Depth") } : {}) }];
+    }
+    if (action === "click") {
+      const selector = option(args, "--selector") ?? values[1];
+      required(selector, "Selector is required");
+      return ["browser.click", { surfaceId, selector }];
+    }
+    if (action === "fill") {
+      const selector = option(args, "--selector") ?? values[1];
+      const text = option(args, "--text") ?? values.slice(2).join(" ");
+      required(selector, "Selector is required");
+      return ["browser.fill", { surfaceId, selector, text }];
+    }
+    if (action === "press") {
+      required(values[1], "Key is required");
+      return ["browser.press", { surfaceId, key: values[1] }];
+    }
+    if (action === "eval") {
+      const script = option(args, "--script") ?? values.slice(1).join(" ");
+      required(script, "Script is required");
+      return ["browser.eval", { surfaceId, script }];
+    }
+    if (action === "wait") {
+      const timeoutMs = positiveInteger(option(args, "--timeout") ?? "30000", "Timeout");
+      const selector = option(args, "--selector");
+      const url = option(args, "--url");
+      const load = option(args, "--load");
+      const state = option(args, "--state");
+      const condition = selector
+        ? { kind: "selector", selector, ...(state ? { state } : {}) }
+        : url ? { kind: "url", url }
+          : load ? { kind: "load", state: load }
+            : null;
+      if (!condition) throw new Error("Wait condition is required");
+      return ["browser.wait", { surfaceId, condition, timeoutMs }];
+    }
+    if (["console", "errors", "screenshot"].includes(action ?? "")) return [`browser.${action}` as ControlMethod, { surfaceId }];
   }
   if (group === "taxchat" && action === "send") {
     required(args.join(" "), "Message is required");
@@ -91,6 +141,24 @@ function command(
 function option(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : undefined;
+}
+
+function positional(args: string[]): string[] {
+  const values: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index].startsWith("--")) {
+      index += 1;
+      continue;
+    }
+    values.push(args[index]);
+  }
+  return values;
+}
+
+function positiveInteger(value: string, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${label} must be a positive integer`);
+  return parsed;
 }
 
 function required(value: string | undefined, message: string): asserts value is string {

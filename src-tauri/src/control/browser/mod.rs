@@ -42,6 +42,7 @@ struct BrowserSurface {
 #[derive(Default)]
 struct BrowserState {
     surfaces: HashMap<String, BrowserSurface>,
+    profile_capabilities: HashMap<(String, String), Vec<BrowserCapability>>,
 }
 
 #[derive(Clone)]
@@ -80,13 +81,19 @@ impl BrowserManager {
             ));
         }
         BrowserCommand::Open { url: url.clone() }.validate()?;
+        let capabilities = self
+            .state()
+            .profile_capabilities
+            .get(&(project_id.clone(), profile_id.clone()))
+            .cloned()
+            .unwrap_or_default();
         let record = BrowserSurfaceRecord {
             surface_id: Uuid::new_v4().to_string(),
             project_id,
             agent_id,
             url,
             profile_id,
-            capabilities: Vec::new(),
+            capabilities,
             created_at: utc_rfc3339_now(),
         };
         self.state().surfaces.insert(
@@ -117,11 +124,18 @@ impl BrowserManager {
         capability: BrowserCapability,
     ) -> Result<BrowserSurfaceRecord, ControlError> {
         let mut state = self.state();
-        let surface = state.surfaces.get_mut(surface_id).ok_or_else(not_found)?;
-        if !surface.record.capabilities.contains(&capability) {
-            surface.record.capabilities.push(capability);
-        }
-        Ok(surface.record.clone())
+        let record = {
+            let surface = state.surfaces.get_mut(surface_id).ok_or_else(not_found)?;
+            if !surface.record.capabilities.contains(&capability) {
+                surface.record.capabilities.push(capability);
+            }
+            surface.record.clone()
+        };
+        let key = (record.project_id.clone(), record.profile_id.clone());
+        state
+            .profile_capabilities
+            .insert(key, record.capabilities.clone());
+        Ok(record)
     }
 
     pub fn revoke(
@@ -130,12 +144,19 @@ impl BrowserManager {
         capability: BrowserCapability,
     ) -> Result<BrowserSurfaceRecord, ControlError> {
         let mut state = self.state();
-        let surface = state.surfaces.get_mut(surface_id).ok_or_else(not_found)?;
-        surface
-            .record
-            .capabilities
-            .retain(|value| *value != capability);
-        Ok(surface.record.clone())
+        let record = {
+            let surface = state.surfaces.get_mut(surface_id).ok_or_else(not_found)?;
+            surface
+                .record
+                .capabilities
+                .retain(|value| *value != capability);
+            surface.record.clone()
+        };
+        let key = (record.project_id.clone(), record.profile_id.clone());
+        state
+            .profile_capabilities
+            .insert(key, record.capabilities.clone());
+        Ok(record)
     }
 
     pub fn update_navigation(
@@ -176,6 +197,36 @@ impl BrowserManager {
             .ok_or_else(not_found)?;
         security::authorize_surface(identity, &record, command.kind())?;
         Ok(record)
+    }
+
+    pub fn authorize_project(
+        &self,
+        identity: &CallerIdentity,
+        project_id: &str,
+        capability: BrowserCapability,
+    ) -> Result<(), ControlError> {
+        if identity.project_id != "*" && identity.project_id != project_id {
+            return Err(ControlError::new(
+                ControlErrorCode::BrowserSurfaceForbidden,
+                "Browser project is outside the caller scope",
+            ));
+        }
+        let (_, caller_capability) =
+            security::required_capability(commands::BrowserCommandKind::Open);
+        let granted =
+            self.state()
+                .profile_capabilities
+                .iter()
+                .any(|((project, _), capabilities)| {
+                    project == project_id && capabilities.contains(&capability)
+                });
+        if !identity.allows(caller_capability) || !granted {
+            return Err(ControlError::new(
+                ControlErrorCode::BrowserPermissionRequired,
+                "Browser control must be granted for this project",
+            ));
+        }
+        Ok(())
     }
 
     pub fn dispatch<F>(

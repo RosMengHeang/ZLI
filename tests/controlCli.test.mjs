@@ -49,6 +49,30 @@ test("cli supports JSON mode and rejects ambiguous or incomplete commands", asyn
   assert.throws(() => parseCli(["destroy", "everything"]), /Unknown command/i);
 });
 
+test("browser commands expose the complete scoped automation surface", async () => {
+  const { parseCli } = await import("../src/control/cli.ts");
+  assert.deepEqual(parseCli(["browser", "open", "https://example.com"], { projectId: "project-1" }).request.params, {
+    projectId: "project-1",
+    url: "https://example.com",
+  });
+  assert.deepEqual(parseCli(["browser", "snapshot", "surface-1", "--selector", "main", "--depth", "8"]).request.params, {
+    surfaceId: "surface-1",
+    selector: "main",
+    maxDepth: 8,
+  });
+  assert.deepEqual(parseCli(["browser", "fill", "surface-1", "#name", "Ada", "Lovelace"]).request.params, {
+    surfaceId: "surface-1",
+    selector: "#name",
+    text: "Ada Lovelace",
+  });
+  assert.deepEqual(parseCli(["browser", "wait", "surface-1", "--selector", "#ready", "--state", "visible", "--timeout", "5000"]).request.params, {
+    surfaceId: "surface-1",
+    condition: { kind: "selector", selector: "#ready", state: "visible" },
+    timeoutMs: 5000,
+  });
+  assert.equal(parseCli(["browser", "screenshot", "surface-1"]).request.method, "browser.screenshot");
+});
+
 test("control client sends the same strict protocol through Tauri", async () => {
   const { createControlClient } = await import("../src/control/client.ts");
   let sent;

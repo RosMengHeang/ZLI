@@ -151,7 +151,12 @@ function isPaneNode(value: unknown): value is PaneNode {
     && isPaneNode(node.first) && isPaneNode(node.second);
 }
 
-async function synchronizeFrontend(records: RestoredAgent[], paneTree: PaneNode | null): Promise<void> {
+async function synchronizeFrontend(
+  projectId: string,
+  records: RestoredAgent[],
+  paneTree: PaneNode | null,
+  browser: unknown[],
+): Promise<void> {
   if (typeof document === "undefined") return;
   const [{ useAgentStore }, { useLayoutStore }, { useTerminalStore }, { terminalRegistry }, { useWorkspaceStore }, { useTeamStore }] = await Promise.all([
     import("./agentStore.ts"),
@@ -210,6 +215,27 @@ async function synchronizeFrontend(records: RestoredAgent[], paneTree: PaneNode 
   else {
     for (const record of records) useLayoutStore.getState().addLeaf(record.terminalId);
   }
+  const browserState = browser[0];
+  if (browserState && typeof browserState === "object") {
+    const value = browserState as Record<string, unknown>;
+    if (typeof value.url === "string" && /^(https?:\/\/|about:blank$)/i.test(value.url)) {
+      const [{ useUiStore }, { useBrowserStore }] = await Promise.all([
+        import("./uiStore.ts"),
+        import("./browserStore.ts"),
+      ]);
+      useUiStore.getState().setBrowserUrl(value.url);
+      useUiStore.getState().setBrowserOpen(value.open === true);
+      if (Array.isArray(value.capabilities)) {
+        useBrowserStore.getState().restoreProfile(
+          projectId,
+          typeof value.profileId === "string" ? value.profileId : "default",
+          value.capabilities.filter((capability): capability is "browser.read" | "browser.control" | "browser.javascript" =>
+            capability === "browser.read" || capability === "browser.control" || capability === "browser.javascript",
+          ),
+        );
+      }
+    }
+  }
 }
 
 function makeState(client: SessionClient) {
@@ -241,15 +267,21 @@ function makeState(client: SessionClient) {
 
     checkpoint: async (projectId) => {
       if (!client.snapshot || typeof document === "undefined") return;
-      const [{ useLayoutStore }, { useUiStore }, { useTaxChatStore }, { useAttentionStore }] = await Promise.all([
-        import("./layoutStore.ts"), import("./uiStore.ts"), import("./taxChatStore.ts"), import("./attentionStore.ts"),
+      const [{ useLayoutStore }, { useUiStore }, { useTaxChatStore }, { useAttentionStore }, { useBrowserStore }] = await Promise.all([
+        import("./layoutStore.ts"), import("./uiStore.ts"), import("./taxChatStore.ts"), import("./attentionStore.ts"), import("./browserStore.ts"),
       ]);
       const ui = useUiStore.getState();
+      const surface = useBrowserStore.getState().surface;
       try {
         await client.snapshot({
           projectId,
           paneTree: useLayoutStore.getState().paneTree,
-          browser: ui.browserUrl ? [{ url: ui.browserUrl, open: ui.browserOpen }] : [],
+          browser: ui.browserUrl ? [{
+            url: ui.browserUrl,
+            open: ui.browserOpen,
+            profileId: surface?.profileId ?? "default",
+            capabilities: surface?.projectId === projectId ? surface.capabilities : [],
+          }] : [],
           taxChatRoom: useTaxChatStore.getState().room,
           lastEventSequence: useAttentionStore.getState().lastSequence,
         });
@@ -270,7 +302,7 @@ function makeState(client: SessionClient) {
       const agents = Object.fromEntries(records.map((record) => [record.id, record]));
       const paneTree = isPaneNode(decoded.value.paneTree) ? decoded.value.paneTree : null;
       set({ phase: "ready", projectId: decoded.value.projectId, agents, error: null });
-      await synchronizeFrontend(records, paneTree);
+      await synchronizeFrontend(decoded.value.projectId, records, paneTree, decoded.value.browser);
     },
 
     resumeAgent: async (agentId) => {

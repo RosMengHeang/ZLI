@@ -1,4 +1,5 @@
 import { Fragment, lazy, Suspense, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { AddAgentDialog } from "./AddAgentDialog";
 import { CommitDialog } from "./CommitDialog";
@@ -78,6 +79,24 @@ export function AppShell() {
   const [setupOpen, setSetupOpen] = useState(true);
   const project = useProjectStore((s) => s.project);
   const error = useProjectStore((s) => s.error);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<{ projectId: string; url: string }>("browser-open-request", ({ payload }) => {
+      const active = useProjectStore.getState().project;
+      if (!active || (payload.projectId !== active.path && payload.projectId !== active.repositoryRoot)) return;
+      useUiStore.getState().setBrowserUrl(payload.url);
+      useUiStore.getState().setBrowserOpen(true);
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unlisten = cleanup;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
   const openFromPath = useProjectStore((s) => s.openFromPath);
   const gitPanelOpen = useLayoutStore((s) => s.gitPanelOpen);
   const loadProviders = useAgentStore((s) => s.loadProviders);

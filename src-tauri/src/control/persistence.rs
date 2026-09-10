@@ -1,3 +1,4 @@
+use super::browser::commands::{BrowserCapability, BrowserCommand};
 use super::events::utc_rfc3339_now;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -38,6 +39,33 @@ impl ProjectSnapshot {
             extensions: BTreeMap::new(),
         }
     }
+}
+
+pub(crate) fn sanitize_browser_checkpoint(value: Value) -> Option<Value> {
+    let object = value.as_object()?;
+    let url = object.get("url")?.as_str()?.to_owned();
+    BrowserCommand::Open { url: url.clone() }.validate().ok()?;
+    let capabilities = object
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|value| serde_json::from_value::<BrowserCapability>(value.clone()).ok())
+        .filter(|capability| {
+            matches!(
+                capability,
+                BrowserCapability::Read
+                    | BrowserCapability::Control
+                    | BrowserCapability::Javascript
+            )
+        })
+        .collect::<Vec<_>>();
+    Some(serde_json::json!({
+        "url": url,
+        "open": object.get("open").and_then(Value::as_bool).unwrap_or(false),
+        "profileId": object.get("profileId").and_then(Value::as_str).filter(|value| !value.trim().is_empty()).unwrap_or("default"),
+        "capabilities": capabilities,
+    }))
 }
 
 #[derive(Debug, Error)]

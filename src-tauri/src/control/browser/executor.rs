@@ -2,12 +2,14 @@ use super::commands::{
     BrowserAction, BrowserCommand, BrowserResult, BrowserWaitCondition, LoadState, SelectorState,
 };
 use crate::control::{ControlError, ControlErrorCode};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 pub trait BrowserExecutor: Send + Sync {
+    fn request_open(&self, project_id: &str, url: &str) -> Result<(), ControlError>;
+
     fn execute(
         &self,
         webview_label: &str,
@@ -103,9 +105,80 @@ impl TauriBrowserExecutor {
             std::thread::sleep(Duration::from_millis(50));
         }
     }
+
+    #[cfg(windows)]
+    fn screenshot(
+        &self,
+        label: &str,
+        surface_id: String,
+        timeout: Duration,
+    ) -> Result<BrowserResult, ControlError> {
+        use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+        use windows::core::HSTRING;
+
+        let dimensions = self.evaluate(
+            label,
+            "({ width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight) })",
+            timeout,
+        )?;
+        let width = dimensions.get("width").and_then(Value::as_u64).unwrap_or(1) as u32;
+        let height = dimensions
+            .get("height")
+            .and_then(Value::as_u64)
+            .unwrap_or(1) as u32;
+        let webview = self.webview(label)?;
+        let (sender, receiver) = mpsc::sync_channel(1);
+        webview
+            .with_webview(move |platform| {
+                let immediate_sender = sender.clone();
+                let completion = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
+                    move |status, result| {
+                        let _ =
+                            sender.send(status.map(|_| result).map_err(|error| error.to_string()));
+                        Ok(())
+                    },
+                ));
+                let result = unsafe {
+                    platform.controller().CoreWebView2().and_then(|core| {
+                        core.CallDevToolsProtocolMethod(
+                            &HSTRING::from("Page.captureScreenshot"),
+                            &HSTRING::from(r#"{"format":"png","fromSurface":true}"#),
+                            &completion,
+                        )
+                    })
+                };
+                if let Err(error) = result {
+                    let _ = immediate_sender.send(Err(error.to_string()));
+                }
+            })
+            .map_err(|error| runtime(format!("Browser capture could not start: {error}")))?;
+        let response = receiver
+            .recv_timeout(timeout)
+            .map_err(|_| browser_timeout())?
+            .map_err(|error| runtime(format!("Browser capture failed: {error}")))?;
+        let data = serde_json::from_str::<Value>(&response)
+            .ok()
+            .and_then(|value| value.get("data").and_then(Value::as_str).map(str::to_owned))
+            .ok_or_else(|| runtime("Browser capture returned no image"))?;
+        Ok(BrowserResult::Screenshot {
+            surface_id,
+            data_url: format!("data:image/png;base64,{data}"),
+            width,
+            height,
+        })
+    }
 }
 
 impl BrowserExecutor for TauriBrowserExecutor {
+    fn request_open(&self, project_id: &str, url: &str) -> Result<(), ControlError> {
+        self.app
+            .emit(
+                "browser-open-request",
+                json!({ "projectId": project_id, "url": url }),
+            )
+            .map_err(|error| runtime(format!("Browser open request failed: {error}")))
+    }
+
     fn execute(
         &self,
         webview_label: &str,
@@ -231,10 +304,19 @@ impl BrowserExecutor for TauriBrowserExecutor {
                     truncated: false,
                 })
             }
-            BrowserCommand::Screenshot { .. } => Err(ControlError::new(
-                ControlErrorCode::MethodNotImplemented,
-                "Browser screenshots require the WebView2 capture adapter",
-            )),
+            BrowserCommand::Screenshot { .. } => {
+                #[cfg(windows)]
+                {
+                    self.screenshot(webview_label, surface_id, timeout)
+                }
+                #[cfg(not(windows))]
+                {
+                    Err(ControlError::new(
+                        ControlErrorCode::MethodNotImplemented,
+                        "Browser screenshots are not supported on this platform",
+                    ))
+                }
+            }
         }
     }
 }

@@ -3,6 +3,7 @@ import {
   capabilitiesFor,
   EMPTY_BROWSER_PERMISSIONS,
   normalizeBrowserPermissions,
+  replaceBrowserCapabilities,
   setBrowserCapability,
   type BrowserPermissionRegistry,
 } from "../lib/browser/browserPermissions.ts";
@@ -40,6 +41,7 @@ interface BrowserState {
   setSurface: (surface: BrowserSurfaceRecord | null) => void;
   setPermissionOpen: (open: boolean) => void;
   savedCapabilities: (projectId: string, profileId: string) => BrowserCapability[];
+  restoreProfile: (projectId: string, profileId: string, capabilities: BrowserCapability[]) => void;
   setCapability: (capability: BrowserCapability, granted: boolean) => Promise<void>;
 }
 
@@ -52,6 +54,11 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
   setSurface: (surface) => set({ surface, error: null }),
   setPermissionOpen: (permissionOpen) => set({ permissionOpen }),
   savedCapabilities: (projectId, profileId) => capabilitiesFor(get().registry, projectId, profileId),
+  restoreProfile: (projectId, profileId, capabilities) => {
+    const registry = replaceBrowserCapabilities(get().registry, projectId, profileId, capabilities);
+    persist(registry);
+    set({ registry });
+  },
   setCapability: async (capability, granted) => {
     const surface = get().surface;
     if (!surface) return;

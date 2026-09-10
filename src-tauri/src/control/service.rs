@@ -1,5 +1,5 @@
 use super::attention::{AttentionReducer, AttentionState};
-use super::browser::commands::{BrowserCommand, BrowserResult};
+use super::browser::commands::{BrowserCapability, BrowserCommand, BrowserResult};
 use super::{
     BrowserExecutor, BrowserManager, CallerIdentity, Capability, CommandRouter, ControlError,
     ControlErrorCode, ControlHandler, ControlMethod, ControlRequest, ControlResponse,
@@ -10,7 +10,7 @@ use crate::pty::{EventSink, PtyManager};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub struct RuntimeControlHandler {
     pty: PtyManager,
@@ -151,6 +151,51 @@ impl ControlHandler for RuntimeControlHandler {
             }
             ControlMethod::BrowserList => {
                 serde_json::to_value(self.browser.list(identity)).map_err(serialization_error)
+            }
+            ControlMethod::BrowserOpen => {
+                let project_id = request
+                    .params
+                    .get("projectId")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .map(str::to_owned)
+                    .or_else(|| (identity.project_id != "*").then(|| identity.project_id.clone()))
+                    .ok_or_else(|| invalid_params("browser.open projectId"))?;
+                let url = param(&request.params, "url")?.to_owned();
+                BrowserCommand::decode(json!({ "kind": "open", "url": url }))?;
+                self.browser.authorize_project(
+                    identity,
+                    &project_id,
+                    BrowserCapability::Control,
+                )?;
+                if let Some(surface) = self
+                    .browser
+                    .list(identity)
+                    .into_iter()
+                    .find(|surface| surface.project_id == project_id && surface.url == url)
+                {
+                    return serde_json::to_value(surface).map_err(serialization_error);
+                }
+                self.browser_executor.request_open(&project_id, &url)?;
+                let started = Instant::now();
+                let timeout = Duration::from_millis(request.timeout_ms);
+                loop {
+                    if let Some(surface) = self
+                        .browser
+                        .list(identity)
+                        .into_iter()
+                        .find(|surface| surface.project_id == project_id && surface.url == url)
+                    {
+                        return serde_json::to_value(surface).map_err(serialization_error);
+                    }
+                    if started.elapsed() >= timeout {
+                        return Err(ControlError::new(
+                            ControlErrorCode::BrowserCommandTimeout,
+                            "Browser pane did not open before the deadline",
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
             }
             ControlMethod::BrowserNavigate
             | ControlMethod::BrowserWait

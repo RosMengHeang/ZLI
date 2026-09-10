@@ -1,3 +1,4 @@
+use super::persistence::sanitize_browser_checkpoint;
 use super::{ProjectSnapshot, SessionRegistry, SnapshotStore, SnapshotStoreError};
 use serde::Serialize;
 use serde_json::Value;
@@ -40,7 +41,10 @@ impl SessionManager {
         let generation = self.reserve_generation();
         let mut snapshot = ProjectSnapshot::empty(project_id.to_owned());
         snapshot.pane_tree = pane_tree;
-        snapshot.browser = browser;
+        snapshot.browser = browser
+            .into_iter()
+            .filter_map(sanitize_browser_checkpoint)
+            .collect();
         snapshot.tax_chat_room = tax_chat_room;
         snapshot.last_event_sequence = last_event_sequence;
         for session in self
