@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::io;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, SyncSender};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -45,17 +46,46 @@ pub struct NamedPipeServer {
 }
 
 impl NamedPipeServer {
+    pub fn random_endpoint() -> String {
+        format!(r"\\.\pipe\zli-{}", Uuid::new_v4().simple())
+    }
+
     pub fn start_random(
         router: Arc<CommandRouter>,
         tokens: Arc<CapabilityTokenStore>,
     ) -> io::Result<Self> {
-        let endpoint = format!(r"\\.\pipe\zli-{}", Uuid::new_v4().simple());
+        Self::start(Self::random_endpoint(), router, tokens)
+    }
+
+    pub fn start(
+        endpoint: String,
+        router: Arc<CommandRouter>,
+        tokens: Arc<CapabilityTokenStore>,
+    ) -> io::Result<Self> {
         let stopping = Arc::new(AtomicBool::new(false));
         let thread_endpoint = endpoint.clone();
         let thread_stopping = stopping.clone();
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let handle = thread::Builder::new()
             .name("zli-control-pipe".into())
-            .spawn(move || serve(thread_endpoint, thread_stopping, router, tokens))?;
+            .spawn(move || {
+                serve(
+                    thread_endpoint,
+                    thread_stopping,
+                    router,
+                    tokens,
+                    Some(ready_tx),
+                )
+            })?;
+        if ready_rx.recv_timeout(Duration::from_secs(2)).is_err() {
+            stopping.store(true, Ordering::Release);
+            let result = handle
+                .join()
+                .map_err(|_| io::Error::other("control pipe thread panicked"))?;
+            return Err(result.err().unwrap_or_else(|| {
+                io::Error::new(io::ErrorKind::TimedOut, "control pipe did not become ready")
+            }));
+        }
         Ok(Self {
             endpoint,
             stopping,
@@ -146,6 +176,7 @@ fn serve(
     stopping: Arc<AtomicBool>,
     router: Arc<CommandRouter>,
     tokens: Arc<CapabilityTokenStore>,
+    mut ready: Option<SyncSender<()>>,
 ) -> io::Result<()> {
     let endpoint = wide(&endpoint);
     while !stopping.load(Ordering::Acquire) {
@@ -166,6 +197,9 @@ fn serve(
         };
         if handle == INVALID_HANDLE_VALUE {
             return Err(io::Error::last_os_error());
+        }
+        if let Some(sender) = ready.take() {
+            let _ = sender.send(());
         }
 
         let connected = wait_for_connection(handle, &stopping);

@@ -208,6 +208,20 @@ fn detached_session_can_be_found_and_attached_by_session_id() {
 }
 
 #[test]
+fn session_descriptor_persists_parent_agent_relationship() {
+    let mut descriptor = test_runtime_session("session-child", "child-1")
+        .descriptor()
+        .expect("descriptor");
+    descriptor.parent_agent_id = Some("parent-1".into());
+
+    let encoded = serde_json::to_value(&descriptor).expect("serialize descriptor");
+    let decoded: super::SessionDescriptor =
+        serde_json::from_value(encoded).expect("decode descriptor");
+
+    assert_eq!(decoded.parent_agent_id.as_deref(), Some("parent-1"));
+}
+
+#[test]
 fn detached_session_keeps_bounded_scrollback_without_forwarding_output() {
     use crate::pty::TerminalOutputEvent;
     let visible = MemoryEventSink::default();
@@ -216,6 +230,7 @@ fn detached_session_keeps_bounded_scrollback_without_forwarding_output() {
             session_id: "session-1".into(),
             project_id: "project-1".into(),
             agent_id: "agent-1".into(),
+            parent_agent_id: None,
             name: "Codex".into(),
             provider_id: "codex".into(),
             terminal_id: "terminal-1".into(),
@@ -1705,6 +1720,219 @@ fn assert_real_provider_prompt_fixture(
     assert_eq!(state.attention_status, AttentionStatus::WaitingForYou);
     assert_eq!(state.unread_count, 1);
     manager.kill(&terminal.id).expect("kill prompt fixture");
+}
+
+#[derive(Default)]
+struct FakeTeamBackend {
+    active: AtomicUsize,
+    fail_launch: std::sync::atomic::AtomicBool,
+    launches: std::sync::Mutex<Vec<super::team::ChildLaunch>>,
+    deliveries: std::sync::Mutex<Vec<(String, String)>>,
+    cleanups: std::sync::Mutex<Vec<(String, String)>>,
+    events: std::sync::Mutex<Vec<AgentEventEnvelope>>,
+}
+
+impl super::team::TeamBackend for FakeTeamBackend {
+    fn active_agent_count(&self, _project_id: &str) -> Result<usize, super::ControlError> {
+        Ok(self.active.load(Ordering::SeqCst))
+    }
+
+    fn agent_exists(&self, project_id: &str, agent_id: &str) -> Result<bool, super::ControlError> {
+        Ok(project_id == "project-1" && agent_id == "parent-1")
+    }
+
+    fn recover_agent(
+        &self,
+        _project_id: &str,
+        _agent_id: &str,
+    ) -> Result<Option<super::TeamAgent>, super::ControlError> {
+        Ok(None)
+    }
+
+    fn provider_installed(&self, provider_id: &str) -> bool {
+        provider_id == "codex"
+    }
+
+    fn create_worktree(
+        &self,
+        _project_id: &str,
+        _provider_id: &str,
+    ) -> Result<super::team::PreparedWorktree, super::ControlError> {
+        Ok(super::team::PreparedWorktree {
+            branch: "codex/child".into(),
+            path: r"D:\repo.worktrees\child".into(),
+        })
+    }
+
+    fn launch_child(
+        &self,
+        launch: super::team::ChildLaunch,
+    ) -> Result<crate::agents::Agent, super::ControlError> {
+        self.launches.lock().unwrap().push(launch.clone());
+        if self.fail_launch.load(Ordering::SeqCst) {
+            return Err(super::ControlError::new(
+                super::ControlErrorCode::ControlRuntimeError,
+                "launch failed",
+            ));
+        }
+        Ok(crate::agents::Agent {
+            id: launch.agent_id,
+            name: launch.name,
+            provider: launch.provider_id,
+            terminal_id: "terminal-child".into(),
+            cwd: launch.worktree.path.clone(),
+            branch: launch.worktree.branch,
+            worktree_path: Some(launch.worktree.path),
+            status: crate::agents::AgentStatus::Running,
+            error: None,
+        })
+    }
+
+    fn deliver(&self, terminal_id: &str, body: &str) -> Result<(), super::ControlError> {
+        self.deliveries
+            .lock()
+            .unwrap()
+            .push((terminal_id.into(), body.into()));
+        Ok(())
+    }
+
+    fn read(&self, _agent_id: &str) -> Result<(String, String), super::ControlError> {
+        Ok(("running".into(), "output".into()))
+    }
+
+    fn stop(&self, _agent_id: &str) -> Result<(), super::ControlError> {
+        Ok(())
+    }
+
+    fn cleanup_worktree(&self, project_id: &str, path: &str) -> Result<(), super::ControlError> {
+        self.cleanups
+            .lock()
+            .unwrap()
+            .push((project_id.into(), path.into()));
+        Ok(())
+    }
+
+    fn emit(&self, event: AgentEventEnvelope) {
+        self.events.lock().unwrap().push(event);
+    }
+}
+
+fn team_spawn_request() -> super::team::SpawnAgentRequest {
+    super::team::SpawnAgentRequest {
+        project_id: "project-1".into(),
+        parent_agent_id: Some("parent-1".into()),
+        provider_id: "codex".into(),
+        task: "Run the focused tests".into(),
+        name: Some("Test child".into()),
+    }
+}
+
+#[test]
+fn team_spawn_creates_scoped_child_and_delivers_initial_task() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let coordinator = super::TeamCoordinator::new(
+        backend.clone(),
+        Arc::new(CapabilityTokenStore::default()),
+        r"\\.\pipe\zli-test".into(),
+    );
+
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+
+    assert_eq!(child.parent_agent_id.as_deref(), Some("parent-1"));
+    assert_eq!(child.worktree_path, r"D:\repo.worktrees\child");
+    let launches = backend.launches.lock().unwrap();
+    let launch = launches.first().expect("captured launch");
+    assert_eq!(
+        launch
+            .environment
+            .get(std::ffi::OsStr::new("ZLI_PROJECT_ID"))
+            .unwrap(),
+        "project-1"
+    );
+    assert_eq!(
+        launch
+            .environment
+            .get(std::ffi::OsStr::new("ZLI_PARENT_AGENT_ID"))
+            .unwrap(),
+        "parent-1"
+    );
+    assert!(!launch
+        .environment
+        .get(std::ffi::OsStr::new("ZLI_CONTROL_TOKEN"))
+        .unwrap()
+        .is_empty());
+    drop(launches);
+    assert_eq!(
+        backend.deliveries.lock().unwrap().as_slice(),
+        &[("terminal-child".into(), "Run the focused tests".into())]
+    );
+    let events = backend.events.lock().unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].kind, AgentEventKind::AgentStarted);
+    assert_eq!(events[0].parent_agent_id.as_deref(), Some("parent-1"));
+}
+
+#[test]
+fn team_spawn_enforces_the_twelve_agent_project_cap() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    backend.active.store(12, Ordering::SeqCst);
+    let coordinator = super::TeamCoordinator::new(
+        backend,
+        Arc::new(CapabilityTokenStore::default()),
+        "endpoint".into(),
+    );
+
+    let error = coordinator
+        .spawn(team_spawn_request())
+        .expect_err("cap must reject");
+    assert_eq!(error.code, super::ControlErrorCode::AgentLimitReached);
+}
+
+#[test]
+fn team_spawn_rolls_back_worktree_when_launch_fails() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    backend.fail_launch.store(true, Ordering::SeqCst);
+    let coordinator = super::TeamCoordinator::new(
+        backend.clone(),
+        Arc::new(CapabilityTokenStore::default()),
+        "endpoint".into(),
+    );
+
+    coordinator
+        .spawn(team_spawn_request())
+        .expect_err("launch must fail");
+
+    assert_eq!(
+        backend.cleanups.lock().unwrap().as_slice(),
+        &[("project-1".into(), r"D:\repo.worktrees\child".into())]
+    );
+    assert!(backend.deliveries.lock().unwrap().is_empty());
+}
+
+#[test]
+fn team_stop_revokes_the_child_control_token() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let tokens = Arc::new(CapabilityTokenStore::default());
+    let coordinator =
+        super::TeamCoordinator::new(backend.clone(), tokens.clone(), "endpoint".into());
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+    let token = backend.launches.lock().unwrap()[0]
+        .environment
+        .get(std::ffi::OsStr::new("ZLI_CONTROL_TOKEN"))
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    assert!(tokens.verify(&token).is_ok());
+
+    coordinator
+        .stop("project-1", &child.agent_id)
+        .expect("stop child");
+
+    assert!(tokens.verify(&token).is_err());
 }
 
 fn wait_for_control_event(

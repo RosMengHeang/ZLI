@@ -77,22 +77,40 @@ pub fn run() {
             let supervisor = Arc::new(control::Supervisor::new(
                 app_data_dir.clone(),
                 pty.clone(),
-                events,
+                events.clone(),
             ));
             let _ = supervisor.start_or_connect();
             app.manage(supervisor.clone());
             let agents = app.state::<agents::AgentManager>().inner().clone();
-            let handler = Arc::new(control::RuntimeControlHandler::new(pty, agents, supervisor));
+            let tokens = Arc::new(control::CapabilityTokenStore::default());
+            #[cfg(windows)]
+            let endpoint = control::NamedPipeServer::random_endpoint();
+            #[cfg(not(windows))]
+            let endpoint = String::new();
+            let sink = commands::app_event_sink(app.handle().clone(), events);
+            let team_backend = Arc::new(control::RuntimeTeamBackend::new(
+                pty.clone(),
+                agents.clone(),
+                supervisor.clone(),
+                sink,
+            ));
+            let team = Arc::new(control::TeamCoordinator::new(
+                team_backend,
+                tokens.clone(),
+                endpoint.clone(),
+            ));
+            let handler = Arc::new(control::RuntimeControlHandler::new(
+                pty, agents, supervisor, team,
+            ));
             let router = Arc::new(control::CommandRouter::new(handler));
             app.manage(Arc::new(control::ControlService::new(router.clone())));
             #[cfg(windows)]
             {
-                let tokens = Arc::new(control::CapabilityTokenStore::default());
                 let issued = tokens.issue(
                     control::local_cli_identity(),
                     std::time::Duration::from_secs(12 * 60 * 60),
                 );
-                let server = control::NamedPipeServer::start_random(router, tokens)?;
+                let server = control::NamedPipeServer::start(endpoint, router, tokens)?;
                 let control_dir = app_data_dir.join("control");
                 std::fs::create_dir_all(&control_dir)?;
                 let connection_file = control_dir.join("endpoint.json");

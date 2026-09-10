@@ -91,11 +91,25 @@ fn parse_command(args: &[String]) -> Result<(ControlMethod, Value), String> {
             ))
         }
         (Some("agent"), Some("spawn")) => {
-            let provider_id = required(args.get(2), "provider")?;
-            let task = joined(args, 3, "task")?;
+            let managed_project = std::env::var("ZLI_PROJECT_ID")
+                .ok()
+                .filter(|value| !value.is_empty());
+            let (project_id, provider_id, task) = if let Some(project_id) = managed_project {
+                (
+                    project_id,
+                    required(args.get(2), "provider")?.to_owned(),
+                    joined(args, 3, "task")?,
+                )
+            } else {
+                (
+                    required(args.get(2), "project")?.to_owned(),
+                    required(args.get(3), "provider")?.to_owned(),
+                    joined(args, 4, "task")?,
+                )
+            };
             Ok((
                 ControlMethod::AgentSpawn,
-                json!({ "providerId": provider_id, "task": task }),
+                json!({ "projectId": project_id, "providerId": provider_id, "task": task }),
             ))
         }
         (Some("agent"), Some(action @ ("read" | "focus" | "pause" | "stop"))) => {
@@ -184,7 +198,7 @@ fn joined(args: &[String], start: usize, label: &str) -> Result<String, String> 
 
 #[cfg(windows)]
 fn usage() -> String {
-    "unknown command. Try: status | agents | agent send <id> <message> | agent spawn <provider> <task> | session list | session resume <id> | browser list | taxchat send <message>".into()
+    "unknown command. Try: status | agents | agent send <id> <message> | agent spawn <project> <provider> <task> | session list | session resume <id> | browser list | taxchat send <message>".into()
 }
 
 #[cfg(windows)]

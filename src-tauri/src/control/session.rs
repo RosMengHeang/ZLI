@@ -15,6 +15,8 @@ pub struct SessionDescriptor {
     pub project_id: String,
     pub agent_id: String,
     #[serde(default)]
+    pub parent_agent_id: Option<String>,
+    #[serde(default)]
     pub name: String,
     pub provider_id: String,
     pub terminal_id: String,
@@ -77,6 +79,7 @@ impl RuntimeSession {
                 session_id,
                 project_id,
                 agent_id,
+                parent_agent_id: None,
                 name: String::new(),
                 provider_id,
                 terminal_id,

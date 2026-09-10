@@ -45,10 +45,11 @@ function command(
       return ["agent.send", { agentId, body: message.join(" ") }];
     }
     if (action === "spawn") {
-      const [providerId, ...task] = args;
+      const [projectId, providerId, ...task] = args;
+      required(projectId, "Project is required");
       required(providerId, "Provider is required");
       required(task.join(" "), "Task is required");
-      return ["agent.spawn", { providerId, task: task.join(" ") }];
+      return ["agent.spawn", { projectId, providerId, task: task.join(" ") }];
     }
     if (["read", "focus", "pause", "stop"].includes(action ?? "")) {
       required(args[0], "Agent ID is required");

@@ -1,6 +1,7 @@
 use super::{
     CallerIdentity, Capability, CommandRouter, ControlError, ControlErrorCode, ControlHandler,
-    ControlMethod, ControlRequest, ControlResponse, Supervisor, SUPERVISOR_PROTOCOL_VERSION,
+    ControlMethod, ControlRequest, ControlResponse, SpawnAgentRequest, Supervisor, TeamCoordinator,
+    SUPERVISOR_PROTOCOL_VERSION,
 };
 use crate::agents::AgentManager;
 use crate::pty::PtyManager;
@@ -11,14 +12,21 @@ pub struct RuntimeControlHandler {
     pty: PtyManager,
     agents: AgentManager,
     supervisor: Arc<Supervisor>,
+    team: Arc<TeamCoordinator>,
 }
 
 impl RuntimeControlHandler {
-    pub fn new(pty: PtyManager, agents: AgentManager, supervisor: Arc<Supervisor>) -> Self {
+    pub fn new(
+        pty: PtyManager,
+        agents: AgentManager,
+        supervisor: Arc<Supervisor>,
+        team: Arc<TeamCoordinator>,
+    ) -> Self {
         Self {
             pty,
             agents,
             supervisor,
+            team,
         }
     }
 }
@@ -27,7 +35,7 @@ impl ControlHandler for RuntimeControlHandler {
     fn handle(
         &self,
         request: &ControlRequest,
-        _identity: &CallerIdentity,
+        identity: &CallerIdentity,
     ) -> Result<Value, ControlError> {
         match request.method {
             ControlMethod::AgentList => {
@@ -47,6 +55,31 @@ impl ControlHandler for RuntimeControlHandler {
             )
             .map_err(serialization_error),
             ControlMethod::WorkspaceList => Ok(json!([])),
+            ControlMethod::AgentSpawn => {
+                let mut spawn: SpawnAgentRequest = serde_json::from_value(request.params.clone())
+                    .map_err(|_| invalid_params("agent.spawn"))?;
+                if spawn.project_id.is_empty() && identity.project_id != "*" {
+                    spawn.project_id.clone_from(&identity.project_id);
+                }
+                serde_json::to_value(self.team.spawn(spawn)?).map_err(serialization_error)
+            }
+            ControlMethod::AgentSend => {
+                let agent_id = param(&request.params, "agentId")?;
+                let body = param(&request.params, "body")?;
+                self.team.send(&identity.project_id, agent_id, body)
+            }
+            ControlMethod::AgentRead => self
+                .team
+                .read(&identity.project_id, param(&request.params, "agentId")?),
+            ControlMethod::AgentFocus => self
+                .team
+                .focus(&identity.project_id, param(&request.params, "agentId")?),
+            ControlMethod::AgentPause => self
+                .team
+                .pause(&identity.project_id, param(&request.params, "agentId")?),
+            ControlMethod::AgentStop => self
+                .team
+                .stop(&identity.project_id, param(&request.params, "agentId")?),
             _ => Err(ControlError::new(
                 ControlErrorCode::MethodNotImplemented,
                 "Control method is not implemented yet",
@@ -123,4 +156,19 @@ fn runtime_error(error: crate::error::BackendError) -> ControlError {
 
 fn serialization_error(error: serde_json::Error) -> ControlError {
     ControlError::new(ControlErrorCode::ControlRuntimeError, error.to_string())
+}
+
+fn param<'a>(params: &'a Value, key: &str) -> Result<&'a str, ControlError> {
+    params
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| invalid_params(key))
+}
+
+fn invalid_params(method: &str) -> ControlError {
+    ControlError::new(
+        ControlErrorCode::InvalidControlRequest,
+        format!("Invalid parameters for {method}"),
+    )
 }

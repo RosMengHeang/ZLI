@@ -18,6 +18,7 @@ export interface SessionDescriptor {
   sessionId: string;
   projectId: string;
   agentId: string;
+  parentAgentId: string | null;
   name: string;
   providerId: string;
   terminalId: string;

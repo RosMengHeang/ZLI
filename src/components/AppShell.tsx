@@ -44,6 +44,10 @@ import { Button } from "@/components/ui/button";
 import { CommandPalette } from "./CommandPalette";
 import { useAttentionStore } from "../stores/attentionStore";
 import { useSessionStore } from "../stores/sessionStore";
+import { useTeamStore } from "../stores/teamStore";
+import { controlEventsAfter, subscribeControlEvents } from "../tauri/control";
+import { isAgentEventEnvelope, type AgentEventPayload } from "../lib/agentEvents";
+import type { Agent } from "../types";
 
 const BrowserPanel = lazy(async () => {
   const mod = await import("./BrowserPanel");
@@ -126,8 +130,64 @@ export function AppShell() {
   }, []);
 
   useEffect(() => {
+    let release: (() => void) | undefined;
+    let disposed = false;
+    const applyTeamEvent = (candidate: unknown) => {
+      if (!isAgentEventEnvelope(candidate)) return;
+      useTeamStore.getState().apply(candidate);
+      const payload = candidate.payload as AgentEventPayload;
+      if (candidate.kind === "agent_started" && candidate.agentId && payload.type === "agent") {
+        const agent: Agent = {
+          id: candidate.agentId,
+          name: payload.name,
+          provider: payload.providerId as Agent["provider"],
+          terminalId: payload.terminalId,
+          cwd: payload.worktreePath,
+          branch: payload.branch,
+          worktreePath: payload.worktreePath,
+          status: "running",
+          error: null,
+        };
+        useAgentStore.getState().trackExternal(agent, candidate.projectId);
+      }
+      if (candidate.kind === "agent_focus_requested" && candidate.agentId) {
+        useAgentStore.getState().selectAgent(candidate.agentId);
+      }
+    };
+    void subscribeControlEvents(applyTeamEvent).then(async (disconnect) => {
+      if (disposed) {
+        disconnect();
+        return;
+      }
+      release = disconnect;
+      const replay = await controlEventsAfter(useTeamStore.getState().lastSequence);
+      replay.forEach(applyTeamEvent);
+    });
+    return () => {
+      disposed = true;
+      release?.();
+    };
+  }, []);
+
+  useEffect(() => {
     configureTaxChatRuntime({
-      transport: { write: ptyWrite },
+      transport: {
+        write: async (terminalId, data) => {
+          const child = Object.values(useTeamStore.getState().agents)
+            .find((agent) => agent.terminalId === terminalId);
+          if (!child) {
+            await ptyWrite(terminalId, data);
+            return;
+          }
+          const deliveryId = await useTeamStore.getState().sendMessage({
+            projectId: child.projectId,
+            agentId: child.agentId,
+            body: data.replace(/\r$/, ""),
+          });
+          const delivery = useTeamStore.getState().deliveries[deliveryId];
+          if (delivery.status === "failed") throw new Error(delivery.error ?? "Message delivery failed");
+        },
+      },
       bridge: {
         subscribePtyOutput,
         subscribePtyLifecycle,

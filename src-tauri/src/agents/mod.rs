@@ -2,6 +2,7 @@ use crate::error::BackendError;
 use crate::pty::{EventSink, PtyManager, TerminalStatus};
 use crate::system::{detect_powershell, find_executable};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
 use std::fs;
@@ -82,6 +83,17 @@ impl AgentManager {
         pty: &PtyManager,
         sink: Arc<dyn EventSink>,
     ) -> Result<Agent, BackendError> {
+        self.launch_scoped(request, pty, sink, HashMap::new(), None)
+    }
+
+    pub(crate) fn launch_scoped(
+        &self,
+        request: LaunchAgentRequest,
+        pty: &PtyManager,
+        sink: Arc<dyn EventSink>,
+        scoped_environment: HashMap<OsString, OsString>,
+        agent_id: Option<String>,
+    ) -> Result<Agent, BackendError> {
         let provider_id = request.provider.as_str();
         let provider_registry = providers::ProviderRegistry::default();
         let provider_adapter = if provider_id == "shell" {
@@ -126,24 +138,36 @@ impl AgentManager {
                     executable: Some(executable),
                     provider_session_hint: None,
                 })?;
-                pty.spawn_agent_with_size_args(
+                let environment = plan
+                    .environment
+                    .into_iter()
+                    .chain(scoped_environment)
+                    .collect();
+                pty.spawn_agent_with_size_args_env(
                     plan.program,
                     plan.arguments,
                     Some(plan.cwd.to_string_lossy().as_ref()),
                     request.cols.unwrap_or(120),
                     request.rows.unwrap_or(30),
+                    environment,
                     sink,
                 )?
             }
-            None => pty.create_shell_with_size(
-                Some(&launch_cwd),
-                request.cols.unwrap_or(120),
-                request.rows.unwrap_or(30),
-                sink,
-            )?,
+            None => {
+                let shell = crate::system::detect_shell()?;
+                pty.spawn_agent_with_size_args_env(
+                    shell,
+                    Vec::new(),
+                    Some(&launch_cwd),
+                    request.cols.unwrap_or(120),
+                    request.rows.unwrap_or(30),
+                    scoped_environment,
+                    sink,
+                )?
+            }
         };
         let agent = Agent {
-            id: Uuid::new_v4().to_string(),
+            id: agent_id.unwrap_or_else(|| Uuid::new_v4().to_string()),
             name: if request.name.trim().is_empty() {
                 provider
                     .as_ref()
@@ -168,6 +192,24 @@ impl AgentManager {
             .map_err(|_| BackendError::Internal("agent lock poisoned".into()))?
             .insert(agent.id.clone(), agent.clone());
         Ok(agent)
+    }
+
+    pub(crate) fn set_worktree_metadata(
+        &self,
+        id: &str,
+        branch: String,
+        worktree_path: String,
+    ) -> Result<Agent, BackendError> {
+        let mut agents = self
+            .agents
+            .lock()
+            .map_err(|_| BackendError::Internal("agent lock poisoned".into()))?;
+        let agent = agents
+            .get_mut(id)
+            .ok_or_else(|| BackendError::SessionNotFound(id.to_owned()))?;
+        agent.branch = branch;
+        agent.worktree_path = Some(worktree_path);
+        Ok(agent.clone())
     }
 
     pub fn stop(&self, id: &str, pty: &PtyManager) -> Result<(), BackendError> {

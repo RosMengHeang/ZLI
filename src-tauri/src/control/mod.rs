@@ -10,6 +10,7 @@ mod security;
 mod service;
 mod session;
 mod supervisor;
+mod team;
 mod transport;
 
 pub use events::{
@@ -30,6 +31,7 @@ pub use session::{RuntimeSession, SessionDescriptor, SessionRegistry};
 pub use supervisor::{
     ReconnectResult, RestoreResult, SessionCommandError, Supervisor, SUPERVISOR_PROTOCOL_VERSION,
 };
+pub use team::{RuntimeTeamBackend, SpawnAgentRequest, TeamAgent, TeamBackend, TeamCoordinator};
 #[cfg(windows)]
 pub use transport::named_pipe::{NamedPipeClient, NamedPipeServer};
 pub use transport::{ControlTransport, TransportHandle};

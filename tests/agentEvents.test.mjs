@@ -20,6 +20,22 @@ test("agent event decoder accepts a complete normalized envelope", async () => {
   assert.equal(isAgentEventEnvelope(validEvent), true);
 });
 
+test("agent event decoder accepts a spawned child descriptor", async () => {
+  const { isAgentEventEnvelope } = await import("../src/lib/agentEvents.ts");
+  const payload = {
+    type: "agent",
+    name: "Review child",
+    providerId: "codex",
+    terminalId: "terminal-1",
+    branch: "codex/review-child",
+    worktreePath: "D:/repo.worktrees/review-child",
+    paused: false,
+  };
+
+  assert.equal(isAgentEventEnvelope({ ...validEvent, parentAgentId: "parent-1", payload }), true);
+  assert.equal(isAgentEventEnvelope({ ...validEvent, payload: { ...payload, terminalId: "" } }), false);
+});
+
 test("agent event decoder rejects unsupported and incomplete envelopes", async () => {
   const { isAgentEventEnvelope } = await import("../src/lib/agentEvents.ts");
   const invalidEvents = [

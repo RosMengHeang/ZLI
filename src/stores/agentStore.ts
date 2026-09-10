@@ -23,6 +23,7 @@ interface AgentState {
   launching: boolean;
   loadProviders: (force?: boolean) => Promise<void>;
   selectAgent: (id: string | null) => void;
+  trackExternal: (agent: Agent, projectRoot: string) => void;
   launch: (input: {
     name: string;
     provider: AgentProviderId;
@@ -119,6 +120,25 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const agent = get().agents[id];
     if (agent) useLayoutStore.getState().focusTerminal(agent.terminalId);
     void acknowledgeAgent(id);
+  },
+
+  trackExternal: (agent, projectRoot) => {
+    useTerminalStore.getState().registerSession(sessionFromAgent(agent, 80, 24));
+    set((state) => ({
+      agents: {
+        ...state.agents,
+        [agent.id]: {
+          ...agent,
+          projectRoot,
+          resumeId: agent.resumeId ?? agent.id,
+          createWorktree: Boolean(agent.worktreePath),
+        },
+      },
+    }));
+    const layout = useLayoutStore.getState();
+    if (!layout.leaves().some((leaf) => leaf.terminalId === agent.terminalId)) {
+      layout.addLeaf(agent.terminalId);
+    }
   },
 
   launch: async ({ name, provider, createWorktree, resumeId }) => {

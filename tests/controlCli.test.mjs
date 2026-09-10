@@ -11,6 +11,19 @@ test("cli maps agent send arguments to a versioned control request", async () =>
   assert.equal(parsed.request.protocolVersion, 1);
 });
 
+test("cli requires project scope when spawning an agent", async () => {
+  const { parseCli } = await import("../src/control/cli.ts");
+  const parsed = parseCli(["agent", "spawn", "D:/repo", "codex", "Review", "tests"]);
+
+  assert.equal(parsed.request.method, "agent.spawn");
+  assert.deepEqual(parsed.request.params, {
+    projectId: "D:/repo",
+    providerId: "codex",
+    task: "Review tests",
+  });
+  assert.throws(() => parseCli(["agent", "spawn", "D:/repo"]), /provider/i);
+});
+
 test("cli supports JSON mode and rejects ambiguous or incomplete commands", async () => {
   const { parseCli } = await import("../src/control/cli.ts");
   const parsed = parseCli(["--json", "session", "resume", "session-1"]);

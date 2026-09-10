@@ -142,7 +142,15 @@ impl PtyManager {
     ) -> Result<TerminalSession, BackendError> {
         let cwd = default_cwd(requested_cwd)?;
         let executable = detect_shell()?;
-        self.spawn(executable, Vec::new(), cwd, cols, rows, sink)
+        self.spawn(
+            executable,
+            Vec::new(),
+            cwd,
+            cols,
+            rows,
+            HashMap::new(),
+            sink,
+        )
     }
 
     pub fn spawn_agent(
@@ -175,7 +183,21 @@ impl PtyManager {
         sink: Arc<dyn EventSink>,
     ) -> Result<TerminalSession, BackendError> {
         let cwd = default_cwd(requested_cwd)?;
-        self.spawn(executable, args, cwd, cols, rows, sink)
+        self.spawn(executable, args, cwd, cols, rows, HashMap::new(), sink)
+    }
+
+    pub fn spawn_agent_with_size_args_env(
+        &self,
+        executable: PathBuf,
+        args: Vec<OsString>,
+        requested_cwd: Option<&str>,
+        cols: u16,
+        rows: u16,
+        environment: HashMap<OsString, OsString>,
+        sink: Arc<dyn EventSink>,
+    ) -> Result<TerminalSession, BackendError> {
+        let cwd = default_cwd(requested_cwd)?;
+        self.spawn(executable, args, cwd, cols, rows, environment, sink)
     }
 
     fn spawn(
@@ -185,6 +207,7 @@ impl PtyManager {
         cwd: PathBuf,
         cols: u16,
         rows: u16,
+        environment: HashMap<OsString, OsString>,
         sink: Arc<dyn EventSink>,
     ) -> Result<TerminalSession, BackendError> {
         validate_dimensions(cols, rows)?;
@@ -206,6 +229,9 @@ impl PtyManager {
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
         command.env("FORCE_COLOR", "1");
+        for (key, value) in environment {
+            command.env(key, value);
+        }
         command.args(args);
         let child = pair
             .slave

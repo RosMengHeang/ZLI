@@ -9,6 +9,7 @@ interface SessionDescriptor {
   sessionId: string;
   projectId: string;
   agentId: string;
+  parentAgentId: string | null;
   name: string;
   providerId: string;
   terminalId: string;
@@ -61,6 +62,7 @@ export interface RestoredAgent {
   id: string;
   sessionId: string;
   projectId: string;
+  parentAgentId: string | null;
   name: string;
   providerId: string;
   terminalId: string;
@@ -115,6 +117,7 @@ function restoredAgent(stored: StoredAgent): RestoredAgent {
     id: descriptor.agentId,
     sessionId: descriptor.sessionId,
     projectId: descriptor.projectId,
+    parentAgentId: descriptor.parentAgentId ?? null,
     name: descriptor.name || descriptor.providerId,
     providerId: descriptor.providerId,
     terminalId: descriptor.terminalId,
@@ -150,12 +153,13 @@ function isPaneNode(value: unknown): value is PaneNode {
 
 async function synchronizeFrontend(records: RestoredAgent[], paneTree: PaneNode | null): Promise<void> {
   if (typeof document === "undefined") return;
-  const [{ useAgentStore }, { useLayoutStore }, { useTerminalStore }, { terminalRegistry }, { useWorkspaceStore }] = await Promise.all([
+  const [{ useAgentStore }, { useLayoutStore }, { useTerminalStore }, { terminalRegistry }, { useWorkspaceStore }, { useTeamStore }] = await Promise.all([
     import("./agentStore.ts"),
     import("./layoutStore.ts"),
     import("./terminalStore.ts"),
     import("../terminal/registry.ts"),
     import("./workspaceStore.ts"),
+    import("./teamStore.ts"),
   ]);
   const agents: Record<string, Agent> = {};
   for (const record of records) {
@@ -187,6 +191,19 @@ async function synchronizeFrontend(records: RestoredAgent[], paneTree: PaneNode 
       provider: record.providerId,
       createWorktree: Boolean(record.worktreePath),
     });
+    if (record.parentAgentId) {
+      useTeamStore.getState().hydrateAgent({
+        agentId: record.id,
+        parentAgentId: record.parentAgentId,
+        projectId: record.projectId,
+        providerId: record.providerId,
+        name: record.name,
+        terminalId: record.terminalId,
+        branch: record.branch,
+        worktreePath: record.worktreePath ?? record.workingDirectory,
+        status: live ? "running" : "stopped",
+      });
+    }
   }
   useAgentStore.setState((state) => ({ agents: { ...state.agents, ...agents } }));
   if (paneTree) useLayoutStore.getState().restoreTree(paneTree);

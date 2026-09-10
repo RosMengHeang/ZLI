@@ -34,6 +34,8 @@ const AGENT_EVENT_KINDS = [
   "agent_waiting",
   "agent_message_received",
   "agent_message_delivered",
+  "agent_message_failed",
+  "agent_focus_requested",
   "agent_completed",
   "agent_failed",
   "agent_paused",
@@ -61,7 +63,16 @@ export type AgentEventPayload =
   | { type: "text"; text: string }
   | { type: "exit"; code: number | null }
   | { type: "attention"; reason: string }
-  | { type: "message"; messageId: string };
+  | { type: "message"; messageId: string }
+  | {
+      type: "agent";
+      name: string;
+      providerId: string;
+      terminalId: string;
+      branch: string;
+      worktreePath: string;
+      paused: boolean;
+    };
 
 export interface AgentEventEnvelope<T = unknown> {
   schemaVersion: 1;
@@ -115,6 +126,13 @@ export function isAgentEventPayload(value: unknown): value is AgentEventPayload 
       return isNonEmptyString(value.reason);
     case "message":
       return isNonEmptyString(value.messageId);
+    case "agent":
+      return isNonEmptyString(value.name)
+        && isNonEmptyString(value.providerId)
+        && isNonEmptyString(value.terminalId)
+        && typeof value.branch === "string"
+        && isNonEmptyString(value.worktreePath)
+        && typeof value.paused === "boolean";
     default:
       return false;
   }

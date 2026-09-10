@@ -45,6 +45,8 @@ pub enum AgentEventKind {
     AgentWaiting,
     AgentMessageReceived,
     AgentMessageDelivered,
+    AgentMessageFailed,
+    AgentFocusRequested,
     AgentCompleted,
     AgentFailed,
     AgentPaused,
@@ -81,6 +83,17 @@ pub enum AgentEventPayload {
     Message {
         #[serde(rename = "messageId")]
         message_id: String,
+    },
+    Agent {
+        name: String,
+        #[serde(rename = "providerId")]
+        provider_id: String,
+        #[serde(rename = "terminalId")]
+        terminal_id: String,
+        branch: String,
+        #[serde(rename = "worktreePath")]
+        worktree_path: String,
+        paused: bool,
     },
 }
 

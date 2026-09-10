@@ -42,10 +42,18 @@ pub struct SessionSnapshotRequest {
 }
 
 #[derive(Clone)]
-struct AppEventSink {
+pub(crate) struct AppEventSink {
     app: AppHandle,
     event_hub: EventHub,
     waits_for_agent_binding: bool,
+}
+
+pub(crate) fn app_event_sink(app: AppHandle, event_hub: EventHub) -> Arc<dyn EventSink> {
+    Arc::new(AppEventSink {
+        app,
+        event_hub,
+        waits_for_agent_binding: true,
+    })
 }
 
 #[derive(Clone, Debug, Serialize)]

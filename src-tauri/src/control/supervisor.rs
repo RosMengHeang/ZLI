@@ -181,10 +181,21 @@ impl Supervisor {
         project_id: String,
         sink: Arc<super::session::RuntimeSessionSink>,
     ) -> Result<SessionDescriptor, SessionCommandError> {
+        self.register_agent_with_parent(agent, project_id, None, sink)
+    }
+
+    pub(crate) fn register_agent_with_parent(
+        &self,
+        agent: &crate::agents::Agent,
+        project_id: String,
+        parent_agent_id: Option<String>,
+        sink: Arc<super::session::RuntimeSessionSink>,
+    ) -> Result<SessionDescriptor, SessionCommandError> {
         let descriptor = SessionDescriptor {
             session_id: agent.id.clone(),
             project_id,
             agent_id: agent.id.clone(),
+            parent_agent_id,
             name: agent.name.clone(),
             provider_id: agent.provider.clone(),
             terminal_id: agent.terminal_id.clone(),
@@ -266,6 +277,14 @@ impl Supervisor {
         let result = resumed.descriptor()?;
         self.registry.insert(resumed);
         Ok(result)
+    }
+
+    pub fn read_session(
+        &self,
+        session_id: &str,
+    ) -> Result<(SessionDescriptor, String), SessionCommandError> {
+        let session = self.registry.get(session_id)?;
+        Ok((session.descriptor()?, session.scrollback()?))
     }
 
     pub fn reconcile(&self) -> Result<ReconcileReport, SessionCommandError> {

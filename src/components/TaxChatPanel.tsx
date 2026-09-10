@@ -13,6 +13,7 @@ import { useAgentStore } from "../stores/agentStore";
 import { useProjectStore } from "../stores/projectStore";
 import { useTaxChatStore } from "../stores/taxChatStore";
 import { Button } from "@/components/ui/button";
+import { TeamPanel } from "./TeamPanel";
 
 const TONE_CLASS = {
   accent: "taxchat-tone-accent",
@@ -139,6 +140,8 @@ export function TaxChatPanel() {
           </div>
         </div>
       </header>
+
+      <TeamPanel />
 
       <div className="taxchat-participants" aria-label="TaxChat participants">
         <div className="taxchat-participant-list">

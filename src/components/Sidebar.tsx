@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import {
   IconFolder,
   IconFolderOpen,
@@ -29,6 +29,7 @@ import { useUiStore } from "../stores/uiStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { useAttentionStore } from "../stores/attentionStore";
 import { useSessionStore } from "../stores/sessionStore";
+import { useTeamStore } from "../stores/teamStore";
 import type { Agent } from "../types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -76,6 +77,7 @@ export function Sidebar() {
   const [projectSearch, setProjectSearch] = useState("");
   const attentionRecords = useAttentionStore((state) => state.records);
   const restoredAgents = useSessionStore((state) => state.agents);
+  const teamAgents = useTeamStore((state) => state.agents);
   const resumeAgent = useSessionStore((state) => state.resumeAgent);
 
   const filteredWorkspaces = projectSearch.trim()
@@ -141,7 +143,7 @@ export function Sidebar() {
     if (pane && layout.focusedPaneId !== pane.id) layout.toggleFocusPane(pane.id);
   }
 
-  function renderAgentRow(workspace: WorkspaceRecord, recipe: WorkspaceAgentResume, agent: Agent | null) {
+  function renderAgentRow(workspace: WorkspaceRecord, recipe: WorkspaceAgentResume, agent: Agent | null, depth = 0) {
     const active = Boolean(agent && agent.id === selectedAgentId && isActive(workspace));
     const terminal = agent ? terminalSessions[agent.terminalId] : undefined;
     const displayedStatus = terminal?.status ?? agent?.status;
@@ -155,6 +157,7 @@ export function Sidebar() {
         agent.worktreePath !== workspace.project.path,
     );
     const restored = agent ? restoredAgents[agent.id] : undefined;
+    const teamAgent = agent ? teamAgents[agent.id] : undefined;
     const restoreLabel = restored?.action === "resume"
       ? "Resume"
       : restored?.action === "reconnect"
@@ -163,7 +166,13 @@ export function Sidebar() {
           ? "Start new"
           : "Unavailable";
     return (
-      <div key={recipe.resumeId} className="workspace-agent-row-shell" data-active={active}>
+      <div
+        key={recipe.resumeId}
+        className="workspace-agent-row-shell"
+        data-active={active}
+        data-team-depth={depth || undefined}
+        style={depth ? ({ "--team-depth": Math.min(depth, 6) } as CSSProperties) : undefined}
+      >
         <Button
           type="button"
           variant="ghost"
@@ -207,8 +216,13 @@ export function Sidebar() {
               <DropdownMenuItem onSelect={() => focusAgent(agent)}>Focus</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void revealItemInDir(agent.worktreePath || agent.cwd)}><IconFolder />Open worktree</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void copyText(agent.branch)}>Copy branch name</DropdownMenuItem>
+              {teamAgent && teamAgent.status === "running" ? (
+                <DropdownMenuItem onSelect={() => void useTeamStore.getState().pauseAgent(workspace.project.path, agent.id)}>Pause</DropdownMenuItem>
+              ) : null}
               <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onSelect={() => void useAgentStore.getState().stop(agent.id)}>Stop</DropdownMenuItem>
+              <DropdownMenuItem variant="destructive" onSelect={() => void (teamAgent
+                ? useTeamStore.getState().stopAgent(workspace.project.path, agent.id)
+                : useAgentStore.getState().stop(agent.id))}>Stop</DropdownMenuItem>
               <DropdownMenuItem variant="destructive" onSelect={() => void removeAndStopAgent(agent.id)}>Remove agent</DropdownMenuItem>
               {hasIsolatedWorktree ? (
                 <DropdownMenuItem variant="destructive" onSelect={() => { selectAgent(agent.id); useUiStore.getState().setDiscardOpen(true); }}>Discard worktree…</DropdownMenuItem>
@@ -238,6 +252,35 @@ export function Sidebar() {
       .map(({ recipe }) => recipe.resumeId);
     const listedIds = new Set(listedAgents.flatMap(({ agent }) => (agent ? [agent.id] : [])));
     const unlistedAgents = projectAgents.filter((agent) => !listedIds.has(agent.id));
+    const agentRows = [
+      ...listedAgents,
+      ...unlistedAgents.map((agent) => ({
+        recipe: {
+          resumeId: agent.resumeId ?? agent.id,
+          name: agent.name,
+          provider: agent.provider,
+          createWorktree: Boolean(agent.createWorktree),
+        },
+        agent,
+      })),
+    ];
+    const rowIds = new Set(agentRows.flatMap(({ agent }) => agent ? [agent.id] : []));
+    const orderedRows: Array<(typeof agentRows)[number] & { depth: number }> = [];
+    const visited = new Set<string>();
+    const appendAgentTree = (row: (typeof agentRows)[number], depth: number) => {
+      const rowKey = row.agent?.id ?? row.recipe.resumeId;
+      if (visited.has(rowKey)) return;
+      visited.add(rowKey);
+      orderedRows.push({ ...row, depth });
+      if (!row.agent) return;
+      agentRows
+        .filter(({ agent }) => agent && teamAgents[agent.id]?.parentAgentId === row.agent?.id)
+        .forEach((child) => appendAgentTree(child, depth + 1));
+    };
+    agentRows
+      .filter(({ agent }) => !agent || !teamAgents[agent.id]?.parentAgentId || !rowIds.has(teamAgents[agent.id].parentAgentId ?? ""))
+      .forEach((row) => appendAgentTree(row, 0));
+    agentRows.forEach((row) => appendAgentTree(row, 0));
     const details = projectHoverDetails({
       name: workspace.project.name,
       agentCount: listedAgents.length + unlistedAgents.length,
@@ -333,13 +376,7 @@ export function Sidebar() {
         </div>
         {expanded ? (
           <div className="workspace-agent-list" role="list" aria-label={`${workspace.project.name} agents`}>
-            {listedAgents.map(({ recipe, agent }) => renderAgentRow(workspace, recipe, agent))}
-            {unlistedAgents.map((agent) => renderAgentRow(workspace, {
-              resumeId: agent.resumeId ?? agent.id,
-              name: agent.name,
-              provider: agent.provider,
-              createWorktree: Boolean(agent.createWorktree),
-            }, agent))}
+            {orderedRows.map(({ recipe, agent, depth }) => renderAgentRow(workspace, recipe, agent, depth))}
             {!listedAgents.length && !unlistedAgents.length ? (
               <Button type="button" variant="ghost" className="workspace-agent-empty" onClick={() => active && setAddAgentOpen(true)} disabled={!active}>
                 No agents yet
