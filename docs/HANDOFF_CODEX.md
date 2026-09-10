@@ -176,6 +176,8 @@ For agents, call `list_agent_providers()` and use the canonical catalog IDs. `la
 
 Protocol version `1` is shared by the Tauri UI and the `zli` executable. On Windows the app listens on a randomly named, current-user-only named pipe; remote clients are rejected and the connecting process must have the same user SID. Frames are limited to 1 MiB. The app writes its CLI endpoint, protocol version, expiring token and process ID to `%APPDATA%\com.taxzy.cli\control\endpoint.json`. This file is runtime discovery data, not a persistent credential.
 
+Use `npm run tauri dev` during development. That wrapper builds the sibling debug `zli.exe` before starting Tauri. Use `npm run tauri build` for a release: the wrapper builds the CLI for the active Rust target, copies it to the target-triple filename required by Tauri, and enables `bundle.externalBin` only for that release invocation. Keeping the sidecar out of the base config lets clean Rust tests and checks run without generated binaries.
+
 The CLI command surface is:
 
 ```text
@@ -217,7 +219,10 @@ ZLI_AGENT_ID
 ZLI_PARENT_AGENT_ID
 ZLI_CONTROL_ENDPOINT
 ZLI_CONTROL_TOKEN
+ZLI_COMMAND
 ```
+
+`ZLI_COMMAND` is the absolute bundled CLI path. Its containing directory is also prepended to the child process `PATH`, so managed agents may invoke either the explicit path or `zli` without a machine-wide install.
 
 The token is random, stored hashed in memory, expires after 12 hours, and is revoked when the child is stopped. Router authorization checks both the method capability and any explicit `projectId`. Child tokens can list, spawn, send, and read attention/session state. Browser commands additionally require an explicit grant on the current project profile; possessing a token alone is not enough. Children cannot discard worktrees, execute arbitrary commands, access browser storage, download files, or evaluate JavaScript. `browser.eval` has a separate capability and a separate user grant.
 

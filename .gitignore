@@ -11,6 +11,7 @@ node_modules
 .worktrees
 dist
 dist-ssr
+src-tauri/binaries/zli-*
 *.local
 
 # Editor directories and files

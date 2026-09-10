@@ -317,16 +317,19 @@ fn debounced_checkpoint_persists_only_the_latest_generation() {
     second.last_event_sequence = 2;
     manager.schedule_checkpoint(first, Duration::from_millis(30));
     manager.schedule_checkpoint(second, Duration::from_millis(30));
-    std::thread::sleep(Duration::from_millis(100));
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    let snapshot = loop {
+        if let Some(snapshot) = store.load("project-1").expect("load") {
+            break snapshot;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "checkpoint was not persisted before the deadline"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
 
-    assert_eq!(
-        store
-            .load("project-1")
-            .expect("load")
-            .expect("snapshot")
-            .last_event_sequence,
-        2
-    );
+    assert_eq!(snapshot.last_event_sequence, 2);
 }
 
 #[test]
@@ -1859,7 +1862,10 @@ fn team_spawn_creates_scoped_child_and_delivers_initial_task() {
         backend.clone(),
         Arc::new(CapabilityTokenStore::default()),
         r"\\.\pipe\zli-test".into(),
-    );
+    )
+    .with_control_executable(Some(std::path::PathBuf::from(
+        r"C:\Program Files\Taxzy\zli.exe",
+    )));
 
     let child = coordinator
         .spawn(team_spawn_request())
@@ -1888,6 +1894,21 @@ fn team_spawn_creates_scoped_child_and_delivers_initial_task() {
         .get(std::ffi::OsStr::new("ZLI_CONTROL_TOKEN"))
         .unwrap()
         .is_empty());
+    assert_eq!(
+        launch
+            .environment
+            .get(std::ffi::OsStr::new("ZLI_COMMAND"))
+            .unwrap(),
+        r"C:\Program Files\Taxzy\zli.exe"
+    );
+    assert!(std::env::split_paths(
+        launch
+            .environment
+            .get(std::ffi::OsStr::new("PATH"))
+            .unwrap()
+    )
+    .next()
+    .is_some_and(|path| path == std::path::Path::new(r"C:\Program Files\Taxzy")));
     drop(launches);
     assert_eq!(
         backend.deliveries.lock().unwrap().as_slice(),

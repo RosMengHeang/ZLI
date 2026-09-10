@@ -9,7 +9,9 @@ use crate::pty::{EventSink, PtyManager, TerminalStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::env;
 use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use uuid::Uuid;
@@ -87,6 +89,7 @@ pub struct TeamCoordinator {
     backend: Arc<dyn TeamBackend>,
     tokens: Arc<CapabilityTokenStore>,
     endpoint: String,
+    control_executable: Option<PathBuf>,
     records: Mutex<HashMap<String, TeamAgent>>,
     child_tokens: Mutex<HashMap<String, String>>,
 }
@@ -101,9 +104,15 @@ impl TeamCoordinator {
             backend,
             tokens,
             endpoint,
+            control_executable: None,
             records: Mutex::new(HashMap::new()),
             child_tokens: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub fn with_control_executable(mut self, executable: Option<PathBuf>) -> Self {
+        self.control_executable = executable;
+        self
     }
 
     pub fn spawn(&self, request: SpawnAgentRequest) -> Result<TeamAgent, ControlError> {
@@ -137,7 +146,13 @@ impl TeamCoordinator {
             child_identity(&request, &agent_id),
             Duration::from_secs(12 * 60 * 60),
         );
-        let environment = control_environment(&request, &agent_id, &self.endpoint, &issued.token);
+        let environment = control_environment(
+            &request,
+            &agent_id,
+            &self.endpoint,
+            &issued.token,
+            self.control_executable.as_deref(),
+        );
         let launch = ChildLaunch {
             agent_id: agent_id.clone(),
             parent_agent_id: request.parent_agent_id.clone(),
@@ -576,6 +591,7 @@ fn control_environment(
     agent_id: &str,
     endpoint: &str,
     token: &str,
+    control_executable: Option<&Path>,
 ) -> HashMap<OsString, OsString> {
     let mut environment = HashMap::new();
     for (key, value) in [
@@ -590,7 +606,24 @@ fn control_environment(
     ] {
         environment.insert(OsString::from(key), OsString::from(value));
     }
+    if let Some(executable) = control_executable {
+        environment.insert("ZLI_COMMAND".into(), executable.as_os_str().to_owned());
+        if let Some(directory) = executable.parent() {
+            let inherited: Vec<PathBuf> = env::var_os("PATH")
+                .map(|value| env::split_paths(&value).collect())
+                .unwrap_or_default();
+            let paths = std::iter::once(directory.to_path_buf()).chain(inherited);
+            if let Ok(path) = env::join_paths(paths) {
+                environment.insert("PATH".into(), path);
+            }
+        }
+    }
     environment
+}
+
+pub fn zli_executable_path() -> Option<PathBuf> {
+    let directory = env::current_exe().ok()?.parent()?.to_path_buf();
+    Some(directory.join(if cfg!(windows) { "zli.exe" } else { "zli" }))
 }
 
 fn lock_error<T>(_: std::sync::PoisonError<T>) -> ControlError {

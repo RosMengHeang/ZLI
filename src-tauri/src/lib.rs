@@ -103,11 +103,10 @@ pub fn run() {
                 supervisor.clone(),
                 sink.clone(),
             ));
-            let team = Arc::new(control::TeamCoordinator::new(
-                team_backend,
-                tokens.clone(),
-                endpoint.clone(),
-            ));
+            let team = Arc::new(
+                control::TeamCoordinator::new(team_backend, tokens.clone(), endpoint.clone())
+                    .with_control_executable(control::zli_executable_path()),
+            );
             let handler = Arc::new(control::RuntimeControlHandler::new(
                 pty,
                 agents,
