@@ -1,0 +1,4 @@
+Claude Code ready
+Session ID: claude-session-123
+❯ Type help to explore
+Task completed

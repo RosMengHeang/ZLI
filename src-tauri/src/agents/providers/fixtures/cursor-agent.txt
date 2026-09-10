@@ -1,0 +1,3 @@
+Cursor Agent ready
+Waiting for input
+Task completed

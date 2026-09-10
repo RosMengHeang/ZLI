@@ -1,0 +1,4 @@
+OpenAI Codex session ready
+Session ID: codex-session-123
+› Ask Codex to do anything
+Tests passed

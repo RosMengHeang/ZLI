@@ -10,6 +10,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
+pub mod providers;
+
 #[derive(Clone, Debug)]
 pub struct ProviderSpec {
     pub id: &'static str,
@@ -81,6 +83,16 @@ impl AgentManager {
         sink: Arc<dyn EventSink>,
     ) -> Result<Agent, BackendError> {
         let provider_id = request.provider.as_str();
+        let provider_registry = providers::ProviderRegistry::default();
+        let provider_adapter = if provider_id == "shell" {
+            None
+        } else {
+            Some(
+                provider_registry
+                    .get(provider_id)
+                    .ok_or_else(|| BackendError::ProviderNotFound(provider_id.to_owned()))?,
+            )
+        };
         let (provider, executable) = if provider_id == "shell" {
             (None, None)
         } else {
@@ -107,14 +119,17 @@ impl AgentManager {
 
         let session = match executable {
             Some(executable) => {
-                let (launcher, mut args) = launcher_for_executable(executable)?;
-                if let Some(spec) = provider.as_ref() {
-                    args.extend(runtime_codex_compatibility_args(spec.id));
-                }
+                let adapter = provider_adapter.expect("non-shell provider has an adapter");
+                let plan = adapter.build_launch(&providers::ProviderLaunchRequest {
+                    provider_id: adapter.id().to_owned(),
+                    cwd: PathBuf::from(&launch_cwd),
+                    executable: Some(executable),
+                    provider_session_hint: None,
+                })?;
                 pty.spawn_agent_with_size_args(
-                    launcher,
-                    args,
-                    Some(&launch_cwd),
+                    plan.program,
+                    plan.arguments,
+                    Some(plan.cwd.to_string_lossy().as_ref()),
                     request.cols.unwrap_or(120),
                     request.rows.unwrap_or(30),
                     sink,
@@ -201,7 +216,9 @@ impl Default for AgentManager {
     }
 }
 
-fn launcher_for_executable(executable: PathBuf) -> Result<(PathBuf, Vec<OsString>), BackendError> {
+pub(crate) fn launcher_for_executable(
+    executable: PathBuf,
+) -> Result<(PathBuf, Vec<OsString>), BackendError> {
     let extension = executable
         .extension()
         .and_then(|extension| extension.to_str())
