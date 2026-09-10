@@ -1,0 +1,109 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+const checkpointWithAgent = (availability) => ({
+  schemaVersion: 1,
+  projectId: "D:/project",
+  agents: [{
+    descriptor: {
+      sessionId: "session-1",
+      projectId: "D:/project",
+      agentId: "agent-1",
+      name: "Cursor",
+      providerId: "cursor-agent",
+      terminalId: "terminal-1",
+      workingDirectory: "D:/project",
+      branch: "main",
+      worktreePath: null,
+      attached: false,
+      resume: {
+        providerId: "cursor-agent",
+        providerSessionId: null,
+        resumeCommandKind: null,
+        workingDirectory: "D:/project",
+        lastCheckpointAt: null,
+        availability,
+      },
+    },
+    scrollback: "saved output",
+  }],
+  paneTree: null,
+  browser: [],
+  taxChatRoom: null,
+  lastEventSequence: 4,
+  savedAt: "2026-09-10T09:30:00Z",
+});
+
+test("restore keeps an unsupported provider visible without pretending it resumed", async () => {
+  const { createSessionStoreForTest } = await import("../src/stores/sessionStore.ts");
+  const store = createSessionStoreForTest({
+    reconnect: async () => ({ protocolVersion: 1, currentSequence: 0, events: [], sessions: [] }),
+    restoreProject: async () => ({ snapshot: null, sessionIds: [], createdSessionIds: [] }),
+    resume: async () => { throw new Error("should not auto-resume"); },
+  });
+
+  await store.restoreSession(checkpointWithAgent("unsupported"));
+
+  assert.equal(store.getState().agents["agent-1"].resumeAvailability, "unsupported");
+  assert.equal(store.getState().agents["agent-1"].restoreMessage, "Resume unavailable for this provider");
+  assert.equal(store.getState().agents["agent-1"].pending, false);
+});
+
+test("restore exposes separate resume, reconnect, and new-session actions", async () => {
+  const { createSessionStoreForTest } = await import("../src/stores/sessionStore.ts");
+  const store = createSessionStoreForTest({
+    reconnect: async () => ({ protocolVersion: 1, currentSequence: 0, events: [], sessions: [] }),
+    restoreProject: async () => ({ snapshot: null, sessionIds: [], createdSessionIds: [] }),
+    resume: async () => ({ terminalId: "terminal-live", attached: true }),
+  });
+
+  await store.restoreSession(checkpointWithAgent("available"));
+  assert.equal(store.getState().agents["agent-1"].action, "resume");
+  await store.resumeAgent("agent-1");
+  assert.equal(store.getState().agents["agent-1"].action, "reconnect");
+  assert.equal(store.getState().agents["agent-1"].terminalId, "terminal-live");
+
+  await store.restoreSession(checkpointWithAgent("unknown"));
+  assert.equal(store.getState().agents["agent-1"].action, "new_session");
+});
+
+test("restore is idempotent and invalid checkpoints cannot partially replace state", async () => {
+  const { createSessionStoreForTest } = await import("../src/stores/sessionStore.ts");
+  const store = createSessionStoreForTest({
+    reconnect: async () => ({ protocolVersion: 1, currentSequence: 0, events: [], sessions: [] }),
+    restoreProject: async () => ({ snapshot: null, sessionIds: [], createdSessionIds: [] }),
+    resume: async () => { throw new Error("unused"); },
+  });
+  const checkpoint = checkpointWithAgent("available");
+
+  await store.restoreSession(checkpoint);
+  await store.restoreSession(checkpoint);
+  assert.deepEqual(Object.keys(store.getState().agents), ["agent-1"]);
+
+  await store.restoreSession({ ...checkpoint, schemaVersion: 99, agents: [] });
+  assert.deepEqual(Object.keys(store.getState().agents), ["agent-1"]);
+  assert.equal(store.getState().error, "Session checkpoint is invalid");
+});
+
+test("a pending resume suppresses duplicate requests", async () => {
+  const { createSessionStoreForTest } = await import("../src/stores/sessionStore.ts");
+  let release;
+  let calls = 0;
+  const resumed = new Promise((resolve) => { release = resolve; });
+  const store = createSessionStoreForTest({
+    reconnect: async () => ({ protocolVersion: 1, currentSequence: 0, events: [], sessions: [] }),
+    restoreProject: async () => ({ snapshot: null, sessionIds: [], createdSessionIds: [] }),
+    resume: async () => {
+      calls += 1;
+      await resumed;
+      return { ...checkpointWithAgent("available").agents[0].descriptor, terminalId: "terminal-live", attached: true };
+    },
+  });
+
+  await store.restoreSession(checkpointWithAgent("available"));
+  const first = store.resumeAgent("agent-1");
+  const second = store.resumeAgent("agent-1");
+  release();
+  await Promise.all([first, second]);
+  assert.equal(calls, 1);
+});

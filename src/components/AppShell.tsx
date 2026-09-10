@@ -26,7 +26,6 @@ import {
   visibleUtilityPanes,
   type UtilityPaneId,
 } from "../lib/chromePresentation";
-import { agentBelongsToProject } from "../lib/workspaceRegistry";
 import {
   getChromeLayout,
   setChromeLayout,
@@ -44,6 +43,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "./CommandPalette";
 import { useAttentionStore } from "../stores/attentionStore";
+import { useSessionStore } from "../stores/sessionStore";
 
 const BrowserPanel = lazy(async () => {
   const mod = await import("./BrowserPanel");
@@ -77,7 +77,8 @@ export function AppShell() {
   const openFromPath = useProjectStore((s) => s.openFromPath);
   const gitPanelOpen = useLayoutStore((s) => s.gitPanelOpen);
   const loadProviders = useAgentStore((s) => s.loadProviders);
-  const restoreWorkspaceAgents = useAgentStore((s) => s.restoreWorkspaceAgents);
+  const initializeSessions = useSessionStore((s) => s.initialize);
+  const checkpointSessions = useSessionStore((s) => s.checkpoint);
   const refresh = useGitStore((s) => s.refresh);
   const browserOpen = useUiStore((s) => s.browserOpen);
   const taxChatOpen = useUiStore((s) => s.taxChatOpen);
@@ -156,16 +157,24 @@ export function AppShell() {
     if (projectChanged) {
       useLayoutStore.getState().resetProject();
       useTaxChatStore.getState().reset();
-      for (const agent of Object.values(useAgentStore.getState().agents)) {
-        if (agentBelongsToProject(agent, project)) useLayoutStore.getState().addLeaf(agent.terminalId);
-      }
     }
-    void loadProviders().then(() => {
-      if (projectChanged) return restoreWorkspaceAgents(project);
-      return undefined;
-    });
+    void loadProviders();
+    if (projectChanged) void initializeSessions(project.path);
     void refresh(project.path, { minIntervalMs: 1500 });
-  }, [project, loadProviders, refresh, restoreWorkspaceAgents]);
+  }, [project, loadProviders, refresh, initializeSessions]);
+
+  useEffect(() => {
+    if (!project) return;
+    const projectId = project.path;
+    const checkpoint = () => { void checkpointSessions(projectId); };
+    const timer = window.setInterval(checkpoint, 5_000);
+    window.addEventListener("beforeunload", checkpoint);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("beforeunload", checkpoint);
+      checkpoint();
+    };
+  }, [project, checkpointSessions]);
 
   function dismissSetup() {
     setSetupOpen(false);

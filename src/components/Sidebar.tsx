@@ -28,6 +28,7 @@ import { useTerminalStore } from "../stores/terminalStore";
 import { useUiStore } from "../stores/uiStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { useAttentionStore } from "../stores/attentionStore";
+import { useSessionStore } from "../stores/sessionStore";
 import type { Agent } from "../types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,6 +75,8 @@ export function Sidebar() {
   const forgetAgents = useWorkspaceStore((state) => state.forgetAgents);
   const [projectSearch, setProjectSearch] = useState("");
   const attentionRecords = useAttentionStore((state) => state.records);
+  const restoredAgents = useSessionStore((state) => state.agents);
+  const resumeAgent = useSessionStore((state) => state.resumeAgent);
 
   const filteredWorkspaces = projectSearch.trim()
     ? workspaces.filter((workspace) =>
@@ -151,6 +154,14 @@ export function Sidebar() {
         agent.worktreePath !== workspace.project.repositoryRoot &&
         agent.worktreePath !== workspace.project.path,
     );
+    const restored = agent ? restoredAgents[agent.id] : undefined;
+    const restoreLabel = restored?.action === "resume"
+      ? "Resume"
+      : restored?.action === "reconnect"
+        ? "Reconnect"
+        : restored?.action === "new_session"
+          ? "Start new"
+          : "Unavailable";
     return (
       <div key={recipe.resumeId} className="workspace-agent-row-shell" data-active={active}>
         <Button
@@ -172,6 +183,22 @@ export function Sidebar() {
             />
           ) : <span className="status-dot" data-tone="neutral" aria-hidden="true" />}
         </Button>
+        {restored && !restored.connected ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="h-6 shrink-0 px-1.5 text-[10px] text-mute"
+            disabled={restored.pending || restored.action === "unavailable"}
+            title={restored.error ?? restored.restoreMessage}
+            onClick={() => {
+              if (restored.action === "resume" || restored.action === "reconnect") void resumeAgent(restored.id);
+              else setAddAgentOpen(true);
+            }}
+          >
+            {restored.pending ? "Connecting…" : restoreLabel}
+          </Button>
+        ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-xs" className="workspace-agent-menu" aria-label={`${recipe.name} actions`}><IconMore /></Button></DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-44">

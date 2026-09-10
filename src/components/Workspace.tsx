@@ -11,6 +11,7 @@ import { useUiStore } from "../stores/uiStore";
 import { PROVIDER_CATALOG } from "../types";
 import { Button } from "./ui/button";
 import { visiblePaneTree } from "../stores/paneTree";
+import { useSessionStore } from "../stores/sessionStore";
 
 function seedPreviewPanes(count = 3) {
   const addLeaf = useLayoutStore.getState().addLeaf;
@@ -34,6 +35,7 @@ export function Workspace() {
   const focusedPaneId = useLayoutStore((s) => s.focusedPaneId);
   const setAddAgentOpen = useUiStore((s) => s.setAddAgentOpen);
   const setBrowserOpen = useUiStore((s) => s.setBrowserOpen);
+  const restoreError = useSessionStore((s) => s.error);
   const preview = !isTauriRuntime();
   const visibleTree = visiblePaneTree(paneTree, focusedPaneId);
 
@@ -64,6 +66,7 @@ export function Workspace() {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-ink">
+      {restoreError ? <div className="shrink-0 border-b border-line bg-panel px-3 py-2 text-[11px] text-danger">{restoreError}</div> : null}
       <div className="min-h-0 flex-1 overflow-hidden">
         {!visibleTree ? (
           <div className="empty-panel rounded-[var(--tile-radius)]">

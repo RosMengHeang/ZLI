@@ -34,6 +34,8 @@ interface LayoutState {
   focusTerminal: (terminalId: TerminalId) => void;
   toggleGitPanel: (open?: boolean) => void;
   resetProject: () => void;
+  restoreTree: (tree: PaneNode | null) => void;
+  replaceTerminal: (currentId: TerminalId, nextId: TerminalId) => void;
   setSplitSizes: (splitId: PaneId, sizes: [number, number]) => void;
   applyPreset: (preset: LayoutPreset) => void;
   persistTreeSizes: () => void;
@@ -125,6 +127,18 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
     set((state) => ({ gitPanelOpen: open ?? !state.gitPanelOpen })),
 
   resetProject: () => set({ paneTree: null, activePaneId: null, focusedPaneId: null, gitPanelOpen: false }),
+
+  restoreTree: (tree) => {
+    const restored = tree ? withRestoredSizes(tree) : null;
+    set({ paneTree: restored, activePaneId: firstLeafId(restored), focusedPaneId: null });
+  },
+
+  replaceTerminal: (currentId, nextId) => set((state) => {
+    const replace = (node: PaneNode): PaneNode => node.type === "leaf"
+      ? (node.terminalId === currentId ? { ...node, terminalId: nextId } : node)
+      : { ...node, first: replace(node.first), second: replace(node.second) };
+    return { paneTree: state.paneTree ? replace(state.paneTree) : null };
+  }),
 
   setSplitSizes: (splitId, sizes) => {
     const { paneTree } = get();
