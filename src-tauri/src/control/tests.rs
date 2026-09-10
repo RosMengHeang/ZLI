@@ -1016,6 +1016,23 @@ fn event_payload_variants_serialize_with_tagged_frontend_shapes() {
             },
             json!({ "type": "message", "messageId": "message-1" }),
         ),
+        (
+            AgentEventPayload::Taxchat {
+                message_id: "message-2".into(),
+                body: "Review the release".into(),
+                recipient_ids: vec!["agent-1".into()],
+                delivered_ids: vec!["agent-1".into()],
+                failed_ids: vec![],
+            },
+            json!({
+                "type": "taxchat",
+                "messageId": "message-2",
+                "body": "Review the release",
+                "recipientIds": ["agent-1"],
+                "deliveredIds": ["agent-1"],
+                "failedIds": [],
+            }),
+        ),
     ];
 
     for (payload, expected) in cases {
@@ -2008,6 +2025,40 @@ fn team_message_delivery_is_parent_child_scoped_and_never_retried() {
         .expect_err("cross-project delivery must fail");
     assert_eq!(error.code, super::ControlErrorCode::SessionNotFound);
     assert_eq!(backend.deliveries.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn taxchat_delivery_is_project_scoped_bounded_and_evented() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let coordinator = super::TeamCoordinator::new(
+        backend.clone(),
+        Arc::new(CapabilityTokenStore::default()),
+        "endpoint".into(),
+    );
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+    backend.deliveries.lock().unwrap().clear();
+
+    let result = coordinator
+        .send_taxchat(
+            "project-1",
+            Some("parent-1"),
+            "Review the release",
+            std::slice::from_ref(&child.agent_id),
+        )
+        .expect("send TaxChat message");
+
+    assert_eq!(result["deliveredIds"], json!([child.agent_id]));
+    assert_eq!(result["failedIds"], json!([]));
+    let deliveries = backend.deliveries.lock().unwrap();
+    assert_eq!(deliveries.len(), 1);
+    assert!(deliveries[0].1.contains("[TaxChat delivery]"));
+    assert!(deliveries[0].1.contains("Review the release"));
+    drop(deliveries);
+    let event = backend.events.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(event.kind, AgentEventKind::TaxchatMessageSent);
+    assert_eq!(event.source, AgentEventSource::Taxchat);
 }
 
 fn wait_for_control_event(

@@ -132,8 +132,12 @@ function command(
     if (["console", "errors", "screenshot"].includes(action ?? "")) return [`browser.${action}` as ControlMethod, { surfaceId }];
   }
   if (group === "taxchat" && action === "send") {
-    required(args.join(" "), "Message is required");
-    return ["taxchat.send", { body: args.join(" ") }];
+    const projectId = option(args, "--project") ?? environment.projectId;
+    const body = positional(args).join(" ");
+    const recipientIds = optionValues(args, "--to");
+    required(projectId, "Project is required");
+    required(body, "Message is required");
+    return ["taxchat.send", { projectId, body, ...(recipientIds.length ? { recipientIds } : {}) }];
   }
   throw new Error(`Unknown command: ${[group, action].filter(Boolean).join(" ") || "(empty)"}`);
 }
@@ -141,6 +145,10 @@ function command(
 function option(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : undefined;
+}
+
+function optionValues(args: string[], name: string): string[] {
+  return args.flatMap((value, index) => value === name && args[index + 1] ? [args[index + 1]] : []);
 }
 
 function positional(args: string[]): string[] {

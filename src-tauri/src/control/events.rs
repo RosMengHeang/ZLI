@@ -86,6 +86,17 @@ pub enum AgentEventPayload {
         #[serde(rename = "messageId")]
         message_id: String,
     },
+    Taxchat {
+        #[serde(rename = "messageId")]
+        message_id: String,
+        body: String,
+        #[serde(rename = "recipientIds")]
+        recipient_ids: Vec<String>,
+        #[serde(rename = "deliveredIds")]
+        delivered_ids: Vec<String>,
+        #[serde(rename = "failedIds")]
+        failed_ids: Vec<String>,
+    },
     Agent {
         name: String,
         #[serde(rename = "providerId")]

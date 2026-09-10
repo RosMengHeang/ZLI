@@ -156,6 +156,10 @@ export function AppShell() {
       if (!isAgentEventEnvelope(candidate)) return;
       useTeamStore.getState().apply(candidate);
       useBrowserStore.getState().applyEvent(candidate);
+      const active = useProjectStore.getState().project;
+      if (active && (candidate.projectId === active.path || candidate.projectId === active.repositoryRoot)) {
+        useTaxChatStore.getState().applyEvent(candidate);
+      }
       const payload = candidate.payload as AgentEventPayload;
       if (candidate.kind === "agent_started" && candidate.agentId && payload.type === "agent") {
         const agent: Agent = {

@@ -36,6 +36,21 @@ test("agent event decoder accepts a spawned child descriptor", async () => {
   assert.equal(isAgentEventEnvelope({ ...validEvent, payload: { ...payload, terminalId: "" } }), false);
 });
 
+test("agent event decoder accepts bounded TaxChat delivery details", async () => {
+  const { isAgentEventEnvelope } = await import("../src/lib/agentEvents.ts");
+  const payload = {
+    type: "taxchat",
+    messageId: "message-1",
+    body: "Review the release",
+    recipientIds: ["agent-1", "agent-2"],
+    deliveredIds: ["agent-1"],
+    failedIds: ["agent-2"],
+  };
+
+  assert.equal(isAgentEventEnvelope({ ...validEvent, source: "taxchat", kind: "taxchat_message_sent", payload }), true);
+  assert.equal(isAgentEventEnvelope({ ...validEvent, payload: { ...payload, recipientIds: [""] } }), false);
+});
+
 test("agent event decoder rejects unsupported and incomplete envelopes", async () => {
   const { isAgentEventEnvelope } = await import("../src/lib/agentEvents.ts");
   const invalidEvents = [

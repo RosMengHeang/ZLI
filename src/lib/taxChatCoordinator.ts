@@ -43,6 +43,7 @@ export interface TaxChatCoordinator {
   sendUserMessage(body: string, recipientIds: string[]): Promise<void>;
   handleOutput(agentId: string, chunk: string): void;
   handleAgentExit(agentId: string): void;
+  recordExternalMessage(message: TaxChatMessage): void;
   snapshot(): {
     status: TaxChatRoomStatus;
     round: number;
@@ -341,6 +342,13 @@ export function createTaxChatCoordinator(options: TaxChatCoordinatorOptions): Ta
       if ([...participantMap.values()].every((participant) => participant.status === "unavailable")) {
         setStatus("paused", "No TaxChat participants remain available.");
       }
+    },
+
+    recordExternalMessage: (message) => {
+      if (disposed || messages.some((candidate) => candidate.id === message.id)) return;
+      messages.push({ ...message, recipientIds: [...message.recipientIds] });
+      emit({ type: "message", message });
+      scheduleIdle();
     },
 
     snapshot: () => ({

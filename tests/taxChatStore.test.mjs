@@ -56,3 +56,53 @@ test("routes bridge output through the active room and resets without closing te
   useTaxChatStore.getState().reset();
   assert.equal(useTaxChatStore.getState().room, null);
 });
+
+test("projects API TaxChat messages into the visible transcript once", async () => {
+  const { useTaxChatStore } = await import("../src/stores/taxChatStore.ts");
+  useTaxChatStore.getState().reset();
+  const event = {
+    schemaVersion: 1,
+    sequence: 1,
+    eventId: "event-1",
+    projectId: "D:/repo",
+    agentId: null,
+    parentAgentId: null,
+    timestamp: "2026-09-11T00:00:00Z",
+    source: "taxchat",
+    kind: "taxchat_message_sent",
+    payload: {
+      type: "taxchat",
+      messageId: "message-1",
+      body: "Review the release",
+      recipientIds: ["agent-1"],
+      deliveredIds: ["agent-1"],
+      failedIds: [],
+    },
+  };
+
+  useTaxChatStore.getState().applyEvent(event);
+  useTaxChatStore.getState().applyEvent(event);
+
+  assert.equal(useTaxChatStore.getState().room?.messages.length, 1);
+  assert.equal(useTaxChatStore.getState().room?.messages[0].body, "Review the release");
+  assert.deepEqual(useTaxChatStore.getState().room?.participantIds, ["agent-1"]);
+});
+
+test("ignores non-TaxChat control events", async () => {
+  const { useTaxChatStore } = await import("../src/stores/taxChatStore.ts");
+  useTaxChatStore.getState().reset();
+  useTaxChatStore.getState().applyEvent({
+    schemaVersion: 1,
+    sequence: 1,
+    eventId: "event-2",
+    projectId: "D:/repo",
+    agentId: "agent-1",
+    parentAgentId: null,
+    timestamp: "2026-09-11T00:00:00Z",
+    source: "api",
+    kind: "agent_message_delivered",
+    payload: { type: "message", messageId: "message-2" },
+  });
+
+  assert.equal(useTaxChatStore.getState().room, null);
+});

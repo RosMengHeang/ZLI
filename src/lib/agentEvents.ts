@@ -67,6 +67,14 @@ export type AgentEventPayload =
   | { type: "attention"; reason: string }
   | { type: "message"; messageId: string }
   | {
+      type: "taxchat";
+      messageId: string;
+      body: string;
+      recipientIds: string[];
+      deliveredIds: string[];
+      failedIds: string[];
+    }
+  | {
       type: "agent";
       name: string;
       providerId: string;
@@ -128,6 +136,17 @@ export function isAgentEventPayload(value: unknown): value is AgentEventPayload 
       return isNonEmptyString(value.reason);
     case "message":
       return isNonEmptyString(value.messageId);
+    case "taxchat": {
+      const validIds = (candidate: unknown) => Array.isArray(candidate)
+        && candidate.length <= 12
+        && candidate.every(isNonEmptyString);
+      return isNonEmptyString(value.messageId)
+        && typeof value.body === "string"
+        && value.body.length <= 16_384
+        && validIds(value.recipientIds)
+        && validIds(value.deliveredIds)
+        && validIds(value.failedIds);
+    }
     case "agent":
       return isNonEmptyString(value.name)
         && isNonEmptyString(value.providerId)

@@ -147,10 +147,24 @@ fn parse_command(args: &[String]) -> Result<(ControlMethod, Value), String> {
         }
         (Some("browser"), Some("list")) => Ok((ControlMethod::BrowserList, json!({}))),
         (Some("browser"), Some(action)) => parse_browser_command(args, action),
-        (Some("taxchat"), Some("send")) => Ok((
-            ControlMethod::TaxChatSend,
-            json!({ "body": joined(args, 2, "message")? }),
-        )),
+        (Some("taxchat"), Some("send")) => {
+            let project_id = option(args, "--project")
+                .map(str::to_owned)
+                .or_else(|| std::env::var("ZLI_PROJECT_ID").ok())
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    "project is required; pass --project outside a managed agent".to_owned()
+                })?;
+            let body = positional(args, 2).join(" ");
+            if body.trim().is_empty() {
+                return Err("message is required".into());
+            }
+            let recipient_ids = option_values(args, "--to");
+            Ok((
+                ControlMethod::TaxChatSend,
+                json!({ "projectId": project_id, "body": body, "recipientIds": recipient_ids }),
+            ))
+        }
         _ => Err(usage()),
     }
 }
@@ -318,6 +332,35 @@ fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
 }
 
 #[cfg(windows)]
+fn option_values(args: &[String], name: &str) -> Vec<String> {
+    args.iter()
+        .enumerate()
+        .filter_map(|(index, value)| {
+            (value == name)
+                .then(|| args.get(index + 1))
+                .flatten()
+                .filter(|value| !value.starts_with("--") && !value.trim().is_empty())
+                .cloned()
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+fn positional(args: &[String], start: usize) -> Vec<String> {
+    let mut values = Vec::new();
+    let mut index = start;
+    while index < args.len() {
+        if args[index].starts_with("--") {
+            index += 2;
+        } else {
+            values.push(args[index].clone());
+            index += 1;
+        }
+    }
+    values
+}
+
+#[cfg(windows)]
 fn required<'a>(value: Option<&'a String>, label: &str) -> Result<&'a str, String> {
     value
         .filter(|value| !value.trim().is_empty())
@@ -337,7 +380,7 @@ fn joined(args: &[String], start: usize, label: &str) -> Result<String, String> 
 
 #[cfg(windows)]
 fn usage() -> String {
-    "unknown command. Try: status | agents | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | session list | session resume <id> | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message>".into()
+    "unknown command. Try: status | agents | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | session list | session resume <id> | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message> --project <path> [--to <agent>]".into()
 }
 
 #[cfg(windows)]
@@ -347,5 +390,37 @@ struct UuidRequestId;
 impl UuidRequestId {
     fn new() -> String {
         uuid::Uuid::new_v4().to_string()
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn taxchat_flags_are_not_included_in_the_message_body() {
+        let args = [
+            "taxchat",
+            "send",
+            "Review",
+            "the",
+            "release",
+            "--project",
+            r"D:\repo",
+            "--to",
+            "agent-1",
+            "--to",
+            "agent-2",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+
+        let (method, params) = parse_command(&args).expect("parse TaxChat command");
+
+        assert_eq!(method, ControlMethod::TaxChatSend);
+        assert_eq!(params["projectId"], r"D:\repo");
+        assert_eq!(params["body"], "Review the release");
+        assert_eq!(params["recipientIds"], json!(["agent-1", "agent-2"]));
     }
 }

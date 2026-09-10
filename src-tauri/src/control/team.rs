@@ -8,7 +8,7 @@ use crate::git::worktree::{self, CreateWorktreeRequest, RemoveWorktreeRequest};
 use crate::pty::{EventSink, PtyManager, TerminalStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -258,6 +258,89 @@ impl TeamCoordinator {
                 Err(error)
             }
         }
+    }
+
+    pub fn send_taxchat(
+        &self,
+        project_id: &str,
+        sender_agent_id: Option<&str>,
+        body: &str,
+        recipient_ids: &[String],
+    ) -> Result<Value, ControlError> {
+        if project_id.trim().is_empty() || project_id == "*" {
+            return Err(ControlError::new(
+                ControlErrorCode::InvalidControlRequest,
+                "TaxChat requires one project",
+            ));
+        }
+        if body.trim().is_empty() || body.len() > MAX_TASK_BYTES {
+            return Err(ControlError::new(
+                ControlErrorCode::InvalidControlRequest,
+                "TaxChat message must be between 1 and 16384 bytes",
+            ));
+        }
+        let mut seen = HashSet::new();
+        let recipients: Vec<String> = recipient_ids
+            .iter()
+            .filter(|id| !id.trim().is_empty() && id.len() <= 128 && seen.insert((*id).clone()))
+            .cloned()
+            .take(MAX_TEAM_AGENTS + 1)
+            .collect();
+        if recipients.is_empty() || recipients.len() > MAX_TEAM_AGENTS {
+            return Err(ControlError::new(
+                ControlErrorCode::InvalidControlRequest,
+                "TaxChat requires between 1 and 12 unique recipients",
+            ));
+        }
+
+        let message_id = Uuid::new_v4().to_string();
+        let sender = sender_agent_id.unwrap_or("user");
+        let delivery = format_taxchat_delivery(sender, &recipients, body);
+        let mut delivered_ids = Vec::new();
+        let mut failed_ids = Vec::new();
+        for agent_id in &recipients {
+            let result = self.record(project_id, agent_id).and_then(|record| {
+                if record.paused {
+                    return Err(ControlError::new(
+                        ControlErrorCode::CapabilityDenied,
+                        "Agent is paused",
+                    ));
+                }
+                self.backend.deliver(&record.terminal_id, &delivery)
+            });
+            if result.is_ok() {
+                delivered_ids.push(agent_id.clone());
+            } else {
+                failed_ids.push(agent_id.clone());
+            }
+        }
+
+        let kind = if delivered_ids.is_empty() {
+            AgentEventKind::TaxchatMessageFailed
+        } else {
+            AgentEventKind::TaxchatMessageSent
+        };
+        let mut event = AgentEventEnvelope::new(
+            Uuid::new_v4().to_string(),
+            project_id.to_owned(),
+            sender_agent_id.map(str::to_owned),
+            kind,
+            AgentEventPayload::Taxchat {
+                message_id: message_id.clone(),
+                body: body.trim().to_owned(),
+                recipient_ids: recipients.clone(),
+                delivered_ids: delivered_ids.clone(),
+                failed_ids: failed_ids.clone(),
+            },
+        );
+        event.source = AgentEventSource::Taxchat;
+        self.backend.emit(event);
+        Ok(json!({
+            "messageId": message_id,
+            "recipientIds": recipients,
+            "deliveredIds": delivered_ids,
+            "failedIds": failed_ids,
+        }))
     }
 
     pub fn read(&self, project_id: &str, agent_id: &str) -> Result<Value, ControlError> {
@@ -619,6 +702,14 @@ fn control_environment(
         }
     }
     environment
+}
+
+fn format_taxchat_delivery(sender: &str, recipients: &[String], body: &str) -> String {
+    format!(
+        "\n[TaxChat delivery]\nFrom: {sender}\nTo: {}\n\n{}\n\nTo reply, emit:\n[[TAXCHAT:to=user]]\nYour message\n[[/TAXCHAT]]\n",
+        recipients.join(", "),
+        body.trim()
+    )
 }
 
 pub fn zli_executable_path() -> Option<PathBuf> {

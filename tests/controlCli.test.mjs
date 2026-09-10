@@ -73,6 +73,24 @@ test("browser commands expose the complete scoped automation surface", async () 
   assert.equal(parseCli(["browser", "screenshot", "surface-1"]).request.method, "browser.screenshot");
 });
 
+test("TaxChat send keeps project scope and explicit recipients out of the message body", async () => {
+  const { parseCli } = await import("../src/control/cli.ts");
+  const parsed = parseCli([
+    "taxchat", "send", "Review", "the", "release", "--project", "D:/repo", "--to", "agent-1", "--to", "agent-2",
+  ]);
+
+  assert.deepEqual(parsed.request.params, {
+    projectId: "D:/repo",
+    body: "Review the release",
+    recipientIds: ["agent-1", "agent-2"],
+  });
+  assert.throws(() => parseCli(["taxchat", "send", "Hello"]), /project/i);
+  assert.equal(
+    parseCli(["taxchat", "send", "Hello"], { projectId: "D:/repo" }).request.params.projectId,
+    "D:/repo",
+  );
+});
+
 test("control client sends the same strict protocol through Tauri", async () => {
   const { createControlClient } = await import("../src/control/client.ts");
   let sent;

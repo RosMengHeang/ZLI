@@ -3,6 +3,7 @@ import { createTaxChatCoordinator, type TaxChatAgentDescriptor, type TaxChatCoor
 import { newId } from "../lib/ids.ts";
 import type { TaxChatRoom, TaxChatRoomSettings } from "../types";
 import type { PtyLifecycleEvent } from "../lib/ptyEventFanout.ts";
+import type { AgentEventEnvelope, AgentEventPayload } from "../lib/agentEvents.ts";
 
 export interface TaxChatPtyBridge {
   subscribePtyOutput: (listener: (terminalId: string, data: string) => void) => () => void;
@@ -24,6 +25,7 @@ export interface TaxChatState {
   stop: () => void;
   send: (body: string, recipientIds: string[]) => Promise<void>;
   setSelectedAgentIds: (ids: string[]) => void;
+  applyEvent: (event: AgentEventEnvelope) => void;
   reset: () => void;
 }
 
@@ -163,6 +165,45 @@ export const useTaxChatStore = create<TaxChatState>((set, get) => ({
 
   setSelectedAgentIds: (ids) => {
     set({ selectedAgentIds: [...new Set(ids)] });
+  },
+
+  applyEvent: (event) => {
+    if (event.source !== "taxchat") return;
+    const payload = event.payload as AgentEventPayload;
+    if (payload.type !== "taxchat") return;
+    const current = get().room;
+    const message = {
+      id: payload.messageId,
+      senderId: event.agentId ?? "user",
+      recipientIds: [...payload.recipientIds],
+      kind: event.agentId ? "agent" as const : "user" as const,
+      body: payload.body,
+      createdAt: event.timestamp,
+      status: payload.deliveredIds.length ? "delivered" as const : "failed" as const,
+      round: current?.round ?? 1,
+    };
+    if (coordinator) {
+      coordinator.recordExternalMessage(message);
+      set({ room: snapshotRoom(coordinator) });
+      return;
+    }
+    const participantIds = [...new Set([...(current?.participantIds ?? []), ...payload.recipientIds])];
+    set({
+      room: {
+        id: current?.id ?? `api-${event.projectId}`,
+        status: current?.status ?? "idle",
+        participantIds,
+        participants: participantIds.map((agentId) => current?.participants.find((item) => item.agentId === agentId) ?? {
+          agentId,
+          status: payload.failedIds.includes(agentId) ? "unavailable" : "available",
+          routedCount: 0,
+        }),
+        messages: current?.messages.some((item) => item.id === message.id)
+          ? current.messages
+          : [...(current?.messages ?? []), message],
+        round: current?.round ?? 1,
+      },
+    });
   },
 
   reset: () => {

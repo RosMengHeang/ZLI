@@ -149,6 +149,40 @@ impl ControlHandler for RuntimeControlHandler {
                     .map_err(session_runtime)?;
                 serde_json::to_value(descriptor).map_err(serialization_error)
             }
+            ControlMethod::TaxChatSend => {
+                let project_id = request
+                    .params
+                    .get("projectId")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .map(str::to_owned)
+                    .or_else(|| (identity.project_id != "*").then(|| identity.project_id.clone()))
+                    .ok_or_else(|| invalid_params("taxchat.send projectId"))?;
+                if identity.project_id != "*" && identity.project_id != project_id {
+                    return Err(ControlError::new(
+                        ControlErrorCode::CapabilityDenied,
+                        "Caller cannot send TaxChat messages to another project",
+                    ));
+                }
+                let mut recipient_ids = string_array(&request.params, "recipientIds")?;
+                if recipient_ids.is_empty() {
+                    recipient_ids = self
+                        .supervisor
+                        .reconnect(SUPERVISOR_PROTOCOL_VERSION, 0)
+                        .map_err(session_runtime)?
+                        .sessions
+                        .into_iter()
+                        .filter(|session| session.project_id == project_id)
+                        .map(|session| session.agent_id)
+                        .collect();
+                }
+                self.team.send_taxchat(
+                    &project_id,
+                    identity.agent_id.as_deref(),
+                    param(&request.params, "body")?,
+                    &recipient_ids,
+                )
+            }
             ControlMethod::BrowserList => {
                 serde_json::to_value(self.browser.list(identity)).map_err(serialization_error)
             }
@@ -354,6 +388,23 @@ fn param<'a>(params: &'a Value, key: &str) -> Result<&'a str, ControlError> {
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| invalid_params(key))
+}
+
+fn string_array(params: &Value, key: &str) -> Result<Vec<String>, ControlError> {
+    match params.get(key) {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(values)) => values
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(str::to_owned)
+                    .ok_or_else(|| invalid_params(key))
+            })
+            .collect(),
+        _ => Err(invalid_params(key)),
+    }
 }
 
 fn invalid_params(method: &str) -> ControlError {
