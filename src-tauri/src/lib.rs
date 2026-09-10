@@ -12,11 +12,11 @@ mod event_hub;
 mod git;
 
 use commands::{
-    attention_ack, attention_mark_all_read, control_events_after, control_session_reconnect,
-    control_session_restore, control_session_resume, control_session_snapshot, create_terminal,
-    detect_agent_providers, detect_providers, kill_terminal, launch_agent, list_agent_providers,
-    list_agents, pty_close, pty_create, pty_resize, pty_write, resize_terminal, stop_agent,
-    write_terminal,
+    attention_ack, attention_mark_all_read, control_events_after, control_request,
+    control_session_reconnect, control_session_restore, control_session_resume,
+    control_session_snapshot, create_terminal, detect_agent_providers, detect_providers,
+    kill_terminal, launch_agent, list_agent_providers, list_agents, pty_close, pty_create,
+    pty_resize, pty_write, resize_terminal, stop_agent, write_terminal,
 };
 use git::commands::{
     git_abort_merge, git_commit, git_create_worktree, git_delete_branch, git_diff,
@@ -25,6 +25,19 @@ use git::commands::{
 };
 use std::sync::Arc;
 use tauri::{webview::PageLoadEvent, Emitter, Manager};
+
+#[cfg(windows)]
+struct AppControlServer {
+    _server: control::NamedPipeServer,
+    connection_file: std::path::PathBuf,
+}
+
+#[cfg(windows)]
+impl Drop for AppControlServer {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.connection_file);
+    }
+}
 
 // Placeholder demo command from the create-tauri-app template; left in place
 // so the scaffolded frontend's demo button keeps working until the real UI
@@ -61,9 +74,41 @@ pub fn run() {
             let app_data_dir = app.path().app_data_dir()?;
             let pty = app.state::<pty::PtyManager>().inner().clone();
             let events = app.state::<event_hub::EventHub>().inner().clone();
-            let supervisor = control::Supervisor::new(app_data_dir, pty, events);
+            let supervisor = Arc::new(control::Supervisor::new(
+                app_data_dir.clone(),
+                pty.clone(),
+                events,
+            ));
             let _ = supervisor.start_or_connect();
-            app.manage(Arc::new(supervisor));
+            app.manage(supervisor.clone());
+            let agents = app.state::<agents::AgentManager>().inner().clone();
+            let handler = Arc::new(control::RuntimeControlHandler::new(pty, agents, supervisor));
+            let router = Arc::new(control::CommandRouter::new(handler));
+            app.manage(Arc::new(control::ControlService::new(router.clone())));
+            #[cfg(windows)]
+            {
+                let tokens = Arc::new(control::CapabilityTokenStore::default());
+                let issued = tokens.issue(
+                    control::local_cli_identity(),
+                    std::time::Duration::from_secs(12 * 60 * 60),
+                );
+                let server = control::NamedPipeServer::start_random(router, tokens)?;
+                let control_dir = app_data_dir.join("control");
+                std::fs::create_dir_all(&control_dir)?;
+                let connection_file = control_dir.join("endpoint.json");
+                let connection = serde_json::json!({
+                    "protocolVersion": control::CONTROL_PROTOCOL_VERSION,
+                    "endpoint": server.endpoint(),
+                    "token": issued.token,
+                    "expiresAt": issued.expires_at,
+                    "processId": std::process::id(),
+                });
+                std::fs::write(&connection_file, serde_json::to_vec(&connection)?)?;
+                app.manage(AppControlServer {
+                    _server: server,
+                    connection_file,
+                });
+            }
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
@@ -91,6 +136,7 @@ pub fn run() {
             control_session_snapshot,
             control_session_restore,
             control_session_resume,
+            control_request,
             git_validate_repository,
             git_create_worktree,
             git_list_worktrees,

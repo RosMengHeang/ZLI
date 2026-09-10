@@ -4,6 +4,11 @@ version = "0.1.0"
 description = "Swarmterm-inspired desktop developer tool"
 authors = ["you"]
 edition = "2021"
+default-run = "swarmterm"
+
+[[bin]]
+name = "zli"
+path = "src/bin/zli.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

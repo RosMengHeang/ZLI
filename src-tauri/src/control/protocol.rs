@@ -216,6 +216,7 @@ pub enum ControlErrorCode {
     BrowserCommandTimeout,
     ControlTimeout,
     ControlRuntimeError,
+    MethodNotImplemented,
 }
 
 impl ControlErrorCode {
@@ -236,6 +237,7 @@ impl ControlErrorCode {
             Self::BrowserCommandTimeout => "BROWSER_COMMAND_TIMEOUT",
             Self::ControlTimeout => "CONTROL_TIMEOUT",
             Self::ControlRuntimeError => "CONTROL_RUNTIME_ERROR",
+            Self::MethodNotImplemented => "METHOD_NOT_IMPLEMENTED",
         }
     }
 }

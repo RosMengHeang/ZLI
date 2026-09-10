@@ -388,6 +388,14 @@ pub async fn control_session_resume(
     run_control_blocking(move || supervisor.resume(&session_id, sink)).await
 }
 
+#[tauri::command]
+pub fn control_request(
+    service: State<'_, Arc<crate::control::ControlService>>,
+    request: crate::control::ControlRequest,
+) -> crate::control::ControlResponse {
+    service.dispatch(request)
+}
+
 fn validate_attention_scope(project_id: &str, agent_id: Option<&str>) -> Result<(), BackendError> {
     if project_id.trim().is_empty() || agent_id.is_some_and(|id| id.trim().is_empty()) {
         return Err(BackendError::InvalidInput(

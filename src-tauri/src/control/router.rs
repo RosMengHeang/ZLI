@@ -107,7 +107,7 @@ impl CommandRouter {
             ));
         }
         if let Some(project_id) = request.params.get("projectId").and_then(Value::as_str) {
-            if project_id != identity.project_id {
+            if identity.project_id != "*" && project_id != identity.project_id {
                 return Err(ControlError::new(
                     ControlErrorCode::CapabilityDenied,
                     "Caller cannot access another project",
