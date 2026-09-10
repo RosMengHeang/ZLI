@@ -15,6 +15,90 @@ use serde_json::json;
 use std::time::{Duration, Instant};
 use tempfile::tempdir;
 
+use super::{ProjectSnapshot, SnapshotStore, SnapshotStoreError};
+
+#[test]
+fn snapshot_store_round_trips_and_writes_schema_version() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let store = SnapshotStore::new(root.path().to_path_buf());
+    let snapshot = ProjectSnapshot::empty("project-1".into());
+
+    store.save_atomic(&snapshot).expect("save snapshot");
+
+    let loaded = store
+        .load("project-1")
+        .expect("load snapshot")
+        .expect("snapshot exists");
+    assert_eq!(loaded.schema_version, 1);
+    assert_eq!(loaded.project_id, "project-1");
+    assert!(!root
+        .path()
+        .join("control/projects/project-1/project.json.tmp")
+        .exists());
+}
+
+#[test]
+fn snapshot_store_preserves_unknown_fields_and_replaces_existing_snapshot() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let store = SnapshotStore::new(root.path().to_path_buf());
+    let mut snapshot = ProjectSnapshot::empty("project-1".into());
+    snapshot.pane_tree = json!({ "type": "split", "ratio": 0.4 });
+    store.save_atomic(&snapshot).expect("save first snapshot");
+
+    snapshot
+        .extensions
+        .insert("providerMetadata".into(), json!({ "resumeHint": "session-42" }));
+    store
+        .save_atomic(&snapshot)
+        .expect("replace existing snapshot");
+
+    let loaded = store
+        .load("project-1")
+        .expect("load snapshot")
+        .expect("snapshot exists");
+    assert_eq!(loaded.pane_tree["type"], "split");
+    assert_eq!(loaded.extensions["providerMetadata"]["resumeHint"], "session-42");
+}
+
+#[test]
+fn snapshot_store_rejects_future_schema_versions_with_a_stable_error() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let path = root.path().join("control/projects/project-1");
+    std::fs::create_dir_all(&path).expect("create project snapshot directory");
+    std::fs::write(
+        path.join("project.json"),
+        br#"{"schemaVersion":2,"projectId":"project-1"}"#,
+    )
+    .expect("write future snapshot");
+    let store = SnapshotStore::new(root.path().to_path_buf());
+
+    let error = store.load("project-1").expect_err("reject future schema");
+
+    assert!(matches!(
+        error,
+        SnapshotStoreError::UnsupportedSchemaVersion {
+            found: 2,
+            supported: 1
+        }
+    ));
+    assert_eq!(error.code(), "unsupported_snapshot_schema");
+}
+
+#[test]
+fn snapshot_store_loads_missing_as_none_and_deletes_project_data() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let store = SnapshotStore::new(root.path().to_path_buf());
+    assert!(store.load("project-1").expect("load missing snapshot").is_none());
+
+    store
+        .save_atomic(&ProjectSnapshot::empty("project-1".into()))
+        .expect("save snapshot");
+    store.delete_project("project-1").expect("delete project");
+
+    assert!(store.load("project-1").expect("load deleted snapshot").is_none());
+    assert!(!root.path().join("control/projects/project-1").exists());
+}
+
 #[test]
 fn attention_lifecycle_and_acknowledgement() {
     use super::attention::{AttentionReducer, AttentionState};

@@ -122,7 +122,7 @@ impl AgentEventEnvelope {
     }
 }
 
-fn utc_rfc3339_now() -> String {
+pub(crate) fn utc_rfc3339_now() -> String {
     let seconds = i64::try_from(
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
