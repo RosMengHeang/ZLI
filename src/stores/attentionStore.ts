@@ -3,7 +3,6 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import {
   deriveNotification,
   reduceAttention,
-  shouldPromoteToWaiting,
   type AttentionNotification,
   type AttentionState,
 } from "../lib/attention.ts";
@@ -11,8 +10,6 @@ import { isAgentEventEnvelope, type AgentEventEnvelope } from "../lib/agentEvent
 import { toAppError } from "../lib/errors.ts";
 import { controlClient, type ControlClient } from "../tauri/control.ts";
 import type { AppError } from "../types";
-
-const QUIET_PERIOD_MS = 5000;
 
 export interface AttentionRecord extends AttentionState {
   agentId: string;
@@ -29,8 +26,6 @@ export interface SequencedAttentionNotification extends AttentionNotification {
 interface AttentionDependencies {
   client: ControlClient;
   now: () => number;
-  setTimer: (callback: () => void, delay: number) => ReturnType<typeof setTimeout>;
-  clearTimer: (timer: ReturnType<typeof setTimeout>) => void;
 }
 
 export interface AttentionStoreState {
@@ -45,6 +40,7 @@ export interface AttentionStoreState {
   markingAllRead: boolean;
   apply: (event: unknown) => boolean;
   connect: () => Promise<() => void>;
+  retryConnection: () => Promise<boolean>;
   acknowledgeAgent: (agentId: string, projectId?: string) => Promise<boolean>;
   markAllRead: (projectId: string) => Promise<boolean>;
   get: (agentId: string, projectId?: string) => AttentionRecord | undefined;
@@ -123,7 +119,6 @@ function createAttentionState(dependencies: AttentionDependencies) {
   const seenEventIds = new Set<string>();
   const lastOutputByAgent = new Map<string, number>();
   const latestOutputSequence = new Map<string, number>();
-  const quietTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let unsubscribe: (() => void) | null = null;
   let connecting: Promise<void> | null = null;
   let consumers = 0;
@@ -132,20 +127,34 @@ function createAttentionState(dependencies: AttentionDependencies) {
     set: StoreApi<AttentionStoreState>["setState"],
     get: StoreApi<AttentionStoreState>["getState"],
   ): AttentionStoreState => {
-    const cancelQuietTimer = (key: string) => {
-      const timer = quietTimers.get(key);
-      if (timer === undefined) return;
-      dependencies.clearTimer(timer);
-      quietTimers.delete(key);
-    };
-
     const disconnect = () => {
       unsubscribe?.();
       unsubscribe = null;
       connecting = null;
-      for (const timer of quietTimers.values()) dependencies.clearTimer(timer);
-      quietTimers.clear();
       set({ connected: false });
+    };
+
+    const startConnection = async () => {
+      if (unsubscribe) return;
+      if (!connecting) {
+        set({ loading: true, error: null });
+        const replayCursor = get().lastSequence;
+        connecting = (async () => {
+          try {
+            unsubscribe = await dependencies.client.subscribe((event) => get().apply(event));
+            const replay = await dependencies.client.replay(replayCursor);
+            for (const event of replay) get().apply(event);
+            set({ loading: false, connected: true });
+          } catch (error) {
+            unsubscribe?.();
+            unsubscribe = null;
+            set({ loading: false, connected: false, error: toAppError(error) });
+          } finally {
+            connecting = null;
+          }
+        })();
+      }
+      await connecting;
     };
 
     return {
@@ -171,43 +180,12 @@ function createAttentionState(dependencies: AttentionDependencies) {
             if (Number.isFinite(currentNow) && currentNow >= 0) {
               lastOutputByAgent.set(key, Math.max(lastOutputByAgent.get(key) ?? 0, currentNow));
               latestOutputSequence.set(key, candidate.sequence);
-              cancelQuietTimer(key);
             }
           }
-        } else if (key && [
-          "agent_started",
-          "agent_prompt_detected",
-          "agent_waiting",
-          "agent_completed",
-          "agent_failed",
-          "agent_paused",
-          "agent_stopped",
-          "agent_exited",
-        ].includes(candidate.kind)) {
-          cancelQuietTimer(key);
         }
 
         const events = [...get().events, candidate];
         set({ events, ...projectEvents(events, lastOutputByAgent) });
-
-        if (key && candidate.kind === "agent_output" && latestOutputSequence.get(key) === candidate.sequence) {
-          const timer = dependencies.setTimer(() => {
-            quietTimers.delete(key);
-            const record = get().records[key];
-            const lastOutputAt = lastOutputByAgent.get(key);
-            const currentNow = dependencies.now();
-            if (!record || latestOutputSequence.get(key) !== candidate.sequence
-              || !shouldPromoteToWaiting(record, { kind: "generic_output", lastOutputAt }, currentNow)) return;
-            get().apply({
-              ...candidate,
-              eventId: `${candidate.eventId}:quiet`,
-              timestamp: new Date().toISOString(),
-              kind: "agent_waiting",
-              payload: { type: "attention", reason: "quiet_period" },
-            });
-          }, QUIET_PERIOD_MS);
-          quietTimers.set(key, timer);
-        }
         return true;
       },
 
@@ -220,26 +198,13 @@ function createAttentionState(dependencies: AttentionDependencies) {
           consumers = Math.max(0, consumers - 1);
           if (consumers === 0) disconnect();
         };
-        if (!unsubscribe && !connecting) {
-          set({ loading: true, error: null });
-          const replayCursor = get().lastSequence;
-          connecting = (async () => {
-            try {
-              unsubscribe = await dependencies.client.subscribe((event) => get().apply(event));
-              const replay = await dependencies.client.replay(replayCursor);
-              for (const event of replay) get().apply(event);
-              set({ loading: false, connected: true });
-            } catch (error) {
-              unsubscribe?.();
-              unsubscribe = null;
-              set({ loading: false, connected: false, error: toAppError(error) });
-            } finally {
-              connecting = null;
-            }
-          })();
-        }
-        await connecting;
+        await startConnection();
         return release;
+      },
+
+      retryConnection: async () => {
+        await startConnection();
+        return get().connected;
       },
 
       acknowledgeAgent: async (agentId, requestedProjectId) => {
@@ -311,8 +276,6 @@ function createAttentionState(dependencies: AttentionDependencies) {
 const defaultDependencies: AttentionDependencies = {
   client: controlClient,
   now: () => performance.now(),
-  setTimer: (callback, delay) => setTimeout(callback, delay),
-  clearTimer: (timer) => clearTimeout(timer),
 };
 
 export function createAttentionStoreForTest(

@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -22,10 +23,13 @@ export function NotificationCenter({ projectId, projectName }: { projectId: stri
   const records = useAttentionStore((state) => state.records);
   const notifications = useAttentionStore((state) => state.notifications);
   const loading = useAttentionStore((state) => state.loading);
+  const connected = useAttentionStore((state) => state.connected);
   const error = useAttentionStore((state) => state.error);
   const pendingAgentIds = useAttentionStore((state) => state.pendingAgentIds);
   const markingAllRead = useAttentionStore((state) => state.markingAllRead);
   const markAllRead = useAttentionStore((state) => state.markAllRead);
+  const acknowledgeAgent = useAttentionStore((state) => state.acknowledgeAgent);
+  const retryConnection = useAttentionStore((state) => state.retryConnection);
   const clearError = useAttentionStore((state) => state.clearError);
   const agents = useAgentStore((state) => state.agents);
   const selectAgent = useAgentStore((state) => state.selectAgent);
@@ -57,30 +61,35 @@ export function NotificationCenter({ projectId, projectName }: { projectId: stri
       <DropdownMenuContent align="end" className="notification-panel">
         <div className="notification-header">
           <span>Notifications</span>
-          {projectId && unreadCount ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={markingAllRead}
-              onClick={() => void markAllRead(projectId)}
-            >
-              {markingAllRead ? "Marking read…" : "Mark all read"}
-            </Button>
-          ) : null}
         </div>
         <DropdownMenuSeparator />
+        {projectId && unreadCount ? (
+          <DropdownMenuItem
+            className="notification-action"
+            disabled={markingAllRead}
+            onSelect={() => void markAllRead(projectId)}
+          >
+            {markingAllRead ? "Marking read…" : "Mark all read"}
+          </DropdownMenuItem>
+        ) : null}
         {error ? (
-          <div className="notification-state notification-error" role="alert">
-            <span>{error.message}</span>
-            <div>
-              <Button type="button" variant="ghost" size="sm" onClick={clearError}>Dismiss</Button>
-            </div>
-          </div>
+          <>
+            <div className="notification-state notification-error" role="alert">{error.message}</div>
+            <DropdownMenuItem
+              className="notification-action"
+              disabled={loading}
+              onSelect={() => {
+                if (connected) clearError();
+                else void retryConnection();
+              }}
+            >
+              {loading ? "Retrying connection…" : connected ? "Dismiss" : "Retry connection"}
+            </DropdownMenuItem>
+          </>
         ) : loading ? (
           <div className="notification-state" role="status">Loading agent updates…</div>
         ) : unreadItems.length ? (
-          <div className="notification-list" role="list" aria-label="Unread agent notifications">
+          <DropdownMenuGroup className="notification-list" aria-label="Unread agent notifications">
             {unreadItems.map((item) => {
               const agent = item.agentId ? agents[item.agentId] : undefined;
               const pending = Boolean(item.agentId && pendingAgentIds.includes(item.agentId));
@@ -88,16 +97,20 @@ export function NotificationCenter({ projectId, projectName }: { projectId: stri
                 <DropdownMenuItem
                   key={item.eventId}
                   className="notification-item"
-                  disabled={!agent || pending}
-                  onSelect={() => { if (agent) selectAgent(agent.id); }}
+                  disabled={pending}
+                  onSelect={() => {
+                    if (!item.agentId) return;
+                    if (agent) selectAgent(agent.id);
+                    else void acknowledgeAgent(item.agentId, item.projectId);
+                  }}
                 >
                   <span className="status-dot" data-tone={item.attentionStatus === "failed" ? "danger" : item.attentionStatus === "waiting_for_you" ? "warning" : "success"} aria-hidden="true" />
                   <span className="notification-copy">
-                    <strong>{agent?.name ?? "Agent pane unavailable"}</strong>
+                    <strong>{agent?.name ?? "Agent no longer open"}</strong>
                     <span>{item.message}</span>
                     <span className="notification-meta">
                       {projectName ?? item.projectId}
-                      {agent ? ` · ${providerDisplayName(agent.provider)}` : ""}
+                      {agent ? ` · ${providerDisplayName(agent.provider)}` : " · Offline"}
                       {` · ${attentionStatusPresentation(item.attentionStatus).label}`}
                     </span>
                   </span>
@@ -105,7 +118,7 @@ export function NotificationCenter({ projectId, projectName }: { projectId: stri
                 </DropdownMenuItem>
               );
             })}
-          </div>
+          </DropdownMenuGroup>
         ) : (
           <div className="notification-state">No unread agent updates.</div>
         )}

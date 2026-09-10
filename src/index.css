@@ -3317,7 +3317,7 @@ input[type="radio"] {
   font-weight: 600;
 }
 
-.notification-header button {
+.notification-action {
   color: var(--text-secondary);
   font-size: 11px;
 }
@@ -3383,11 +3383,4 @@ input[type="radio"] {
 
 .notification-error {
   color: var(--danger);
-}
-
-.notification-error > div {
-  display: flex;
-  justify-content: center;
-  gap: 4px;
-  margin-top: 8px;
 }
