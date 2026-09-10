@@ -424,6 +424,10 @@ fn event_payload_variants_serialize_with_tagged_frontend_shapes() {
             json!({ "type": "exit", "code": 7 }),
         ),
         (
+            AgentEventPayload::Exit { code: None },
+            json!({ "type": "exit", "code": null }),
+        ),
+        (
             AgentEventPayload::Attention {
                 reason: "approval needed".into(),
             },
@@ -515,6 +519,177 @@ fn event_hub_rejects_an_event_id_after_its_replay_entry_is_evicted() {
             .map(|event| event.event_id.as_str())
             .collect::<Vec<_>>(),
         vec!["two", "three"]
+    );
+}
+
+#[test]
+fn event_hub_attention_acceptance_preserves_lifecycle_and_terminal_precedence() {
+    use super::attention::{
+        should_promote_to_waiting, AttentionReducer, AttentionState, WaitingEvidence,
+    };
+    use std::collections::HashMap;
+
+    let hub = EventHub::new(32);
+    let publish = |event_id: &str,
+                   agent_id: &str,
+                   kind: AgentEventKind,
+                   payload: AgentEventPayload,
+                   source: AgentEventSource| {
+        let mut event = AgentEventEnvelope::new(
+            event_id.into(),
+            "project-acceptance".into(),
+            Some(agent_id.into()),
+            kind,
+            payload,
+        );
+        event.source = source;
+        hub.publish(event)
+    };
+
+    for (event_id, agent_id, kind, payload, source) in [
+        (
+            "start-a",
+            "agent-a",
+            AgentEventKind::AgentStarted,
+            AgentEventPayload::Empty,
+            AgentEventSource::Runtime,
+        ),
+        (
+            "output-a",
+            "agent-a",
+            AgentEventKind::AgentOutput,
+            AgentEventPayload::Text {
+                text: "Approve changes? [y/N] >".into(),
+            },
+            AgentEventSource::Pty,
+        ),
+        (
+            "prompt-a",
+            "agent-a",
+            AgentEventKind::AgentPromptDetected,
+            AgentEventPayload::Attention {
+                reason: "provider_prompt".into(),
+            },
+            AgentEventSource::Provider,
+        ),
+        (
+            "completed-a",
+            "agent-a",
+            AgentEventKind::AgentCompleted,
+            AgentEventPayload::Empty,
+            AgentEventSource::Runtime,
+        ),
+        (
+            "exit-a",
+            "agent-a",
+            AgentEventKind::AgentExited,
+            AgentEventPayload::Exit { code: Some(0) },
+            AgentEventSource::Runtime,
+        ),
+        (
+            "stale-wait-a",
+            "agent-a",
+            AgentEventKind::AgentWaiting,
+            AgentEventPayload::Empty,
+            AgentEventSource::Provider,
+        ),
+        (
+            "restart-a",
+            "agent-a",
+            AgentEventKind::AgentStarted,
+            AgentEventPayload::Empty,
+            AgentEventSource::Runtime,
+        ),
+        (
+            "failed-a",
+            "agent-a",
+            AgentEventKind::AgentFailed,
+            AgentEventPayload::Empty,
+            AgentEventSource::Runtime,
+        ),
+        (
+            "stale-completed-a",
+            "agent-a",
+            AgentEventKind::AgentCompleted,
+            AgentEventPayload::Empty,
+            AgentEventSource::Runtime,
+        ),
+        (
+            "waiting-b",
+            "agent-b",
+            AgentEventKind::AgentWaiting,
+            AgentEventPayload::Empty,
+            AgentEventSource::Provider,
+        ),
+    ] {
+        assert!(publish(event_id, agent_id, kind, payload, source).is_some());
+    }
+    assert!(publish(
+        "waiting-b",
+        "agent-b",
+        AgentEventKind::AgentFailed,
+        AgentEventPayload::Empty,
+        AgentEventSource::Runtime,
+    )
+    .is_none());
+    let ack = publish_attention_ack(&hub, "project-acceptance", "agent-a").expect("ack event");
+
+    let mut states = HashMap::<String, AttentionState>::new();
+    for event in hub.subscribe_after(0) {
+        let agent_id = event.agent_id.clone().expect("agent-scoped event");
+        let previous = states.get(&agent_id).cloned().unwrap_or_default();
+        let next = AttentionReducer::apply(&previous, &event);
+        match event.event_id.as_str() {
+            "output-a" => {
+                assert_eq!(next.attention_status, AttentionStatus::Working);
+                let evidence = WaitingEvidence::GenericOutput {
+                    last_output_at: Some(1000),
+                };
+                assert!(!should_promote_to_waiting(&next, &evidence, 5999));
+                assert!(should_promote_to_waiting(&next, &evidence, 6000));
+            }
+            "prompt-a" => assert_eq!(next.attention_status, AttentionStatus::WaitingForYou),
+            "completed-a" => {
+                assert_eq!(next.execution_status, ExecutionStatus::Running);
+                assert_eq!(next.attention_status, AttentionStatus::Completed);
+            }
+            "stale-wait-a" => {
+                assert_eq!(next.execution_status, ExecutionStatus::Exited);
+                assert_eq!(next.attention_status, AttentionStatus::Completed);
+            }
+            "restart-a" => {
+                assert_eq!(next.execution_status, ExecutionStatus::Running);
+                assert_eq!(next.attention_status, AttentionStatus::Working);
+                assert_eq!(next.unread_count, 2);
+            }
+            "stale-completed-a" => {
+                assert_eq!(next.execution_status, ExecutionStatus::Error);
+                assert_eq!(next.attention_status, AttentionStatus::Failed);
+            }
+            _ => {}
+        }
+        states.insert(agent_id, next);
+    }
+
+    assert_eq!(hub.latest_sequence(), 11);
+    assert_eq!(ack.sequence, 11);
+    assert_eq!(
+        states.get("agent-a"),
+        Some(&AttentionState {
+            execution_status: ExecutionStatus::Error,
+            attention_status: AttentionStatus::Failed,
+            unread: false,
+            unread_count: 0,
+        })
+    );
+    assert_eq!(
+        states.get("agent-b"),
+        Some(&AttentionState {
+            execution_status: ExecutionStatus::Starting,
+            attention_status: AttentionStatus::WaitingForYou,
+            unread: true,
+            unread_count: 1,
+        })
     );
 }
 

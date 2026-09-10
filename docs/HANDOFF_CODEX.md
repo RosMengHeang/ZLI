@@ -80,8 +80,11 @@ The detected real executable is launched inside a PTY. `.ps1` shims run through 
 
 - `cargo test --manifest-path src-tauri/Cargo.toml pty::tests -- --nocapture`: 3 passed. Covers two simultaneous PTYs, independent output, independent resizing, killing A while B remains usable, real `git status`, and a cwd containing spaces and Unicode.
 - `cargo test --manifest-path src-tauri/Cargo.toml an_installed_coding_cli_launches_inside_a_real_pty -- --nocapture`: 1 passed. The environment had real `claude.ps1`, `codex.ps1`, `cursor-agent.ps1`, and `agent.ps1` shims; the test launched the first detected coding CLI in a PTY and stopped it.
-- `cargo check --manifest-path src-tauri/Cargo.toml`: passed.
-- The full Rust test suite runs all backend tests but currently has one unrelated existing Git failure on Windows: `src-tauri/src/git/workflow_tests.rs` expects LF while Git returns CRLF. No Git file was changed.
+- `npm test`: 101 passed, 0 failed for the completed Wave 1 tree.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml -j 1` with the shared target directory: 36 passed, 0 failed.
+- `cargo check --manifest-path src-tauri/Cargo.toml -j 1` with the shared target directory: passed.
 
 Run release checks before integration with:
 
@@ -90,6 +93,66 @@ cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo check --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
+
+## Normalized agent events and attention
+
+The control plane emits `control-event` envelopes with camelCase fields and snake_case enum values. Current event kinds are:
+
+```text
+agent_created
+agent_started
+agent_output
+agent_prompt_detected
+agent_waiting
+agent_message_received
+agent_message_delivered
+agent_completed
+agent_failed
+agent_paused
+agent_stopped
+agent_exited
+agent_resume_available
+agent_resume_unavailable
+agent_worktree_created
+agent_worktree_cleanup_failed
+browser_surface_created
+browser_navigation_changed
+browser_console_error
+browser_command_failed
+taxchat_room_started
+taxchat_message_sent
+taxchat_message_failed
+attention_ack
+attention_mark_all_read
+```
+
+Execution, attention, and unread state are separate rules:
+
+- Execution reports process state: `starting`, `running`, `paused`, `exited`, `error`, or `stopped`.
+- Attention reports the user-facing state: `working`, `waiting_for_you`, `completed`, `failed`, `paused`, or `offline`.
+- Unread reports whether an attention transition has been acknowledged. Acknowledgement clears `unread` and `unreadCount`; it does not change execution or attention.
+
+`attention_ack` is scoped to one project and agent. `attention_mark_all_read` is scoped to one project and leaves other projects unread. Both commands publish their normalized event through the backend event hub before the frontend updates its projection.
+
+The frontend subscribes before requesting `control_events_after(sequence)`. It replays from the cursor captured before subscription, orders accepted envelopes by `sequence` and `eventId`, and ignores an `eventId` already seen. A repeated ID never advances the backend sequence, even after its replay entry has been evicted.
+
+Raw `agent_output` is activity only. Output that looks like a prompt does not imply `waiting_for_you` and does not create an unread notification. A provider-aware parser must accept the provider-specific evidence and emit `agent_prompt_detected` or `agent_waiting`. Generic low-confidence candidates require at least five seconds without output and active working state, but the detector still must emit a normalized accepted event before attention changes.
+
+The backend replay deque is capacity-bounded, but the hub retains historical event IDs so an evicted duplicate cannot be accepted again. This set can grow for a long-running runtime. Address that memory concern in the runtime batching phase with output batching and lifecycle-aware ID retention.
+
+Run the Wave 1 verification set from the repository root:
+
+```powershell
+npm test
+npm run lint
+npm run build
+$env:CARGO_TARGET_DIR='D:\Taxzy_CLI\src-tauri\target'; cargo test --manifest-path src-tauri/Cargo.toml -j 1
+$env:CARGO_TARGET_DIR='D:\Taxzy_CLI\src-tauri\target'; cargo check --manifest-path src-tauri/Cargo.toml -j 1
+rustfmt --edition 2021 --check src-tauri/src/control/tests.rs
+git diff --check
+```
+
+If a Rust test or check fails only with the known Windows `Access is denied. (os error 5)` process-launch error, retry that identical command once. Do not retry other failures without diagnosing them.
 
 ## Frontend integration
 
