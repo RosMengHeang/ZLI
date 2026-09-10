@@ -4,16 +4,19 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { Webview } from "@tauri-apps/api/webview";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { IconBack, IconExternal, IconForward, IconGlobe, IconReload } from "./AppIcons";
+import { IconBack, IconExternal, IconForward, IconGlobe, IconReload, IconShield } from "./AppIcons";
 import { rafThrottle } from "../lib/schedule";
 import { isTauriRuntime } from "../tauri/invoke";
 import { useUiStore } from "../stores/uiStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import {
   closeBrowserSurface,
+  grantBrowserCapability,
   registerBrowserSurface,
   updateBrowserNavigation,
 } from "../lib/browser/browserBridge";
+import { useBrowserStore } from "../stores/browserStore";
+import { BrowserPermissionDialog } from "./BrowserPermissionDialog";
 import { nextBrowserRequest, normalizeBrowserInput, pushBrowserHistory } from "../lib/browserNavigation";
 import {
   nativeBrowserBounds,
@@ -54,6 +57,9 @@ async function collapseNativeWebview(webview: Webview, isCancelled?: () => boole
 export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
   const activeProjectRoot = useWorkspaceStore((state) => state.activeProjectRoot);
   const savedUrl = useUiStore((state) => state.browserUrl);
+  const permissionOpen = useBrowserStore((state) => state.permissionOpen);
+  const browserSurface = useBrowserStore((state) => state.surface);
+  const setPermissionOpen = useBrowserStore((state) => state.setPermissionOpen);
   const [history, setHistory] = useState<string[]>(() => savedUrl ? [savedUrl] : []);
   const [historyIndex, setHistoryIndex] = useState(savedUrl ? 0 : -1);
   const [request, setRequest] = useState({ url: savedUrl, sequence: 0 });
@@ -71,7 +77,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
     state.addAgentOpen || state.pathDialogOpen || state.commitOpen || state.discardOpen ||
     state.mergeOpen || state.helpOpen || state.preferencesOpen,
   );
-  const shouldHideNativeView = obscured || dialogOpen;
+  const shouldHideNativeView = obscured || dialogOpen || permissionOpen;
   const shouldHideNativeViewRef = useRef(shouldHideNativeView);
   const currentUrl = history[historyIndex] ?? "";
   useEffect(() => {
@@ -112,7 +118,9 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       }
       setDraft(observed);
       const surfaceId = browserSurfaceIdRef.current;
-      if (surfaceId) void updateBrowserNavigation(surfaceId, observed).catch(() => undefined);
+      if (surfaceId) void updateBrowserNavigation(surfaceId, observed)
+        .then((surface) => useBrowserStore.getState().setSurface(surface))
+        .catch(() => undefined);
       if (payload.phase === "finished") expectedNavigationRef.current = null;
     }).then((cleanup) => {
       if (disposed) cleanup();
@@ -188,19 +196,24 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       }
 
       nativeWebviewRef.current = webview;
-      const surface = await registerBrowserSurface({
+      let surface = await registerBrowserSurface({
         projectId: projectRoot,
         agentId: null,
         webviewLabel: label,
         url: request.url,
         profileId: "default",
       });
+      const savedCapabilities = useBrowserStore.getState().savedCapabilities(projectRoot, "default");
+      for (const capability of savedCapabilities) {
+        surface = await grantBrowserCapability(surface.surfaceId, capability);
+      }
       if (cancelled) {
         await closeBrowserSurface(surface.surfaceId).catch(() => undefined);
         await webview.close().catch(() => undefined);
         return;
       }
       browserSurfaceIdRef.current = surface.surfaceId;
+      useBrowserStore.getState().setSurface(surface);
       const handleWindowResize = () => throttledBounds();
       await webview.setAutoResize(false);
       // A newly-created native child can briefly cover the entire Tauri view.
@@ -239,6 +252,9 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       const webview = nativeWebviewRef.current;
       const surfaceId = browserSurfaceIdRef.current;
       browserSurfaceIdRef.current = null;
+      if (useBrowserStore.getState().surface?.surfaceId === surfaceId) {
+        useBrowserStore.getState().setSurface(null);
+      }
       nativeWebviewRef.current = null;
       if (nativeLabelRef.current === webview?.label) nativeLabelRef.current = null;
       if (webview) {
@@ -407,6 +423,16 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
         >
           <IconExternal />
         </Button></TooltipTrigger><TooltipContent>Open externally</TooltipContent></Tooltip>
+        <Tooltip><TooltipTrigger asChild><Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Browser permissions"
+          onClick={() => setPermissionOpen(true)}
+          disabled={!browserSurface}
+        >
+          <IconShield />
+        </Button></TooltipTrigger><TooltipContent>Agent browser access</TooltipContent></Tooltip>
       </div>
 
       <div className="browser-viewport-shell min-h-0 flex-1 bg-ink">
@@ -455,6 +481,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
           </div>
         )}
       </div>
+      <BrowserPermissionDialog />
     </section>
   );
 }

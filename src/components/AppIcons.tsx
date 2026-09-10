@@ -356,6 +356,15 @@ export function IconMore(props: IconProps) {
   );
 }
 
+export function IconShield(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M8 1.8 13 3.7v3.8c0 3-1.8 5.4-5 6.7-3.2-1.3-5-3.7-5-6.7V3.7L8 1.8Z" {...stroke} />
+      <path d="m5.8 8 1.4 1.4 3-3.1" {...stroke} />
+    </Svg>
+  );
+}
+
 export function IconRestart(props: IconProps) {
   return (
     <Svg {...props}>
