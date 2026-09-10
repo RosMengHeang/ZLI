@@ -9,6 +9,7 @@ mod reconcile;
 mod runtime;
 mod session;
 mod supervisor;
+mod transport;
 
 pub use events::{
     AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, AttentionStatus,
@@ -27,6 +28,9 @@ pub use session::{RuntimeSession, SessionDescriptor, SessionRegistry};
 pub use supervisor::{
     ReconnectResult, RestoreResult, SessionCommandError, Supervisor, SUPERVISOR_PROTOCOL_VERSION,
 };
+pub use transport::{ControlTransport, TransportHandle};
+#[cfg(windows)]
+pub use transport::named_pipe::{NamedPipeClient, NamedPipeServer};
 
 #[cfg(test)]
 mod tests;

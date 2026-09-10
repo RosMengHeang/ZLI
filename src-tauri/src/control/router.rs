@@ -72,7 +72,10 @@ impl CommandRouter {
                 if started.elapsed().as_millis() > u128::from(request.timeout_ms) {
                     ControlResponse::failure(
                         request.id.clone(),
-                        ControlError::new(ControlErrorCode::ControlTimeout, "Control request timed out"),
+                        ControlError::new(
+                            ControlErrorCode::ControlTimeout,
+                            "Control request timed out",
+                        ),
                     )
                 } else {
                     match handled {

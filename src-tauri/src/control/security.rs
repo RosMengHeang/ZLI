@@ -26,7 +26,10 @@ impl CapabilityTokenStore {
     pub fn issue(&self, mut identity: CallerIdentity, lifetime: Duration) -> IssuedCapabilityToken {
         let mut bytes = [0_u8; 32];
         rand::thread_rng().fill_bytes(&mut bytes);
-        let token = bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        let token = bytes
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
         let expires_at = SystemTime::now() + lifetime;
         let unix_expiry = expires_at
             .duration_since(UNIX_EPOCH)
@@ -36,7 +39,13 @@ impl CapabilityTokenStore {
         self.records
             .lock()
             .expect("capability token store poisoned")
-            .insert(hash_token(&token), TokenRecord { identity, expires_at });
+            .insert(
+                hash_token(&token),
+                TokenRecord {
+                    identity,
+                    expires_at,
+                },
+            );
         IssuedCapabilityToken {
             token,
             expires_at: unix_expiry,
@@ -45,10 +54,12 @@ impl CapabilityTokenStore {
 
     pub fn verify(&self, token: &str) -> Result<CallerIdentity, ControlError> {
         let key = hash_token(token);
-        let mut records = self
-            .records
-            .lock()
-            .map_err(|_| ControlError::new(ControlErrorCode::ControlRuntimeError, "Token store is unavailable"))?;
+        let mut records = self.records.lock().map_err(|_| {
+            ControlError::new(
+                ControlErrorCode::ControlRuntimeError,
+                "Token store is unavailable",
+            )
+        })?;
         let Some(record) = records.get(&key) else {
             return Err(denied());
         };
@@ -71,5 +82,8 @@ fn hash_token(token: &str) -> [u8; 32] {
 }
 
 fn denied() -> ControlError {
-    ControlError::new(ControlErrorCode::CapabilityDenied, "Control token is invalid or expired")
+    ControlError::new(
+        ControlErrorCode::CapabilityDenied,
+        "Control token is invalid or expired",
+    )
 }

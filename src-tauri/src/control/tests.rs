@@ -15,22 +15,17 @@ use serde_json::json;
 use std::time::{Duration, Instant};
 use tempfile::tempdir;
 
-use super::{ProjectSnapshot, SnapshotStore, SnapshotStoreError};
-use super::{RuntimeSession, SessionRegistry};
 use super::{Capability, ControlMethod, ControlRequest, ControlResponse, CONTROL_PROTOCOL_VERSION};
 use super::{CapabilityTokenStore, CommandRouter, ControlHandler};
+use super::{ProjectSnapshot, SnapshotStore, SnapshotStoreError};
+use super::{RuntimeSession, SessionRegistry};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 #[test]
 fn control_request_round_trips_and_rejects_unknown_protocol_versions() {
-    let request = ControlRequest::new(
-        "req-1",
-        ControlMethod::AgentList,
-        json!({}),
-        5_000,
-    )
-    .expect("valid control request");
+    let request = ControlRequest::new("req-1", ControlMethod::AgentList, json!({}), 5_000)
+        .expect("valid control request");
     let encoded = serde_json::to_string(&request).expect("serialize request");
     let decoded = ControlRequest::from_json(&encoded).expect("decode request");
     assert_eq!(decoded.protocol_version, CONTROL_PROTOCOL_VERSION);
@@ -52,12 +47,20 @@ fn control_request_validates_ids_timeouts_methods_and_capability_wire_names() {
         r#"{"id":"req","protocolVersion":1,"method":"agent.destroy","params":{},"timeoutMs":5000}"#,
     )
     .is_err());
-    assert_eq!(serde_json::to_string(&Capability::AgentSpawn).unwrap(), r#""agent.spawn""#);
-    assert_eq!(serde_json::to_string(&Capability::BrowserJavascript).unwrap(), r#""browser.javascript""#);
     assert_eq!(
-        ControlRequest::from_json(r#"{"id":"req","method":"agent.list","params":{},"timeoutMs":5000}"#)
-            .expect_err("missing version")
-            .code,
+        serde_json::to_string(&Capability::AgentSpawn).unwrap(),
+        r#""agent.spawn""#
+    );
+    assert_eq!(
+        serde_json::to_string(&Capability::BrowserJavascript).unwrap(),
+        r#""browser.javascript""#
+    );
+    assert_eq!(
+        ControlRequest::from_json(
+            r#"{"id":"req","method":"agent.list","params":{},"timeoutMs":5000}"#
+        )
+        .expect_err("missing version")
+        .code,
         "INVALID_CONTROL_REQUEST"
     );
     assert!(ControlResponse::from_json(
@@ -72,7 +75,11 @@ fn test_parent_identity() -> super::CallerIdentity {
         project_id: "project-1".into(),
         agent_id: Some("parent-1".into()),
         parent_agent_id: None,
-        capabilities: vec![Capability::AgentList, Capability::AgentSpawn, Capability::AgentSend],
+        capabilities: vec![
+            Capability::AgentList,
+            Capability::AgentSpawn,
+            Capability::AgentSend,
+        ],
         expires_at: None,
     }
 }
@@ -153,8 +160,30 @@ fn capability_tokens_are_scoped_expiring_and_single_store_verifiable() {
     assert!(!format!("{store:?}").contains(&issued.token));
 
     let expired = store.issue(test_parent_identity(), Duration::ZERO);
-    assert_eq!(store.verify(&expired.token).expect_err("expired").code, "CAPABILITY_DENIED");
-    assert_eq!(store.verify("wrong-token").expect_err("unknown").code, "CAPABILITY_DENIED");
+    assert_eq!(
+        store.verify(&expired.token).expect_err("expired").code,
+        "CAPABILITY_DENIED"
+    );
+    assert_eq!(
+        store.verify("wrong-token").expect_err("unknown").code,
+        "CAPABILITY_DENIED"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn named_pipe_client_receives_a_json_response_from_the_router() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let router = Arc::new(CommandRouter::new(Arc::new(CountingHandler(calls))));
+    let tokens = Arc::new(CapabilityTokenStore::default());
+    let issued = tokens.issue(test_parent_identity(), Duration::from_secs(60));
+    let server = super::NamedPipeServer::start_random(router, tokens).expect("start pipe");
+    let client = super::NamedPipeClient::new(server.endpoint().to_owned(), issued.token);
+    let request =
+        ControlRequest::new("pipe-1", ControlMethod::AgentList, json!({}), 5_000).expect("request");
+    let response = client.request(request).expect("response");
+    assert!(response.ok);
+    server.stop().expect("stop server");
 }
 
 fn test_runtime_session(session_id: &str, agent_id: &str) -> RuntimeSession {

@@ -161,9 +161,12 @@ impl ControlRequest {
     pub fn from_json(input: &str) -> Result<Self, ControlError> {
         let value: Value = serde_json::from_str(input)
             .map_err(|_| ControlError::invalid_request("Request is not valid JSON"))?;
-        let version = value.get("protocolVersion").and_then(Value::as_u64).ok_or_else(|| {
-            ControlError::invalid_request("Protocol version must be an unsigned integer")
-        })?;
+        let version = value
+            .get("protocolVersion")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| {
+                ControlError::invalid_request("Protocol version must be an unsigned integer")
+            })?;
         if version != u64::from(CONTROL_PROTOCOL_VERSION) {
             return Err(ControlError::new(
                 ControlErrorCode::ControlProtocolMismatch,
@@ -324,7 +327,9 @@ impl ControlResponse {
             || (self.ok && (self.result.is_none() || self.error.is_some()))
             || (!self.ok && (self.error.is_none() || self.result.is_some()))
         {
-            return Err(ControlError::invalid_request("Response envelope is invalid"));
+            return Err(ControlError::invalid_request(
+                "Response envelope is invalid",
+            ));
         }
         Ok(())
     }
