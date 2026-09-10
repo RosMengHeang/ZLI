@@ -106,6 +106,8 @@ agent_prompt_detected
 agent_waiting
 agent_message_received
 agent_message_delivered
+agent_message_failed
+agent_focus_requested
 agent_completed
 agent_failed
 agent_paused
@@ -168,7 +170,51 @@ If a Rust test or check fails only with the known Windows `Access is denied. (os
 
 The existing `src/tauri/terminal.ts` wrapper already uses `pty_create`, `pty_write`, `pty_resize`, and `pty_close`; `src/terminal/ptyBridge.ts` already listens for `pty-output`, `pty-exit`, and `pty-error`. Ensure `startPtyBridge()` runs once before terminal interaction and pass absolute `cwd`, `cols`, and `rows` to `ptyCreate`.
 
-For agents, call `list_agent_providers()` and use the canonical catalog IDs. `launch_agent` returns an `Agent` whose `terminalId` is the interactive PTY session. Use `stop_agent(agent.id)` to terminate it. The backend deliberately does not create worktrees: when a worktree is desired, the Git subsystem must first return the worktree path, then the frontend should launch the agent with that path.
+For agents, call `list_agent_providers()` and use the canonical catalog IDs. `launch_agent` returns an `Agent` whose `terminalId` is the interactive PTY session. Use `stop_agent(agent.id)` to terminate it. Ordinary UI launches still create worktrees through the Git subsystem first. Autonomous team spawning owns that transaction in the backend so a failed launch can revoke its token, stop a partial process, and remove only the newly created clean worktree.
+
+## ZLI local API and autonomous teams
+
+Protocol version `1` is shared by the Tauri UI and the `zli` executable. On Windows the app listens on a randomly named, current-user-only named pipe; remote clients are rejected and the connecting process must have the same user SID. Frames are limited to 1 MiB. The app writes its CLI endpoint, protocol version, expiring token and process ID to `%APPDATA%\com.taxzy.cli\control\endpoint.json`. This file is runtime discovery data, not a persistent credential.
+
+The CLI command surface is:
+
+```text
+zli status
+zli agents
+zli attention
+zli agent spawn --project <project-path> --provider <provider> --task <task> [--name <name>]
+zli agent send <agent-id> <message>
+zli agent read <agent-id>
+zli agent focus <agent-id>
+zli agent pause <agent-id>
+zli agent stop <agent-id>
+zli session list
+zli session resume <session-id>
+zli browser list
+zli browser open <url>
+zli browser navigate <url>
+zli taxchat send <message>
+```
+
+Agent, status, attention, and session list/resume routes are active in Wave 3. Browser and TaxChat verbs are reserved by the same versioned parser but return `METHOD_NOT_IMPLEMENTED` until their control handlers land in the following waves.
+
+Pass `--json` before or after a command for the strict response envelope. Managed child agents can omit `--project`; their injected `ZLI_PROJECT_ID` supplies it. The older positional spawn form remains accepted for compatibility.
+
+Every managed child receives only these scoped environment values:
+
+```text
+ZLI_PROJECT_ID
+ZLI_AGENT_ID
+ZLI_PARENT_AGENT_ID
+ZLI_CONTROL_ENDPOINT
+ZLI_CONTROL_TOKEN
+```
+
+The token is random, stored hashed in memory, expires after 12 hours, and is revoked when the child is stopped. Router authorization checks both the method capability and any explicit `projectId`. Child tokens can list, spawn, send, read attention/session state and use ordinary browser controls, but cannot discard worktrees, execute arbitrary commands, access browser storage, or evaluate JavaScript. `browser.eval` has a separate capability.
+
+`agent.spawn` validates the parent relationship, provider installation, task size and the project-wide limit of 12 active agents. Every child gets an isolated worktree and terminal pane. Parent IDs are persisted in session descriptors, so sidebar nesting survives a restart. `agent.send` performs one PTY write and never retries after failure. Pause blocks automated messages without stopping the process; stop terminates the process but retains the worktree for review. Failed cleanup is intentionally retained for **Manage worktrees** instead of deleting potentially useful files.
+
+To add a command, add one `ControlMethod`, map it to a dedicated `Capability`, implement it behind `ControlHandler`, add both Rust and TypeScript wire tests, and expose it in the CLI parser. Do not bypass the router from a new UI surface.
 
 ## Durable session startup and recovery
 
@@ -190,7 +236,6 @@ Session commands are `control_session_reconnect`, `control_session_snapshot`, `c
 ## Known limitations
 
 - Exit codes are currently emitted as `null`; portable-pty child waiting is used for cleanup but the reader event contract does not yet carry the exact exit code.
-- Agent records use an empty `branch` and `null` `worktreePath` because worktree/branch ownership belongs to the Git engineer and is not fabricated here.
 - Agent launch accepts no user-provided CLI arguments. This keeps the command constrained; provider-specific flags can be added later as an explicit allowlisted contract.
 - Only Claude Code and Codex currently have provider-specific resume commands. Cursor Agent, OpenCode, Gemini, Aider, and Goose remain visible after restore but require a new session unless their adapters gain a verified resume protocol.
 - Full application shutdown ends PTY processes. Persistence restores layout, bounded scrollback, metadata, and supported provider conversations; it does not keep an OS process alive outside the desktop runtime.

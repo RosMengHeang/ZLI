@@ -92,7 +92,7 @@ pub fn run() {
                 pty.clone(),
                 agents.clone(),
                 supervisor.clone(),
-                sink,
+                sink.clone(),
             ));
             let team = Arc::new(control::TeamCoordinator::new(
                 team_backend,
@@ -100,7 +100,7 @@ pub fn run() {
                 endpoint.clone(),
             ));
             let handler = Arc::new(control::RuntimeControlHandler::new(
-                pty, agents, supervisor, team,
+                pty, agents, supervisor, team, sink,
             ));
             let router = Arc::new(control::CommandRouter::new(handler));
             app.manage(Arc::new(control::ControlService::new(router.clone())));

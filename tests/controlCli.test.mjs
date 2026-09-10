@@ -24,6 +24,20 @@ test("cli requires project scope when spawning an agent", async () => {
   assert.throws(() => parseCli(["agent", "spawn", "D:/repo"]), /provider/i);
 });
 
+test("cli supports the documented managed-agent spawn flags", async () => {
+  const { parseCli } = await import("../src/control/cli.ts");
+  const parsed = parseCli([
+    "agent", "spawn", "--provider", "codex", "--task", "Review the API", "--name", "API reviewer",
+  ], { projectId: "D:/repo" });
+
+  assert.deepEqual(parsed.request.params, {
+    projectId: "D:/repo",
+    providerId: "codex",
+    task: "Review the API",
+    name: "API reviewer",
+  });
+});
+
 test("cli supports JSON mode and rejects ambiguous or incomplete commands", async () => {
   const { parseCli } = await import("../src/control/cli.ts");
   const parsed = parseCli(["--json", "session", "resume", "session-1"]);

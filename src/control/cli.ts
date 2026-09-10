@@ -9,13 +9,13 @@ export interface ParsedCli {
   request: ControlRequest<Record<string, unknown>>;
 }
 
-export function parseCli(argv: string[]): ParsedCli {
+export function parseCli(argv: string[], environment: { projectId?: string } = {}): ParsedCli {
   const args = [...argv];
   const json = args[0] === "--json" || args[args.length - 1] === "--json";
   if (args[0] === "--json") args.shift();
   if (args[args.length - 1] === "--json") args.pop();
   const [group, action, ...rest] = args;
-  const [method, params] = command(group, action, rest);
+  const [method, params] = command(group, action, rest, environment);
   return {
     json,
     request: {
@@ -32,6 +32,7 @@ function command(
   group: string | undefined,
   action: string | undefined,
   args: string[],
+  environment: { projectId?: string },
 ): [ControlMethod, Record<string, unknown>] {
   if (group === "status") return ["session.list", {}];
   if (group === "agents") return ["agent.list", {}];
@@ -45,6 +46,16 @@ function command(
       return ["agent.send", { agentId, body: message.join(" ") }];
     }
     if (action === "spawn") {
+      if (args.includes("--provider") || args.includes("--task")) {
+        const projectId = option(args, "--project") ?? environment.projectId;
+        const providerId = option(args, "--provider");
+        const task = option(args, "--task");
+        const name = option(args, "--name");
+        required(projectId, "Project is required");
+        required(providerId, "Provider is required");
+        required(task, "Task is required");
+        return ["agent.spawn", { projectId, providerId, task, ...(name ? { name } : {}) }];
+      }
       const [projectId, providerId, ...task] = args;
       required(projectId, "Project is required");
       required(providerId, "Provider is required");
@@ -75,6 +86,11 @@ function command(
     return ["taxchat.send", { body: args.join(" ") }];
   }
   throw new Error(`Unknown command: ${[group, action].filter(Boolean).join(" ") || "(empty)"}`);
+}
+
+function option(args: string[], name: string): string | undefined {
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : undefined;
 }
 
 function required(value: string | undefined, message: string): asserts value is string {

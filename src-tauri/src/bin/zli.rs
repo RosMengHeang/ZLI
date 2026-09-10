@@ -94,22 +94,43 @@ fn parse_command(args: &[String]) -> Result<(ControlMethod, Value), String> {
             let managed_project = std::env::var("ZLI_PROJECT_ID")
                 .ok()
                 .filter(|value| !value.is_empty());
-            let (project_id, provider_id, task) = if let Some(project_id) = managed_project {
+            let flagged = args
+                .iter()
+                .any(|arg| arg == "--provider" || arg == "--task");
+            let (project_id, provider_id, task, name) = if flagged {
+                (
+                    option(args, "--project")
+                        .map(str::to_owned)
+                        .or(managed_project)
+                        .ok_or_else(|| {
+                            "project is required; pass --project outside a managed agent".to_owned()
+                        })?,
+                    option(args, "--provider")
+                        .ok_or_else(|| "provider is required".to_owned())?
+                        .to_owned(),
+                    option(args, "--task")
+                        .ok_or_else(|| "task is required".to_owned())?
+                        .to_owned(),
+                    option(args, "--name").map(str::to_owned),
+                )
+            } else if let Some(project_id) = managed_project {
                 (
                     project_id,
                     required(args.get(2), "provider")?.to_owned(),
                     joined(args, 3, "task")?,
+                    None,
                 )
             } else {
                 (
                     required(args.get(2), "project")?.to_owned(),
                     required(args.get(3), "provider")?.to_owned(),
                     joined(args, 4, "task")?,
+                    None,
                 )
             };
             Ok((
                 ControlMethod::AgentSpawn,
-                json!({ "projectId": project_id, "providerId": provider_id, "task": task }),
+                json!({ "projectId": project_id, "providerId": provider_id, "task": task, "name": name }),
             ))
         }
         (Some("agent"), Some(action @ ("read" | "focus" | "pause" | "stop"))) => {
@@ -179,6 +200,15 @@ fn remove_flag(args: &mut Vec<String>, flag: &str) -> bool {
 }
 
 #[cfg(windows)]
+fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
+    args.iter()
+        .position(|arg| arg == name)
+        .and_then(|index| args.get(index + 1))
+        .filter(|value| !value.starts_with("--") && !value.trim().is_empty())
+        .map(String::as_str)
+}
+
+#[cfg(windows)]
 fn required<'a>(value: Option<&'a String>, label: &str) -> Result<&'a str, String> {
     value
         .filter(|value| !value.trim().is_empty())
@@ -198,7 +228,7 @@ fn joined(args: &[String], start: usize, label: &str) -> Result<String, String> 
 
 #[cfg(windows)]
 fn usage() -> String {
-    "unknown command. Try: status | agents | agent send <id> <message> | agent spawn <project> <provider> <task> | session list | session resume <id> | browser list | taxchat send <message>".into()
+    "unknown command. Try: status | agents | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | session list | session resume <id> | browser list | taxchat send <message>".into()
 }
 
 #[cfg(windows)]

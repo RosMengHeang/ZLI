@@ -186,6 +186,23 @@ fn named_pipe_client_receives_a_json_response_from_the_router() {
     server.stop().expect("stop server");
 }
 
+#[cfg(windows)]
+#[test]
+fn named_pipe_client_fails_cleanly_after_server_disconnect() {
+    let router = Arc::new(CommandRouter::new(Arc::new(CountingHandler(Arc::new(
+        AtomicUsize::new(0),
+    )))));
+    let tokens = Arc::new(CapabilityTokenStore::default());
+    let issued = tokens.issue(test_parent_identity(), Duration::from_secs(60));
+    let server = super::NamedPipeServer::start_random(router, tokens).expect("start pipe");
+    let client = super::NamedPipeClient::new(server.endpoint().to_owned(), issued.token);
+    server.stop().expect("stop server");
+
+    let request = ControlRequest::new("pipe-stopped", ControlMethod::AgentList, json!({}), 500)
+        .expect("request");
+    assert!(client.request(request).is_err());
+}
+
 fn test_runtime_session(session_id: &str, agent_id: &str) -> RuntimeSession {
     RuntimeSession::detached_for_test(
         session_id.to_owned(),
@@ -1933,6 +1950,35 @@ fn team_stop_revokes_the_child_control_token() {
         .expect("stop child");
 
     assert!(tokens.verify(&token).is_err());
+}
+
+#[test]
+fn team_message_delivery_is_parent_child_scoped_and_never_retried() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let coordinator = super::TeamCoordinator::new(
+        backend.clone(),
+        Arc::new(CapabilityTokenStore::default()),
+        "endpoint".into(),
+    );
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+
+    let result = coordinator
+        .send("project-1", &child.agent_id, "Report status")
+        .expect("deliver message");
+
+    assert_eq!(result["delivered"], true);
+    assert_eq!(backend.deliveries.lock().unwrap().len(), 2);
+    assert_eq!(
+        backend.events.lock().unwrap().last().unwrap().kind,
+        AgentEventKind::AgentMessageDelivered
+    );
+    let error = coordinator
+        .send("project-2", &child.agent_id, "Cross project")
+        .expect_err("cross-project delivery must fail");
+    assert_eq!(error.code, super::ControlErrorCode::SessionNotFound);
+    assert_eq!(backend.deliveries.lock().unwrap().len(), 2);
 }
 
 fn wait_for_control_event(
