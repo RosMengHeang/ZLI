@@ -17,6 +17,145 @@ use tempfile::tempdir;
 
 use super::{ProjectSnapshot, SnapshotStore, SnapshotStoreError};
 use super::{RuntimeSession, SessionRegistry};
+use super::{Capability, ControlMethod, ControlRequest, ControlResponse, CONTROL_PROTOCOL_VERSION};
+use super::{CapabilityTokenStore, CommandRouter, ControlHandler};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+#[test]
+fn control_request_round_trips_and_rejects_unknown_protocol_versions() {
+    let request = ControlRequest::new(
+        "req-1",
+        ControlMethod::AgentList,
+        json!({}),
+        5_000,
+    )
+    .expect("valid control request");
+    let encoded = serde_json::to_string(&request).expect("serialize request");
+    let decoded = ControlRequest::from_json(&encoded).expect("decode request");
+    assert_eq!(decoded.protocol_version, CONTROL_PROTOCOL_VERSION);
+    assert_eq!(decoded.method, ControlMethod::AgentList);
+
+    let mismatch = ControlRequest::from_json(
+        r#"{"id":"req-2","protocolVersion":99,"method":"agent.list","params":{},"timeoutMs":5000}"#,
+    )
+    .expect_err("future protocol must fail");
+    assert_eq!(mismatch.code, "CONTROL_PROTOCOL_MISMATCH");
+}
+
+#[test]
+fn control_request_validates_ids_timeouts_methods_and_capability_wire_names() {
+    assert!(ControlRequest::new("", ControlMethod::AgentList, json!({}), 5_000).is_err());
+    assert!(ControlRequest::new("req", ControlMethod::AgentList, json!({}), 99).is_err());
+    assert!(ControlRequest::new("req", ControlMethod::AgentList, json!({}), 120_001).is_err());
+    assert!(ControlRequest::from_json(
+        r#"{"id":"req","protocolVersion":1,"method":"agent.destroy","params":{},"timeoutMs":5000}"#,
+    )
+    .is_err());
+    assert_eq!(serde_json::to_string(&Capability::AgentSpawn).unwrap(), r#""agent.spawn""#);
+    assert_eq!(serde_json::to_string(&Capability::BrowserJavascript).unwrap(), r#""browser.javascript""#);
+    assert_eq!(
+        ControlRequest::from_json(r#"{"id":"req","method":"agent.list","params":{},"timeoutMs":5000}"#)
+            .expect_err("missing version")
+            .code,
+        "INVALID_CONTROL_REQUEST"
+    );
+    assert!(ControlResponse::from_json(
+        r#"{"id":"req","protocolVersion":1,"ok":true,"result":{},"error":{"code":"CAPABILITY_DENIED","message":"no"}}"#,
+    )
+    .is_err());
+}
+
+fn test_parent_identity() -> super::CallerIdentity {
+    super::CallerIdentity {
+        caller_id: "parent-1".into(),
+        project_id: "project-1".into(),
+        agent_id: Some("parent-1".into()),
+        parent_agent_id: None,
+        capabilities: vec![Capability::AgentList, Capability::AgentSpawn, Capability::AgentSend],
+        expires_at: None,
+    }
+}
+
+#[test]
+fn parent_agent_can_spawn_and_message_but_cannot_discard_worktree() {
+    let identity = test_parent_identity();
+    assert!(identity.allows(Capability::AgentSpawn));
+    assert!(identity.allows(Capability::AgentSend));
+    assert!(!identity.allows(Capability::WorktreeDiscard));
+}
+
+#[test]
+fn expired_identity_and_browser_eval_need_explicit_authority() {
+    let mut identity = test_parent_identity();
+    identity.expires_at = Some(0);
+    assert!(!identity.allows(Capability::AgentList));
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let router = CommandRouter::new(Arc::new(CountingHandler(calls)));
+    let request = ControlRequest::new("req-js", ControlMethod::BrowserEval, json!({}), 5_000)
+        .expect("valid request");
+    let response = router.dispatch(request, test_parent_identity());
+    assert_eq!(response.error.expect("denied").code, "CAPABILITY_DENIED");
+}
+
+struct CountingHandler(Arc<AtomicUsize>);
+
+impl ControlHandler for CountingHandler {
+    fn handle(
+        &self,
+        _request: &ControlRequest,
+        _identity: &super::CallerIdentity,
+    ) -> Result<serde_json::Value, super::ControlError> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({ "agents": [] }))
+    }
+}
+
+#[test]
+fn duplicate_request_id_returns_the_original_response() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let router = CommandRouter::new(Arc::new(CountingHandler(calls.clone())));
+    let request = ControlRequest::new("req-1", ControlMethod::AgentList, json!({}), 5_000)
+        .expect("valid request");
+    let first = router.dispatch(request.clone(), test_parent_identity());
+    let second = router.dispatch(request, test_parent_identity());
+    assert_eq!(first, second);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn router_rejects_capability_and_cross_project_access() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let router = CommandRouter::new(Arc::new(CountingHandler(calls)));
+    let denied = ControlRequest::new("req-1", ControlMethod::AgentStop, json!({}), 5_000)
+        .expect("valid request");
+    let response = router.dispatch(denied, test_parent_identity());
+    assert_eq!(response.error.expect("denied").code, "CAPABILITY_DENIED");
+
+    let cross_project = ControlRequest::new(
+        "req-2",
+        ControlMethod::AgentList,
+        json!({ "projectId": "project-2" }),
+        5_000,
+    )
+    .expect("valid request");
+    let response = router.dispatch(cross_project, test_parent_identity());
+    assert_eq!(response.error.expect("denied").code, "CAPABILITY_DENIED");
+}
+
+#[test]
+fn capability_tokens_are_scoped_expiring_and_single_store_verifiable() {
+    let store = CapabilityTokenStore::default();
+    let issued = store.issue(test_parent_identity(), Duration::from_secs(60));
+    let verified = store.verify(&issued.token).expect("valid token");
+    assert_eq!(verified.project_id, "project-1");
+    assert!(!format!("{store:?}").contains(&issued.token));
+
+    let expired = store.issue(test_parent_identity(), Duration::ZERO);
+    assert_eq!(store.verify(&expired.token).expect_err("expired").code, "CAPABILITY_DENIED");
+    assert_eq!(store.verify("wrong-token").expect_err("unknown").code, "CAPABILITY_DENIED");
+}
 
 fn test_runtime_session(session_id: &str, agent_id: &str) -> RuntimeSession {
     RuntimeSession::detached_for_test(
