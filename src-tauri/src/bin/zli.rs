@@ -76,7 +76,21 @@ fn parse_command(args: &[String]) -> Result<(ControlMethod, Value), String> {
         (Some("agents"), _) | (Some("agent"), Some("list")) => {
             Ok((ControlMethod::AgentList, json!({})))
         }
-        (Some("attention"), _) => Ok((ControlMethod::AttentionList, json!({}))),
+        (Some("attention"), None | Some("list")) => Ok((ControlMethod::AttentionList, json!({}))),
+        (Some("attention"), Some("ack")) => {
+            let project_id = option(args, "--project")
+                .map(str::to_owned)
+                .or_else(|| std::env::var("ZLI_PROJECT_ID").ok())
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    "project is required; pass --project outside a managed agent".to_owned()
+                })?;
+            let agent_id = required(args.get(2), "agent ID")?;
+            Ok((
+                ControlMethod::AttentionAck,
+                json!({ "projectId": project_id, "agentId": agent_id }),
+            ))
+        }
         (Some("session"), Some("list")) => Ok((ControlMethod::SessionList, json!({}))),
         (Some("session"), Some("resume")) => Ok((
             ControlMethod::SessionResume,
@@ -380,7 +394,7 @@ fn joined(args: &[String], start: usize, label: &str) -> Result<String, String> 
 
 #[cfg(windows)]
 fn usage() -> String {
-    "unknown command. Try: status | agents | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | session list | session resume <id> | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message> --project <path> [--to <agent>]".into()
+    "unknown command. Try: status | agents | attention [list] | attention ack <agent> --project <path> | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | session list | session resume <id> | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message> --project <path> [--to <agent>]".into()
 }
 
 #[cfg(windows)]
@@ -422,5 +436,21 @@ mod tests {
         assert_eq!(params["projectId"], r"D:\repo");
         assert_eq!(params["body"], "Review the release");
         assert_eq!(params["recipientIds"], json!(["agent-1", "agent-2"]));
+    }
+
+    #[test]
+    fn attention_ack_is_project_scoped() {
+        let args = ["attention", "ack", "agent-1", "--project", r"D:\repo"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+
+        let (method, params) = parse_command(&args).expect("parse attention acknowledgement");
+
+        assert_eq!(method, ControlMethod::AttentionAck);
+        assert_eq!(
+            params,
+            json!({ "projectId": r"D:\repo", "agentId": "agent-1" })
+        );
     }
 }

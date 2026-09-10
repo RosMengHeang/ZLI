@@ -49,6 +49,20 @@ test("cli supports JSON mode and rejects ambiguous or incomplete commands", asyn
   assert.throws(() => parseCli(["destroy", "everything"]), /Unknown command/i);
 });
 
+test("attention acknowledgement is project scoped", async () => {
+  const { parseCli } = await import("../src/control/cli.ts");
+
+  assert.deepEqual(
+    parseCli(["attention", "ack", "agent-1", "--project", "D:/repo"]).request.params,
+    { projectId: "D:/repo", agentId: "agent-1" },
+  );
+  assert.deepEqual(
+    parseCli(["attention", "ack", "agent-1"], { projectId: "D:/repo" }).request.params,
+    { projectId: "D:/repo", agentId: "agent-1" },
+  );
+  assert.throws(() => parseCli(["attention", "ack", "agent-1"]), /project/i);
+});
+
 test("browser commands expose the complete scoped automation surface", async () => {
   const { parseCli } = await import("../src/control/cli.ts");
   assert.deepEqual(parseCli(["browser", "open", "https://example.com"], { projectId: "project-1" }).request.params, {

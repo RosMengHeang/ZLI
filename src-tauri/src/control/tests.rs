@@ -15,7 +15,10 @@ use serde_json::json;
 use std::time::{Duration, Instant};
 use tempfile::tempdir;
 
-use super::{Capability, ControlMethod, ControlRequest, ControlResponse, CONTROL_PROTOCOL_VERSION};
+use super::{
+    CallerIdentity, Capability, ControlMethod, ControlRequest, ControlResponse,
+    CONTROL_PROTOCOL_VERSION,
+};
 use super::{CapabilityTokenStore, CommandRouter, ControlHandler};
 use super::{ProjectSnapshot, SnapshotStore, SnapshotStoreError};
 use super::{RuntimeSession, SessionRegistry};
@@ -1565,6 +1568,33 @@ fn acknowledgement_commands_publish_normalized_scoped_events() {
     assert_eq!(mark_all.source, AgentEventSource::User);
     assert_eq!(mark_all.kind, AgentEventKind::AttentionMarkAllRead);
     assert_eq!(hub.subscribe_after(0), vec![ack, mark_all]);
+}
+
+#[test]
+fn public_attention_ack_emits_one_scoped_control_event() {
+    let sink = MemoryEventSink::default();
+    let identity = CallerIdentity {
+        caller_id: "agent-1".into(),
+        project_id: "project-1".into(),
+        agent_id: Some("agent-1".into()),
+        parent_agent_id: None,
+        capabilities: vec![Capability::AttentionAck],
+        expires_at: None,
+    };
+
+    super::service::publish_runtime_attention_ack(&sink, &identity, "project-1", "agent-2")
+        .expect("acknowledge attention");
+
+    let events = sink.control_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].kind, AgentEventKind::AttentionAck);
+    assert_eq!(events[0].agent_id.as_deref(), Some("agent-2"));
+    assert_eq!(events[0].source, AgentEventSource::Api);
+    let error =
+        super::service::publish_runtime_attention_ack(&sink, &identity, "project-2", "agent-2")
+            .expect_err("cross-project acknowledgement must fail");
+    assert_eq!(error.code, super::ControlErrorCode::CapabilityDenied);
+    assert_eq!(sink.control_events().len(), 1);
 }
 
 #[test]

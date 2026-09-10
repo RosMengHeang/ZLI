@@ -36,7 +36,16 @@ function command(
 ): [ControlMethod, Record<string, unknown>] {
   if (group === "status") return ["session.list", {}];
   if (group === "agents") return ["agent.list", {}];
-  if (group === "attention") return ["attention.list", {}];
+  if (group === "attention") {
+    if (!action || action === "list") return ["attention.list", {}];
+    if (action === "ack") {
+      const projectId = option(args, "--project") ?? environment.projectId;
+      const agentId = positional(args)[0];
+      required(projectId, "Project is required");
+      required(agentId, "Agent ID is required");
+      return ["attention.ack", { projectId, agentId }];
+    }
+  }
   if (group === "agent") {
     if (action === "list") return ["agent.list", {}];
     if (action === "send") {

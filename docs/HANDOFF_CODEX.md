@@ -184,6 +184,7 @@ The CLI command surface is:
 zli status
 zli agents
 zli attention
+zli attention ack <agent-id> --project <project-path>
 zli agent spawn --project <project-path> --provider <provider> --task <task> [--name <name>]
 zli agent send <agent-id> <message>
 zli agent read <agent-id>

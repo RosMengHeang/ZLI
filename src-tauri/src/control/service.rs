@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use uuid::Uuid;
 
 pub struct RuntimeControlHandler {
     pty: PtyManager,
@@ -105,6 +106,19 @@ impl ControlHandler for RuntimeControlHandler {
                         })
                         .collect(),
                 ))
+            }
+            ControlMethod::AttentionAck => {
+                let project_id = request
+                    .params
+                    .get("projectId")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .map(str::to_owned)
+                    .or_else(|| (identity.project_id != "*").then(|| identity.project_id.clone()))
+                    .ok_or_else(|| invalid_params("attention.ack projectId"))?;
+                let agent_id = param(&request.params, "agentId")?;
+                publish_runtime_attention_ack(self.sink.as_ref(), identity, &project_id, agent_id)?;
+                Ok(json!({ "projectId": project_id, "agentId": agent_id, "acknowledged": true }))
             }
             ControlMethod::AgentSpawn => {
                 let mut spawn: SpawnAgentRequest = serde_json::from_value(request.params.clone())
@@ -265,12 +279,36 @@ impl ControlHandler for RuntimeControlHandler {
                 }
                 serde_json::to_value(result).map_err(serialization_error)
             }
-            _ => Err(ControlError::new(
+            ControlMethod::WorkspaceOpen => Err(ControlError::new(
                 ControlErrorCode::MethodNotImplemented,
-                "Control method is not implemented yet",
+                "Workspace opening is reserved for a future control API version",
             )),
         }
     }
+}
+
+pub(super) fn publish_runtime_attention_ack(
+    sink: &dyn EventSink,
+    identity: &CallerIdentity,
+    project_id: &str,
+    agent_id: &str,
+) -> Result<(), ControlError> {
+    if identity.project_id != "*" && identity.project_id != project_id {
+        return Err(ControlError::new(
+            ControlErrorCode::CapabilityDenied,
+            "Caller cannot acknowledge another project's attention",
+        ));
+    }
+    let mut event = super::AgentEventEnvelope::new(
+        Uuid::new_v4().to_string(),
+        project_id.to_owned(),
+        Some(agent_id.to_owned()),
+        super::AgentEventKind::AttentionAck,
+        super::AgentEventPayload::Empty,
+    );
+    event.source = super::AgentEventSource::Api;
+    sink.emit_control(event);
+    Ok(())
 }
 
 fn decode_browser_command(
