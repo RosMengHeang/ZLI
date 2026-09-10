@@ -1,4 +1,5 @@
 pub mod attention;
+pub mod browser;
 mod events;
 mod persistence;
 pub(crate) mod prompt_detector;
