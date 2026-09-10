@@ -17,6 +17,7 @@ import {
 } from "../lib/browser/browserBridge";
 import { useBrowserStore } from "../stores/browserStore";
 import { BrowserPermissionDialog } from "./BrowserPermissionDialog";
+import { BrowserAutomationStatus } from "./BrowserAutomationStatus";
 import { nextBrowserRequest, normalizeBrowserInput, pushBrowserHistory } from "../lib/browserNavigation";
 import {
   nativeBrowserBounds,
@@ -433,6 +434,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
         >
           <IconShield />
         </Button></TooltipTrigger><TooltipContent>Agent browser access</TooltipContent></Tooltip>
+        <BrowserAutomationStatus />
       </div>
 
       <div className="browser-viewport-shell min-h-0 flex-1 bg-ink">

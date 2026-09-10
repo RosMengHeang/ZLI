@@ -121,11 +121,16 @@ impl TauriBrowserExecutor {
             "({ width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight) })",
             timeout,
         )?;
-        let width = dimensions.get("width").and_then(Value::as_u64).unwrap_or(1) as u32;
+        let width = dimensions
+            .get("width")
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .unwrap_or(1);
         let height = dimensions
             .get("height")
             .and_then(Value::as_u64)
-            .unwrap_or(1) as u32;
+            .and_then(|value| u32::try_from(value).ok())
+            .unwrap_or(1);
         let webview = self.webview(label)?;
         let (sender, receiver) = mpsc::sync_channel(1);
         webview
@@ -322,7 +327,7 @@ impl BrowserExecutor for TauriBrowserExecutor {
 }
 
 fn instrumentation_script() -> &'static str {
-    "if (!window.__zliBrowser) { window.__zliBrowser = { console: [], errors: [] }; for (const level of ['debug','info','warn','error']) { const original = console[level].bind(console); console[level] = (...args) => { try { window.__zliBrowser.console.push({ level, message: args.map(value => typeof value === 'string' ? value : JSON.stringify(value)).join(' '), timestamp: new Date().toISOString() }); } catch (_) {} return original(...args); }; } window.addEventListener('error', event => window.__zliBrowser.errors.push({ message: String(event.message || 'Page error'), source: event.filename || undefined, line: event.lineno || undefined, column: event.colno || undefined })); window.addEventListener('unhandledrejection', event => window.__zliBrowser.errors.push({ message: String(event.reason?.message || event.reason || 'Unhandled rejection') })); }"
+    "if (!window.__zliBrowser) { window.__zliBrowser = { console: [], errors: [] }; const append = (items, item, limit) => { items.push(item); if (items.length > limit) items.splice(0, items.length - limit); }; for (const level of ['debug','info','warn','error']) { const original = console[level].bind(console); console[level] = (...args) => { try { append(window.__zliBrowser.console, { level, message: args.map(value => typeof value === 'string' ? value : JSON.stringify(value)).join(' '), timestamp: new Date().toISOString() }, 1000); } catch (_) {} return original(...args); }; } window.addEventListener('error', event => append(window.__zliBrowser.errors, { message: String(event.message || 'Page error'), source: event.filename || undefined, line: event.lineno || undefined, column: event.colno || undefined }, 400)); window.addEventListener('unhandledrejection', event => append(window.__zliBrowser.errors, { message: String(event.reason?.message || event.reason || 'Unhandled rejection') }, 400)); }"
 }
 
 fn wait_expression(condition: &BrowserWaitCondition) -> Result<String, ControlError> {

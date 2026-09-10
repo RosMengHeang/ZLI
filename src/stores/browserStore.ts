@@ -12,6 +12,7 @@ import {
   revokeBrowserCapability,
 } from "../lib/browser/browserBridge.ts";
 import type { BrowserCapability, BrowserSurfaceRecord } from "../lib/browser/browserProtocol.ts";
+import type { AgentEventEnvelope, AgentEventPayload } from "../lib/agentEvents.ts";
 
 const STORAGE_KEY = "taxzy:browser-permissions";
 
@@ -38,11 +39,13 @@ interface BrowserState {
   permissionOpen: boolean;
   pendingCapability: BrowserCapability | null;
   error: string | null;
+  automation: { phase: "running" | "completed" | "failed"; operation: string } | null;
   setSurface: (surface: BrowserSurfaceRecord | null) => void;
   setPermissionOpen: (open: boolean) => void;
   savedCapabilities: (projectId: string, profileId: string) => BrowserCapability[];
   restoreProfile: (projectId: string, profileId: string, capabilities: BrowserCapability[]) => void;
   setCapability: (capability: BrowserCapability, granted: boolean) => Promise<void>;
+  applyEvent: (event: AgentEventEnvelope) => void;
 }
 
 export const useBrowserStore = create<BrowserState>((set, get) => ({
@@ -51,6 +54,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
   permissionOpen: false,
   pendingCapability: null,
   error: null,
+  automation: null,
   setSurface: (surface) => set({ surface, error: null }),
   setPermissionOpen: (permissionOpen) => set({ permissionOpen }),
   savedCapabilities: (projectId, profileId) => capabilitiesFor(get().registry, projectId, profileId),
@@ -81,6 +85,20 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
         pendingCapability: null,
         error: error instanceof Error ? error.message : String(error),
       });
+    }
+  },
+  applyEvent: (event) => {
+    if (event.source !== "browser") return;
+    const surface = get().surface;
+    if (!surface || event.projectId !== surface.projectId) return;
+    const payload = event.payload as AgentEventPayload;
+    const operation = payload.type === "text" ? payload.text : "browser";
+    if (event.kind === "browser_command_started") {
+      set({ automation: { phase: "running", operation } });
+    } else if (event.kind === "browser_command_completed") {
+      set({ automation: { phase: "completed", operation } });
+    } else if (event.kind === "browser_command_failed") {
+      set({ automation: { phase: "failed", operation } });
     }
   },
 }));

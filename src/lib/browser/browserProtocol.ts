@@ -318,6 +318,9 @@ export function decodeBrowserResult(value: unknown): BrowserResult {
       return { kind: "pageErrors", surfaceId: id, errors: result.errors.map(pageError), truncated: boolean(result.truncated, "truncated") };
     }
     case "screenshot":
+      if (typeof result.dataUrl !== "string" || !result.dataUrl.startsWith("data:image/png;base64,")) {
+        invalid("dataUrl must contain a PNG screenshot");
+      }
       return {
         kind: "screenshot",
         surfaceId: id,

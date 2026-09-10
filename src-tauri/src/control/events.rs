@@ -59,6 +59,8 @@ pub enum AgentEventKind {
     BrowserSurfaceCreated,
     BrowserNavigationChanged,
     BrowserConsoleError,
+    BrowserCommandStarted,
+    BrowserCommandCompleted,
     BrowserCommandFailed,
     TaxchatRoomStarted,
     TaxchatMessageSent,

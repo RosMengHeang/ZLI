@@ -933,6 +933,14 @@ fn contract_enums_serialize_with_snake_case_wire_values() {
         ),
         (AgentEventKind::BrowserConsoleError, "browser_console_error"),
         (
+            AgentEventKind::BrowserCommandStarted,
+            "browser_command_started",
+        ),
+        (
+            AgentEventKind::BrowserCommandCompleted,
+            "browser_command_completed",
+        ),
+        (
             AgentEventKind::BrowserCommandFailed,
             "browser_command_failed",
         ),

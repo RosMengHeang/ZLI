@@ -48,6 +48,8 @@ const AGENT_EVENT_KINDS = [
   "browser_surface_created",
   "browser_navigation_changed",
   "browser_console_error",
+  "browser_command_started",
+  "browser_command_completed",
   "browser_command_failed",
   "taxchat_room_started",
   "taxchat_message_sent",

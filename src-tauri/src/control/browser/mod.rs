@@ -247,11 +247,30 @@ impl BrowserManager {
             )
         })?;
         let started = Instant::now();
-        let record = self.authorize(identity, surface_id, &command)?;
+        let record = match self.authorize(identity, surface_id, &command) {
+            Ok(record) => record,
+            Err(error) => {
+                if let Some(record) = self
+                    .state()
+                    .surfaces
+                    .get(surface_id)
+                    .map(|surface| surface.record.clone())
+                {
+                    self.emit(
+                        &record,
+                        AgentEventKind::BrowserCommandFailed,
+                        "Browser command denied",
+                    );
+                }
+                return Err(error);
+            }
+        };
         let budget = Duration::from_millis(command_timeout(&command, timeout_ms));
         if started.elapsed() >= budget {
             return Err(timeout());
         }
+        let operation = format!("{:?}", command.kind()).to_ascii_lowercase();
+        self.emit(&record, AgentEventKind::BrowserCommandStarted, &operation);
         let result = execute(&record, &command).inspect_err(|_| {
             self.emit(
                 &record,
@@ -267,7 +286,15 @@ impl BrowserManager {
             );
             return Err(timeout());
         }
-        bound_result(result)
+        let result = bound_result(result).inspect_err(|_| {
+            self.emit(
+                &record,
+                AgentEventKind::BrowserCommandFailed,
+                "Browser result exceeded its safety limit",
+            );
+        })?;
+        self.emit(&record, AgentEventKind::BrowserCommandCompleted, &operation);
+        Ok(result)
     }
 
     pub fn close(&self, surface_id: &str) -> Result<BrowserSurfaceRecord, ControlError> {

@@ -39,3 +39,45 @@ test("browser permission persistence drops unsupported capabilities and secret f
   assert.equal(encoded.includes("secret"), false);
   assert.equal(encoded.includes("cookie"), false);
 });
+
+test("browser automation status follows only the active project", async () => {
+  const { useBrowserStore } = await import("../src/stores/browserStore.ts");
+  useBrowserStore.setState({
+    surface: {
+      surfaceId: "surface-1",
+      projectId: "project-1",
+      agentId: null,
+      url: "about:blank",
+      profileId: "default",
+      capabilities: [],
+      createdAt: "2026-01-01T00:00:00Z",
+    },
+    automation: null,
+  });
+  useBrowserStore.getState().applyEvent({
+    schemaVersion: 1,
+    sequence: 1,
+    eventId: "event-1",
+    projectId: "project-2",
+    agentId: null,
+    parentAgentId: null,
+    timestamp: "2026-01-01T00:00:00Z",
+    source: "browser",
+    kind: "browser_command_started",
+    payload: { type: "text", text: "snapshot" },
+  });
+  assert.equal(useBrowserStore.getState().automation, null);
+  useBrowserStore.getState().applyEvent({
+    schemaVersion: 1,
+    sequence: 2,
+    eventId: "event-2",
+    projectId: "project-1",
+    agentId: null,
+    parentAgentId: null,
+    timestamp: "2026-01-01T00:00:01Z",
+    source: "browser",
+    kind: "browser_command_started",
+    payload: { type: "text", text: "snapshot" },
+  });
+  assert.deepEqual(useBrowserStore.getState().automation, { phase: "running", operation: "snapshot" });
+});

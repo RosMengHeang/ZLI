@@ -46,7 +46,7 @@ test("browser protocol accepts only safe first-release URLs", async () => {
 });
 
 test("browser protocol validates selectors, keys, scripts, snapshot depth, and wait timeout", async () => {
-  const { BROWSER_LIMITS, decodeBrowserCommand } = await import("../src/lib/browser/browserProtocol.ts");
+  const { BROWSER_LIMITS, decodeBrowserCommand, decodeBrowserResult } = await import("../src/lib/browser/browserProtocol.ts");
   const invalid = [
     { kind: "click", surfaceId: "surface-1", selector: "  " },
     { kind: "press", surfaceId: "surface-1", key: "LaunchCalculator" },
@@ -70,6 +70,10 @@ test("browser protocol validates selectors, keys, scripts, snapshot depth, and w
   assert.deepEqual(
     decodeBrowserCommand({ kind: "press", surfaceId: "surface-1", key: "Enter" }),
     { kind: "press", surfaceId: "surface-1", key: "Enter" },
+  );
+  assert.throws(
+    () => decodeBrowserResult({ kind: "screenshot", surfaceId: "surface-1", dataUrl: "https://example.com/a.png", width: 1, height: 1 }),
+    (error) => error.code === "BROWSER_INVALID_COMMAND",
   );
 });
 

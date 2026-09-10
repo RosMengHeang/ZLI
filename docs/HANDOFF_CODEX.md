@@ -191,12 +191,21 @@ zli agent stop <agent-id>
 zli session list
 zli session resume <session-id>
 zli browser list
-zli browser open <url>
-zli browser navigate <url>
+zli browser open <url> --project <project-path>
+zli browser navigate <surface-id> <url>
+zli browser snapshot <surface-id> [--selector <css>] [--depth <1-32>]
+zli browser click <surface-id> <css-selector>
+zli browser fill <surface-id> <css-selector> <text>
+zli browser press <surface-id> <key>
+zli browser wait <surface-id> --selector <css> [--state visible|hidden|attached|detached] [--timeout <ms>]
+zli browser console <surface-id>
+zli browser errors <surface-id>
+zli browser screenshot <surface-id>
+zli browser eval <surface-id> <script>
 zli taxchat send <message>
 ```
 
-Agent, status, attention, and session list/resume routes are active in Wave 3. Browser and TaxChat verbs are reserved by the same versioned parser but return `METHOD_NOT_IMPLEMENTED` until their control handlers land in the following waves.
+Agent, status, attention, session, and browser routes are active. TaxChat remains parser-reserved until its public control handler lands.
 
 Pass `--json` before or after a command for the strict response envelope. Managed child agents can omit `--project`; their injected `ZLI_PROJECT_ID` supplies it. The older positional spawn form remains accepted for compatibility.
 
@@ -210,11 +219,21 @@ ZLI_CONTROL_ENDPOINT
 ZLI_CONTROL_TOKEN
 ```
 
-The token is random, stored hashed in memory, expires after 12 hours, and is revoked when the child is stopped. Router authorization checks both the method capability and any explicit `projectId`. Child tokens can list, spawn, send, read attention/session state and use ordinary browser controls, but cannot discard worktrees, execute arbitrary commands, access browser storage, or evaluate JavaScript. `browser.eval` has a separate capability.
+The token is random, stored hashed in memory, expires after 12 hours, and is revoked when the child is stopped. Router authorization checks both the method capability and any explicit `projectId`. Child tokens can list, spawn, send, and read attention/session state. Browser commands additionally require an explicit grant on the current project profile; possessing a token alone is not enough. Children cannot discard worktrees, execute arbitrary commands, access browser storage, download files, or evaluate JavaScript. `browser.eval` has a separate capability and a separate user grant.
 
 `agent.spawn` validates the parent relationship, provider installation, task size and the project-wide limit of 12 active agents. Every child gets an isolated worktree and terminal pane. Parent IDs are persisted in session descriptors, so sidebar nesting survives a restart. `agent.send` performs one PTY write and never retries after failure. Pause blocks automated messages without stopping the process; stop terminates the process but retains the worktree for review. Failed cleanup is intentionally retained for **Manage worktrees** instead of deleting potentially useful files.
 
 To add a command, add one `ControlMethod`, map it to a dedicated `Capability`, implement it behind `ControlHandler`, add both Rust and TypeScript wire tests, and expose it in the CLI parser. Do not bypass the router from a new UI surface.
+
+## Agent-controlled browser
+
+The browser pane is the real Tauri WebView2 surface shown beside the terminals. Open a page normally, select the shield in its toolbar, and grant only what the agent needs. `Read pages` permits DOM snapshots, console messages, page errors, and waits. `Control pages` permits navigation, click, fill, key presses, and native PNG screenshots. `Run JavaScript` is separate because it can read or modify anything the loaded page exposes. All grants default to off and are scoped to the current project and browser profile; they can be revoked from the same dialog.
+
+The backend owns authorization, surface identity, project/agent isolation, deadlines, and result limits. The UI only registers the visible WebView2 label and displays grants/status. Selectors, text, and scripts are serialized before entering fixed browser expressions. Snapshots are limited to 100,000 characters, scripts to 20,000 characters, selectors to 4,096 characters, console output to 500 entries, page errors to 200 entries, screenshots to 10,000,000 encoded characters, and command deadlines to 120 seconds. Arbitrary JavaScript, storage access, and downloads are never implied by read/control permission.
+
+Safe browser checkpoint fields are URL, open state, profile ID, and granted capability names. Cookies, local/session storage, authorization values, download data, and WebView2 profile contents are not written into ZLI project snapshots. Surface IDs are runtime-only and change when a pane is recreated.
+
+For a local test page, start its development server, open it in the ZLI browser, grant `Read pages`, then run `zli browser list --json` to obtain the surface ID. `zli browser snapshot <surface-id> --selector main` inspects it, while `zli browser errors <surface-id>` and `zli browser console <surface-id>` expose bounded diagnostics. A managed child can omit `--project` from `browser open`; external shells must supply it.
 
 ## Durable session startup and recovery
 

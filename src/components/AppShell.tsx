@@ -46,6 +46,7 @@ import { CommandPalette } from "./CommandPalette";
 import { useAttentionStore } from "../stores/attentionStore";
 import { useSessionStore } from "../stores/sessionStore";
 import { useTeamStore } from "../stores/teamStore";
+import { useBrowserStore } from "../stores/browserStore";
 import { controlEventsAfter, subscribeControlEvents } from "../tauri/control";
 import { isAgentEventEnvelope, type AgentEventPayload } from "../lib/agentEvents";
 import type { Agent } from "../types";
@@ -154,6 +155,7 @@ export function AppShell() {
     const applyTeamEvent = (candidate: unknown) => {
       if (!isAgentEventEnvelope(candidate)) return;
       useTeamStore.getState().apply(candidate);
+      useBrowserStore.getState().applyEvent(candidate);
       const payload = candidate.payload as AgentEventPayload;
       if (candidate.kind === "agent_started" && candidate.agentId && payload.type === "agent") {
         const agent: Agent = {
