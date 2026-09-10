@@ -1,20 +1,24 @@
 use super::attention::{AttentionReducer, AttentionState};
+use super::browser::commands::{BrowserCommand, BrowserResult};
 use super::{
-    CallerIdentity, Capability, CommandRouter, ControlError, ControlErrorCode, ControlHandler,
-    ControlMethod, ControlRequest, ControlResponse, SpawnAgentRequest, Supervisor, TeamCoordinator,
-    SUPERVISOR_PROTOCOL_VERSION,
+    BrowserExecutor, BrowserManager, CallerIdentity, Capability, CommandRouter, ControlError,
+    ControlErrorCode, ControlHandler, ControlMethod, ControlRequest, ControlResponse,
+    SpawnAgentRequest, Supervisor, TeamCoordinator, SUPERVISOR_PROTOCOL_VERSION,
 };
 use crate::agents::AgentManager;
 use crate::pty::{EventSink, PtyManager};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 pub struct RuntimeControlHandler {
     pty: PtyManager,
     agents: AgentManager,
     supervisor: Arc<Supervisor>,
     team: Arc<TeamCoordinator>,
+    browser: Arc<BrowserManager>,
+    browser_executor: Arc<dyn BrowserExecutor>,
     sink: Arc<dyn EventSink>,
 }
 
@@ -24,6 +28,8 @@ impl RuntimeControlHandler {
         agents: AgentManager,
         supervisor: Arc<Supervisor>,
         team: Arc<TeamCoordinator>,
+        browser: Arc<BrowserManager>,
+        browser_executor: Arc<dyn BrowserExecutor>,
         sink: Arc<dyn EventSink>,
     ) -> Self {
         Self {
@@ -31,6 +37,8 @@ impl RuntimeControlHandler {
             agents,
             supervisor,
             team,
+            browser,
+            browser_executor,
             sink,
         }
     }
@@ -141,12 +149,81 @@ impl ControlHandler for RuntimeControlHandler {
                     .map_err(session_runtime)?;
                 serde_json::to_value(descriptor).map_err(serialization_error)
             }
+            ControlMethod::BrowserList => {
+                serde_json::to_value(self.browser.list(identity)).map_err(serialization_error)
+            }
+            ControlMethod::BrowserNavigate
+            | ControlMethod::BrowserWait
+            | ControlMethod::BrowserSnapshot
+            | ControlMethod::BrowserClick
+            | ControlMethod::BrowserFill
+            | ControlMethod::BrowserPress
+            | ControlMethod::BrowserEval
+            | ControlMethod::BrowserConsole
+            | ControlMethod::BrowserErrors
+            | ControlMethod::BrowserScreenshot => {
+                let command = decode_browser_command(request.method, request.params.clone())?;
+                let surface_id = command.surface_id().ok_or_else(|| {
+                    ControlError::new(
+                        ControlErrorCode::BrowserInvalidCommand,
+                        "Browser surface is required",
+                    )
+                })?;
+                let label = self.browser.webview_label(surface_id)?;
+                let executor = self.browser_executor.clone();
+                let timeout = Duration::from_millis(request.timeout_ms);
+                let result = self.browser.dispatch(
+                    identity,
+                    command,
+                    request.timeout_ms,
+                    move |_, command| executor.execute(&label, command, timeout),
+                )?;
+                if let BrowserResult::Navigation {
+                    surface_id, url, ..
+                } = &result
+                {
+                    self.browser.update_navigation(surface_id, url.clone())?;
+                }
+                serde_json::to_value(result).map_err(serialization_error)
+            }
             _ => Err(ControlError::new(
                 ControlErrorCode::MethodNotImplemented,
                 "Control method is not implemented yet",
             )),
         }
     }
+}
+
+fn decode_browser_command(
+    method: ControlMethod,
+    params: Value,
+) -> Result<BrowserCommand, ControlError> {
+    let kind = match method {
+        ControlMethod::BrowserNavigate => "navigate",
+        ControlMethod::BrowserWait => "wait",
+        ControlMethod::BrowserSnapshot => "snapshot",
+        ControlMethod::BrowserClick => "click",
+        ControlMethod::BrowserFill => "fill",
+        ControlMethod::BrowserPress => "press",
+        ControlMethod::BrowserEval => "eval",
+        ControlMethod::BrowserConsole => "console",
+        ControlMethod::BrowserErrors => "errors",
+        ControlMethod::BrowserScreenshot => "screenshot",
+        _ => {
+            return Err(ControlError::new(
+                ControlErrorCode::BrowserInvalidCommand,
+                "Control method is not a surface browser command",
+            ))
+        }
+    };
+    let mut object = params.as_object().cloned().ok_or_else(|| {
+        ControlError::new(
+            ControlErrorCode::BrowserInvalidCommand,
+            "Browser command parameters must be an object",
+        )
+    })?;
+    object.insert("kind".into(), Value::String(kind.into()));
+    BrowserCommand::decode(Value::Object(object))
 }
 
 pub struct ControlService {

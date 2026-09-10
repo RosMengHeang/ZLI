@@ -1,5 +1,8 @@
 pub mod commands;
+mod executor;
 mod security;
+
+pub use executor::{BrowserExecutor, TauriBrowserExecutor};
 
 use self::commands::{
     BrowserCapability, BrowserCommand, BrowserConsoleEntry, BrowserPageError, BrowserResult,
@@ -308,6 +311,16 @@ fn bound_result(result: BrowserResult) -> Result<BrowserResult, ControlError> {
             return Err(ControlError::new(
                 ControlErrorCode::BrowserResultTooLarge,
                 "Browser screenshot exceeds the result limit",
+            ));
+        }
+        BrowserResult::Evaluation { ref value, .. }
+            if serde_json::to_string(value)
+                .map(|encoded| encoded.chars().count() > BROWSER_LIMITS.max_snapshot_characters)
+                .unwrap_or(true) =>
+        {
+            return Err(ControlError::new(
+                ControlErrorCode::BrowserResultTooLarge,
+                "Browser evaluation exceeds the result limit",
             ));
         }
         other => other,

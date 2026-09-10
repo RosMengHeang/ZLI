@@ -78,6 +78,8 @@ test("browser protocol decodes every bounded result variant", async () => {
   const results = [
     { kind: "surface", surfaceId: "surface-1", projectId: "project-1", agentId: null, url: "about:blank", profileId: "profile-1" },
     { kind: "navigation", surfaceId: "surface-1", url: "https://example.com/", phase: "finished" },
+    { kind: "action", surfaceId: "surface-1", action: "click" },
+    { kind: "evaluation", surfaceId: "surface-1", value: { ready: true }, truncated: false },
     { kind: "snapshot", surfaceId: "surface-1", content: "<main />", truncated: false },
     { kind: "consoleEntries", surfaceId: "surface-1", entries: [], truncated: false },
     { kind: "pageErrors", surfaceId: "surface-1", errors: [], truncated: false },

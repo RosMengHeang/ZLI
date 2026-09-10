@@ -121,6 +121,21 @@ fn browser_protocol_uses_control_wire_names() {
             "navigation",
         ),
         (
+            BrowserResult::Action {
+                surface_id: "surface-1".into(),
+                action: super::commands::BrowserAction::Click,
+            },
+            "action",
+        ),
+        (
+            BrowserResult::Evaluation {
+                surface_id: "surface-1".into(),
+                value: json!({ "ready": true }),
+                truncated: false,
+            },
+            "evaluation",
+        ),
+        (
             BrowserResult::Snapshot {
                 surface_id: "surface-1".into(),
                 content: "<main />".into(),

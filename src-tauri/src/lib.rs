@@ -12,11 +12,12 @@ mod event_hub;
 mod git;
 
 use commands::{
-    attention_ack, attention_mark_all_read, control_events_after, control_request,
-    control_session_reconnect, control_session_restore, control_session_resume,
-    control_session_snapshot, create_terminal, detect_agent_providers, detect_providers,
-    kill_terminal, launch_agent, list_agent_providers, list_agents, pty_close, pty_create,
-    pty_resize, pty_write, resize_terminal, stop_agent, write_terminal,
+    attention_ack, attention_mark_all_read, browser_close_surface, browser_grant_capability,
+    browser_register_surface, browser_revoke_capability, browser_update_navigation,
+    control_events_after, control_request, control_session_reconnect, control_session_restore,
+    control_session_resume, control_session_snapshot, create_terminal, detect_agent_providers,
+    detect_providers, kill_terminal, launch_agent, list_agent_providers, list_agents, pty_close,
+    pty_create, pty_resize, pty_write, resize_terminal, stop_agent, write_terminal,
 };
 use git::commands::{
     git_abort_merge, git_commit, git_create_worktree, git_delete_branch, git_diff,
@@ -88,6 +89,14 @@ pub fn run() {
             #[cfg(not(windows))]
             let endpoint = String::new();
             let sink = commands::app_event_sink(app.handle().clone(), events);
+            let browser_sink = sink.clone();
+            let browser = Arc::new(control::BrowserManager::new(Arc::new(move |event| {
+                browser_sink.emit_control(event);
+            })));
+            let browser_executor =
+                Arc::new(control::TauriBrowserExecutor::new(app.handle().clone()));
+            app.manage(browser.clone());
+            app.manage(browser_executor.clone());
             let team_backend = Arc::new(control::RuntimeTeamBackend::new(
                 pty.clone(),
                 agents.clone(),
@@ -100,7 +109,13 @@ pub fn run() {
                 endpoint.clone(),
             ));
             let handler = Arc::new(control::RuntimeControlHandler::new(
-                pty, agents, supervisor, team, sink,
+                pty,
+                agents,
+                supervisor,
+                team,
+                browser,
+                browser_executor,
+                sink,
             ));
             let router = Arc::new(control::CommandRouter::new(handler));
             app.manage(Arc::new(control::ControlService::new(router.clone())));
@@ -155,6 +170,11 @@ pub fn run() {
             control_session_restore,
             control_session_resume,
             control_request,
+            browser_register_surface,
+            browser_update_navigation,
+            browser_grant_capability,
+            browser_revoke_capability,
+            browser_close_surface,
             git_validate_repository,
             git_create_worktree,
             git_list_worktrees,

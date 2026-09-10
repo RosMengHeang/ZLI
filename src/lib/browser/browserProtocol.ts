@@ -76,6 +76,8 @@ export interface BrowserPageError {
 export type BrowserResult =
   | { kind: "surface"; surfaceId: string; projectId: string; agentId: string | null; url: string; profileId: string }
   | { kind: "navigation"; surfaceId: string; url: string; phase: "started" | "finished" }
+  | { kind: "action"; surfaceId: string; action: "wait" | "click" | "fill" | "press" }
+  | { kind: "evaluation"; surfaceId: string; value: unknown; truncated: boolean }
   | { kind: "snapshot"; surfaceId: string; content: string; truncated: boolean }
   | { kind: "consoleEntries"; surfaceId: string; entries: BrowserConsoleEntry[]; truncated: boolean }
   | { kind: "pageErrors"; surfaceId: string; errors: BrowserPageError[]; truncated: boolean }
@@ -290,6 +292,16 @@ export function decodeBrowserResult(value: unknown): BrowserResult {
     case "navigation":
       if (result.phase !== "started" && result.phase !== "finished") invalid("phase is invalid");
       return { kind: "navigation", surfaceId: id, url: safeUrl(result.url), phase: result.phase };
+    case "action":
+      if (!["wait", "click", "fill", "press"].includes(String(result.action))) invalid("action is invalid");
+      return { kind: "action", surfaceId: id, action: result.action as "wait" | "click" | "fill" | "press" };
+    case "evaluation":
+      return {
+        kind: "evaluation",
+        surfaceId: id,
+        value: result.value,
+        truncated: boolean(result.truncated, "truncated"),
+      };
     case "snapshot":
       return {
         kind: "snapshot",

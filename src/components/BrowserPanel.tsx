@@ -8,6 +8,12 @@ import { IconBack, IconExternal, IconForward, IconGlobe, IconReload } from "./Ap
 import { rafThrottle } from "../lib/schedule";
 import { isTauriRuntime } from "../tauri/invoke";
 import { useUiStore } from "../stores/uiStore";
+import { useWorkspaceStore } from "../stores/workspaceStore";
+import {
+  closeBrowserSurface,
+  registerBrowserSurface,
+  updateBrowserNavigation,
+} from "../lib/browser/browserBridge";
 import { nextBrowserRequest, normalizeBrowserInput, pushBrowserHistory } from "../lib/browserNavigation";
 import {
   nativeBrowserBounds,
@@ -46,6 +52,7 @@ async function collapseNativeWebview(webview: Webview, isCancelled?: () => boole
 }
 
 export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
+  const activeProjectRoot = useWorkspaceStore((state) => state.activeProjectRoot);
   const savedUrl = useUiStore((state) => state.browserUrl);
   const [history, setHistory] = useState<string[]>(() => savedUrl ? [savedUrl] : []);
   const [historyIndex, setHistoryIndex] = useState(savedUrl ? 0 : -1);
@@ -55,6 +62,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const nativeWebviewRef = useRef<Webview | null>(null);
   const nativeLabelRef = useRef<string | null>(null);
+  const browserSurfaceIdRef = useRef<string | null>(null);
   const expectedNavigationRef = useRef<string | null>(savedUrl || null);
   const historyRef = useRef(history);
   const historyIndexRef = useRef(historyIndex);
@@ -103,6 +111,8 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
         setHistoryIndex(nextIndex);
       }
       setDraft(observed);
+      const surfaceId = browserSurfaceIdRef.current;
+      if (surfaceId) void updateBrowserNavigation(surfaceId, observed).catch(() => undefined);
       if (payload.phase === "finished") expectedNavigationRef.current = null;
     }).then((cleanup) => {
       if (disposed) cleanup();
@@ -115,7 +125,8 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
   }, [nativeBrowser]);
 
   useEffect(() => {
-    if (!nativeBrowser || !request.url) return;
+    if (!nativeBrowser || !request.url || !activeProjectRoot) return;
+    const projectRoot = activeProjectRoot;
     let cancelled = false;
     let observer: ResizeObserver | null = null;
     let removeWindowResizeListener: (() => void) | null = null;
@@ -177,6 +188,19 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       }
 
       nativeWebviewRef.current = webview;
+      const surface = await registerBrowserSurface({
+        projectId: projectRoot,
+        agentId: null,
+        webviewLabel: label,
+        url: request.url,
+        profileId: "default",
+      });
+      if (cancelled) {
+        await closeBrowserSurface(surface.surfaceId).catch(() => undefined);
+        await webview.close().catch(() => undefined);
+        return;
+      }
+      browserSurfaceIdRef.current = surface.surfaceId;
       const handleWindowResize = () => throttledBounds();
       await webview.setAutoResize(false);
       // A newly-created native child can briefly cover the entire Tauri view.
@@ -213,6 +237,8 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       removeWindowResizeListener?.();
       removeWindowResizeListener = null;
       const webview = nativeWebviewRef.current;
+      const surfaceId = browserSurfaceIdRef.current;
+      browserSurfaceIdRef.current = null;
       nativeWebviewRef.current = null;
       if (nativeLabelRef.current === webview?.label) nativeLabelRef.current = null;
       if (webview) {
@@ -221,8 +247,9 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
           .then(() => webviewToClose.close())
           .catch(() => undefined);
       }
+      if (surfaceId) void closeBrowserSurface(surfaceId).catch(() => undefined);
     };
-  }, [request, nativeBrowser]);
+  }, [request, nativeBrowser, activeProjectRoot]);
 
   useEffect(() => {
     const webview = nativeWebviewRef.current;

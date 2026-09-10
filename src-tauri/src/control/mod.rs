@@ -14,6 +14,7 @@ mod supervisor;
 mod team;
 mod transport;
 
+pub use browser::{BrowserExecutor, BrowserManager, BrowserSurfaceRecord, TauriBrowserExecutor};
 pub use events::{
     AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, AttentionStatus,
     ExecutionStatus,

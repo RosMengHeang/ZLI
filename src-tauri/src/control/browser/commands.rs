@@ -323,6 +323,15 @@ pub enum NavigationPhase {
     Finished,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserAction {
+    Wait,
+    Click,
+    Fill,
+    Press,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(
     tag = "kind",
@@ -341,6 +350,15 @@ pub enum BrowserResult {
         surface_id: String,
         url: String,
         phase: NavigationPhase,
+    },
+    Action {
+        surface_id: String,
+        action: BrowserAction,
+    },
+    Evaluation {
+        surface_id: String,
+        value: Value,
+        truncated: bool,
     },
     Snapshot {
         surface_id: String,

@@ -1,7 +1,9 @@
 use crate::agents::{self, Agent, AgentManager, AgentProvider, LaunchAgentRequest};
+use crate::control::browser::commands::BrowserCapability;
 use crate::control::{
-    AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, ProjectSnapshot,
-    ReconnectResult, RestoreResult, SessionCommandError, SessionDescriptor, Supervisor,
+    AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, BrowserManager,
+    BrowserSurfaceRecord, ProjectSnapshot, ReconnectResult, RestoreResult, SessionCommandError,
+    SessionDescriptor, Supervisor, TauriBrowserExecutor,
 };
 use crate::error::BackendError;
 use crate::event_hub::EventHub;
@@ -39,6 +41,17 @@ pub struct SessionSnapshotRequest {
     #[serde(default)]
     pub tax_chat_room: Option<serde_json::Value>,
     pub last_event_sequence: u64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisterBrowserSurfaceRequest {
+    pub project_id: String,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    pub webview_label: String,
+    pub url: String,
+    pub profile_id: String,
 }
 
 #[derive(Clone)]
@@ -402,6 +415,57 @@ pub fn control_request(
     request: crate::control::ControlRequest,
 ) -> crate::control::ControlResponse {
     service.dispatch(request)
+}
+
+#[tauri::command]
+pub fn browser_register_surface(
+    browser: State<'_, Arc<BrowserManager>>,
+    executor: State<'_, Arc<TauriBrowserExecutor>>,
+    request: RegisterBrowserSurfaceRequest,
+) -> Result<BrowserSurfaceRecord, crate::control::ControlError> {
+    executor.initialize(&request.webview_label)?;
+    browser.register(
+        request.project_id,
+        request.agent_id,
+        request.webview_label,
+        request.url,
+        request.profile_id,
+    )
+}
+
+#[tauri::command]
+pub fn browser_update_navigation(
+    browser: State<'_, Arc<BrowserManager>>,
+    surface_id: String,
+    url: String,
+) -> Result<BrowserSurfaceRecord, crate::control::ControlError> {
+    browser.update_navigation(&surface_id, url)
+}
+
+#[tauri::command]
+pub fn browser_grant_capability(
+    browser: State<'_, Arc<BrowserManager>>,
+    surface_id: String,
+    capability: BrowserCapability,
+) -> Result<BrowserSurfaceRecord, crate::control::ControlError> {
+    browser.grant(&surface_id, capability)
+}
+
+#[tauri::command]
+pub fn browser_revoke_capability(
+    browser: State<'_, Arc<BrowserManager>>,
+    surface_id: String,
+    capability: BrowserCapability,
+) -> Result<BrowserSurfaceRecord, crate::control::ControlError> {
+    browser.revoke(&surface_id, capability)
+}
+
+#[tauri::command]
+pub fn browser_close_surface(
+    browser: State<'_, Arc<BrowserManager>>,
+    surface_id: String,
+) -> Result<BrowserSurfaceRecord, crate::control::ControlError> {
+    browser.close(&surface_id)
 }
 
 fn validate_attention_scope(project_id: &str, agent_id: Option<&str>) -> Result<(), BackendError> {
