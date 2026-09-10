@@ -4,6 +4,20 @@ use serde_json::Value;
 
 pub const BROWSER_PROTOCOL_VERSION: u16 = CONTROL_PROTOCOL_VERSION;
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash, Serialize)]
+pub enum BrowserCapability {
+    #[serde(rename = "browser.read")]
+    Read,
+    #[serde(rename = "browser.control")]
+    Control,
+    #[serde(rename = "browser.javascript")]
+    Javascript,
+    #[serde(rename = "browser.storage")]
+    Storage,
+    #[serde(rename = "browser.download")]
+    Download,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BrowserLimits {
     pub max_snapshot_characters: usize,
@@ -140,7 +154,54 @@ pub enum BrowserCommand {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrowserCommandKind {
+    Open,
+    Navigate,
+    Wait,
+    Snapshot,
+    Click,
+    Fill,
+    Press,
+    Eval,
+    Console,
+    Errors,
+    Screenshot,
+}
+
 impl BrowserCommand {
+    pub fn kind(&self) -> BrowserCommandKind {
+        match self {
+            Self::Open { .. } => BrowserCommandKind::Open,
+            Self::Navigate { .. } => BrowserCommandKind::Navigate,
+            Self::Wait { .. } => BrowserCommandKind::Wait,
+            Self::Snapshot { .. } => BrowserCommandKind::Snapshot,
+            Self::Click { .. } => BrowserCommandKind::Click,
+            Self::Fill { .. } => BrowserCommandKind::Fill,
+            Self::Press { .. } => BrowserCommandKind::Press,
+            Self::Eval { .. } => BrowserCommandKind::Eval,
+            Self::Console { .. } => BrowserCommandKind::Console,
+            Self::Errors { .. } => BrowserCommandKind::Errors,
+            Self::Screenshot { .. } => BrowserCommandKind::Screenshot,
+        }
+    }
+
+    pub fn surface_id(&self) -> Option<&str> {
+        match self {
+            Self::Open { .. } => None,
+            Self::Navigate { surface_id, .. }
+            | Self::Wait { surface_id, .. }
+            | Self::Snapshot { surface_id, .. }
+            | Self::Click { surface_id, .. }
+            | Self::Fill { surface_id, .. }
+            | Self::Press { surface_id, .. }
+            | Self::Eval { surface_id, .. }
+            | Self::Console { surface_id }
+            | Self::Errors { surface_id }
+            | Self::Screenshot { surface_id } => Some(surface_id),
+        }
+    }
+
     pub fn decode(value: Value) -> Result<Self, ControlError> {
         let command: Self = serde_json::from_value(value)
             .map_err(|error| invalid(format!("Invalid browser command: {error}")))?;

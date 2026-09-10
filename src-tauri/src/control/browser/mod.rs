@@ -1,4 +1,350 @@
 pub mod commands;
+mod security;
+
+use self::commands::{
+    BrowserCapability, BrowserCommand, BrowserConsoleEntry, BrowserPageError, BrowserResult,
+    BROWSER_LIMITS,
+};
+use crate::control::events::utc_rfc3339_now;
+use crate::control::{
+    AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, CallerIdentity,
+    ControlError, ControlErrorCode,
+};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
+use uuid::Uuid;
+
+type EventPublisher = Arc<dyn Fn(AgentEventEnvelope) + Send + Sync>;
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserSurfaceRecord {
+    pub surface_id: String,
+    pub project_id: String,
+    pub agent_id: Option<String>,
+    pub url: String,
+    pub profile_id: String,
+    pub capabilities: Vec<BrowserCapability>,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug)]
+struct BrowserSurface {
+    record: BrowserSurfaceRecord,
+    webview_label: String,
+}
+
+#[derive(Default)]
+struct BrowserState {
+    surfaces: HashMap<String, BrowserSurface>,
+}
+
+#[derive(Clone)]
+pub struct BrowserManager {
+    state: Arc<Mutex<BrowserState>>,
+    publish: EventPublisher,
+}
+
+impl BrowserManager {
+    pub fn new(publish: EventPublisher) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(BrowserState::default())),
+            publish,
+        }
+    }
+
+    pub fn register(
+        &self,
+        project_id: impl Into<String>,
+        agent_id: Option<String>,
+        webview_label: impl Into<String>,
+        url: impl Into<String>,
+        profile_id: impl Into<String>,
+    ) -> Result<BrowserSurfaceRecord, ControlError> {
+        let project_id = project_id.into();
+        let webview_label = webview_label.into();
+        let url = url.into();
+        let profile_id = profile_id.into();
+        if project_id.trim().is_empty()
+            || webview_label.trim().is_empty()
+            || profile_id.trim().is_empty()
+        {
+            return Err(ControlError::new(
+                ControlErrorCode::BrowserInvalidCommand,
+                "Project, webview label, and profile are required",
+            ));
+        }
+        BrowserCommand::Open { url: url.clone() }.validate()?;
+        let record = BrowserSurfaceRecord {
+            surface_id: Uuid::new_v4().to_string(),
+            project_id,
+            agent_id,
+            url,
+            profile_id,
+            capabilities: Vec::new(),
+            created_at: utc_rfc3339_now(),
+        };
+        self.state().surfaces.insert(
+            record.surface_id.clone(),
+            BrowserSurface {
+                record: record.clone(),
+                webview_label,
+            },
+        );
+        self.emit(&record, AgentEventKind::BrowserSurfaceCreated, &record.url);
+        Ok(record)
+    }
+
+    pub fn list(&self, identity: &CallerIdentity) -> Vec<BrowserSurfaceRecord> {
+        self.state()
+            .surfaces
+            .values()
+            .filter(|surface| {
+                identity.project_id == "*" || surface.record.project_id == identity.project_id
+            })
+            .map(|surface| surface.record.clone())
+            .collect()
+    }
+
+    pub fn grant(
+        &self,
+        surface_id: &str,
+        capability: BrowserCapability,
+    ) -> Result<BrowserSurfaceRecord, ControlError> {
+        let mut state = self.state();
+        let surface = state.surfaces.get_mut(surface_id).ok_or_else(not_found)?;
+        if !surface.record.capabilities.contains(&capability) {
+            surface.record.capabilities.push(capability);
+        }
+        Ok(surface.record.clone())
+    }
+
+    pub fn revoke(
+        &self,
+        surface_id: &str,
+        capability: BrowserCapability,
+    ) -> Result<BrowserSurfaceRecord, ControlError> {
+        let mut state = self.state();
+        let surface = state.surfaces.get_mut(surface_id).ok_or_else(not_found)?;
+        surface
+            .record
+            .capabilities
+            .retain(|value| *value != capability);
+        Ok(surface.record.clone())
+    }
+
+    pub fn update_navigation(
+        &self,
+        surface_id: &str,
+        url: impl Into<String>,
+    ) -> Result<BrowserSurfaceRecord, ControlError> {
+        let url = url.into();
+        let record = {
+            let mut state = self.state();
+            let surface = state.surfaces.get_mut(surface_id).ok_or_else(not_found)?;
+            surface.record.url.clone_from(&url);
+            surface.record.clone()
+        };
+        self.emit(&record, AgentEventKind::BrowserNavigationChanged, &url);
+        Ok(record)
+    }
+
+    pub fn webview_label(&self, surface_id: &str) -> Result<String, ControlError> {
+        self.state()
+            .surfaces
+            .get(surface_id)
+            .map(|surface| surface.webview_label.clone())
+            .ok_or_else(not_found)
+    }
+
+    pub fn authorize(
+        &self,
+        identity: &CallerIdentity,
+        surface_id: &str,
+        command: &BrowserCommand,
+    ) -> Result<BrowserSurfaceRecord, ControlError> {
+        let record = self
+            .state()
+            .surfaces
+            .get(surface_id)
+            .map(|surface| surface.record.clone())
+            .ok_or_else(not_found)?;
+        security::authorize_surface(identity, &record, command.kind())?;
+        Ok(record)
+    }
+
+    pub fn dispatch<F>(
+        &self,
+        identity: &CallerIdentity,
+        command: BrowserCommand,
+        timeout_ms: u64,
+        execute: F,
+    ) -> Result<BrowserResult, ControlError>
+    where
+        F: FnOnce(&BrowserSurfaceRecord, &BrowserCommand) -> Result<BrowserResult, ControlError>,
+    {
+        command.validate()?;
+        let surface_id = command.surface_id().ok_or_else(|| {
+            ControlError::new(
+                ControlErrorCode::BrowserInvalidCommand,
+                "Open commands require the browser surface creation flow",
+            )
+        })?;
+        let started = Instant::now();
+        let record = self.authorize(identity, surface_id, &command)?;
+        let budget = Duration::from_millis(command_timeout(&command, timeout_ms));
+        if started.elapsed() >= budget {
+            return Err(timeout());
+        }
+        let result = execute(&record, &command).inspect_err(|_| {
+            self.emit(
+                &record,
+                AgentEventKind::BrowserCommandFailed,
+                "Browser command failed",
+            );
+        })?;
+        if started.elapsed() > budget {
+            self.emit(
+                &record,
+                AgentEventKind::BrowserCommandFailed,
+                "Browser command timed out",
+            );
+            return Err(timeout());
+        }
+        bound_result(result)
+    }
+
+    pub fn close(&self, surface_id: &str) -> Result<BrowserSurfaceRecord, ControlError> {
+        self.state()
+            .surfaces
+            .remove(surface_id)
+            .map(|surface| surface.record)
+            .ok_or_else(not_found)
+    }
+
+    fn emit(&self, record: &BrowserSurfaceRecord, kind: AgentEventKind, text: &str) {
+        let mut event = AgentEventEnvelope::new(
+            Uuid::new_v4().to_string(),
+            record.project_id.clone(),
+            record.agent_id.clone(),
+            kind,
+            AgentEventPayload::Text {
+                text: text.to_owned(),
+            },
+        );
+        event.source = AgentEventSource::Browser;
+        (self.publish)(event);
+    }
+
+    fn state(&self) -> MutexGuard<'_, BrowserState> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+impl Default for BrowserManager {
+    fn default() -> Self {
+        Self::new(Arc::new(|_| {}))
+    }
+}
+
+fn command_timeout(command: &BrowserCommand, request_timeout_ms: u64) -> u64 {
+    let command_timeout = match command {
+        BrowserCommand::Wait { timeout_ms, .. } => *timeout_ms,
+        _ => BROWSER_LIMITS.max_command_timeout_ms,
+    };
+    request_timeout_ms.min(command_timeout)
+}
+
+fn bound_result(result: BrowserResult) -> Result<BrowserResult, ControlError> {
+    Ok(match result {
+        BrowserResult::Snapshot {
+            surface_id,
+            content,
+            truncated,
+        } => {
+            let (content, was_truncated) =
+                truncate_chars(content, BROWSER_LIMITS.max_snapshot_characters);
+            BrowserResult::Snapshot {
+                surface_id,
+                content,
+                truncated: truncated || was_truncated,
+            }
+        }
+        BrowserResult::ConsoleEntries {
+            surface_id,
+            mut entries,
+            truncated,
+        } => {
+            let was_truncated = entries.len() > BROWSER_LIMITS.max_console_entries;
+            entries.truncate(BROWSER_LIMITS.max_console_entries);
+            let entries = entries.into_iter().map(bound_console_entry).collect();
+            BrowserResult::ConsoleEntries {
+                surface_id,
+                entries,
+                truncated: truncated || was_truncated,
+            }
+        }
+        BrowserResult::PageErrors {
+            surface_id,
+            mut errors,
+            truncated,
+        } => {
+            let was_truncated = errors.len() > BROWSER_LIMITS.max_page_errors;
+            errors.truncate(BROWSER_LIMITS.max_page_errors);
+            let errors = errors.into_iter().map(bound_page_error).collect();
+            BrowserResult::PageErrors {
+                surface_id,
+                errors,
+                truncated: truncated || was_truncated,
+            }
+        }
+        BrowserResult::Screenshot { ref data_url, .. }
+            if data_url.chars().count() > BROWSER_LIMITS.max_screenshot_characters =>
+        {
+            return Err(ControlError::new(
+                ControlErrorCode::BrowserResultTooLarge,
+                "Browser screenshot exceeds the result limit",
+            ));
+        }
+        other => other,
+    })
+}
+
+fn bound_console_entry(mut entry: BrowserConsoleEntry) -> BrowserConsoleEntry {
+    entry.message = truncate_chars(entry.message, 10_000).0;
+    entry
+}
+
+fn bound_page_error(mut error: BrowserPageError) -> BrowserPageError {
+    error.message = truncate_chars(error.message, 10_000).0;
+    error.source = error.source.map(|value| truncate_chars(value, 4_096).0);
+    error
+}
+
+fn truncate_chars(value: String, maximum: usize) -> (String, bool) {
+    if value.chars().count() <= maximum {
+        return (value, false);
+    }
+    (value.chars().take(maximum).collect(), true)
+}
+
+fn not_found() -> ControlError {
+    ControlError::new(
+        ControlErrorCode::BrowserSurfaceNotFound,
+        "Browser surface was not found",
+    )
+}
+
+fn timeout() -> ControlError {
+    ControlError::new(
+        ControlErrorCode::BrowserCommandTimeout,
+        "Browser command timed out",
+    )
+}
 
 #[cfg(test)]
 mod tests;

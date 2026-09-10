@@ -2,6 +2,23 @@ import { CONTROL_PROTOCOL_VERSION } from "../../control/protocol.ts";
 
 export const BROWSER_PROTOCOL_VERSION = CONTROL_PROTOCOL_VERSION;
 
+export type BrowserCapability =
+  | "browser.read"
+  | "browser.control"
+  | "browser.javascript"
+  | "browser.storage"
+  | "browser.download";
+
+export interface BrowserSurfaceRecord {
+  surfaceId: string;
+  projectId: string;
+  agentId: string | null;
+  url: string;
+  profileId: string;
+  capabilities: BrowserCapability[];
+  createdAt: string;
+}
+
 export const BROWSER_LIMITS = Object.freeze({
   maxSnapshotCharacters: 100_000,
   maxScriptCharacters: 20_000,

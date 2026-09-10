@@ -1,8 +1,38 @@
 use super::commands::{
-    BrowserCommand, BrowserResult, BrowserWaitCondition, NavigationPhase, BROWSER_LIMITS,
+    BrowserCapability, BrowserCommand, BrowserResult, BrowserWaitCondition, NavigationPhase,
+    BROWSER_LIMITS,
 };
-use crate::control::ControlErrorCode;
+use super::BrowserManager;
+use crate::control::{
+    AgentEventKind, AgentEventSource, CallerIdentity, Capability, ControlErrorCode,
+};
 use serde_json::json;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+
+fn identity(
+    project_id: &str,
+    agent_id: Option<&str>,
+    capabilities: Vec<Capability>,
+) -> CallerIdentity {
+    CallerIdentity {
+        caller_id: agent_id.unwrap_or("user").to_owned(),
+        project_id: project_id.to_owned(),
+        agent_id: agent_id.map(str::to_owned),
+        parent_agent_id: None,
+        capabilities,
+        expires_at: None,
+    }
+}
+
+fn snapshot(surface_id: &str) -> BrowserCommand {
+    BrowserCommand::Snapshot {
+        surface_id: surface_id.to_owned(),
+        selector: None,
+        max_depth: None,
+    }
+}
 
 #[test]
 fn browser_protocol_rejects_interaction_commands_without_a_surface() {
@@ -127,4 +157,159 @@ fn browser_protocol_uses_control_wire_names() {
     for (result, kind) in results {
         assert_eq!(serde_json::to_value(result).unwrap()["kind"], kind);
     }
+}
+
+#[test]
+fn browser_permissions_default_to_denied_and_are_command_specific() {
+    let manager = BrowserManager::default();
+    let surface = manager
+        .register(
+            "project-1",
+            Some("agent-1".into()),
+            "browser-panel-1",
+            "about:blank",
+            "profile-1",
+        )
+        .expect("register surface");
+    let caller = identity(
+        "project-1",
+        Some("agent-1"),
+        vec![Capability::BrowserRead, Capability::BrowserControl],
+    );
+
+    assert_eq!(
+        manager
+            .authorize(&caller, &surface.surface_id, &snapshot(&surface.surface_id))
+            .expect_err("surface starts with no grants")
+            .code,
+        ControlErrorCode::BrowserPermissionRequired
+    );
+    manager
+        .grant(&surface.surface_id, BrowserCapability::Read)
+        .expect("grant read");
+    assert!(manager
+        .authorize(&caller, &surface.surface_id, &snapshot(&surface.surface_id))
+        .is_ok());
+    let click = BrowserCommand::Click {
+        surface_id: surface.surface_id.clone(),
+        selector: "#submit".into(),
+    };
+    assert_eq!(
+        manager
+            .authorize(&caller, &surface.surface_id, &click)
+            .expect_err("read does not permit interaction")
+            .code,
+        ControlErrorCode::BrowserPermissionRequired
+    );
+}
+
+#[test]
+fn browser_authorization_rejects_cross_project_and_cross_agent_before_grants() {
+    let manager = BrowserManager::default();
+    let surface = manager
+        .register(
+            "project-2",
+            Some("agent-2".into()),
+            "browser-panel-2",
+            "about:blank",
+            "profile-2",
+        )
+        .expect("register surface");
+    let command = snapshot(&surface.surface_id);
+
+    for caller in [
+        identity("project-1", Some("agent-2"), vec![Capability::BrowserRead]),
+        identity("project-2", Some("agent-1"), vec![Capability::BrowserRead]),
+    ] {
+        assert_eq!(
+            manager
+                .authorize(&caller, &surface.surface_id, &command)
+                .expect_err("foreign surfaces are forbidden")
+                .code,
+            ControlErrorCode::BrowserSurfaceForbidden
+        );
+    }
+}
+
+#[test]
+fn browser_dispatch_enforces_deadlines_and_utf8_safe_output_limits() {
+    let manager = BrowserManager::default();
+    let surface = manager
+        .register(
+            "project-1",
+            None,
+            "browser-panel-1",
+            "about:blank",
+            "profile-1",
+        )
+        .expect("register surface");
+    manager
+        .grant(&surface.surface_id, BrowserCapability::Read)
+        .expect("grant read");
+    let caller = identity("project-1", None, vec![Capability::BrowserRead]);
+    let command = snapshot(&surface.surface_id);
+
+    let result = manager
+        .dispatch(&caller, command.clone(), 1_000, |_, _| {
+            Ok(BrowserResult::Snapshot {
+                surface_id: surface.surface_id.clone(),
+                content: "🙂".repeat(BROWSER_LIMITS.max_snapshot_characters + 1),
+                truncated: false,
+            })
+        })
+        .expect("bounded snapshot");
+    let BrowserResult::Snapshot {
+        content, truncated, ..
+    } = result
+    else {
+        panic!("expected snapshot")
+    };
+    assert_eq!(
+        content.chars().count(),
+        BROWSER_LIMITS.max_snapshot_characters
+    );
+    assert!(truncated);
+
+    let error = manager
+        .dispatch(&caller, command, 100, |_, _| {
+            thread::sleep(Duration::from_millis(110));
+            Ok(BrowserResult::Snapshot {
+                surface_id: surface.surface_id.clone(),
+                content: String::new(),
+                truncated: false,
+            })
+        })
+        .expect_err("late command must fail");
+    assert_eq!(error.code, ControlErrorCode::BrowserCommandTimeout);
+}
+
+#[test]
+fn browser_events_are_project_scoped_and_do_not_expose_grants() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let captured = events.clone();
+    let manager = BrowserManager::new(Arc::new(move |event| {
+        captured.lock().expect("events lock").push(event);
+    }));
+    let surface = manager
+        .register(
+            "project-1",
+            Some("agent-1".into()),
+            "browser-panel-1",
+            "https://example.com",
+            "profile-1",
+        )
+        .expect("register surface");
+    manager
+        .grant(&surface.surface_id, BrowserCapability::Read)
+        .expect("grant read");
+
+    let events = events.lock().expect("events lock");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].project_id, "project-1");
+    assert_eq!(events[0].agent_id.as_deref(), Some("agent-1"));
+    assert_eq!(events[0].source, AgentEventSource::Browser);
+    assert_eq!(events[0].kind, AgentEventKind::BrowserSurfaceCreated);
+    assert!(!serde_json::to_string(&events[0])
+        .expect("serialize event")
+        .contains("browser.read"));
 }
