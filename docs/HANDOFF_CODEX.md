@@ -170,9 +170,27 @@ The existing `src/tauri/terminal.ts` wrapper already uses `pty_create`, `pty_wri
 
 For agents, call `list_agent_providers()` and use the canonical catalog IDs. `launch_agent` returns an `Agent` whose `terminalId` is the interactive PTY session. Use `stop_agent(agent.id)` to terminate it. The backend deliberately does not create worktrees: when a worktree is desired, the Git subsystem must first return the worktree path, then the frontend should launch the agent with that path.
 
+## Durable session startup and recovery
+
+`Supervisor` starts as managed Tauri state before the main window is created. The frontend restores an opened project in this order: load its versioned snapshot, rebuild backend runtime records idempotently, reconnect with protocol version `1` and the saved event cursor, project the records into the agent and terminal stores, then restore the validated pane tree. Pane selection and focus are intentionally transient.
+
+Project snapshots are written atomically every five seconds while a project is open and once more when that project view closes. They live below Tauri's platform-specific application data directory at `control/projects/<encoded-project-id>/project.json`. The encoded folder name is storage-only; the JSON retains the original absolute repository path as `projectId`. A snapshot contains bounded terminal scrollback, agent descriptors, pane layout, browser state, TaxChat state, the latest control-event sequence, schema version, and save time.
+
+The restore UI never claims that a new conversation is the old one:
+
+- A runtime session still owned by the current supervisor is shown as `Reconnect` and reattaches its event sink.
+- A stopped Claude Code or Codex session is shown as `Resume` only when the provider adapter found an exact provider session ID.
+- A provider with no resume protocol is shown as unavailable.
+- Missing or ambiguous resume evidence is shown as `Start new`.
+
+Closing the entire desktop process cannot preserve an in-memory PTY. On the next launch, ZLI reconstructs its record and uses the provider's supported resume command when an exact ID was checkpointed. Unknown processes are never killed during reconciliation. Missing worktrees make the session offline; orphaned or dirty worktrees are retained for the user to inspect from **Manage worktrees** and remove through the normal discard flow. If Windows reports `Permission denied`, close terminals or tools holding files in that worktree and retry cleanup.
+
+Session commands are `control_session_reconnect`, `control_session_snapshot`, `control_session_restore`, and `control_session_resume`. Errors are tagged with stable codes for missing sessions, unsupported resume, protocol mismatch, snapshot failure, and runtime failure.
+
 ## Known limitations
 
 - Exit codes are currently emitted as `null`; portable-pty child waiting is used for cleanup but the reader event contract does not yet carry the exact exit code.
 - Agent records use an empty `branch` and `null` `worktreePath` because worktree/branch ownership belongs to the Git engineer and is not fabricated here.
 - Agent launch accepts no user-provided CLI arguments. This keeps the command constrained; provider-specific flags can be added later as an explicit allowlisted contract.
-- The backend does not persist sessions or agent records across application restarts.
+- Only Claude Code and Codex currently have provider-specific resume commands. Cursor Agent, OpenCode, Gemini, Aider, and Goose remain visible after restore but require a new session unless their adapters gain a verified resume protocol.
+- Full application shutdown ends PTY processes. Persistence restores layout, bounded scrollback, metadata, and supported provider conversations; it does not keep an OS process alive outside the desktop runtime.
