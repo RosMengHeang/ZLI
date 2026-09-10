@@ -1,5 +1,8 @@
 use crate::agents::{self, Agent, AgentManager, AgentProvider, LaunchAgentRequest};
-use crate::control::{AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource};
+use crate::control::{
+    AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, ProjectSnapshot,
+    ReconnectResult, RestoreResult, SessionCommandError, SessionDescriptor, Supervisor,
+};
 use crate::error::BackendError;
 use crate::event_hub::EventHub;
 use crate::pty::{
@@ -24,6 +27,18 @@ pub struct CreatePtyRequest {
     pub title: Option<String>,
     #[serde(default)]
     pub argv: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSnapshotRequest {
+    pub project_id: String,
+    pub pane_tree: serde_json::Value,
+    #[serde(default)]
+    pub browser: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub tax_chat_room: Option<serde_json::Value>,
+    pub last_event_sequence: u64,
 }
 
 #[derive(Clone)]
@@ -138,6 +153,16 @@ where
     tauri::async_runtime::spawn_blocking(work)
         .await
         .map_err(|err| BackendError::Internal(format!("background task failed: {err}")))?
+}
+
+async fn run_control_blocking<T, F>(work: F) -> Result<T, SessionCommandError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, SessionCommandError> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| SessionCommandError::Runtime(format!("background task failed: {error}")))?
 }
 
 fn create_terminal_impl(
@@ -264,25 +289,33 @@ pub async fn launch_agent(
     manager: State<'_, PtyManager>,
     agents: State<'_, AgentManager>,
     event_hub: State<'_, EventHub>,
+    supervisor: State<'_, Arc<Supervisor>>,
     request: LaunchAgentRequest,
 ) -> Result<Agent, BackendError> {
     let pty = manager.inner().clone();
     let agents = agents.inner().clone();
     let event_hub = event_hub.inner().clone();
+    let supervisor = supervisor.inner().clone();
     run_blocking(move || {
         let project_id = request.cwd.clone();
-        let sink = Arc::new(AppEventSink {
+        let app_sink = Arc::new(AppEventSink {
             app,
             event_hub,
             waits_for_agent_binding: true,
         });
-        let agent = agents.launch(request, &pty, sink)?;
+        let runtime_sink = supervisor.runtime_sink(app_sink);
+        let agent = agents.launch(request, &pty, runtime_sink.clone())?;
         pty.bind_agent(
             &agent.terminal_id,
-            project_id,
+            project_id.clone(),
             agent.id.clone(),
             agent.provider.clone(),
         )?;
+        supervisor
+            .register_agent(&agent, project_id, runtime_sink)
+            .map_err(|error| {
+                BackendError::Internal(format!("session registration failed: {error:?}"))
+            })?;
         Ok(agent)
     })
     .await
@@ -301,6 +334,58 @@ pub fn control_events_after(
     sequence: u64,
 ) -> Vec<AgentEventEnvelope> {
     control_events_after_from_hub(event_hub.inner(), sequence)
+}
+
+#[tauri::command]
+pub fn control_session_reconnect(
+    supervisor: State<'_, Arc<Supervisor>>,
+    protocol_version: u16,
+    cursor: u64,
+) -> Result<ReconnectResult, SessionCommandError> {
+    supervisor.reconnect(protocol_version, cursor)
+}
+
+#[tauri::command]
+pub async fn control_session_snapshot(
+    supervisor: State<'_, Arc<Supervisor>>,
+    request: SessionSnapshotRequest,
+) -> Result<ProjectSnapshot, SessionCommandError> {
+    let supervisor = supervisor.inner().clone();
+    run_control_blocking(move || {
+        supervisor.checkpoint(
+            &request.project_id,
+            request.pane_tree,
+            request.browser,
+            request.tax_chat_room,
+            request.last_event_sequence,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn control_session_restore(
+    supervisor: State<'_, Arc<Supervisor>>,
+    project_id: String,
+) -> Result<RestoreResult, SessionCommandError> {
+    let supervisor = supervisor.inner().clone();
+    run_control_blocking(move || supervisor.restore_project(&project_id)).await
+}
+
+#[tauri::command]
+pub async fn control_session_resume(
+    app: AppHandle,
+    supervisor: State<'_, Arc<Supervisor>>,
+    event_hub: State<'_, EventHub>,
+    session_id: String,
+) -> Result<SessionDescriptor, SessionCommandError> {
+    let supervisor = supervisor.inner().clone();
+    let sink = Arc::new(AppEventSink {
+        app,
+        event_hub: event_hub.inner().clone(),
+        waits_for_agent_binding: true,
+    });
+    run_control_blocking(move || supervisor.resume(&session_id, sink)).await
 }
 
 fn validate_attention_scope(project_id: &str, agent_id: Option<&str>) -> Result<(), BackendError> {

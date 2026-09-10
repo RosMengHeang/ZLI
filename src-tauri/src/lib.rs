@@ -12,7 +12,8 @@ mod event_hub;
 mod git;
 
 use commands::{
-    attention_ack, attention_mark_all_read, control_events_after, create_terminal,
+    attention_ack, attention_mark_all_read, control_events_after, control_session_reconnect,
+    control_session_restore, control_session_resume, control_session_snapshot, create_terminal,
     detect_agent_providers, detect_providers, kill_terminal, launch_agent, list_agent_providers,
     list_agents, pty_close, pty_create, pty_resize, pty_write, resize_terminal, stop_agent,
     write_terminal,
@@ -22,7 +23,8 @@ use git::commands::{
     git_list_worktrees, git_merge, git_prune_worktrees, git_remove_worktree, git_status,
     git_validate_repository,
 };
-use tauri::{webview::PageLoadEvent, Emitter};
+use std::sync::Arc;
+use tauri::{webview::PageLoadEvent, Emitter, Manager};
 
 // Placeholder demo command from the create-tauri-app template; left in place
 // so the scaffolded frontend's demo button keeps working until the real UI
@@ -55,6 +57,15 @@ pub fn run() {
         .manage(pty::PtyManager::default())
         .manage(agents::AgentManager::default())
         .manage(event_hub::EventHub::default())
+        .setup(|app| {
+            let app_data_dir = app.path().app_data_dir()?;
+            let pty = app.state::<pty::PtyManager>().inner().clone();
+            let events = app.state::<event_hub::EventHub>().inner().clone();
+            let supervisor = control::Supervisor::new(app_data_dir, pty, events);
+            let _ = supervisor.start_or_connect();
+            app.manage(Arc::new(supervisor));
+            Ok(())
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -76,6 +87,10 @@ pub fn run() {
             control_events_after,
             attention_ack,
             attention_mark_all_read,
+            control_session_reconnect,
+            control_session_snapshot,
+            control_session_restore,
+            control_session_resume,
             git_validate_repository,
             git_create_worktree,
             git_list_worktrees,

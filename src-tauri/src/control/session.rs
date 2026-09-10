@@ -1,14 +1,14 @@
 use crate::agents::providers::ResumeDescriptor;
 use crate::error::BackendError;
 use crate::pty::{EventSink, PtyManager, TerminalOutputEvent, TerminalStatusEvent};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 #[cfg(test)]
 const DEFAULT_SCROLLBACK_BYTES: usize = 256 * 1024;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionDescriptor {
     pub session_id: String,
@@ -16,6 +16,8 @@ pub struct SessionDescriptor {
     pub agent_id: String,
     pub provider_id: String,
     pub terminal_id: String,
+    #[serde(default)]
+    pub working_directory: String,
     pub resume: Option<ResumeDescriptor>,
     pub attached: bool,
 }
@@ -23,7 +25,7 @@ pub struct SessionDescriptor {
 pub struct RuntimeSession {
     descriptor: Mutex<SessionDescriptor>,
     pty: PtyManager,
-    sink: Arc<ReconnectableSink>,
+    sink: Arc<RuntimeSessionSink>,
 }
 
 impl RuntimeSession {
@@ -37,10 +39,22 @@ impl RuntimeSession {
         Self {
             descriptor: Mutex::new(descriptor),
             pty,
-            sink: Arc::new(ReconnectableSink::new(
+            sink: Arc::new(RuntimeSessionSink::new(
                 initial_sink,
                 scrollback_limit.max(1),
             )),
+        }
+    }
+
+    pub(crate) fn with_sink(
+        descriptor: SessionDescriptor,
+        pty: PtyManager,
+        sink: Arc<RuntimeSessionSink>,
+    ) -> Self {
+        Self {
+            descriptor: Mutex::new(descriptor),
+            pty,
+            sink,
         }
     }
 
@@ -59,6 +73,7 @@ impl RuntimeSession {
                 agent_id,
                 provider_id,
                 terminal_id,
+                working_directory: String::new(),
                 resume: None,
                 attached: false,
             },
@@ -106,6 +121,29 @@ impl RuntimeSession {
 
     pub fn scrollback(&self) -> Result<String, BackendError> {
         self.sink.scrollback()
+    }
+
+    pub fn restore_scrollback(&self, scrollback: &str) {
+        self.sink.append_scrollback(scrollback.as_bytes());
+    }
+
+    pub fn set_terminal_id(&self, terminal_id: String) -> Result<(), BackendError> {
+        self.descriptor
+            .lock()
+            .map_err(|_| BackendError::Internal("runtime session lock poisoned".into()))?
+            .terminal_id = terminal_id;
+        Ok(())
+    }
+
+    pub fn set_resume(
+        &self,
+        resume: crate::agents::providers::ResumeDescriptor,
+    ) -> Result<(), BackendError> {
+        self.descriptor
+            .lock()
+            .map_err(|_| BackendError::Internal("runtime session lock poisoned".into()))?
+            .resume = Some(resume);
+        Ok(())
     }
 
     pub fn stop(&self) -> Result<(), BackendError> {
@@ -163,14 +201,14 @@ impl SessionRegistry {
     }
 }
 
-struct ReconnectableSink {
+pub(crate) struct RuntimeSessionSink {
     target: Mutex<Option<Arc<dyn EventSink>>>,
     scrollback: Mutex<VecDeque<u8>>,
     scrollback_limit: usize,
 }
 
-impl ReconnectableSink {
-    fn new(target: Option<Arc<dyn EventSink>>, scrollback_limit: usize) -> Self {
+impl RuntimeSessionSink {
+    pub(crate) fn new(target: Option<Arc<dyn EventSink>>, scrollback_limit: usize) -> Self {
         Self {
             target: Mutex::new(target),
             scrollback: Mutex::new(VecDeque::with_capacity(scrollback_limit)),
@@ -206,6 +244,15 @@ impl ReconnectableSink {
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 
+    fn append_scrollback(&self, bytes: &[u8]) {
+        if let Ok(mut scrollback) = self.scrollback.lock() {
+            scrollback.extend(bytes);
+            while scrollback.len() > self.scrollback_limit {
+                scrollback.pop_front();
+            }
+        }
+    }
+
     fn target(&self) -> Option<Arc<dyn EventSink>> {
         self.target
             .lock()
@@ -214,14 +261,9 @@ impl ReconnectableSink {
     }
 }
 
-impl EventSink for ReconnectableSink {
+impl EventSink for RuntimeSessionSink {
     fn emit_output(&self, event: TerminalOutputEvent) {
-        if let Ok(mut scrollback) = self.scrollback.lock() {
-            scrollback.extend(event.data.as_bytes());
-            while scrollback.len() > self.scrollback_limit {
-                scrollback.pop_front();
-            }
-        }
+        self.append_scrollback(event.data.as_bytes());
         if let Some(target) = self.target() {
             target.emit_output(event);
         }

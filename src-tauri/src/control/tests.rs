@@ -50,6 +50,7 @@ fn detached_session_keeps_bounded_scrollback_without_forwarding_output() {
             agent_id: "agent-1".into(),
             provider_id: "codex".into(),
             terminal_id: "terminal-1".into(),
+            working_directory: "D:/project".into(),
             resume: None,
             attached: false,
         },
@@ -122,6 +123,146 @@ fn debounced_checkpoint_persists_only_the_latest_generation() {
             .expect("snapshot")
             .last_event_sequence,
         2
+    );
+}
+
+#[test]
+fn reconnect_replays_events_after_cursor_without_duplicate_sessions() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let store = SnapshotStore::new(root.path().to_path_buf());
+    let mut snapshot = ProjectSnapshot::empty("project-1".into());
+    snapshot.agents.push(json!({
+        "descriptor": {
+            "sessionId": "session-1",
+            "projectId": "project-1",
+            "agentId": "agent-1",
+            "providerId": "codex",
+            "terminalId": "missing-terminal",
+            "resume": null,
+            "attached": false
+        },
+        "scrollback": "saved output"
+    }));
+    store.save_atomic(&snapshot).expect("save snapshot");
+    let hub = EventHub::new(8);
+    let _ = hub.publish(test_event("before"));
+    let _ = hub.publish(test_event("after"));
+    let supervisor = super::Supervisor::new(root.path().to_path_buf(), PtyManager::new(), hub);
+
+    assert!(supervisor.start_or_connect().expect("start"));
+    let initial = supervisor.restore_project("project-1").expect("restore");
+    assert_eq!(initial.created_session_ids, vec!["session-1"]);
+    let repeated = supervisor
+        .restore_project("project-1")
+        .expect("restore again");
+    assert_eq!(repeated.session_ids, vec!["session-1"]);
+    assert!(repeated.created_session_ids.is_empty());
+    let reconnect = supervisor
+        .reconnect(super::SUPERVISOR_PROTOCOL_VERSION, 1)
+        .expect("reconnect");
+    assert_eq!(reconnect.current_sequence, 2);
+    assert_eq!(reconnect.events.len(), 1);
+    assert_eq!(reconnect.events[0].event_id, "after");
+    assert_eq!(reconnect.sessions.len(), 1);
+}
+
+#[test]
+fn supervisor_reports_protocol_and_resume_failures_with_stable_codes() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let supervisor = super::Supervisor::new(
+        root.path().to_path_buf(),
+        PtyManager::new(),
+        EventHub::new(8),
+    );
+    let protocol = supervisor.reconnect(99, 0).expect_err("protocol mismatch");
+    assert_eq!(
+        serde_json::to_value(protocol).expect("serialize error")["code"],
+        "protocol_mismatch"
+    );
+    let missing = supervisor
+        .resume("missing", std::sync::Arc::new(MemoryEventSink::default()))
+        .expect_err("missing session");
+    assert_eq!(
+        serde_json::to_value(missing).expect("serialize error")["code"],
+        "missing_session"
+    );
+}
+
+#[test]
+fn reconciliation_marks_restored_sessions_offline_without_stopping_unknown_processes() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let store = SnapshotStore::new(root.path().to_path_buf());
+    let mut snapshot = ProjectSnapshot::empty("project-1".into());
+    snapshot.agents.push(json!({
+        "descriptor": {
+            "sessionId": "session-offline",
+            "projectId": "project-1",
+            "agentId": "agent-offline",
+            "providerId": "cursor-agent",
+            "terminalId": "missing-terminal",
+            "resume": null,
+            "attached": false
+        },
+        "scrollback": ""
+    }));
+    store.save_atomic(&snapshot).expect("save snapshot");
+    let hub = EventHub::new(8);
+    let supervisor =
+        super::Supervisor::new(root.path().to_path_buf(), PtyManager::new(), hub.clone());
+    supervisor.restore_project("project-1").expect("restore");
+
+    let report = supervisor.reconcile().expect("reconcile");
+    assert_eq!(report.offline_session_ids, vec!["session-offline"]);
+    assert!(report.stopped_owned_process_ids.is_empty());
+    assert!(hub
+        .subscribe_after(0)
+        .iter()
+        .any(|event| event.kind == AgentEventKind::AgentStopped));
+}
+
+#[test]
+fn checkpoint_discovers_a_real_provider_resume_marker_from_bounded_scrollback() {
+    use crate::agents::{Agent, AgentStatus};
+    use crate::pty::{EventSink, TerminalOutputEvent};
+    let root = tempfile::tempdir().expect("temp dir");
+    let supervisor = super::Supervisor::new(
+        root.path().to_path_buf(),
+        PtyManager::new(),
+        EventHub::new(8),
+    );
+    let runtime_sink = supervisor.runtime_sink(std::sync::Arc::new(MemoryEventSink::default()));
+    runtime_sink.emit_output(TerminalOutputEvent {
+        terminal_id: "terminal-1".into(),
+        data: "OpenAI Codex ready\r\nSession ID: exact-session-42\r\n".into(),
+    });
+    supervisor
+        .register_agent(
+            &Agent {
+                id: "agent-1".into(),
+                name: "Codex".into(),
+                provider: "codex".into(),
+                terminal_id: "terminal-1".into(),
+                cwd: "D:/project".into(),
+                branch: String::new(),
+                worktree_path: None,
+                status: AgentStatus::Running,
+                error: None,
+            },
+            "project-1".into(),
+            runtime_sink,
+        )
+        .expect("register runtime");
+
+    let snapshot = supervisor
+        .checkpoint("project-1", serde_json::Value::Null, Vec::new(), None, 0)
+        .expect("checkpoint");
+    assert_eq!(
+        snapshot.agents[0]["descriptor"]["resume"]["providerSessionId"],
+        "exact-session-42"
+    );
+    assert_eq!(
+        snapshot.agents[0]["descriptor"]["resume"]["workingDirectory"],
+        "D:/project"
     );
 }
 
