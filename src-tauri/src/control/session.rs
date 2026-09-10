@@ -14,10 +14,16 @@ pub struct SessionDescriptor {
     pub session_id: String,
     pub project_id: String,
     pub agent_id: String,
+    #[serde(default)]
+    pub name: String,
     pub provider_id: String,
     pub terminal_id: String,
     #[serde(default)]
     pub working_directory: String,
+    #[serde(default)]
+    pub branch: String,
+    #[serde(default)]
+    pub worktree_path: Option<String>,
     pub resume: Option<ResumeDescriptor>,
     pub attached: bool,
 }
@@ -71,9 +77,12 @@ impl RuntimeSession {
                 session_id,
                 project_id,
                 agent_id,
+                name: String::new(),
                 provider_id,
                 terminal_id,
                 working_directory: String::new(),
+                branch: String::new(),
+                worktree_path: None,
                 resume: None,
                 attached: false,
             },

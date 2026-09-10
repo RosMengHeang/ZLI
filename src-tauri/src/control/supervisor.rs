@@ -185,9 +185,12 @@ impl Supervisor {
             session_id: agent.id.clone(),
             project_id,
             agent_id: agent.id.clone(),
+            name: agent.name.clone(),
             provider_id: agent.provider.clone(),
             terminal_id: agent.terminal_id.clone(),
             working_directory: agent.cwd.clone(),
+            branch: agent.branch.clone(),
+            worktree_path: agent.worktree_path.clone(),
             resume: None,
             attached: true,
         };
@@ -305,15 +308,31 @@ impl Supervisor {
             let Some(adapter) = self.providers.get(&descriptor.provider_id) else {
                 continue;
             };
-            if adapter.resume_support() == ResumeSupport::Unsupported {
-                continue;
-            }
-            if let Some(resume) = adapter.detect_resume(
+            let resume = if adapter.resume_support() == ResumeSupport::Unsupported {
+                crate::agents::providers::ResumeDescriptor {
+                    provider_id: descriptor.provider_id.clone(),
+                    provider_session_id: None,
+                    resume_command_kind: None,
+                    working_directory: descriptor.working_directory.clone().into(),
+                    last_checkpoint_at: None,
+                    availability: ResumeAvailability::Unsupported,
+                }
+            } else if let Some(resume) = adapter.detect_resume(
                 &session.scrollback()?,
                 std::path::Path::new(&descriptor.working_directory),
             ) {
-                session.set_resume(resume)?;
-            }
+                resume
+            } else {
+                crate::agents::providers::ResumeDescriptor {
+                    provider_id: descriptor.provider_id.clone(),
+                    provider_session_id: None,
+                    resume_command_kind: None,
+                    working_directory: descriptor.working_directory.clone().into(),
+                    last_checkpoint_at: None,
+                    availability: ResumeAvailability::Unknown,
+                }
+            };
+            session.set_resume(resume)?;
         }
         Ok(())
     }
