@@ -262,20 +262,7 @@ impl PtyManager {
         if session.status() != TerminalStatus::Running {
             return Err(BackendError::SessionNotFound(id.to_owned()));
         }
-        let mut agent = session
-            .agent
-            .lock()
-            .map_err(|_| BackendError::Internal("PTY agent mapping lock poisoned".into()))?;
-        let mut writer = session
-            .writer
-            .lock()
-            .map_err(|_| BackendError::Internal("PTY writer lock poisoned".into()))?;
-        writer.write_all(data.as_bytes())?;
-        writer.flush()?;
-        if let Some(mapping) = agent.as_mut() {
-            mapping.output_normalizer.accept_input(data.as_bytes());
-        }
-        Ok(())
+        write_agent_input(&session.agent, &session.writer, data.as_bytes())
     }
 
     pub fn bind_agent(
@@ -492,6 +479,27 @@ impl PtyManager {
             }
         }
     }
+}
+
+fn write_agent_input(
+    agent: &Mutex<Option<AgentMapping>>,
+    writer: &Mutex<Box<dyn Write + Send>>,
+    data: &[u8],
+) -> Result<(), BackendError> {
+    {
+        let mut agent = agent
+            .lock()
+            .map_err(|_| BackendError::Internal("PTY agent mapping lock poisoned".into()))?;
+        if let Some(mapping) = agent.as_mut() {
+            mapping.output_normalizer.accept_input(data);
+        }
+    }
+    let mut writer = writer
+        .lock()
+        .map_err(|_| BackendError::Internal("PTY writer lock poisoned".into()))?;
+    writer.write_all(data)?;
+    writer.flush()?;
+    Ok(())
 }
 
 fn validate_dimensions(cols: u16, rows: u16) -> Result<(), BackendError> {
@@ -784,5 +792,72 @@ impl EventSink for MemoryEventSink {
 
     fn waits_for_agent_binding(&self) -> bool {
         self.waits_for_agent_binding
+    }
+}
+
+#[cfg(test)]
+mod lock_scope_tests {
+    use super::*;
+    use std::io;
+    use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+    use std::time::Duration;
+
+    struct BlockingWriter {
+        entered: SyncSender<()>,
+        release: Receiver<()>,
+    }
+
+    impl Write for BlockingWriter {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            self.entered
+                .send(())
+                .map_err(|error| io::Error::other(error.to_string()))?;
+            self.release
+                .recv()
+                .map_err(|error| io::Error::other(error.to_string()))?;
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn blocked_writer_does_not_hold_agent_mapping_lock() {
+        let agent = Arc::new(Mutex::new(Some(AgentMapping {
+            project_id: "project-1".into(),
+            agent_id: "agent-1".into(),
+            provider_id: "codex".into(),
+            output_normalizer: AgentOutputNormalizer::new("project-1", "agent-1", "codex"),
+        })));
+        let (entered_tx, entered_rx) = sync_channel(0);
+        let (release_tx, release_rx) = sync_channel(0);
+        let writer: Arc<Mutex<Box<dyn Write + Send>>> =
+            Arc::new(Mutex::new(Box::new(BlockingWriter {
+                entered: entered_tx,
+                release: release_rx,
+            })));
+
+        let write_agent = agent.clone();
+        let write_writer = writer.clone();
+        let write = thread::spawn(move || write_agent_input(&write_agent, &write_writer, b"run\r"));
+
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("writer entered blocking write");
+        let mut reader_lock = agent
+            .try_lock()
+            .expect("reader can acquire agent state while writer is blocked");
+        let output = reader_lock
+            .as_mut()
+            .expect("agent mapping")
+            .output_normalizer
+            .accept_output(b"working\r\n");
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0].kind, AgentEventKind::AgentOutput);
+        drop(reader_lock);
+        release_tx.send(()).expect("release writer");
+        write.join().expect("join writer").expect("write input");
     }
 }

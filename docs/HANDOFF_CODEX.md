@@ -83,7 +83,7 @@ The detected real executable is launched inside a PTY. `.ps1` shims run through 
 - `npm test`: 101 passed, 0 failed for the completed Wave 1 tree.
 - `npm run lint`: passed.
 - `npm run build`: passed.
-- `cargo test --manifest-path src-tauri/Cargo.toml -j 1` with the shared target directory: 41 passed, 0 failed.
+- `cargo test --manifest-path src-tauri/Cargo.toml -j 1` with the shared target directory: 44 passed, 0 failed.
 - `cargo check --manifest-path src-tauri/Cargo.toml -j 1` with the shared target directory: passed.
 
 Run release checks before integration with:
@@ -143,7 +143,7 @@ Prompt detection is deliberately narrow:
 - Codex accepts an ANSI-rendered input line whose visible content is exactly `›`. The acceptance fixture includes the observed full-screen cursor-positioned frame and `? for shortcuts` footer.
 - Claude Code accepts an ANSI-rendered input line whose visible content is exactly `❯`. The acceptance fixture includes the observed line-clear, carriage-return, bold prompt form.
 - ANSI CSI/OSC sequences and prompt bytes split across PTY chunks are handled incrementally. A PTY chunk boundary is not treated as a line boundary; detection waits for newline, cursor relocation, or the provider frame's visible-cursor sequence. Visible line state is capped at 1024 bytes, CSI parameter state at 16 bytes, and output received before agent binding at 8192 bytes.
-- A prompt is latched after emission. Redraws do not emit another prompt event. A successfully submitted PTY input containing carriage return or newline opens the next prompt epoch. Terminal exit, failure, or stop clears and disables detector state.
+- A prompt is latched after emission. Redraws do not emit another prompt event. A PTY input request containing carriage return or newline starts a clean prompt epoch by discarding the prior visible line and partial ANSI candidate before rearming. The agent mapping lock is released before the writer can block, so PTY output normalization remains live during writes. Terminal exit, failure, or stop clears and disables detector state.
 - `shell`, `cursor-agent`, and unknown providers do not infer prompts. Add a provider only when a stable, provider-specific marker is backed by real fixtures.
 
 Generic low-confidence candidates still require at least five seconds without output and active working state, but they do not change attention unless a detector publishes a normalized accepted event. Prompt-like ordinary output remains working.

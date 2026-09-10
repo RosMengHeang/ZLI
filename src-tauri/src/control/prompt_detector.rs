@@ -160,6 +160,9 @@ impl ProviderPromptDetector {
 
     fn note_input(&mut self) {
         if self.active && self.provider.is_some() {
+            self.line.clear();
+            self.csi_parameters.clear();
+            self.escape_state = EscapeState::Text;
             self.armed = true;
         }
     }

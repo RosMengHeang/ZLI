@@ -666,93 +666,12 @@ fn event_hub_attention_acceptance_preserves_lifecycle_and_terminal_precedence() 
 
 #[test]
 fn provider_prompt_detection_flows_from_pty_output_to_waiting_once() {
-    use super::attention::{AttentionReducer, AttentionState};
-    use crate::system::detect_powershell;
-    use std::ffi::OsString;
+    assert_real_provider_prompt_fixture("codex", 0x203a, "codex_prompt_marker");
+}
 
-    let directory = tempdir().expect("temporary directory");
-    let manager = PtyManager::new();
-    let sink = MemoryEventSink::awaiting_agent_binding();
-    let hub = EventHub::new(32);
-    let script = concat!(
-        "$escape = [char]27; ",
-        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); ",
-        "Write-Output 'ordinary progress >'; ",
-        "Start-Sleep -Milliseconds 750; ",
-        "[Console]::Out.Write(\"$escape[2K`r$escape[1m\"); ",
-        "[Console]::Out.Flush(); ",
-        "Start-Sleep -Milliseconds 75; ",
-        "[Console]::Out.Write([char]0x203A); ",
-        "[Console]::Out.Flush(); ",
-        "Start-Sleep -Milliseconds 75; ",
-        "[Console]::Out.Write(\"$escape[22m $escape[?25h\"); ",
-        "[Console]::Out.Flush(); ",
-        "Start-Sleep -Milliseconds 75; ",
-        "[Console]::Out.Write(\"$escape[2K`r$escape[1m$([char]0x203A)$escape[22m $escape[?25h\"); ",
-        "[Console]::Out.Flush(); ",
-        "[Console]::Out.Write(\"`r`nREDRAW_COMPLETE`r`n\"); ",
-        "[Console]::Out.Flush(); ",
-        "Start-Sleep -Seconds 2",
-    );
-    let terminal = manager
-        .spawn_agent_with_size_args(
-            detect_powershell().expect("detect PowerShell"),
-            vec![
-                OsString::from("-NoLogo"),
-                OsString::from("-NoProfile"),
-                OsString::from("-Command"),
-                OsString::from(script),
-            ],
-            Some(directory.path().to_string_lossy().as_ref()),
-            120,
-            30,
-            std::sync::Arc::new(sink.clone()),
-        )
-        .expect("spawn deterministic prompt fixture");
-    manager
-        .bind_agent(
-            &terminal.id,
-            "project-1".into(),
-            "agent-1".into(),
-            "codex".into(),
-        )
-        .expect("bind Codex provider identity");
-    assert!(wait_for_control_event(&sink, |event| {
-        event.kind == AgentEventKind::AgentPromptDetected
-    }));
-    assert!(wait_for_terminal_output(
-        &sink,
-        &terminal.id,
-        "REDRAW_COMPLETE"
-    ));
-
-    let control_events = sink.control_events();
-    assert!(control_events.iter().any(|event| {
-        event.kind == AgentEventKind::AgentOutput
-            && matches!(&event.payload, AgentEventPayload::Text { text } if text.contains("ordinary progress >"))
-    }));
-    assert!(sink.contains(&terminal.id, "ordinary progress >"));
-    for event in control_events {
-        hub.publish(event).expect("publish PTY evidence once");
-    }
-
-    let replay = hub.subscribe_after(0);
-    assert_eq!(
-        replay
-            .iter()
-            .filter(|event| event.kind == AgentEventKind::AgentPromptDetected)
-            .count(),
-        1
-    );
-    let state = replay
-        .iter()
-        .fold(AttentionState::default(), |state, event| {
-            AttentionReducer::apply(&state, event)
-        });
-    assert_eq!(state.execution_status, ExecutionStatus::Running);
-    assert_eq!(state.attention_status, AttentionStatus::WaitingForYou);
-    assert_eq!(state.unread_count, 1);
-    manager.kill(&terminal.id).expect("kill prompt fixture");
+#[test]
+fn claude_prompt_detection_flows_from_pty_output_to_waiting_once() {
+    assert_real_provider_prompt_fixture("claude-code", 0x276f, "claude_code_prompt_marker");
 }
 
 #[test]
@@ -831,6 +750,42 @@ fn provider_prompt_detection_accepts_codex_screen_fixture_without_redraw_storms(
     assert_eq!(prompt_count(&codex.accept_output(frame)), 0);
     codex.accept_input(b"\r");
     assert_eq!(prompt_count(&codex.accept_output(frame)), 1);
+}
+
+#[test]
+fn provider_prompt_detection_starts_a_clean_epoch_after_input() {
+    use super::prompt_detector::AgentOutputNormalizer;
+
+    let prompt_events = |events: Vec<AgentEventEnvelope>| {
+        events
+            .into_iter()
+            .filter(|event| event.kind == AgentEventKind::AgentPromptDetected)
+            .collect::<Vec<_>>()
+    };
+    let marker = b"\x1b[2K\r\xe2\x80\xba \x1b[?25h";
+    let mut codex = AgentOutputNormalizer::new("project-1", "agent-codex", "codex");
+
+    let initial = prompt_events(codex.accept_output(marker));
+    assert_eq!(initial.len(), 1);
+    assert_eq!(
+        initial[0].payload,
+        AgentEventPayload::Attention {
+            reason: "codex_prompt_marker".into(),
+        }
+    );
+
+    codex.accept_input(b"run tests\r");
+    assert!(prompt_events(codex.accept_output(b"\x1b[?25h")).is_empty());
+    assert!(prompt_events(codex.accept_output(b"Compiling workspace\r\n")).is_empty());
+
+    let later = prompt_events(codex.accept_output(marker));
+    assert_eq!(later.len(), 1);
+    assert_eq!(
+        later[0].payload,
+        AgentEventPayload::Attention {
+            reason: "codex_prompt_marker".into(),
+        }
+    );
 }
 
 #[test]
@@ -1113,6 +1068,109 @@ fn agent_outcome_before_binding_is_retained_and_published_once() {
     assert_eq!(control_outcomes.len(), 1);
     assert_eq!(control_outcomes[0].kind, AgentEventKind::AgentExited);
     assert!(manager.session_status(&terminal.id).is_err());
+}
+
+fn assert_real_provider_prompt_fixture(
+    provider_id: &str,
+    marker_codepoint: u32,
+    expected_reason: &str,
+) {
+    use super::attention::{AttentionReducer, AttentionState};
+    use crate::system::detect_powershell;
+    use std::ffi::OsString;
+
+    let directory = tempdir().expect("temporary directory");
+    let manager = PtyManager::new();
+    let sink = MemoryEventSink::awaiting_agent_binding();
+    let hub = EventHub::new(32);
+    let marker = format!("[char]0x{marker_codepoint:X}");
+    let script = format!(
+        concat!(
+            "$escape = [char]27; ",
+            "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); ",
+            "Write-Output 'ordinary progress >'; ",
+            "Start-Sleep -Milliseconds 750; ",
+            "[Console]::Out.Write(\"$escape[2K`r$escape[1m\"); ",
+            "[Console]::Out.Flush(); ",
+            "Start-Sleep -Milliseconds 75; ",
+            "[Console]::Out.Write({marker}); ",
+            "[Console]::Out.Flush(); ",
+            "Start-Sleep -Milliseconds 75; ",
+            "[Console]::Out.Write(\"$escape[22m $escape[?25h\"); ",
+            "[Console]::Out.Flush(); ",
+            "Start-Sleep -Milliseconds 75; ",
+            "[Console]::Out.Write(\"$escape[2K`r$escape[1m$({marker})$escape[22m $escape[?25h\"); ",
+            "[Console]::Out.Flush(); ",
+            "[Console]::Out.Write(\"`r`nREDRAW_COMPLETE`r`n\"); ",
+            "[Console]::Out.Flush(); ",
+            "Start-Sleep -Seconds 2",
+        ),
+        marker = marker,
+    );
+    let terminal = manager
+        .spawn_agent_with_size_args(
+            detect_powershell().expect("detect PowerShell"),
+            vec![
+                OsString::from("-NoLogo"),
+                OsString::from("-NoProfile"),
+                OsString::from("-Command"),
+                OsString::from(script),
+            ],
+            Some(directory.path().to_string_lossy().as_ref()),
+            120,
+            30,
+            std::sync::Arc::new(sink.clone()),
+        )
+        .expect("spawn deterministic prompt fixture");
+    manager
+        .bind_agent(
+            &terminal.id,
+            "project-1".into(),
+            "agent-1".into(),
+            provider_id.into(),
+        )
+        .expect("bind provider identity");
+    assert!(wait_for_control_event(&sink, |event| {
+        event.kind == AgentEventKind::AgentPromptDetected
+    }));
+    assert!(wait_for_terminal_output(
+        &sink,
+        &terminal.id,
+        "REDRAW_COMPLETE"
+    ));
+
+    let control_events = sink.control_events();
+    assert!(control_events.iter().any(|event| {
+        event.kind == AgentEventKind::AgentOutput
+            && matches!(&event.payload, AgentEventPayload::Text { text } if text.contains("ordinary progress >"))
+    }));
+    assert!(sink.contains(&terminal.id, "ordinary progress >"));
+    for event in control_events {
+        hub.publish(event).expect("publish PTY evidence once");
+    }
+
+    let replay = hub.subscribe_after(0);
+    let prompt_events = replay
+        .iter()
+        .filter(|event| event.kind == AgentEventKind::AgentPromptDetected)
+        .collect::<Vec<_>>();
+    assert_eq!(prompt_events.len(), 1);
+    assert_eq!(prompt_events[0].source, AgentEventSource::Provider);
+    assert_eq!(
+        prompt_events[0].payload,
+        AgentEventPayload::Attention {
+            reason: expected_reason.into(),
+        }
+    );
+    let state = replay
+        .iter()
+        .fold(AttentionState::default(), |state, event| {
+            AttentionReducer::apply(&state, event)
+        });
+    assert_eq!(state.execution_status, ExecutionStatus::Running);
+    assert_eq!(state.attention_status, AttentionStatus::WaitingForYou);
+    assert_eq!(state.unread_count, 1);
+    manager.kill(&terminal.id).expect("kill prompt fixture");
 }
 
 fn wait_for_control_event(
