@@ -221,6 +221,15 @@ export function IconClock(props: IconProps) {
   );
 }
 
+export function IconBell(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.4 11.2h9.2l-1.1-1.6V6.8A3.5 3.5 0 0 0 8 3.2a3.5 3.5 0 0 0-3.5 3.6v2.8l-1.1 1.6Z" {...stroke} />
+      <path d="M6.5 12.7a1.7 1.7 0 0 0 3 0" {...stroke} />
+    </Svg>
+  );
+}
+
 export function IconGrid(props: IconProps) {
   return (
     <Svg {...props}>

@@ -43,6 +43,7 @@ import { startPtyBridge, subscribePtyLifecycle, subscribePtyOutput } from "../te
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "./CommandPalette";
+import { useAttentionStore } from "../stores/attentionStore";
 
 const BrowserPanel = lazy(async () => {
   const mod = await import("./BrowserPanel");
@@ -109,6 +110,19 @@ export function AppShell() {
     window.addEventListener("resize", collapseForViewport);
     return () => window.removeEventListener("resize", collapseForViewport);
   }, [setSidebarCollapsed]);
+
+  useEffect(() => {
+    let release: (() => void) | undefined;
+    let disposed = false;
+    void useAttentionStore.getState().connect().then((disconnect) => {
+      if (disposed) disconnect();
+      else release = disconnect;
+    });
+    return () => {
+      disposed = true;
+      release?.();
+    };
+  }, []);
 
   useEffect(() => {
     configureTaxChatRuntime({

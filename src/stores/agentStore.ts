@@ -11,6 +11,7 @@ import { useLayoutStore } from "./layoutStore";
 import { useProjectStore } from "./projectStore";
 import { useTerminalStore } from "./terminalStore";
 import { useWorkspaceStore } from "./workspaceStore";
+import { acknowledgeAgent } from "./attentionStore";
 
 interface AgentState {
   agents: Record<string, Agent>;
@@ -117,6 +118,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     if (!id) return;
     const agent = get().agents[id];
     if (agent) useLayoutStore.getState().focusTerminal(agent.terminalId);
+    void acknowledgeAgent(id);
   },
 
   launch: async ({ name, provider, createWorktree, resumeId }) => {

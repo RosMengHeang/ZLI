@@ -2,7 +2,10 @@ use super::{
     AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, AttentionStatus,
     ExecutionStatus,
 };
-use crate::commands::{control_events_after_from_hub, forward_control_event};
+use crate::commands::{
+    control_events_after_from_hub, forward_control_event, publish_attention_ack,
+    publish_attention_mark_all_read,
+};
 use crate::event_hub::EventHub;
 use crate::pty::{
     MemoryEventSink, PtyManager, TerminalOutputEvent, TerminalStatus, TerminalStatusEvent,
@@ -619,6 +622,26 @@ fn control_events_after_replays_from_the_requested_sequence() {
     assert_eq!(replay.len(), 1);
     assert_eq!(replay[0].event_id, "two");
     assert!(control_events_after_from_hub(&hub, 3).is_empty());
+}
+
+#[test]
+fn acknowledgement_commands_publish_normalized_scoped_events() {
+    let hub = EventHub::new(4);
+    let ack = publish_attention_ack(&hub, "project-1", "agent-1").expect("ack event");
+    let mark_all = publish_attention_mark_all_read(&hub, "project-1").expect("mark all event");
+
+    assert_eq!(ack.sequence, 1);
+    assert_eq!(ack.project_id, "project-1");
+    assert_eq!(ack.agent_id.as_deref(), Some("agent-1"));
+    assert_eq!(ack.source, AgentEventSource::User);
+    assert_eq!(ack.kind, AgentEventKind::AttentionAck);
+    assert_eq!(ack.payload, AgentEventPayload::Empty);
+    assert_eq!(mark_all.sequence, 2);
+    assert_eq!(mark_all.project_id, "project-1");
+    assert_eq!(mark_all.agent_id, None);
+    assert_eq!(mark_all.source, AgentEventSource::User);
+    assert_eq!(mark_all.kind, AgentEventKind::AttentionMarkAllRead);
+    assert_eq!(hub.subscribe_after(0), vec![ack, mark_all]);
 }
 
 #[test]

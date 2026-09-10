@@ -1,5 +1,5 @@
 use crate::agents::{self, Agent, AgentManager, AgentProvider, LaunchAgentRequest};
-use crate::control::AgentEventEnvelope;
+use crate::control::{AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource};
 use crate::error::BackendError;
 use crate::event_hub::EventHub;
 use crate::pty::{
@@ -9,6 +9,7 @@ use crate::pty::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
+use uuid::Uuid;
 
 const MAX_COLS: u16 = 10_000;
 const MAX_ROWS: u16 = 10_000;
@@ -295,6 +296,84 @@ pub fn control_events_after(
     sequence: u64,
 ) -> Vec<AgentEventEnvelope> {
     control_events_after_from_hub(event_hub.inner(), sequence)
+}
+
+fn validate_attention_scope(project_id: &str, agent_id: Option<&str>) -> Result<(), BackendError> {
+    if project_id.trim().is_empty() || agent_id.is_some_and(|id| id.trim().is_empty()) {
+        return Err(BackendError::InvalidInput(
+            "attention acknowledgement requires a project and a non-empty agent when supplied"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn publish_attention_event(
+    event_hub: &EventHub,
+    project_id: &str,
+    agent_id: Option<&str>,
+    kind: AgentEventKind,
+) -> Result<AgentEventEnvelope, BackendError> {
+    validate_attention_scope(project_id, agent_id)?;
+    let mut event = AgentEventEnvelope::new(
+        Uuid::new_v4().to_string(),
+        project_id.to_owned(),
+        agent_id.map(str::to_owned),
+        kind,
+        AgentEventPayload::Empty,
+    );
+    event.source = AgentEventSource::User;
+    event_hub
+        .publish(event)
+        .ok_or_else(|| BackendError::Internal("could not publish attention event".to_owned()))
+}
+
+pub(crate) fn publish_attention_ack(
+    event_hub: &EventHub,
+    project_id: &str,
+    agent_id: &str,
+) -> Result<AgentEventEnvelope, BackendError> {
+    publish_attention_event(
+        event_hub,
+        project_id,
+        Some(agent_id),
+        AgentEventKind::AttentionAck,
+    )
+}
+
+pub(crate) fn publish_attention_mark_all_read(
+    event_hub: &EventHub,
+    project_id: &str,
+) -> Result<AgentEventEnvelope, BackendError> {
+    publish_attention_event(
+        event_hub,
+        project_id,
+        None,
+        AgentEventKind::AttentionMarkAllRead,
+    )
+}
+
+#[tauri::command]
+pub fn attention_ack(
+    app: AppHandle,
+    event_hub: State<'_, EventHub>,
+    project_id: String,
+    agent_id: String,
+) -> Result<AgentEventEnvelope, BackendError> {
+    let event = publish_attention_ack(event_hub.inner(), &project_id, &agent_id)?;
+    let _ = app.emit("control-event", event.clone());
+    Ok(event)
+}
+
+#[tauri::command]
+pub fn attention_mark_all_read(
+    app: AppHandle,
+    event_hub: State<'_, EventHub>,
+    project_id: String,
+) -> Result<AgentEventEnvelope, BackendError> {
+    let event = publish_attention_mark_all_read(event_hub.inner(), &project_id)?;
+    let _ = app.emit("control-event", event.clone());
+    Ok(event)
 }
 
 #[tauri::command]

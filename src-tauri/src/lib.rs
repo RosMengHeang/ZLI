@@ -12,9 +12,10 @@ mod event_hub;
 mod git;
 
 use commands::{
-    control_events_after, create_terminal, detect_agent_providers, detect_providers, kill_terminal,
-    launch_agent, list_agent_providers, list_agents, pty_close, pty_create, pty_resize, pty_write,
-    resize_terminal, stop_agent, write_terminal,
+    attention_ack, attention_mark_all_read, control_events_after, create_terminal,
+    detect_agent_providers, detect_providers, kill_terminal, launch_agent, list_agent_providers,
+    list_agents, pty_close, pty_create, pty_resize, pty_write, resize_terminal, stop_agent,
+    write_terminal,
 };
 use git::commands::{
     git_abort_merge, git_commit, git_create_worktree, git_delete_branch, git_diff,
@@ -73,6 +74,8 @@ pub fn run() {
             stop_agent,
             list_agents,
             control_events_after,
+            attention_ack,
+            attention_mark_all_read,
             git_validate_repository,
             git_create_worktree,
             git_list_worktrees,

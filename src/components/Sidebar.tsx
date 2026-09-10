@@ -27,6 +27,7 @@ import { useProjectStore } from "../stores/projectStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useUiStore } from "../stores/uiStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
+import { useAttentionStore } from "../stores/attentionStore";
 import type { Agent } from "../types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,6 +73,7 @@ export function Sidebar() {
   const forgetAgent = useWorkspaceStore((state) => state.forgetAgent);
   const forgetAgents = useWorkspaceStore((state) => state.forgetAgents);
   const [projectSearch, setProjectSearch] = useState("");
+  const attentionRecords = useAttentionStore((state) => state.records);
 
   const filteredWorkspaces = projectSearch.trim()
     ? workspaces.filter((workspace) =>
@@ -140,6 +142,9 @@ export function Sidebar() {
     const active = Boolean(agent && agent.id === selectedAgentId && isActive(workspace));
     const terminal = agent ? terminalSessions[agent.terminalId] : undefined;
     const displayedStatus = terminal?.status ?? agent?.status;
+    const attention = agent
+      ? attentionRecords[`${workspace.project.path}\u0000${agent.id}`]
+      : undefined;
     const saved = !agent;
     const hasIsolatedWorktree = Boolean(
       agent?.worktreePath &&
@@ -159,7 +164,13 @@ export function Sidebar() {
         >
           <ProviderIcon provider={recipe.provider} size="sm" bare className="workspace-agent-logo" />
           <span className="workspace-agent-name">{recipe.name}</span>
-          {displayedStatus ? <StatusBadge status={displayedStatus} compact /> : <span className="status-dot" data-tone="neutral" aria-hidden="true" />}
+          {displayedStatus ? (
+            <StatusBadge
+              status={displayedStatus}
+              attentionStatus={attention?.attentionStatus}
+              unread={attention?.unread}
+            />
+          ) : <span className="status-dot" data-tone="neutral" aria-hidden="true" />}
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-xs" className="workspace-agent-menu" aria-label={`${recipe.name} actions`}><IconMore /></Button></DropdownMenuTrigger>
@@ -206,6 +217,9 @@ export function Sidebar() {
       branch: workspace.project.currentBranch || workspace.project.baseBranch,
       path: workspace.project.path,
     });
+    const projectUnreadCount = Object.values(attentionRecords)
+      .filter((record) => record.projectId === workspace.project.path)
+      .reduce((count, record) => count + record.unreadCount, 0);
 
     return (
       <section key={workspace.root} className="workspace-tree-group" data-active={active}>
@@ -222,6 +236,11 @@ export function Sidebar() {
               >
                 {expanded ? <IconFolderOpen className="workspace-project-folder" /> : <IconFolder className="workspace-project-folder" />}
                 <span className="workspace-project-name">{workspace.project.name}</span>
+                {projectUnreadCount ? (
+                  <span className="workspace-project-attention-count" aria-label={`${projectUnreadCount} unread agent updates`}>
+                    {projectUnreadCount}
+                  </span>
+                ) : null}
               </Button>
             </HoverCardTrigger>
             <HoverCardContent side="right" align="start" className="workspace-project-hover-card">

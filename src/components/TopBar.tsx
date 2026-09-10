@@ -11,6 +11,7 @@ import { useProjectStore } from "../stores/projectStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useUiStore } from "../stores/uiStore";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { NotificationCenter } from "./NotificationCenter";
 
 function ToolbarButton({ label, children, ...props }: ComponentProps<typeof Button> & { label: string; children: ReactNode }) {
   return (
@@ -63,6 +64,7 @@ export function TopBar() {
           <ToolbarButton label="Toggle TaxChat" variant="ghost" size="sm" disabled={!project || runningCount === 0} onClick={() => setTaxChatOpen(!taxChatOpen)} aria-pressed={taxChatOpen}><span className="topbar-taxchat-mark" aria-hidden="true">TC</span><span className="topbar-action-label">TaxChat</span></ToolbarButton>
           <ToolbarButton label={`Toggle changes (${APP_SHORTCUTS.toggleGit})`} variant="ghost" size="sm" disabled={!project} onClick={() => toggleGitPanel()} aria-keyshortcuts={APP_SHORTCUTS.toggleGit} aria-pressed={gitPanelOpen}><IconGit /><span className="topbar-action-label">Changes</span></ToolbarButton>
         </div>
+        <NotificationCenter projectId={project?.path ?? null} projectName={project?.name ?? null} />
         <DropdownMenu>
           <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-sm" disabled={!paneTree} aria-label="Arrange panes"><IconGrid /></Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-40">

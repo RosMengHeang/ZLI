@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { toAppError } from "../lib/errors";
+import { toAppError } from "../lib/errors.ts";
 
 export function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;

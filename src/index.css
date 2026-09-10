@@ -3276,3 +3276,118 @@ input[type="radio"] {
 .workspace-project-hover-actions button:hover {
   background: var(--surface-hover);
 }
+
+/* Attention uses the existing semantic palette so urgency is visible without adding ornament. */
+.status-dot[data-unread="true"] {
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 24%, transparent);
+}
+
+.workspace-project-attention-count,
+.notification-trigger-count {
+  color: var(--warning);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.workspace-project-attention-count {
+  margin-left: auto;
+}
+
+.notification-trigger {
+  min-width: 30px;
+  gap: 4px;
+  padding-inline: 7px;
+}
+
+.notification-panel {
+  width: min(360px, calc(100vw - 16px));
+  max-height: min(480px, calc(100vh - 64px));
+  padding: 4px;
+}
+
+.notification-header {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 4px 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.notification-header button {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.notification-list {
+  display: grid;
+  gap: 1px;
+}
+
+.notification-item {
+  min-height: 52px;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px;
+}
+
+.notification-item .status-dot {
+  flex: 0 0 auto;
+  margin-top: 5px;
+}
+
+.notification-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.notification-copy strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-copy span,
+.notification-item time {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.notification-copy .notification-meta {
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+}
+
+.notification-item time {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.notification-state {
+  padding: 18px 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.notification-error {
+  color: var(--danger);
+}
+
+.notification-error > div {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 8px;
+}
