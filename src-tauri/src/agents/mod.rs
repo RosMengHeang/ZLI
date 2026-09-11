@@ -257,6 +257,17 @@ impl AgentManager {
         Ok(())
     }
 
+    /// Remove an agent record after its runtime session has already been
+    /// stopped or forgotten. This does not touch the PTY or process.
+    pub fn forget(&self, id: &str) -> Result<bool, BackendError> {
+        Ok(self
+            .agents
+            .lock()
+            .map_err(|_| BackendError::Internal("agent lock poisoned".into()))?
+            .remove(id)
+            .is_some())
+    }
+
     /// Roll back a launch transaction. Unlike a user stop, this must forget
     /// an unbound PTY as well, because the caller is abandoning the launch
     /// before the terminal is visible or associated with an agent.
@@ -696,5 +707,31 @@ bearer_token_env_var = "SWARMTERM_SESSION"
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn forgetting_an_agent_record_does_not_touch_the_pty() {
+        let directory = tempdir().unwrap();
+        let pty = crate::pty::PtyManager::new();
+        let agents = AgentManager::new();
+        let agent = agents
+            .launch(
+                LaunchAgentRequest {
+                    name: "forget-test".to_owned(),
+                    provider: "shell".to_owned(),
+                    cwd: directory.path().to_string_lossy().into_owned(),
+                    create_worktree: false,
+                    cols: Some(80),
+                    rows: Some(24),
+                },
+                &pty,
+                Arc::new(MemoryEventSink::default()),
+            )
+            .unwrap();
+
+        assert!(agents.forget(&agent.id).unwrap());
+        assert_eq!(pty.session_count(), 1);
+        pty.kill(&agent.terminal_id).unwrap();
+        assert!(agents.list(&pty).unwrap().is_empty());
     }
 }
