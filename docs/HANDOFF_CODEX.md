@@ -39,6 +39,12 @@ remain as hidden offline agents. If Windows rejects job assignment, ZLI keeps
 the existing root-child termination path and retains the verified ownership
 ledger safeguards.
 
+On macOS and Linux, `portable-pty` creates the provider as a new session
+leader. ZLI records that leader's process group only when its ID matches the
+exact PTY root PID, sends HUP to that group first, and escalates to KILL after
+a bounded grace period. The root-child termination path remains as a fallback
+when the group cannot be observed.
+
 Launch is transactional across the PTY, agent registry, supervisor, and
 worktree layers. If provider startup, terminal binding, ownership recording,
 or session registration fails, ZLI aborts the newly created PTY and removes

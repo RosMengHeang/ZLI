@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use super::process::ProcessGroup;
 use super::process::{capture, ProcessIdentity};
 use crate::control::prompt_detector::AgentOutputNormalizer;
 use crate::control::{AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource};
@@ -99,6 +101,8 @@ struct SessionHandle {
     writer: Mutex<Box<dyn Write + Send>>,
     child: Mutex<Box<dyn Child + Send>>,
     process_identity: Option<ProcessIdentity>,
+    #[cfg(unix)]
+    process_group: Option<ProcessGroup>,
     #[cfg(windows)]
     process_tree: Option<super::process::ProcessTree>,
     size: Mutex<(u16, u16)>,
@@ -284,6 +288,10 @@ impl PtyManager {
             .map_err(|error| BackendError::Pty(error.to_string()))?;
         drop(pair.slave);
         let process_identity = child.process_id().and_then(capture);
+        #[cfg(unix)]
+        let process_group = child
+            .process_id()
+            .and_then(|process_id| capture_process_group(&*pair.master, process_id));
         #[cfg(windows)]
         let process_tree = child
             .process_id()
@@ -305,6 +313,8 @@ impl PtyManager {
             writer: Mutex::new(writer),
             child: Mutex::new(child),
             process_identity,
+            #[cfg(unix)]
+            process_group,
             #[cfg(windows)]
             process_tree,
             size: Mutex::new((cols, rows)),
@@ -614,6 +624,20 @@ fn write_agent_input(
     Ok(())
 }
 
+#[cfg(unix)]
+fn capture_process_group(master: &dyn MasterPty, process_id: u32) -> Option<ProcessGroup> {
+    for _ in 0..10 {
+        if let Some(group) = master
+            .process_group_leader()
+            .and_then(|leader| ProcessGroup::from_leader(leader, process_id))
+        {
+            return Some(group);
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    None
+}
+
 fn validate_dimensions(cols: u16, rows: u16) -> Result<(), BackendError> {
     if cols == 0 || rows == 0 || cols > MAX_COLS || rows > MAX_ROWS {
         return Err(BackendError::InvalidInput(format!(
@@ -681,6 +705,10 @@ impl SessionHandle {
     }
 
     fn terminate(&self) {
+        #[cfg(unix)]
+        if let Some(process_group) = self.process_group.as_ref() {
+            let _ = process_group.terminate();
+        }
         #[cfg(windows)]
         if let Some(process_tree) = self.process_tree.as_ref() {
             let _ = process_tree.terminate();

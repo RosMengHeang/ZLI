@@ -242,6 +242,67 @@ mod windows_impl {
 #[cfg(windows)]
 pub(crate) use windows_impl::ProcessTree;
 
+#[cfg(unix)]
+mod unix_impl {
+    use std::io;
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    const GRACE_PERIOD: Duration = Duration::from_millis(250);
+    const TERMINATION_TIMEOUT: Duration = Duration::from_secs(5);
+    const POLL_INTERVAL: Duration = Duration::from_millis(25);
+
+    pub(crate) struct ProcessGroup {
+        id: libc::pid_t,
+    }
+
+    impl ProcessGroup {
+        pub(crate) fn from_leader(id: libc::pid_t, process_id: u32) -> Option<Self> {
+            let process_id = libc::pid_t::try_from(process_id).ok()?;
+            (id > 1 && id == process_id).then_some(Self { id })
+        }
+
+        pub(crate) fn terminate(&self) -> bool {
+            let group = -self.id;
+            let graceful = unsafe { libc::kill(group, libc::SIGHUP) } == 0;
+            if !graceful {
+                return io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+            }
+
+            let deadline = Instant::now() + GRACE_PERIOD;
+            while Instant::now() < deadline {
+                if !group_exists(group) {
+                    return true;
+                }
+                thread::sleep(POLL_INTERVAL);
+            }
+
+            let forced = unsafe { libc::kill(group, libc::SIGKILL) == 0 }
+                || io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+            forced && wait_for_group_exit(group)
+        }
+    }
+
+    fn group_exists(group: libc::pid_t) -> bool {
+        unsafe { libc::kill(group, 0) == 0 }
+        || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+
+    fn wait_for_group_exit(group: libc::pid_t) -> bool {
+        let deadline = Instant::now() + TERMINATION_TIMEOUT;
+        while Instant::now() < deadline {
+            if !group_exists(group) {
+                return true;
+            }
+            thread::sleep(POLL_INTERVAL);
+        }
+        !group_exists(group)
+    }
+}
+
+#[cfg(unix)]
+pub(crate) use unix_impl::ProcessGroup;
+
 #[cfg(windows)]
 pub fn capture(pid: u32) -> Option<ProcessIdentity> {
     windows_impl::capture(pid)

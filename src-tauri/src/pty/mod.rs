@@ -275,6 +275,57 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn killing_terminal_terminates_provider_process_group() {
+        let directory = tempdir().unwrap();
+        let child_pid_file = directory.path().join("child.pid");
+        let manager = PtyManager::new();
+        let terminal = manager
+            .spawn_agent_with_size_args(
+                crate::system::find_executable(&["/bin/sh"]).expect("/bin/sh"),
+                vec![
+                    "-c".into(),
+                    "sleep 30 & child=$!; printf '%s' \"$child\" > \"$1\"; wait \"$child\"".into(),
+                    "zli-process-group-test".into(),
+                    child_pid_file.as_os_str().to_owned(),
+                ],
+                Some(directory.path().to_string_lossy().as_ref()),
+                120,
+                30,
+                std::sync::Arc::new(MemoryEventSink::default()),
+            )
+            .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let child_pid = loop {
+            if let Ok(value) = fs::read_to_string(&child_pid_file) {
+                if let Ok(pid) = value.trim().parse::<u32>() {
+                    break pid;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "provider descendant did not start"
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        };
+        assert!(unix_process_exists(child_pid));
+
+        manager
+            .kill(&terminal.id)
+            .expect("kill terminal process group");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while unix_process_exists(child_pid) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        assert!(
+            !unix_process_exists(child_pid),
+            "provider descendant survived terminal kill"
+        );
+    }
+
     #[cfg(windows)]
     fn windows_process_exists(pid: u32) -> bool {
         let output = Command::new("tasklist")
@@ -284,6 +335,15 @@ mod tests {
         String::from_utf8_lossy(&output.stdout)
             .split_whitespace()
             .any(|token| token == pid.to_string())
+    }
+
+    #[cfg(unix)]
+    fn unix_process_exists(pid: u32) -> bool {
+        let Ok(pid) = libc::pid_t::try_from(pid) else {
+            return false;
+        };
+        unsafe { libc::kill(pid, 0) == 0 }
+        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
     }
 
     #[test]
