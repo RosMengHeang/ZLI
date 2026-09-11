@@ -11,7 +11,7 @@ npm install
 npm run tauri dev
 ```
 
-Use `npm run tauri dev`, not `npm run dev`: the latter starts only the web frontend and cannot provide terminals, worktrees, the local API, or the WebView2 browser surface. The Tauri command also builds the development `zli.exe` used by managed agents.
+Use `npm run tauri dev`, not `npm run dev`: the latter starts only the web frontend and cannot provide terminals, worktrees, the local API, or the WebView2 browser surface. The Tauri command also builds the development `zli.exe` and `zli-browser-use.exe` used by managed agents.
 
 ## Verify and package
 
@@ -23,7 +23,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 npm run tauri build
 ```
 
-The release wrapper builds `zli` for the current Rust target, names it using Tauri's target-triple convention, and includes it beside the desktop executable. Managed child agents receive its absolute path as `ZLI_COMMAND`, and its directory is prepended to their `PATH`.
+The release wrapper builds `zli` and `zli-browser-use` for the current Rust target, names both using Tauri's target-triple convention, and includes them with the desktop bundle. Managed child agents receive the scoped CLI and Browser Use adapter paths through their environment, and the directory is prepended to their `PATH`.
 
 ## Local control API
 
@@ -38,8 +38,16 @@ zli attention
 zli agent queue --project D:\path\to\repo
 zli agent send <agent-id> "Run the focused tests"
 zli session resume <session-id>
+zli browser status
+zli browser doctor --agent <agent-id>
 zli browser snapshot <surface-id>
 zli taxchat send "Review the release" --project D:\path\to\repo
 ```
 
 Add `--json` for machine-readable output. `zli health` is read-only: it reports session counts, active and reserved agent capacity, event replay state, and whether durable event persistence is healthy. `zli doctor` and `zli session reconcile` remain the explicit recovery commands and may change runtime ownership state.
+
+## Built-in browser control
+
+The browser is a Tauri WebView2 pane owned by ZLI, not a connection to the user's Chrome profile. A new clean profile starts with `Enable built-in browser control` enabled in Preferences. `zli browser status` checks the authenticated desktop bridge; `zli browser doctor --agent <agent-id>` reports the scoped profile, CLI fallback, Browser Use adapter, and provider MCP configuration without exposing credentials.
+
+Managed agents receive `ZLI_BROWSER_PROFILE`, `ZLI_BROWSER_SESSION`, and `ZLI_BROWSER_USE_COMMAND`. Providers with an accepted MCP launch configuration can use the provider-neutral `zli-browser-use` adapter; all managed sessions have the scoped `zli browser ...` fallback. ZLI reports unsupported or fallback providers honestly instead of assuming every CLI can discover MCP from a prompt.

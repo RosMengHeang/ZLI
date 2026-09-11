@@ -1,8 +1,8 @@
 use crate::agents::{self, Agent, AgentManager, AgentProvider, LaunchAgentRequest};
 use crate::control::browser::commands::BrowserCapability;
 use crate::control::{
-    AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, BrowserManager,
-    BrowserSurfaceRecord, ProjectSnapshot, ReconcileReport, ReconnectResult, RestoreResult,
+    AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, BrowserControlStatus,
+    BrowserManager, BrowserSurfaceRecord, ProjectSnapshot, ReconcileReport, ReconnectResult, RestoreResult,
     SessionCommandError, SessionDescriptor, Supervisor, TauriBrowserExecutor,
 };
 use crate::error::BackendError;
@@ -557,6 +557,23 @@ pub fn browser_close_surface(
     surface_id: String,
 ) -> Result<BrowserSurfaceRecord, crate::control::ControlError> {
     browser.close(&surface_id)
+}
+
+#[tauri::command]
+pub fn browser_control_status(
+    browser: State<'_, Arc<BrowserManager>>,
+    profile_id: Option<String>,
+) -> Result<BrowserControlStatus, crate::control::ControlError> {
+    browser.control_status(profile_id.as_deref().unwrap_or("clean"))
+}
+
+#[tauri::command]
+pub fn browser_control_set(
+    browser: State<'_, Arc<BrowserManager>>,
+    profile_id: Option<String>,
+    enabled: bool,
+) -> Result<BrowserControlStatus, crate::control::ControlError> {
+    browser.set_control_enabled(profile_id.as_deref().unwrap_or("clean"), enabled)
 }
 
 fn validate_attention_scope(project_id: &str, agent_id: Option<&str>) -> Result<(), BackendError> {

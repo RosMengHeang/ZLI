@@ -1,5 +1,6 @@
 use super::attention::{AttentionReducer, AttentionState};
 use super::browser::commands::{BrowserCapability, BrowserCommand, BrowserResult};
+use super::browser::gateway;
 use super::{
     BrowserExecutor, BrowserManager, CallerIdentity, Capability, CommandRouter, ControlError,
     ControlErrorCode, ControlHandler, ControlMethod, ControlRequest, ControlResponse,
@@ -189,7 +190,13 @@ impl ControlHandler for RuntimeControlHandler {
                 let mut spawn: SpawnAgentRequest = serde_json::from_value(request.params.clone())
                     .map_err(|_| invalid_params("agent.spawn"))?;
                 apply_spawn_scope(&mut spawn, identity)?;
-                serde_json::to_value(self.team.spawn(spawn)?).map_err(serialization_error)
+                let child = self.team.spawn(spawn)?;
+                let browser = self
+                    .team
+                    .browser_capability(&child.project_id, &child.agent_id)?;
+                let mut result = serde_json::to_value(child).map_err(serialization_error)?;
+                result["browser"] = serde_json::to_value(browser).map_err(serialization_error)?;
+                Ok(result)
             }
             ControlMethod::AgentSend => {
                 let agent_id = param(&request.params, "agentId")?;
@@ -262,6 +269,78 @@ impl ControlHandler for RuntimeControlHandler {
             }
             ControlMethod::BrowserList => {
                 serde_json::to_value(self.browser.list(identity)).map_err(serialization_error)
+            }
+            ControlMethod::BrowserStatus => {
+                let profile_id = browser_profile_id(&request.params);
+                let status = self.browser.control_status(&profile_id)?;
+                let mut result = json!({
+                    "bridgeAvailable": true,
+                    "controlEnabled": status.enabled,
+                    "profileId": status.profile_id,
+                    "surfaceCount": status.surface_count,
+                });
+                if request.params.get("doctor").and_then(Value::as_bool) == Some(true) {
+                    result["checks"] = json!({
+                        "endpoint": { "ok": true, "detail": "Authenticated desktop bridge responded." },
+                        "token": { "ok": identity.caller_id != "zli-ui", "detail": "Scoped agent credentials are accepted." },
+                        "profile": { "ok": status.enabled, "detail": if status.enabled { "Clean browser control is enabled." } else { "Enable built-in browser control in Preferences." } },
+                    });
+                    if let Some(agent_id) = request
+                        .params
+                        .get("agentId")
+                        .and_then(Value::as_str)
+                        .filter(|value| !value.trim().is_empty())
+                    {
+                        let project_id = request
+                            .params
+                            .get("projectId")
+                            .and_then(Value::as_str)
+                            .filter(|value| !value.trim().is_empty())
+                            .or_else(|| (identity.project_id != "*").then_some(identity.project_id.as_str()))
+                            .unwrap_or("*");
+                        let browser = self.team.browser_capability(project_id, agent_id)?;
+                        result["agent"] = serde_json::to_value(browser).map_err(serialization_error)?;
+                    }
+                }
+                Ok(result)
+            }
+            ControlMethod::BrowserControlStatus => {
+                serde_json::to_value(self.browser.control_status(&browser_profile_id(&request.params))?)
+                    .map_err(serialization_error)
+            }
+            ControlMethod::BrowserControlSet => {
+                if identity.caller_id != "zli-ui" {
+                    return Err(ControlError::new(
+                        ControlErrorCode::CapabilityDenied,
+                        "Only the ZLI desktop can change browser control settings",
+                    ));
+                }
+                let profile_id = browser_profile_id(&request.params);
+                let enabled = request
+                    .params
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .ok_or_else(|| invalid_params("browser.control_set enabled"))?;
+                serde_json::to_value(self.browser.set_control_enabled(&profile_id, enabled)?)
+                    .map_err(serialization_error)
+            }
+            ControlMethod::BrowserUse => {
+                let (method, params) = gateway::decode_browser_use(request.params.clone())?;
+                let required = browser_gateway_capability(method);
+                if !identity.allows(required) {
+                    return Err(ControlError::new(
+                        ControlErrorCode::CapabilityDenied,
+                        "Caller does not have permission for this browser tool",
+                    ));
+                }
+                let delegated = ControlRequest {
+                    id: request.id.clone(),
+                    protocol_version: request.protocol_version,
+                    method,
+                    params,
+                    timeout_ms: request.timeout_ms,
+                };
+                self.handle(&delegated, identity)
             }
             ControlMethod::BrowserOpen => {
                 let project_id = request
@@ -538,4 +617,32 @@ fn invalid_params(method: &str) -> ControlError {
         ControlErrorCode::InvalidControlRequest,
         format!("Invalid parameters for {method}"),
     )
+}
+
+fn browser_profile_id(params: &Value) -> String {
+    params
+        .get("profileId")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("clean")
+        .to_owned()
+}
+
+fn browser_gateway_capability(method: ControlMethod) -> Capability {
+    match method {
+        ControlMethod::BrowserStatus
+        | ControlMethod::BrowserControlStatus
+        | ControlMethod::BrowserWait
+        | ControlMethod::BrowserSnapshot
+        | ControlMethod::BrowserConsole
+        | ControlMethod::BrowserErrors => Capability::BrowserRead,
+        ControlMethod::BrowserEval => Capability::BrowserJavascript,
+        ControlMethod::BrowserOpen
+        | ControlMethod::BrowserNavigate
+        | ControlMethod::BrowserClick
+        | ControlMethod::BrowserFill
+        | ControlMethod::BrowserPress
+        | ControlMethod::BrowserScreenshot => Capability::BrowserControl,
+        _ => Capability::BrowserControl,
+    }
 }

@@ -30,5 +30,15 @@ test("Tauri release builds receive sidecar configuration without affecting dev c
   const build = tauriArguments(["build", "--bundles", "nsis"]);
   assert.deepEqual(build.slice(0, 3), ["build", "--bundles", "nsis"]);
   assert.equal(build.at(-2), "--config");
-  assert.deepEqual(JSON.parse(build.at(-1)), { bundle: { externalBin: ["binaries/zli"] } });
+  assert.deepEqual(JSON.parse(build.at(-1)), { bundle: { externalBin: ["binaries/zli", "binaries/zli-browser-use"] } });
+});
+
+test("browser-use sidecars resolve to the paired release binary", async () => {
+  const { browserUseBuiltBinaryPath, browserUseSidecarFileName } = await import("../scripts/prepare-zli-sidecar.mjs");
+
+  assert.equal(browserUseSidecarFileName("x86_64-pc-windows-msvc"), "zli-browser-use-x86_64-pc-windows-msvc.exe");
+  assert.equal(
+    browserUseBuiltBinaryPath(path.resolve("build-target"), "x86_64-pc-windows-msvc", true),
+    path.join(path.resolve("build-target"), "x86_64-pc-windows-msvc", "release", "zli-browser-use.exe"),
+  );
 });

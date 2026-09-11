@@ -171,11 +171,15 @@ fn capability_for(method: ControlMethod) -> Capability {
         ControlMethod::RuntimeHealth => Capability::RuntimeRead,
         ControlMethod::TaxChatSend => Capability::TaxChatSend,
         ControlMethod::BrowserList
+        | ControlMethod::BrowserStatus
+        | ControlMethod::BrowserControlStatus
         | ControlMethod::BrowserWait
         | ControlMethod::BrowserSnapshot
         | ControlMethod::BrowserConsole
         | ControlMethod::BrowserErrors => Capability::BrowserRead,
         ControlMethod::BrowserOpen
+        | ControlMethod::BrowserControlSet
+        | ControlMethod::BrowserUse
         | ControlMethod::BrowserNavigate
         | ControlMethod::BrowserClick
         | ControlMethod::BrowserFill

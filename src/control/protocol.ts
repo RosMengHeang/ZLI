@@ -7,7 +7,8 @@ export type ControlMethod =
   | "attention.list" | "attention.ack"
   | "session.list" | "session.reconcile" | "session.resume"
   | "runtime.health"
-  | "browser.list" | "browser.open" | "browser.navigate" | "browser.wait" | "browser.snapshot"
+  | "browser.list" | "browser.status" | "browser.control_status" | "browser.control_set" | "browser.use"
+  | "browser.open" | "browser.navigate" | "browser.wait" | "browser.snapshot"
   | "browser.click" | "browser.fill" | "browser.press" | "browser.eval" | "browser.console"
   | "browser.errors" | "browser.screenshot"
   | "taxchat.send";

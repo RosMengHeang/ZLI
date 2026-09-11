@@ -199,6 +199,13 @@ fn parse_command(args: &[String]) -> Result<(ControlMethod, Value), String> {
             ))
         }
         (Some("browser"), Some("list")) => Ok((ControlMethod::BrowserList, json!({}))),
+        (Some("browser"), Some("status")) => Ok((ControlMethod::BrowserStatus, json!({}))),
+        (Some("browser"), Some("doctor")) => Ok((
+            ControlMethod::BrowserStatus,
+            option(args, "--agent")
+                .map(|agent_id| json!({ "doctor": true, "agentId": agent_id }))
+                .unwrap_or_else(|| json!({ "doctor": true })),
+        )),
         (Some("browser"), Some(action)) => parse_browser_command(args, action),
         (Some("taxchat"), Some("send")) => {
             let project_id = option(args, "--project")
@@ -433,7 +440,7 @@ fn joined(args: &[String], start: usize, label: &str) -> Result<String, String> 
 
 #[cfg(windows)]
 fn usage() -> String {
-    "unknown command. Try: status | health [--project <path>] | doctor | agents | agent queue [--project <path>] | attention [list] | attention ack <agent> --project <path> | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | worktree audit --project <path> | session list | session reconcile | session resume <id> | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message> --project <path> [--to <agent>]".into()
+    "unknown command. Try: status | health [--project <path>] | doctor | agents | agent queue [--project <path>] | attention [list] | attention ack <agent> --project <path> | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | worktree audit --project <path> | session list | session reconcile | session resume <id> | browser status | browser doctor [--agent <agent-id>] | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message> --project <path> [--to <agent>]".into()
 }
 
 #[cfg(windows)]
@@ -530,5 +537,18 @@ mod tests {
 
         let error = parse_command(&args).expect_err("project should be required");
         assert!(error.contains("project"));
+    }
+
+    #[test]
+    fn browser_status_reports_the_desktop_bridge() {
+        let args = ["browser", "status"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+
+        let (method, params) = parse_command(&args).expect("parse browser status");
+
+        assert_eq!(method, ControlMethod::BrowserStatus);
+        assert_eq!(params, json!({}));
     }
 }

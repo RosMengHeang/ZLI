@@ -44,6 +44,14 @@ pub enum ControlMethod {
     RuntimeHealth,
     #[serde(rename = "browser.list")]
     BrowserList,
+    #[serde(rename = "browser.status")]
+    BrowserStatus,
+    #[serde(rename = "browser.control_status")]
+    BrowserControlStatus,
+    #[serde(rename = "browser.control_set")]
+    BrowserControlSet,
+    #[serde(rename = "browser.use")]
+    BrowserUse,
     #[serde(rename = "browser.open")]
     BrowserOpen,
     #[serde(rename = "browser.navigate")]
@@ -232,6 +240,7 @@ pub enum ControlErrorCode {
     BrowserCommandTimeout,
     BrowserInvalidCommand,
     BrowserResultTooLarge,
+    BrowserControlDisabled,
     ControlTimeout,
     ControlRuntimeError,
     MethodNotImplemented,
@@ -257,6 +266,7 @@ impl ControlErrorCode {
             Self::BrowserCommandTimeout => "BROWSER_COMMAND_TIMEOUT",
             Self::BrowserInvalidCommand => "BROWSER_INVALID_COMMAND",
             Self::BrowserResultTooLarge => "BROWSER_RESULT_TOO_LARGE",
+            Self::BrowserControlDisabled => "BROWSER_CONTROL_DISABLED",
             Self::ControlTimeout => "CONTROL_TIMEOUT",
             Self::ControlRuntimeError => "CONTROL_RUNTIME_ERROR",
             Self::MethodNotImplemented => "METHOD_NOT_IMPLEMENTED",

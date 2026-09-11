@@ -19,6 +19,16 @@ export interface BrowserSurfaceRecord {
   createdAt: string;
 }
 
+export interface BrowserControlStatus {
+  profileId: string;
+  enabled: boolean;
+  surfaceCount: number;
+}
+
+export interface BrowserRuntimeStatus extends BrowserControlStatus {
+  bridgeAvailable: boolean;
+}
+
 export const BROWSER_LIMITS = Object.freeze({
   maxSnapshotCharacters: 100_000,
   maxScriptCharacters: 20_000,

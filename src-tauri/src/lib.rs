@@ -14,6 +14,7 @@ mod git;
 use commands::{
     attention_ack, attention_mark_all_read, browser_close_surface, browser_grant_capability,
     browser_register_surface, browser_revoke_capability, browser_update_navigation,
+    browser_control_set, browser_control_status,
     control_events_after, control_request, control_session_reconcile, control_session_reconnect,
     control_session_forget, control_session_restore, control_session_resume,
     control_session_snapshot, create_terminal,
@@ -75,9 +76,10 @@ pub fn run() {
         .manage(event_hub::EventHub::default())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
+            let control_dir = app_data_dir.join("control");
             let pty = app.state::<pty::PtyManager>().inner().clone();
             let events = app.state::<event_hub::EventHub>().inner().clone();
-            events.enable_persistence(app_data_dir.join("control"))?;
+            events.enable_persistence(control_dir.clone())?;
             let supervisor = Arc::new(control::Supervisor::new(
                 app_data_dir.clone(),
                 pty.clone(),
@@ -99,9 +101,15 @@ pub fn run() {
                 observer_slot.clone(),
             );
             let browser_sink = sink.clone();
-            let browser = Arc::new(control::BrowserManager::new(Arc::new(move |event| {
-                browser_sink.emit_control(event);
-            })));
+            let browser_settings = Arc::new(
+                control::BrowserControlSettingsStore::open(&control_dir)?,
+            );
+            let browser = Arc::new(control::BrowserManager::with_settings(
+                Arc::new(move |event| {
+                    browser_sink.emit_control(event);
+                }),
+                browser_settings,
+            ));
             let browser_executor =
                 Arc::new(control::TauriBrowserExecutor::new(app.handle().clone()));
             app.manage(browser.clone());
@@ -194,6 +202,8 @@ pub fn run() {
             browser_grant_capability,
             browser_revoke_capability,
             browser_close_surface,
+            browser_control_status,
+            browser_control_set,
             git_validate_repository,
             git_create_worktree,
             git_list_worktrees,

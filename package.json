@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "test:ui": "node --test tests/uiDesignContract.test.mjs",
-    "prepare:zli-dev": "cargo build --manifest-path src-tauri/Cargo.toml --bin zli",
+    "prepare:zli-dev": "cargo build --manifest-path src-tauri/Cargo.toml --bin zli --bin zli-browser-use",
     "prepare:zli-sidecar": "node scripts/prepare-zli-sidecar.mjs",
     "preview": "vite preview",
     "lint": "eslint src",

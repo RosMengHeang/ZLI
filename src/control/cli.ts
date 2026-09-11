@@ -101,6 +101,11 @@ function command(
   if (group === "doctor") return ["session.reconcile", {}];
   if (group === "browser") {
     if (action === "list") return ["browser.list", {}];
+    if (action === "status") return ["browser.status", {}];
+    if (action === "doctor") {
+      const agentId = option(args, "--agent");
+      return ["browser.status", { doctor: true, ...(agentId ? { agentId } : {}) }];
+    }
     if (action === "open") {
       const projectId = option(args, "--project") ?? environment.projectId;
       const url = option(args, "--url") ?? positional(args)[0];

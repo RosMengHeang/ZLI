@@ -13,12 +13,25 @@ export function sidecarFileName(targetTriple) {
   return `zli-${targetTriple}${isWindowsTarget(targetTriple) ? ".exe" : ""}`;
 }
 
+export function browserUseSidecarFileName(targetTriple) {
+  return `zli-browser-use-${targetTriple}${isWindowsTarget(targetTriple) ? ".exe" : ""}`;
+}
+
 export function builtBinaryPath(targetDir, targetTriple, hasExplicitTarget) {
   return path.join(
     targetDir,
     ...(hasExplicitTarget ? [targetTriple] : []),
     "release",
     `zli${isWindowsTarget(targetTriple) ? ".exe" : ""}`,
+  );
+}
+
+export function browserUseBuiltBinaryPath(targetDir, targetTriple, hasExplicitTarget) {
+  return path.join(
+    targetDir,
+    ...(hasExplicitTarget ? [targetTriple] : []),
+    "release",
+    `zli-browser-use${isWindowsTarget(targetTriple) ? ".exe" : ""}`,
   );
 }
 
@@ -32,16 +45,20 @@ export function prepareZliSidecar(root = projectRoot, environment = process.env)
   if (!targetTriple) throw new Error("Rust did not report a target triple");
 
   const targetDir = path.resolve(root, environment.CARGO_TARGET_DIR || path.join("src-tauri", "target"));
-  const cargoArguments = ["build", "--manifest-path", manifestPath, "--release", "--bin", "zli"];
+  const cargoArguments = ["build", "--manifest-path", manifestPath, "--release", "--bin", "zli", "--bin", "zli-browser-use"];
   if (explicitTarget) cargoArguments.push("--target", explicitTarget);
   execFileSync("cargo", cargoArguments, { cwd: root, env: environment, stdio: "inherit" });
 
   const source = builtBinaryPath(targetDir, targetTriple, Boolean(explicitTarget));
   const destinationDirectory = path.join(root, "src-tauri", "binaries");
   const destination = path.join(destinationDirectory, sidecarFileName(targetTriple));
+  const browserUseSource = browserUseBuiltBinaryPath(targetDir, targetTriple, Boolean(explicitTarget));
+  const browserUseDestination = path.join(destinationDirectory, browserUseSidecarFileName(targetTriple));
   mkdirSync(destinationDirectory, { recursive: true });
   copyFileSync(source, destination);
+  copyFileSync(browserUseSource, browserUseDestination);
   if (!isWindowsTarget(targetTriple)) chmodSync(destination, 0o755);
+  if (!isWindowsTarget(targetTriple)) chmodSync(browserUseDestination, 0o755);
   return destination;
 }
 

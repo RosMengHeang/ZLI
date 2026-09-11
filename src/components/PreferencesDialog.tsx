@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import type { ThemeMode } from "../lib/theme";
 import { useUiStore } from "../stores/uiStore";
+import { useBrowserStore } from "../stores/browserStore";
 import { Modal } from "./Modal";
 
 const THEME_OPTIONS: Array<{ mode: ThemeMode; label: string; description: string }> = [
@@ -13,6 +15,15 @@ export function PreferencesDialog() {
   const setOpen = useUiStore((state) => state.setPreferencesOpen);
   const themeMode = useUiStore((state) => state.themeMode);
   const setThemeMode = useUiStore((state) => state.setThemeMode);
+  const browserControl = useBrowserStore((state) => state.controlStatus);
+  const browserControlLoading = useBrowserStore((state) => state.controlLoading);
+  const browserControlError = useBrowserStore((state) => state.error);
+  const refreshControlStatus = useBrowserStore((state) => state.refreshControlStatus);
+  const setControlEnabled = useBrowserStore((state) => state.setControlEnabled);
+
+  useEffect(() => {
+    if (open && !browserControl) void refreshControlStatus();
+  }, [browserControl, open, refreshControlStatus]);
 
   return (
     <Modal title="Preferences" open={open} onClose={() => setOpen(false)} width={420}>
@@ -35,6 +46,26 @@ export function PreferencesDialog() {
             </span>
           </label>
         ))}
+      </div>
+      <div className="mt-5 border-t border-line pt-4">
+        <label className="flex cursor-pointer items-start justify-between gap-4 rounded-xl border border-line bg-ink px-3 py-3">
+          <span>
+            <span className="block text-[13px] font-medium text-paper">Built-in browser control</span>
+            <span className="mt-1 block text-[11px] leading-5 text-mute">Allow managed agents to inspect and control the isolated Taxzy browser.</span>
+          </span>
+          <input
+            type="checkbox"
+            aria-label="Built-in browser control"
+            checked={browserControl?.enabled ?? false}
+            disabled={browserControlLoading || browserControl?.bridgeAvailable === false}
+            onChange={(event) => void setControlEnabled(event.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
+          />
+        </label>
+        {browserControl?.bridgeAvailable === false ? (
+          <p className="mt-2 text-[11px] text-mute">Start the desktop runtime to change this setting.</p>
+        ) : null}
+        {browserControlError ? <p role="alert" className="mt-2 text-[11px] text-danger">{browserControlError}</p> : null}
       </div>
     </Modal>
   );

@@ -8,10 +8,16 @@ import {
   type BrowserPermissionRegistry,
 } from "../lib/browser/browserPermissions.ts";
 import {
+  getBrowserControlStatus,
   grantBrowserCapability,
   revokeBrowserCapability,
+  setBrowserControlEnabled,
 } from "../lib/browser/browserBridge.ts";
-import type { BrowserCapability, BrowserSurfaceRecord } from "../lib/browser/browserProtocol.ts";
+import type {
+  BrowserCapability,
+  BrowserControlStatus,
+  BrowserSurfaceRecord,
+} from "../lib/browser/browserProtocol.ts";
 import type { AgentEventEnvelope, AgentEventPayload } from "../lib/agentEvents.ts";
 
 const STORAGE_KEY = "taxzy:browser-permissions";
@@ -40,11 +46,15 @@ interface BrowserState {
   pendingCapability: BrowserCapability | null;
   error: string | null;
   automation: { phase: "running" | "completed" | "failed"; operation: string } | null;
+  controlStatus: (BrowserControlStatus & { bridgeAvailable: boolean }) | null;
+  controlLoading: boolean;
   setSurface: (surface: BrowserSurfaceRecord | null) => void;
   setPermissionOpen: (open: boolean) => void;
   savedCapabilities: (projectId: string, profileId: string) => BrowserCapability[];
   restoreProfile: (projectId: string, profileId: string, capabilities: BrowserCapability[]) => void;
   setCapability: (capability: BrowserCapability, granted: boolean) => Promise<void>;
+  refreshControlStatus: () => Promise<void>;
+  setControlEnabled: (enabled: boolean) => Promise<void>;
   applyEvent: (event: AgentEventEnvelope) => void;
 }
 
@@ -55,6 +65,8 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
   pendingCapability: null,
   error: null,
   automation: null,
+  controlStatus: null,
+  controlLoading: false,
   setSurface: (surface) => set({ surface, error: null }),
   setPermissionOpen: (permissionOpen) => set({ permissionOpen }),
   savedCapabilities: (projectId, profileId) => capabilitiesFor(get().registry, projectId, profileId),
@@ -83,6 +95,31 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
     } catch (error) {
       set({
         pendingCapability: null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+  refreshControlStatus: async () => {
+    set({ controlLoading: true });
+    try {
+      const status = await getBrowserControlStatus("clean");
+      set({ controlStatus: { ...status, bridgeAvailable: true }, controlLoading: false, error: null });
+    } catch (error) {
+      set({
+        controlStatus: { profileId: "clean", enabled: false, surfaceCount: 0, bridgeAvailable: false },
+        controlLoading: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+  setControlEnabled: async (enabled) => {
+    set({ controlLoading: true, error: null });
+    try {
+      const status = await setBrowserControlEnabled("clean", enabled);
+      set({ controlStatus: { ...status, bridgeAvailable: true }, controlLoading: false, error: null });
+    } catch (error) {
+      set({
+        controlLoading: false,
         error: error instanceof Error ? error.message : String(error),
       });
     }

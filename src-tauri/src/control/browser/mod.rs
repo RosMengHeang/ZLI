@@ -1,8 +1,11 @@
 pub mod commands;
+pub mod gateway;
+pub mod settings;
 mod executor;
 mod security;
 
 pub use executor::{BrowserExecutor, TauriBrowserExecutor};
+pub use settings::BrowserControlSettingsStore;
 
 use self::commands::{
     BrowserCapability, BrowserCommand, BrowserConsoleEntry, BrowserPageError, BrowserResult,
@@ -33,6 +36,14 @@ pub struct BrowserSurfaceRecord {
     pub created_at: String,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserControlStatus {
+    pub profile_id: String,
+    pub enabled: bool,
+    pub surface_count: usize,
+}
+
 #[derive(Clone, Debug)]
 struct BrowserSurface {
     record: BrowserSurfaceRecord,
@@ -49,6 +60,7 @@ struct BrowserState {
 pub struct BrowserManager {
     state: Arc<Mutex<BrowserState>>,
     publish: EventPublisher,
+    settings: Option<Arc<BrowserControlSettingsStore>>,
 }
 
 impl BrowserManager {
@@ -56,6 +68,18 @@ impl BrowserManager {
         Self {
             state: Arc::new(Mutex::new(BrowserState::default())),
             publish,
+            settings: None,
+        }
+    }
+
+    pub fn with_settings(
+        publish: EventPublisher,
+        settings: Arc<BrowserControlSettingsStore>,
+    ) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(BrowserState::default())),
+            publish,
+            settings: Some(settings),
         }
     }
 
@@ -81,12 +105,22 @@ impl BrowserManager {
             ));
         }
         BrowserCommand::Open { url: url.clone() }.validate()?;
-        let capabilities = self
+        let capabilities = match self
             .state()
             .profile_capabilities
             .get(&(project_id.clone(), profile_id.clone()))
             .cloned()
-            .unwrap_or_default();
+        {
+            Some(capabilities) => capabilities,
+            None if self
+                .settings
+                .as_ref()
+                .is_some_and(|settings| settings.is_enabled(&profile_id).unwrap_or(false)) =>
+            {
+                vec![BrowserCapability::Read, BrowserCapability::Control]
+            }
+            None => Vec::new(),
+        };
         let record = BrowserSurfaceRecord {
             surface_id: Uuid::new_v4().to_string(),
             project_id,
@@ -195,8 +229,65 @@ impl BrowserManager {
             .get(surface_id)
             .map(|surface| surface.record.clone())
             .ok_or_else(not_found)?;
+        if identity.project_id != "*" && identity.project_id != record.project_id {
+            return Err(ControlError::new(
+                ControlErrorCode::BrowserSurfaceForbidden,
+                "Browser surface belongs to another project",
+            ));
+        }
+        if let (Some(caller_agent), Some(surface_agent)) =
+            (identity.agent_id.as_deref(), record.agent_id.as_deref())
+        {
+            if caller_agent != surface_agent {
+                return Err(ControlError::new(
+                    ControlErrorCode::BrowserSurfaceForbidden,
+                    "Browser surface belongs to another agent",
+                ));
+            }
+        }
+        if self.settings.is_some() && !self.control_enabled(&record.profile_id)? {
+            return Err(ControlError::new(
+                ControlErrorCode::BrowserControlDisabled,
+                "Built-in browser control is disabled for this profile",
+            ));
+        }
         security::authorize_surface(identity, &record, command.kind())?;
         Ok(record)
+    }
+
+    pub fn control_status(&self, profile_id: &str) -> Result<BrowserControlStatus, ControlError> {
+        let enabled = self.control_enabled(profile_id)?;
+        let surface_count = self
+            .state()
+            .surfaces
+            .values()
+            .filter(|surface| surface.record.profile_id == profile_id)
+            .count();
+        Ok(BrowserControlStatus {
+            profile_id: profile_id.to_owned(),
+            enabled,
+            surface_count,
+        })
+    }
+
+    pub fn set_control_enabled(
+        &self,
+        profile_id: &str,
+        enabled: bool,
+    ) -> Result<BrowserControlStatus, ControlError> {
+        let settings = self.settings.as_ref().ok_or_else(|| {
+            ControlError::new(
+                ControlErrorCode::ControlRuntimeError,
+                "Browser settings store is unavailable",
+            )
+        })?;
+        settings.set_enabled(profile_id, enabled).map_err(|error| {
+            ControlError::new(
+                ControlErrorCode::ControlRuntimeError,
+                format!("save browser control setting: {error}"),
+            )
+        })?;
+        self.control_status(profile_id)
     }
 
     pub fn authorize_project(
@@ -211,6 +302,12 @@ impl BrowserManager {
                 "Browser project is outside the caller scope",
             ));
         }
+        if self.settings.is_some() && !self.control_enabled("clean")? {
+            return Err(ControlError::new(
+                ControlErrorCode::BrowserControlDisabled,
+                "Built-in browser control is disabled for this profile",
+            ));
+        }
         let (_, caller_capability) =
             security::required_capability(commands::BrowserCommandKind::Open);
         let granted =
@@ -219,7 +316,13 @@ impl BrowserManager {
                 .iter()
                 .any(|((project, _), capabilities)| {
                     project == project_id && capabilities.contains(&capability)
-                });
+                }) || (self.settings.is_some()
+                    && capability == BrowserCapability::Control
+                    && self
+                        .state()
+                        .profile_capabilities
+                        .keys()
+                        .all(|(project, _)| project != project_id));
         if !identity.allows(caller_capability) || !granted {
             return Err(ControlError::new(
                 ControlErrorCode::BrowserPermissionRequired,
@@ -323,6 +426,21 @@ impl BrowserManager {
         self.state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn control_enabled(&self, profile_id: &str) -> Result<bool, ControlError> {
+        self.settings
+            .as_ref()
+            .map(|settings| {
+                settings.is_enabled(profile_id).map_err(|error| {
+                    ControlError::new(
+                        ControlErrorCode::ControlRuntimeError,
+                        format!("read browser control setting: {error}"),
+                    )
+                })
+            })
+            .transpose()
+            .map(|value| value.unwrap_or(true))
     }
 }
 

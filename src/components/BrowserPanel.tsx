@@ -18,6 +18,7 @@ import {
 import { useBrowserStore } from "../stores/browserStore";
 import { BrowserPermissionDialog } from "./BrowserPermissionDialog";
 import { BrowserAutomationStatus } from "./BrowserAutomationStatus";
+import { BrowserControlStatus } from "./BrowserControlStatus";
 import { nextBrowserRequest, normalizeBrowserInput, pushBrowserHistory } from "../lib/browserNavigation";
 import {
   nativeBrowserBounds,
@@ -61,6 +62,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
   const permissionOpen = useBrowserStore((state) => state.permissionOpen);
   const browserSurface = useBrowserStore((state) => state.surface);
   const setPermissionOpen = useBrowserStore((state) => state.setPermissionOpen);
+  const refreshControlStatus = useBrowserStore((state) => state.refreshControlStatus);
   const [history, setHistory] = useState<string[]>(() => savedUrl ? [savedUrl] : []);
   const [historyIndex, setHistoryIndex] = useState(savedUrl ? 0 : -1);
   const [request, setRequest] = useState({ url: savedUrl, sequence: 0 });
@@ -81,6 +83,9 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
   const shouldHideNativeView = obscured || dialogOpen || permissionOpen;
   const shouldHideNativeViewRef = useRef(shouldHideNativeView);
   const currentUrl = history[historyIndex] ?? "";
+  useEffect(() => {
+    if (nativeBrowser) void refreshControlStatus();
+  }, [nativeBrowser, refreshControlStatus]);
   useEffect(() => {
     shouldHideNativeViewRef.current = shouldHideNativeView;
     historyRef.current = history;
@@ -202,9 +207,9 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
         agentId: null,
         webviewLabel: label,
         url: request.url,
-        profileId: "default",
+        profileId: "clean",
       });
-      const savedCapabilities = useBrowserStore.getState().savedCapabilities(projectRoot, "default");
+      const savedCapabilities = useBrowserStore.getState().savedCapabilities(projectRoot, "clean");
       for (const capability of savedCapabilities) {
         surface = await grantBrowserCapability(surface.surfaceId, capability);
       }
@@ -435,6 +440,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
           <IconShield />
         </Button></TooltipTrigger><TooltipContent>Agent browser access</TooltipContent></Tooltip>
         <BrowserAutomationStatus />
+        <BrowserControlStatus />
       </div>
 
       <div className="browser-viewport-shell min-h-0 flex-1 bg-ink">

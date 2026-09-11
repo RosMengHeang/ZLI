@@ -120,6 +120,22 @@ test("browser commands expose the complete scoped automation surface", async () 
   assert.equal(parseCli(["browser", "screenshot", "surface-1"]).request.method, "browser.screenshot");
 });
 
+test("browser status exposes desktop bridge discovery", async () => {
+  const { parseCli } = await import("../src/control/cli.ts");
+  const parsed = parseCli(["browser", "status"]);
+
+  assert.equal(parsed.request.method, "browser.status");
+  assert.deepEqual(parsed.request.params, {});
+});
+
+test("browser doctor keeps the managed agent scope explicit", async () => {
+  const { parseCli } = await import("../src/control/cli.ts");
+  const parsed = parseCli(["browser", "doctor", "--agent", "agent-1"]);
+
+  assert.equal(parsed.request.method, "browser.status");
+  assert.deepEqual(parsed.request.params, { doctor: true, agentId: "agent-1" });
+});
+
 test("TaxChat send keeps project scope and explicit recipients out of the message body", async () => {
   const { parseCli } = await import("../src/control/cli.ts");
   const parsed = parseCli([

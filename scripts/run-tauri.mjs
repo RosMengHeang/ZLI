@@ -10,7 +10,7 @@ export function tauriArguments(arguments_) {
   return [
     ...arguments_,
     "--config",
-    JSON.stringify({ bundle: { externalBin: ["binaries/zli"] } }),
+    JSON.stringify({ bundle: { externalBin: ["binaries/zli", "binaries/zli-browser-use"] } }),
   ];
 }
 

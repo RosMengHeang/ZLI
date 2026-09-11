@@ -1,5 +1,9 @@
 import { invokeCmd } from "../../tauri/invoke.ts";
-import type { BrowserCapability, BrowserSurfaceRecord } from "./browserProtocol.ts";
+import type {
+  BrowserCapability,
+  BrowserControlStatus,
+  BrowserSurfaceRecord,
+} from "./browserProtocol.ts";
 
 export interface RegisterBrowserSurfaceRequest {
   projectId: string;
@@ -27,6 +31,12 @@ export function createBrowserBridge(invoke: BrowserInvoke = invokeCmd) {
     },
     close(surfaceId: string): Promise<BrowserSurfaceRecord> {
       return invoke<BrowserSurfaceRecord>("browser_close_surface", { surfaceId });
+    },
+    controlStatus(profileId = "clean"): Promise<BrowserControlStatus> {
+      return invoke<BrowserControlStatus>("browser_control_status", { profileId });
+    },
+    setControlEnabled(profileId: string, enabled: boolean): Promise<BrowserControlStatus> {
+      return invoke<BrowserControlStatus>("browser_control_set", { profileId, enabled });
     },
   };
 }
@@ -57,4 +67,12 @@ export function revokeBrowserCapability(
 
 export function closeBrowserSurface(surfaceId: string): Promise<BrowserSurfaceRecord> {
   return bridge.close(surfaceId);
+}
+
+export function getBrowserControlStatus(profileId = "clean"): Promise<BrowserControlStatus> {
+  return bridge.controlStatus(profileId);
+}
+
+export function setBrowserControlEnabled(profileId: string, enabled: boolean): Promise<BrowserControlStatus> {
+  return bridge.setControlEnabled(profileId, enabled);
 }

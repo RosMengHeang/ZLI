@@ -49,6 +49,18 @@ pub struct TeamAgent {
     pub paused: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserAgentCapability {
+    pub profile_id: String,
+    pub shell_fallback_available: bool,
+    pub mcp_adapter_available: bool,
+    pub mcp_provider_configured: bool,
+    pub mode: String,
+    pub reason: String,
+    pub adapter_command: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueuedAgentMessage {
@@ -645,6 +657,54 @@ impl TeamCoordinator {
             );
         }
         Ok(child)
+    }
+
+    pub fn browser_capability(
+        &self,
+        project_id: &str,
+        agent_id: &str,
+    ) -> Result<BrowserAgentCapability, ControlError> {
+        let _record = self.record(project_id, agent_id)?;
+        let adapter_command = self.control_executable.as_ref().and_then(|executable| {
+            executable.parent().map(|directory| {
+                directory
+                    .join(if cfg!(windows) {
+                        "zli-browser-use.exe"
+                    } else {
+                        "zli-browser-use"
+                    })
+                    .to_string_lossy()
+                    .into_owned()
+            })
+        });
+        let shell_fallback_available = self.control_executable.is_some();
+        let mcp_adapter_available = adapter_command
+            .as_deref()
+            .is_some_and(|command| Path::new(command).is_file());
+        let mcp_provider_configured = false;
+        let mode = if mcp_provider_configured {
+            "mcp"
+        } else if shell_fallback_available {
+            "shell_fallback"
+        } else {
+            "unsupported"
+        };
+        let reason = if mcp_provider_configured {
+            "The provider launch adapter accepted the ZLI Browser Use configuration."
+        } else if shell_fallback_available {
+            "Use the scoped zli browser commands; this provider has no configured MCP launch adapter yet."
+        } else {
+            "The ZLI command was not available to this managed session."
+        };
+        Ok(BrowserAgentCapability {
+            profile_id: "clean".into(),
+            shell_fallback_available,
+            mcp_adapter_available,
+            mcp_provider_configured,
+            mode: mode.into(),
+            reason: reason.into(),
+            adapter_command,
+        })
     }
 
     pub fn send(
@@ -1539,11 +1599,21 @@ fn control_environment(
         ),
         ("ZLI_CONTROL_ENDPOINT", endpoint),
         ("ZLI_CONTROL_TOKEN", token),
+        ("ZLI_BROWSER_PROFILE", "clean"),
+        ("ZLI_BROWSER_SESSION", agent_id),
     ] {
         environment.insert(OsString::from(key), OsString::from(value));
     }
     if let Some(executable) = control_executable {
         environment.insert("ZLI_COMMAND".into(), executable.as_os_str().to_owned());
+        if let Some(directory) = executable.parent() {
+            let browser_use = directory.join(if cfg!(windows) {
+                "zli-browser-use.exe"
+            } else {
+                "zli-browser-use"
+            });
+            environment.insert("ZLI_BROWSER_USE_COMMAND".into(), browser_use.into_os_string());
+        }
         if let Some(directory) = executable.parent() {
             let inherited: Vec<PathBuf> = env::var_os("PATH")
                 .map(|value| env::split_paths(&value).collect())

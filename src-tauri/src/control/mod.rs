@@ -16,7 +16,11 @@ mod supervisor;
 mod team;
 mod transport;
 
-pub use browser::{BrowserExecutor, BrowserManager, BrowserSurfaceRecord, TauriBrowserExecutor};
+pub use browser::{
+    BrowserControlSettingsStore, BrowserControlStatus, BrowserExecutor, BrowserManager,
+    BrowserSurfaceRecord, TauriBrowserExecutor,
+};
+pub use browser::gateway::tool_names as gateway_tools;
 pub use events::{
     AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, AttentionStatus,
     ExecutionStatus,
@@ -39,8 +43,8 @@ pub use supervisor::{
     ReconnectResult, RestoreResult, SessionCommandError, Supervisor, SUPERVISOR_PROTOCOL_VERSION,
 };
 pub use team::{
-    zli_executable_path, AgentQueueStatus, RuntimeTeamBackend, SpawnAgentRequest, TeamAgent,
-    TeamBackend, TeamCoordinator,
+    zli_executable_path, AgentQueueStatus, BrowserAgentCapability, RuntimeTeamBackend,
+    SpawnAgentRequest, TeamAgent, TeamBackend, TeamCoordinator,
 };
 #[cfg(windows)]
 pub use transport::named_pipe::{NamedPipeClient, NamedPipeServer};

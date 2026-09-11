@@ -30,3 +30,20 @@ test("browser bridge uses typed surface lifecycle commands", async () => {
     { command: "browser_close_surface", args: { surfaceId: "surface-1" } },
   ]);
 });
+
+test("browser bridge reads and updates the built-in control setting", async () => {
+  const { createBrowserBridge } = await import("../src/lib/browser/browserBridge.ts");
+  const calls = [];
+  const bridge = createBrowserBridge(async (command, args) => {
+    calls.push({ command, args });
+    return { profileId: "clean", enabled: true, surfaceCount: 0, bridgeAvailable: true };
+  });
+
+  await bridge.controlStatus("clean");
+  await bridge.setControlEnabled("clean", true);
+
+  assert.deepEqual(calls, [
+    { command: "browser_control_status", args: { profileId: "clean" } },
+    { command: "browser_control_set", args: { profileId: "clean", enabled: true } },
+  ]);
+});

@@ -32,6 +32,112 @@ use std::sync::{Arc, Barrier};
 use std::thread;
 
 #[test]
+fn browser_control_settings_enable_clean_profile_by_default() {
+    let control_dir = tempdir().expect("temporary control directory");
+    let store = super::browser::settings::BrowserControlSettingsStore::open(control_dir.path())
+        .expect("open settings store");
+
+    assert!(store.is_enabled("clean").expect("clean profile setting"));
+    assert!(!store
+        .is_enabled("default")
+        .expect("unknown profile setting"));
+}
+
+#[test]
+fn browser_control_settings_fail_closed_for_corrupt_json() {
+    let control_dir = tempdir().expect("temporary control directory");
+    std::fs::write(control_dir.path().join("settings.json"), b"not json")
+        .expect("write corrupt settings");
+
+    let store = super::browser::settings::BrowserControlSettingsStore::open(control_dir.path())
+        .expect("open corrupt settings store");
+
+    assert!(!store.is_enabled("clean").expect("corrupt settings should fail closed"));
+}
+
+#[test]
+fn browser_control_settings_reload_profile_values() {
+    let control_dir = tempdir().expect("temporary control directory");
+    let store = super::browser::settings::BrowserControlSettingsStore::open(control_dir.path())
+        .expect("open settings store");
+
+    store
+        .set_enabled("clean", false)
+        .expect("disable clean profile");
+    store
+        .set_enabled("preview", true)
+        .expect("enable preview profile");
+
+    let reloaded = super::browser::settings::BrowserControlSettingsStore::open(control_dir.path())
+        .expect("reload settings store");
+    assert!(!reloaded.is_enabled("clean").expect("clean profile setting"));
+    assert!(reloaded
+        .is_enabled("preview")
+        .expect("preview profile setting"));
+}
+
+#[test]
+fn browser_control_protocol_accepts_status_methods_and_error_code() {
+    let status = ControlRequest::from_json(
+        r#"{"id":"browser-status","protocolVersion":1,"method":"browser.status","params":{},"timeoutMs":5000}"#,
+    )
+    .expect("browser status request");
+    assert_eq!(status.method, ControlMethod::BrowserStatus);
+
+    let error = super::ControlError::new(
+        super::ControlErrorCode::BrowserControlDisabled,
+        "Built-in browser control is disabled",
+    );
+    assert_eq!(error.code, "BROWSER_CONTROL_DISABLED");
+}
+
+#[test]
+fn disabled_browser_profile_rejects_read_before_surface_grant() {
+    let control_dir = tempdir().expect("temporary control directory");
+    let settings = Arc::new(
+        super::browser::settings::BrowserControlSettingsStore::open(control_dir.path())
+            .expect("open settings store"),
+    );
+    settings
+        .set_enabled("clean", false)
+        .expect("disable clean profile");
+    let manager = super::browser::BrowserManager::with_settings(Arc::new(|_| {}), settings);
+    let surface = manager
+        .register(
+            "project-1",
+            Some("agent-1".into()),
+            "browser-panel-1",
+            "about:blank",
+            "clean",
+        )
+        .expect("register clean surface");
+    manager
+        .grant(&surface.surface_id, super::browser::commands::BrowserCapability::Read)
+        .expect("grant read");
+
+    let caller = CallerIdentity {
+        caller_id: "agent-1".into(),
+        project_id: "project-1".into(),
+        agent_id: Some("agent-1".into()),
+        parent_agent_id: None,
+        capabilities: vec![Capability::BrowserRead],
+        expires_at: None,
+    };
+    let command = super::browser::commands::BrowserCommand::Snapshot {
+        surface_id: surface.surface_id.clone(),
+        selector: None,
+        max_depth: None,
+    };
+    assert_eq!(
+        manager
+            .authorize(&caller, &surface.surface_id, &command)
+            .expect_err("disabled profile must reject read")
+            .code,
+        super::ControlErrorCode::BrowserControlDisabled
+    );
+}
+
+#[test]
 fn control_request_round_trips_and_rejects_unknown_protocol_versions() {
     let request = ControlRequest::new("req-1", ControlMethod::AgentList, json!({}), 5_000)
         .expect("valid control request");
@@ -2348,6 +2454,27 @@ fn team_spawn_creates_scoped_child_and_delivers_initial_task() {
             .unwrap(),
         r"C:\Program Files\Taxzy\zli.exe"
     );
+    assert_eq!(
+        launch
+            .environment
+            .get(std::ffi::OsStr::new("ZLI_BROWSER_PROFILE"))
+            .unwrap(),
+        "clean"
+    );
+    assert_eq!(
+        launch
+            .environment
+            .get(std::ffi::OsStr::new("ZLI_BROWSER_SESSION"))
+            .unwrap(),
+        child.agent_id.as_str()
+    );
+    assert_eq!(
+        launch
+            .environment
+            .get(std::ffi::OsStr::new("ZLI_BROWSER_USE_COMMAND"))
+            .unwrap(),
+        r"C:\Program Files\Taxzy\zli-browser-use.exe"
+    );
     assert!(std::env::split_paths(
         launch
             .environment
@@ -2403,6 +2530,33 @@ fn team_spawn_enforces_the_twelve_agent_project_cap() {
         .spawn(team_spawn_request())
         .expect_err("cap must reject");
     assert_eq!(error.code, super::ControlErrorCode::AgentLimitReached);
+}
+
+#[test]
+fn managed_agent_browser_capability_reports_safe_fallback_without_credentials() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let coordinator = super::TeamCoordinator::new(
+        backend,
+        Arc::new(CapabilityTokenStore::default()),
+        r"\\.\pipe\zli-test".into(),
+    )
+    .with_control_executable(Some(std::path::PathBuf::from(
+        r"C:\Program Files\Taxzy\zli.exe",
+    )));
+
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+    let capability = coordinator
+        .browser_capability("project-1", &child.agent_id)
+        .expect("browser capability");
+
+    assert_eq!(capability.profile_id, "clean");
+    assert!(capability.shell_fallback_available);
+    assert!(!capability.mcp_provider_configured);
+    assert_eq!(capability.mode, "shell_fallback");
+    let serialized = serde_json::to_string(&capability).expect("serialize capability");
+    assert!(!serialized.contains("ZLI_CONTROL_TOKEN"));
 }
 
 #[test]

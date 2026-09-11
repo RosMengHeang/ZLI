@@ -219,7 +219,7 @@ For agents, call `list_agent_providers()` and use the canonical catalog IDs. `la
 
 Protocol version `1` is shared by the Tauri UI and the `zli` executable. On Windows the app listens on a randomly named, current-user-only named pipe; remote clients are rejected and the connecting process must have the same user SID. Frames are limited to 1 MiB. The app writes its CLI endpoint, protocol version, expiring token and process ID to `%APPDATA%\com.taxzy.cli\control\endpoint.json`. This file is runtime discovery data, not a persistent credential.
 
-Use `npm run tauri dev` during development. That wrapper builds the sibling debug `zli.exe` before starting Tauri. Use `npm run tauri build` for a release: the wrapper builds the CLI for the active Rust target, copies it to the target-triple filename required by Tauri, and enables `bundle.externalBin` only for that release invocation. Keeping the sidecar out of the base config lets clean Rust tests and checks run without generated binaries.
+Use `npm run tauri dev` during development. That wrapper builds the sibling debug `zli.exe` and `zli-browser-use.exe` before starting Tauri. Use `npm run tauri build` for a release: the wrapper builds both local control binaries for the active Rust target, copies them to the target-triple filenames required by Tauri, and enables both `bundle.externalBin` entries only for that release invocation. Keeping sidecars out of the base config lets clean Rust tests and checks run without generated binaries.
 
 The CLI command surface is:
 
@@ -239,6 +239,8 @@ zli session list
 zli session reconcile
 zli session resume <session-id>
 zli doctor
+zli browser status
+zli browser doctor [--agent <agent-id>]
 zli browser list
 zli browser open <url> --project <project-path>
 zli browser navigate <surface-id> <url>
@@ -269,9 +271,12 @@ ZLI_PARENT_AGENT_ID
 ZLI_CONTROL_ENDPOINT
 ZLI_CONTROL_TOKEN
 ZLI_COMMAND
+ZLI_BROWSER_PROFILE
+ZLI_BROWSER_SESSION
+ZLI_BROWSER_USE_COMMAND
 ```
 
-`ZLI_COMMAND` is the absolute bundled CLI path. Its containing directory is also prepended to the child process `PATH`, so managed agents may invoke either the explicit path or `zli` without a machine-wide install.
+`ZLI_COMMAND` is the absolute bundled CLI path. `ZLI_BROWSER_USE_COMMAND` is the sibling stdio MCP adapter, while `ZLI_BROWSER_PROFILE=clean` and `ZLI_BROWSER_SESSION` identify the isolated browser context. Their containing directory is also prepended to the child process `PATH`, so managed agents may invoke either the explicit path or `zli` without a machine-wide install.
 
 The token is random, stored hashed in memory, expires after 12 hours, and is revoked when the child is stopped. Router authorization checks both the method capability and any explicit `projectId`. Child tokens can list, spawn, send, and read attention/session state. Browser commands additionally require an explicit grant on the current project profile; possessing a token alone is not enough. Children cannot discard worktrees, execute arbitrary commands, access browser storage, download files, or evaluate JavaScript. `browser.eval` has a separate capability and a separate user grant.
 
@@ -281,13 +286,15 @@ To add a command, add one `ControlMethod`, map it to a dedicated `Capability`, i
 
 ## Agent-controlled browser
 
-The browser pane is the real Tauri WebView2 surface shown beside the terminals. Open a page normally, select the shield in its toolbar, and grant only what the agent needs. `Read pages` permits DOM snapshots, console messages, page errors, and waits. `Control pages` permits navigation, click, fill, key presses, and native PNG screenshots. `Run JavaScript` is separate because it can read or modify anything the loaded page exposes. All grants default to off and are scoped to the current project and browser profile; they can be revoked from the same dialog.
+The browser pane is the real Tauri WebView2 surface shown beside the terminals. The clean profile master switch is enabled by default and is persisted under the app-data `control/settings.json` file. Turning it off keeps the visible preview but makes agent browser requests fail closed with `BROWSER_CONTROL_DISABLED`. New clean surfaces inherit read/control while the switch is enabled; JavaScript, storage, and downloads remain separate elevated permissions. The shield dialog still lets the user revoke a project/profile capability.
 
 The backend owns authorization, surface identity, project/agent isolation, deadlines, and result limits. The UI only registers the visible WebView2 label and displays grants/status. Selectors, text, and scripts are serialized before entering fixed browser expressions. Snapshots are limited to 100,000 characters, scripts to 20,000 characters, selectors to 4,096 characters, console output to 500 entries, page errors to 200 entries, screenshots to 10,000,000 encoded characters, and command deadlines to 120 seconds. Arbitrary JavaScript, storage access, and downloads are never implied by read/control permission.
 
 Safe browser checkpoint fields are URL, open state, profile ID, and granted capability names. Cookies, local/session storage, authorization values, download data, and WebView2 profile contents are not written into ZLI project snapshots. Surface IDs are runtime-only and change when a pane is recreated.
 
-For a local test page, start its development server, open it in the ZLI browser, grant `Read pages`, then run `zli browser list --json` to obtain the surface ID. `zli browser snapshot <surface-id> --selector main` inspects it, while `zli browser errors <surface-id>` and `zli browser console <surface-id>` expose bounded diagnostics. A managed child can omit `--project` from `browser open`; external shells must supply it.
+For a local test page, start its development server, open it in the ZLI browser, then run `zli browser list --json` to obtain the surface ID. `zli browser status` verifies the authenticated desktop bridge. `zli browser doctor --agent <agent-id>` reports endpoint response, clean profile state, scoped command fallback, MCP adapter availability, and provider MCP configuration without exposing the token. A managed child can omit `--project` from `browser open`; external shells must supply it.
+
+The provider-neutral `zli-browser-use` stdio adapter implements `initialize`, `notifications/initialized`, `tools/list`, and `tools/call`. Its common tools are `browser_status`, `browser_open`, `browser_navigate`, `browser_wait`, `browser_snapshot`, `browser_click`, `browser_fill`, `browser_press`, `browser_console`, `browser_errors`, and `browser_screenshot`. It forwards authenticated requests to `BrowserManager`; it never controls an unrelated Chrome instance or stores browser credentials. MCP support is reported only when a provider launch adapter has accepted its configuration; otherwise the managed session has the shell fallback and the doctor output says so.
 
 ## Durable session startup and recovery
 
