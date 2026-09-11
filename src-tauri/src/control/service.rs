@@ -117,6 +117,23 @@ impl ControlHandler for RuntimeControlHandler {
                 }
                 serde_json::to_value(sessions).map_err(serialization_error)
             }
+            ControlMethod::RuntimeHealth => {
+                let requested_project_id = match request.params.get("projectId") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(value)) if !value.trim().is_empty() => {
+                        Some(value.to_owned())
+                    }
+                    _ => return Err(invalid_params("runtime.health projectId")),
+                };
+                let project_id = requested_project_id
+                    .or_else(|| (identity.project_id != "*").then(|| identity.project_id.clone()));
+                serde_json::to_value(
+                    self.supervisor
+                        .health(project_id.as_deref())
+                        .map_err(session_runtime)?,
+                )
+                .map_err(serialization_error)
+            }
             ControlMethod::SessionReconcile => {
                 let project_id =
                     (identity.project_id != "*").then_some(identity.project_id.as_str());
@@ -441,6 +458,7 @@ fn all_capabilities() -> Vec<Capability> {
         Capability::SessionRead,
         Capability::SessionReconcile,
         Capability::SessionResume,
+        Capability::RuntimeRead,
         Capability::BrowserRead,
         Capability::BrowserControl,
         Capability::BrowserJavascript,

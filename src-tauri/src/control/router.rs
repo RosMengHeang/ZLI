@@ -168,6 +168,7 @@ fn capability_for(method: ControlMethod) -> Capability {
         ControlMethod::SessionList => Capability::SessionRead,
         ControlMethod::SessionReconcile => Capability::SessionReconcile,
         ControlMethod::SessionResume => Capability::SessionResume,
+        ControlMethod::RuntimeHealth => Capability::RuntimeRead,
         ControlMethod::TaxChatSend => Capability::TaxChatSend,
         ControlMethod::BrowserList
         | ControlMethod::BrowserWait

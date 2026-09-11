@@ -2441,6 +2441,36 @@ fn supervisor_agent_slot_reservation_is_atomic_per_project() {
 }
 
 #[test]
+fn supervisor_health_reports_capacity_and_event_persistence_without_reconciliation() {
+    let root = tempdir().expect("temporary supervisor directory");
+    let events = EventHub::new(8);
+    events
+        .enable_persistence(root.path().join("events"))
+        .expect("enable event persistence");
+    events.publish(test_event("health-event"));
+    let supervisor = super::Supervisor::new(root.path().to_path_buf(), PtyManager::new(), events);
+    assert!(supervisor
+        .reserve_agent_slot("project-1")
+        .expect("reserve launch slot"));
+
+    let project_health = supervisor
+        .health(Some("project-1"))
+        .expect("project health");
+    assert_eq!(project_health.project_id.as_deref(), Some("project-1"));
+    assert_eq!(project_health.active_agents, 0);
+    assert_eq!(project_health.reserved_agent_slots, 1);
+    assert_eq!(project_health.available_agent_slots, Some(11));
+    assert_eq!(project_health.event_hub.retained_events, 1);
+    assert_eq!(project_health.event_hub.current_sequence, 1);
+    assert!(project_health.event_hub.enabled);
+    assert!(project_health.event_hub.healthy);
+
+    let global_health = supervisor.health(None).expect("global health");
+    assert_eq!(global_health.reserved_agent_slots, 1);
+    assert_eq!(global_health.available_agent_slots, None);
+}
+
+#[test]
 fn team_spawn_rolls_back_worktree_when_launch_fails() {
     let backend = Arc::new(FakeTeamBackend::default());
     backend.fail_launch.store(true, Ordering::SeqCst);

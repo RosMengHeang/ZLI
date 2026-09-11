@@ -1,4 +1,5 @@
 use crate::control::{event_log::DurableEventLog, AgentEventEnvelope};
+use serde::Serialize;
 use std::collections::{HashSet, VecDeque};
 use std::io;
 use std::path::Path;
@@ -6,6 +7,16 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 const DEFAULT_CAPACITY: usize = 1_024;
 const EVENT_ID_DEDUPE_CAPACITY: usize = 32_768;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventHubHealth {
+    pub enabled: bool,
+    pub healthy: bool,
+    pub retained_events: usize,
+    pub current_sequence: u64,
+    pub error: Option<String>,
+}
 
 #[derive(Clone)]
 pub struct EventHub {
@@ -126,6 +137,22 @@ impl EventHub {
             .lock()
             .ok()
             .and_then(|error| error.clone())
+    }
+
+    pub fn health(&self) -> EventHubHealth {
+        let enabled = self
+            .durable
+            .lock()
+            .map(|durable| durable.is_some())
+            .unwrap_or(false);
+        let error = self.persistence_error();
+        EventHubHealth {
+            enabled,
+            healthy: error.is_none(),
+            retained_events: self.len(),
+            current_sequence: self.latest_sequence(),
+            error,
+        }
     }
 
     fn state(&self) -> MutexGuard<'_, HubState> {

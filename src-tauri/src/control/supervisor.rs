@@ -6,7 +6,7 @@ use super::{
 };
 use crate::agents::providers::{ProviderRegistry, ResumeAvailability, ResumeSupport};
 use crate::error::BackendError;
-use crate::event_hub::EventHub;
+use crate::event_hub::{EventHub, EventHubHealth};
 use crate::pty::{
     inspect_process, terminate_process, EventSink, ProcessInspection, ProcessTermination,
     PtyManager, TerminalStatus,
@@ -67,6 +67,30 @@ pub struct RestoreResult {
     pub snapshot: Option<ProjectSnapshot>,
     pub session_ids: Vec<String>,
     pub created_session_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionHealth {
+    pub total: usize,
+    pub running: usize,
+    pub exited: usize,
+    pub killed: usize,
+    pub failed: usize,
+    pub unknown: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeHealth {
+    pub project_id: Option<String>,
+    pub event_hub: EventHubHealth,
+    pub sessions: SessionHealth,
+    pub agent_limit: usize,
+    pub active_agents: usize,
+    pub reserved_agent_slots: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub available_agent_slots: Option<usize>,
 }
 
 pub struct Supervisor {
@@ -176,6 +200,50 @@ impl Supervisor {
             events: self.events.subscribe_after(cursor),
             sessions,
             reconciliation,
+        })
+    }
+
+    /// Return read-only runtime metrics without reconciling or mutating any
+    /// session, process, worktree, or ownership state.
+    pub fn health(&self, project_id: Option<&str>) -> Result<RuntimeHealth, SessionCommandError> {
+        let reserved_agent_slots = self
+            .launch_reservations
+            .lock()
+            .map_err(|_| SessionCommandError::Runtime("launch limit lock poisoned".into()))
+            .map(|reservations| {
+                project_id.map_or_else(
+                    || reservations.values().sum(),
+                    |project| reservations.get(project).copied().unwrap_or_default(),
+                )
+            })?;
+        let sessions = self.registry.list()?;
+        let mut session_health = SessionHealth::default();
+        for session in sessions {
+            let descriptor = session.descriptor()?;
+            if project_id.is_some_and(|project| descriptor.project_id != project) {
+                continue;
+            }
+            session_health.total += 1;
+            match self.pty.session_status(&descriptor.terminal_id) {
+                Ok(TerminalStatus::Running) => session_health.running += 1,
+                Ok(TerminalStatus::Exited) => session_health.exited += 1,
+                Ok(TerminalStatus::Killed) => session_health.killed += 1,
+                Ok(TerminalStatus::Failed) => session_health.failed += 1,
+                Err(_) => session_health.unknown += 1,
+            }
+        }
+        let active_agents = session_health.running;
+        let available_agent_slots = project_id.map(|_| {
+            super::team::MAX_TEAM_AGENTS.saturating_sub(active_agents + reserved_agent_slots)
+        });
+        Ok(RuntimeHealth {
+            project_id: project_id.map(str::to_owned),
+            event_hub: self.events.health(),
+            sessions: session_health,
+            agent_limit: super::team::MAX_TEAM_AGENTS,
+            active_agents,
+            reserved_agent_slots,
+            available_agent_slots,
         })
     }
 

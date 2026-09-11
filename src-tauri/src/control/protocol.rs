@@ -40,6 +40,8 @@ pub enum ControlMethod {
     SessionReconcile,
     #[serde(rename = "session.resume")]
     SessionResume,
+    #[serde(rename = "runtime.health")]
+    RuntimeHealth,
     #[serde(rename = "browser.list")]
     BrowserList,
     #[serde(rename = "browser.open")]
@@ -98,6 +100,8 @@ pub enum Capability {
     SessionReconcile,
     #[serde(rename = "session.resume")]
     SessionResume,
+    #[serde(rename = "runtime.read")]
+    RuntimeRead,
     #[serde(rename = "browser.read")]
     BrowserRead,
     #[serde(rename = "browser.control")]

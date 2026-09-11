@@ -74,6 +74,14 @@ test("cli exposes an explicit session reconciliation report", async () => {
   assert.equal(parseCli(["doctor"]).request.method, "session.reconcile");
 });
 
+test("cli exposes read-only runtime health with optional project scope", async () => {
+  const { parseCli } = await import("../src/control/cli.ts");
+  assert.equal(parseCli(["health"]).request.method, "runtime.health");
+  assert.deepEqual(parseCli(["health", "--project", "D:/repo"]).request.params, {
+    projectId: "D:/repo",
+  });
+});
+
 test("attention acknowledgement is project scoped", async () => {
   const { parseCli } = await import("../src/control/cli.ts");
 

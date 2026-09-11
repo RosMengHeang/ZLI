@@ -73,6 +73,19 @@ fn parse_command(args: &[String]) -> Result<(ControlMethod, Value), String> {
     let action = args.get(1).map(String::as_str);
     match (group, action) {
         (Some("status"), _) => Ok((ControlMethod::SessionList, json!({}))),
+        (Some("health"), _) => {
+            let project_id = option(args, "--project")
+                .map(str::to_owned)
+                .or_else(|| std::env::var("ZLI_PROJECT_ID").ok())
+                .filter(|value| !value.trim().is_empty());
+            Ok((
+                ControlMethod::RuntimeHealth,
+                project_id.map_or_else(
+                    || json!({}),
+                    |project_id| json!({ "projectId": project_id }),
+                ),
+            ))
+        }
         (Some("agents"), _) | (Some("agent"), Some("list")) => {
             Ok((ControlMethod::AgentList, json!({})))
         }
@@ -420,7 +433,7 @@ fn joined(args: &[String], start: usize, label: &str) -> Result<String, String> 
 
 #[cfg(windows)]
 fn usage() -> String {
-    "unknown command. Try: status | doctor | agents | agent queue [--project <path>] | attention [list] | attention ack <agent> --project <path> | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | worktree audit --project <path> | session list | session reconcile | session resume <id> | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message> --project <path> [--to <agent>]".into()
+    "unknown command. Try: status | health [--project <path>] | doctor | agents | agent queue [--project <path>] | attention [list] | attention ack <agent> --project <path> | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | worktree audit --project <path> | session list | session reconcile | session resume <id> | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message> --project <path> [--to <agent>]".into()
 }
 
 #[cfg(windows)]

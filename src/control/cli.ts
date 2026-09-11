@@ -35,6 +35,11 @@ function command(
   environment: { projectId?: string },
 ): [ControlMethod, Record<string, unknown>] {
   if (group === "status") return ["session.list", {}];
+  if (group === "health") {
+    const healthArgs = action ? [action, ...args] : args;
+    const projectId = option(healthArgs, "--project") ?? environment.projectId;
+    return ["runtime.health", projectId ? { projectId } : {}];
+  }
   if (group === "agents") return ["agent.list", {}];
   if (group === "attention") {
     if (!action || action === "list") return ["attention.list", {}];
