@@ -13,7 +13,7 @@ use crate::pty::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub const SUPERVISOR_PROTOCOL_VERSION: u16 = 1;
 const RESTORED_SCROLLBACK_LIMIT: usize = 256 * 1024;
@@ -77,6 +77,7 @@ pub struct Supervisor {
     ownership: OwnershipLedger,
     providers: ProviderRegistry,
     events: EventHub,
+    resume_lock: Mutex<()>,
 }
 
 impl Supervisor {
@@ -93,6 +94,7 @@ impl Supervisor {
             ownership: OwnershipLedger::new(app_data_dir.clone()),
             providers: ProviderRegistry::default(),
             events,
+            resume_lock: Mutex::new(()),
         }
     }
 
@@ -299,6 +301,10 @@ impl Supervisor {
         session_id: &str,
         sink: Arc<dyn EventSink>,
     ) -> Result<SessionDescriptor, SessionCommandError> {
+        let _resume_guard = self
+            .resume_lock
+            .lock()
+            .map_err(|_| SessionCommandError::Runtime("resume lock poisoned".into()))?;
         let existing = self.registry.get(session_id)?;
         let descriptor = existing.descriptor()?;
         if self
@@ -329,12 +335,12 @@ impl Supervisor {
         })?;
         let mut resumed_descriptor = descriptor.clone();
         resumed_descriptor.terminal_id.clear();
-        let resumed = RuntimeSession::new(
+        let resumed = Arc::new(RuntimeSession::new(
             resumed_descriptor,
             self.pty.clone(),
             Some(sink),
             RESTORED_SCROLLBACK_LIMIT,
-        );
+        ));
         resumed.restore_scrollback(&existing.scrollback()?);
         let terminal = self.pty.spawn_agent_with_size_args(
             plan.program,
@@ -364,11 +370,22 @@ impl Supervisor {
                 return Err(error.into());
             }
         };
+        if !self
+            .registry
+            .replace_if_current(session_id, &existing, resumed.clone())?
+        {
+            let _ = self.pty.abort(&terminal.id);
+            return Err(SessionCommandError::Runtime(
+                "session changed while resuming; retry the resume".into(),
+            ));
+        }
         if let Err(error) = self.record_ownership(&result) {
+            let _ = self
+                .registry
+                .replace_if_current(session_id, &resumed, existing.clone());
             let _ = self.pty.abort(&terminal.id);
             return Err(error);
         }
-        self.registry.insert(resumed);
         Ok(result)
     }
 

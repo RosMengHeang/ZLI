@@ -219,6 +219,34 @@ impl SessionRegistry {
             .map_err(|_| BackendError::Internal("session registry lock poisoned".into()))
     }
 
+    pub fn replace_if_current(
+        &self,
+        session_id: &str,
+        expected: &Arc<RuntimeSession>,
+        replacement: Arc<RuntimeSession>,
+    ) -> Result<bool, BackendError> {
+        let replacement_id = replacement.descriptor()?.session_id;
+        if replacement_id != session_id {
+            return Err(BackendError::InvalidInput(
+                "replacement session ID does not match the registry key".into(),
+            ));
+        }
+        self.sessions
+            .lock()
+            .map(|mut sessions| {
+                if sessions
+                    .get(session_id)
+                    .is_some_and(|current| Arc::ptr_eq(current, expected))
+                {
+                    sessions.insert(session_id.to_owned(), replacement);
+                    true
+                } else {
+                    false
+                }
+            })
+            .map_err(|_| BackendError::Internal("session registry lock poisoned".into()))
+    }
+
     pub fn attach(&self, session_id: &str) -> Result<SessionDescriptor, BackendError> {
         self.get(session_id)?.attach(None)
     }

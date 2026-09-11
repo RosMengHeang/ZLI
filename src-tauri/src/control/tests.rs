@@ -261,6 +261,35 @@ fn session_registry_does_not_remove_a_replacement_session() {
 }
 
 #[test]
+fn session_registry_replaces_only_the_expected_session() {
+    let registry = SessionRegistry::default();
+    let original = registry.insert(test_runtime_session("session-1", "agent-1"));
+    let replacement = std::sync::Arc::new(test_runtime_session("session-1", "agent-2"));
+
+    assert!(registry
+        .replace_if_current("session-1", &original, replacement.clone())
+        .expect("replace current session"));
+    assert!(std::sync::Arc::ptr_eq(
+        &registry.get("session-1").expect("replacement"),
+        &replacement,
+    ));
+
+    let stale = std::sync::Arc::new(test_runtime_session("session-1", "agent-3"));
+    assert!(!registry
+        .replace_if_current("session-1", &original, stale)
+        .expect("reject stale replacement"));
+    assert_eq!(
+        registry
+            .get("session-1")
+            .expect("current session")
+            .descriptor()
+            .expect("descriptor")
+            .agent_id,
+        "agent-2"
+    );
+}
+
+#[test]
 fn session_descriptor_persists_parent_agent_relationship() {
     let mut descriptor = test_runtime_session("session-child", "child-1")
         .descriptor()
