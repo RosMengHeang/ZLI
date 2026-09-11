@@ -189,6 +189,32 @@ impl AgentMessageInbox {
         Ok(())
     }
 
+    pub fn requeue(&self, agent_id: &str, message_id: &str) -> Result<bool, ControlError> {
+        let mut pending = self.pending.lock().map_err(lock_error)?;
+        let mut in_flight = self.in_flight.lock().map_err(lock_error)?;
+        let key = (agent_id.to_owned(), message_id.to_owned());
+        let Some(message) = in_flight.remove(&key) else {
+            return Ok(false);
+        };
+        pending
+            .entry(agent_id.to_owned())
+            .or_default()
+            .push_front(message.clone());
+        if let Err(error) = self.persist_locked(&pending, &in_flight) {
+            let queue = pending
+                .get_mut(agent_id)
+                .expect("requeued message must have a queue");
+            let removed = queue.pop_front();
+            debug_assert_eq!(removed.as_ref(), Some(&message));
+            if queue.is_empty() {
+                pending.remove(agent_id);
+            }
+            in_flight.insert(key, message);
+            return Err(error);
+        }
+        Ok(true)
+    }
+
     pub fn drain(&self, agent_id: &str) -> Result<Vec<QueuedAgentMessage>, ControlError> {
         let mut pending = self.pending.lock().map_err(lock_error)?;
         let mut in_flight = self.in_flight.lock().map_err(lock_error)?;
@@ -611,7 +637,17 @@ impl TeamCoordinator {
             return;
         }
         let result = self.backend.deliver(&record.terminal_id, &message.body);
-        let _ = self.inbox.ack(&record.agent_id, &message.message_id);
+        if result.is_err() {
+            if self
+                .inbox
+                .requeue(&record.agent_id, &message.message_id)
+                .is_ok_and(|requeued| requeued)
+            {
+                return;
+            }
+        } else {
+            let _ = self.inbox.ack(&record.agent_id, &message.message_id);
+        }
         match message.kind {
             QueuedAgentMessageKind::Agent => {
                 let kind = if result.is_ok() {

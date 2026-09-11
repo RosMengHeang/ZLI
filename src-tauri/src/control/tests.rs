@@ -2078,6 +2078,7 @@ fn assert_real_provider_prompt_fixture(
 struct FakeTeamBackend {
     active: AtomicUsize,
     fail_launch: std::sync::atomic::AtomicBool,
+    fail_delivery: std::sync::atomic::AtomicBool,
     launches: std::sync::Mutex<Vec<super::team::ChildLaunch>>,
     deliveries: std::sync::Mutex<Vec<(String, String)>>,
     cleanups: std::sync::Mutex<Vec<(String, String)>>,
@@ -2141,6 +2142,12 @@ impl super::team::TeamBackend for FakeTeamBackend {
     }
 
     fn deliver(&self, terminal_id: &str, body: &str) -> Result<(), super::ControlError> {
+        if self.fail_delivery.swap(false, Ordering::SeqCst) {
+            return Err(super::ControlError::new(
+                super::ControlErrorCode::ControlRuntimeError,
+                "delivery failed",
+            ));
+        }
         self.deliveries
             .lock()
             .unwrap()
@@ -2448,6 +2455,61 @@ fn team_message_waits_for_a_provider_prompt_before_writing_to_the_pty() {
     assert_eq!(
         backend.deliveries.lock().unwrap().as_slice(),
         &[("terminal-child".into(), "Report status".into())]
+    );
+    assert_eq!(
+        backend.events.lock().unwrap().last().unwrap().kind,
+        AgentEventKind::AgentMessageDelivered
+    );
+}
+
+#[test]
+fn failed_agent_message_stays_queued_until_a_later_prompt() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let coordinator = super::TeamCoordinator::new(
+        backend.clone(),
+        Arc::new(CapabilityTokenStore::default()),
+        "endpoint".into(),
+    );
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+    backend.deliveries.lock().unwrap().clear();
+    backend.events.lock().unwrap().clear();
+    backend.fail_delivery.store(true, Ordering::SeqCst);
+
+    coordinator
+        .send("project-1", &child.agent_id, "Do not lose this")
+        .expect("queue message");
+
+    let mut failed_prompt = AgentEventEnvelope::new(
+        "failed-delivery-prompt".into(),
+        "project-1".into(),
+        Some(child.agent_id.clone()),
+        AgentEventKind::AgentPromptDetected,
+        AgentEventPayload::Attention {
+            reason: "provider_prompt".into(),
+        },
+    );
+    failed_prompt.source = AgentEventSource::Provider;
+    coordinator.handle_event(&failed_prompt);
+
+    let status = coordinator
+        .queue_status(Some("project-1"))
+        .expect("read queue status")
+        .into_iter()
+        .find(|status| status.agent_id == child.agent_id)
+        .expect("agent queue status");
+    assert_eq!(status.pending_count, 1);
+    assert_eq!(status.in_flight_count, 0);
+    assert!(backend.deliveries.lock().unwrap().is_empty());
+
+    let mut retry_prompt = failed_prompt;
+    retry_prompt.event_id = "retry-delivery-prompt".into();
+    coordinator.handle_event(&retry_prompt);
+
+    assert_eq!(
+        backend.deliveries.lock().unwrap().as_slice(),
+        &[("terminal-child".into(), "Do not lose this".into())]
     );
     assert_eq!(
         backend.events.lock().unwrap().last().unwrap().kind,
