@@ -4,6 +4,7 @@ import { newId } from "../lib/ids";
 import { ptyClose, ptyCreate, ptyResize, ptyWrite } from "../tauri/terminal";
 import { terminalRegistry } from "../terminal/registry";
 import type { CreatePtyRequest, TerminalSession } from "../types";
+import { createPendingTerminalLifecycle } from "../lib/pendingTerminalLifecycle.ts";
 
 interface TerminalState {
   sessions: Record<string, TerminalSession>;
@@ -19,6 +20,7 @@ interface TerminalState {
 
 const lastSize = new Map<string, string>();
 const resizeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const pendingLifecycle = createPendingTerminalLifecycle();
 
 function clearResizeState(id: string): void {
   lastSize.delete(id);
@@ -79,16 +81,25 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     })),
 
   registerSession: (session) => {
+    const pending = pendingLifecycle.take(session.id);
+    const hydrated = pending
+      ? pending.status === "exited"
+        ? { ...session, status: "exited" as const, exitCode: pending.exitCode, error: null }
+        : { ...session, status: "error" as const, error: pending.message }
+      : session;
     set((state) => ({
-      sessions: { ...state.sessions, [session.id]: { ...state.sessions[session.id], ...session } },
+      sessions: { ...state.sessions, [hydrated.id]: { ...state.sessions[hydrated.id], ...hydrated } },
     }));
-    bindInput(session.id);
+    bindInput(hydrated.id);
   },
 
   markExited: (id, exitCode) =>
     set((state) => {
       const current = state.sessions[id];
-      if (!current) return state;
+      if (!current) {
+        pendingLifecycle.remember(id, { status: "exited", exitCode });
+        return state;
+      }
       return {
         sessions: {
           ...state.sessions,
@@ -100,7 +111,10 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   markError: (id, message) =>
     set((state) => {
       const current = state.sessions[id];
-      if (!current) return state;
+      if (!current) {
+        pendingLifecycle.remember(id, { status: "error", message });
+        return state;
+      }
       return {
         sessions: {
           ...state.sessions,
@@ -173,6 +187,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       return false;
     }
     terminalRegistry.dispose(id);
+    pendingLifecycle.clear(id);
     set((state) => {
       const next = { ...state.sessions };
       delete next[id];
