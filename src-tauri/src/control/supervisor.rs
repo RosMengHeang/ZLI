@@ -163,6 +163,39 @@ impl Supervisor {
         })
     }
 
+    pub fn forget_session(
+        &self,
+        project_id: &str,
+        session_id: &str,
+    ) -> Result<bool, SessionCommandError> {
+        let session = match self.registry.get(session_id) {
+            Ok(session) => session,
+            Err(BackendError::SessionNotFound(_)) => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
+        let descriptor = session.descriptor()?;
+        if descriptor.project_id != project_id {
+            return Err(SessionCommandError::Runtime(
+                "session belongs to a different project".into(),
+            ));
+        }
+        if !descriptor.terminal_id.trim().is_empty()
+            && self
+                .pty
+                .session_status(&descriptor.terminal_id)
+                .is_ok_and(|status| status == TerminalStatus::Running)
+        {
+            return Err(SessionCommandError::Runtime(
+                "session is still running; stop it before forgetting".into(),
+            ));
+        }
+        let removed = self.registry.remove(session_id)?.is_some();
+        if removed {
+            self.ownership.remove(session_id)?;
+        }
+        Ok(removed)
+    }
+
     pub fn checkpoint(
         &self,
         project_id: &str,

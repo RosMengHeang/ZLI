@@ -32,6 +32,7 @@ interface SessionClient {
     sessionIds: string[];
     createdSessionIds: string[];
   }>;
+  forget: (projectId: string, sessionId: string) => Promise<boolean>;
   resume: (sessionId: string) => Promise<SessionDescriptor>;
   snapshot?: (request: {
     projectId: string;
@@ -47,6 +48,7 @@ const SESSION_PROTOCOL_VERSION = 1;
 const defaultClient: SessionClient = {
   reconnect: async (protocolVersion, cursor) => (await import("../tauri/sessions.ts")).sessionClient.reconnect(protocolVersion, cursor),
   restoreProject: async (projectId) => (await import("../tauri/sessions.ts")).sessionClient.restoreProject(projectId),
+  forget: async (projectId, sessionId) => (await import("../tauri/sessions.ts")).sessionClient.forget(projectId, sessionId),
   resume: async (sessionId) => (await import("../tauri/sessions.ts")).sessionClient.resume(sessionId),
   snapshot: async (request) => (await import("../tauri/sessions.ts")).sessionClient.snapshot!(request),
 };
@@ -92,6 +94,7 @@ interface SessionState {
   initialize: (projectId: string) => Promise<void>;
   checkpoint: (projectId: string) => Promise<void>;
   restoreSession: (checkpoint: unknown) => Promise<void>;
+  forgetAgent: (agentId: string) => Promise<void>;
   resumeAgent: (agentId: string) => Promise<void>;
 }
 
@@ -313,6 +316,23 @@ function makeState(client: SessionClient) {
       await synchronizeFrontend(decoded.value.projectId, records, paneTree, decoded.value.browser);
     },
 
+    forgetAgent: async (agentId) => {
+      const current = get().agents[agentId];
+      if (!current) return;
+      try {
+        await client.forget(current.projectId, current.sessionId);
+        set((state) => {
+          if (state.agents[agentId]?.sessionId !== current.sessionId) return state;
+          const agents = { ...state.agents };
+          delete agents[agentId];
+          return { agents, error: null };
+        });
+      } catch (error) {
+        set({ error: errorMessage(error) });
+        throw error;
+      }
+    },
+
     resumeAgent: async (agentId) => {
       const current = get().agents[agentId];
       if (!current || current.pending || current.action === "unavailable" || current.action === "new_session") return;
@@ -351,6 +371,7 @@ export function createSessionStoreForTest(client: SessionClient): SessionStore {
   const store = createStore<SessionState>(makeState(client));
   return Object.assign(store, {
     restoreSession: (checkpoint: unknown) => store.getState().restoreSession(checkpoint),
+    forgetAgent: (agentId: string) => store.getState().forgetAgent(agentId),
     resumeAgent: (agentId: string) => store.getState().resumeAgent(agentId),
   });
 }

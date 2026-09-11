@@ -189,6 +189,16 @@ impl SessionRegistry {
             .ok_or_else(|| BackendError::SessionNotFound(session_id.to_owned()))
     }
 
+    pub fn remove(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<Arc<RuntimeSession>>, BackendError> {
+        self.sessions
+            .lock()
+            .map(|mut sessions| sessions.remove(session_id))
+            .map_err(|_| BackendError::Internal("session registry lock poisoned".into()))
+    }
+
     pub fn attach(&self, session_id: &str) -> Result<SessionDescriptor, BackendError> {
         self.get(session_id)?.attach(None)
     }

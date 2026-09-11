@@ -13,6 +13,7 @@ import { sessionFromAgent } from "../lib/terminalSessions";
 import { replaceNode } from "../stores/paneTree";
 import { toAppError } from "../lib/errors";
 import { terminalRetry } from "../lib/terminalRetry";
+import { useSessionStore } from "../stores/sessionStore";
 import type { Agent } from "../types";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -105,6 +106,7 @@ export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: T
 
       const closed = await closeSession(terminalId);
       if (closed && stillCurrent()) {
+        if (agent) await useSessionStore.getState().forgetAgent(agent.id);
         closePane(paneId);
         if (agent) useAgentStore.getState().remove(agent.id);
       } else if (!closed && stillCurrent()) {
