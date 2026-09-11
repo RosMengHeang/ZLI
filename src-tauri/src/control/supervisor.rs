@@ -189,7 +189,12 @@ impl Supervisor {
                 "session is still running; stop it before forgetting".into(),
             ));
         }
-        let removed = self.registry.remove(session_id)?.is_some();
+        let removed = self.registry.remove_if_current(session_id, &session)?;
+        if !removed && self.registry.get(session_id).is_ok() {
+            return Err(SessionCommandError::Runtime(
+                "session changed while forgetting; retry the cleanup".into(),
+            ));
+        }
         if removed {
             self.ownership.remove(session_id)?;
         }

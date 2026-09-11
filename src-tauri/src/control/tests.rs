@@ -246,6 +246,21 @@ fn removed_session_is_no_longer_listed_and_remove_is_idempotent() {
 }
 
 #[test]
+fn session_registry_does_not_remove_a_replacement_session() {
+    let registry = SessionRegistry::default();
+    let original = registry.insert(test_runtime_session("session-1", "agent-1"));
+    let replacement = registry.insert(test_runtime_session("session-1", "agent-2"));
+
+    assert!(!registry
+        .remove_if_current("session-1", &original)
+        .expect("conditional remove"));
+    assert!(std::sync::Arc::ptr_eq(
+        &registry.get("session-1").expect("replacement"),
+        &replacement,
+    ));
+}
+
+#[test]
 fn session_descriptor_persists_parent_agent_relationship() {
     let mut descriptor = test_runtime_session("session-child", "child-1")
         .descriptor()

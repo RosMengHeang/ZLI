@@ -199,6 +199,26 @@ impl SessionRegistry {
             .map_err(|_| BackendError::Internal("session registry lock poisoned".into()))
     }
 
+    pub fn remove_if_current(
+        &self,
+        session_id: &str,
+        expected: &Arc<RuntimeSession>,
+    ) -> Result<bool, BackendError> {
+        self.sessions
+            .lock()
+            .map(|mut sessions| {
+                if sessions
+                    .get(session_id)
+                    .is_some_and(|current| Arc::ptr_eq(current, expected))
+                {
+                    sessions.remove(session_id).is_some()
+                } else {
+                    false
+                }
+            })
+            .map_err(|_| BackendError::Internal("session registry lock poisoned".into()))
+    }
+
     pub fn attach(&self, session_id: &str) -> Result<SessionDescriptor, BackendError> {
         self.get(session_id)?.attach(None)
     }
