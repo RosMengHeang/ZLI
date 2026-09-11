@@ -2144,6 +2144,9 @@ impl super::team::TeamBackend for FakeTeamBackend {
 
     fn deliver(&self, terminal_id: &str, body: &str) -> Result<(), super::ControlError> {
         if self.fail_delivery.swap(false, Ordering::SeqCst) {
+            if let Some(hook) = self.delivery_hook.lock().unwrap().clone() {
+                hook();
+            }
             return Err(super::ControlError::new(
                 super::ControlErrorCode::ControlRuntimeError,
                 "delivery failed",
@@ -2633,6 +2636,76 @@ fn delivered_message_retries_acknowledgement_before_next_delivery() {
             .filter(|event| event.kind == AgentEventKind::AgentMessageDelivered)
             .count(),
         2
+    );
+}
+
+#[test]
+fn failed_delivery_retries_requeue_before_reporting_failure() {
+    let root = tempdir().expect("temporary directory");
+    let backend = Arc::new(FakeTeamBackend::default());
+    let coordinator = super::TeamCoordinator::new(
+        backend.clone(),
+        Arc::new(CapabilityTokenStore::default()),
+        "endpoint".into(),
+    )
+    .with_message_store(SnapshotStore::new(root.path().to_path_buf()))
+    .expect("create persistent coordinator");
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+    backend.deliveries.lock().unwrap().clear();
+    backend.events.lock().unwrap().clear();
+
+    coordinator
+        .send("project-1", &child.agent_id, "Retry this delivery")
+        .expect("queue message");
+    backend.fail_delivery.store(true, Ordering::SeqCst);
+
+    let queue_path = root.path().join("control").join("pending-messages.json");
+    let failure_path = queue_path.clone();
+    *backend.delivery_hook.lock().unwrap() = Some(Arc::new(move || {
+        std::fs::remove_file(&failure_path).expect("remove queue file");
+        std::fs::create_dir(&failure_path).expect("block queue replacement");
+    }));
+
+    let mut prompt = AgentEventEnvelope::new(
+        "requeue-failure-prompt".into(),
+        "project-1".into(),
+        Some(child.agent_id.clone()),
+        AgentEventKind::AgentPromptDetected,
+        AgentEventPayload::Attention {
+            reason: "provider_prompt".into(),
+        },
+    );
+    prompt.source = AgentEventSource::Provider;
+    coordinator.handle_event(&prompt);
+
+    assert!(backend.events.lock().unwrap().iter().all(|event| {
+        event.kind != AgentEventKind::AgentMessageFailed
+    }));
+    assert_eq!(
+        coordinator
+            .queue_status(Some("project-1"))
+            .expect("read queue status")
+            .into_iter()
+            .find(|status| status.agent_id == child.agent_id)
+            .expect("agent queue status")
+            .in_flight_count,
+        1
+    );
+
+    std::fs::remove_dir(&queue_path).expect("restore queue path");
+    *backend.delivery_hook.lock().unwrap() = None;
+    prompt.event_id = "requeue-retry-prompt".into();
+    coordinator.handle_event(&prompt);
+
+    assert_eq!(
+        backend.deliveries.lock().unwrap().as_slice(),
+        &[("terminal-child".into(), "Retry this delivery".into())]
+    );
+    assert_eq!(
+        backend.events.lock().unwrap().last().unwrap().kind,
+        AgentEventKind::AgentMessageDelivered
     );
 }
 

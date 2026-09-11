@@ -425,6 +425,7 @@ pub struct TeamCoordinator {
     child_tokens: Mutex<HashMap<String, String>>,
     inbox: AgentMessageInbox,
     delivery_ack_pending: Mutex<HashMap<(String, String), QueuedAgentMessage>>,
+    delivery_requeue_pending: Mutex<HashMap<(String, String), QueuedAgentMessage>>,
 }
 
 impl TeamCoordinator {
@@ -442,6 +443,7 @@ impl TeamCoordinator {
             child_tokens: Mutex::new(HashMap::new()),
             inbox: AgentMessageInbox::default(),
             delivery_ack_pending: Mutex::new(HashMap::new()),
+            delivery_requeue_pending: Mutex::new(HashMap::new()),
         }
     }
 
@@ -616,6 +618,7 @@ impl TeamCoordinator {
                 Err(_) => return,
             };
             self.clear_pending_delivery_acks(agent_id);
+            self.clear_pending_delivery_requeues(agent_id);
             for message in messages {
                 self.fail_queued_message(message);
             }
@@ -631,6 +634,7 @@ impl TeamCoordinator {
             return;
         }
         self.retry_pending_delivery_ack(agent_id);
+        self.retry_pending_delivery_requeue(agent_id);
         let message = match self.inbox.take_next(agent_id) {
             Ok(Some(message)) => message,
             Ok(None) | Err(_) => return,
@@ -642,12 +646,20 @@ impl TeamCoordinator {
         }
         let result = self.backend.deliver(&record.terminal_id, &message.body);
         if result.is_err() {
-            if self
+            match self
                 .inbox
                 .requeue(&record.agent_id, &message.message_id)
-                .is_ok_and(|requeued| requeued)
             {
-                return;
+                Ok(true) | Ok(false) => return,
+                Err(_) => {
+                    if let Ok(mut pending) = self.delivery_requeue_pending.lock() {
+                        pending.insert(
+                            (record.agent_id.clone(), message.message_id.clone()),
+                            message,
+                        );
+                    }
+                    return;
+                }
             }
         } else if self
             .inbox
@@ -749,6 +761,45 @@ impl TeamCoordinator {
 
     fn clear_pending_delivery_acks(&self, agent_id: &str) {
         if let Ok(mut pending) = self.delivery_ack_pending.lock() {
+            pending.retain(|(queued_agent_id, _), _| queued_agent_id != agent_id);
+        }
+    }
+
+    fn retry_pending_delivery_requeue(&self, agent_id: &str) {
+        let key = self
+            .delivery_requeue_pending
+            .lock()
+            .ok()
+            .and_then(|pending| {
+                pending
+                    .keys()
+                    .find(|(queued_agent_id, _)| queued_agent_id == agent_id)
+                    .cloned()
+            });
+        let Some((queued_agent_id, message_id)) = key else {
+            return;
+        };
+        let message = self
+            .delivery_requeue_pending
+            .lock()
+            .ok()
+            .and_then(|mut pending| pending.remove(&(queued_agent_id.clone(), message_id.clone())));
+        let Some(message) = message else {
+            return;
+        };
+        match self.inbox.requeue(&queued_agent_id, &message_id) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(_) => {
+                if let Ok(mut pending) = self.delivery_requeue_pending.lock() {
+                    pending.insert((queued_agent_id, message_id), message);
+                }
+            }
+        }
+    }
+
+    fn clear_pending_delivery_requeues(&self, agent_id: &str) {
+        if let Ok(mut pending) = self.delivery_requeue_pending.lock() {
             pending.retain(|(queued_agent_id, _), _| queued_agent_id != agent_id);
         }
     }
@@ -946,6 +997,7 @@ impl TeamCoordinator {
         self.backend.stop(agent_id)?;
         let drained = self.inbox.drain(agent_id)?;
         self.clear_pending_delivery_acks(agent_id);
+        self.clear_pending_delivery_requeues(agent_id);
         for message in drained {
             self.fail_queued_message(message);
         }
