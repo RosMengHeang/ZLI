@@ -56,6 +56,7 @@ export interface SessionClient {
   reconnect: (protocolVersion: number, cursor: number) => Promise<ReconnectResult>;
   reconcile: () => Promise<ReconcileReport>;
   restoreProject: (projectId: string) => Promise<RestoreResult>;
+  forget: (projectId: string, sessionId: string) => Promise<boolean>;
   resume: (sessionId: string) => Promise<SessionDescriptor>;
   snapshot?: (request: SessionSnapshotRequest) => Promise<SessionCheckpoint>;
 }
@@ -74,6 +75,8 @@ export const sessionClient: SessionClient = {
   reconcile: () => invokeCmd<ReconcileReport>("control_session_reconcile", {}),
   restoreProject: (projectId) =>
     invokeCmd<RestoreResult>("control_session_restore", { projectId }),
+  forget: (projectId, sessionId) =>
+    invokeCmd<boolean>("control_session_forget", { projectId, sessionId }),
   resume: (sessionId) =>
     invokeCmd<SessionDescriptor>("control_session_resume", { sessionId }),
   snapshot: (request) =>

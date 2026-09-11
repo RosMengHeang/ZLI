@@ -233,6 +233,19 @@ fn detached_session_can_be_found_and_attached_by_session_id() {
 }
 
 #[test]
+fn removed_session_is_no_longer_listed_and_remove_is_idempotent() {
+    let registry = SessionRegistry::default();
+    registry.insert(test_runtime_session("session-1", "agent-1"));
+
+    assert!(registry.remove("session-1").expect("remove").is_some());
+    assert!(registry.list().expect("list").is_empty());
+    assert!(registry
+        .remove("session-1")
+        .expect("repeat remove")
+        .is_none());
+}
+
+#[test]
 fn session_descriptor_persists_parent_agent_relationship() {
     let mut descriptor = test_runtime_session("session-child", "child-1")
         .descriptor()

@@ -159,3 +159,23 @@ test("a pending resume suppresses duplicate requests", async () => {
   await Promise.all([first, second]);
   assert.equal(calls, 1);
 });
+
+test("forget removes the restored agent from local state after backend cleanup", async () => {
+  const { createSessionStoreForTest } = await import("../src/stores/sessionStore.ts");
+  const calls = [];
+  const store = createSessionStoreForTest({
+    reconnect: async () => ({ protocolVersion: 1, currentSequence: 0, events: [], sessions: [] }),
+    restoreProject: async () => ({ snapshot: null, sessionIds: [], createdSessionIds: [] }),
+    forget: async (projectId, sessionId) => {
+      calls.push({ projectId, sessionId });
+      return true;
+    },
+    resume: async () => { throw new Error("unused"); },
+  });
+
+  await store.restoreSession(checkpointWithAgent("unsupported"));
+  await store.getState().forgetAgent("agent-1");
+
+  assert.deepEqual(calls, [{ projectId: "D:/project", sessionId: "session-1" }]);
+  assert.deepEqual(store.getState().agents, {});
+});

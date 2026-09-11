@@ -12,6 +12,7 @@ import { useProjectStore } from "./projectStore";
 import { useTerminalStore } from "./terminalStore";
 import { useWorkspaceStore } from "./workspaceStore";
 import { acknowledgeAgent } from "./attentionStore";
+import { useSessionStore } from "./sessionStore";
 
 interface AgentState {
   agents: Record<string, Agent>;
@@ -336,6 +337,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           },
           closeTerminal: (terminalId) =>
             useTerminalStore.getState().closeSession(terminalId),
+          forgetSession: (agentId) => useSessionStore.getState().forgetAgent(agentId),
           closePane: (paneId) => useLayoutStore.getState().closePane(paneId),
           beforeRemove,
           removeAgent: (agentId) => get().remove(agentId),

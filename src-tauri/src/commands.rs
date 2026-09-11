@@ -442,6 +442,16 @@ pub async fn control_session_restore(
 }
 
 #[tauri::command]
+pub async fn control_session_forget(
+    supervisor: State<'_, Arc<Supervisor>>,
+    project_id: String,
+    session_id: String,
+) -> Result<bool, SessionCommandError> {
+    let supervisor = supervisor.inner().clone();
+    run_control_blocking(move || supervisor.forget_session(&project_id, &session_id)).await
+}
+
+#[tauri::command]
 pub async fn control_session_resume(
     app: AppHandle,
     supervisor: State<'_, Arc<Supervisor>>,
