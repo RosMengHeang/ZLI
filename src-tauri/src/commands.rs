@@ -3,7 +3,7 @@ use crate::control::browser::commands::BrowserCapability;
 use crate::control::{
     AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, BrowserControlStatus,
     BrowserManager, BrowserSurfaceRecord, ProjectSnapshot, ReconcileReport, ReconnectResult, RestoreResult,
-    SessionCommandError, SessionDescriptor, Supervisor, TauriBrowserExecutor,
+    SessionCommandError, SessionDescriptor, Supervisor, TeamCoordinator, TauriBrowserExecutor,
 };
 use crate::error::BackendError;
 use crate::event_hub::EventHub;
@@ -339,12 +339,14 @@ pub async fn launch_agent(
     agents: State<'_, AgentManager>,
     event_hub: State<'_, EventHub>,
     supervisor: State<'_, Arc<Supervisor>>,
+    team: State<'_, Arc<TeamCoordinator>>,
     request: LaunchAgentRequest,
 ) -> Result<Agent, BackendError> {
     let pty = manager.inner().clone();
     let agents = agents.inner().clone();
     let event_hub = event_hub.inner().clone();
     let supervisor = supervisor.inner().clone();
+    let team = team.inner().clone();
     run_blocking(move || {
         let project_id = request.cwd.clone();
         if !supervisor
@@ -366,17 +368,39 @@ pub async fn launch_agent(
             observer: None,
         });
         let runtime_sink = supervisor.runtime_sink(app_sink);
-        let agent = agents.launch(request, &pty, runtime_sink.clone())?;
+        let agent_id = Uuid::new_v4().to_string();
+        let managed_environment = team
+            .prepare_direct_agent_environment(&project_id, &agent_id)
+            .map_err(|error| {
+                BackendError::Internal(format!(
+                    "could not prepare the managed agent environment: {error}"
+                ))
+            })?;
+        let agent = match agents.launch_scoped(
+            request,
+            &pty,
+            runtime_sink.clone(),
+            managed_environment,
+            Some(agent_id.clone()),
+        ) {
+            Ok(agent) => agent,
+            Err(error) => {
+                team.revoke_agent_token(&agent_id);
+                return Err(error);
+            }
+        };
         if let Err(error) = pty.bind_agent(
             &agent.terminal_id,
             project_id.clone(),
             agent.id.clone(),
             agent.provider.clone(),
         ) {
+            team.revoke_agent_token(&agent.id);
             rollback_agent_launch(&agents, &pty, &agent, &project_id);
             return Err(error);
         }
         if let Err(error) = supervisor.register_agent(&agent, project_id.clone(), runtime_sink) {
+            team.revoke_agent_token(&agent.id);
             rollback_agent_launch(&agents, &pty, &agent, &project_id);
             return Err(BackendError::Internal(format!(
                 "session registration failed: {error:?}"
@@ -658,11 +682,20 @@ pub fn attention_mark_all_read(
 pub async fn stop_agent(
     manager: State<'_, PtyManager>,
     agents: State<'_, AgentManager>,
+    team: State<'_, Arc<TeamCoordinator>>,
     id: String,
 ) -> Result<(), BackendError> {
     let pty = manager.inner().clone();
     let agents = agents.inner().clone();
-    run_blocking(move || agents.stop(&id, &pty)).await
+    let team = team.inner().clone();
+    run_blocking(move || {
+        let result = agents.stop(&id, &pty);
+        if result.is_ok() {
+            team.revoke_agent_token(&id);
+        }
+        result
+    })
+    .await
 }
 
 #[tauri::command]

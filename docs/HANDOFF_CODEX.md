@@ -260,9 +260,9 @@ All listed routes are active. A managed child may omit the TaxChat project becau
 
 `zli agent queue` exposes safe queue diagnostics for the current project, or all projects for the local CLI. It returns only project and agent IDs, pending and in-flight counts, and the oldest message ID. Message bodies and terminal contents are never included.
 
-Pass `--json` before or after a command for the strict response envelope. Managed child agents can omit `--project`; their injected `ZLI_PROJECT_ID` supplies it. The older positional spawn form remains accepted for compatibility.
+Pass `--json` before or after a command for the strict response envelope. ZLI-managed agents can omit `--project`; their injected `ZLI_PROJECT_ID` supplies it. The older positional spawn form remains accepted for compatibility.
 
-Every managed child receives only these scoped environment values:
+Every ZLI-managed agent session receives only these scoped environment values:
 
 ```text
 ZLI_PROJECT_ID

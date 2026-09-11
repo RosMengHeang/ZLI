@@ -2560,6 +2560,69 @@ fn managed_agent_browser_capability_reports_safe_fallback_without_credentials() 
 }
 
 #[test]
+fn direct_ui_agents_receive_the_same_scoped_browser_environment() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let tokens = Arc::new(CapabilityTokenStore::default());
+    let coordinator = super::TeamCoordinator::new(
+        backend,
+        tokens.clone(),
+        r"\\.\pipe\zli-test".into(),
+    )
+    .with_control_executable(Some(std::path::PathBuf::from(
+        r"C:\Program Files\Taxzy\zli.exe",
+    )));
+
+    let environment = coordinator
+        .prepare_direct_agent_environment("project-1", "agent-1")
+        .expect("prepare direct agent environment");
+
+    assert_eq!(
+        environment
+            .get(std::ffi::OsStr::new("ZLI_PROJECT_ID"))
+            .unwrap(),
+        "project-1"
+    );
+    assert_eq!(
+        environment
+            .get(std::ffi::OsStr::new("ZLI_AGENT_ID"))
+            .unwrap(),
+        "agent-1"
+    );
+    assert_eq!(
+        environment
+            .get(std::ffi::OsStr::new("ZLI_BROWSER_PROFILE"))
+            .unwrap(),
+        "clean"
+    );
+    assert_eq!(
+        environment
+            .get(std::ffi::OsStr::new("ZLI_BROWSER_SESSION"))
+            .unwrap(),
+        "agent-1"
+    );
+    assert_eq!(
+        environment
+            .get(std::ffi::OsStr::new("ZLI_COMMAND"))
+            .unwrap(),
+        r"C:\Program Files\Taxzy\zli.exe"
+    );
+    assert_eq!(
+        environment
+            .get(std::ffi::OsStr::new("ZLI_BROWSER_USE_COMMAND"))
+            .unwrap(),
+        r"C:\Program Files\Taxzy\zli-browser-use.exe"
+    );
+    let token = environment
+        .get(std::ffi::OsStr::new("ZLI_CONTROL_TOKEN"))
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let identity = tokens.verify(token).expect("direct token should verify");
+    assert_eq!(identity.project_id, "project-1");
+    assert_eq!(identity.agent_id.as_deref(), Some("agent-1"));
+}
+
+#[test]
 fn supervisor_agent_slot_reservation_is_atomic_per_project() {
     let root = tempdir().expect("temporary supervisor directory");
     let supervisor = Arc::new(super::Supervisor::new(

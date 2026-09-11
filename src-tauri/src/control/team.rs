@@ -473,6 +473,7 @@ pub struct TeamCoordinator {
     control_executable: Option<PathBuf>,
     records: Mutex<HashMap<String, TeamAgent>>,
     child_tokens: Mutex<HashMap<String, String>>,
+    direct_tokens: Mutex<HashMap<String, String>>,
     inbox: AgentMessageInbox,
     delivery_ack_pending: Mutex<HashMap<(String, String), QueuedAgentMessage>>,
     delivery_requeue_pending: Mutex<HashMap<(String, String), QueuedAgentMessage>>,
@@ -494,6 +495,7 @@ impl TeamCoordinator {
             control_executable: None,
             records: Mutex::new(HashMap::new()),
             child_tokens: Mutex::new(HashMap::new()),
+            direct_tokens: Mutex::new(HashMap::new()),
             inbox: AgentMessageInbox::default(),
             delivery_ack_pending: Mutex::new(HashMap::new()),
             delivery_requeue_pending: Mutex::new(HashMap::new()),
@@ -506,6 +508,56 @@ impl TeamCoordinator {
     pub fn with_control_executable(mut self, executable: Option<PathBuf>) -> Self {
         self.control_executable = executable;
         self
+    }
+
+    pub(crate) fn prepare_direct_agent_environment(
+        &self,
+        project_id: &str,
+        agent_id: &str,
+    ) -> Result<HashMap<OsString, OsString>, ControlError> {
+        if self.control_executable.is_none() || self.endpoint.trim().is_empty() {
+            return Ok(HashMap::new());
+        }
+        let request = SpawnAgentRequest {
+            project_id: project_id.to_owned(),
+            parent_agent_id: None,
+            provider_id: "direct".to_owned(),
+            task: String::new(),
+            name: None,
+        };
+        let issued = self.tokens.issue(
+            agent_identity(project_id, agent_id, None),
+            Duration::from_secs(12 * 60 * 60),
+        );
+        let environment = control_environment(
+            &request,
+            agent_id,
+            &self.endpoint,
+            &issued.token,
+            self.control_executable.as_deref(),
+        );
+        match self.direct_tokens.lock() {
+            Ok(mut direct_tokens) => {
+                direct_tokens.insert(agent_id.to_owned(), issued.token);
+                Ok(environment)
+            }
+            Err(_) => {
+                self.tokens.revoke(&issued.token);
+                Err(ControlError::new(
+                    ControlErrorCode::ControlRuntimeError,
+                    "Team state is unavailable",
+                ))
+            }
+        }
+    }
+
+    pub(crate) fn revoke_agent_token(&self, agent_id: &str) {
+        self.revoke_child_token(agent_id);
+        if let Ok(mut direct_tokens) = self.direct_tokens.lock() {
+            if let Some(token) = direct_tokens.remove(agent_id) {
+                self.tokens.revoke(&token);
+            }
+        }
     }
 
     pub fn with_message_store(mut self, store: SnapshotStore) -> Result<Self, ControlError> {
@@ -846,6 +898,12 @@ impl TeamCoordinator {
                 .lock()
                 .map(|tokens| tokens.contains_key(agent_id))
                 .unwrap_or(false);
+        let has_coordination_state = has_coordination_state
+            || self
+                .direct_tokens
+                .lock()
+                .map(|tokens| tokens.contains_key(agent_id))
+                .unwrap_or(false);
         let is_starting = self
             .starting_agents
             .lock()
@@ -856,7 +914,7 @@ impl TeamCoordinator {
                 pending.insert(agent_id.to_owned());
             }
         } else if has_coordination_state {
-            self.revoke_child_token(agent_id);
+            self.revoke_agent_token(agent_id);
             self.retire_coordination_record(agent_id);
         }
     }
@@ -1196,7 +1254,7 @@ impl TeamCoordinator {
         for message in drained {
             self.fail_queued_message(message);
         }
-        self.revoke_child_token(agent_id);
+        self.revoke_agent_token(agent_id);
         self.retire_coordination_record(agent_id);
         self.emit(
             &record,
@@ -1560,12 +1618,16 @@ fn validate_spawn(request: &SpawnAgentRequest) -> Result<(), ControlError> {
     Ok(())
 }
 
-fn child_identity(request: &SpawnAgentRequest, agent_id: &str) -> CallerIdentity {
+fn agent_identity(
+    project_id: &str,
+    agent_id: &str,
+    parent_agent_id: Option<String>,
+) -> CallerIdentity {
     CallerIdentity {
         caller_id: agent_id.to_owned(),
-        project_id: request.project_id.clone(),
+        project_id: project_id.to_owned(),
         agent_id: Some(agent_id.to_owned()),
-        parent_agent_id: request.parent_agent_id.clone(),
+        parent_agent_id,
         capabilities: vec![
             Capability::AgentList,
             Capability::AgentSpawn,
@@ -1580,6 +1642,14 @@ fn child_identity(request: &SpawnAgentRequest, agent_id: &str) -> CallerIdentity
         ],
         expires_at: None,
     }
+}
+
+fn child_identity(request: &SpawnAgentRequest, agent_id: &str) -> CallerIdentity {
+    agent_identity(
+        &request.project_id,
+        agent_id,
+        request.parent_agent_id.clone(),
+    )
 }
 
 fn control_environment(
