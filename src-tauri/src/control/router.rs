@@ -3,8 +3,9 @@ use super::{
     ControlResponse,
 };
 use serde_json::Value;
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 
 const MAX_IDEMPOTENCY_ENTRIES: usize = 1024;
@@ -21,6 +22,7 @@ pub trait ControlHandler: Send + Sync {
 struct IdempotencyCache {
     responses: HashMap<(String, String), ControlResponse>,
     order: VecDeque<(String, String)>,
+    in_flight: HashSet<(String, String)>,
 }
 
 impl IdempotencyCache {
@@ -48,6 +50,7 @@ impl IdempotencyCache {
 pub struct CommandRouter {
     handler: Arc<dyn ControlHandler>,
     cache: Mutex<IdempotencyCache>,
+    in_flight_changed: Condvar,
 }
 
 impl CommandRouter {
@@ -55,41 +58,70 @@ impl CommandRouter {
         Self {
             handler,
             cache: Mutex::new(IdempotencyCache::default()),
+            in_flight_changed: Condvar::new(),
         }
     }
 
     pub fn dispatch(&self, request: ControlRequest, identity: CallerIdentity) -> ControlResponse {
-        if let Ok(cache) = self.cache.lock() {
-            if let Some(response) = cache.get(&identity.caller_id, &request.id) {
+        let key = (identity.caller_id.clone(), request.id.clone());
+        let mut cache = self
+            .cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        loop {
+            if let Some(response) = cache.get(&key.0, &key.1) {
                 return response;
             }
+            if cache.in_flight.insert(key.clone()) {
+                break;
+            }
+            cache = self
+                .in_flight_changed
+                .wait(cache)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
         }
+        drop(cache);
 
-        let response = match self.authorize(&request, &identity) {
-            Ok(()) => {
-                let started = Instant::now();
-                let handled = self.handler.handle(&request, &identity);
-                if started.elapsed().as_millis() > u128::from(request.timeout_ms) {
-                    ControlResponse::failure(
-                        request.id.clone(),
-                        ControlError::new(
-                            ControlErrorCode::ControlTimeout,
-                            "Control request timed out",
-                        ),
-                    )
-                } else {
-                    match handled {
-                        Ok(result) => ControlResponse::success(request.id.clone(), result),
-                        Err(error) => ControlResponse::failure(request.id.clone(), error),
+        let response = catch_unwind(AssertUnwindSafe(|| {
+            match self.authorize(&request, &identity) {
+                Ok(()) => {
+                    let started = Instant::now();
+                    let handled = self.handler.handle(&request, &identity);
+                    if started.elapsed().as_millis() > u128::from(request.timeout_ms) {
+                        ControlResponse::failure(
+                            request.id.clone(),
+                            ControlError::new(
+                                ControlErrorCode::ControlTimeout,
+                                "Control request timed out",
+                            ),
+                        )
+                    } else {
+                        match handled {
+                            Ok(result) => ControlResponse::success(request.id.clone(), result),
+                            Err(error) => ControlResponse::failure(request.id.clone(), error),
+                        }
                     }
                 }
+                Err(error) => ControlResponse::failure(request.id.clone(), error),
             }
-            Err(error) => ControlResponse::failure(request.id.clone(), error),
-        };
+        }))
+        .unwrap_or_else(|_| {
+            ControlResponse::failure(
+                request.id.clone(),
+                ControlError::new(
+                    ControlErrorCode::ControlRuntimeError,
+                    "Control handler panicked",
+                ),
+            )
+        });
 
-        if let Ok(mut cache) = self.cache.lock() {
-            cache.insert(identity.caller_id, request.id, response.clone());
-        }
+        let mut cache = self
+            .cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        cache.in_flight.remove(&key);
+        cache.insert(identity.caller_id, request.id, response.clone());
+        self.in_flight_changed.notify_all();
         response
     }
 

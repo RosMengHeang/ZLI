@@ -28,7 +28,8 @@ use crate::pty::ProcessIdentity;
 use std::process::Command;
 use super::{RuntimeSession, SessionRegistry};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
+use std::thread;
 
 #[test]
 fn control_request_round_trips_and_rejects_unknown_protocol_versions() {
@@ -136,6 +137,51 @@ fn duplicate_request_id_returns_the_original_response() {
     let first = router.dispatch(request.clone(), test_parent_identity());
     let second = router.dispatch(request, test_parent_identity());
     assert_eq!(first, second);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+struct SlowCountingHandler {
+    calls: Arc<AtomicUsize>,
+}
+
+impl ControlHandler for SlowCountingHandler {
+    fn handle(
+        &self,
+        _request: &ControlRequest,
+        _identity: &super::CallerIdentity,
+    ) -> Result<serde_json::Value, super::ControlError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        thread::sleep(Duration::from_millis(50));
+        Ok(json!({ "agents": [] }))
+    }
+}
+
+#[test]
+fn concurrent_duplicate_request_ids_execute_only_once() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let router = Arc::new(CommandRouter::new(Arc::new(SlowCountingHandler {
+        calls: calls.clone(),
+    })));
+    let request = ControlRequest::new("concurrent-1", ControlMethod::AgentList, json!({}), 5_000)
+        .expect("valid request");
+    let start = Arc::new(Barrier::new(8));
+    let workers = (0..8)
+        .map(|_| {
+            let router = router.clone();
+            let request = request.clone();
+            let start = start.clone();
+            thread::spawn(move || {
+                start.wait();
+                router.dispatch(request, test_parent_identity())
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let responses = workers
+        .into_iter()
+        .map(|worker| worker.join().expect("worker should finish"))
+        .collect::<Vec<_>>();
+    assert!(responses.windows(2).all(|pair| pair[0] == pair[1]));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
