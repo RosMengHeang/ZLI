@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { IconHelp, IconSettings, TaxzyMark } from "./AppIcons";
 import { useAgentStore } from "../stores/agentStore";
+import { useTerminalStore } from "../stores/terminalStore";
 import { useProjectStore } from "../stores/projectStore";
 import { useUiStore } from "../stores/uiStore";
 import { providerDisplayName, type AgentProviderId } from "../types";
 import { getLastProjectPath } from "../lib/preferences";
 import { newId } from "../lib/ids";
+import { providerLaunchFailureMessage } from "../lib/providerDiagnostics";
 import { SetupProjectStep } from "./setup/SetupProjectStep";
 import { SetupAgentsStep } from "./setup/SetupAgentsStep";
 import { SetupReviewStep } from "./setup/SetupReviewStep";
@@ -135,6 +137,9 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
           const success =
             agent &&
             (agent.status === "running" || agent.status === "starting");
+          const terminal = agent
+            ? useTerminalStore.getState().sessions[agent.terminalId]
+            : undefined;
           if (agent && !success) {
             failedAttempts.current.add(agent.id);
             await useAgentStore.getState().retireFailed(agent.id);
@@ -146,8 +151,15 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
             error: success
               ? undefined
               : agent?.error ||
+                terminal?.error ||
                 useAgentStore.getState().launchError?.message ||
-                "Agent could not start. Check the CLI and try again.",
+                (agent
+                  ? providerLaunchFailureMessage({
+                      providerName: providerDisplayName(item.provider),
+                      cwd: agent.cwd,
+                      exitCode: terminal?.exitCode,
+                    })
+                  : `${providerDisplayName(item.provider)} could not start in "${project.path}". Check the CLI installation and terminal output.`),
           };
         } catch (error) {
           next[index] = {

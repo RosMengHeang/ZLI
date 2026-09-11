@@ -1,4 +1,6 @@
 import type { TerminalSession } from "../types";
+import { providerDisplayName } from "../types/models.ts";
+import { providerLaunchFailureMessage } from "./providerDiagnostics.ts";
 
 interface RetryOperations<T extends TerminalSession> {
   isCurrent: () => boolean;
@@ -48,7 +50,13 @@ export const terminalRetry = {
         const replacement = await operations.create();
         if (replacement.status !== "running" && replacement.status !== "starting") {
           await operations.dispose(replacement);
-          throw new Error(replacement.error || "Replacement terminal failed to start.");
+          throw new Error(replacement.error || (replacement.provider
+            ? providerLaunchFailureMessage({
+                providerName: providerDisplayName(replacement.provider),
+                cwd: replacement.cwd,
+                exitCode: replacement.exitCode,
+              })
+            : "Replacement terminal failed to start."));
         }
         if (!operations.swap(replacement)) {
           await operations.dispose(replacement);

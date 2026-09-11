@@ -51,6 +51,11 @@ test("coordinator retains successes, catches errors, and retries only failures",
       },
     },
     "../stores/agentStore": { useAgentStore },
+    "../stores/terminalStore": {
+      useTerminalStore: Object.assign((select) => select({ sessions: {} }), {
+        getState: () => ({ sessions: {} }),
+      }),
+    },
     "../stores/projectStore": { useProjectStore: (select) => select(project) },
     "../stores/uiStore": {
       useUiStore: (select) =>
@@ -63,6 +68,7 @@ test("coordinator retains successes, catches errors, and retries only failures",
     "../types": { providerDisplayName: (id) => id },
     "../lib/preferences": { getLastProjectPath: () => null },
     "../lib/ids": { newId: () => "draft" },
+    "../lib/providerDiagnostics": { providerLaunchFailureMessage: () => "provider failed" },
     "./AppIcons": {
       IconHelp: "help",
       IconSettings: "settings",
