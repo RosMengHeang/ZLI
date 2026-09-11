@@ -686,7 +686,7 @@ impl TeamCoordinator {
                     AgentEventKind::AgentMessageFailed
                 };
                 self.emit(
-                    &record,
+                    record,
                     kind,
                     AgentEventPayload::Message {
                         message_id: message.message_id,
@@ -789,7 +789,7 @@ impl TeamCoordinator {
         };
         match self.inbox.requeue(&queued_agent_id, &message_id) {
             Ok(true) => {}
-            Ok(false) => return,
+            Ok(false) => (),
             Err(_) => {
                 if let Ok(mut pending) = self.delivery_requeue_pending.lock() {
                     pending.insert((queued_agent_id, message_id), message);
