@@ -15,8 +15,9 @@ import { useSessionStore } from "../stores/sessionStore";
 
 function SessionRecoveryStrip() {
   const phase = useSessionStore((state) => state.phase);
-  const records = useSessionStore((state) => Object.values(state.agents));
+  const agents = useSessionStore((state) => state.agents);
   const resumeAgent = useSessionStore((state) => state.resumeAgent);
+  const records = Object.values(agents);
 
   if (phase === "restoring") {
     return (
