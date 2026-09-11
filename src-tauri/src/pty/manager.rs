@@ -4,6 +4,7 @@ use crate::error::BackendError;
 use crate::system::{default_cwd, detect_shell};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
+use super::process::{capture, ProcessIdentity};
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::{Read, Write};
@@ -97,6 +98,7 @@ struct SessionHandle {
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
     child: Mutex<Box<dyn Child + Send>>,
+    process_identity: Option<ProcessIdentity>,
     size: Mutex<(u16, u16)>,
     status: AtomicU8,
     exit_code: Mutex<Option<i32>>,
@@ -279,6 +281,7 @@ impl PtyManager {
             .spawn_command(command)
             .map_err(|error| BackendError::Pty(error.to_string()))?;
         drop(pair.slave);
+        let process_identity = child.process_id().and_then(capture);
 
         let reader = pair
             .master
@@ -295,6 +298,7 @@ impl PtyManager {
             master: Mutex::new(pair.master),
             writer: Mutex::new(writer),
             child: Mutex::new(child),
+            process_identity,
             size: Mutex::new((cols, rows)),
             status: AtomicU8::new(TerminalStatus::Running.as_u8()),
             exit_code: Mutex::new(None),
@@ -338,6 +342,10 @@ impl PtyManager {
             return Err(BackendError::SessionNotFound(id.to_owned()));
         }
         write_agent_input(&session.agent, &session.writer, data.as_bytes())
+    }
+
+    pub fn process_identity(&self, id: &str) -> Result<Option<ProcessIdentity>, BackendError> {
+        Ok(self.session(id)?.process_identity.clone())
     }
 
     pub fn bind_agent(

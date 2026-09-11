@@ -1,8 +1,13 @@
 mod manager;
+mod process;
 
 pub use manager::{
     EventSink, PtyManager, TerminalOutputEvent, TerminalSession, TerminalStatus,
     TerminalStatusEvent,
+};
+pub use process::{ProcessIdentity, ProcessInspection, ProcessTermination};
+pub(crate) use process::{
+    capture as capture_process, inspect as inspect_process, terminate_verified as terminate_process,
 };
 
 #[cfg(test)]
@@ -175,6 +180,40 @@ mod tests {
             })
             .expect("natural exit event");
         assert_eq!(exited.exit_code, Some(42));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn owned_terminal_exposes_process_identity() {
+        let directory = tempdir().unwrap();
+        let manager = PtyManager::new();
+        let terminal = manager
+            .spawn_agent_with_size_args(
+                crate::system::find_executable(&["cmd.exe"]).expect("cmd.exe"),
+                vec![
+                    "/C".into(),
+                    "timeout".into(),
+                    "/T".into(),
+                    "5".into(),
+                    "/NOBREAK".into(),
+                    ">NUL".into(),
+                ],
+                Some(directory.path().to_string_lossy().as_ref()),
+                120,
+                30,
+                std::sync::Arc::new(MemoryEventSink::default()),
+            )
+            .unwrap();
+
+        let identity = manager
+            .process_identity(&terminal.id)
+            .unwrap()
+            .expect("live terminal identity");
+        assert!(identity.pid > 0);
+        assert!(identity.start_time > 0);
+        assert!(identity.executable.to_ascii_lowercase().ends_with("cmd.exe"));
+
+        manager.kill(&terminal.id).expect("kill identity test shell");
     }
 
     #[test]
