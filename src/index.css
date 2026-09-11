@@ -3254,6 +3254,43 @@ input[type="radio"] {
 .team-activity-row span { color: var(--text-tertiary); }
 .team-activity-row[data-status="failed"] span { color: var(--danger); }
 
+.team-queue {
+  margin: 0 8px 8px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 7px;
+}
+
+.team-queue-heading,
+.team-queue-row,
+.team-queue-error {
+  font-size: 11px;
+}
+
+.team-queue-heading {
+  padding: 0 4px 4px;
+  color: var(--text-tertiary);
+}
+
+.team-queue-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  min-height: 28px;
+  padding: 3px 4px;
+}
+
+.team-queue-name,
+.team-queue-count {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-queue-name { color: var(--text-secondary); }
+.team-queue-count { color: var(--text-tertiary); }
+.team-queue-error { margin: 0 12px 8px; color: var(--text-tertiary); }
+
 .workspace-project-hover-card {
   width: 286px;
   border-color: var(--border-default);
