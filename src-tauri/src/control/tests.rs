@@ -2399,6 +2399,44 @@ fn team_spawn_aborts_the_session_when_initial_delivery_fails() {
 }
 
 #[test]
+fn child_exit_during_initial_delivery_does_not_leave_coordination_state() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let tokens = Arc::new(CapabilityTokenStore::default());
+    let coordinator = Arc::new(super::TeamCoordinator::new(
+        backend.clone(),
+        tokens.clone(),
+        "endpoint".into(),
+    ));
+    let coordinator_for_hook = coordinator.clone();
+    let backend_for_hook = backend.clone();
+    *backend.delivery_hook.lock().unwrap() = Some(Arc::new(move || {
+        let agent_id = backend_for_hook.launches.lock().unwrap().last().unwrap().agent_id.clone();
+        coordinator_for_hook.handle_event(&AgentEventEnvelope::new(
+            "startup-exit".into(),
+            "project-1".into(),
+            Some(agent_id),
+            AgentEventKind::AgentExited,
+            AgentEventPayload::Exit { code: Some(1) },
+        ));
+    }));
+
+    let child = coordinator.spawn(team_spawn_request()).expect("spawn child");
+    let token = backend.launches.lock().unwrap()[0]
+        .environment
+        .get(std::ffi::OsStr::new("ZLI_CONTROL_TOKEN"))
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+
+    assert!(coordinator
+        .list("project-1")
+        .expect("list team agents")
+        .is_empty());
+    assert!(tokens.verify(&token).is_err());
+    assert_eq!(child.project_id, "project-1");
+}
+
+#[test]
 fn team_stop_revokes_the_child_control_token() {
     let backend = Arc::new(FakeTeamBackend::default());
     let tokens = Arc::new(CapabilityTokenStore::default());

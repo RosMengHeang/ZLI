@@ -450,6 +450,8 @@ pub struct TeamCoordinator {
     delivery_ack_pending: Mutex<HashMap<(String, String), QueuedAgentMessage>>,
     delivery_requeue_pending: Mutex<HashMap<(String, String), QueuedAgentMessage>>,
     exit_cleanup_pending: Mutex<HashSet<String>>,
+    starting_agents: Mutex<HashSet<String>>,
+    early_exit_pending: Mutex<HashSet<String>>,
 }
 
 impl TeamCoordinator {
@@ -469,6 +471,8 @@ impl TeamCoordinator {
             delivery_ack_pending: Mutex::new(HashMap::new()),
             delivery_requeue_pending: Mutex::new(HashMap::new()),
             exit_cleanup_pending: Mutex::new(HashSet::new()),
+            starting_agents: Mutex::new(HashSet::new()),
+            early_exit_pending: Mutex::new(HashSet::new()),
         }
     }
 
@@ -526,6 +530,10 @@ impl TeamCoordinator {
             child_identity(&request, &agent_id),
             Duration::from_secs(12 * 60 * 60),
         );
+        self.starting_agents
+            .lock()
+            .map_err(lock_error)?
+            .insert(agent_id.clone());
         let environment = control_environment(
             &request,
             &agent_id,
@@ -548,6 +556,8 @@ impl TeamCoordinator {
         let agent = match self.backend.launch_child(launch) {
             Ok(agent) => agent,
             Err(error) => {
+                self.forget_starting_agent(&agent_id);
+                self.retire_coordination_record(&agent_id);
                 self.tokens.revoke(&issued.token);
                 let _ = self
                     .backend
@@ -556,6 +566,8 @@ impl TeamCoordinator {
             }
         };
         if let Err(error) = self.backend.deliver(&agent.terminal_id, &request.task) {
+            self.forget_starting_agent(&agent.id);
+            self.retire_coordination_record(&agent.id);
             let _ = self.backend.abort(&agent.id);
             self.tokens.revoke(&issued.token);
             let _ = self
@@ -583,18 +595,34 @@ impl TeamCoordinator {
             .lock()
             .map_err(lock_error)?
             .insert(child.agent_id.clone(), issued.token);
-        self.emit(
-            &child,
-            AgentEventKind::AgentStarted,
-            AgentEventPayload::Agent {
-                name: child.name.clone(),
-                provider_id: child.provider_id.clone(),
-                terminal_id: child.terminal_id.clone(),
-                branch: child.branch.clone(),
-                worktree_path: child.worktree_path.clone(),
-                paused: child.paused,
-            },
-        );
+        self.forget_starting_agent(&child.agent_id);
+        let exited_during_start = self
+            .early_exit_pending
+            .lock()
+            .map_err(lock_error)?
+            .remove(&child.agent_id);
+        if exited_during_start {
+            self.revoke_child_token(&child.agent_id);
+            self.retire_coordination_record(&child.agent_id);
+        } else if self
+            .records
+            .lock()
+            .map(|records| records.contains_key(&child.agent_id))
+            .unwrap_or(false)
+        {
+            self.emit(
+                &child,
+                AgentEventKind::AgentStarted,
+                AgentEventPayload::Agent {
+                    name: child.name.clone(),
+                    provider_id: child.provider_id.clone(),
+                    terminal_id: child.terminal_id.clone(),
+                    branch: child.branch.clone(),
+                    worktree_path: child.worktree_path.clone(),
+                    paused: child.paused,
+                },
+            );
+        }
         Ok(child)
     }
 
@@ -727,8 +755,29 @@ impl TeamCoordinator {
         for message in messages {
             self.fail_queued_message(message);
         }
-        self.revoke_child_token(agent_id);
-        self.retire_coordination_record(agent_id);
+        let has_coordination_state = self
+            .records
+            .lock()
+            .map(|records| records.contains_key(agent_id))
+            .unwrap_or(false)
+            || self
+                .child_tokens
+                .lock()
+                .map(|tokens| tokens.contains_key(agent_id))
+                .unwrap_or(false);
+        let is_starting = self
+            .starting_agents
+            .lock()
+            .map(|starting| starting.contains(agent_id))
+            .unwrap_or(false);
+        if is_starting {
+            if let Ok(mut pending) = self.early_exit_pending.lock() {
+                pending.insert(agent_id.to_owned());
+            }
+        } else if has_coordination_state {
+            self.revoke_child_token(agent_id);
+            self.retire_coordination_record(agent_id);
+        }
     }
 
     fn retry_pending_exit_cleanups(&self) {
@@ -1115,6 +1164,15 @@ impl TeamCoordinator {
         }
         if let Ok(mut pending) = self.exit_cleanup_pending.lock() {
             pending.remove(agent_id);
+        }
+        if let Ok(mut pending) = self.early_exit_pending.lock() {
+            pending.remove(agent_id);
+        }
+    }
+
+    fn forget_starting_agent(&self, agent_id: &str) {
+        if let Ok(mut starting) = self.starting_agents.lock() {
+            starting.remove(agent_id);
         }
     }
 
