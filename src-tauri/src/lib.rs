@@ -77,6 +77,7 @@ pub fn run() {
             let app_data_dir = app.path().app_data_dir()?;
             let pty = app.state::<pty::PtyManager>().inner().clone();
             let events = app.state::<event_hub::EventHub>().inner().clone();
+            events.enable_persistence(app_data_dir.join("control"))?;
             let supervisor = Arc::new(control::Supervisor::new(
                 app_data_dir.clone(),
                 pty.clone(),

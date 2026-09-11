@@ -2381,6 +2381,134 @@ fn team_spawn_rolls_back_worktree_when_launch_fails() {
 }
 
 #[test]
+fn event_hub_restores_durable_lifecycle_history_and_sequence_after_restart() {
+    let root = tempdir().expect("temporary event log directory");
+    let first = EventHub::new(8);
+    first
+        .enable_persistence(root.path())
+        .expect("enable event persistence");
+
+    let output = first.publish(test_event("output")).expect("publish output");
+    let started = first
+        .publish(AgentEventEnvelope::new(
+            "started".into(),
+            "project-1".into(),
+            Some("agent-1".into()),
+            AgentEventKind::AgentStarted,
+            AgentEventPayload::Empty,
+        ))
+        .expect("publish lifecycle event");
+    assert_eq!(output.sequence, 1);
+    assert_eq!(started.sequence, 2);
+
+    drop(first);
+    let second = EventHub::new(8);
+    second
+        .enable_persistence(root.path())
+        .expect("restore event persistence");
+
+    assert_eq!(second.latest_sequence(), 2);
+    let replay = second.subscribe_after(0);
+    assert_eq!(
+        replay
+            .iter()
+            .map(|event| event.event_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["output", "started"]
+    );
+    assert_eq!(replay[0].payload, AgentEventPayload::Empty);
+    let next = second
+        .publish(AgentEventEnvelope::new(
+            "completed".into(),
+            "project-1".into(),
+            Some("agent-1".into()),
+            AgentEventKind::AgentCompleted,
+            AgentEventPayload::Empty,
+        ))
+        .expect("publish after restart");
+    assert_eq!(next.sequence, 3);
+}
+
+#[test]
+fn event_hub_durable_output_markers_preserve_sequence_when_output_follows_lifecycle() {
+    let root = tempdir().expect("temporary event log directory");
+    let first = EventHub::new(8);
+    first
+        .enable_persistence(root.path())
+        .expect("enable event persistence");
+    first
+        .publish(AgentEventEnvelope::new(
+            "started".into(),
+            "project-1".into(),
+            Some("agent-1".into()),
+            AgentEventKind::AgentStarted,
+            AgentEventPayload::Empty,
+        ))
+        .expect("publish lifecycle event");
+    for event_id in ["output-1", "output-2", "output-3"] {
+        first
+            .publish(test_event(event_id))
+            .expect("publish output event");
+    }
+    drop(first);
+
+    let second = EventHub::new(8);
+    second
+        .enable_persistence(root.path())
+        .expect("restore event persistence");
+    assert_eq!(second.latest_sequence(), 4);
+    let next = second
+        .publish(AgentEventEnvelope::new(
+            "completed".into(),
+            "project-1".into(),
+            Some("agent-1".into()),
+            AgentEventKind::AgentCompleted,
+            AgentEventPayload::Empty,
+        ))
+        .expect("publish after output-only tail");
+    assert_eq!(next.sequence, 5);
+}
+
+#[test]
+fn event_hub_compacts_durable_history_to_its_replay_capacity() {
+    let root = tempdir().expect("temporary event log directory");
+    let first = EventHub::new(2);
+    first
+        .enable_persistence(root.path())
+        .expect("enable event persistence");
+    for (event_id, kind) in [
+        ("started", AgentEventKind::AgentStarted),
+        ("completed", AgentEventKind::AgentCompleted),
+        ("failed", AgentEventKind::AgentFailed),
+    ] {
+        first
+            .publish(AgentEventEnvelope::new(
+                event_id.into(),
+                "project-1".into(),
+                Some("agent-1".into()),
+                kind,
+                AgentEventPayload::Empty,
+            ))
+            .expect("publish event");
+    }
+    drop(first);
+
+    let second = EventHub::new(2);
+    second
+        .enable_persistence(root.path())
+        .expect("restore compacted event log");
+    assert_eq!(
+        second
+            .subscribe_after(0)
+            .iter()
+            .map(|event| event.event_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["completed", "failed"]
+    );
+    assert_eq!(second.latest_sequence(), 3);
+}
+
+#[test]
 fn team_spawn_aborts_the_session_when_initial_delivery_fails() {
     let backend = Arc::new(FakeTeamBackend::default());
     backend.fail_delivery.store(true, Ordering::SeqCst);

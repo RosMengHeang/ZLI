@@ -1,8 +1,9 @@
 pub mod attention;
 pub mod browser;
 mod events;
+pub(crate) mod event_log;
 mod ownership;
-mod persistence;
+pub(crate) mod persistence;
 pub(crate) mod prompt_detector;
 mod protocol;
 mod reconcile;
