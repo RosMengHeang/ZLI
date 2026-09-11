@@ -362,7 +362,7 @@ export function Sidebar() {
               <DropdownMenuItem onSelect={() => void revealItemInDir(workspace.project.path)}><IconFolder />Open folder</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void copyText(workspace.project.path)}>Copy path</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void openProjectTerminal(workspace)}>Open terminal</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => { setWorktreeProjectRoot(workspace.project.repositoryRoot); setWorktreeOpen(true); }}>Manage worktrees</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => { setWorktreeProjectRoot(workspace.project.repositoryRoot); setWorktreeOpen(true); }}>Workspace cleanup</DropdownMenuItem>
               {offlineResumeIds.length ? (
                 <>
                   <DropdownMenuSeparator />

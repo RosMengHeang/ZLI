@@ -8,6 +8,7 @@ import { useUiStore } from "../stores/uiStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { toAppError } from "../lib/errors";
 import { gitAuditWorktrees, gitPruneWorktrees, gitRemoveWorktree, gitStatus } from "../tauri/git";
+import { sessionClient, type ReconcileReport } from "../tauri/sessions";
 import type { GitStatus, WorktreeAudit, WorktreeAuditEntry } from "../types";
 import { workspaceRootKey } from "../lib/workspaceRegistry";
 
@@ -41,6 +42,9 @@ export function WorktreeDialog() {
   const [pendingPath, setPendingPath] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [runtimeReport, setRuntimeReport] = useState<ReconcileReport | null>(null);
+  const [runtimeLoading, setRuntimeLoading] = useState(false);
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
 
   const activePaths = new Set(
     Object.values(agents)
@@ -85,11 +89,26 @@ export function WorktreeDialog() {
     }
   }, [repositoryRoot]);
 
+  const loadRuntime = useCallback(async () => {
+    setRuntimeLoading(true);
+    setRuntimeError(null);
+    try {
+      setRuntimeReport(await sessionClient.reconcile());
+    } catch (caught) {
+      setRuntimeReport(null);
+      setRuntimeError(toAppError(caught).message);
+    } finally {
+      setRuntimeLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!open) return;
-    const timer = window.setTimeout(() => void loadWorktrees(), 0);
+    const timer = window.setTimeout(() => {
+      void loadWorktrees();
+    }, 0);
     return () => window.clearTimeout(timer);
-  }, [loadWorktrees, open]);
+  }, [loadRuntime, loadWorktrees, open]);
 
   function requestForce(worktree: WorktreeAuditEntry) {
     if (activePaths.has(pathKey(worktree.path))) return;
@@ -135,17 +154,48 @@ export function WorktreeDialog() {
 
   return (
     <Modal
-      title="Worktree storage"
+      title="Workspace cleanup"
       open={open}
-      busy={loading || Boolean(busyPath)}
+      busy={loading || runtimeLoading || Boolean(busyPath)}
       onClose={() => setOpen(false)}
       width={620}
-      description="Remove old agent checkouts to reclaim disk space. Git history and branches stay safe."
+      description="Review runtime sessions and old agent checkouts before reclaiming disk space."
     >
       {!targetProject ? (
         <p className="text-[13px] text-mute">Open a project to manage its worktrees.</p>
       ) : (
         <div className="flex flex-col gap-3">
+          <section className="rounded-md border border-line bg-raised p-3" aria-label="Runtime cleanup">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[13px] font-medium text-paper">Runtime cleanup</div>
+                <p className="mt-1 max-w-[29rem] text-[11px] leading-4 text-mute">
+                  Reconcile ZLI-owned sessions and processes before removing old checkouts. Only matching ZLI ownership records can be stopped.
+                </p>
+              </div>
+              <Button type="button" size="sm" variant="ghost" disabled={runtimeLoading} onClick={() => void loadRuntime()}>
+                {runtimeLoading ? "Checking…" : "Reconcile runtime"}
+              </Button>
+            </div>
+            {runtimeError ? <div className="mt-3 banner banner-error" role="alert">{runtimeError}</div> : null}
+            {runtimeReport ? (
+              <div className="mt-3 border-t border-line pt-3">
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-mute">
+                  <span>{runtimeReport.offlineSessionIds.length} offline session{runtimeReport.offlineSessionIds.length === 1 ? "" : "s"}</span>
+                  <span>{runtimeReport.stoppedOwnedProcessIds.length} owned process{runtimeReport.stoppedOwnedProcessIds.length === 1 ? "" : "es"} stopped</span>
+                  <span>{runtimeReport.retainedMissingWorktrees.length} missing checkout{runtimeReport.retainedMissingWorktrees.length === 1 ? "" : "s"} retained</span>
+                </div>
+                {runtimeReport.unknownProcessIds.length ? (
+                  <p className="mt-2 text-[11px] leading-4 text-warn">
+                    {runtimeReport.unknownProcessIds.length} unknown process{runtimeReport.unknownProcessIds.length === 1 ? "" : "es"} left untouched for review.
+                  </p>
+                ) : (
+                  <p className="mt-2 text-[11px] leading-4 text-mute">No unknown processes were changed.</p>
+                )}
+              </div>
+            ) : null}
+          </section>
+
           <div className="flex items-center justify-between text-[12px] text-mute">
             <span>{worktrees.length} agent checkout{worktrees.length === 1 ? "" : "s"}</span>
             <span>Separate files are where most disk space goes.</span>
@@ -229,7 +279,7 @@ export function WorktreeDialog() {
 
           <div className="flex items-center justify-between gap-2 border-t border-line pt-3">
             <p className="max-w-[27rem] text-[11px] leading-4 text-mute">
-              The audit is read-only. It never deletes a registered checkout or assumes a clean folder is unused.
+              The worktree audit is read-only. It never deletes a registered checkout or assumes a clean folder is unused. Runtime reconciliation does not force-delete files.
             </p>
             {missingCount ? (
               <Button type="button" variant="ghost" size="sm" disabled={loading} onClick={() => void pruneMissingRecords()}>
