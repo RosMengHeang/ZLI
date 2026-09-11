@@ -2079,6 +2079,7 @@ struct FakeTeamBackend {
     active: AtomicUsize,
     fail_launch: std::sync::atomic::AtomicBool,
     fail_delivery: std::sync::atomic::AtomicBool,
+    delivery_hook: std::sync::Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     launches: std::sync::Mutex<Vec<super::team::ChildLaunch>>,
     deliveries: std::sync::Mutex<Vec<(String, String)>>,
     cleanups: std::sync::Mutex<Vec<(String, String)>>,
@@ -2152,6 +2153,9 @@ impl super::team::TeamBackend for FakeTeamBackend {
             .lock()
             .unwrap()
             .push((terminal_id.into(), body.into()));
+        if let Some(hook) = self.delivery_hook.lock().unwrap().clone() {
+            hook();
+        }
         Ok(())
     }
 
@@ -2547,6 +2551,88 @@ fn failed_agent_message_stays_queued_until_a_later_prompt() {
     assert_eq!(
         backend.events.lock().unwrap().last().unwrap().kind,
         AgentEventKind::AgentMessageDelivered
+    );
+}
+
+#[test]
+fn delivered_message_retries_acknowledgement_before_next_delivery() {
+    let root = tempdir().expect("temporary directory");
+    let backend = Arc::new(FakeTeamBackend::default());
+    let coordinator = super::TeamCoordinator::new(
+        backend.clone(),
+        Arc::new(CapabilityTokenStore::default()),
+        "endpoint".into(),
+    )
+    .with_message_store(SnapshotStore::new(root.path().to_path_buf()))
+    .expect("create persistent coordinator");
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+    backend.deliveries.lock().unwrap().clear();
+    backend.events.lock().unwrap().clear();
+
+    coordinator
+        .send("project-1", &child.agent_id, "First message")
+        .expect("queue first message");
+    coordinator
+        .send("project-1", &child.agent_id, "Second message")
+        .expect("queue second message");
+
+    let queue_path = root.path().join("control").join("pending-messages.json");
+    let failure_path = queue_path.clone();
+    *backend.delivery_hook.lock().unwrap() = Some(Arc::new(move || {
+        std::fs::remove_file(&failure_path).expect("remove queue file");
+        std::fs::create_dir(&failure_path).expect("block queue replacement");
+    }));
+
+    let mut prompt = AgentEventEnvelope::new(
+        "ack-failure-prompt".into(),
+        "project-1".into(),
+        Some(child.agent_id.clone()),
+        AgentEventKind::AgentPromptDetected,
+        AgentEventPayload::Attention {
+            reason: "provider_prompt".into(),
+        },
+    );
+    prompt.source = AgentEventSource::Provider;
+    coordinator.handle_event(&prompt);
+
+    assert_eq!(
+        backend.deliveries.lock().unwrap().as_slice(),
+        &[("terminal-child".into(), "First message".into())]
+    );
+    assert_eq!(
+        coordinator
+            .queue_status(Some("project-1"))
+            .expect("read queue status")
+            .into_iter()
+            .find(|status| status.agent_id == child.agent_id)
+            .expect("agent queue status")
+            .in_flight_count,
+        1
+    );
+
+    std::fs::remove_dir(&queue_path).expect("restore queue path");
+    *backend.delivery_hook.lock().unwrap() = None;
+    prompt.event_id = "ack-retry-prompt".into();
+    coordinator.handle_event(&prompt);
+
+    assert_eq!(
+        backend.deliveries.lock().unwrap().as_slice(),
+        &[
+            ("terminal-child".into(), "First message".into()),
+            ("terminal-child".into(), "Second message".into()),
+        ]
+    );
+    assert_eq!(
+        backend
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| event.kind == AgentEventKind::AgentMessageDelivered)
+            .count(),
+        2
     );
 }
 

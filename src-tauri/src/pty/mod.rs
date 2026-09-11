@@ -67,6 +67,23 @@ mod tests {
     }
 
     #[test]
+    fn killing_an_already_removed_session_is_idempotent() {
+        let directory = tempdir().unwrap();
+        let manager = PtyManager::new();
+        let terminal = manager
+            .create_shell(
+                Some(directory.path().to_string_lossy().as_ref()),
+                MemoryEventSink::default(),
+            )
+            .unwrap();
+
+        manager.kill(&terminal.id).unwrap();
+        manager
+            .kill(&terminal.id)
+            .expect("repeated cleanup should be a no-op");
+    }
+
+    #[test]
     fn two_sessions_are_independent_and_git_status_runs_in_a_real_pty() {
         let directory = tempdir().unwrap();
         let manager = PtyManager::new();

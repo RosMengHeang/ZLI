@@ -424,6 +424,7 @@ pub struct TeamCoordinator {
     records: Mutex<HashMap<String, TeamAgent>>,
     child_tokens: Mutex<HashMap<String, String>>,
     inbox: AgentMessageInbox,
+    delivery_ack_pending: Mutex<HashMap<(String, String), QueuedAgentMessage>>,
 }
 
 impl TeamCoordinator {
@@ -440,6 +441,7 @@ impl TeamCoordinator {
             records: Mutex::new(HashMap::new()),
             child_tokens: Mutex::new(HashMap::new()),
             inbox: AgentMessageInbox::default(),
+            delivery_ack_pending: Mutex::new(HashMap::new()),
         }
     }
 
@@ -613,6 +615,7 @@ impl TeamCoordinator {
                 Ok(messages) => messages,
                 Err(_) => return,
             };
+            self.clear_pending_delivery_acks(agent_id);
             for message in messages {
                 self.fail_queued_message(message);
             }
@@ -627,6 +630,7 @@ impl TeamCoordinator {
         if record.paused {
             return;
         }
+        self.retry_pending_delivery_ack(agent_id);
         let message = match self.inbox.take_next(agent_id) {
             Ok(Some(message)) => message,
             Ok(None) | Err(_) => return,
@@ -645,12 +649,26 @@ impl TeamCoordinator {
             {
                 return;
             }
-        } else {
-            let _ = self.inbox.ack(&record.agent_id, &message.message_id);
+        } else if self
+            .inbox
+            .ack(&record.agent_id, &message.message_id)
+            .is_err()
+        {
+            if let Ok(mut pending) = self.delivery_ack_pending.lock() {
+                pending.insert(
+                    (record.agent_id.clone(), message.message_id.clone()),
+                    message,
+                );
+            }
+            return;
         }
+        self.emit_delivery_result(&record, message, result.is_ok());
+    }
+
+    fn emit_delivery_result(&self, record: &TeamAgent, message: QueuedAgentMessage, delivered: bool) {
         match message.kind {
             QueuedAgentMessageKind::Agent => {
-                let kind = if result.is_ok() {
+                let kind = if delivered {
                     AgentEventKind::AgentMessageDelivered
                 } else {
                     AgentEventKind::AgentMessageFailed
@@ -672,7 +690,7 @@ impl TeamCoordinator {
                 self.emit_taxchat_event(
                     &record.project_id,
                     sender_agent_id,
-                    if result.is_ok() {
+                    if delivered {
                         AgentEventKind::TaxchatMessageDelivered
                     } else {
                         AgentEventKind::TaxchatMessageFailed
@@ -681,18 +699,57 @@ impl TeamCoordinator {
                     body,
                     recipient_ids,
                     Vec::new(),
-                    if result.is_ok() {
+                    if delivered {
                         vec![record.agent_id.clone()]
                     } else {
                         Vec::new()
                     },
-                    if result.is_err() {
+                    if !delivered {
                         vec![record.agent_id.clone()]
                     } else {
                         Vec::new()
                     },
                 );
             }
+        }
+    }
+
+    fn retry_pending_delivery_ack(&self, agent_id: &str) {
+        let key = self
+            .delivery_ack_pending
+            .lock()
+            .ok()
+            .and_then(|pending| {
+                pending
+                    .keys()
+                    .find(|(queued_agent_id, _)| queued_agent_id == agent_id)
+                    .cloned()
+            });
+        let Some((queued_agent_id, message_id)) = key else {
+            return;
+        };
+        let message = self
+            .delivery_ack_pending
+            .lock()
+            .ok()
+            .and_then(|mut pending| pending.remove(&(queued_agent_id.clone(), message_id.clone())));
+        let Some(message) = message else {
+            return;
+        };
+        if self.inbox.ack(&queued_agent_id, &message_id).is_err() {
+            if let Ok(mut pending) = self.delivery_ack_pending.lock() {
+                pending.insert((queued_agent_id, message_id), message);
+            }
+            return;
+        }
+        if let Ok(record) = self.record(&message.project_id, &message.agent_id) {
+            self.emit_delivery_result(&record, message, true);
+        }
+    }
+
+    fn clear_pending_delivery_acks(&self, agent_id: &str) {
+        if let Ok(mut pending) = self.delivery_ack_pending.lock() {
+            pending.retain(|(queued_agent_id, _), _| queued_agent_id != agent_id);
         }
     }
 
@@ -888,6 +945,7 @@ impl TeamCoordinator {
         let record = self.record(project_id, agent_id)?;
         self.backend.stop(agent_id)?;
         let drained = self.inbox.drain(agent_id)?;
+        self.clear_pending_delivery_acks(agent_id);
         for message in drained {
             self.fail_queued_message(message);
         }

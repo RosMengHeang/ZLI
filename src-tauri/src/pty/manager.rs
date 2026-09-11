@@ -524,14 +524,19 @@ impl PtyManager {
 
     pub fn kill(&self, id: &str) -> Result<(), BackendError> {
         let id = Uuid::parse_str(id).map_err(|_| BackendError::SessionNotFound(id.to_owned()))?;
-        let session = self
+        let session = match self
             .inner
             .sessions
             .lock()
             .map_err(|_| BackendError::Internal("PTY session lock poisoned".into()))?
             .get(&id)
             .cloned()
-            .ok_or_else(|| BackendError::SessionNotFound(id.to_string()))?;
+        {
+            Some(session) => session,
+            // Killing an already exited or concurrently cleaned-up PTY is a
+            // successful no-op. Cleanup callers can safely race the waiter.
+            None => return Ok(()),
+        };
 
         let (transitioned, control_event) = session.transition_status(TerminalStatus::Killed, None);
         if transitioned {
