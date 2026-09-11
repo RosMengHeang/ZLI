@@ -304,13 +304,14 @@ impl Supervisor {
             if project_id.is_some_and(|project| descriptor.project_id != project) {
                 continue;
             }
-            if let Some(worktree_path) = descriptor
+            let missing_worktree = if let Some(worktree_path) = descriptor
                 .worktree_path
                 .as_deref()
                 .filter(|path| !path.trim().is_empty())
             {
                 let path = std::path::Path::new(worktree_path);
-                if !path.is_dir()
+                let missing = !path.is_dir();
+                if missing
                     && !report
                         .retained_missing_worktrees
                         .iter()
@@ -320,7 +321,10 @@ impl Supervisor {
                         .retained_missing_worktrees
                         .push(worktree_path.to_owned());
                 }
-            }
+                missing
+            } else {
+                false
+            };
             if !descriptor.attached {
                 continue;
             }
@@ -328,7 +332,7 @@ impl Supervisor {
                 .pty
                 .session_status(&descriptor.terminal_id)
                 .is_ok_and(|status| status == TerminalStatus::Running);
-            if live {
+            if live && !missing_worktree {
                 continue;
             }
             let _ = session.detach();

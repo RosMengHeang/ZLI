@@ -448,6 +448,57 @@ fn reconciliation_marks_restored_sessions_offline_without_stopping_unknown_proce
 }
 
 #[test]
+fn reconciliation_detaches_live_sessions_with_missing_worktrees_without_killing_the_pty() {
+    use crate::agents::{Agent, AgentStatus};
+
+    let root = tempfile::tempdir().expect("temp dir");
+    let missing_worktree = root.path().join("missing-live-worktree");
+    let pty = PtyManager::new();
+    let terminal = pty
+        .create_shell(
+            Some(root.path().to_string_lossy().as_ref()),
+            MemoryEventSink::default(),
+        )
+        .expect("create live terminal");
+    let supervisor = super::Supervisor::new(
+        root.path().to_path_buf(),
+        pty.clone(),
+        EventHub::new(8),
+    );
+    let agent = Agent {
+        id: "agent-live".into(),
+        name: "Live agent".into(),
+        provider: "shell".into(),
+        terminal_id: terminal.id.clone(),
+        cwd: root.path().to_string_lossy().into_owned(),
+        branch: "main".into(),
+        worktree_path: Some(missing_worktree.to_string_lossy().into_owned()),
+        status: AgentStatus::Running,
+        error: None,
+    };
+    supervisor
+        .register_agent(
+            &agent,
+            "project-1".into(),
+            supervisor.runtime_sink(Arc::new(MemoryEventSink::default())),
+        )
+        .expect("register agent");
+
+    let report = supervisor.reconcile().expect("reconcile");
+
+    assert_eq!(report.offline_session_ids, vec!["agent-live"]);
+    assert_eq!(
+        report.retained_missing_worktrees,
+        vec![missing_worktree.to_string_lossy().to_string()]
+    );
+    assert_eq!(
+        pty.session_status(&terminal.id).expect("terminal status"),
+        TerminalStatus::Running
+    );
+    pty.kill(&terminal.id).expect("kill test terminal");
+}
+
+#[test]
 fn checkpoint_discovers_a_real_provider_resume_marker_from_bounded_scrollback() {
     use crate::agents::{Agent, AgentStatus};
     use crate::pty::{EventSink, TerminalOutputEvent};
