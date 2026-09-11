@@ -26,6 +26,24 @@ test("agent removal releases the process, terminal, panes, and saved record in o
   ]);
 });
 
+test("team agent removal stops coordination before the runtime session", async () => {
+  const { releaseAgentResources } = await import("../src/lib/agentRemoval.ts");
+  const events = [];
+
+  await releaseAgentResources(
+    { agentId: "agent-1", terminalId: "terminal-1", paneIds: [] },
+    {
+      stopTeamAgent: async (id) => { events.push(`team:${id}`); return true; },
+      stopAgent: async (id) => events.push(`stop:${id}`),
+      closeTerminal: async () => { events.push("terminal"); return true; },
+      closePane: () => {},
+      removeAgent: (id) => events.push(`remove:${id}`),
+    },
+  );
+
+  assert.deepEqual(events, ["team:agent-1", "stop:agent-1", "terminal", "remove:agent-1"]);
+});
+
 test("agent removal keeps the record when terminal cleanup fails", async () => {
   const module = await import("../src/lib/agentRemoval.ts").catch(() => ({}));
   const events = [];

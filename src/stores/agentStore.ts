@@ -13,6 +13,7 @@ import { useTerminalStore } from "./terminalStore";
 import { useWorkspaceStore } from "./workspaceStore";
 import { acknowledgeAgent } from "./attentionStore";
 import { useSessionStore } from "./sessionStore";
+import { useTeamStore } from "./teamStore";
 
 interface AgentState {
   agents: Record<string, Agent>;
@@ -321,6 +322,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       await releaseAgentResources(
         { agentId: id, terminalId: agent.terminalId, paneIds },
         {
+          stopTeamAgent: async (agentId) => {
+            const teamAgent = useTeamStore.getState().agents[agentId];
+            if (!teamAgent || teamAgent.status === "stopped" || teamAgent.status === "failed") return true;
+            return useTeamStore.getState().stopAgent(teamAgent.projectId, agentId);
+          },
           stopAgent: async (agentId) => {
             try {
               await stopAgent(agentId);
@@ -357,12 +363,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const agent = get().agents[id];
     if (!agent) return;
     if (agent.status === "running" || agent.status === "starting") throw new Error("Cannot retire a running agent.");
-    await useTerminalStore.getState().closeSession(agent.terminalId);
-    if (useTerminalStore.getState().sessions[agent.terminalId]) throw new Error("Could not stop the failed terminal. Try again before starting a replacement.");
-    for (const leaf of useLayoutStore.getState().leaves()) {
-      if (leaf.terminalId === agent.terminalId) useLayoutStore.getState().closePane(leaf.id);
+    const removed = await get().removeAndStop(id);
+    if (!removed) {
+      throw (
+        get().launchError ??
+        new Error("Could not retire the failed agent. Try again before starting a replacement.")
+      );
     }
-    get().remove(id);
   },
 
   remove: (id) => {

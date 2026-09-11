@@ -5,6 +5,7 @@ export interface AgentRemovalTarget {
 }
 
 interface AgentRemovalOperations {
+  stopTeamAgent?: (id: string) => Promise<boolean>;
   stopAgent: (id: string) => Promise<unknown>;
   closeTerminal: (id: string) => Promise<boolean>;
   forgetSession?: (id: string) => Promise<unknown>;
@@ -17,6 +18,9 @@ export async function releaseAgentResources(
   target: AgentRemovalTarget,
   operations: AgentRemovalOperations,
 ): Promise<void> {
+  if (operations.stopTeamAgent && !(await operations.stopTeamAgent(target.agentId))) {
+    throw new Error("The agent's coordination session could not be stopped.");
+  }
   await operations.stopAgent(target.agentId);
   const closed = await operations.closeTerminal(target.terminalId);
   if (!closed) throw new Error("The agent stopped, but its terminal could not be closed.");
