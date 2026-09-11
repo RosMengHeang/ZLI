@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread;
+use std::time::Duration;
 use uuid::Uuid;
 
 const DEFAULT_COLS: u16 = 120;
@@ -54,6 +55,7 @@ pub struct TerminalSession {
     pub id: String,
     pub cwd: String,
     pub status: TerminalStatus,
+    pub exit_code: Option<i32>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -68,6 +70,7 @@ pub struct TerminalOutputEvent {
 pub struct TerminalStatusEvent {
     pub terminal_id: String,
     pub status: TerminalStatus,
+    pub exit_code: Option<i32>,
 }
 
 pub trait EventSink: Send + Sync {
@@ -96,6 +99,7 @@ struct SessionHandle {
     child: Mutex<Box<dyn Child + Send>>,
     size: Mutex<(u16, u16)>,
     status: AtomicU8,
+    exit_code: Mutex<Option<i32>>,
     sink: Arc<dyn EventSink>,
     agent: Mutex<Option<AgentMapping>>,
     pending_agent_output: Mutex<Vec<u8>>,
@@ -293,6 +297,7 @@ impl PtyManager {
             child: Mutex::new(child),
             size: Mutex::new((cols, rows)),
             status: AtomicU8::new(TerminalStatus::Running.as_u8()),
+            exit_code: Mutex::new(None),
             sink: sink.clone(),
             agent: Mutex::new(None),
             pending_agent_output: Mutex::new(Vec::new()),
@@ -305,7 +310,13 @@ impl PtyManager {
             .insert(id, session.clone());
 
         let reader_manager = Arc::downgrade(&self.inner);
-        if let Err(error) = spawn_reader(reader_manager, session.clone(), reader) {
+        if let Err(error) = spawn_reader(session.clone(), reader) {
+            self.remove_if_current(id, &session);
+            session.mark_failed();
+            session.terminate();
+            return Err(error);
+        }
+        if let Err(error) = spawn_waiter(reader_manager, session.clone()) {
             self.remove_if_current(id, &session);
             session.mark_failed();
             session.terminate();
@@ -316,6 +327,7 @@ impl PtyManager {
         sink.emit_status(TerminalStatusEvent {
             terminal_id: id.to_string(),
             status: TerminalStatus::Running,
+            exit_code: None,
         });
         Ok(result)
     }
@@ -371,6 +383,7 @@ impl PtyManager {
             let event = TerminalStatusEvent {
                 terminal_id: terminal_id.to_owned(),
                 status: status.clone(),
+                exit_code: session.exit_code(),
             };
             session
                 .sink
@@ -416,7 +429,9 @@ impl PtyManager {
             TerminalStatus::Running => (AgentEventKind::AgentStarted, AgentEventPayload::Empty),
             TerminalStatus::Exited | TerminalStatus::Killed => (
                 AgentEventKind::AgentExited,
-                AgentEventPayload::Exit { code: None },
+                AgentEventPayload::Exit {
+                    code: event.exit_code,
+                },
             ),
             TerminalStatus::Failed => (
                 AgentEventKind::AgentFailed,
@@ -488,12 +503,13 @@ impl PtyManager {
             .cloned()
             .ok_or_else(|| BackendError::SessionNotFound(id.to_string()))?;
 
-        let (transitioned, control_event) = session.transition_status(TerminalStatus::Killed);
+        let (transitioned, control_event) = session.transition_status(TerminalStatus::Killed, None);
         if transitioned {
             session.terminate();
             let event = TerminalStatusEvent {
                 terminal_id: id.to_string(),
                 status: TerminalStatus::Killed,
+                exit_code: None,
             };
             session.sink.emit_status(event.clone());
             if let Some(control_event) = control_event {
@@ -586,7 +602,12 @@ impl SessionHandle {
             id: self.id.to_string(),
             cwd: self.cwd.to_string_lossy().into_owned(),
             status: self.status(),
+            exit_code: self.exit_code(),
         }
+    }
+
+    fn exit_code(&self) -> Option<i32> {
+        self.exit_code.lock().ok().and_then(|code| *code)
     }
 
     fn status(&self) -> TerminalStatus {
@@ -660,7 +681,11 @@ impl SessionHandle {
         }
     }
 
-    fn transition_status(&self, status: TerminalStatus) -> (bool, Option<AgentEventEnvelope>) {
+    fn transition_status(
+        &self,
+        status: TerminalStatus,
+        exit_code: Option<i32>,
+    ) -> (bool, Option<AgentEventEnvelope>) {
         let mut agent = self
             .agent
             .lock()
@@ -674,6 +699,9 @@ impl SessionHandle {
         if !transitioned {
             return (false, None);
         }
+        if let Ok(mut current) = self.exit_code.lock() {
+            *current = exit_code;
+        }
         if let Some(mapping) = agent.as_mut() {
             mapping.output_normalizer.clear();
         } else {
@@ -683,6 +711,7 @@ impl SessionHandle {
         let event = TerminalStatusEvent {
             terminal_id: self.id.to_string(),
             status,
+            exit_code,
         };
         let control_event = agent
             .as_ref()
@@ -719,7 +748,6 @@ impl SessionHandle {
 }
 
 fn spawn_reader(
-    manager: Weak<ManagerInner>,
     session: Arc<SessionHandle>,
     mut reader: Box<dyn Read + Send>,
 ) -> Result<(), BackendError> {
@@ -740,11 +768,12 @@ fn spawn_reader(
                     }
                     Err(_) => {
                         let (transitioned, control_event) =
-                            session.transition_status(TerminalStatus::Failed);
+                            session.transition_status(TerminalStatus::Failed, None);
                         if transitioned {
                             let event = TerminalStatusEvent {
                                 terminal_id: session.id.to_string(),
                                 status: TerminalStatus::Failed,
+                                exit_code: None,
                             };
                             session.sink.emit_status(event.clone());
                             if let Some(control_event) = control_event {
@@ -755,14 +784,43 @@ fn spawn_reader(
                     }
                 }
             }
+        })
+        .map(|_| ())
+        .map_err(|error| BackendError::Internal(format!("failed to start PTY reader: {error}")))
+}
 
-            let (transitioned, control_event) = session.transition_status(TerminalStatus::Exited);
+fn spawn_waiter(
+    manager: Weak<ManagerInner>,
+    session: Arc<SessionHandle>,
+) -> Result<(), BackendError> {
+    thread::Builder::new()
+        .name(format!("pty-waiter-{}", session.id))
+        .spawn(move || {
+            let (status, exit_code) = loop {
+                match session.child.lock() {
+                    Ok(mut child) => match child.try_wait() {
+                        Ok(Some(status)) => {
+                            break (
+                                TerminalStatus::Exited,
+                                i32::try_from(status.exit_code()).ok(),
+                            );
+                        }
+                        Ok(None) => {}
+                        Err(_) => break (TerminalStatus::Failed, None),
+                    },
+                    Err(_) => break (TerminalStatus::Failed, None),
+                }
+                thread::sleep(Duration::from_millis(20));
+            };
+            let (transitioned, control_event) =
+                session.transition_status(status.clone(), exit_code);
             if transitioned {
                 let event = TerminalStatusEvent {
                     terminal_id: session.id.to_string(),
-                    status: TerminalStatus::Exited,
+                    status,
+                    exit_code,
                 };
-                session.sink.emit_status(event.clone());
+                session.sink.emit_status(event);
                 if let Some(control_event) = control_event {
                     session.sink.emit_control(control_event);
                 }
@@ -780,13 +838,9 @@ fn spawn_reader(
                     }
                 }
             }
-
-            if let Ok(mut child) = session.child.lock() {
-                let _ = child.wait();
-            }
         })
         .map(|_| ())
-        .map_err(|error| BackendError::Internal(format!("failed to start PTY reader: {error}")))
+        .map_err(|error| BackendError::Internal(format!("failed to start PTY waiter: {error}")))
 }
 
 #[cfg(test)]

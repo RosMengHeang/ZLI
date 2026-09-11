@@ -8,7 +8,7 @@ This handoff covers the Rust backend for v0.1 real terminals and the backend por
 
 `src-tauri/src/pty/manager.rs` contains `PtyManager`, a clonable handle around an `Arc<ManagerInner>`. `ManagerInner` owns a `Mutex<HashMap<Uuid, Arc<SessionHandle>>>`; each UUID maps to one portable-pty master, writer, child, requested cwd, dimensions, atomic lifecycle status, and event sink.
 
-Creating a shell or agent opens a native portable PTY at the requested size, starts the child with `CommandBuilder::cwd`, stores the session, and starts exactly one named reader thread for that session. The frontend never supplies a shell command to this layer. Terminal IDs are UUID v4 strings.
+Creating a shell or agent opens a native portable PTY at the requested size, starts the child with `CommandBuilder::cwd`, stores the session, and starts one named reader thread plus one child-waiter thread for that session. The reader owns terminal output while the waiter owns process lifecycle, so a child can be marked exited even if ConPTY output remains open. The frontend never supplies a shell command to this layer. Terminal IDs are UUID v4 strings.
 
 ## Session lifecycle and cleanup
 
@@ -16,7 +16,7 @@ Creating a shell or agent opens a native portable PTY at the requested size, sta
 - Write looks up only the requested UUID, writes UTF-8 input to that session’s PTY writer, and flushes it.
 - Resize validates `1..=10000` rows/columns, resizes only the requested PTY master, and updates that session’s recorded size.
 - Kill removes only the requested UUID, atomically marks it killed, kills and waits for that child, then emits its exit event. A reader thread already in flight cannot remove a replacement session because removal uses UUID plus `Arc::ptr_eq`.
-- Natural EOF/error marks the session exited/failed once, emits the matching lifecycle event, removes only that session, and waits for the child. There is no terminal-output polling loop.
+- The reader streams output and reports reader failures; a separate child waiter polls process completion and marks natural exits with the numeric code when available. Each lifecycle transition is emitted once, removes only that session, and cannot overwrite a prior killed or failed state. There is no terminal-output polling loop.
 
 ## Output streaming
 
@@ -27,7 +27,7 @@ event: pty-output
 payload: { "id": "<uuid>", "data": "<utf8-lossy chunk>" }
 
 event: pty-exit
-payload: { "id": "<uuid>", "exitCode": null }
+payload: { "id": "<uuid>", "exitCode": 0 }
 
 event: pty-error
 payload: { "id": "<uuid>", "message": "PTY reader stopped unexpectedly" }
@@ -274,7 +274,7 @@ The same read-only report is available through the authenticated CLI as `zli wor
 
 ## Known limitations
 
-- Exit codes are currently emitted as `null`; portable-pty child waiting is used for cleanup but the reader event contract does not yet carry the exact exit code.
+- Numeric child exit codes are propagated through `pty-exit` and the normalized agent exit event. A missing code remains `null` when the provider or operating system cannot expose one.
 - Agent launch accepts no user-provided CLI arguments. This keeps the command constrained; provider-specific flags can be added later as an explicit allowlisted contract.
 - Only Claude Code and Codex currently have provider-specific resume commands. Cursor Agent, OpenCode, Gemini, Aider, and Goose remain visible after restore but require a new session unless their adapters gain a verified resume protocol.
 - Full application shutdown ends PTY processes. Persistence restores layout, bounded scrollback, metadata, and supported provider conversations; it does not keep an OS process alive outside the desktop runtime.

@@ -117,7 +117,7 @@ impl EventSink for AppEventSink {
                     "pty-exit",
                     PtyExitPayload {
                         id: event.terminal_id,
-                        exit_code: None,
+                        exit_code: event.exit_code,
                     },
                 );
             }

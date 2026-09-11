@@ -10,7 +10,7 @@ pub use manager::MemoryEventSink;
 
 #[cfg(test)]
 mod tests {
-    use super::{MemoryEventSink, PtyManager};
+    use super::{MemoryEventSink, PtyManager, TerminalStatus};
     use std::fs;
     use std::time::{Duration, Instant};
     use tempfile::tempdir;
@@ -139,6 +139,42 @@ mod tests {
 
         manager.kill(&terminal.id).unwrap();
         assert_eq!(manager.running_session_at(&canonical).unwrap(), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn natural_shell_exit_preserves_the_child_exit_code() {
+        let directory = tempdir().unwrap();
+        let manager = PtyManager::new();
+        let sink = MemoryEventSink::default();
+        let terminal = manager
+            .spawn_agent_with_size_args(
+                crate::system::find_executable(&["cmd.exe"]).expect("cmd.exe"),
+                vec!["/C".into(), "exit".into(), "42".into()],
+                Some(directory.path().to_string_lossy().as_ref()),
+                120,
+                30,
+                std::sync::Arc::new(sink.clone()),
+            )
+            .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline
+            && !sink.statuses().iter().any(|event| {
+                event.terminal_id == terminal.id && event.status == TerminalStatus::Exited
+            })
+        {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        let exited = sink
+            .statuses()
+            .into_iter()
+            .find(|event| {
+                event.terminal_id == terminal.id && event.status == TerminalStatus::Exited
+            })
+            .expect("natural exit event");
+        assert_eq!(exited.exit_code, Some(42));
     }
 
     #[test]

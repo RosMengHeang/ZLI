@@ -1582,21 +1582,25 @@ fn mapped_pty_statuses_produce_started_exited_and_failed_evidence() {
     let cases = [
         (
             TerminalStatus::Running,
+            None,
             AgentEventKind::AgentStarted,
             AgentEventPayload::Empty,
         ),
         (
             TerminalStatus::Exited,
+            Some(42),
             AgentEventKind::AgentExited,
-            AgentEventPayload::Exit { code: None },
+            AgentEventPayload::Exit { code: Some(42) },
         ),
         (
             TerminalStatus::Killed,
+            None,
             AgentEventKind::AgentExited,
             AgentEventPayload::Exit { code: None },
         ),
         (
             TerminalStatus::Failed,
+            None,
             AgentEventKind::AgentFailed,
             AgentEventPayload::Attention {
                 reason: "PTY reader stopped unexpectedly".into(),
@@ -1604,13 +1608,14 @@ fn mapped_pty_statuses_produce_started_exited_and_failed_evidence() {
         ),
     ];
 
-    for (status, expected_kind, expected_payload) in cases {
+    for (status, exit_code, expected_kind, expected_payload) in cases {
         let event = PtyManager::agent_status_event(
             "project-1",
             "agent-1",
             &TerminalStatusEvent {
                 terminal_id: "terminal-1".into(),
                 status,
+                exit_code,
             },
         );
         assert_eq!(event.kind, expected_kind);
