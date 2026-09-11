@@ -1,10 +1,10 @@
+use super::process::{capture, ProcessIdentity};
 use crate::control::prompt_detector::AgentOutputNormalizer;
 use crate::control::{AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource};
 use crate::error::BackendError;
 use crate::system::{default_cwd, detect_shell};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
-use super::process::{capture, ProcessIdentity};
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::{Read, Write};
@@ -534,6 +534,19 @@ impl PtyManager {
         Ok(())
     }
 
+    /// Stop a just-created terminal and forget it even when its sink was
+    /// waiting for the agent binding. Launch callers use this rollback path
+    /// after a later registration step fails, so a failed transaction cannot
+    /// retain an invisible PTY session.
+    pub(crate) fn abort(&self, id: &str) -> Result<(), BackendError> {
+        let parsed_id =
+            Uuid::parse_str(id).map_err(|_| BackendError::SessionNotFound(id.to_owned()))?;
+        let session = self.session(id)?;
+        self.kill(id)?;
+        self.remove_if_current(parsed_id, &session);
+        Ok(())
+    }
+
     fn session(&self, id: &str) -> Result<Arc<SessionHandle>, BackendError> {
         let id = Uuid::parse_str(id).map_err(|_| BackendError::SessionNotFound(id.to_owned()))?;
         self.inner
@@ -988,5 +1001,18 @@ mod lock_scope_tests {
         drop(reader_lock);
         release_tx.send(()).expect("release writer");
         write.join().expect("join writer").expect("write input");
+    }
+
+    #[test]
+    fn abort_forgets_a_killed_terminal_waiting_for_agent_binding() {
+        let manager = PtyManager::new();
+        let session = manager
+            .create_shell(Some("."), MemoryEventSink::awaiting_agent_binding())
+            .expect("create shell");
+        assert_eq!(manager.session_count(), 1);
+
+        manager.abort(&session.id).expect("abort shell");
+
+        assert_eq!(manager.session_count(), 0);
     }
 }

@@ -32,6 +32,15 @@ retained as unknown records for review. A normal application exit clears only
 records associated with the current session registry; a crash leaves records
 for the next startup to reconcile.
 
+Launch is transactional across the PTY, agent registry, supervisor, and
+worktree layers. If provider startup, terminal binding, ownership recording,
+or session registration fails, ZLI aborts the newly created PTY and removes
+the agent entry. A worktree created by that failed launch is removed only when
+it is clean; if a provider wrote files before the failure, the checkout is
+retained for review rather than force-deleted. Resume and autonomous child
+launches use the same abort path, so an unbound terminal is not kept alive by
+the normal pending-binding retention rule.
+
 `ReconcileReport` exposes `orphanedOwnedProcessIds`,
 `stoppedOwnedProcessIds`, `unknownProcessIds`, and
 `clearedOwnershipRecordIds` alongside offline sessions and retained worktrees.

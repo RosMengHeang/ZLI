@@ -1039,22 +1039,26 @@ impl TeamBackend for RuntimeTeamBackend {
         let agent = self
             .agents
             .set_worktree_metadata(&agent.id, launch.worktree.branch, launch.worktree.path)
-            .map_err(control_runtime)?;
-        self.pty
-            .bind_agent(
-                &agent.terminal_id,
-                launch.project_id.clone(),
-                agent.id.clone(),
-                agent.provider.clone(),
-            )
-            .map_err(control_runtime)?;
+            .map_err(|error| {
+                let _ = self.agents.abort(&agent.id, &self.pty);
+                control_runtime(error)
+            })?;
+        if let Err(error) = self.pty.bind_agent(
+            &agent.terminal_id,
+            launch.project_id.clone(),
+            agent.id.clone(),
+            agent.provider.clone(),
+        ) {
+            let _ = self.agents.abort(&agent.id, &self.pty);
+            return Err(control_runtime(error));
+        }
         if let Err(error) = self.supervisor.register_agent_with_parent(
             &agent,
             launch.project_id,
             launch.parent_agent_id,
             runtime_sink,
         ) {
-            let _ = self.agents.stop(&agent.id, &self.pty);
+            let _ = self.agents.abort(&agent.id, &self.pty);
             return Err(control_runtime(error));
         }
         Ok(agent)

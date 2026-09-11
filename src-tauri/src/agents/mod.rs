@@ -129,15 +129,21 @@ impl AgentManager {
             worktree_path = Some(created.worktree_path);
         }
 
-        let session = match executable {
+        let session_result = match executable {
             Some(executable) => {
                 let adapter = provider_adapter.expect("non-shell provider has an adapter");
-                let plan = adapter.build_launch(&providers::ProviderLaunchRequest {
+                let plan = match adapter.build_launch(&providers::ProviderLaunchRequest {
                     provider_id: adapter.id().to_owned(),
                     cwd: PathBuf::from(&launch_cwd),
                     executable: Some(executable),
                     provider_session_hint: None,
-                })?;
+                }) {
+                    Ok(plan) => plan,
+                    Err(error) => {
+                        cleanup_created_worktree(&request.cwd, worktree_path.as_deref());
+                        return Err(error);
+                    }
+                };
                 let environment = plan
                     .environment
                     .into_iter()
@@ -151,10 +157,16 @@ impl AgentManager {
                     request.rows.unwrap_or(30),
                     environment,
                     sink,
-                )?
+                )
             }
             None => {
-                let shell = crate::system::detect_shell()?;
+                let shell = match crate::system::detect_shell() {
+                    Ok(shell) => shell,
+                    Err(error) => {
+                        cleanup_created_worktree(&request.cwd, worktree_path.as_deref());
+                        return Err(error);
+                    }
+                };
                 pty.spawn_agent_with_size_args_env(
                     shell,
                     Vec::new(),
@@ -163,7 +175,14 @@ impl AgentManager {
                     request.rows.unwrap_or(30),
                     scoped_environment,
                     sink,
-                )?
+                )
+            }
+        };
+        let session = match session_result {
+            Ok(session) => session,
+            Err(error) => {
+                cleanup_created_worktree(&request.cwd, worktree_path.as_deref());
+                return Err(error);
             }
         };
         let agent = Agent {
@@ -183,14 +202,20 @@ impl AgentManager {
             terminal_id: session.id,
             cwd: session.cwd,
             branch,
-            worktree_path,
+            worktree_path: worktree_path.clone(),
             status: AgentStatus::Running,
             error: None,
         };
-        self.agents
-            .lock()
-            .map_err(|_| BackendError::Internal("agent lock poisoned".into()))?
-            .insert(agent.id.clone(), agent.clone());
+        let mut agents = match self.agents.lock() {
+            Ok(agents) => agents,
+            Err(_) => {
+                if pty.abort(&agent.terminal_id).is_ok() {
+                    cleanup_created_worktree(&request.cwd, worktree_path.as_deref());
+                }
+                return Err(BackendError::Internal("agent lock poisoned".into()));
+            }
+        };
+        agents.insert(agent.id.clone(), agent.clone());
         Ok(agent)
     }
 
@@ -224,6 +249,28 @@ impl AgentManager {
             if !matches!(error, BackendError::SessionNotFound(_)) {
                 return Err(error);
             }
+        }
+        self.agents
+            .lock()
+            .map_err(|_| BackendError::Internal("agent lock poisoned".into()))?
+            .remove(id);
+        Ok(())
+    }
+
+    /// Roll back a launch transaction. Unlike a user stop, this must forget
+    /// an unbound PTY as well, because the caller is abandoning the launch
+    /// before the terminal is visible or associated with an agent.
+    pub(crate) fn abort(&self, id: &str, pty: &PtyManager) -> Result<(), BackendError> {
+        let terminal_id = self
+            .agents
+            .lock()
+            .map_err(|_| BackendError::Internal("agent lock poisoned".into()))?
+            .get(id)
+            .map(|agent| agent.terminal_id.clone())
+            .ok_or_else(|| BackendError::SessionNotFound(id.to_owned()))?;
+        match pty.abort(&terminal_id) {
+            Ok(()) | Err(BackendError::SessionNotFound(_)) => {}
+            Err(error) => return Err(error),
         }
         self.agents
             .lock()
@@ -448,6 +495,17 @@ pub fn resolve_provider(provider_id: &str) -> Result<(ProviderSpec, PathBuf), Ba
     Ok((spec, executable))
 }
 
+fn cleanup_created_worktree(repository_root: &str, worktree_path: Option<&str>) {
+    let Some(worktree_path) = worktree_path.filter(|path| !path.trim().is_empty()) else {
+        return;
+    };
+    let _ = crate::git::worktree::remove_worktree(crate::git::worktree::RemoveWorktreeRequest {
+        repository_root: repository_root.to_owned(),
+        worktree_path: worktree_path.to_owned(),
+        force: false,
+    });
+}
+
 struct ProviderSnapshot {
     fetched_at: Instant,
     providers: Vec<AgentProvider>,
@@ -504,9 +562,26 @@ mod tests {
         codex_compatibility_args, detect_providers, provider_specs, AgentManager,
         LaunchAgentRequest,
     };
+    use crate::git::worktree::list_worktrees;
     use crate::pty::MemoryEventSink;
+    use std::fs;
+    use std::path::Path;
+    use std::process::Command;
     use std::sync::Arc;
     use tempfile::tempdir;
+
+    fn git(dir: &Path, args: &[&str]) {
+        let result = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("spawn git");
+        assert!(
+            result.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
 
     #[test]
     fn provider_specs_include_reasonable_cli_variants() {
@@ -578,9 +653,48 @@ bearer_token_env_var = "SWARMTERM_SESSION"
             .unwrap();
         assert_eq!(agent.status, super::AgentStatus::Running);
         assert_eq!(pty.session_count(), 1);
-        pty.kill(&agent.terminal_id).unwrap();
-        agents.stop(&agent.id, &pty).unwrap();
+        agents.abort(&agent.id, &pty).unwrap();
         assert_eq!(pty.session_count(), 0);
         assert!(agents.list(&pty).unwrap().is_empty());
+    }
+
+    #[test]
+    fn failed_launch_removes_its_new_worktree_without_force() {
+        let repository = tempdir().unwrap();
+        git(repository.path(), &["init", "-b", "main"]);
+        git(
+            repository.path(),
+            &["config", "user.email", "test@example.com"],
+        );
+        git(repository.path(), &["config", "user.name", "ZLI tests"]);
+        fs::write(repository.path().join("README.md"), "fixture\n").unwrap();
+        git(repository.path(), &["add", "README.md"]);
+        git(repository.path(), &["commit", "-m", "fixture"]);
+
+        let pty = crate::pty::PtyManager::new();
+        let agents = AgentManager::new();
+        let error = agents
+            .launch(
+                LaunchAgentRequest {
+                    name: "failed-launch".to_owned(),
+                    provider: "shell".to_owned(),
+                    cwd: repository.path().to_string_lossy().into_owned(),
+                    create_worktree: true,
+                    cols: Some(0),
+                    rows: Some(30),
+                },
+                &pty,
+                Arc::new(MemoryEventSink::default()),
+            )
+            .expect_err("invalid PTY dimensions should fail the launch");
+
+        assert!(error.to_string().contains("columns"));
+        assert_eq!(pty.session_count(), 0);
+        assert_eq!(
+            list_worktrees(&repository.path().to_string_lossy())
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }

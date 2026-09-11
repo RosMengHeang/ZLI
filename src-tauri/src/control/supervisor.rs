@@ -223,19 +223,24 @@ impl Supervisor {
         };
         let session = RuntimeSession::with_sink(descriptor, self.pty.clone(), sink);
         let result = session.descriptor()?;
-        if let Some(process) = self.pty.process_identity(&agent.terminal_id)? {
+        self.record_ownership(&result)?;
+        self.registry.insert(session);
+        Ok(result)
+    }
+
+    fn record_ownership(&self, descriptor: &SessionDescriptor) -> Result<(), SessionCommandError> {
+        if let Some(process) = self.pty.process_identity(&descriptor.terminal_id)? {
             self.ownership.record(RuntimeOwnershipRecord {
-                session_id: result.session_id.clone(),
-                agent_id: result.agent_id.clone(),
-                project_id: result.project_id.clone(),
-                terminal_id: result.terminal_id.clone(),
-                worktree_path: result.worktree_path.clone(),
+                session_id: descriptor.session_id.clone(),
+                agent_id: descriptor.agent_id.clone(),
+                project_id: descriptor.project_id.clone(),
+                terminal_id: descriptor.terminal_id.clone(),
+                worktree_path: descriptor.worktree_path.clone(),
                 process,
                 recorded_at: utc_rfc3339_now(),
             })?;
         }
-        self.registry.insert(session);
-        Ok(result)
+        Ok(())
     }
 
     pub fn shutdown(&self) -> Result<(), SessionCommandError> {
@@ -302,7 +307,7 @@ impl Supervisor {
             resumed.event_sink(),
         )?;
         if let Err(error) = resumed.set_terminal_id(terminal.id.clone()) {
-            let _ = self.pty.kill(&terminal.id);
+            let _ = self.pty.abort(&terminal.id);
             return Err(error.into());
         }
         if let Err(error) = self.pty.bind_agent(
@@ -311,10 +316,20 @@ impl Supervisor {
             descriptor.agent_id.clone(),
             descriptor.provider_id.clone(),
         ) {
-            let _ = self.pty.kill(&terminal.id);
+            let _ = self.pty.abort(&terminal.id);
             return Err(error.into());
         }
-        let result = resumed.descriptor()?;
+        let result = match resumed.descriptor() {
+            Ok(result) => result,
+            Err(error) => {
+                let _ = self.pty.abort(&terminal.id);
+                return Err(error.into());
+            }
+        };
+        if let Err(error) = self.record_ownership(&result) {
+            let _ = self.pty.abort(&terminal.id);
+            return Err(error);
+        }
         self.registry.insert(resumed);
         Ok(result)
     }

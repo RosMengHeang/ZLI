@@ -344,20 +344,43 @@ pub async fn launch_agent(
         });
         let runtime_sink = supervisor.runtime_sink(app_sink);
         let agent = agents.launch(request, &pty, runtime_sink.clone())?;
-        pty.bind_agent(
+        if let Err(error) = pty.bind_agent(
             &agent.terminal_id,
             project_id.clone(),
             agent.id.clone(),
             agent.provider.clone(),
-        )?;
-        supervisor
-            .register_agent(&agent, project_id, runtime_sink)
-            .map_err(|error| {
-                BackendError::Internal(format!("session registration failed: {error:?}"))
-            })?;
+        ) {
+            rollback_agent_launch(&agents, &pty, &agent, &project_id);
+            return Err(error);
+        }
+        if let Err(error) = supervisor.register_agent(&agent, project_id.clone(), runtime_sink) {
+            rollback_agent_launch(&agents, &pty, &agent, &project_id);
+            return Err(BackendError::Internal(format!(
+                "session registration failed: {error:?}"
+            )));
+        }
         Ok(agent)
     })
     .await
+}
+
+fn rollback_agent_launch(
+    agents: &AgentManager,
+    pty: &PtyManager,
+    agent: &Agent,
+    repository_root: &str,
+) {
+    if agents.abort(&agent.id, pty).is_ok() {
+        if let Some(worktree_path) = agent.worktree_path.as_deref() {
+            let _ = crate::git::worktree::remove_worktree(
+                crate::git::worktree::RemoveWorktreeRequest {
+                    repository_root: repository_root.to_owned(),
+                    worktree_path: worktree_path.to_owned(),
+                    force: false,
+                },
+            );
+        }
+    }
 }
 
 pub(crate) fn control_events_after_from_hub(
@@ -595,7 +618,13 @@ pub async fn list_agents(
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_create_request, validate_dimensions_request, CreatePtyRequest};
+    use super::{
+        rollback_agent_launch, validate_create_request, validate_dimensions_request,
+        CreatePtyRequest,
+    };
+    use crate::agents::{AgentManager, LaunchAgentRequest};
+    use crate::pty::{MemoryEventSink, PtyManager};
+    use std::sync::Arc;
 
     #[test]
     fn terminal_request_rejects_frontend_command_arguments() {
@@ -613,5 +642,36 @@ mod tests {
     fn terminal_request_rejects_invalid_dimensions() {
         assert!(validate_dimensions_request(0, 24).is_err());
         assert!(validate_dimensions_request(80, 0).is_err());
+    }
+
+    #[test]
+    fn launch_rollback_forgets_an_unbound_agent_and_terminal() {
+        let directory = tempfile::tempdir().unwrap();
+        let pty = PtyManager::new();
+        let agents = AgentManager::new();
+        let agent = agents
+            .launch(
+                LaunchAgentRequest {
+                    name: "rollback-test".to_owned(),
+                    provider: "shell".to_owned(),
+                    cwd: directory.path().to_string_lossy().into_owned(),
+                    create_worktree: false,
+                    cols: Some(80),
+                    rows: Some(24),
+                },
+                &pty,
+                Arc::new(MemoryEventSink::awaiting_agent_binding()),
+            )
+            .unwrap();
+
+        rollback_agent_launch(
+            &agents,
+            &pty,
+            &agent,
+            &directory.path().to_string_lossy(),
+        );
+
+        assert_eq!(pty.session_count(), 0);
+        assert!(agents.list(&pty).unwrap().is_empty());
     }
 }
