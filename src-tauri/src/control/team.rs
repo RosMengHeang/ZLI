@@ -1236,9 +1236,10 @@ impl TeamBackend for RuntimeTeamBackend {
     }
 
     fn stop(&self, agent_id: &str) -> Result<(), ControlError> {
-        self.agents
-            .stop(agent_id, &self.pty)
-            .map_err(control_runtime)
+        match self.agents.stop(agent_id, &self.pty) {
+            Ok(()) | Err(crate::error::BackendError::SessionNotFound(_)) => Ok(()),
+            Err(error) => Err(control_runtime(error)),
+        }
     }
 
     fn cleanup_worktree(&self, project_id: &str, path: &str) -> Result<(), ControlError> {

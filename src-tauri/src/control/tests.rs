@@ -2342,6 +2342,26 @@ fn team_stop_revokes_the_child_control_token() {
 }
 
 #[test]
+fn runtime_team_stop_accepts_an_already_removed_agent() {
+    let root = tempfile::tempdir().expect("temporary directory");
+    let pty = PtyManager::new();
+    let supervisor = Arc::new(super::Supervisor::new(
+        root.path().to_path_buf(),
+        pty.clone(),
+        EventHub::new(8),
+    ));
+    let backend = super::team::RuntimeTeamBackend::new(
+        pty,
+        crate::agents::AgentManager::new(),
+        supervisor,
+        Arc::new(MemoryEventSink::default()),
+    );
+
+    super::team::TeamBackend::stop(&backend, "already-removed")
+        .expect("stopping an already removed agent should be idempotent");
+}
+
+#[test]
 fn stopping_agent_fails_and_removes_queued_messages() {
     let backend = Arc::new(FakeTeamBackend::default());
     let coordinator = super::TeamCoordinator::new(
