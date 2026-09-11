@@ -369,10 +369,16 @@ fn reconnect_replays_events_after_cursor_without_duplicate_sessions() {
     let reconnect = supervisor
         .reconnect(super::SUPERVISOR_PROTOCOL_VERSION, 1)
         .expect("reconnect");
-    assert_eq!(reconnect.current_sequence, 2);
-    assert_eq!(reconnect.events.len(), 1);
+    assert_eq!(reconnect.current_sequence, 3);
+    assert_eq!(reconnect.events.len(), 2);
     assert_eq!(reconnect.events[0].event_id, "after");
+    assert_eq!(reconnect.events[1].kind, AgentEventKind::AgentStopped);
     assert_eq!(reconnect.sessions.len(), 1);
+    let repeated_reconnect = supervisor
+        .reconnect(super::SUPERVISOR_PROTOCOL_VERSION, reconnect.current_sequence)
+        .expect("reconnect is idempotent");
+    assert_eq!(repeated_reconnect.current_sequence, reconnect.current_sequence);
+    assert!(repeated_reconnect.events.is_empty());
 }
 
 #[test]

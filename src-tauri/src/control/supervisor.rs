@@ -97,6 +97,7 @@ impl Supervisor {
             )));
         }
         self.start_or_connect()?;
+        self.reconcile()?;
         let sessions = self
             .registry
             .list()?
@@ -128,7 +129,7 @@ impl Supervisor {
                     continue;
                 }
                 let mut descriptor = stored.descriptor;
-                descriptor.attached = false;
+                descriptor.attached = true;
                 let session = RuntimeSession::new(
                     descriptor,
                     self.pty.clone(),
@@ -291,6 +292,9 @@ impl Supervisor {
         let mut report = ReconcileReport::default();
         for session in self.registry.list()? {
             let descriptor = session.descriptor()?;
+            if !descriptor.attached {
+                continue;
+            }
             let live = self
                 .pty
                 .session_status(&descriptor.terminal_id)

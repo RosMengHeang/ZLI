@@ -43,7 +43,7 @@ impl RuntimeSession {
         initial_sink: Option<Arc<dyn EventSink>>,
         scrollback_limit: usize,
     ) -> Self {
-        descriptor.attached = initial_sink.is_some();
+        descriptor.attached = initial_sink.is_some() || descriptor.attached;
         Self {
             descriptor: Mutex::new(descriptor),
             pty,
