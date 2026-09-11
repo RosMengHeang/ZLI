@@ -171,9 +171,7 @@ impl ControlHandler for RuntimeControlHandler {
             ControlMethod::AgentSpawn => {
                 let mut spawn: SpawnAgentRequest = serde_json::from_value(request.params.clone())
                     .map_err(|_| invalid_params("agent.spawn"))?;
-                if spawn.project_id.is_empty() && identity.project_id != "*" {
-                    spawn.project_id.clone_from(&identity.project_id);
-                }
+                apply_spawn_scope(&mut spawn, identity)?;
                 serde_json::to_value(self.team.spawn(spawn)?).map_err(serialization_error)
             }
             ControlMethod::AgentSend => {
@@ -493,6 +491,28 @@ fn string_array(params: &Value, key: &str) -> Result<Vec<String>, ControlError> 
             .collect(),
         _ => Err(invalid_params(key)),
     }
+}
+
+pub(crate) fn apply_spawn_scope(
+    request: &mut SpawnAgentRequest,
+    identity: &CallerIdentity,
+) -> Result<(), ControlError> {
+    if request.project_id.is_empty() && identity.project_id != "*" {
+        request.project_id.clone_from(&identity.project_id);
+    }
+    if let Some(agent_id) = identity.agent_id.as_deref() {
+        match request.parent_agent_id.as_deref() {
+            Some(parent_agent_id) if parent_agent_id == agent_id => {}
+            None => request.parent_agent_id = Some(agent_id.to_owned()),
+            Some(_) => {
+                return Err(ControlError::new(
+                    ControlErrorCode::CapabilityDenied,
+                    "Child agents may spawn only under their own identity",
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn invalid_params(method: &str) -> ControlError {

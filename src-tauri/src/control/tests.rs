@@ -2259,6 +2259,28 @@ fn team_spawn_creates_scoped_child_and_delivers_initial_task() {
 }
 
 #[test]
+fn child_spawn_scope_cannot_reparent_delegated_work() {
+    let identity = CallerIdentity {
+        caller_id: "child-1".into(),
+        project_id: "project-1".into(),
+        agent_id: Some("child-1".into()),
+        parent_agent_id: Some("parent-1".into()),
+        capabilities: vec![Capability::AgentSpawn],
+        expires_at: None,
+    };
+    let mut request = team_spawn_request();
+    request.parent_agent_id = Some("sibling-1".into());
+
+    let error = super::service::apply_spawn_scope(&mut request, &identity)
+        .expect_err("a child cannot reparent a spawned agent");
+    assert_eq!(error.code, super::ControlErrorCode::CapabilityDenied);
+
+    request.parent_agent_id = None;
+    super::service::apply_spawn_scope(&mut request, &identity).expect("default child parent");
+    assert_eq!(request.parent_agent_id.as_deref(), Some("child-1"));
+}
+
+#[test]
 fn team_spawn_enforces_the_twelve_agent_project_cap() {
     let backend = Arc::new(FakeTeamBackend::default());
     backend.active.store(12, Ordering::SeqCst);
