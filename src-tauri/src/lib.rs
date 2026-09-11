@@ -112,7 +112,8 @@ pub fn run() {
             ));
             let team = Arc::new(
                 control::TeamCoordinator::new(team_backend, tokens.clone(), endpoint.clone())
-                    .with_control_executable(control::zli_executable_path()),
+                    .with_control_executable(control::zli_executable_path())
+                    .with_message_store(control::SnapshotStore::new(app_data_dir.clone()))?,
             );
             let team_observer = Arc::downgrade(&team);
             if let Ok(mut observer) = observer_slot.lock() {

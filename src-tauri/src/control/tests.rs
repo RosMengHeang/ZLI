@@ -2138,6 +2138,80 @@ fn team_message_queue_is_parent_child_scoped_and_not_written_early() {
 }
 
 #[test]
+fn pending_agent_messages_survive_coordinator_restart() {
+    use super::team::{AgentMessageInbox, QueuedAgentMessage, QueuedAgentMessageKind};
+
+    let root = tempfile::tempdir().expect("temporary directory");
+    let store = SnapshotStore::new(root.path().to_path_buf());
+    let inbox = AgentMessageInbox::with_store(store.clone()).expect("create persistent inbox");
+    inbox
+        .enqueue(QueuedAgentMessage {
+            message_id: "message-1".into(),
+            project_id: "project-1".into(),
+            agent_id: "agent-1".into(),
+            terminal_id: "terminal-1".into(),
+            body: "Run the focused tests".into(),
+            kind: QueuedAgentMessageKind::Agent,
+        })
+        .expect("persist message");
+    inbox
+        .enqueue(QueuedAgentMessage {
+            message_id: "message-2".into(),
+            project_id: "project-1".into(),
+            agent_id: "agent-1".into(),
+            terminal_id: "terminal-1".into(),
+            body: "Review the release".into(),
+            kind: QueuedAgentMessageKind::Taxchat {
+                message_id: "message-2".into(),
+                sender_agent_id: Some("agent-parent".into()),
+                body: "Review the release".into(),
+                recipient_ids: vec!["agent-1".into()],
+            },
+        })
+        .expect("persist TaxChat message");
+    drop(inbox);
+
+    let restored = AgentMessageInbox::with_store(store.clone()).expect("restore inbox");
+    assert_eq!(restored.pending_count("agent-1"), 2);
+    let message = restored
+        .take_next("agent-1")
+        .expect("begin delivery")
+        .expect("message exists");
+    assert_eq!(message.message_id, "message-1");
+    drop(restored);
+
+    let replayed = AgentMessageInbox::with_store(store.clone()).expect("replay in-flight message");
+    assert_eq!(replayed.pending_count("agent-1"), 2);
+    let replay = replayed
+        .take_next("agent-1")
+        .expect("begin replay")
+        .expect("message exists");
+    assert_eq!(replay.message_id, "message-1");
+    replayed
+        .ack("agent-1", "message-1")
+        .expect("acknowledge replay");
+    let taxchat = replayed
+        .take_next("agent-1")
+        .expect("begin TaxChat delivery")
+        .expect("TaxChat message exists");
+    assert!(matches!(
+        taxchat.kind,
+        QueuedAgentMessageKind::Taxchat {
+            message_id,
+            sender_agent_id: Some(_),
+            recipient_ids,
+            ..
+        } if message_id == "message-2" && recipient_ids == vec!["agent-1"]
+    ));
+    replayed
+        .ack("agent-1", "message-2")
+        .expect("acknowledge TaxChat delivery");
+
+    let empty = AgentMessageInbox::with_store(store).expect("reload acknowledged inbox");
+    assert_eq!(empty.pending_count("agent-1"), 0);
+}
+
+#[test]
 fn team_message_waits_for_a_provider_prompt_before_writing_to_the_pty() {
     let backend = Arc::new(FakeTeamBackend::default());
     let coordinator = super::TeamCoordinator::new(
@@ -2212,8 +2286,9 @@ fn agent_message_inbox_is_fifo_and_bounded_per_agent() {
 
     assert_eq!(error.code, super::ControlErrorCode::AgentInboxFull);
     assert_eq!(inbox.pending_count("agent-1"), 64);
-    assert_eq!(inbox.take_next("agent-1").unwrap().body, "body-0");
-    assert_eq!(inbox.take_next("agent-1").unwrap().body, "body-1");
+    assert_eq!(inbox.take_next("agent-1").unwrap().unwrap().body, "body-0");
+    inbox.ack("agent-1", "message-0").unwrap();
+    assert_eq!(inbox.take_next("agent-1").unwrap().unwrap().body, "body-1");
 }
 
 #[test]

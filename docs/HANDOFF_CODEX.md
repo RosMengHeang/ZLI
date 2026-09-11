@@ -263,9 +263,12 @@ Closing the entire desktop process cannot preserve an in-memory PTY. On the next
 
 Session commands are `control_session_reconnect`, `control_session_reconcile`, `control_session_snapshot`, `control_session_restore`, and `control_session_resume`. `zli session reconcile` and its `zli doctor` alias return a safe report of sessions that became offline, retained worktree paths that no longer exist, and owned processes stopped during reconciliation. ZLI never deletes a worktree from reconciliation. Errors are tagged with stable codes for missing sessions, unsupported resume, protocol mismatch, snapshot failure, and runtime failure.
 
+Agent and TaxChat delivery queues are also durable. ZLI stores the bounded pending queue in the application data directory as a versioned, atomically replaced file. A message is kept until the provider delivery attempt is acknowledged, so a crash can replay an in-flight message instead of silently losing it. This is intentionally at-least-once delivery: if the process stops after the provider accepts the prompt but before the acknowledgement is saved, the provider may receive a duplicate after restart. Message IDs remain stable so consumers and the UI can deduplicate safely.
+
 ## Known limitations
 
 - Exit codes are currently emitted as `null`; portable-pty child waiting is used for cleanup but the reader event contract does not yet carry the exact exit code.
 - Agent launch accepts no user-provided CLI arguments. This keeps the command constrained; provider-specific flags can be added later as an explicit allowlisted contract.
 - Only Claude Code and Codex currently have provider-specific resume commands. Cursor Agent, OpenCode, Gemini, Aider, and Goose remain visible after restore but require a new session unless their adapters gain a verified resume protocol.
 - Full application shutdown ends PTY processes. Persistence restores layout, bounded scrollback, metadata, and supported provider conversations; it does not keep an OS process alive outside the desktop runtime.
+- Durable coordination protects queued delivery, not provider-side work already in progress. A restarted provider session still depends on its adapter's exact resume support.

@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 pub const SNAPSHOT_SCHEMA_VERSION: u16 = 1;
+pub const PENDING_QUEUE_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,6 +75,8 @@ pub enum SnapshotStoreError {
     InvalidProjectId,
     #[error("unsupported snapshot schema version {found}; supported version is {supported}")]
     UnsupportedSchemaVersion { found: u16, supported: u16 },
+    #[error("unsupported pending queue schema version {found}; supported version is {supported}")]
+    UnsupportedPendingQueueSchemaVersion { found: u16, supported: u16 },
     #[error("snapshot I/O failed: {0}")]
     Io(#[from] io::Error),
     #[error("snapshot data is invalid: {0}")]
@@ -85,6 +88,9 @@ impl SnapshotStoreError {
         match self {
             Self::InvalidProjectId => "invalid_project_id",
             Self::UnsupportedSchemaVersion { .. } => "unsupported_snapshot_schema",
+            Self::UnsupportedPendingQueueSchemaVersion { .. } => {
+                "unsupported_pending_queue_schema"
+            }
             Self::Io(_) => "snapshot_io_error",
             Self::InvalidData(_) => "invalid_snapshot_data",
         }
@@ -133,24 +139,34 @@ impl SnapshotStore {
     pub fn save_atomic(&self, snapshot: &ProjectSnapshot) -> Result<(), SnapshotStoreError> {
         self.validate_snapshot(snapshot)?;
         let destination = self.snapshot_path(&snapshot.project_id)?;
-        let directory = destination.parent().expect("snapshot path has a parent");
-        fs::create_dir_all(directory)?;
-        let temporary = destination.with_extension("json.tmp");
         let bytes = serde_json::to_vec_pretty(snapshot)?;
-        let result = (|| -> Result<(), SnapshotStoreError> {
-            let mut file = File::create(&temporary)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            replace_file(&temporary, &destination)?;
-            if let Ok(directory_file) = File::open(directory) {
-                let _ = directory_file.sync_all();
-            }
-            Ok(())
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(&temporary);
+        self.save_bytes_atomic(&destination, &bytes)
+    }
+
+    pub fn load_pending_messages(&self) -> Result<Vec<Value>, SnapshotStoreError> {
+        let path = self.pending_queue_path();
+        let bytes = match fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
+        };
+        let document: PendingMessageDocument = serde_json::from_slice(&bytes)?;
+        if document.schema_version != PENDING_QUEUE_SCHEMA_VERSION {
+            return Err(SnapshotStoreError::UnsupportedPendingQueueSchemaVersion {
+                found: document.schema_version,
+                supported: PENDING_QUEUE_SCHEMA_VERSION,
+            });
         }
-        result
+        Ok(document.messages)
+    }
+
+    pub fn save_pending_messages(&self, messages: &[Value]) -> Result<(), SnapshotStoreError> {
+        let document = PendingMessageDocument {
+            schema_version: PENDING_QUEUE_SCHEMA_VERSION,
+            messages: messages.to_vec(),
+        };
+        let bytes = serde_json::to_vec_pretty(&document)?;
+        self.save_bytes_atomic(&self.pending_queue_path(), &bytes)
     }
 
     pub fn delete_project(&self, project_id: &str) -> Result<(), SnapshotStoreError> {
@@ -177,12 +193,50 @@ impl SnapshotStore {
         Ok(self.project_dir(project_id)?.join("project.json"))
     }
 
+    fn pending_queue_path(&self) -> PathBuf {
+        self.root
+            .parent()
+            .expect("snapshot root has a control parent")
+            .join("pending-messages.json")
+    }
+
+    fn save_bytes_atomic(
+        &self,
+        destination: &Path,
+        bytes: &[u8],
+    ) -> Result<(), SnapshotStoreError> {
+        let directory = destination.parent().expect("atomic path has a parent");
+        fs::create_dir_all(directory)?;
+        let temporary = destination.with_extension("json.tmp");
+        let result = (|| -> Result<(), SnapshotStoreError> {
+            let mut file = File::create(&temporary)?;
+            file.write_all(bytes)?;
+            file.sync_all()?;
+            replace_file(&temporary, destination)?;
+            if let Ok(directory_file) = File::open(directory) {
+                let _ = directory_file.sync_all();
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        result
+    }
+
     fn project_dir(&self, project_id: &str) -> Result<PathBuf, SnapshotStoreError> {
         if project_id.trim().is_empty() {
             return Err(SnapshotStoreError::InvalidProjectId);
         }
         Ok(self.root.join(project_storage_key(project_id)))
     }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PendingMessageDocument {
+    schema_version: u16,
+    messages: Vec<Value>,
 }
 
 fn project_storage_key(project_id: &str) -> String {

@@ -1,6 +1,6 @@
 use super::{
     AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, CallerIdentity,
-    Capability, CapabilityTokenStore, ControlError, ControlErrorCode, Supervisor,
+    Capability, CapabilityTokenStore, ControlError, ControlErrorCode, SnapshotStore, Supervisor,
     SUPERVISOR_PROTOCOL_VERSION,
 };
 use crate::agents::{self, Agent, AgentManager, LaunchAgentRequest};
@@ -47,7 +47,8 @@ pub struct TeamAgent {
     pub paused: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QueuedAgentMessage {
     pub message_id: String,
     pub project_id: String,
@@ -57,7 +58,8 @@ pub struct QueuedAgentMessage {
     pub kind: QueuedAgentMessageKind,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum QueuedAgentMessageKind {
     Agent,
     Taxchat {
@@ -71,48 +73,222 @@ pub enum QueuedAgentMessageKind {
 #[derive(Clone, Default)]
 pub struct AgentMessageInbox {
     pending: Arc<Mutex<HashMap<String, VecDeque<QueuedAgentMessage>>>>,
+    in_flight: Arc<Mutex<HashMap<(String, String), QueuedAgentMessage>>>,
+    store: Option<SnapshotStore>,
 }
 
 impl AgentMessageInbox {
+    pub fn with_store(store: SnapshotStore) -> Result<Self, ControlError> {
+        let values = store.load_pending_messages().map_err(persistence_error)?;
+        if values.len() > MAX_TEAM_AGENTS * MAX_PENDING_MESSAGES_PER_AGENT {
+            return Err(queue_data_error(
+                "Pending message queue exceeds the supported capacity",
+            ));
+        }
+        let mut pending = HashMap::<String, VecDeque<QueuedAgentMessage>>::new();
+        for value in values {
+            let message: QueuedAgentMessage =
+                serde_json::from_value(value).map_err(|error| queue_data_error(error.to_string()))?;
+            validate_queued_message(&message)?;
+            let queue = pending.entry(message.agent_id.clone()).or_default();
+            if queue.len() >= MAX_PENDING_MESSAGES_PER_AGENT {
+                return Err(queue_data_error(
+                    "Pending message queue exceeds the per-agent capacity",
+                ));
+            }
+            queue.push_back(message);
+        }
+        Ok(Self {
+            pending: Arc::new(Mutex::new(pending)),
+            in_flight: Arc::new(Mutex::new(HashMap::new())),
+            store: Some(store),
+        })
+    }
+
     pub fn enqueue(&self, message: QueuedAgentMessage) -> Result<(), ControlError> {
         let mut pending = self.pending.lock().map_err(lock_error)?;
-        let queue = pending.entry(message.agent_id.clone()).or_default();
-        if queue.len() >= MAX_PENDING_MESSAGES_PER_AGENT {
+        let agent_id = message.agent_id.clone();
+        let queue_len = pending.get(&agent_id).map(VecDeque::len).unwrap_or_default();
+        let in_flight = self.in_flight.lock().map_err(lock_error)?;
+        let in_flight_count = in_flight
+            .keys()
+            .filter(|(queued_agent_id, _)| queued_agent_id == &agent_id)
+            .count();
+        if queue_len + in_flight_count >= MAX_PENDING_MESSAGES_PER_AGENT {
             return Err(ControlError::new(
                 ControlErrorCode::AgentInboxFull,
                 "Agent message inbox is full; wait for delivery before sending more",
             ));
         }
-        queue.push_back(message);
+        pending
+            .entry(agent_id.clone())
+            .or_default()
+            .push_back(message.clone());
+        if let Err(error) = self.persist_locked(&pending, &in_flight) {
+            let remove_queue = if let Some(queue) = pending.get_mut(&agent_id) {
+                queue.pop_back();
+                queue.is_empty()
+            } else {
+                false
+            };
+            if remove_queue {
+                pending.remove(&agent_id);
+            }
+            return Err(error);
+        }
         Ok(())
     }
 
-    pub fn take_next(&self, agent_id: &str) -> Option<QueuedAgentMessage> {
-        let mut pending = self.pending.lock().ok()?;
-        let queue = pending.get_mut(agent_id)?;
-        let message = queue.pop_front();
-        if queue.is_empty() {
+    pub fn take_next(&self, agent_id: &str) -> Result<Option<QueuedAgentMessage>, ControlError> {
+        let mut pending = self.pending.lock().map_err(lock_error)?;
+        let mut in_flight = self.in_flight.lock().map_err(lock_error)?;
+        if in_flight.keys().any(|(queued_agent_id, _)| queued_agent_id == agent_id) {
+            return Ok(None);
+        }
+        let message = match pending.get_mut(agent_id).and_then(VecDeque::pop_front) {
+            Some(message) => message,
+            None => return Ok(None),
+        };
+        if pending.get(agent_id).is_some_and(VecDeque::is_empty) {
             pending.remove(agent_id);
         }
-        message
+        let key = (agent_id.to_owned(), message.message_id.clone());
+        in_flight.insert(key.clone(), message.clone());
+        if let Err(error) = self.persist_locked(&pending, &in_flight) {
+            in_flight.remove(&key);
+            pending
+                .entry(agent_id.to_owned())
+                .or_default()
+                .push_front(message);
+            return Err(error);
+        }
+        Ok(Some(message))
     }
 
-    pub fn drain(&self, agent_id: &str) -> Vec<QueuedAgentMessage> {
-        self.pending
-            .lock()
-            .ok()
-            .and_then(|mut pending| pending.remove(agent_id))
-            .map(|queue| queue.into_iter().collect())
-            .unwrap_or_default()
+    pub fn ack(&self, agent_id: &str, message_id: &str) -> Result<(), ControlError> {
+        let pending = self.pending.lock().map_err(lock_error)?;
+        let mut in_flight = self.in_flight.lock().map_err(lock_error)?;
+        let key = (agent_id.to_owned(), message_id.to_owned());
+        let Some(message) = in_flight.remove(&key) else {
+            return Ok(());
+        };
+        if let Err(error) = self.persist_locked(&pending, &in_flight) {
+            in_flight.insert(key, message);
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub fn drain(&self, agent_id: &str) -> Result<Vec<QueuedAgentMessage>, ControlError> {
+        let mut pending = self.pending.lock().map_err(lock_error)?;
+        let mut in_flight = self.in_flight.lock().map_err(lock_error)?;
+        let queued = pending.remove(agent_id).unwrap_or_default();
+        let in_flight_keys = in_flight
+            .keys()
+            .filter(|(queued_agent_id, _)| queued_agent_id == agent_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut removed_in_flight = Vec::with_capacity(in_flight_keys.len());
+        for key in &in_flight_keys {
+            if let Some(message) = in_flight.remove(key) {
+                removed_in_flight.push(message);
+            }
+        }
+        let mut removed = removed_in_flight.clone();
+        removed.extend(queued.iter().cloned());
+        if let Err(error) = self.persist_locked(&pending, &in_flight) {
+            if !queued.is_empty() {
+                pending.insert(agent_id.to_owned(), queued);
+            }
+            for message in removed_in_flight {
+                in_flight.insert(
+                    (message.agent_id.clone(), message.message_id.clone()),
+                    message,
+                );
+            }
+            return Err(error);
+        }
+        Ok(removed)
     }
 
     #[cfg(test)]
     pub fn pending_count(&self, agent_id: &str) -> usize {
-        self.pending
-            .lock()
-            .ok()
+        let pending = self.pending.lock().ok();
+        let in_flight = self.in_flight.lock().ok();
+        pending
+            .as_ref()
             .and_then(|pending| pending.get(agent_id).map(VecDeque::len))
             .unwrap_or_default()
+            + in_flight
+                .as_ref()
+                .map(|in_flight| {
+                    in_flight
+                        .keys()
+                        .filter(|(queued_agent_id, _)| queued_agent_id == agent_id)
+                        .count()
+                })
+                .unwrap_or_default()
+    }
+}
+
+impl AgentMessageInbox {
+    fn persist_locked(
+        &self,
+        pending: &HashMap<String, VecDeque<QueuedAgentMessage>>,
+        in_flight: &HashMap<(String, String), QueuedAgentMessage>,
+    ) -> Result<(), ControlError> {
+        let Some(store) = self.store.as_ref() else {
+            return Ok(());
+        };
+        let mut agent_ids = pending.keys().cloned().collect::<Vec<_>>();
+        agent_ids.extend(in_flight.keys().map(|(agent_id, _)| agent_id.clone()));
+        agent_ids.sort();
+        agent_ids.dedup();
+        let mut messages = Vec::new();
+        for agent_id in agent_ids {
+            let mut in_flight_messages = in_flight
+                .iter()
+                .filter(|((queued_agent_id, _), _)| queued_agent_id == &agent_id)
+                .map(|(_, message)| message.clone())
+                .collect::<Vec<_>>();
+            in_flight_messages.sort_by(|left, right| left.message_id.cmp(&right.message_id));
+            messages.extend(in_flight_messages);
+            if let Some(queue) = pending.get(&agent_id) {
+                messages.extend(queue.iter().cloned());
+            }
+        }
+        let values = messages
+            .into_iter()
+            .map(|message| serde_json::to_value(message).map_err(|error| queue_data_error(error.to_string())))
+            .collect::<Result<Vec<_>, _>>()?;
+        store.save_pending_messages(&values).map_err(persistence_error)
+    }
+}
+
+fn validate_queued_message(message: &QueuedAgentMessage) -> Result<(), ControlError> {
+    if message.project_id.trim().is_empty()
+        || message.agent_id.trim().is_empty()
+        || message.terminal_id.trim().is_empty()
+        || message.body.trim().is_empty()
+        || message.body.len() > MAX_TASK_BYTES
+    {
+        return Err(queue_data_error("Pending message contains invalid fields"));
+    }
+    match &message.kind {
+        QueuedAgentMessageKind::Agent => Ok(()),
+        QueuedAgentMessageKind::Taxchat {
+            message_id,
+            body,
+            recipient_ids,
+            ..
+        } if message_id == &message.message_id
+            && !body.trim().is_empty()
+            && body.len() <= MAX_TASK_BYTES
+            && !recipient_ids.is_empty()
+            && recipient_ids.len() <= MAX_TEAM_AGENTS => Ok(()),
+        QueuedAgentMessageKind::Taxchat { .. } => {
+            Err(queue_data_error("Pending TaxChat message contains invalid fields"))
+        }
     }
 }
 
@@ -185,6 +361,11 @@ impl TeamCoordinator {
     pub fn with_control_executable(mut self, executable: Option<PathBuf>) -> Self {
         self.control_executable = executable;
         self
+    }
+
+    pub fn with_message_store(mut self, store: SnapshotStore) -> Result<Self, ControlError> {
+        self.inbox = AgentMessageInbox::with_store(store)?;
+        Ok(self)
     }
 
     pub fn spawn(&self, request: SpawnAgentRequest) -> Result<TeamAgent, ControlError> {
@@ -336,7 +517,11 @@ impl TeamCoordinator {
             event.kind,
             AgentEventKind::AgentExited | AgentEventKind::AgentFailed
         ) {
-            for message in self.inbox.drain(agent_id) {
+            let messages = match self.inbox.drain(agent_id) {
+                Ok(messages) => messages,
+                Err(_) => return,
+            };
+            for message in messages {
                 self.fail_queued_message(message);
             }
             return;
@@ -350,13 +535,17 @@ impl TeamCoordinator {
         if record.paused {
             return;
         }
-        let Some(message) = self.inbox.take_next(agent_id) else {
-            return;
+        let message = match self.inbox.take_next(agent_id) {
+            Ok(Some(message)) => message,
+            Ok(None) | Err(_) => return,
         };
-        if message.project_id != record.project_id || message.terminal_id != record.terminal_id {
+        if message.project_id != record.project_id {
+            let _ = self.inbox.ack(&record.agent_id, &message.message_id);
+            self.fail_queued_message(message);
             return;
         }
         let result = self.backend.deliver(&record.terminal_id, &message.body);
+        let _ = self.inbox.ack(&record.agent_id, &message.message_id);
         match message.kind {
             QueuedAgentMessageKind::Agent => {
                 let kind = if result.is_ok() {
@@ -948,4 +1137,13 @@ fn session_not_found() -> ControlError {
 }
 fn control_runtime(error: impl std::fmt::Debug) -> ControlError {
     ControlError::new(ControlErrorCode::ControlRuntimeError, format!("{error:?}"))
+}
+fn persistence_error(error: impl std::fmt::Display) -> ControlError {
+    ControlError::new(
+        ControlErrorCode::ControlRuntimeError,
+        format!("Pending message queue is unavailable: {error}"),
+    )
+}
+fn queue_data_error(message: impl Into<String>) -> ControlError {
+    ControlError::new(ControlErrorCode::ControlRuntimeError, message)
 }
