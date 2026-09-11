@@ -268,6 +268,8 @@ Session commands are `control_session_reconnect`, `control_session_reconcile`, `
 
 Agent and TaxChat delivery queues are also durable. ZLI stores the bounded pending queue in the application data directory as a versioned, atomically replaced file. A message is kept until the provider delivery attempt is acknowledged, so a crash can replay an in-flight message instead of silently losing it. This is intentionally at-least-once delivery: if the process stops after the provider accepts the prompt but before the acknowledgement is saved, the provider may receive a duplicate after restart. Message IDs remain stable so consumers and the UI can deduplicate safely.
 
+Worktree storage can be inspected without mutation through `git_audit_worktrees({ repositoryRoot })`. The audit distinguishes protected main and runtime-owned checkouts, dirty or unreadable registered worktrees, locked entries, stale Git metadata, and empty or non-empty orphaned agent folders. Only an empty orphaned folder is marked safe for non-forced filesystem removal; stale Git metadata is separately marked safe for `git worktree prune`. The audit never deletes files or assumes that a clean checkout is unused.
+
 ## Known limitations
 
 - Exit codes are currently emitted as `null`; portable-pty child waiting is used for cleanup but the reader event contract does not yet carry the exact exit code.

@@ -10,6 +10,7 @@ export {
   gitCreateWorktree,
   gitDeleteBranch,
   gitDiff,
+  gitAuditWorktrees,
   gitListWorktrees,
   gitMerge,
   gitRemoveWorktree,

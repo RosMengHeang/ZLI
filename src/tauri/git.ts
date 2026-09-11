@@ -10,6 +10,7 @@ import type {
   MergeRequest,
   RemovedWorktreeResult,
   RemoveWorktreeRequest,
+  WorktreeAudit,
   WorktreeInfo,
 } from "../types";
 import { GIT_COMMANDS } from "../types/commands";
@@ -44,6 +45,10 @@ export function gitCreateWorktree(request: CreateWorktreeRequest): Promise<Creat
 
 export function gitListWorktrees(repositoryRoot: string): Promise<WorktreeInfo[]> {
   return invokeCmd<WorktreeInfo[]>(GIT_COMMANDS.listWorktrees, { repositoryRoot });
+}
+
+export function gitAuditWorktrees(repositoryRoot: string): Promise<WorktreeAudit> {
+  return invokeCmd<WorktreeAudit>(GIT_COMMANDS.auditWorktrees, { repositoryRoot });
 }
 
 export function gitPruneWorktrees(repositoryRoot: string): Promise<void> {

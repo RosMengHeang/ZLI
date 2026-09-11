@@ -164,6 +164,37 @@ export interface WorktreeInfo {
   orphaned: boolean;
 }
 
+export type WorktreeAuditState =
+  | "main"
+  | "registered_clean"
+  | "registered_dirty"
+  | "registered_unknown"
+  | "locked"
+  | "prunable_metadata"
+  | "orphaned_empty"
+  | "orphaned_non_empty"
+  | "unknown";
+
+export interface WorktreeAuditEntry {
+  path: string;
+  branch: string | null;
+  state: WorktreeAuditState;
+  clean: boolean | null;
+  safeToRemoveWithoutForce: boolean;
+  safeToPruneMetadata: boolean;
+  requiresForce: boolean;
+  note: string | null;
+}
+
+export interface WorktreeAudit {
+  repositoryRoot: string;
+  storageRoot: string;
+  entries: WorktreeAuditEntry[];
+  removableWithoutForceCount: number;
+  prunableMetadataCount: number;
+  requiresForceCount: number;
+}
+
 export interface RemoveWorktreeRequest {
   repositoryRoot: string;
   worktreePath: string;

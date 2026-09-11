@@ -21,8 +21,8 @@ use commands::{
     write_terminal,
 };
 use git::commands::{
-    git_abort_merge, git_commit, git_create_worktree, git_delete_branch, git_diff,
-    git_list_worktrees, git_merge, git_prune_worktrees, git_remove_worktree, git_status,
+    git_abort_merge, git_audit_worktrees, git_commit, git_create_worktree, git_delete_branch,
+    git_diff, git_list_worktrees, git_merge, git_prune_worktrees, git_remove_worktree, git_status,
     git_validate_repository,
 };
 use std::sync::Arc;
@@ -194,6 +194,7 @@ pub fn run() {
             git_validate_repository,
             git_create_worktree,
             git_list_worktrees,
+            git_audit_worktrees,
             git_prune_worktrees,
             git_remove_worktree,
             git_delete_branch,

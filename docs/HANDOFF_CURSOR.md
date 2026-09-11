@@ -64,6 +64,7 @@ Shared TS contracts: `src/types/models.ts`, command names: `src/types/commands.t
 - `git_validate_repository({ path })` → `RepositoryInfo`
 - `git_create_worktree({ request: { repositoryRoot, provider, baseBranch? } })`
 - `git_list_worktrees({ repositoryRoot })`
+- `git_audit_worktrees({ repositoryRoot })` → read-only worktree safety audit
 - `git_remove_worktree({ request: { repositoryRoot, worktreePath, force } })`
 - `git_delete_branch({ request: { repositoryRoot, branch, force } })`
 - `git_status({ worktreePath })` → `GitStatus`

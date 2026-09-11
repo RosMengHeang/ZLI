@@ -7,13 +7,20 @@ import { useProjectStore } from "../stores/projectStore";
 import { useUiStore } from "../stores/uiStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { toAppError } from "../lib/errors";
-import { managedWorktrees } from "../lib/worktreePresentation";
-import { gitListWorktrees, gitPruneWorktrees, gitRemoveWorktree, gitStatus } from "../tauri/git";
-import type { GitStatus, WorktreeInfo } from "../types";
+import { gitAuditWorktrees, gitPruneWorktrees, gitRemoveWorktree, gitStatus } from "../tauri/git";
+import type { GitStatus, WorktreeAudit, WorktreeAuditEntry } from "../types";
 import { workspaceRootKey } from "../lib/workspaceRegistry";
 
 function pathKey(path: string): string {
   return path.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLocaleLowerCase();
+}
+
+function worktreesForAudit(report: WorktreeAudit): WorktreeAuditEntry[] {
+  return report.entries.filter(
+    (entry) =>
+      entry.state !== "main" &&
+      (entry.branch?.startsWith("swarm/") || entry.state.startsWith("orphaned_") || entry.state === "prunable_metadata"),
+  );
 }
 
 export function WorktreeDialog() {
@@ -27,7 +34,7 @@ export function WorktreeDialog() {
     ? workspaces.find((workspace) => workspaceRootKey(workspace.project.repositoryRoot) === workspaceRootKey(worktreeProjectRoot))?.project
     : project;
   const repositoryRoot = targetProject?.repositoryRoot;
-  const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
+  const [audit, setAudit] = useState<WorktreeAudit | null>(null);
   const [statuses, setStatuses] = useState<Record<string, GitStatus | null>>({});
   const [loading, setLoading] = useState(false);
   const [busyPath, setBusyPath] = useState<string | null>(null);
@@ -42,6 +49,12 @@ export function WorktreeDialog() {
       .map(pathKey),
   );
 
+  const worktrees = (audit?.entries ?? []).filter(
+    (entry) =>
+      entry.state !== "main" &&
+      (entry.branch?.startsWith("swarm/") || entry.state.startsWith("orphaned_") || entry.state === "prunable_metadata"),
+  );
+
   const loadWorktrees = useCallback(async () => {
     if (!repositoryRoot) return;
     setLoading(true);
@@ -49,11 +62,13 @@ export function WorktreeDialog() {
     setPendingPath(null);
     setTyped("");
     try {
-      const listed = managedWorktrees(await gitListWorktrees(repositoryRoot));
-      setWorktrees(listed);
+      const report = await gitAuditWorktrees(repositoryRoot);
+      setAudit(report);
       const entries = await Promise.all(
-        listed.map(async (worktree) => {
-          if (worktree.prunable || worktree.orphaned) return [worktree.path, null] as const;
+        worktreesForAudit(report).map(async (worktree) => {
+          if (worktree.state.startsWith("orphaned_") || worktree.state === "prunable_metadata") {
+            return [worktree.path, null] as const;
+          }
           try {
             return [worktree.path, await gitStatus(worktree.path)] as const;
           } catch {
@@ -63,6 +78,7 @@ export function WorktreeDialog() {
       );
       setStatuses(Object.fromEntries(entries));
     } catch (caught) {
+      setAudit(null);
       setError(toAppError(caught).message);
     } finally {
       setLoading(false);
@@ -75,7 +91,14 @@ export function WorktreeDialog() {
     return () => window.clearTimeout(timer);
   }, [loadWorktrees, open]);
 
-  async function removeWorktree(worktree: WorktreeInfo, force: boolean) {
+  function requestForce(worktree: WorktreeAuditEntry) {
+    if (activePaths.has(pathKey(worktree.path))) return;
+    setPendingPath(worktree.path);
+    setTyped("");
+    setError(null);
+  }
+
+  async function removeWorktree(worktree: WorktreeAuditEntry, force: boolean) {
     if (!repositoryRoot || activePaths.has(pathKey(worktree.path))) return;
     setBusyPath(worktree.path);
     setError(null);
@@ -108,7 +131,7 @@ export function WorktreeDialog() {
     }
   }
 
-  const missingCount = worktrees.filter((worktree) => worktree.prunable).length;
+  const missingCount = worktrees.filter((worktree) => worktree.state === "prunable_metadata").length;
 
   return (
     <Modal
@@ -139,7 +162,13 @@ export function WorktreeDialog() {
               {worktrees.map((worktree) => {
                 const active = activePaths.has(pathKey(worktree.path));
                 const status = statuses[worktree.path];
-                const dirty = Boolean(status && !status.clean);
+                const dirty = worktree.state === "registered_dirty" || Boolean(status && !status.clean);
+                const prunable = worktree.state === "prunable_metadata";
+                const locked = worktree.state === "locked";
+                const unknown = worktree.state === "registered_unknown" || worktree.state === "unknown";
+                const orphaned = worktree.state.startsWith("orphaned_");
+                const forceRequired = worktree.requiresForce;
+                const statusReady = forceRequired || orphaned || (status !== undefined && status !== null);
                 const pending = pendingPath === worktree.path;
                 return (
                   <div key={worktree.path} className="rounded-md border border-line bg-raised p-3">
@@ -153,22 +182,24 @@ export function WorktreeDialog() {
                           {worktree.path}
                         </div>
                         <div className="mt-1 text-[11px] text-mute">
-                          {active ? "In use by a running agent" : worktree.prunable ? "Missing from disk" : worktree.orphaned ? "Orphaned directory" : status === undefined ? "Checking files…" : status === null ? "Status unavailable" : dirty ? `${status.changedFiles.length} changed file${status.changedFiles.length === 1 ? "" : "s"}` : "Clean checkout"}
+                          {active ? "In use by a running agent" : prunable ? "Git metadata points to a missing checkout" : locked ? "Locked by Git" : unknown ? "Status unavailable; review before cleanup" : orphaned ? (worktree.state === "orphaned_empty" ? "Empty unregistered agent slot" : "Unregistered files found") : status === undefined ? "Checking files…" : status === null ? "Status unavailable" : dirty ? `${status.changedFiles.length} changed file${status.changedFiles.length === 1 ? "" : "s"}` : "Clean checkout"}
                         </div>
                       </div>
                       {active ? (
                         <span className="shrink-0 text-[11px] text-ok">In use</span>
-                      ) : worktree.prunable ? (
+                      ) : prunable ? (
                         <span className="shrink-0 text-[11px] text-mute">Prunable</span>
+                      ) : locked || unknown ? (
+                        <span className="shrink-0 text-[11px] text-warn">Review</span>
                       ) : (
                         <Button
                           type="button"
                           size="sm"
-                          variant={dirty ? "destructive" : "ghost"}
-                          disabled={busyPath !== null || status === undefined}
-                          onClick={() => void removeWorktree(worktree, false)}
+                          variant={forceRequired ? "destructive" : "ghost"}
+                          disabled={busyPath !== null || !statusReady}
+                          onClick={() => forceRequired ? requestForce(worktree) : void removeWorktree(worktree, false)}
                         >
-                          {busyPath === worktree.path ? "Removing…" : dirty ? "Discard…" : "Remove"}
+                          {busyPath === worktree.path ? "Removing…" : forceRequired ? "Discard…" : "Remove"}
                         </Button>
                       )}
                     </div>
@@ -198,7 +229,7 @@ export function WorktreeDialog() {
 
           <div className="flex items-center justify-between gap-2 border-t border-line pt-3">
             <p className="max-w-[27rem] text-[11px] leading-4 text-mute">
-              Removing a checkout frees its files. Its branch remains so committed work is not lost and can be merged later.
+              The audit is read-only. It never deletes a registered checkout or assumes a clean folder is unused.
             </p>
             {missingCount ? (
               <Button type="button" variant="ghost" size="sm" disabled={loading} onClick={() => void pruneMissingRecords()}>

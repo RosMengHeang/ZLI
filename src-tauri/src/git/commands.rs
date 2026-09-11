@@ -13,7 +13,7 @@ use super::repo::{self, RepositoryInfo};
 use super::status::{self, GitStatus};
 use super::worktree::{
     self, CreateWorktreeRequest, CreateWorktreeResult, DeleteBranchRequest, RemoveWorktreeRequest,
-    RemovedWorktreeResult, WorktreeInfo,
+    RemovedWorktreeResult, WorktreeAudit, WorktreeInfo,
 };
 
 async fn run_blocking<T, F>(label: &'static str, work: F) -> Result<T, GitError>
@@ -44,6 +44,14 @@ pub async fn git_create_worktree(
 pub async fn git_list_worktrees(repository_root: String) -> Result<Vec<WorktreeInfo>, GitError> {
     run_blocking("git_list_worktrees", move || {
         worktree::list_worktrees(&repository_root)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn git_audit_worktrees(repository_root: String) -> Result<WorktreeAudit, GitError> {
+    run_blocking("git_audit_worktrees", move || {
+        worktree::audit_worktrees(&repository_root)
     })
     .await
 }

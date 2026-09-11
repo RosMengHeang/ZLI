@@ -33,6 +33,44 @@ pub struct WorktreeInfo {
     pub orphaned: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorktreeAuditState {
+    Main,
+    RegisteredClean,
+    RegisteredDirty,
+    RegisteredUnknown,
+    Locked,
+    PrunableMetadata,
+    OrphanedEmpty,
+    OrphanedNonEmpty,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeAuditEntry {
+    pub path: String,
+    pub branch: Option<String>,
+    pub state: WorktreeAuditState,
+    pub clean: Option<bool>,
+    pub safe_to_remove_without_force: bool,
+    pub safe_to_prune_metadata: bool,
+    pub requires_force: bool,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeAudit {
+    pub repository_root: String,
+    pub storage_root: String,
+    pub entries: Vec<WorktreeAuditEntry>,
+    pub removable_without_force_count: usize,
+    pub prunable_metadata_count: usize,
+    pub requires_force_count: usize,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateWorktreeRequest {
@@ -126,6 +164,153 @@ pub fn list_worktrees(repository_root: &str) -> Result<Vec<WorktreeInfo>, GitErr
     let mut worktrees = parse_worktree_list(&out.stdout);
     append_orphaned_slots(&repo_dir, &mut worktrees)?;
     Ok(worktrees)
+}
+
+/// Inspect worktree state without mutating Git metadata or deleting files.
+///
+/// A registered checkout is never marked safe solely because it is clean: the
+/// runtime may still own its terminal or provider process. Only empty,
+/// unregistered agent slots are safe for non-forced filesystem cleanup.
+pub fn audit_worktrees(repository_root: &str) -> Result<WorktreeAudit, GitError> {
+    let repo_dir = canonical_dir(repository_root)?;
+    ensure_is_repo(&repo_dir, repository_root)?;
+    let storage_root = sibling_worktrees_dir(&repo_dir)?;
+
+    let out = run_git(&repo_dir, &["worktree", "list", "--porcelain"])?;
+    let mut worktrees = parse_worktree_list(&out.stdout);
+    append_orphaned_slots(&repo_dir, &mut worktrees)?;
+    normalize_existing_worktree_paths(&mut worktrees);
+
+    let mut entries = Vec::with_capacity(worktrees.len());
+    for worktree in worktrees {
+        let path = Path::new(&worktree.path);
+        let (
+            state,
+            clean,
+            safe_to_remove_without_force,
+            safe_to_prune_metadata,
+            requires_force,
+            note,
+        ) =
+            if worktree.is_main {
+                (
+                    WorktreeAuditState::Main,
+                    None,
+                    false,
+                    false,
+                    false,
+                    Some("The repository worktree is protected.".to_string()),
+                )
+            } else if worktree.locked {
+                (
+                    WorktreeAuditState::Locked,
+                    None,
+                    false,
+                    false,
+                    false,
+                    Some("Unlock this worktree explicitly before removing it.".to_string()),
+                )
+            } else if worktree.prunable {
+                (
+                    WorktreeAuditState::PrunableMetadata,
+                    None,
+                    false,
+                    true,
+                    false,
+                    Some("Only stale Git metadata can be pruned.".to_string()),
+                )
+            } else if worktree.orphaned {
+                match directory_has_entries(path) {
+                    Ok(true) => (
+                        WorktreeAuditState::OrphanedNonEmpty,
+                        None,
+                        false,
+                        false,
+                        true,
+                        Some(
+                            "Unregistered files are protected; review them before forced cleanup."
+                                .to_string(),
+                        ),
+                    ),
+                    Ok(false) => (
+                        WorktreeAuditState::OrphanedEmpty,
+                        None,
+                        true,
+                        false,
+                        false,
+                        Some("Empty unregistered agent slot.".to_string()),
+                    ),
+                    Err(error) => (
+                        WorktreeAuditState::Unknown,
+                        None,
+                        false,
+                        false,
+                        false,
+                        Some(error.to_string()),
+                    ),
+                }
+            } else {
+                match is_clean(path) {
+                    Ok(true) => (
+                        WorktreeAuditState::RegisteredClean,
+                        Some(true),
+                        false,
+                        false,
+                        false,
+                        Some("Stop runtime ownership before removing this checkout.".to_string()),
+                    ),
+                    Ok(false) => (
+                        WorktreeAuditState::RegisteredDirty,
+                        Some(false),
+                        false,
+                        false,
+                        true,
+                        Some("Uncommitted changes require explicit forced cleanup.".to_string()),
+                    ),
+                    Err(error) => (
+                        WorktreeAuditState::RegisteredUnknown,
+                        None,
+                        false,
+                        false,
+                        false,
+                        Some(format!("Git status could not be read: {error}")),
+                    ),
+                }
+            };
+
+        entries.push(WorktreeAuditEntry {
+            path: worktree.path,
+            branch: worktree.branch,
+            state,
+            clean,
+            safe_to_remove_without_force,
+            safe_to_prune_metadata,
+            requires_force,
+            note,
+        });
+    }
+
+    let removable_without_force_count = entries
+        .iter()
+        .filter(|entry| entry.safe_to_remove_without_force)
+        .count();
+    let prunable_metadata_count = entries
+        .iter()
+        .filter(|entry| entry.safe_to_prune_metadata)
+        .count();
+    let requires_force_count = entries
+        .iter()
+        .filter(|entry| entry.requires_force)
+        .count();
+
+    Ok(WorktreeAudit {
+        repository_root: to_display_string(&repo_dir),
+        storage_root: to_display_string(&storage_root),
+        entries,
+        removable_without_force_count,
+        prunable_metadata_count,
+        requires_force_count,
+    })
 }
 
 pub fn prune_worktrees(repository_root: &str) -> Result<(), GitError> {
@@ -337,6 +522,17 @@ fn append_orphaned_slots(
         });
     }
     Ok(())
+}
+
+fn normalize_existing_worktree_paths(worktrees: &mut [WorktreeInfo]) {
+    for worktree in worktrees {
+        if worktree.orphaned || !Path::new(&worktree.path).exists() {
+            continue;
+        }
+        if let Ok(resolved) = canonical_dir(&worktree.path) {
+            worktree.path = to_display_string(&resolved);
+        }
+    }
 }
 
 fn path_key(path: &str) -> String {

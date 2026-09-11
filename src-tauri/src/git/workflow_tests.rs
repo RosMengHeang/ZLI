@@ -9,7 +9,8 @@ use super::merge::{abort_merge, merge_branch, MergeOutcome, MergeRequest};
 use super::repo::validate_repository;
 use super::status::{get_status, FileStatus};
 use super::worktree::{
-    create_worktree, list_worktrees, remove_worktree, CreateWorktreeRequest, RemoveWorktreeRequest,
+    audit_worktrees, create_worktree, list_worktrees, remove_worktree, CreateWorktreeRequest,
+    RemoveWorktreeRequest, WorktreeAuditState,
 };
 use std::fs;
 use std::path::Path;
@@ -188,6 +189,64 @@ fn lists_and_removes_an_empty_orphaned_agent_slot() {
     .expect("remove empty orphaned slot");
     assert!(!orphan.exists());
     fs::remove_dir_all(worktrees_root).expect("remove empty worktree storage directory");
+}
+
+#[test]
+fn audits_worktrees_without_treating_every_folder_as_safe_to_delete() {
+    let repo = init_repo();
+    let repo_path = repo.path().to_string_lossy().into_owned();
+    let created = create_worktree(CreateWorktreeRequest {
+        repository_root: repo_path.clone(),
+        provider: "audit-agent".to_string(),
+        base_branch: None,
+    })
+    .expect("create worktree");
+    let worktrees_root = repo
+        .path()
+        .parent()
+        .unwrap()
+        .join(format!("{}.worktrees", repo.path().file_name().unwrap().to_string_lossy()));
+    let empty_orphan = worktrees_root.join("claude-code-empty123");
+    let dirty_orphan = worktrees_root.join("codex-dirty123");
+    fs::create_dir_all(&empty_orphan).expect("create empty orphan");
+    fs::create_dir_all(&dirty_orphan).expect("create dirty orphan");
+    fs::write(dirty_orphan.join("notes.txt"), "keep this file").expect("write orphan file");
+
+    let audit = audit_worktrees(&repo_path).expect("audit worktrees");
+    let main = audit
+        .entries
+        .iter()
+        .find(|entry| entry.path == repo_path)
+        .expect("main worktree");
+    assert_eq!(main.state, WorktreeAuditState::Main);
+    assert!(!main.safe_to_remove_without_force);
+
+    let registered = audit
+        .entries
+        .iter()
+        .find(|entry| entry.path == created.worktree_path)
+        .expect("registered worktree");
+    assert_eq!(registered.state, WorktreeAuditState::RegisteredClean);
+    assert!(!registered.safe_to_remove_without_force);
+    assert!(registered.note.as_deref().unwrap_or_default().contains("runtime"));
+
+    let empty = audit
+        .entries
+        .iter()
+        .find(|entry| entry.path == empty_orphan.to_string_lossy())
+        .expect("empty orphan");
+    assert_eq!(empty.state, WorktreeAuditState::OrphanedEmpty);
+    assert!(empty.safe_to_remove_without_force);
+    assert!(!empty.requires_force);
+
+    let dirty = audit
+        .entries
+        .iter()
+        .find(|entry| entry.path == dirty_orphan.to_string_lossy())
+        .expect("dirty orphan");
+    assert_eq!(dirty.state, WorktreeAuditState::OrphanedNonEmpty);
+    assert!(!dirty.safe_to_remove_without_force);
+    assert!(dirty.requires_force);
 }
 
 #[test]
