@@ -23,6 +23,41 @@ mod tests {
     }
 
     #[test]
+    fn shutdown_terminates_all_owned_sessions_and_is_idempotent() {
+        let directory = tempdir().unwrap();
+        let manager = PtyManager::new();
+        let sink_a = MemoryEventSink::default();
+        let sink_b = MemoryEventSink::default();
+        let terminal_a = manager
+            .create_shell(
+                Some(directory.path().to_string_lossy().as_ref()),
+                sink_a.clone(),
+            )
+            .unwrap();
+        let terminal_b = manager
+            .create_shell(
+                Some(directory.path().to_string_lossy().as_ref()),
+                sink_b.clone(),
+            )
+            .unwrap();
+
+        manager.shutdown().unwrap();
+
+        assert_eq!(manager.session_count(), 0);
+        assert!(sink_a
+            .statuses()
+            .iter()
+            .any(|event| event.terminal_id == terminal_a.id && event.status == super::TerminalStatus::Killed));
+        assert!(sink_b
+            .statuses()
+            .iter()
+            .any(|event| event.terminal_id == terminal_b.id && event.status == super::TerminalStatus::Killed));
+
+        manager.shutdown().unwrap();
+        assert_eq!(manager.session_count(), 0);
+    }
+
+    #[test]
     fn two_sessions_are_independent_and_git_status_runs_in_a_real_pty() {
         let directory = tempdir().unwrap();
         let manager = PtyManager::new();

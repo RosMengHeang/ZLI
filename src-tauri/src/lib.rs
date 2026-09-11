@@ -204,6 +204,14 @@ pub fn run() {
             git_merge,
             git_abort_merge,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                // Do not leave provider CLIs alive after the desktop runtime
+                // exits. The frontend checkpoint retains resumable metadata;
+                // the PTY itself is an in-memory runtime resource.
+                let _ = app.state::<pty::PtyManager>().shutdown();
+            }
+        });
 }

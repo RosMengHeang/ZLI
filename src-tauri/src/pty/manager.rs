@@ -125,6 +125,28 @@ impl PtyManager {
             .unwrap_or_default()
     }
 
+    /// Stop every PTY owned by this runtime. This is intentionally idempotent:
+    /// reader threads may remove sessions while shutdown is walking the list.
+    pub fn shutdown(&self) -> Result<(), BackendError> {
+        let ids = self
+            .inner
+            .sessions
+            .lock()
+            .map_err(|_| BackendError::Internal("PTY session lock poisoned".into()))?
+            .keys()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let mut first_error = None;
+        for id in ids {
+            if let Err(error) = self.kill(&id) {
+                if !matches!(error, BackendError::SessionNotFound(_)) && first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+
     /// Return the terminal ID of the first running PTY rooted at `path`.
     /// Callers should pass a canonical path so symlink and relative-path
     /// spellings cannot bypass runtime ownership checks.
