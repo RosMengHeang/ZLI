@@ -2139,6 +2139,7 @@ struct FakeTeamBackend {
     delivery_hook: std::sync::Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     launches: std::sync::Mutex<Vec<super::team::ChildLaunch>>,
     deliveries: std::sync::Mutex<Vec<(String, String)>>,
+    aborts: std::sync::Mutex<Vec<String>>,
     cleanups: std::sync::Mutex<Vec<(String, String)>>,
     events: std::sync::Mutex<Vec<AgentEventEnvelope>>,
 }
@@ -2224,6 +2225,11 @@ impl super::team::TeamBackend for FakeTeamBackend {
     }
 
     fn stop(&self, _agent_id: &str) -> Result<(), super::ControlError> {
+        Ok(())
+    }
+
+    fn abort(&self, agent_id: &str) -> Result<(), super::ControlError> {
+        self.aborts.lock().unwrap().push(agent_id.into());
         Ok(())
     }
 
@@ -2372,6 +2378,24 @@ fn team_spawn_rolls_back_worktree_when_launch_fails() {
         &[("project-1".into(), r"D:\repo.worktrees\child".into())]
     );
     assert!(backend.deliveries.lock().unwrap().is_empty());
+}
+
+#[test]
+fn team_spawn_aborts_the_session_when_initial_delivery_fails() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    backend.fail_delivery.store(true, Ordering::SeqCst);
+    let coordinator = super::TeamCoordinator::new(
+        backend.clone(),
+        Arc::new(CapabilityTokenStore::default()),
+        "endpoint".into(),
+    );
+
+    coordinator
+        .spawn(team_spawn_request())
+        .expect_err("initial delivery must fail");
+
+    assert_eq!(backend.aborts.lock().unwrap().len(), 1);
+    assert_eq!(backend.cleanups.lock().unwrap().len(), 1);
 }
 
 #[test]

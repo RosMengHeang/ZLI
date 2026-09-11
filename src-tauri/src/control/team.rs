@@ -430,6 +430,11 @@ pub trait TeamBackend: Send + Sync {
     fn deliver(&self, terminal_id: &str, body: &str) -> Result<(), ControlError>;
     fn read(&self, agent_id: &str) -> Result<(String, String), ControlError>;
     fn stop(&self, agent_id: &str) -> Result<(), ControlError>;
+    /// Abort a child launch transaction and forget its session metadata.
+    /// Normal user stops intentionally keep metadata available for resume.
+    fn abort(&self, agent_id: &str) -> Result<(), ControlError> {
+        self.stop(agent_id)
+    }
     fn cleanup_worktree(&self, project_id: &str, path: &str) -> Result<(), ControlError>;
     fn emit(&self, event: AgentEventEnvelope);
 }
@@ -551,7 +556,7 @@ impl TeamCoordinator {
             }
         };
         if let Err(error) = self.backend.deliver(&agent.terminal_id, &request.task) {
-            let _ = self.backend.stop(&agent.id);
+            let _ = self.backend.abort(&agent.id);
             self.tokens.revoke(&issued.token);
             let _ = self
                 .backend
@@ -1324,6 +1329,29 @@ impl TeamBackend for RuntimeTeamBackend {
             Ok(()) | Err(crate::error::BackendError::SessionNotFound(_)) => Ok(()),
             Err(error) => Err(control_runtime(error)),
         }
+    }
+
+    fn abort(&self, agent_id: &str) -> Result<(), ControlError> {
+        self.stop(agent_id)?;
+        let descriptor = match self.supervisor.read_session(agent_id) {
+            Ok((descriptor, _)) => descriptor,
+            Err(super::SessionCommandError::MissingSession(_)) => return Ok(()),
+            Err(error) => {
+                return Err(ControlError::new(
+                    ControlErrorCode::ControlRuntimeError,
+                    format!("failed to read aborted session: {error:?}"),
+                ));
+            }
+        };
+        self.supervisor
+            .forget_session(&descriptor.project_id, agent_id)
+            .map(|_| ())
+            .map_err(|error| {
+                ControlError::new(
+                    ControlErrorCode::ControlRuntimeError,
+                    format!("failed to forget aborted session: {error:?}"),
+                )
+            })
     }
 
     fn cleanup_worktree(&self, project_id: &str, path: &str) -> Result<(), ControlError> {
