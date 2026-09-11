@@ -163,6 +163,34 @@ fn refuses_to_remove_dirty_worktree_without_explicit_force() {
 }
 
 #[test]
+fn removes_missing_registered_worktree_by_pruning_metadata() {
+    let repo = init_repo();
+    let repo_path = repo.path().to_string_lossy().into_owned();
+    let created = create_worktree(CreateWorktreeRequest {
+        repository_root: repo_path.clone(),
+        provider: "missing-agent".to_string(),
+        base_branch: None,
+    })
+    .expect("create_worktree");
+    let missing_path = created.worktree_path.clone();
+
+    fs::remove_dir_all(&missing_path).expect("remove worktree directory outside ZLI");
+
+    let removed = remove_worktree(RemoveWorktreeRequest {
+        repository_root: repo_path.clone(),
+        worktree_path: missing_path.clone(),
+        force: false,
+    })
+    .expect("missing registered worktree should be recoverable");
+    assert!(!removed.forced);
+    assert!(!Path::new(&missing_path).exists());
+    assert!(list_worktrees(&repo_path)
+        .expect("list worktrees after pruning")
+        .iter()
+        .all(|worktree| worktree.path != missing_path));
+}
+
+#[test]
 fn lists_and_removes_an_empty_orphaned_agent_slot() {
     let repo = init_repo();
     let repo_path = repo.path().to_string_lossy().into_owned();
