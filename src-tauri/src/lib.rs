@@ -14,10 +14,11 @@ mod git;
 use commands::{
     attention_ack, attention_mark_all_read, browser_close_surface, browser_grant_capability,
     browser_register_surface, browser_revoke_capability, browser_update_navigation,
-    control_events_after, control_request, control_session_reconnect, control_session_restore,
-    control_session_resume, control_session_snapshot, create_terminal, detect_agent_providers,
-    detect_providers, kill_terminal, launch_agent, list_agent_providers, list_agents, pty_close,
-    pty_create, pty_resize, pty_write, resize_terminal, stop_agent, write_terminal,
+    control_events_after, control_request, control_session_reconcile, control_session_reconnect,
+    control_session_restore, control_session_resume, control_session_snapshot, create_terminal,
+    detect_agent_providers, detect_providers, kill_terminal, launch_agent, list_agent_providers,
+    list_agents, pty_close, pty_create, pty_resize, pty_write, resize_terminal, stop_agent,
+    write_terminal,
 };
 use git::commands::{
     git_abort_merge, git_commit, git_create_worktree, git_delete_branch, git_diff,
@@ -179,6 +180,7 @@ pub fn run() {
             attention_ack,
             attention_mark_all_read,
             control_session_reconnect,
+            control_session_reconcile,
             control_session_snapshot,
             control_session_restore,
             control_session_resume,

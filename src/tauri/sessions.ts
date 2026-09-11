@@ -34,6 +34,13 @@ export interface ReconnectResult {
   currentSequence: number;
   events: unknown[];
   sessions: SessionDescriptor[];
+  reconciliation: ReconcileReport;
+}
+
+export interface ReconcileReport {
+  offlineSessionIds: string[];
+  retainedMissingWorktrees: string[];
+  stoppedOwnedProcessIds: string[];
 }
 
 export interface RestoreResult {
@@ -44,6 +51,7 @@ export interface RestoreResult {
 
 export interface SessionClient {
   reconnect: (protocolVersion: number, cursor: number) => Promise<ReconnectResult>;
+  reconcile: () => Promise<ReconcileReport>;
   restoreProject: (projectId: string) => Promise<RestoreResult>;
   resume: (sessionId: string) => Promise<SessionDescriptor>;
   snapshot?: (request: SessionSnapshotRequest) => Promise<SessionCheckpoint>;
@@ -60,6 +68,7 @@ export interface SessionSnapshotRequest {
 export const sessionClient: SessionClient = {
   reconnect: (protocolVersion, cursor) =>
     invokeCmd<ReconnectResult>("control_session_reconnect", { protocolVersion, cursor }),
+  reconcile: () => invokeCmd<ReconcileReport>("control_session_reconcile", {}),
   restoreProject: (projectId) =>
     invokeCmd<RestoreResult>("control_session_restore", { projectId }),
   resume: (sessionId) =>

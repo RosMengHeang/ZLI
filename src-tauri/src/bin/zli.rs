@@ -92,6 +92,9 @@ fn parse_command(args: &[String]) -> Result<(ControlMethod, Value), String> {
             ))
         }
         (Some("session"), Some("list")) => Ok((ControlMethod::SessionList, json!({}))),
+        (Some("session"), Some("reconcile")) | (Some("doctor"), _) => {
+            Ok((ControlMethod::SessionReconcile, json!({})))
+        }
         (Some("session"), Some("resume")) => Ok((
             ControlMethod::SessionResume,
             json!({ "sessionId": required(args.get(2), "session ID")? }),
@@ -394,7 +397,7 @@ fn joined(args: &[String], start: usize, label: &str) -> Result<String, String> 
 
 #[cfg(windows)]
 fn usage() -> String {
-    "unknown command. Try: status | agents | attention [list] | attention ack <agent> --project <path> | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | session list | session resume <id> | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message> --project <path> [--to <agent>]".into()
+    "unknown command. Try: status | doctor | agents | attention [list] | attention ack <agent> --project <path> | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | session list | session reconcile | session resume <id> | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message> --project <path> [--to <agent>]".into()
 }
 
 #[cfg(windows)]

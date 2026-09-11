@@ -2,8 +2,8 @@ use crate::agents::{self, Agent, AgentManager, AgentProvider, LaunchAgentRequest
 use crate::control::browser::commands::BrowserCapability;
 use crate::control::{
     AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, BrowserManager,
-    BrowserSurfaceRecord, ProjectSnapshot, ReconnectResult, RestoreResult, SessionCommandError,
-    SessionDescriptor, Supervisor, TauriBrowserExecutor,
+    BrowserSurfaceRecord, ProjectSnapshot, ReconcileReport, ReconnectResult, RestoreResult,
+    SessionCommandError, SessionDescriptor, Supervisor, TauriBrowserExecutor,
 };
 use crate::error::BackendError;
 use crate::event_hub::EventHub;
@@ -382,6 +382,13 @@ pub fn control_session_reconnect(
     cursor: u64,
 ) -> Result<ReconnectResult, SessionCommandError> {
     supervisor.reconnect(protocol_version, cursor)
+}
+
+#[tauri::command]
+pub fn control_session_reconcile(
+    supervisor: State<'_, Arc<Supervisor>>,
+) -> Result<ReconcileReport, SessionCommandError> {
+    supervisor.reconcile()
 }
 
 #[tauri::command]

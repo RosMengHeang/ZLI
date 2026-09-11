@@ -375,9 +375,15 @@ fn reconnect_replays_events_after_cursor_without_duplicate_sessions() {
     assert_eq!(reconnect.events[1].kind, AgentEventKind::AgentStopped);
     assert_eq!(reconnect.sessions.len(), 1);
     let repeated_reconnect = supervisor
-        .reconnect(super::SUPERVISOR_PROTOCOL_VERSION, reconnect.current_sequence)
+        .reconnect(
+            super::SUPERVISOR_PROTOCOL_VERSION,
+            reconnect.current_sequence,
+        )
         .expect("reconnect is idempotent");
-    assert_eq!(repeated_reconnect.current_sequence, reconnect.current_sequence);
+    assert_eq!(
+        repeated_reconnect.current_sequence,
+        reconnect.current_sequence
+    );
     assert!(repeated_reconnect.events.is_empty());
 }
 
@@ -407,6 +413,7 @@ fn supervisor_reports_protocol_and_resume_failures_with_stable_codes() {
 fn reconciliation_marks_restored_sessions_offline_without_stopping_unknown_processes() {
     let root = tempfile::tempdir().expect("temp dir");
     let store = SnapshotStore::new(root.path().to_path_buf());
+    let missing_worktree = root.path().join("missing-worktree");
     let mut snapshot = ProjectSnapshot::empty("project-1".into());
     snapshot.agents.push(json!({
         "descriptor": {
@@ -415,6 +422,7 @@ fn reconciliation_marks_restored_sessions_offline_without_stopping_unknown_proce
             "agentId": "agent-offline",
             "providerId": "cursor-agent",
             "terminalId": "missing-terminal",
+            "worktreePath": missing_worktree.to_string_lossy(),
             "resume": null,
             "attached": false
         },
@@ -428,6 +436,10 @@ fn reconciliation_marks_restored_sessions_offline_without_stopping_unknown_proce
 
     let report = supervisor.reconcile().expect("reconcile");
     assert_eq!(report.offline_session_ids, vec!["session-offline"]);
+    assert_eq!(
+        report.retained_missing_worktrees,
+        vec![missing_worktree.to_string_lossy().to_string()]
+    );
     assert!(report.stopped_owned_process_ids.is_empty());
     assert!(hub
         .subscribe_after(0)

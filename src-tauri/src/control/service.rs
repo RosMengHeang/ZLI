@@ -79,6 +79,16 @@ impl ControlHandler for RuntimeControlHandler {
                 }
                 serde_json::to_value(sessions).map_err(serialization_error)
             }
+            ControlMethod::SessionReconcile => {
+                let project_id =
+                    (identity.project_id != "*").then_some(identity.project_id.as_str());
+                serde_json::to_value(
+                    self.supervisor
+                        .reconcile_project(project_id)
+                        .map_err(session_runtime)?,
+                )
+                .map_err(serialization_error)
+            }
             ControlMethod::WorkspaceList => Ok(json!([])),
             ControlMethod::AttentionList => {
                 let events = self
@@ -393,6 +403,7 @@ fn all_capabilities() -> Vec<Capability> {
         Capability::AttentionRead,
         Capability::AttentionAck,
         Capability::SessionRead,
+        Capability::SessionReconcile,
         Capability::SessionResume,
         Capability::BrowserRead,
         Capability::BrowserControl,

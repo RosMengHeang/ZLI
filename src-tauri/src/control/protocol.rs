@@ -32,6 +32,8 @@ pub enum ControlMethod {
     AttentionAck,
     #[serde(rename = "session.list")]
     SessionList,
+    #[serde(rename = "session.reconcile")]
+    SessionReconcile,
     #[serde(rename = "session.resume")]
     SessionResume,
     #[serde(rename = "browser.list")]
@@ -88,6 +90,8 @@ pub enum Capability {
     AttentionAck,
     #[serde(rename = "session.read")]
     SessionRead,
+    #[serde(rename = "session.reconcile")]
+    SessionReconcile,
     #[serde(rename = "session.resume")]
     SessionResume,
     #[serde(rename = "browser.read")]

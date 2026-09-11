@@ -132,6 +132,7 @@ fn capability_for(method: ControlMethod) -> Capability {
         ControlMethod::AttentionList => Capability::AttentionRead,
         ControlMethod::AttentionAck => Capability::AttentionAck,
         ControlMethod::SessionList => Capability::SessionRead,
+        ControlMethod::SessionReconcile => Capability::SessionReconcile,
         ControlMethod::SessionResume => Capability::SessionResume,
         ControlMethod::TaxChatSend => Capability::TaxChatSend,
         ControlMethod::BrowserList

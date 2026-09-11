@@ -46,6 +46,7 @@ pub struct ReconnectResult {
     pub current_sequence: u64,
     pub events: Vec<AgentEventEnvelope>,
     pub sessions: Vec<SessionDescriptor>,
+    pub reconciliation: ReconcileReport,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -97,7 +98,7 @@ impl Supervisor {
             )));
         }
         self.start_or_connect()?;
-        self.reconcile()?;
+        let reconciliation = self.reconcile()?;
         let sessions = self
             .registry
             .list()?
@@ -109,6 +110,7 @@ impl Supervisor {
             current_sequence: self.events.latest_sequence(),
             events: self.events.subscribe_after(cursor),
             sessions,
+            reconciliation,
         })
     }
 
@@ -289,9 +291,36 @@ impl Supervisor {
     }
 
     pub fn reconcile(&self) -> Result<ReconcileReport, SessionCommandError> {
+        self.reconcile_project(None)
+    }
+
+    pub fn reconcile_project(
+        &self,
+        project_id: Option<&str>,
+    ) -> Result<ReconcileReport, SessionCommandError> {
         let mut report = ReconcileReport::default();
         for session in self.registry.list()? {
             let descriptor = session.descriptor()?;
+            if project_id.is_some_and(|project| descriptor.project_id != project) {
+                continue;
+            }
+            if let Some(worktree_path) = descriptor
+                .worktree_path
+                .as_deref()
+                .filter(|path| !path.trim().is_empty())
+            {
+                let path = std::path::Path::new(worktree_path);
+                if !path.is_dir()
+                    && !report
+                        .retained_missing_worktrees
+                        .iter()
+                        .any(|existing| existing == worktree_path)
+                {
+                    report
+                        .retained_missing_worktrees
+                        .push(worktree_path.to_owned());
+                }
+            }
             if !descriptor.attached {
                 continue;
             }

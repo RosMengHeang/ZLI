@@ -49,6 +49,14 @@ test("cli supports JSON mode and rejects ambiguous or incomplete commands", asyn
   assert.throws(() => parseCli(["destroy", "everything"]), /Unknown command/i);
 });
 
+test("cli exposes an explicit session reconciliation report", async () => {
+  const { parseCli } = await import("../src/control/cli.ts");
+  const parsed = parseCli(["session", "reconcile"]);
+  assert.equal(parsed.request.method, "session.reconcile");
+  assert.deepEqual(parsed.request.params, {});
+  assert.equal(parseCli(["doctor"]).request.method, "session.reconcile");
+});
+
 test("attention acknowledgement is project scoped", async () => {
   const { parseCli } = await import("../src/control/cli.ts");
 

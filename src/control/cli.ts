@@ -78,11 +78,13 @@ function command(
   }
   if (group === "session") {
     if (action === "list") return ["session.list", {}];
+    if (action === "reconcile") return ["session.reconcile", {}];
     if (action === "resume") {
       required(args[0], "Session ID is required");
       return ["session.resume", { sessionId: args[0] }];
     }
   }
+  if (group === "doctor") return ["session.reconcile", {}];
   if (group === "browser") {
     if (action === "list") return ["browser.list", {}];
     if (action === "open") {

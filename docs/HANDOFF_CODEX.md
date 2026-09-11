@@ -195,7 +195,9 @@ zli agent focus <agent-id>
 zli agent pause <agent-id>
 zli agent stop <agent-id>
 zli session list
+zli session reconcile
 zli session resume <session-id>
+zli doctor
 zli browser list
 zli browser open <url> --project <project-path>
 zli browser navigate <surface-id> <url>
@@ -259,7 +261,7 @@ The restore UI never claims that a new conversation is the old one:
 
 Closing the entire desktop process cannot preserve an in-memory PTY. On the next launch, ZLI reconstructs its record and uses the provider's supported resume command when an exact ID was checkpointed. Unknown processes are never killed during reconciliation. Missing worktrees make the session offline; orphaned or dirty worktrees are retained for the user to inspect from **Manage worktrees** and remove through the normal discard flow. If Windows reports `Permission denied`, close terminals or tools holding files in that worktree and retry cleanup.
 
-Session commands are `control_session_reconnect`, `control_session_snapshot`, `control_session_restore`, and `control_session_resume`. Errors are tagged with stable codes for missing sessions, unsupported resume, protocol mismatch, snapshot failure, and runtime failure.
+Session commands are `control_session_reconnect`, `control_session_reconcile`, `control_session_snapshot`, `control_session_restore`, and `control_session_resume`. `zli session reconcile` and its `zli doctor` alias return a safe report of sessions that became offline, retained worktree paths that no longer exist, and owned processes stopped during reconciliation. ZLI never deletes a worktree from reconciliation. Errors are tagged with stable codes for missing sessions, unsupported resume, protocol mismatch, snapshot failure, and runtime failure.
 
 ## Known limitations
 
