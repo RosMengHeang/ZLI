@@ -722,6 +722,8 @@ impl TeamCoordinator {
         for message in messages {
             self.fail_queued_message(message);
         }
+        self.revoke_child_token(agent_id);
+        self.retire_coordination_record(agent_id);
     }
 
     fn retry_pending_exit_cleanups(&self) {
@@ -1059,14 +1061,8 @@ impl TeamCoordinator {
         for message in drained {
             self.fail_queued_message(message);
         }
-        if let Some(token) = self
-            .child_tokens
-            .lock()
-            .map_err(lock_error)?
-            .remove(agent_id)
-        {
-            self.tokens.revoke(&token);
-        }
+        self.revoke_child_token(agent_id);
+        self.retire_coordination_record(agent_id);
         self.emit(
             &record,
             AgentEventKind::AgentStopped,
@@ -1106,6 +1102,23 @@ impl TeamCoordinator {
             .map_err(lock_error)?
             .insert(agent_id.to_owned(), recovered.clone());
         Ok(recovered)
+    }
+
+    fn retire_coordination_record(&self, agent_id: &str) {
+        if let Ok(mut records) = self.records.lock() {
+            records.remove(agent_id);
+        }
+        if let Ok(mut pending) = self.exit_cleanup_pending.lock() {
+            pending.remove(agent_id);
+        }
+    }
+
+    fn revoke_child_token(&self, agent_id: &str) {
+        if let Ok(mut child_tokens) = self.child_tokens.lock() {
+            if let Some(token) = child_tokens.remove(agent_id) {
+                self.tokens.revoke(&token);
+            }
+        }
     }
 
     fn emit(&self, child: &TeamAgent, kind: AgentEventKind, payload: AgentEventPayload) {
@@ -1171,7 +1184,14 @@ impl TeamBackend for RuntimeTeamBackend {
             .map_err(control_runtime)?
             .sessions
             .iter()
-            .any(|session| session.project_id == project_id && session.agent_id == agent_id))
+            .any(|session| {
+                session.project_id == project_id
+                    && session.agent_id == agent_id
+                    && self
+                        .pty
+                        .session_status(&session.terminal_id)
+                        .is_ok_and(|status| status == TerminalStatus::Running)
+            }))
     }
 
     fn recover_agent(
@@ -1184,6 +1204,12 @@ impl TeamBackend for RuntimeTeamBackend {
             Err(_) => return Ok(None),
         };
         if project_id != "*" && descriptor.project_id != project_id {
+            return Ok(None);
+        }
+        if !matches!(
+            self.pty.session_status(&descriptor.terminal_id),
+            Ok(TerminalStatus::Running)
+        ) {
             return Ok(None);
         }
         Ok(Some(TeamAgent {

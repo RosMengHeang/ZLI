@@ -2399,6 +2399,32 @@ fn team_stop_revokes_the_child_control_token() {
 }
 
 #[test]
+fn team_stop_removes_the_agent_from_coordination_registry() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let coordinator = super::TeamCoordinator::new(
+        backend,
+        Arc::new(CapabilityTokenStore::default()),
+        "endpoint".into(),
+    );
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+
+    coordinator
+        .stop("project-1", &child.agent_id)
+        .expect("stop child");
+
+    assert!(coordinator
+        .list("project-1")
+        .expect("list team agents")
+        .is_empty());
+    let error = coordinator
+        .send("project-1", &child.agent_id, "This must not be delivered")
+        .expect_err("stopped agent must not accept new work");
+    assert_eq!(error.code, super::ControlErrorCode::SessionNotFound);
+}
+
+#[test]
 fn runtime_team_stop_accepts_an_already_removed_agent() {
     let root = tempfile::tempdir().expect("temporary directory");
     let pty = PtyManager::new();
@@ -2449,6 +2475,36 @@ fn stopping_agent_fails_and_removes_queued_messages() {
     assert!(events
         .iter()
         .any(|event| event.kind == AgentEventKind::AgentStopped));
+}
+
+#[test]
+fn exited_agent_is_removed_from_coordination_and_cannot_keep_its_child_token() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let tokens = Arc::new(CapabilityTokenStore::default());
+    let coordinator = super::TeamCoordinator::new(backend.clone(), tokens.clone(), "endpoint".into());
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+    let token = backend.launches.lock().unwrap()[0]
+        .environment
+        .get(std::ffi::OsStr::new("ZLI_CONTROL_TOKEN"))
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+
+    coordinator.handle_event(&AgentEventEnvelope::new(
+        "agent-exit-cleanup".into(),
+        "project-1".into(),
+        Some(child.agent_id.clone()),
+        AgentEventKind::AgentExited,
+        AgentEventPayload::Exit { code: Some(1) },
+    ));
+
+    assert!(coordinator
+        .list("project-1")
+        .expect("list team agents")
+        .is_empty());
+    assert!(tokens.verify(&token).is_err());
 }
 
 #[test]
