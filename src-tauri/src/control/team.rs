@@ -486,6 +486,7 @@ impl TeamCoordinator {
         &self,
         project_id: Option<&str>,
     ) -> Result<Vec<AgentQueueStatus>, ControlError> {
+        self.retry_pending_exit_cleanups();
         self.inbox.queue_status(project_id)
     }
 

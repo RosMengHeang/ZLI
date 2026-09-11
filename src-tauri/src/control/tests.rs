@@ -2979,6 +2979,11 @@ fn exited_agent_cleanup_retries_before_a_later_prompt_can_deliver() {
     );
     coordinator.handle_event(&exited);
 
+    assert!(coordinator
+        .queue_status(Some("project-1"))
+        .expect("queue status retries cleanup")
+        .is_empty());
+
     let prompt = AgentEventEnvelope::new(
         "exit-retry-prompt".into(),
         "project-1".into(),
