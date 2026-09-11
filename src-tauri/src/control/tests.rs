@@ -2936,6 +2936,58 @@ fn queued_taxchat_message_is_failed_when_recipient_exits() {
     }
 }
 
+#[test]
+fn exited_agent_cleanup_retries_before_a_later_prompt_can_deliver() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let coordinator = super::TeamCoordinator::new(
+        backend.clone(),
+        Arc::new(CapabilityTokenStore::default()),
+        "endpoint".into(),
+    );
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+    backend.deliveries.lock().unwrap().clear();
+    backend.events.lock().unwrap().clear();
+
+    coordinator
+        .send("project-1", &child.agent_id, "Do not deliver after exit")
+        .expect("queue message");
+    coordinator.fail_next_inbox_persist();
+
+    let exited = AgentEventEnvelope::new(
+        "exit-retry-1".into(),
+        "project-1".into(),
+        Some(child.agent_id.clone()),
+        AgentEventKind::AgentExited,
+        AgentEventPayload::Exit { code: Some(1) },
+    );
+    coordinator.handle_event(&exited);
+
+    let prompt = AgentEventEnvelope::new(
+        "exit-retry-prompt".into(),
+        "project-1".into(),
+        Some(child.agent_id.clone()),
+        AgentEventKind::AgentPromptDetected,
+        AgentEventPayload::Attention {
+            reason: "provider_prompt".into(),
+        },
+    );
+    coordinator.handle_event(&prompt);
+
+    assert!(backend.deliveries.lock().unwrap().is_empty());
+    assert!(coordinator
+        .queue_status(Some("project-1"))
+        .expect("queue status")
+        .is_empty());
+    assert!(backend
+        .events
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|event| event.kind == AgentEventKind::AgentMessageFailed));
+}
+
 fn wait_for_control_event(
     sink: &MemoryEventSink,
     predicate: impl Fn(&AgentEventEnvelope) -> bool,

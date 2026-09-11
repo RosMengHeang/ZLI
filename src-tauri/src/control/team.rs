@@ -13,6 +13,8 @@ use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -85,6 +87,8 @@ pub struct AgentMessageInbox {
     pending: Arc<Mutex<HashMap<String, VecDeque<QueuedAgentMessage>>>>,
     in_flight: Arc<Mutex<HashMap<(String, String), QueuedAgentMessage>>>,
     store: Option<SnapshotStore>,
+    #[cfg(test)]
+    fail_next_persist: Arc<AtomicUsize>,
 }
 
 impl AgentMessageInbox {
@@ -112,7 +116,14 @@ impl AgentMessageInbox {
             pending: Arc::new(Mutex::new(pending)),
             in_flight: Arc::new(Mutex::new(HashMap::new())),
             store: Some(store),
+            #[cfg(test)]
+            fail_next_persist: Arc::new(AtomicUsize::new(0)),
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_persist(&self) {
+        self.fail_next_persist.store(1, Ordering::SeqCst);
     }
 
     pub fn enqueue(&self, message: QueuedAgentMessage) -> Result<(), ControlError> {
@@ -322,6 +333,13 @@ impl AgentMessageInbox {
         pending: &HashMap<String, VecDeque<QueuedAgentMessage>>,
         in_flight: &HashMap<(String, String), QueuedAgentMessage>,
     ) -> Result<(), ControlError> {
+        #[cfg(test)]
+        if self.fail_next_persist.swap(0, Ordering::SeqCst) > 0 {
+            return Err(ControlError::new(
+                ControlErrorCode::ControlRuntimeError,
+                "injected inbox persistence failure",
+            ));
+        }
         let Some(store) = self.store.as_ref() else {
             return Ok(());
         };
@@ -426,6 +444,7 @@ pub struct TeamCoordinator {
     inbox: AgentMessageInbox,
     delivery_ack_pending: Mutex<HashMap<(String, String), QueuedAgentMessage>>,
     delivery_requeue_pending: Mutex<HashMap<(String, String), QueuedAgentMessage>>,
+    exit_cleanup_pending: Mutex<HashSet<String>>,
 }
 
 impl TeamCoordinator {
@@ -444,6 +463,7 @@ impl TeamCoordinator {
             inbox: AgentMessageInbox::default(),
             delivery_ack_pending: Mutex::new(HashMap::new()),
             delivery_requeue_pending: Mutex::new(HashMap::new()),
+            exit_cleanup_pending: Mutex::new(HashSet::new()),
         }
     }
 
@@ -455,6 +475,11 @@ impl TeamCoordinator {
     pub fn with_message_store(mut self, store: SnapshotStore) -> Result<Self, ControlError> {
         self.inbox = AgentMessageInbox::with_store(store)?;
         Ok(self)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_inbox_persist(&self) {
+        self.inbox.fail_next_persist();
     }
 
     pub fn queue_status(
@@ -606,6 +631,7 @@ impl TeamCoordinator {
     }
 
     pub fn handle_event(&self, event: &AgentEventEnvelope) {
+        self.retry_pending_exit_cleanups();
         let Some(agent_id) = event.agent_id.as_deref() else {
             return;
         };
@@ -613,15 +639,15 @@ impl TeamCoordinator {
             event.kind,
             AgentEventKind::AgentExited | AgentEventKind::AgentFailed
         ) {
-            let messages = match self.inbox.drain(agent_id) {
-                Ok(messages) => messages,
-                Err(_) => return,
-            };
-            self.clear_pending_delivery_acks(agent_id);
-            self.clear_pending_delivery_requeues(agent_id);
-            for message in messages {
-                self.fail_queued_message(message);
-            }
+            self.cleanup_exited_agent(agent_id);
+            return;
+        }
+        if self
+            .exit_cleanup_pending
+            .lock()
+            .map(|pending| pending.contains(agent_id))
+            .unwrap_or(true)
+        {
             return;
         }
         if event.kind != AgentEventKind::AgentPromptDetected {
@@ -675,6 +701,37 @@ impl TeamCoordinator {
             return;
         }
         self.emit_delivery_result(&record, message, result.is_ok());
+    }
+
+    fn cleanup_exited_agent(&self, agent_id: &str) {
+        let messages = match self.inbox.drain(agent_id) {
+            Ok(messages) => messages,
+            Err(_) => {
+                if let Ok(mut pending) = self.exit_cleanup_pending.lock() {
+                    pending.insert(agent_id.to_owned());
+                }
+                return;
+            }
+        };
+        if let Ok(mut pending) = self.exit_cleanup_pending.lock() {
+            pending.remove(agent_id);
+        }
+        self.clear_pending_delivery_acks(agent_id);
+        self.clear_pending_delivery_requeues(agent_id);
+        for message in messages {
+            self.fail_queued_message(message);
+        }
+    }
+
+    fn retry_pending_exit_cleanups(&self) {
+        let agents = self
+            .exit_cleanup_pending
+            .lock()
+            .map(|pending| pending.iter().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        for agent_id in agents {
+            self.cleanup_exited_agent(&agent_id);
+        }
     }
 
     fn emit_delivery_result(&self, record: &TeamAgent, message: QueuedAgentMessage, delivered: bool) {
