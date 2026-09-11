@@ -1,4 +1,4 @@
-import { IconGlobe, IconPlus, TaxzyMark } from "./AppIcons";
+import { IconGlobe, IconPlus, IconRestart, TaxzyMark } from "./AppIcons";
 import { PaneTreeView } from "./PaneTreeView";
 import { ProviderIcon } from "./ProviderIcon";
 import { APP_SHORTCUTS } from "../lib/platform";
@@ -12,6 +12,64 @@ import { PROVIDER_CATALOG } from "../types";
 import { Button } from "./ui/button";
 import { visiblePaneTree } from "../stores/paneTree";
 import { useSessionStore } from "../stores/sessionStore";
+
+function SessionRecoveryStrip() {
+  const phase = useSessionStore((state) => state.phase);
+  const records = useSessionStore((state) => Object.values(state.agents));
+  const resumeAgent = useSessionStore((state) => state.resumeAgent);
+
+  if (phase === "restoring") {
+    return (
+      <div className="flex shrink-0 items-center gap-2 border-b border-line bg-panel px-3 py-2 text-[11px] text-mute" role="status">
+        <span className="status-dot" data-tone="warning" data-animated="true" aria-hidden="true" />
+        <span>Restoring saved sessions…</span>
+      </div>
+    );
+  }
+
+  const pending = records.filter((record) => record.pending);
+  const failed = records.filter((record) => Boolean(record.error));
+  const retryable = records.filter(
+    (record) => !record.pending && !record.connected && record.resumeOnReconnect
+      && (record.action === "resume" || record.action === "reconnect"),
+  );
+  if (!pending.length && !failed.length && !retryable.length) return null;
+
+  const retryTargets = Array.from(new Map([...failed, ...retryable].map((record) => [record.id, record])).values())
+    .filter((record) => !record.pending && (record.action === "resume" || record.action === "reconnect"));
+  const hasFailure = failed.length > 0;
+  const title = hasFailure ? "Session recovery needs attention" : "Restoring saved sessions";
+  const detail = hasFailure
+    ? `${failed.length} agent session${failed.length === 1 ? "" : "s"} could not be recovered.`
+    : "ZLI is reconnecting to the agents that were running when you last closed this workspace.";
+
+  return (
+    <div
+      className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-panel px-3 py-2"
+      role={hasFailure ? "alert" : "status"}
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="status-dot" data-tone={hasFailure ? "danger" : "warning"} data-animated={pending.length > 0} aria-hidden="true" />
+        <div className="min-w-0">
+          <p className={`text-[11px] font-medium ${hasFailure ? "text-danger" : "text-paper"}`}>{title}</p>
+          <p className="truncate text-[11px] text-mute">{detail}</p>
+        </div>
+      </div>
+      {retryTargets.length ? (
+        <Button
+          type="button"
+          variant="secondary"
+          size="xs"
+          className="shrink-0"
+          onClick={() => void Promise.all(retryTargets.map((record) => resumeAgent(record.id)))}
+        >
+          <IconRestart />
+          Retry {retryTargets.length === 1 ? "session" : `${retryTargets.length} sessions`}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 function seedPreviewPanes(count = 3) {
   const addLeaf = useLayoutStore.getState().addLeaf;
@@ -67,6 +125,7 @@ export function Workspace() {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-ink">
       {restoreError ? <div className="shrink-0 border-b border-line bg-panel px-3 py-2 text-[11px] text-danger">{restoreError}</div> : null}
+      <SessionRecoveryStrip />
       <div className="min-h-0 flex-1 overflow-hidden">
         {!visibleTree ? (
           <div className="empty-panel rounded-[var(--tile-radius)]">
