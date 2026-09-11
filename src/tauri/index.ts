@@ -17,3 +17,4 @@ export {
 } from "./git";
 export { ptyClose, ptyCreate, ptyResize, ptyWrite } from "./terminal";
 export { launchAgent, listAgentProviders, listAgents, stopAgent } from "./agents";
+export { getAgentQueueStatus } from "./coordination";

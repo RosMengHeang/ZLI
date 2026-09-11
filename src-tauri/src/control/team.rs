@@ -8,7 +8,7 @@ use crate::git::worktree::{self, CreateWorktreeRequest, RemoveWorktreeRequest};
 use crate::pty::{EventSink, PtyManager, TerminalStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -68,6 +68,16 @@ pub enum QueuedAgentMessageKind {
         body: String,
         recipient_ids: Vec<String>,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentQueueStatus {
+    pub project_id: String,
+    pub agent_id: String,
+    pub pending_count: usize,
+    pub in_flight_count: usize,
+    pub oldest_message_id: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -209,6 +219,55 @@ impl AgentMessageInbox {
             return Err(error);
         }
         Ok(removed)
+    }
+
+    pub fn queue_status(
+        &self,
+        project_id: Option<&str>,
+    ) -> Result<Vec<AgentQueueStatus>, ControlError> {
+        let pending = self.pending.lock().map_err(lock_error)?;
+        let in_flight = self.in_flight.lock().map_err(lock_error)?;
+        let mut statuses = BTreeMap::<(String, String), AgentQueueStatus>::new();
+
+        for message in in_flight.values() {
+            if project_id.is_some_and(|requested| requested != message.project_id) {
+                continue;
+            }
+            let key = (message.project_id.clone(), message.agent_id.clone());
+            let status = statuses.entry(key).or_insert_with(|| AgentQueueStatus {
+                project_id: message.project_id.clone(),
+                agent_id: message.agent_id.clone(),
+                pending_count: 0,
+                in_flight_count: 0,
+                oldest_message_id: None,
+            });
+            status.in_flight_count += 1;
+            if status.oldest_message_id.is_none() {
+                status.oldest_message_id = Some(message.message_id.clone());
+            }
+        }
+
+        for queue in pending.values() {
+            for message in queue {
+                if project_id.is_some_and(|requested| requested != message.project_id) {
+                    continue;
+                }
+                let key = (message.project_id.clone(), message.agent_id.clone());
+                let status = statuses.entry(key).or_insert_with(|| AgentQueueStatus {
+                    project_id: message.project_id.clone(),
+                    agent_id: message.agent_id.clone(),
+                    pending_count: 0,
+                    in_flight_count: 0,
+                    oldest_message_id: None,
+                });
+                status.pending_count += 1;
+                if status.oldest_message_id.is_none() {
+                    status.oldest_message_id = Some(message.message_id.clone());
+                }
+            }
+        }
+
+        Ok(statuses.into_values().collect())
     }
 
     #[cfg(test)]
@@ -366,6 +425,13 @@ impl TeamCoordinator {
     pub fn with_message_store(mut self, store: SnapshotStore) -> Result<Self, ControlError> {
         self.inbox = AgentMessageInbox::with_store(store)?;
         Ok(self)
+    }
+
+    pub fn queue_status(
+        &self,
+        project_id: Option<&str>,
+    ) -> Result<Vec<AgentQueueStatus>, ControlError> {
+        self.inbox.queue_status(project_id)
     }
 
     pub fn spawn(&self, request: SpawnAgentRequest) -> Result<TeamAgent, ControlError> {

@@ -2292,6 +2292,48 @@ fn agent_message_inbox_is_fifo_and_bounded_per_agent() {
 }
 
 #[test]
+fn agent_queue_status_is_project_scoped_and_body_free() {
+    let inbox = super::team::AgentMessageInbox::default();
+    for (project_id, agent_id, message_id) in [
+        ("project-1", "agent-1", "message-1"),
+        ("project-1", "agent-1", "message-2"),
+        ("project-2", "agent-2", "message-3"),
+    ] {
+        inbox
+            .enqueue(super::team::QueuedAgentMessage {
+                message_id: message_id.into(),
+                project_id: project_id.into(),
+                agent_id: agent_id.into(),
+                terminal_id: "terminal-1".into(),
+                body: "private coordination details".into(),
+                kind: super::team::QueuedAgentMessageKind::Agent,
+            })
+            .expect("message should fit in the inbox");
+    }
+    inbox
+        .take_next("agent-1")
+        .expect("start delivery")
+        .expect("message exists");
+
+    let scoped = inbox
+        .queue_status(Some("project-1"))
+        .expect("read scoped queue status");
+    assert_eq!(scoped.len(), 1);
+    assert_eq!(scoped[0].project_id, "project-1");
+    assert_eq!(scoped[0].agent_id, "agent-1");
+    assert_eq!(scoped[0].pending_count, 1);
+    assert_eq!(scoped[0].in_flight_count, 1);
+    assert_eq!(scoped[0].oldest_message_id.as_deref(), Some("message-1"));
+    assert!(serde_json::to_value(&scoped[0])
+        .expect("serialize queue status")
+        .get("body")
+        .is_none());
+
+    let all = inbox.queue_status(None).expect("read all queue status");
+    assert_eq!(all.len(), 2);
+}
+
+#[test]
 fn taxchat_delivery_is_project_scoped_bounded_and_evented() {
     let backend = Arc::new(FakeTeamBackend::default());
     let coordinator = super::TeamCoordinator::new(

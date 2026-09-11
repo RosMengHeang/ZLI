@@ -48,6 +48,10 @@ function command(
   }
   if (group === "agent") {
     if (action === "list") return ["agent.list", {}];
+    if (action === "queue") {
+      const projectId = option(args, "--project") ?? environment.projectId;
+      return ["agent.queue_status", projectId ? { projectId } : {}];
+    }
     if (action === "send") {
       const [agentId, ...message] = args;
       required(agentId, "Agent ID is required");

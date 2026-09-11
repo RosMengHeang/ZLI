@@ -68,6 +68,19 @@ impl ControlHandler for RuntimeControlHandler {
                 }
                 serde_json::to_value(agents).map_err(serialization_error)
             }
+            ControlMethod::AgentQueueStatus => {
+                let requested_project_id = match request.params.get("projectId") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(value)) if !value.trim().is_empty() => {
+                        Some(value.to_owned())
+                    }
+                    _ => return Err(invalid_params("agent.queue_status projectId")),
+                };
+                let project_id = requested_project_id
+                    .or_else(|| (identity.project_id != "*").then(|| identity.project_id.clone()));
+                serde_json::to_value(self.team.queue_status(project_id.as_deref())?)
+                    .map_err(serialization_error)
+            }
             ControlMethod::SessionList => {
                 let mut sessions = self
                     .supervisor

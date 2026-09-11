@@ -188,6 +188,7 @@ zli status
 zli agents
 zli attention
 zli attention ack <agent-id> --project <project-path>
+zli agent queue [--project <project-path>]
 zli agent spawn --project <project-path> --provider <provider> --task <task> [--name <name>]
 zli agent send <agent-id> <message>
 zli agent read <agent-id>
@@ -214,6 +215,8 @@ zli taxchat send <message> --project <project-path> [--to <agent-id>]...
 ```
 
 All listed routes are active. A managed child may omit the TaxChat project because `ZLI_PROJECT_ID` supplies it. Without `--to`, TaxChat targets the active sessions in that project; repeated `--to` flags select up to 12 recipients. The backend queues each recipient independently behind the provider prompt, returns `queuedIds` and `failedIds`, and emits a later delivered or failed event for each queued recipient. Its bounded event is projected into the visible TaxChat transcript and the next project checkpoint.
+
+`zli agent queue` exposes safe queue diagnostics for the current project, or all projects for the local CLI. It returns only project and agent IDs, pending and in-flight counts, and the oldest message ID. Message bodies and terminal contents are never included.
 
 Pass `--json` before or after a command for the strict response envelope. Managed child agents can omit `--project`; their injected `ZLI_PROJECT_ID` supplies it. The older positional spawn form remains accepted for compatibility.
 

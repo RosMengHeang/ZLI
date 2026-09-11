@@ -123,6 +123,7 @@ fn capability_for(method: ControlMethod) -> Capability {
         ControlMethod::WorkspaceList => Capability::WorkspaceList,
         ControlMethod::WorkspaceOpen => Capability::WorkspaceOpen,
         ControlMethod::AgentList => Capability::AgentList,
+        ControlMethod::AgentQueueStatus => Capability::AgentRead,
         ControlMethod::AgentSpawn => Capability::AgentSpawn,
         ControlMethod::AgentSend => Capability::AgentSend,
         ControlMethod::AgentRead => Capability::AgentRead,

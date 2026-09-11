@@ -14,6 +14,8 @@ pub enum ControlMethod {
     WorkspaceOpen,
     #[serde(rename = "agent.list")]
     AgentList,
+    #[serde(rename = "agent.queue_status")]
+    AgentQueueStatus,
     #[serde(rename = "agent.spawn")]
     AgentSpawn,
     #[serde(rename = "agent.send")]

@@ -11,6 +11,14 @@ test("cli maps agent send arguments to a versioned control request", async () =>
   assert.equal(parsed.request.protocolVersion, 1);
 });
 
+test("cli exposes queue diagnostics without accepting message content", async () => {
+  const { parseCli } = await import("../src/control/cli.ts");
+  const parsed = parseCli(["agent", "queue", "--project", "D:/repo"]);
+
+  assert.equal(parsed.request.method, "agent.queue_status");
+  assert.deepEqual(parsed.request.params, { projectId: "D:/repo" });
+});
+
 test("cli requires project scope when spawning an agent", async () => {
   const { parseCli } = await import("../src/control/cli.ts");
   const parsed = parseCli(["agent", "spawn", "D:/repo", "codex", "Review", "tests"]);

@@ -2,7 +2,7 @@ export const CONTROL_PROTOCOL_VERSION = 1 as const;
 
 export type ControlMethod =
   | "workspace.list" | "workspace.open"
-  | "agent.list" | "agent.spawn" | "agent.send" | "agent.read" | "agent.focus" | "agent.pause" | "agent.stop"
+  | "agent.list" | "agent.queue_status" | "agent.spawn" | "agent.send" | "agent.read" | "agent.focus" | "agent.pause" | "agent.stop"
   | "attention.list" | "attention.ack"
   | "session.list" | "session.reconcile" | "session.resume"
   | "browser.list" | "browser.open" | "browser.navigate" | "browser.wait" | "browser.snapshot"

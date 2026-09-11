@@ -76,6 +76,16 @@ fn parse_command(args: &[String]) -> Result<(ControlMethod, Value), String> {
         (Some("agents"), _) | (Some("agent"), Some("list")) => {
             Ok((ControlMethod::AgentList, json!({})))
         }
+        (Some("agent"), Some("queue")) => {
+            let project_id = option(args, "--project")
+                .map(str::to_owned)
+                .or_else(|| std::env::var("ZLI_PROJECT_ID").ok())
+                .filter(|value| !value.trim().is_empty());
+            Ok((
+                ControlMethod::AgentQueueStatus,
+                project_id.map_or_else(|| json!({}), |project_id| json!({ "projectId": project_id })),
+            ))
+        }
         (Some("attention"), None | Some("list")) => Ok((ControlMethod::AttentionList, json!({}))),
         (Some("attention"), Some("ack")) => {
             let project_id = option(args, "--project")
@@ -397,7 +407,7 @@ fn joined(args: &[String], start: usize, label: &str) -> Result<String, String> 
 
 #[cfg(windows)]
 fn usage() -> String {
-    "unknown command. Try: status | doctor | agents | attention [list] | attention ack <agent> --project <path> | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | session list | session reconcile | session resume <id> | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message> --project <path> [--to <agent>]".into()
+    "unknown command. Try: status | doctor | agents | agent queue [--project <path>] | attention [list] | attention ack <agent> --project <path> | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | session list | session reconcile | session resume <id> | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message> --project <path> [--to <agent>]".into()
 }
 
 #[cfg(windows)]
@@ -455,5 +465,19 @@ mod tests {
             params,
             json!({ "projectId": r"D:\repo", "agentId": "agent-1" })
         );
+    }
+
+    #[test]
+    fn agent_queue_command_is_project_scoped_without_a_message_body() {
+        let args = ["agent", "queue", "--project", r"D:\repo"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+
+        let (method, params) = parse_command(&args).expect("parse queue command");
+
+        assert_eq!(method, ControlMethod::AgentQueueStatus);
+        assert_eq!(params, json!({ "projectId": r"D:\repo" }));
+        assert!(params.get("body").is_none());
     }
 }
