@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const checkpointWithAgent = (availability) => ({
+const checkpointWithAgent = (availability, attached = false) => ({
   schemaVersion: 1,
   projectId: "D:/project",
   agents: [{
@@ -15,7 +15,7 @@ const checkpointWithAgent = (availability) => ({
       workingDirectory: "D:/project",
       branch: "main",
       worktreePath: null,
-      attached: false,
+      attached,
       resume: {
         providerId: "cursor-agent",
         providerSessionId: null,
@@ -65,6 +65,58 @@ test("restore exposes separate resume, reconnect, and new-session actions", asyn
 
   await store.restoreSession(checkpointWithAgent("unknown"));
   assert.equal(store.getState().agents["agent-1"].action, "new_session");
+});
+
+test("initialize automatically resumes an agent that was running at the last checkpoint", async () => {
+  const { createSessionStoreForTest } = await import("../src/stores/sessionStore.ts");
+  let resumeCalls = 0;
+  const checkpoint = checkpointWithAgent("available", true);
+  const store = createSessionStoreForTest({
+    restoreProject: async () => ({ snapshot: checkpoint, sessionIds: ["session-1"], createdSessionIds: [] }),
+    reconnect: async () => ({
+      protocolVersion: 1,
+      currentSequence: 4,
+      events: [],
+      sessions: [{ ...checkpoint.agents[0].descriptor, attached: false }],
+    }),
+    resume: async () => {
+      resumeCalls += 1;
+      return { ...checkpoint.agents[0].descriptor, terminalId: "terminal-resumed", attached: true };
+    },
+  });
+
+  await store.getState().initialize("D:/project");
+
+  assert.equal(resumeCalls, 1);
+  assert.equal(store.getState().phase, "ready");
+  assert.equal(store.getState().agents["agent-1"].terminalId, "terminal-resumed");
+  assert.equal(store.getState().agents["agent-1"].connected, true);
+  assert.equal(store.getState().agents["agent-1"].action, "reconnect");
+});
+
+test("initialize leaves an intentionally stopped resumable agent for manual recovery", async () => {
+  const { createSessionStoreForTest } = await import("../src/stores/sessionStore.ts");
+  let resumeCalls = 0;
+  const checkpoint = checkpointWithAgent("available");
+  const store = createSessionStoreForTest({
+    restoreProject: async () => ({ snapshot: checkpoint, sessionIds: ["session-1"], createdSessionIds: [] }),
+    reconnect: async () => ({
+      protocolVersion: 1,
+      currentSequence: 4,
+      events: [],
+      sessions: [{ ...checkpoint.agents[0].descriptor, attached: false }],
+    }),
+    resume: async () => {
+      resumeCalls += 1;
+      return { ...checkpoint.agents[0].descriptor, terminalId: "unexpected", attached: true };
+    },
+  });
+
+  await store.getState().initialize("D:/project");
+
+  assert.equal(resumeCalls, 0);
+  assert.equal(store.getState().agents["agent-1"].action, "resume");
+  assert.equal(store.getState().agents["agent-1"].connected, false);
 });
 
 test("restore is idempotent and invalid checkpoints cannot partially replace state", async () => {

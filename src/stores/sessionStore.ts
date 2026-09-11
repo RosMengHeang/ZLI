@@ -73,6 +73,7 @@ export interface RestoredAgent {
   action: RestoreAction;
   restoreMessage: string;
   scrollback: string;
+  resumeOnReconnect: boolean;
   connected: boolean;
   pending: boolean;
   error: string | null;
@@ -125,6 +126,7 @@ function restoredAgent(stored: StoredAgent): RestoredAgent {
     branch: descriptor.branch,
     worktreePath: descriptor.worktreePath,
     scrollback: typeof stored.scrollback === "string" ? stored.scrollback : "",
+    resumeOnReconnect: descriptor.attached,
     connected: false,
     pending: false,
     error: null,
@@ -252,14 +254,20 @@ function makeState(client: SessionClient) {
         if (restored.snapshot) await get().restoreSession(restored.snapshot);
         const connected = await client.reconnect(SESSION_PROTOCOL_VERSION, restored.snapshot?.lastEventSequence ?? 0);
         const bySession = new Map(connected.sessions.map((descriptor) => [descriptor.sessionId, descriptor]));
+        const automaticResumeIds: string[] = [];
         set((state) => {
           const agents = { ...state.agents };
           for (const [id, record] of Object.entries(agents)) {
             const descriptor = bySession.get(record.sessionId);
-            if (descriptor) agents[id] = { ...record, terminalId: descriptor.terminalId, ...actionFor(descriptor) };
+            if (descriptor) {
+              const next = { ...record, terminalId: descriptor.terminalId, connected: descriptor.attached, ...actionFor(descriptor) };
+              agents[id] = next;
+              if (!descriptor.attached && record.resumeOnReconnect && next.action === "resume") automaticResumeIds.push(id);
+            }
           }
           return { agents, phase: "ready", error: null };
         });
+        await Promise.all(automaticResumeIds.map((id) => get().resumeAgent(id)));
       } catch (error) {
         set({ phase: "error", error: errorMessage(error) });
       }
