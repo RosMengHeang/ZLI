@@ -31,6 +31,8 @@ use windows_sys::Win32::System::Threading::{
 
 const MAX_FRAME_BYTES: usize = 1024 * 1024;
 const PREAMBLE_TIMEOUT: Duration = Duration::from_secs(5);
+const PIPE_RETRY_DELAY: Duration = Duration::from_millis(50);
+const MAX_PIPE_STARTUP_RETRIES: usize = 5;
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -140,35 +142,58 @@ impl NamedPipeClient {
     }
 
     pub fn request(&self, request: ControlRequest) -> io::Result<ControlResponse> {
-        let timeout = u32::try_from(request.timeout_ms).unwrap_or(u32::MAX);
+        let request_timeout_ms = request.timeout_ms;
         let payload = serde_json::to_vec(&AuthenticatedRequest {
             token: self.token.clone(),
             request,
         })
         .map_err(io::Error::other)?;
-        let mut response = vec![0_u8; MAX_FRAME_BYTES];
-        let mut read = 0_u32;
         let endpoint = wide(&self.endpoint);
-        let ok = unsafe {
-            CallNamedPipeW(
-                endpoint.as_ptr(),
-                payload.as_ptr().cast(),
-                payload.len() as u32,
-                response.as_mut_ptr().cast(),
-                response.len() as u32,
-                &mut read,
-                timeout,
-            )
-        };
-        if ok == 0 {
-            return Err(io::Error::last_os_error());
+        let started = Instant::now();
+        for attempt in 0..=MAX_PIPE_STARTUP_RETRIES {
+            let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            let remaining_ms = request_timeout_ms.saturating_sub(elapsed_ms);
+            if remaining_ms == 0 {
+                break;
+            }
+            let timeout = u32::try_from(remaining_ms).unwrap_or(u32::MAX);
+            let mut response = vec![0_u8; MAX_FRAME_BYTES];
+            let mut read = 0_u32;
+            let ok = unsafe {
+                CallNamedPipeW(
+                    endpoint.as_ptr(),
+                    payload.as_ptr().cast(),
+                    payload.len() as u32,
+                    response.as_mut_ptr().cast(),
+                    response.len() as u32,
+                    &mut read,
+                    timeout,
+                )
+            };
+            if ok != 0 {
+                response.truncate(read as usize);
+                let text = std::str::from_utf8(&response).map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "control response is not UTF-8")
+                })?;
+                return ControlResponse::from_json(text).map_err(io::Error::other);
+            }
+
+            let error = io::Error::last_os_error();
+            if !is_retryable_pipe_error(&error) || attempt == MAX_PIPE_STARTUP_RETRIES {
+                return Err(error);
+            }
+            let delay_ms = u64::try_from(PIPE_RETRY_DELAY.as_millis()).unwrap_or(0);
+            std::thread::sleep(Duration::from_millis(delay_ms.min(remaining_ms)));
         }
-        response.truncate(read as usize);
-        let text = std::str::from_utf8(&response).map_err(|_| {
-            io::Error::new(io::ErrorKind::InvalidData, "control response is not UTF-8")
-        })?;
-        ControlResponse::from_json(text).map_err(io::Error::other)
+        Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "control pipe request timed out before a server became ready",
+        ))
     }
+}
+
+fn is_retryable_pipe_error(error: &io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(2) | Some(121) | Some(231))
 }
 
 fn serve(
@@ -367,4 +392,18 @@ fn token_user_buffer(token: *mut core::ffi::c_void) -> Option<Vec<usize>> {
         )
     };
     (ok != 0).then_some(buffer)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_retryable_pipe_error;
+    use std::io;
+
+    #[test]
+    fn retries_only_transient_pipe_startup_errors() {
+        assert!(is_retryable_pipe_error(&io::Error::from_raw_os_error(2)));
+        assert!(is_retryable_pipe_error(&io::Error::from_raw_os_error(121)));
+        assert!(is_retryable_pipe_error(&io::Error::from_raw_os_error(231)));
+        assert!(!is_retryable_pipe_error(&io::Error::from_raw_os_error(5)));
+    }
 }

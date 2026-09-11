@@ -105,6 +105,7 @@ agent_output
 agent_prompt_detected
 agent_waiting
 agent_message_received
+agent_message_queued
 agent_message_delivered
 agent_message_failed
 agent_focus_requested
@@ -122,6 +123,8 @@ browser_navigation_changed
 browser_console_error
 browser_command_failed
 taxchat_room_started
+taxchat_message_queued
+taxchat_message_delivered
 taxchat_message_sent
 taxchat_message_failed
 attention_ack
@@ -208,7 +211,7 @@ zli browser eval <surface-id> <script>
 zli taxchat send <message> --project <project-path> [--to <agent-id>]...
 ```
 
-All listed routes are active. A managed child may omit the TaxChat project because `ZLI_PROJECT_ID` supplies it. Without `--to`, TaxChat targets the active sessions in that project; repeated `--to` flags select up to 12 recipients. The backend performs one non-retried PTY delivery per recipient and returns `deliveredIds` and `failedIds`. Its bounded event is projected into the visible TaxChat transcript and the next project checkpoint.
+All listed routes are active. A managed child may omit the TaxChat project because `ZLI_PROJECT_ID` supplies it. Without `--to`, TaxChat targets the active sessions in that project; repeated `--to` flags select up to 12 recipients. The backend queues each recipient independently behind the provider prompt, returns `queuedIds` and `failedIds`, and emits a later delivered or failed event for each queued recipient. Its bounded event is projected into the visible TaxChat transcript and the next project checkpoint.
 
 Pass `--json` before or after a command for the strict response envelope. Managed child agents can omit `--project`; their injected `ZLI_PROJECT_ID` supplies it. The older positional spawn form remains accepted for compatibility.
 

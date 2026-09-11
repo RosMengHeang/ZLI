@@ -44,6 +44,7 @@ pub enum AgentEventKind {
     AgentPromptDetected,
     AgentWaiting,
     AgentMessageReceived,
+    AgentMessageQueued,
     AgentMessageDelivered,
     AgentMessageFailed,
     AgentFocusRequested,
@@ -63,6 +64,8 @@ pub enum AgentEventKind {
     BrowserCommandCompleted,
     BrowserCommandFailed,
     TaxchatRoomStarted,
+    TaxchatMessageQueued,
+    TaxchatMessageDelivered,
     TaxchatMessageSent,
     TaxchatMessageFailed,
     AttentionAck,
@@ -92,6 +95,8 @@ pub enum AgentEventPayload {
         body: String,
         #[serde(rename = "recipientIds")]
         recipient_ids: Vec<String>,
+        #[serde(rename = "queuedIds")]
+        queued_ids: Vec<String>,
         #[serde(rename = "deliveredIds")]
         delivered_ids: Vec<String>,
         #[serde(rename = "failedIds")]

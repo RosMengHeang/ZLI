@@ -345,9 +345,23 @@ export function createTaxChatCoordinator(options: TaxChatCoordinatorOptions): Ta
     },
 
     recordExternalMessage: (message) => {
-      if (disposed || messages.some((candidate) => candidate.id === message.id)) return;
-      messages.push({ ...message, recipientIds: [...message.recipientIds] });
-      emit({ type: "message", message });
+      if (disposed) return;
+      const existingIndex = messages.findIndex((candidate) => candidate.id === message.id);
+      if (existingIndex >= 0) {
+        const existing = messages[existingIndex];
+        const updated = {
+          ...existing,
+          ...message,
+          recipientIds: [...message.recipientIds],
+        };
+        messages[existingIndex] = updated;
+        emit({ type: "message", message: updated });
+        scheduleIdle();
+        return;
+      }
+      const copy = { ...message, recipientIds: [...message.recipientIds] };
+      messages.push(copy);
+      emit({ type: "message", message: copy });
       scheduleIdle();
     },
 

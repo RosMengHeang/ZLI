@@ -88,6 +88,41 @@ test("projects API TaxChat messages into the visible transcript once", async () 
   assert.deepEqual(useTaxChatStore.getState().room?.participantIds, ["agent-1"]);
 });
 
+test("updates one TaxChat transcript message from queued to delivered", async () => {
+  const { useTaxChatStore } = await import("../src/stores/taxChatStore.ts");
+  useTaxChatStore.getState().reset();
+  const base = {
+    schemaVersion: 1,
+    sequence: 1,
+    projectId: "D:/repo",
+    agentId: null,
+    parentAgentId: null,
+    timestamp: "2026-09-11T00:00:00Z",
+    source: "taxchat",
+    payload: {
+      type: "taxchat",
+      messageId: "message-queued",
+      body: "Wait for the prompt",
+      recipientIds: ["agent-1"],
+      queuedIds: ["agent-1"],
+      deliveredIds: [],
+      failedIds: [],
+    },
+  };
+
+  useTaxChatStore.getState().applyEvent({ ...base, eventId: "queued", kind: "taxchat_message_queued" });
+  useTaxChatStore.getState().applyEvent({
+    ...base,
+    eventId: "delivered",
+    sequence: 2,
+    kind: "taxchat_message_delivered",
+    payload: { ...base.payload, queuedIds: [], deliveredIds: ["agent-1"] },
+  });
+
+  assert.equal(useTaxChatStore.getState().room?.messages.length, 1);
+  assert.equal(useTaxChatStore.getState().room?.messages[0].status, "delivered");
+});
+
 test("ignores non-TaxChat control events", async () => {
   const { useTaxChatStore } = await import("../src/stores/taxChatStore.ts");
   useTaxChatStore.getState().reset();

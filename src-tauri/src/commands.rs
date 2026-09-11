@@ -12,7 +12,7 @@ use crate::pty::{
     TerminalStatusEvent,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
@@ -59,13 +59,22 @@ pub(crate) struct AppEventSink {
     app: AppHandle,
     event_hub: EventHub,
     waits_for_agent_binding: bool,
+    observer: Option<ControlEventObserverSlot>,
 }
 
-pub(crate) fn app_event_sink(app: AppHandle, event_hub: EventHub) -> Arc<dyn EventSink> {
+pub(crate) type ControlEventObserver = Arc<dyn Fn(&AgentEventEnvelope) + Send + Sync>;
+pub(crate) type ControlEventObserverSlot = Arc<Mutex<Option<ControlEventObserver>>>;
+
+pub(crate) fn app_event_sink_with_observer(
+    app: AppHandle,
+    event_hub: EventHub,
+    observer: ControlEventObserverSlot,
+) -> Arc<dyn EventSink> {
     Arc::new(AppEventSink {
         app,
         event_hub,
         waits_for_agent_binding: true,
+        observer: Some(observer),
     })
 }
 
@@ -127,6 +136,13 @@ impl EventSink for AppEventSink {
 
     fn emit_control(&self, event: AgentEventEnvelope) {
         forward_control_event(&self.event_hub, event, |event| {
+            if let Some(observer) = self
+                .observer
+                .as_ref()
+                .and_then(|slot| slot.lock().ok()?.clone())
+            {
+                observer(&event);
+            }
             let _ = self.app.emit("control-event", event);
         });
     }
@@ -201,6 +217,7 @@ fn create_terminal_impl(
             app,
             event_hub,
             waits_for_agent_binding: false,
+            observer: None,
         }),
     )
 }
@@ -323,6 +340,7 @@ pub async fn launch_agent(
             app,
             event_hub,
             waits_for_agent_binding: true,
+            observer: None,
         });
         let runtime_sink = supervisor.runtime_sink(app_sink);
         let agent = agents.launch(request, &pty, runtime_sink.clone())?;
@@ -405,6 +423,7 @@ pub async fn control_session_resume(
         app,
         event_hub: event_hub.inner().clone(),
         waits_for_agent_binding: true,
+        observer: None,
     });
     run_control_blocking(move || supervisor.resume(&session_id, sink)).await
 }

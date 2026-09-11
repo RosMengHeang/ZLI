@@ -228,4 +228,3 @@ fn merge_numstat(raw: &str, map: &mut HashMap<String, (u32, u32)>) {
         }
     }
 }
-

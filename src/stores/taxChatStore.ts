@@ -172,6 +172,12 @@ export const useTaxChatStore = create<TaxChatState>((set, get) => ({
     const payload = event.payload as AgentEventPayload;
     if (payload.type !== "taxchat") return;
     const current = get().room;
+    const queuedIds = payload.queuedIds ?? [];
+    const status = payload.deliveredIds.length > 0
+      ? "delivered" as const
+      : event.kind === "taxchat_message_failed" && queuedIds.length === 0
+        ? "failed" as const
+        : "pending" as const;
     const message = {
       id: payload.messageId,
       senderId: event.agentId ?? "user",
@@ -179,7 +185,7 @@ export const useTaxChatStore = create<TaxChatState>((set, get) => ({
       kind: event.agentId ? "agent" as const : "user" as const,
       body: payload.body,
       createdAt: event.timestamp,
-      status: payload.deliveredIds.length ? "delivered" as const : "failed" as const,
+      status,
       round: current?.round ?? 1,
     };
     if (coordinator) {
@@ -199,7 +205,7 @@ export const useTaxChatStore = create<TaxChatState>((set, get) => ({
           routedCount: 0,
         }),
         messages: current?.messages.some((item) => item.id === message.id)
-          ? current.messages
+          ? current.messages.map((item) => item.id === message.id ? { ...item, status: message.status } : item)
           : [...(current?.messages ?? []), message],
         round: current?.round ?? 1,
       },

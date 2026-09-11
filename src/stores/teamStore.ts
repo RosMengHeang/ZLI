@@ -49,7 +49,7 @@ export interface SendMessageInput {
 export interface TeamMessageDelivery extends SendMessageInput {
   id: string;
   messageId: string | null;
-  status: "pending" | "delivered" | "failed";
+  status: "pending" | "queued" | "delivered" | "failed";
   error: string | null;
 }
 
@@ -67,7 +67,7 @@ interface SpawnResult {
 
 interface SendResult {
   messageId: string;
-  delivered: boolean;
+  queued: boolean;
 }
 
 export interface TeamStoreState {
@@ -86,6 +86,7 @@ export interface TeamStoreState {
 }
 
 export const MAX_TEAM_AGENTS = 12;
+const DELIVERY_CONFIRMATION_TIMEOUT_MS = 30_000;
 
 function statusForEvent(event: AgentEventEnvelope): TeamAgentStatus | null {
   switch (event.kind) {
@@ -107,6 +108,33 @@ function statusForEvent(event: AgentEventEnvelope): TeamAgentStatus | null {
 
 function createTeamState(_dependencies: TeamDependencies) {
   const seenEventIds = new Set<string>();
+  const deliveryWaiters = new Map<string, {
+    resolve: (outcome: "delivered" | "failed" | "timeout") => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
+
+  const waitForDelivery = (messageId: string, get: () => TeamStoreState): Promise<"delivered" | "failed" | "timeout"> => {
+    const existing = Object.values(get().deliveries).find((delivery) => delivery.messageId === messageId);
+    if (existing?.status === "delivered") return Promise.resolve("delivered");
+    if (existing?.status === "failed") return Promise.resolve("failed");
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        deliveryWaiters.delete(messageId);
+        resolve("timeout");
+      }, DELIVERY_CONFIRMATION_TIMEOUT_MS);
+      const nodeTimer = timer as unknown as { unref?: () => void };
+      nodeTimer.unref?.();
+      deliveryWaiters.set(messageId, { resolve, timer });
+    });
+  };
+
+  const resolveDeliveryWaiter = (messageId: string, outcome: "delivered" | "failed"): void => {
+    const waiter = deliveryWaiters.get(messageId);
+    if (!waiter) return;
+    clearTimeout(waiter.timer);
+    deliveryWaiters.delete(messageId);
+    waiter.resolve(outcome);
+  };
 
   const errorMessage = (error: unknown): string => error instanceof Error ? error.message : "Team operation failed";
 
@@ -147,7 +175,9 @@ function createTeamState(_dependencies: TeamDependencies) {
 
       set((state) => {
         const next = { lastSequence: Math.max(state.lastSequence, candidate.sequence) } as Partial<TeamStoreState>;
-        if (candidate.kind === "agent_message_delivered" || candidate.kind === "agent_message_failed") {
+        if (candidate.kind === "agent_message_queued"
+          || candidate.kind === "agent_message_delivered"
+          || candidate.kind === "agent_message_failed") {
           const message = payload as { type: "message"; messageId: string };
           const existing = Object.values(state.deliveries).find((delivery) => delivery.messageId === message.messageId);
           const id = existing?.id ?? message.messageId;
@@ -161,7 +191,9 @@ function createTeamState(_dependencies: TeamDependencies) {
                 agentId: agentId ?? "",
                 body: existing?.body ?? "",
                 messageId: message.messageId,
-                status: candidate.kind === "agent_message_delivered" ? "delivered" : "failed",
+                status: candidate.kind === "agent_message_queued"
+                  ? "queued"
+                  : candidate.kind === "agent_message_delivered" ? "delivered" : "failed",
                 error: candidate.kind === "agent_message_failed" ? "Message delivery failed" : null,
               },
             },
@@ -197,6 +229,10 @@ function createTeamState(_dependencies: TeamDependencies) {
           },
         };
       });
+      if (candidate.kind === "agent_message_delivered" || candidate.kind === "agent_message_failed") {
+        const message = payload as { type: "message"; messageId: string };
+        resolveDeliveryWaiter(message.messageId, candidate.kind === "agent_message_delivered" ? "delivered" : "failed");
+      }
       return true;
     },
 
@@ -276,17 +312,40 @@ function createTeamState(_dependencies: TeamDependencies) {
       set((state) => ({ deliveries: { ...state.deliveries, [id]: delivery } }));
       try {
         const result = await _dependencies.client.request<SendResult>("agent.send", input, { id });
-        set((state) => ({
-          deliveries: {
+        set((state) => {
+          const remoteEntry = Object.entries(state.deliveries).find(([entryId, candidate]) =>
+            entryId !== id && candidate.messageId === result.messageId,
+          );
+          const remote = remoteEntry?.[1];
+          const next = {
             ...state.deliveries,
             [id]: {
               ...state.deliveries[id],
+              ...remote,
+              id,
               messageId: result.messageId,
-              status: result.delivered ? "delivered" : "failed",
-              error: result.delivered ? null : "Message delivery failed",
+              status: remote?.status ?? (result.queued ? "queued" : "failed"),
+              error: remote?.error ?? (result.queued ? null : "Message was not queued"),
             },
-          },
-        }));
+          };
+          if (remoteEntry) delete next[remoteEntry[0]];
+          return { deliveries: next };
+        });
+        if (result.queued) {
+          const outcome = await waitForDelivery(result.messageId, get);
+          if (outcome === "timeout") {
+            set((state) => ({
+              deliveries: {
+                ...state.deliveries,
+                [id]: {
+                  ...state.deliveries[id],
+                  status: "failed",
+                  error: "Timed out waiting for delivery confirmation",
+                },
+              },
+            }));
+          }
+        }
       } catch (error) {
         set((state) => ({
           deliveries: {

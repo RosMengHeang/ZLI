@@ -8,7 +8,7 @@ use crate::git::worktree::{self, CreateWorktreeRequest, RemoveWorktreeRequest};
 use crate::pty::{EventSink, PtyManager, TerminalStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -19,6 +19,7 @@ use uuid::Uuid;
 pub const MAX_TEAM_AGENTS: usize = 12;
 const MAX_TASK_BYTES: usize = 16 * 1024;
 const MAX_READ_BYTES: usize = 64 * 1024;
+const MAX_PENDING_MESSAGES_PER_AGENT: usize = 64;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,6 +45,75 @@ pub struct TeamAgent {
     pub branch: String,
     pub worktree_path: String,
     pub paused: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QueuedAgentMessage {
+    pub message_id: String,
+    pub project_id: String,
+    pub agent_id: String,
+    pub terminal_id: String,
+    pub body: String,
+    pub kind: QueuedAgentMessageKind,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QueuedAgentMessageKind {
+    Agent,
+    Taxchat {
+        message_id: String,
+        sender_agent_id: Option<String>,
+        body: String,
+        recipient_ids: Vec<String>,
+    },
+}
+
+#[derive(Clone, Default)]
+pub struct AgentMessageInbox {
+    pending: Arc<Mutex<HashMap<String, VecDeque<QueuedAgentMessage>>>>,
+}
+
+impl AgentMessageInbox {
+    pub fn enqueue(&self, message: QueuedAgentMessage) -> Result<(), ControlError> {
+        let mut pending = self.pending.lock().map_err(lock_error)?;
+        let queue = pending.entry(message.agent_id.clone()).or_default();
+        if queue.len() >= MAX_PENDING_MESSAGES_PER_AGENT {
+            return Err(ControlError::new(
+                ControlErrorCode::AgentInboxFull,
+                "Agent message inbox is full; wait for delivery before sending more",
+            ));
+        }
+        queue.push_back(message);
+        Ok(())
+    }
+
+    pub fn take_next(&self, agent_id: &str) -> Option<QueuedAgentMessage> {
+        let mut pending = self.pending.lock().ok()?;
+        let queue = pending.get_mut(agent_id)?;
+        let message = queue.pop_front();
+        if queue.is_empty() {
+            pending.remove(agent_id);
+        }
+        message
+    }
+
+    pub fn drain(&self, agent_id: &str) -> Vec<QueuedAgentMessage> {
+        self.pending
+            .lock()
+            .ok()
+            .and_then(|mut pending| pending.remove(agent_id))
+            .map(|queue| queue.into_iter().collect())
+            .unwrap_or_default()
+    }
+
+    #[cfg(test)]
+    pub fn pending_count(&self, agent_id: &str) -> usize {
+        self.pending
+            .lock()
+            .ok()
+            .and_then(|pending| pending.get(agent_id).map(VecDeque::len))
+            .unwrap_or_default()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -92,6 +162,7 @@ pub struct TeamCoordinator {
     control_executable: Option<PathBuf>,
     records: Mutex<HashMap<String, TeamAgent>>,
     child_tokens: Mutex<HashMap<String, String>>,
+    inbox: AgentMessageInbox,
 }
 
 impl TeamCoordinator {
@@ -107,6 +178,7 @@ impl TeamCoordinator {
             control_executable: None,
             records: Mutex::new(HashMap::new()),
             child_tokens: Mutex::new(HashMap::new()),
+            inbox: AgentMessageInbox::default(),
         }
     }
 
@@ -238,26 +310,161 @@ impl TeamCoordinator {
             ));
         }
         let message_id = Uuid::new_v4().to_string();
-        match self.backend.deliver(&record.terminal_id, body) {
-            Ok(()) => {
+        self.inbox.enqueue(QueuedAgentMessage {
+            message_id: message_id.clone(),
+            project_id: record.project_id.clone(),
+            agent_id: record.agent_id.clone(),
+            terminal_id: record.terminal_id.clone(),
+            body: body.to_owned(),
+            kind: QueuedAgentMessageKind::Agent,
+        })?;
+        self.emit(
+            &record,
+            AgentEventKind::AgentMessageQueued,
+            AgentEventPayload::Message {
+                message_id: message_id.clone(),
+            },
+        );
+        Ok(json!({ "messageId": message_id, "queued": true }))
+    }
+
+    pub fn handle_event(&self, event: &AgentEventEnvelope) {
+        let Some(agent_id) = event.agent_id.as_deref() else {
+            return;
+        };
+        if matches!(
+            event.kind,
+            AgentEventKind::AgentExited | AgentEventKind::AgentFailed
+        ) {
+            for message in self.inbox.drain(agent_id) {
+                self.fail_queued_message(message);
+            }
+            return;
+        }
+        if event.kind != AgentEventKind::AgentPromptDetected {
+            return;
+        }
+        let Ok(record) = self.record(&event.project_id, agent_id) else {
+            return;
+        };
+        if record.paused {
+            return;
+        }
+        let Some(message) = self.inbox.take_next(agent_id) else {
+            return;
+        };
+        if message.project_id != record.project_id || message.terminal_id != record.terminal_id {
+            return;
+        }
+        let result = self.backend.deliver(&record.terminal_id, &message.body);
+        match message.kind {
+            QueuedAgentMessageKind::Agent => {
+                let kind = if result.is_ok() {
+                    AgentEventKind::AgentMessageDelivered
+                } else {
+                    AgentEventKind::AgentMessageFailed
+                };
                 self.emit(
                     &record,
-                    AgentEventKind::AgentMessageDelivered,
+                    kind,
                     AgentEventPayload::Message {
-                        message_id: message_id.clone(),
+                        message_id: message.message_id,
                     },
                 );
-                Ok(json!({ "messageId": message_id, "delivered": true }))
             }
-            Err(error) => {
-                self.emit(
-                    &record,
-                    AgentEventKind::AgentMessageFailed,
-                    AgentEventPayload::Message { message_id },
+            QueuedAgentMessageKind::Taxchat {
+                message_id,
+                sender_agent_id,
+                body,
+                recipient_ids,
+            } => {
+                self.emit_taxchat_event(
+                    &record.project_id,
+                    sender_agent_id,
+                    if result.is_ok() {
+                        AgentEventKind::TaxchatMessageDelivered
+                    } else {
+                        AgentEventKind::TaxchatMessageFailed
+                    },
+                    message_id,
+                    body,
+                    recipient_ids,
+                    Vec::new(),
+                    if result.is_ok() {
+                        vec![record.agent_id.clone()]
+                    } else {
+                        Vec::new()
+                    },
+                    if result.is_err() {
+                        vec![record.agent_id.clone()]
+                    } else {
+                        Vec::new()
+                    },
                 );
-                Err(error)
             }
         }
+    }
+
+    fn fail_queued_message(&self, message: QueuedAgentMessage) {
+        match message.kind {
+            QueuedAgentMessageKind::Agent => {
+                if let Ok(record) = self.record(&message.project_id, &message.agent_id) {
+                    self.emit(
+                        &record,
+                        AgentEventKind::AgentMessageFailed,
+                        AgentEventPayload::Message {
+                            message_id: message.message_id,
+                        },
+                    );
+                }
+            }
+            QueuedAgentMessageKind::Taxchat {
+                message_id,
+                sender_agent_id,
+                body,
+                recipient_ids,
+            } => self.emit_taxchat_event(
+                &message.project_id,
+                sender_agent_id,
+                AgentEventKind::TaxchatMessageFailed,
+                message_id,
+                body,
+                recipient_ids,
+                Vec::new(),
+                Vec::new(),
+                vec![message.agent_id],
+            ),
+        }
+    }
+
+    fn emit_taxchat_event(
+        &self,
+        project_id: &str,
+        sender_agent_id: Option<String>,
+        kind: AgentEventKind,
+        message_id: String,
+        body: String,
+        recipient_ids: Vec<String>,
+        queued_ids: Vec<String>,
+        delivered_ids: Vec<String>,
+        failed_ids: Vec<String>,
+    ) {
+        let mut event = AgentEventEnvelope::new(
+            Uuid::new_v4().to_string(),
+            project_id.to_owned(),
+            sender_agent_id,
+            kind,
+            AgentEventPayload::Taxchat {
+                message_id,
+                body,
+                recipient_ids,
+                queued_ids,
+                delivered_ids,
+                failed_ids,
+            },
+        );
+        event.source = AgentEventSource::Taxchat;
+        self.backend.emit(event);
     }
 
     pub fn send_taxchat(
@@ -296,7 +503,7 @@ impl TeamCoordinator {
         let message_id = Uuid::new_v4().to_string();
         let sender = sender_agent_id.unwrap_or("user");
         let delivery = format_taxchat_delivery(sender, &recipients, body);
-        let mut delivered_ids = Vec::new();
+        let mut queued_ids = Vec::new();
         let mut failed_ids = Vec::new();
         for agent_id in &recipients {
             let result = self.record(project_id, agent_id).and_then(|record| {
@@ -306,39 +513,48 @@ impl TeamCoordinator {
                         "Agent is paused",
                     ));
                 }
-                self.backend.deliver(&record.terminal_id, &delivery)
+                self.inbox.enqueue(QueuedAgentMessage {
+                    message_id: message_id.clone(),
+                    project_id: record.project_id.clone(),
+                    agent_id: record.agent_id.clone(),
+                    terminal_id: record.terminal_id.clone(),
+                    body: delivery.clone(),
+                    kind: QueuedAgentMessageKind::Taxchat {
+                        message_id: message_id.clone(),
+                        sender_agent_id: sender_agent_id.map(str::to_owned),
+                        body: body.trim().to_owned(),
+                        recipient_ids: recipients.clone(),
+                    },
+                })
             });
             if result.is_ok() {
-                delivered_ids.push(agent_id.clone());
+                queued_ids.push(agent_id.clone());
             } else {
                 failed_ids.push(agent_id.clone());
             }
         }
 
-        let kind = if delivered_ids.is_empty() {
+        let kind = if queued_ids.is_empty() {
             AgentEventKind::TaxchatMessageFailed
         } else {
-            AgentEventKind::TaxchatMessageSent
+            AgentEventKind::TaxchatMessageQueued
         };
-        let mut event = AgentEventEnvelope::new(
-            Uuid::new_v4().to_string(),
-            project_id.to_owned(),
+        self.emit_taxchat_event(
+            project_id,
             sender_agent_id.map(str::to_owned),
             kind,
-            AgentEventPayload::Taxchat {
-                message_id: message_id.clone(),
-                body: body.trim().to_owned(),
-                recipient_ids: recipients.clone(),
-                delivered_ids: delivered_ids.clone(),
-                failed_ids: failed_ids.clone(),
-            },
+            message_id.clone(),
+            body.trim().to_owned(),
+            recipients.clone(),
+            queued_ids.clone(),
+            Vec::new(),
+            failed_ids.clone(),
         );
-        event.source = AgentEventSource::Taxchat;
-        self.backend.emit(event);
         Ok(json!({
             "messageId": message_id,
             "recipientIds": recipients,
-            "deliveredIds": delivered_ids,
+            "queuedIds": queued_ids,
+            "deliveredIds": [],
             "failedIds": failed_ids,
         }))
     }
@@ -380,6 +596,7 @@ impl TeamCoordinator {
     pub fn stop(&self, project_id: &str, agent_id: &str) -> Result<Value, ControlError> {
         let record = self.record(project_id, agent_id)?;
         self.backend.stop(agent_id)?;
+        let _ = self.inbox.drain(agent_id);
         if let Some(token) = self
             .child_tokens
             .lock()

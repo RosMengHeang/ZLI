@@ -21,7 +21,9 @@ export function TeamPanel() {
       id: delivery.id,
       label: agents[delivery.agentId]?.name ?? "Agent message",
       providerId: agents[delivery.agentId]?.providerId,
-      detail: delivery.error ?? (delivery.status === "pending" ? "Delivering…" : "Message delivered"),
+      detail: delivery.error ?? (delivery.status === "pending"
+        ? "Submitting…"
+        : delivery.status === "queued" ? "Waiting for the agent prompt" : "Message delivered"),
       status: delivery.status,
       agentId: delivery.agentId,
     })),

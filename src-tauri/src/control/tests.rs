@@ -904,6 +904,7 @@ fn contract_enums_serialize_with_snake_case_wire_values() {
             AgentEventKind::AgentMessageReceived,
             "agent_message_received",
         ),
+        (AgentEventKind::AgentMessageQueued, "agent_message_queued"),
         (
             AgentEventKind::AgentMessageDelivered,
             "agent_message_delivered",
@@ -951,6 +952,14 @@ fn contract_enums_serialize_with_snake_case_wire_values() {
             "browser_command_failed",
         ),
         (AgentEventKind::TaxchatRoomStarted, "taxchat_room_started"),
+        (
+            AgentEventKind::TaxchatMessageQueued,
+            "taxchat_message_queued",
+        ),
+        (
+            AgentEventKind::TaxchatMessageDelivered,
+            "taxchat_message_delivered",
+        ),
         (AgentEventKind::TaxchatMessageSent, "taxchat_message_sent"),
         (
             AgentEventKind::TaxchatMessageFailed,
@@ -1024,6 +1033,7 @@ fn event_payload_variants_serialize_with_tagged_frontend_shapes() {
                 message_id: "message-2".into(),
                 body: "Review the release".into(),
                 recipient_ids: vec!["agent-1".into()],
+                queued_ids: vec![],
                 delivered_ids: vec!["agent-1".into()],
                 failed_ids: vec![],
             },
@@ -1032,6 +1042,7 @@ fn event_payload_variants_serialize_with_tagged_frontend_shapes() {
                 "messageId": "message-2",
                 "body": "Review the release",
                 "recipientIds": ["agent-1"],
+                "queuedIds": [],
                 "deliveredIds": ["agent-1"],
                 "failedIds": [],
             }),
@@ -2029,7 +2040,7 @@ fn team_stop_revokes_the_child_control_token() {
 }
 
 #[test]
-fn team_message_delivery_is_parent_child_scoped_and_never_retried() {
+fn team_message_queue_is_parent_child_scoped_and_not_written_early() {
     let backend = Arc::new(FakeTeamBackend::default());
     let coordinator = super::TeamCoordinator::new(
         backend.clone(),
@@ -2044,17 +2055,96 @@ fn team_message_delivery_is_parent_child_scoped_and_never_retried() {
         .send("project-1", &child.agent_id, "Report status")
         .expect("deliver message");
 
-    assert_eq!(result["delivered"], true);
-    assert_eq!(backend.deliveries.lock().unwrap().len(), 2);
+    assert_eq!(result["queued"], true);
+    assert_eq!(backend.deliveries.lock().unwrap().len(), 1);
     assert_eq!(
         backend.events.lock().unwrap().last().unwrap().kind,
-        AgentEventKind::AgentMessageDelivered
+        AgentEventKind::AgentMessageQueued
     );
     let error = coordinator
         .send("project-2", &child.agent_id, "Cross project")
         .expect_err("cross-project delivery must fail");
     assert_eq!(error.code, super::ControlErrorCode::SessionNotFound);
-    assert_eq!(backend.deliveries.lock().unwrap().len(), 2);
+    assert_eq!(backend.deliveries.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn team_message_waits_for_a_provider_prompt_before_writing_to_the_pty() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let coordinator = super::TeamCoordinator::new(
+        backend.clone(),
+        Arc::new(CapabilityTokenStore::default()),
+        "endpoint".into(),
+    );
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+    backend.deliveries.lock().unwrap().clear();
+    backend.events.lock().unwrap().clear();
+
+    let result = coordinator
+        .send("project-1", &child.agent_id, "Report status")
+        .expect("queue message");
+
+    assert_eq!(result["queued"], true);
+    assert!(backend.deliveries.lock().unwrap().is_empty());
+    assert_eq!(
+        backend.events.lock().unwrap().last().unwrap().kind,
+        AgentEventKind::AgentMessageQueued
+    );
+
+    let mut prompt = AgentEventEnvelope::new(
+        "prompt-1".into(),
+        "project-1".into(),
+        Some(child.agent_id.clone()),
+        AgentEventKind::AgentPromptDetected,
+        AgentEventPayload::Attention {
+            reason: "provider_prompt".into(),
+        },
+    );
+    prompt.source = AgentEventSource::Provider;
+    coordinator.handle_event(&prompt);
+
+    assert_eq!(
+        backend.deliveries.lock().unwrap().as_slice(),
+        &[("terminal-child".into(), "Report status".into())]
+    );
+    assert_eq!(
+        backend.events.lock().unwrap().last().unwrap().kind,
+        AgentEventKind::AgentMessageDelivered
+    );
+}
+
+#[test]
+fn agent_message_inbox_is_fifo_and_bounded_per_agent() {
+    let inbox = super::team::AgentMessageInbox::default();
+    for index in 0..64 {
+        inbox
+            .enqueue(super::team::QueuedAgentMessage {
+                message_id: format!("message-{index}"),
+                project_id: "project-1".into(),
+                agent_id: "agent-1".into(),
+                terminal_id: "terminal-1".into(),
+                body: format!("body-{index}"),
+                kind: super::team::QueuedAgentMessageKind::Agent,
+            })
+            .expect("message should fit in the inbox");
+    }
+    let error = inbox
+        .enqueue(super::team::QueuedAgentMessage {
+            message_id: "overflow".into(),
+            project_id: "project-1".into(),
+            agent_id: "agent-1".into(),
+            terminal_id: "terminal-1".into(),
+            body: "overflow".into(),
+            kind: super::team::QueuedAgentMessageKind::Agent,
+        })
+        .expect_err("the per-agent inbox must be bounded");
+
+    assert_eq!(error.code, super::ControlErrorCode::AgentInboxFull);
+    assert_eq!(inbox.pending_count("agent-1"), 64);
+    assert_eq!(inbox.take_next("agent-1").unwrap().body, "body-0");
+    assert_eq!(inbox.take_next("agent-1").unwrap().body, "body-1");
 }
 
 #[test]
@@ -2079,16 +2169,79 @@ fn taxchat_delivery_is_project_scoped_bounded_and_evented() {
         )
         .expect("send TaxChat message");
 
-    assert_eq!(result["deliveredIds"], json!([child.agent_id]));
+    assert_eq!(result["queuedIds"], json!([child.agent_id]));
+    assert_eq!(result["deliveredIds"], json!([]));
     assert_eq!(result["failedIds"], json!([]));
+    let deliveries = backend.deliveries.lock().unwrap();
+    assert!(deliveries.is_empty());
+    drop(deliveries);
+    let queued = backend.events.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(queued.kind, AgentEventKind::TaxchatMessageQueued);
+    assert_eq!(queued.source, AgentEventSource::Taxchat);
+
+    let mut prompt = AgentEventEnvelope::new(
+        "taxchat-prompt-1".into(),
+        "project-1".into(),
+        Some(child.agent_id.clone()),
+        AgentEventKind::AgentPromptDetected,
+        AgentEventPayload::Attention {
+            reason: "provider_prompt".into(),
+        },
+    );
+    prompt.source = AgentEventSource::Provider;
+    coordinator.handle_event(&prompt);
+
     let deliveries = backend.deliveries.lock().unwrap();
     assert_eq!(deliveries.len(), 1);
     assert!(deliveries[0].1.contains("[TaxChat delivery]"));
     assert!(deliveries[0].1.contains("Review the release"));
     drop(deliveries);
+    let delivered = backend.events.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(delivered.kind, AgentEventKind::TaxchatMessageDelivered);
+    assert_eq!(delivered.source, AgentEventSource::Taxchat);
+}
+
+#[test]
+fn queued_taxchat_message_is_failed_when_recipient_exits() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let coordinator = super::TeamCoordinator::new(
+        backend.clone(),
+        Arc::new(CapabilityTokenStore::default()),
+        "endpoint".into(),
+    );
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+    backend.deliveries.lock().unwrap().clear();
+    backend.events.lock().unwrap().clear();
+
+    coordinator
+        .send_taxchat(
+            "project-1",
+            None,
+            "Do not lose this message",
+            std::slice::from_ref(&child.agent_id),
+        )
+        .expect("queue TaxChat message");
+
+    let exited = AgentEventEnvelope::new(
+        "taxchat-exit-1".into(),
+        "project-1".into(),
+        Some(child.agent_id.clone()),
+        AgentEventKind::AgentExited,
+        AgentEventPayload::Exit { code: Some(1) },
+    );
+    coordinator.handle_event(&exited);
+
+    assert!(backend.deliveries.lock().unwrap().is_empty());
     let event = backend.events.lock().unwrap().last().cloned().unwrap();
-    assert_eq!(event.kind, AgentEventKind::TaxchatMessageSent);
-    assert_eq!(event.source, AgentEventSource::Taxchat);
+    assert_eq!(event.kind, AgentEventKind::TaxchatMessageFailed);
+    match event.payload {
+        AgentEventPayload::Taxchat { failed_ids, .. } => {
+            assert_eq!(failed_ids, vec![child.agent_id]);
+        }
+        payload => panic!("unexpected payload: {payload:?}"),
+    }
 }
 
 fn wait_for_control_event(

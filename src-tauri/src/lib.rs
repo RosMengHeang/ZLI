@@ -88,7 +88,13 @@ pub fn run() {
             let endpoint = control::NamedPipeServer::random_endpoint();
             #[cfg(not(windows))]
             let endpoint = String::new();
-            let sink = commands::app_event_sink(app.handle().clone(), events);
+            let observer_slot: commands::ControlEventObserverSlot =
+                Arc::new(std::sync::Mutex::new(None));
+            let sink = commands::app_event_sink_with_observer(
+                app.handle().clone(),
+                events,
+                observer_slot.clone(),
+            );
             let browser_sink = sink.clone();
             let browser = Arc::new(control::BrowserManager::new(Arc::new(move |event| {
                 browser_sink.emit_control(event);
@@ -107,6 +113,14 @@ pub fn run() {
                 control::TeamCoordinator::new(team_backend, tokens.clone(), endpoint.clone())
                     .with_control_executable(control::zli_executable_path()),
             );
+            let team_observer = Arc::downgrade(&team);
+            if let Ok(mut observer) = observer_slot.lock() {
+                *observer = Some(Arc::new(move |event| {
+                    if let Some(team) = team_observer.upgrade() {
+                        team.handle_event(event);
+                    }
+                }));
+            }
             let handler = Arc::new(control::RuntimeControlHandler::new(
                 pty,
                 agents,

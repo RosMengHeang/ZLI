@@ -43,6 +43,7 @@ test("agent event decoder accepts bounded TaxChat delivery details", async () =>
     messageId: "message-1",
     body: "Review the release",
     recipientIds: ["agent-1", "agent-2"],
+    queuedIds: ["agent-2"],
     deliveredIds: ["agent-1"],
     failedIds: ["agent-2"],
   };
@@ -66,4 +67,19 @@ test("agent event decoder rejects unsupported and incomplete envelopes", async (
   for (const event of invalidEvents) {
     assert.equal(isAgentEventEnvelope(event), false);
   }
+});
+
+test("agent event decoder enforces payloads for delivery event kinds", async () => {
+  const { isAgentEventEnvelope } = await import("../src/lib/agentEvents.ts");
+  assert.equal(isAgentEventEnvelope({
+    ...validEvent,
+    kind: "agent_message_delivered",
+    payload: { type: "empty" },
+  }), false);
+  assert.equal(isAgentEventEnvelope({
+    ...validEvent,
+    source: "taxchat",
+    kind: "taxchat_message_queued",
+    payload: { type: "message", messageId: "message-1" },
+  }), false);
 });

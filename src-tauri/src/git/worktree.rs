@@ -15,8 +15,11 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 const BRANCH_PREFIX: &str = "swarm/";
+const WORKTREE_CLEANUP_RETRY_DELAY: Duration = Duration::from_millis(250);
+const MAX_WORKTREE_CLEANUP_RETRIES: usize = 5;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -172,7 +175,10 @@ pub fn remove_worktree(req: RemoveWorktreeRequest) -> Result<RemovedWorktreeResu
                     .to_string(),
             });
         }
-        remove_directory(&target, req.force)?;
+        retry_worktree_operation(
+            || remove_directory(&target, req.force),
+            WORKTREE_CLEANUP_RETRY_DELAY,
+        )?;
         return Ok(RemovedWorktreeResult {
             path: req.worktree_path,
             forced: req.force,
@@ -200,7 +206,10 @@ pub fn remove_worktree(req: RemoveWorktreeRequest) -> Result<RemovedWorktreeResu
     args.push(&path_str);
     if let Err(error) = run_git(&repo_dir, &args) {
         if req.force && is_permission_error(&error) {
-            remove_directory(&target, true)?;
+            retry_worktree_operation(
+                || remove_directory(&target, true),
+                WORKTREE_CLEANUP_RETRY_DELAY,
+            )?;
             let _ = run_git(&repo_dir, &["worktree", "prune"]);
         } else {
             return Err(error);
@@ -379,10 +388,32 @@ fn remove_directory(path: &Path, force: bool) -> Result<(), GitError> {
 }
 
 fn is_permission_error(error: &GitError) -> bool {
-    matches!(error, GitError::GitCommandFailed { message, .. } if {
-        let message = message.to_ascii_lowercase();
-        message.contains("permission denied") || message.contains("access is denied")
-    })
+    let message = match error {
+        GitError::GitCommandFailed { message, .. } | GitError::Io { message } => message,
+        _ => return false,
+    };
+    let message = message.to_ascii_lowercase();
+    message.contains("permission denied") || message.contains("access is denied")
+}
+
+fn retry_worktree_operation<T, F>(mut operation: F, delay: Duration) -> Result<T, GitError>
+where
+    F: FnMut() -> Result<T, GitError>,
+{
+    let mut last_error = None;
+    for attempt in 0..=MAX_WORKTREE_CLEANUP_RETRIES {
+        match operation() {
+            Ok(result) => return Ok(result),
+            Err(error) if is_permission_error(&error) && attempt < MAX_WORKTREE_CLEANUP_RETRIES => {
+                last_error = Some(error);
+                if !delay.is_zero() {
+                    std::thread::sleep(delay);
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last_error.expect("cleanup retry loop must retain its last error"))
 }
 
 #[cfg(windows)]
@@ -559,4 +590,33 @@ fn parse_worktree_list(porcelain: &str) -> Vec<WorktreeInfo> {
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{retry_worktree_operation, GitError};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    #[test]
+    fn retries_permission_failures_before_returning_success() {
+        let attempts = AtomicUsize::new(0);
+        let result = retry_worktree_operation(
+            || {
+                let attempt = attempts.fetch_add(1, Ordering::SeqCst);
+                if attempt < 2 {
+                    Err(GitError::Io {
+                        message: "permission denied".into(),
+                    })
+                } else {
+                    Ok("removed")
+                }
+            },
+            Duration::ZERO,
+        )
+        .expect("a released file handle should eventually be removable");
+
+        assert_eq!(result, "removed");
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+    }
 }

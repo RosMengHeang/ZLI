@@ -33,6 +33,7 @@ const AGENT_EVENT_KINDS = [
   "agent_prompt_detected",
   "agent_waiting",
   "agent_message_received",
+  "agent_message_queued",
   "agent_message_delivered",
   "agent_message_failed",
   "agent_focus_requested",
@@ -52,6 +53,8 @@ const AGENT_EVENT_KINDS = [
   "browser_command_completed",
   "browser_command_failed",
   "taxchat_room_started",
+  "taxchat_message_queued",
+  "taxchat_message_delivered",
   "taxchat_message_sent",
   "taxchat_message_failed",
   "attention_ack",
@@ -71,6 +74,7 @@ export type AgentEventPayload =
       messageId: string;
       body: string;
       recipientIds: string[];
+      queuedIds?: string[];
       deliveredIds: string[];
       failedIds: string[];
     }
@@ -144,6 +148,7 @@ export function isAgentEventPayload(value: unknown): value is AgentEventPayload 
         && typeof value.body === "string"
         && value.body.length <= 16_384
         && validIds(value.recipientIds)
+        && (value.queuedIds === undefined || validIds(value.queuedIds))
         && validIds(value.deliveredIds)
         && validIds(value.failedIds);
     }
@@ -157,6 +162,21 @@ export function isAgentEventPayload(value: unknown): value is AgentEventPayload 
     default:
       return false;
   }
+}
+
+function payloadMatchesEventKind(kind: string, payload: AgentEventPayload): boolean {
+  if (kind === "agent_message_queued"
+    || kind === "agent_message_delivered"
+    || kind === "agent_message_failed") {
+    return payload.type === "message";
+  }
+  if (kind === "taxchat_message_queued"
+    || kind === "taxchat_message_delivered"
+    || kind === "taxchat_message_sent"
+    || kind === "taxchat_message_failed") {
+    return payload.type === "taxchat";
+  }
+  return true;
 }
 
 export function isAgentEventEnvelope(value: unknown): value is AgentEventEnvelope {
@@ -178,5 +198,6 @@ export function isAgentEventEnvelope(value: unknown): value is AgentEventEnvelop
     && typeof value.kind === "string"
     && eventKinds.has(value.kind)
     && hasOwn(value, "payload")
-    && isAgentEventPayload(value.payload);
+    && isAgentEventPayload(value.payload)
+    && payloadMatchesEventKind(value.kind, value.payload);
 }

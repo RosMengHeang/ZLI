@@ -166,7 +166,7 @@ test("enforces twelve active or pending agents before dispatching spawn", async 
   assert.equal(store.getState().spawns["spawn-over-cap"].error, "This project already has 12 agents");
 });
 
-test("tracks message delivery through pending, delivered, and failed states", async () => {
+test("waits for delivery confirmation after the server queues a message", async () => {
   const { createTeamStoreForTest } = await import("../src/stores/teamStore.ts");
   let resolveDelivery;
   const firstResponse = new Promise((resolve) => { resolveDelivery = resolve; });
@@ -188,7 +188,18 @@ test("tracks message delivery through pending, delivered, and failed states", as
 
   const delivering = store.getState().sendMessage({ projectId: "project-1", agentId: "agent-1", body: "Ready?" });
   assert.equal(store.getState().deliveries["delivery-1"].status, "pending");
-  resolveDelivery({ messageId: "message-1", delivered: true });
+  let settled = false;
+  void delivering.then(() => { settled = true; });
+  resolveDelivery({ messageId: "message-1", queued: true });
+  await Promise.resolve();
+  assert.equal(settled, false);
+  store.getState().apply(event({
+    sequence: 1,
+    eventId: "message-delivered",
+    agentId: "agent-1",
+    kind: "agent_message_delivered",
+    payload: { type: "message", messageId: "message-1" },
+  }));
   const deliveredId = await delivering;
   const failedId = await store.getState().sendMessage({ projectId: "project-1", agentId: "agent-1", body: "Retry?" });
 
