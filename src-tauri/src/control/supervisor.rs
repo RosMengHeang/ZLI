@@ -12,6 +12,7 @@ use crate::pty::{
     PtyManager, TerminalStatus,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -78,6 +79,7 @@ pub struct Supervisor {
     providers: ProviderRegistry,
     events: EventHub,
     resume_lock: Mutex<()>,
+    launch_reservations: Mutex<HashMap<String, usize>>,
 }
 
 impl Supervisor {
@@ -95,6 +97,54 @@ impl Supervisor {
             providers: ProviderRegistry::default(),
             events,
             resume_lock: Mutex::new(()),
+            launch_reservations: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Reserve a project agent slot before creating a worktree or process.
+    /// The reservation closes the race between concurrent launch requests;
+    /// callers must release it when their launch transaction ends.
+    pub(crate) fn reserve_agent_slot(
+        &self,
+        project_id: &str,
+    ) -> Result<bool, SessionCommandError> {
+        let mut reservations = self
+            .launch_reservations
+            .lock()
+            .map_err(|_| SessionCommandError::Runtime("launch limit lock poisoned".into()))?;
+        let active = self
+            .registry
+            .list()?
+            .into_iter()
+            .filter_map(|session| session.descriptor().ok())
+            .filter(|descriptor| {
+                descriptor.project_id == project_id
+                    && self
+                        .pty
+                        .session_status(&descriptor.terminal_id)
+                        .is_ok_and(|status| status == TerminalStatus::Running)
+            })
+            .count();
+        let reserved = reservations.get(project_id).copied().unwrap_or_default();
+        if active + reserved >= super::team::MAX_TEAM_AGENTS {
+            return Ok(false);
+        }
+        *reservations.entry(project_id.to_owned()).or_default() += 1;
+        Ok(true)
+    }
+
+    pub(crate) fn release_agent_slot(&self, project_id: &str) {
+        let Ok(mut reservations) = self.launch_reservations.lock() else {
+            return;
+        };
+        let remove = if let Some(count) = reservations.get_mut(project_id) {
+            *count = count.saturating_sub(1);
+            *count == 0
+        } else {
+            false
+        };
+        if remove {
+            reservations.remove(project_id);
         }
     }
 

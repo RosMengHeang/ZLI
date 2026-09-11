@@ -2360,6 +2360,41 @@ fn team_spawn_enforces_the_twelve_agent_project_cap() {
 }
 
 #[test]
+fn supervisor_agent_slot_reservation_is_atomic_per_project() {
+    let root = tempdir().expect("temporary supervisor directory");
+    let supervisor = Arc::new(super::Supervisor::new(
+        root.path().to_path_buf(),
+        PtyManager::new(),
+        EventHub::new(8),
+    ));
+    let barrier = Arc::new(std::sync::Barrier::new(16));
+    let handles = (0..16)
+        .map(|_| {
+            let supervisor = supervisor.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                supervisor
+                    .reserve_agent_slot("project-1")
+                    .expect("reserve slot")
+            })
+        })
+        .collect::<Vec<_>>();
+    let reserved = handles
+        .into_iter()
+        .map(|handle| handle.join().expect("slot thread"))
+        .filter(|reserved| *reserved)
+        .count();
+    assert_eq!(reserved, super::team::MAX_TEAM_AGENTS);
+    assert!(!supervisor
+        .reserve_agent_slot("project-1")
+        .expect("check full project"));
+    assert!(supervisor
+        .reserve_agent_slot("project-2")
+        .expect("reserve another project"));
+}
+
+#[test]
 fn team_spawn_rolls_back_worktree_when_launch_fails() {
     let backend = Arc::new(FakeTeamBackend::default());
     backend.fail_launch.store(true, Ordering::SeqCst);

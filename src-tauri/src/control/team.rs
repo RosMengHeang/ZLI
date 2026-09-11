@@ -414,6 +414,10 @@ pub struct ChildLaunch {
 
 pub trait TeamBackend: Send + Sync {
     fn active_agent_count(&self, project_id: &str) -> Result<usize, ControlError>;
+    fn begin_agent_launch(&self, _project_id: &str) -> Result<(), ControlError> {
+        Ok(())
+    }
+    fn end_agent_launch(&self, _project_id: &str) {}
     fn agent_exists(&self, project_id: &str, agent_id: &str) -> Result<bool, ControlError>;
     fn recover_agent(
         &self,
@@ -437,6 +441,17 @@ pub trait TeamBackend: Send + Sync {
     }
     fn cleanup_worktree(&self, project_id: &str, path: &str) -> Result<(), ControlError>;
     fn emit(&self, event: AgentEventEnvelope);
+}
+
+struct LaunchSlotGuard<'a> {
+    backend: &'a dyn TeamBackend,
+    project_id: String,
+}
+
+impl Drop for LaunchSlotGuard<'_> {
+    fn drop(&mut self) {
+        self.backend.end_agent_launch(&self.project_id);
+    }
 }
 
 pub struct TeamCoordinator {
@@ -521,6 +536,12 @@ impl TeamCoordinator {
                 "The selected provider is not installed",
             ));
         }
+
+        self.backend.begin_agent_launch(&request.project_id)?;
+        let _launch_slot = LaunchSlotGuard {
+            backend: self.backend.as_ref(),
+            project_id: request.project_id.clone(),
+        };
 
         let worktree = self
             .backend
@@ -1387,6 +1408,25 @@ impl TeamBackend for RuntimeTeamBackend {
             Ok(()) | Err(crate::error::BackendError::SessionNotFound(_)) => Ok(()),
             Err(error) => Err(control_runtime(error)),
         }
+    }
+
+    fn begin_agent_launch(&self, project_id: &str) -> Result<(), ControlError> {
+        if self
+            .supervisor
+            .reserve_agent_slot(project_id)
+            .map_err(control_runtime)?
+        {
+            Ok(())
+        } else {
+            Err(ControlError::new(
+                ControlErrorCode::AgentLimitReached,
+                "This project already has 12 agents",
+            ))
+        }
+    }
+
+    fn end_agent_launch(&self, project_id: &str) {
+        self.supervisor.release_agent_slot(project_id);
     }
 
     fn abort(&self, agent_id: &str) -> Result<(), ControlError> {

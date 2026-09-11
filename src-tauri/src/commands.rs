@@ -65,6 +65,17 @@ pub(crate) struct AppEventSink {
 pub(crate) type ControlEventObserver = Arc<dyn Fn(&AgentEventEnvelope) + Send + Sync>;
 pub(crate) type ControlEventObserverSlot = Arc<Mutex<Option<ControlEventObserver>>>;
 
+struct DirectAgentLaunchSlot {
+    supervisor: Arc<Supervisor>,
+    project_id: String,
+}
+
+impl Drop for DirectAgentLaunchSlot {
+    fn drop(&mut self) {
+        self.supervisor.release_agent_slot(&self.project_id);
+    }
+}
+
 pub(crate) fn app_event_sink_with_observer(
     app: AppHandle,
     event_hub: EventHub,
@@ -336,6 +347,18 @@ pub async fn launch_agent(
     let supervisor = supervisor.inner().clone();
     run_blocking(move || {
         let project_id = request.cwd.clone();
+        if !supervisor
+            .reserve_agent_slot(&project_id)
+            .map_err(|error| BackendError::Internal(format!("could not reserve agent slot: {error:?}")))?
+        {
+            return Err(BackendError::InvalidInput(
+                "This project already has 12 agents".to_owned(),
+            ));
+        }
+        let _launch_slot = DirectAgentLaunchSlot {
+            supervisor: supervisor.clone(),
+            project_id: project_id.clone(),
+        };
         let app_sink = Arc::new(AppEventSink {
             app,
             event_hub,
