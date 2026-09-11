@@ -5,10 +5,10 @@ pub use manager::{
     EventSink, PtyManager, TerminalOutputEvent, TerminalSession, TerminalStatus,
     TerminalStatusEvent,
 };
-pub use process::{ProcessIdentity, ProcessInspection, ProcessTermination};
-pub(crate) use process::{inspect as inspect_process, terminate_verified as terminate_process};
 #[cfg(test)]
 pub(crate) use process::capture as capture_process;
+pub(crate) use process::{inspect as inspect_process, terminate_verified as terminate_process};
+pub use process::{ProcessIdentity, ProcessInspection, ProcessTermination};
 
 #[cfg(test)]
 pub use manager::MemoryEventSink;
@@ -17,6 +17,8 @@ pub use manager::MemoryEventSink;
 mod tests {
     use super::{MemoryEventSink, PtyManager, TerminalStatus};
     use std::fs;
+    #[cfg(windows)]
+    use std::process::Command;
     use std::time::{Duration, Instant};
     use tempfile::tempdir;
 
@@ -52,11 +54,13 @@ mod tests {
         assert!(sink_a
             .statuses()
             .iter()
-            .any(|event| event.terminal_id == terminal_a.id && event.status == super::TerminalStatus::Killed));
+            .any(|event| event.terminal_id == terminal_a.id
+                && event.status == super::TerminalStatus::Killed));
         assert!(sink_b
             .statuses()
             .iter()
-            .any(|event| event.terminal_id == terminal_b.id && event.status == super::TerminalStatus::Killed));
+            .any(|event| event.terminal_id == terminal_b.id
+                && event.status == super::TerminalStatus::Killed));
 
         manager.shutdown().unwrap();
         assert_eq!(manager.session_count(), 0);
@@ -130,10 +134,7 @@ mod tests {
         let manager = PtyManager::new();
         let sink = MemoryEventSink::default();
         let terminal = manager
-            .create_shell(
-                Some(directory.path().to_string_lossy().as_ref()),
-                sink,
-            )
+            .create_shell(Some(directory.path().to_string_lossy().as_ref()), sink)
             .unwrap();
         let canonical = dunce::canonicalize(directory.path()).unwrap();
 
@@ -211,9 +212,78 @@ mod tests {
             .expect("live terminal identity");
         assert!(identity.pid > 0);
         assert!(identity.start_time > 0);
-        assert!(identity.executable.to_ascii_lowercase().ends_with("cmd.exe"));
+        assert!(identity
+            .executable
+            .to_ascii_lowercase()
+            .ends_with("cmd.exe"));
 
-        manager.kill(&terminal.id).expect("kill identity test shell");
+        manager
+            .kill(&terminal.id)
+            .expect("kill identity test shell");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn killing_terminal_terminates_provider_descendants() {
+        let directory = tempdir().unwrap();
+        let child_pid_file = directory.path().join("child.pid");
+        let child_pid_path = child_pid_file.to_string_lossy().replace('\'', "''");
+        let script = format!(
+            "$child = Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', 'ping 127.0.0.1 -n 30 127.0.0.1') -PassThru; Set-Content -LiteralPath '{child_pid_path}' -Value $child.Id; Wait-Process -Id $child.Id"
+        );
+        let manager = PtyManager::new();
+        let terminal = manager
+            .spawn_agent_with_size_args(
+                crate::system::find_executable(&["powershell.exe"]).expect("powershell.exe"),
+                vec!["-NoProfile".into(), "-Command".into(), script.into()],
+                Some(directory.path().to_string_lossy().as_ref()),
+                120,
+                30,
+                std::sync::Arc::new(MemoryEventSink::default()),
+            )
+            .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let child_pid = loop {
+            if let Ok(value) = fs::read_to_string(&child_pid_file) {
+                if let Ok(pid) = value.trim().parse::<u32>() {
+                    break pid;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "provider descendant did not start"
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        };
+        assert!(windows_process_exists(child_pid));
+
+        manager.kill(&terminal.id).expect("kill terminal tree");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while windows_process_exists(child_pid) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        if windows_process_exists(child_pid) {
+            let _ = Command::new("taskkill")
+                .args(["/PID", &child_pid.to_string(), "/T", "/F"])
+                .output();
+        }
+        assert!(
+            !windows_process_exists(child_pid),
+            "provider descendant survived terminal kill"
+        );
+    }
+
+    #[cfg(windows)]
+    fn windows_process_exists(pid: u32) -> bool {
+        let output = Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+            .output()
+            .expect("tasklist");
+        String::from_utf8_lossy(&output.stdout)
+            .split_whitespace()
+            .any(|token| token == pid.to_string())
     }
 
     #[test]

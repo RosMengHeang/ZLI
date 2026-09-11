@@ -99,6 +99,8 @@ struct SessionHandle {
     writer: Mutex<Box<dyn Write + Send>>,
     child: Mutex<Box<dyn Child + Send>>,
     process_identity: Option<ProcessIdentity>,
+    #[cfg(windows)]
+    process_tree: Option<super::process::ProcessTree>,
     size: Mutex<(u16, u16)>,
     status: AtomicU8,
     exit_code: Mutex<Option<i32>>,
@@ -282,6 +284,10 @@ impl PtyManager {
             .map_err(|error| BackendError::Pty(error.to_string()))?;
         drop(pair.slave);
         let process_identity = child.process_id().and_then(capture);
+        #[cfg(windows)]
+        let process_tree = child
+            .process_id()
+            .and_then(super::process::attach_process_tree);
 
         let reader = pair
             .master
@@ -299,6 +305,8 @@ impl PtyManager {
             writer: Mutex::new(writer),
             child: Mutex::new(child),
             process_identity,
+            #[cfg(windows)]
+            process_tree,
             size: Mutex::new((cols, rows)),
             status: AtomicU8::new(TerminalStatus::Running.as_u8()),
             exit_code: Mutex::new(None),
@@ -673,6 +681,10 @@ impl SessionHandle {
     }
 
     fn terminate(&self) {
+        #[cfg(windows)]
+        if let Some(process_tree) = self.process_tree.as_ref() {
+            let _ = process_tree.terminate();
+        }
         if let Ok(mut child) = self.child.lock() {
             let _ = child.kill();
             let _ = child.wait();

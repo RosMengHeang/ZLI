@@ -29,13 +29,19 @@ mod windows_impl {
     use super::{ProcessIdentity, ProcessInspection, ProcessTermination};
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
+    use std::ptr::null;
     use windows_sys::Win32::Foundation::{
         CloseHandle, GetLastError, ERROR_INVALID_PARAMETER, FALSE, FILETIME, HANDLE, WAIT_OBJECT_0,
+    };
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
     use windows_sys::Win32::System::Threading::{
         GetProcessTimes, OpenProcess, QueryFullProcessImageNameW, TerminateProcess,
         WaitForSingleObject, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-        PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
+        PROCESS_SET_QUOTA, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
     };
 
     const ACCESS_QUERY: u32 = PROCESS_QUERY_LIMITED_INFORMATION;
@@ -43,6 +49,7 @@ mod windows_impl {
         PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE | PROCESS_TERMINATE;
     const QUERY_PATH_CAPACITY: usize = 32_768;
     const TERMINATION_TIMEOUT_MS: u32 = 5_000;
+    const ACCESS_JOB: u32 = PROCESS_SET_QUOTA | PROCESS_TERMINATE;
 
     struct ProcessHandle(HANDLE);
 
@@ -51,6 +58,32 @@ mod windows_impl {
             unsafe {
                 CloseHandle(self.0);
             }
+        }
+    }
+
+    pub(crate) struct ProcessTree {
+        handle: HANDLE,
+    }
+
+    // A process tree handle is an owned Windows kernel handle. It is safe to
+    // move and share the handle because the OS synchronizes job operations.
+    unsafe impl Send for ProcessTree {}
+    unsafe impl Sync for ProcessTree {}
+
+    impl Drop for ProcessTree {
+        fn drop(&mut self) {
+            unsafe {
+                CloseHandle(self.handle);
+            }
+        }
+    }
+
+    impl ProcessTree {
+        pub(crate) fn terminate(&self) -> bool {
+            (unsafe { TerminateJobObject(self.handle, 1) != 0 })
+                && (unsafe {
+                    WaitForSingleObject(self.handle, TERMINATION_TIMEOUT_MS) == WAIT_OBJECT_0
+                })
         }
     }
 
@@ -123,6 +156,50 @@ mod windows_impl {
         query(handle.0, pid)
     }
 
+    pub(super) fn attach_process_tree(pid: u32) -> Option<ProcessTree> {
+        let job = unsafe { CreateJobObjectW(null(), null()) };
+        if job.is_null() {
+            return None;
+        }
+
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let configured = unsafe {
+            SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            ) != 0
+        };
+        if !configured {
+            unsafe {
+                CloseHandle(job);
+            }
+            return None;
+        }
+
+        let process = unsafe { OpenProcess(ACCESS_JOB, FALSE, pid) };
+        if process.is_null() {
+            unsafe {
+                CloseHandle(job);
+            }
+            return None;
+        }
+        let assigned = unsafe { AssignProcessToJobObject(job, process) != 0 };
+        unsafe {
+            CloseHandle(process);
+        }
+        if !assigned {
+            unsafe {
+                CloseHandle(job);
+            }
+            return None;
+        }
+
+        Some(ProcessTree { handle: job })
+    }
+
     pub(super) fn inspect(identity: &ProcessIdentity) -> ProcessInspection {
         let handle = match open(identity.pid, ACCESS_QUERY) {
             Ok(handle) => handle,
@@ -163,8 +240,21 @@ mod windows_impl {
 }
 
 #[cfg(windows)]
+pub(crate) use windows_impl::ProcessTree;
+
+#[cfg(windows)]
 pub fn capture(pid: u32) -> Option<ProcessIdentity> {
     windows_impl::capture(pid)
+}
+
+#[cfg(windows)]
+pub(crate) fn attach_process_tree(pid: u32) -> Option<ProcessTree> {
+    windows_impl::attach_process_tree(pid)
+}
+
+#[cfg(not(windows))]
+pub(crate) fn attach_process_tree(_pid: u32) -> Option<()> {
+    None
 }
 
 #[cfg(not(windows))]

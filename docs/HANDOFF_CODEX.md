@@ -15,7 +15,7 @@ Creating a shell or agent opens a native portable PTY at the requested size, sta
 - Create validates the cwd and dimensions, spawns the child, registers the UUID, emits the initial running status internally, and returns `TerminalSession`.
 - Write looks up only the requested UUID, writes UTF-8 input to that session’s PTY writer, and flushes it.
 - Resize validates `1..=10000` rows/columns, resizes only the requested PTY master, and updates that session’s recorded size.
-- Kill removes only the requested UUID, atomically marks it killed, kills and waits for that child, then emits its exit event. A reader thread already in flight cannot remove a replacement session because removal uses UUID plus `Arc::ptr_eq`.
+- Kill removes only the requested UUID, atomically marks it killed, terminates the Windows provider process tree when available, then kills and waits for the root child before emitting its exit event. A reader thread already in flight cannot remove a replacement session because removal uses UUID plus `Arc::ptr_eq`.
 - The reader streams output and reports reader failures; a separate child waiter polls process completion and marks natural exits with the numeric code when available. Each lifecycle transition is emitted once, removes only that session, and cannot overwrite a prior killed or failed state. There is no terminal-output polling loop.
 
 ## Crash-safe process ownership
@@ -31,6 +31,13 @@ from targeting another process. Mismatches and inaccessible processes remain
 retained as unknown records for review. A normal application exit clears only
 records associated with the current session registry; a crash leaves records
 for the next startup to reconcile.
+
+Each Windows PTY also attempts to place the provider root in a private Job
+Object configured with `KILL_ON_JOB_CLOSE`. Normal stop terminates the whole
+provider tree, and an unexpected ZLI exit closes the job so descendants do not
+remain as hidden offline agents. If Windows rejects job assignment, ZLI keeps
+the existing root-child termination path and retains the verified ownership
+ledger safeguards.
 
 Launch is transactional across the PTY, agent registry, supervisor, and
 worktree layers. If provider startup, terminal binding, ownership recording,
