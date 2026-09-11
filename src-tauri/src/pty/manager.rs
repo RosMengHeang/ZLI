@@ -7,7 +7,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread;
@@ -123,6 +123,21 @@ impl PtyManager {
             .lock()
             .map(|sessions| sessions.len())
             .unwrap_or_default()
+    }
+
+    /// Return the terminal ID of the first running PTY rooted at `path`.
+    /// Callers should pass a canonical path so symlink and relative-path
+    /// spellings cannot bypass runtime ownership checks.
+    pub fn running_session_at(&self, path: &Path) -> Result<Option<String>, BackendError> {
+        let sessions = self
+            .inner
+            .sessions
+            .lock()
+            .map_err(|_| BackendError::Internal("PTY session lock poisoned".into()))?;
+        Ok(sessions
+            .values()
+            .find(|session| session.status() == TerminalStatus::Running && session.cwd == path)
+            .map(|session| session.id.to_string()))
     }
 
     pub fn create_shell(

@@ -27,6 +27,8 @@ function messageFromGitError(kind: string, details: unknown): string {
       return `A worktree already exists at '${details.path}'`;
     case "worktreeNotFound":
       return `No worktree found at '${details.path}'`;
+    case "worktreeInUse":
+      return `Worktree '${details.path}' is still in use. Stop its terminal before removing it.`;
     case "branchNotFound":
       return `Branch '${details.branch}' was not found`;
     case "invalidPath":

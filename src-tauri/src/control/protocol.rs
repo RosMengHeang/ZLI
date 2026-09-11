@@ -28,6 +28,8 @@ pub enum ControlMethod {
     AgentPause,
     #[serde(rename = "agent.stop")]
     AgentStop,
+    #[serde(rename = "worktree.audit")]
+    WorktreeAudit,
     #[serde(rename = "attention.list")]
     AttentionList,
     #[serde(rename = "attention.ack")]
@@ -108,6 +110,8 @@ pub enum Capability {
     BrowserDownload,
     #[serde(rename = "taxchat.send")]
     TaxChatSend,
+    #[serde(rename = "worktree.read")]
+    WorktreeRead,
     #[serde(rename = "worktree.discard")]
     WorktreeDiscard,
     #[serde(rename = "command.execute")]

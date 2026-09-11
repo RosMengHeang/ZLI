@@ -80,6 +80,11 @@ function command(
       return [`agent.${action}` as ControlMethod, { agentId: args[0] }];
     }
   }
+  if (group === "worktree" && action === "audit") {
+    const projectId = option(args, "--project") ?? environment.projectId;
+    required(projectId, "Project is required");
+    return ["worktree.audit", { projectId }];
+  }
   if (group === "session") {
     if (action === "list") return ["session.list", {}];
     if (action === "reconcile") return ["session.reconcile", {}];

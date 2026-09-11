@@ -130,6 +130,7 @@ fn capability_for(method: ControlMethod) -> Capability {
         ControlMethod::AgentFocus => Capability::AgentFocus,
         ControlMethod::AgentPause => Capability::AgentPause,
         ControlMethod::AgentStop => Capability::AgentStop,
+        ControlMethod::WorktreeAudit => Capability::WorktreeRead,
         ControlMethod::AttentionList => Capability::AttentionRead,
         ControlMethod::AttentionAck => Capability::AttentionAck,
         ControlMethod::SessionList => Capability::SessionRead,

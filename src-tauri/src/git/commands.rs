@@ -63,9 +63,26 @@ pub async fn git_prune_worktrees(repository_root: String) -> Result<(), GitError
 
 #[tauri::command]
 pub async fn git_remove_worktree(
+    manager: tauri::State<'_, crate::pty::PtyManager>,
     request: RemoveWorktreeRequest,
 ) -> Result<RemovedWorktreeResult, GitError> {
-    run_blocking("git_remove_worktree", move || worktree::remove_worktree(request)).await
+    let manager = manager.inner().clone();
+    run_blocking("git_remove_worktree", move || {
+        let target = super::paths::canonical_dir(&request.worktree_path)?;
+        let running_terminal = manager
+            .running_session_at(&target)
+            .map_err(|error| GitError::Io {
+                message: format!("failed to inspect runtime ownership: {error}"),
+            })?;
+        if let Some(terminal_id) = running_terminal {
+            return Err(GitError::WorktreeInUse {
+                path: request.worktree_path.clone(),
+                terminal_id,
+            });
+        }
+        worktree::remove_worktree(request)
+    })
+    .await
 }
 
 #[tauri::command]

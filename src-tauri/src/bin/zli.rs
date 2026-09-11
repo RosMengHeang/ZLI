@@ -172,6 +172,19 @@ fn parse_command(args: &[String]) -> Result<(ControlMethod, Value), String> {
                 json!({ "agentId": required(args.get(2), "agent ID")? }),
             ))
         }
+        (Some("worktree"), Some("audit")) => {
+            let project_id = option(args, "--project")
+                .map(str::to_owned)
+                .or_else(|| std::env::var("ZLI_PROJECT_ID").ok())
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    "project is required; pass --project outside a managed agent".to_owned()
+                })?;
+            Ok((
+                ControlMethod::WorktreeAudit,
+                json!({ "projectId": project_id }),
+            ))
+        }
         (Some("browser"), Some("list")) => Ok((ControlMethod::BrowserList, json!({}))),
         (Some("browser"), Some(action)) => parse_browser_command(args, action),
         (Some("taxchat"), Some("send")) => {
@@ -407,7 +420,7 @@ fn joined(args: &[String], start: usize, label: &str) -> Result<String, String> 
 
 #[cfg(windows)]
 fn usage() -> String {
-    "unknown command. Try: status | doctor | agents | agent queue [--project <path>] | attention [list] | attention ack <agent> --project <path> | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | session list | session reconcile | session resume <id> | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message> --project <path> [--to <agent>]".into()
+    "unknown command. Try: status | doctor | agents | agent queue [--project <path>] | attention [list] | attention ack <agent> --project <path> | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | worktree audit --project <path> | session list | session reconcile | session resume <id> | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message> --project <path> [--to <agent>]".into()
 }
 
 #[cfg(windows)]
@@ -479,5 +492,30 @@ mod tests {
         assert_eq!(method, ControlMethod::AgentQueueStatus);
         assert_eq!(params, json!({ "projectId": r"D:\repo" }));
         assert!(params.get("body").is_none());
+    }
+
+    #[test]
+    fn worktree_audit_is_project_scoped_and_read_only() {
+        let args = ["worktree", "audit", "--project", r"D:\repo"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+
+        let (method, params) = parse_command(&args).expect("parse worktree audit command");
+
+        assert_eq!(method, ControlMethod::WorktreeAudit);
+        assert_eq!(params, json!({ "projectId": r"D:\repo" }));
+        assert!(params.get("force").is_none());
+    }
+
+    #[test]
+    fn worktree_audit_requires_a_project_outside_a_managed_agent() {
+        let args = ["worktree", "audit"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+
+        let error = parse_command(&args).expect_err("project should be required");
+        assert!(error.contains("project"));
     }
 }

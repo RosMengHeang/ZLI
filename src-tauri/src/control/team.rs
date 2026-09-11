@@ -1089,6 +1089,23 @@ impl TeamBackend for RuntimeTeamBackend {
     }
 
     fn cleanup_worktree(&self, project_id: &str, path: &str) -> Result<(), ControlError> {
+        let target = crate::git::paths::canonical_dir(path).map_err(|error| {
+            ControlError::new(ControlErrorCode::WorktreeCleanupFailed, error.to_string())
+        })?;
+        if let Some(terminal_id) = self
+            .pty
+            .running_session_at(&target)
+            .map_err(|error| {
+                ControlError::new(ControlErrorCode::WorktreeCleanupFailed, error.to_string())
+            })?
+        {
+            return Err(ControlError::new(
+                ControlErrorCode::WorktreeCleanupFailed,
+                format!(
+                    "worktree at '{path}' is still in use by terminal '{terminal_id}'; stop it before removing the worktree"
+                ),
+            ));
+        }
         worktree::remove_worktree(RemoveWorktreeRequest {
             repository_root: project_id.to_owned(),
             worktree_path: path.to_owned(),

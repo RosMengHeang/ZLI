@@ -270,6 +270,8 @@ Agent and TaxChat delivery queues are also durable. ZLI stores the bounded pendi
 
 Worktree storage can be inspected without mutation through `git_audit_worktrees({ repositoryRoot })`. The audit distinguishes protected main and runtime-owned checkouts, dirty or unreadable registered worktrees, locked entries, stale Git metadata, and empty or non-empty orphaned agent folders. Only an empty orphaned folder is marked safe for non-forced filesystem removal; stale Git metadata is separately marked safe for `git worktree prune`. The audit never deletes files or assumes that a clean checkout is unused.
 
+The same read-only report is available through the authenticated CLI as `zli worktree audit --project <project-path>`; the command has no force or delete mode.
+
 ## Known limitations
 
 - Exit codes are currently emitted as `null`; portable-pty child waiting is used for cleanup but the reader event contract does not yet carry the exact exit code.

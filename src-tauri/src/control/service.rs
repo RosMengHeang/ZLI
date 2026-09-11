@@ -81,6 +81,31 @@ impl ControlHandler for RuntimeControlHandler {
                 serde_json::to_value(self.team.queue_status(project_id.as_deref())?)
                     .map_err(serialization_error)
             }
+            ControlMethod::WorktreeAudit => {
+                let requested_project_id = match request.params.get("projectId") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(value)) if !value.trim().is_empty() => {
+                        Some(value.to_owned())
+                    }
+                    _ => return Err(invalid_params("worktree.audit projectId")),
+                };
+                let project_id = requested_project_id
+                    .or_else(|| (identity.project_id != "*").then(|| identity.project_id.clone()))
+                    .ok_or_else(|| invalid_params("worktree.audit projectId"))?;
+                if identity.project_id != "*" && identity.project_id != project_id {
+                    return Err(ControlError::new(
+                        ControlErrorCode::CapabilityDenied,
+                        "Caller cannot access another project's worktree",
+                    ));
+                }
+                let audit = crate::git::worktree::audit_worktrees(&project_id).map_err(|error| {
+                    ControlError::new(
+                        ControlErrorCode::ControlRuntimeError,
+                        format!("worktree audit failed: {error}"),
+                    )
+                })?;
+                serde_json::to_value(audit).map_err(serialization_error)
+            }
             ControlMethod::SessionList => {
                 let mut sessions = self
                     .supervisor
@@ -424,6 +449,7 @@ fn all_capabilities() -> Vec<Capability> {
         Capability::BrowserStorage,
         Capability::BrowserDownload,
         Capability::TaxChatSend,
+        Capability::WorktreeRead,
         Capability::WorktreeDiscard,
         Capability::CommandExecute,
     ]

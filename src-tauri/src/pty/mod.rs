@@ -85,6 +85,28 @@ mod tests {
     }
 
     #[test]
+    fn identifies_running_sessions_by_their_canonical_working_directory() {
+        let directory = tempdir().unwrap();
+        let manager = PtyManager::new();
+        let sink = MemoryEventSink::default();
+        let terminal = manager
+            .create_shell(
+                Some(directory.path().to_string_lossy().as_ref()),
+                sink,
+            )
+            .unwrap();
+        let canonical = dunce::canonicalize(directory.path()).unwrap();
+
+        assert_eq!(
+            manager.running_session_at(&canonical).unwrap(),
+            Some(terminal.id.clone())
+        );
+
+        manager.kill(&terminal.id).unwrap();
+        assert_eq!(manager.running_session_at(&canonical).unwrap(), None);
+    }
+
+    #[test]
     fn shell_session_supports_spaces_and_unicode_in_cwd() {
         let directory = tempdir().unwrap();
         let nested = directory.path().join("folder with spaces-ユニコード");

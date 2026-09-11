@@ -26,6 +26,8 @@ pub enum GitError {
     WorktreeExists { path: String },
     /// No worktree could be found at the given path.
     WorktreeNotFound { path: String },
+    /// A ZLI-owned terminal is still running from this worktree.
+    WorktreeInUse { path: String, terminal_id: String },
     /// No branch with this name could be found.
     BranchNotFound { branch: String },
     /// A path failed validation (missing, not a directory, escapes allowed roots, etc).
@@ -56,6 +58,10 @@ impl fmt::Display for GitError {
             GitError::WorktreeNotFound { path } => {
                 write!(f, "no worktree found at '{path}'")
             }
+            GitError::WorktreeInUse { path, terminal_id } => write!(
+                f,
+                "worktree at '{path}' is still in use by terminal '{terminal_id}'; stop it before removing the worktree"
+            ),
             GitError::BranchNotFound { branch } => write!(f, "branch '{branch}' was not found"),
             GitError::InvalidPath { path, reason } => {
                 write!(f, "invalid path '{path}': {reason}")

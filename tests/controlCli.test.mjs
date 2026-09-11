@@ -19,6 +19,15 @@ test("cli exposes queue diagnostics without accepting message content", async ()
   assert.deepEqual(parsed.request.params, { projectId: "D:/repo" });
 });
 
+test("cli exposes a project-scoped read-only worktree audit", async () => {
+  const { parseCli } = await import("../src/control/cli.ts");
+  const parsed = parseCli(["worktree", "audit", "--project", "D:/repo"]);
+
+  assert.equal(parsed.request.method, "worktree.audit");
+  assert.deepEqual(parsed.request.params, { projectId: "D:/repo" });
+  assert.equal(parsed.request.params.force, undefined);
+});
+
 test("cli requires project scope when spawning an agent", async () => {
   const { parseCli } = await import("../src/control/cli.ts");
   const parsed = parseCli(["agent", "spawn", "D:/repo", "codex", "Review", "tests"]);
