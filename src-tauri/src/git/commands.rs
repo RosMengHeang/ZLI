@@ -68,17 +68,27 @@ pub async fn git_remove_worktree(
 ) -> Result<RemovedWorktreeResult, GitError> {
     let manager = manager.inner().clone();
     run_blocking("git_remove_worktree", move || {
-        let target = super::paths::canonical_dir(&request.worktree_path)?;
-        let running_terminal = manager
-            .running_session_at(&target)
-            .map_err(|error| GitError::Io {
-                message: format!("failed to inspect runtime ownership: {error}"),
-            })?;
-        if let Some(terminal_id) = running_terminal {
-            return Err(GitError::WorktreeInUse {
-                path: request.worktree_path.clone(),
-                terminal_id,
-            });
+        let target = match super::paths::canonical_dir(&request.worktree_path) {
+            Ok(target) => Some(target),
+            Err(error) => {
+                if !matches!(&error, GitError::InvalidPath { reason, .. } if reason == "path does not exist") {
+                    return Err(error);
+                }
+                None
+            }
+        };
+        if let Some(target) = target {
+            let running_terminal = manager
+                .running_session_at(&target)
+                .map_err(|error| GitError::Io {
+                    message: format!("failed to inspect runtime ownership: {error}"),
+                })?;
+            if let Some(terminal_id) = running_terminal {
+                return Err(GitError::WorktreeInUse {
+                    path: request.worktree_path.clone(),
+                    terminal_id,
+                });
+            }
         }
         worktree::remove_worktree(request)
     })
