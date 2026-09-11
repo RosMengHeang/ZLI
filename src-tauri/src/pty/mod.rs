@@ -5,6 +5,7 @@ pub use manager::{
     EventSink, PtyManager, TerminalOutputEvent, TerminalSession, TerminalStatus,
     TerminalStatusEvent,
 };
+pub(crate) use manager::interactive_shell_args;
 #[cfg(test)]
 pub(crate) use process::capture as capture_process;
 pub(crate) use process::{inspect as inspect_process, terminate_verified as terminate_process};

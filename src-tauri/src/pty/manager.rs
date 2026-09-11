@@ -191,9 +191,10 @@ impl PtyManager {
     ) -> Result<TerminalSession, BackendError> {
         let cwd = default_cwd(requested_cwd)?;
         let executable = detect_shell()?;
+        let args = interactive_shell_args(&executable);
         self.spawn(
             executable,
-            Vec::new(),
+            args,
             cwd,
             cols,
             rows,
@@ -606,6 +607,23 @@ impl PtyManager {
             }
         }
     }
+}
+
+// Suppress only PowerShell's startup banner. Profile loading stays enabled so
+// user aliases and environment setup continue to work in interactive sessions.
+pub(crate) fn interactive_shell_args(executable: &Path) -> Vec<OsString> {
+    #[cfg(windows)]
+    {
+        let name = executable
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if name == "pwsh" || name == "powershell" {
+            return vec![OsString::from("-NoLogo")];
+        }
+    }
+    Vec::new()
 }
 
 fn write_agent_input(

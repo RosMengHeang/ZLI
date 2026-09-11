@@ -167,9 +167,10 @@ impl AgentManager {
                         return Err(error);
                     }
                 };
+                let shell_args = crate::pty::interactive_shell_args(&shell);
                 pty.spawn_agent_with_size_args_env(
                     shell,
-                    Vec::new(),
+                    shell_args,
                     Some(&launch_cwd),
                     request.cols.unwrap_or(120),
                     request.rows.unwrap_or(30),
