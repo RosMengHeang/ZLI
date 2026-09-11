@@ -341,17 +341,29 @@ pub struct RemovedWorktreeResult {
 pub fn remove_worktree(req: RemoveWorktreeRequest) -> Result<RemovedWorktreeResult, GitError> {
     let repo_dir = canonical_dir(&req.repository_root)?;
     ensure_is_repo(&repo_dir, &req.repository_root)?;
-    let target = canonical_dir(&req.worktree_path)?;
+    let (target, target_exists) = resolve_worktree_target(&req.worktree_path)?;
 
     let mut worktrees =
         parse_worktree_list(&run_git(&repo_dir, &["worktree", "list", "--porcelain"])?.stdout);
     append_orphaned_slots(&repo_dir, &mut worktrees)?;
     let entry = worktrees
         .iter()
-        .find(|w| Path::new(&w.path) == target)
+        .find(|w| path_key(&w.path) == path_key(&target.to_string_lossy()))
         .ok_or_else(|| GitError::WorktreeNotFound {
             path: req.worktree_path.clone(),
         })?;
+    if !target_exists {
+        // A registered worktree can disappear outside ZLI, for example when
+        // Windows removes a locked folder after the terminal exits. The safe
+        // recovery is to prune only the matching stale Git metadata. We do
+        // this after matching the path against Git's own worktree list so an
+        // arbitrary missing path can never be treated as successfully removed.
+        run_git(&repo_dir, &["worktree", "prune", "--expire", "now"])?;
+        return Ok(RemovedWorktreeResult {
+            path: req.worktree_path,
+            forced: req.force,
+        });
+    }
     if entry.orphaned {
         if !req.force && directory_has_entries(&target)? {
             return Err(GitError::DirtyWorktree {
@@ -405,6 +417,29 @@ pub fn remove_worktree(req: RemoveWorktreeRequest) -> Result<RemovedWorktreeResu
         path: req.worktree_path,
         forced: req.force,
     })
+}
+
+fn resolve_worktree_target(path: &str) -> Result<(PathBuf, bool), GitError> {
+    match canonical_dir(path) {
+        Ok(target) => Ok((target, true)),
+        Err(error) => {
+            if !matches!(&error, GitError::InvalidPath { reason, .. } if reason == "path does not exist") {
+                return Err(error);
+            }
+            let raw = PathBuf::from(path);
+            if !raw.is_absolute() {
+                return Err(error);
+            }
+            let Some(parent) = raw.parent() else {
+                return Err(error);
+            };
+            let Some(name) = raw.file_name() else {
+                return Err(error);
+            };
+            let parent = canonical_dir(parent.to_string_lossy().as_ref())?;
+            Ok((parent.join(name), false))
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
