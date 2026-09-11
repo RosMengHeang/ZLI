@@ -2313,6 +2313,39 @@ fn team_stop_revokes_the_child_control_token() {
 }
 
 #[test]
+fn stopping_agent_fails_and_removes_queued_messages() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let coordinator = super::TeamCoordinator::new(
+        backend.clone(),
+        Arc::new(CapabilityTokenStore::default()),
+        "endpoint".into(),
+    );
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+    backend.events.lock().unwrap().clear();
+
+    coordinator
+        .send("project-1", &child.agent_id, "This should be reported")
+        .expect("queue message");
+    coordinator
+        .stop("project-1", &child.agent_id)
+        .expect("stop child");
+
+    assert!(coordinator
+        .queue_status(Some("project-1"))
+        .expect("read queue status")
+        .is_empty());
+    let events = backend.events.lock().unwrap();
+    assert!(events
+        .iter()
+        .any(|event| event.kind == AgentEventKind::AgentMessageFailed));
+    assert!(events
+        .iter()
+        .any(|event| event.kind == AgentEventKind::AgentStopped));
+}
+
+#[test]
 fn team_message_queue_is_parent_child_scoped_and_not_written_early() {
     let backend = Arc::new(FakeTeamBackend::default());
     let coordinator = super::TeamCoordinator::new(

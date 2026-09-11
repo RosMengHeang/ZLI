@@ -887,7 +887,10 @@ impl TeamCoordinator {
     pub fn stop(&self, project_id: &str, agent_id: &str) -> Result<Value, ControlError> {
         let record = self.record(project_id, agent_id)?;
         self.backend.stop(agent_id)?;
-        let _ = self.inbox.drain(agent_id);
+        let drained = self.inbox.drain(agent_id)?;
+        for message in drained {
+            self.fail_queued_message(message);
+        }
         if let Some(token) = self
             .child_tokens
             .lock()
