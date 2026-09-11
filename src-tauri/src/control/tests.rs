@@ -20,7 +20,12 @@ use super::{
     CONTROL_PROTOCOL_VERSION,
 };
 use super::{CapabilityTokenStore, CommandRouter, ControlHandler};
-use super::{ProjectSnapshot, SnapshotStore, SnapshotStoreError};
+use super::{
+    OwnershipLedger, ProjectSnapshot, RuntimeOwnershipRecord, SnapshotStore, SnapshotStoreError,
+};
+use crate::pty::ProcessIdentity;
+#[cfg(windows)]
+use std::process::Command;
 use super::{RuntimeSession, SessionRegistry};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -407,6 +412,193 @@ fn supervisor_reports_protocol_and_resume_failures_with_stable_codes() {
         serde_json::to_value(missing).expect("serialize error")["code"],
         "missing_session"
     );
+}
+
+#[test]
+fn ownership_ledger_round_trips_atomically_and_replaces_records() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let ledger = OwnershipLedger::new(root.path().to_path_buf());
+    let first = RuntimeOwnershipRecord {
+        session_id: "session-1".into(),
+        agent_id: "agent-1".into(),
+        project_id: "project-1".into(),
+        terminal_id: "terminal-1".into(),
+        worktree_path: Some("D:/worktrees/agent-1".into()),
+        process: ProcessIdentity {
+            pid: 1001,
+            start_time: 2002,
+            executable: "C:/Windows/System32/cmd.exe".into(),
+        },
+        recorded_at: "2026-09-11T10:00:00Z".into(),
+    };
+    ledger.record(first.clone()).expect("record ownership");
+
+    let mut replacement = first.clone();
+    replacement.process.pid = 1002;
+    ledger.record(replacement.clone()).expect("replace ownership");
+
+    let records = ledger.records().expect("load ownership");
+    assert_eq!(records, vec![replacement]);
+    let path = root.path().join("control/runtime-ownership.json");
+    assert!(path.is_file());
+    assert!(!root.path().join("control/runtime-ownership.json.tmp").exists());
+    let encoded = std::fs::read_to_string(path).expect("read ownership");
+    assert!(!encoded.contains("environment"));
+    assert!(!encoded.contains("token"));
+    assert!(!encoded.contains("cookie"));
+    assert!(!encoded.contains("command"));
+
+    ledger.remove("session-1").expect("remove ownership");
+    assert!(ledger.records().expect("load after removal").is_empty());
+}
+
+#[test]
+fn ownership_ledger_rejects_future_schema_versions() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let ledger = OwnershipLedger::new(root.path().to_path_buf());
+    let directory = root.path().join("control");
+    std::fs::create_dir_all(&directory).expect("control dir");
+    std::fs::write(
+        directory.join("runtime-ownership.json"),
+        r#"{"schemaVersion":99,"records":[]}"#,
+    )
+    .expect("write future ownership schema");
+
+    let error = ledger.records().expect_err("future schema must fail");
+    assert_eq!(error.code(), "unsupported_ownership_schema");
+}
+
+#[cfg(windows)]
+#[test]
+fn reconcile_ownership_stops_an_exact_orphan_process() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let mut child = Command::new("cmd.exe")
+        .args(["/C", "timeout", "/T", "30", "/NOBREAK", ">NUL"])
+        .spawn()
+        .expect("spawn orphan fixture");
+    let identity = crate::pty::capture_process(child.id()).expect("capture process identity");
+    let ledger = OwnershipLedger::new(root.path().to_path_buf());
+    ledger
+        .record(RuntimeOwnershipRecord {
+            session_id: "orphan-session".into(),
+            agent_id: "orphan-agent".into(),
+            project_id: "project-1".into(),
+            terminal_id: "orphan-terminal".into(),
+            worktree_path: Some("D:/worktrees/orphan".into()),
+            process: identity,
+            recorded_at: "2026-09-11T10:00:00Z".into(),
+        })
+        .expect("record orphan ownership");
+    let supervisor = super::Supervisor::new(
+        root.path().to_path_buf(),
+        PtyManager::new(),
+        EventHub::new(8),
+    );
+
+    let report = supervisor.reconcile().expect("reconcile exact orphan");
+
+    assert_eq!(report.stopped_owned_process_ids, vec![child.id().to_string()]);
+    assert_eq!(
+        report.orphaned_owned_process_ids,
+        vec![child.id().to_string()]
+    );
+    assert_eq!(report.cleared_ownership_record_ids, vec!["orphan-session"]);
+    assert!(child.try_wait().expect("wait orphan fixture").is_some());
+    assert!(ledger.records().expect("read cleared ledger").is_empty());
+}
+
+#[cfg(windows)]
+#[test]
+fn reconcile_ownership_retains_a_pid_with_a_different_creation_time() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let mut child = Command::new("cmd.exe")
+        .args(["/C", "timeout", "/T", "30", "/NOBREAK", ">NUL"])
+        .spawn()
+        .expect("spawn mismatch fixture");
+    let mut identity = crate::pty::capture_process(child.id()).expect("capture process identity");
+    identity.start_time += 1;
+    let ledger = OwnershipLedger::new(root.path().to_path_buf());
+    ledger
+        .record(RuntimeOwnershipRecord {
+            session_id: "mismatch-session".into(),
+            agent_id: "mismatch-agent".into(),
+            project_id: "project-1".into(),
+            terminal_id: "mismatch-terminal".into(),
+            worktree_path: None,
+            process: identity,
+            recorded_at: "2026-09-11T10:00:00Z".into(),
+        })
+        .expect("record mismatch ownership");
+    let supervisor = super::Supervisor::new(
+        root.path().to_path_buf(),
+        PtyManager::new(),
+        EventHub::new(8),
+    );
+
+    let report = supervisor.reconcile().expect("reconcile mismatch");
+
+    assert!(report.stopped_owned_process_ids.is_empty());
+    assert!(report.orphaned_owned_process_ids.is_empty());
+    assert_eq!(report.unknown_process_ids, vec![child.id().to_string()]);
+    assert_eq!(ledger.records().expect("read retained ledger").len(), 1);
+    assert!(child.try_wait().expect("poll mismatch fixture").is_none());
+    child.kill().expect("clean mismatch fixture");
+    child.wait().expect("reap mismatch fixture");
+}
+
+#[test]
+fn supervisor_shutdown_clears_current_records_but_retains_unrelated_records() {
+    use crate::agents::{Agent, AgentStatus};
+
+    let root = tempfile::tempdir().expect("temp dir");
+    let pty = PtyManager::new();
+    let terminal = pty
+        .create_shell(
+            Some(root.path().to_string_lossy().as_ref()),
+            MemoryEventSink::default(),
+        )
+        .expect("create current runtime terminal");
+    let supervisor = super::Supervisor::new(root.path().to_path_buf(), pty.clone(), EventHub::new(8));
+    supervisor
+        .register_agent(
+            &Agent {
+                id: "current-agent".into(),
+                name: "Current agent".into(),
+                provider: "shell".into(),
+                terminal_id: terminal.id.clone(),
+                cwd: terminal.cwd.clone(),
+                branch: String::new(),
+                worktree_path: None,
+                status: AgentStatus::Running,
+                error: None,
+            },
+            "project-1".into(),
+            supervisor.runtime_sink(Arc::new(MemoryEventSink::default())),
+        )
+        .expect("register current runtime");
+    let ledger = OwnershipLedger::new(root.path().to_path_buf());
+    ledger
+        .record(RuntimeOwnershipRecord {
+            session_id: "unrelated-session".into(),
+            agent_id: "unrelated-agent".into(),
+            project_id: "project-2".into(),
+            terminal_id: "unrelated-terminal".into(),
+            worktree_path: None,
+            process: ProcessIdentity {
+                pid: 4,
+                start_time: 1,
+                executable: "C:/unknown.exe".into(),
+            },
+            recorded_at: "2026-09-11T10:00:00Z".into(),
+        })
+        .expect("record unrelated ownership");
+
+    supervisor.shutdown().expect("shutdown supervisor");
+
+    let records = ledger.records().expect("read post-shutdown ledger");
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].session_id, "unrelated-session");
+    pty.kill(&terminal.id).expect("stop current runtime terminal");
 }
 
 #[test]

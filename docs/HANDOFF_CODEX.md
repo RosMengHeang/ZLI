@@ -18,6 +18,24 @@ Creating a shell or agent opens a native portable PTY at the requested size, sta
 - Kill removes only the requested UUID, atomically marks it killed, kills and waits for that child, then emits its exit event. A reader thread already in flight cannot remove a replacement session because removal uses UUID plus `Arc::ptr_eq`.
 - The reader streams output and reports reader failures; a separate child waiter polls process completion and marks natural exits with the numeric code when available. Each lifecycle transition is emitted once, removes only that session, and cannot overwrite a prior killed or failed state. There is no terminal-output polling loop.
 
+## Crash-safe process ownership
+
+When a PTY child is created on Windows, ZLI records a process identity containing
+the PID, native process creation timestamp, and full executable path. The
+versioned ledger lives at `<app-data>/control/runtime-ownership.json`; it never
+stores command arguments, environment variables, tokens, cookies, or message
+bodies. Reconciliation checks all three identity fields through a native process
+handle. Only an exact match may be terminated, and the handle used for the
+identity check is also the handle used for termination, preventing PID reuse
+from targeting another process. Mismatches and inaccessible processes remain
+retained as unknown records for review. A normal application exit clears only
+records associated with the current session registry; a crash leaves records
+for the next startup to reconcile.
+
+`ReconcileReport` exposes `orphanedOwnedProcessIds`,
+`stoppedOwnedProcessIds`, `unknownProcessIds`, and
+`clearedOwnershipRecordIds` alongside offline sessions and retained worktrees.
+
 ## Output streaming
 
 Each reader thread sends output chunks through an `EventSink`. Tauri uses `AppEventSink` in `src-tauri/src/commands.rs`:

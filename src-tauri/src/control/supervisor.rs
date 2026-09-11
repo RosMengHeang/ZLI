@@ -1,12 +1,16 @@
+use super::events::utc_rfc3339_now;
 use super::{
-    AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, ProjectSnapshot,
-    ReconcileReport, RuntimeSession, SessionDescriptor, SessionManager, SessionRegistry,
-    SnapshotStore, SnapshotStoreError,
+    AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, OwnershipLedger,
+    OwnershipLedgerError, ProjectSnapshot, ReconcileReport, RuntimeOwnershipRecord, RuntimeSession,
+    SessionDescriptor, SessionManager, SessionRegistry, SnapshotStore, SnapshotStoreError,
 };
 use crate::agents::providers::{ProviderRegistry, ResumeAvailability, ResumeSupport};
 use crate::error::BackendError;
 use crate::event_hub::EventHub;
-use crate::pty::{EventSink, PtyManager, TerminalStatus};
+use crate::pty::{
+    inspect_process, terminate_process, EventSink, ProcessInspection, ProcessTermination,
+    PtyManager, TerminalStatus,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -21,6 +25,7 @@ pub enum SessionCommandError {
     ResumeUnsupported(String),
     ProtocolMismatch(String),
     Snapshot(String),
+    Ownership(String),
     Runtime(String),
 }
 
@@ -36,6 +41,12 @@ impl From<BackendError> for SessionCommandError {
 impl From<SnapshotStoreError> for SessionCommandError {
     fn from(error: SnapshotStoreError) -> Self {
         Self::Snapshot(error.to_string())
+    }
+}
+
+impl From<OwnershipLedgerError> for SessionCommandError {
+    fn from(error: OwnershipLedgerError) -> Self {
+        Self::Ownership(error.to_string())
     }
 }
 
@@ -63,6 +74,7 @@ pub struct Supervisor {
     registry: Arc<SessionRegistry>,
     sessions: Arc<SessionManager>,
     store: SnapshotStore,
+    ownership: OwnershipLedger,
     providers: ProviderRegistry,
     events: EventHub,
 }
@@ -70,7 +82,7 @@ pub struct Supervisor {
 impl Supervisor {
     pub fn new(app_data_dir: std::path::PathBuf, pty: PtyManager, events: EventHub) -> Self {
         let registry = Arc::new(SessionRegistry::default());
-        let store = SnapshotStore::new(app_data_dir);
+        let store = SnapshotStore::new(app_data_dir.clone());
         let sessions = Arc::new(SessionManager::new(registry.clone(), store.clone()));
         Self {
             started: AtomicBool::new(false),
@@ -78,6 +90,7 @@ impl Supervisor {
             registry,
             sessions,
             store,
+            ownership: OwnershipLedger::new(app_data_dir.clone()),
             providers: ProviderRegistry::default(),
             events,
         }
@@ -210,8 +223,32 @@ impl Supervisor {
         };
         let session = RuntimeSession::with_sink(descriptor, self.pty.clone(), sink);
         let result = session.descriptor()?;
+        if let Some(process) = self.pty.process_identity(&agent.terminal_id)? {
+            self.ownership.record(RuntimeOwnershipRecord {
+                session_id: result.session_id.clone(),
+                agent_id: result.agent_id.clone(),
+                project_id: result.project_id.clone(),
+                terminal_id: result.terminal_id.clone(),
+                worktree_path: result.worktree_path.clone(),
+                process,
+                recorded_at: utc_rfc3339_now(),
+            })?;
+        }
         self.registry.insert(session);
         Ok(result)
+    }
+
+    pub fn shutdown(&self) -> Result<(), SessionCommandError> {
+        let terminal_ids = self
+            .registry
+            .list()?
+            .into_iter()
+            .filter_map(|session| session.descriptor().ok())
+            .map(|descriptor| descriptor.terminal_id)
+            .filter(|terminal_id| !terminal_id.trim().is_empty())
+            .collect::<Vec<_>>();
+        self.ownership.remove_for_terminals(&terminal_ids)?;
+        Ok(())
     }
 
     pub fn resume(
@@ -299,6 +336,7 @@ impl Supervisor {
         project_id: Option<&str>,
     ) -> Result<ReconcileReport, SessionCommandError> {
         let mut report = ReconcileReport::default();
+        self.reconcile_ownership(project_id, &mut report)?;
         for session in self.registry.list()? {
             let descriptor = session.descriptor()?;
             if project_id.is_some_and(|project| descriptor.project_id != project) {
@@ -353,6 +391,61 @@ impl Supervisor {
             let _ = self.events.publish(event);
         }
         Ok(report)
+    }
+
+    fn reconcile_ownership(
+        &self,
+        project_id: Option<&str>,
+        report: &mut ReconcileReport,
+    ) -> Result<(), SessionCommandError> {
+        for record in self.ownership.records()? {
+            if project_id.is_some_and(|project| record.project_id != project) {
+                continue;
+            }
+            if self
+                .pty
+                .session_status(&record.terminal_id)
+                .is_ok_and(|status| status == TerminalStatus::Running)
+            {
+                continue;
+            }
+            match inspect_process(&record.process) {
+                ProcessInspection::Matching => {
+                    let process_id = record.process.pid.to_string();
+                    report.orphaned_owned_process_ids.push(process_id.clone());
+                    match terminate_process(&record.process) {
+                        ProcessTermination::Terminated => {
+                            report.stopped_owned_process_ids.push(process_id);
+                            self.ownership.remove(&record.session_id)?;
+                            report
+                                .cleared_ownership_record_ids
+                                .push(record.session_id.clone());
+                        }
+                        ProcessTermination::NotRunning => {
+                            self.ownership.remove(&record.session_id)?;
+                            report
+                                .cleared_ownership_record_ids
+                                .push(record.session_id.clone());
+                        }
+                        ProcessTermination::Mismatch | ProcessTermination::Unknown => {
+                            report.unknown_process_ids.push(process_id);
+                        }
+                    }
+                }
+                ProcessInspection::NotRunning => {
+                    self.ownership.remove(&record.session_id)?;
+                    report
+                        .cleared_ownership_record_ids
+                        .push(record.session_id.clone());
+                }
+                ProcessInspection::Mismatch | ProcessInspection::Unknown => {
+                    report
+                        .unknown_process_ids
+                        .push(record.process.pid.to_string());
+                }
+            }
+        }
+        Ok(())
     }
 
     fn discover_resume_descriptors(&self, project_id: &str) -> Result<(), SessionCommandError> {

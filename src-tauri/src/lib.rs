@@ -212,6 +212,7 @@ pub fn run() {
                 // exits. The frontend checkpoint retains resumable metadata;
                 // the PTY itself is an in-memory runtime resource.
                 let _ = app.state::<pty::PtyManager>().shutdown();
+                let _ = app.state::<Arc<control::Supervisor>>().shutdown();
             }
         });
 }

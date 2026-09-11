@@ -205,23 +205,8 @@ impl SnapshotStore {
         destination: &Path,
         bytes: &[u8],
     ) -> Result<(), SnapshotStoreError> {
-        let directory = destination.parent().expect("atomic path has a parent");
-        fs::create_dir_all(directory)?;
-        let temporary = destination.with_extension("json.tmp");
-        let result = (|| -> Result<(), SnapshotStoreError> {
-            let mut file = File::create(&temporary)?;
-            file.write_all(bytes)?;
-            file.sync_all()?;
-            replace_file(&temporary, destination)?;
-            if let Ok(directory_file) = File::open(directory) {
-                let _ = directory_file.sync_all();
-            }
-            Ok(())
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(&temporary);
-        }
-        result
+        save_bytes_atomic_file(destination, bytes)?;
+        Ok(())
     }
 
     fn project_dir(&self, project_id: &str) -> Result<PathBuf, SnapshotStoreError> {
@@ -230,6 +215,26 @@ impl SnapshotStore {
         }
         Ok(self.root.join(project_storage_key(project_id)))
     }
+}
+
+pub(crate) fn save_bytes_atomic_file(destination: &Path, bytes: &[u8]) -> io::Result<()> {
+    let directory = destination.parent().expect("atomic path has a parent");
+    fs::create_dir_all(directory)?;
+    let temporary = destination.with_extension("json.tmp");
+    let result = (|| -> io::Result<()> {
+        let mut file = File::create(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        replace_file(&temporary, destination)?;
+        if let Ok(directory_file) = File::open(directory) {
+            let _ = directory_file.sync_all();
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }
 
 #[derive(Debug, Deserialize, Serialize)]

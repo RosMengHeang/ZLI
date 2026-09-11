@@ -6,9 +6,9 @@ pub use manager::{
     TerminalStatusEvent,
 };
 pub use process::{ProcessIdentity, ProcessInspection, ProcessTermination};
-pub(crate) use process::{
-    capture as capture_process, inspect as inspect_process, terminate_verified as terminate_process,
-};
+pub(crate) use process::{inspect as inspect_process, terminate_verified as terminate_process};
+#[cfg(test)]
+pub(crate) use process::capture as capture_process;
 
 #[cfg(test)]
 pub use manager::MemoryEventSink;

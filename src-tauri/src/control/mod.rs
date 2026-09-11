@@ -1,6 +1,7 @@
 pub mod attention;
 pub mod browser;
 mod events;
+mod ownership;
 mod persistence;
 pub(crate) mod prompt_detector;
 mod protocol;
@@ -20,6 +21,9 @@ pub use events::{
     ExecutionStatus,
 };
 pub use persistence::{ProjectSnapshot, SnapshotStore, SnapshotStoreError};
+pub use ownership::{
+    OwnershipLedger, OwnershipLedgerError, RuntimeOwnershipRecord, OWNERSHIP_SCHEMA_VERSION,
+};
 pub use protocol::{
     CallerIdentity, Capability, ControlError, ControlErrorCode, ControlMethod, ControlRequest,
     ControlResponse, CONTROL_PROTOCOL_VERSION,

@@ -41,6 +41,9 @@ export interface ReconcileReport {
   offlineSessionIds: string[];
   retainedMissingWorktrees: string[];
   stoppedOwnedProcessIds: string[];
+  orphanedOwnedProcessIds: string[];
+  unknownProcessIds: string[];
+  clearedOwnershipRecordIds: string[];
 }
 
 export interface RestoreResult {

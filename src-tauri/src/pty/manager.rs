@@ -345,7 +345,11 @@ impl PtyManager {
     }
 
     pub fn process_identity(&self, id: &str) -> Result<Option<ProcessIdentity>, BackendError> {
-        Ok(self.session(id)?.process_identity.clone())
+        match self.session(id) {
+            Ok(session) => Ok(session.process_identity.clone()),
+            Err(BackendError::SessionNotFound(_)) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     pub fn bind_agent(
