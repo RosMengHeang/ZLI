@@ -10,6 +10,18 @@ import {
   type PtyOutputListener,
 } from "../lib/ptyEventFanout";
 import { terminalRegistry } from "./registry";
+import {
+  bindPtyListeners,
+  decodeTerminalBytes,
+  flushTerminalDecoder,
+} from "./ptyBridgeHelpers";
+
+export {
+  bindPtyListeners,
+  decodeTerminalBytes,
+  flushTerminalDecoder,
+  type PtyListen,
+} from "./ptyBridgeHelpers";
 
 let started = false;
 const unlistens: UnlistenFn[] = [];
@@ -17,6 +29,7 @@ const pendingOutput = new Map<string, string[]>();
 let outputFrame = 0;
 const outputFanout = createPtyOutputFanout();
 const lifecycleFanout = createPtyLifecycleFanout();
+const decoders = new Map<string, TextDecoder>();
 
 export function subscribePtyOutput(listener: PtyOutputListener): () => void {
   return outputFanout.subscribe(listener);
@@ -75,8 +88,10 @@ function handleOutput(payload: unknown): void {
     queueOutput(id, data);
     return;
   }
-  outputFanout.publish(id, new TextDecoder().decode(data));
-  terminalRegistry.write(id, data);
+  const text = decodeTerminalBytes(decoders, id, data);
+  if (!text) return;
+  outputFanout.publish(id, text);
+  queueOutput(id, text);
 }
 
 function handleStatus(payload: unknown): void {
@@ -85,11 +100,21 @@ function handleStatus(payload: unknown): void {
   if (!id || !rec) return;
   const status = rec.status;
   if (status === "exited" || status === "killed") {
+    const tail = flushTerminalDecoder(decoders, id);
+    if (tail) {
+      outputFanout.publish(id, tail);
+      queueOutput(id, tail);
+    }
     useTerminalStore.getState().markExited(id, null);
     lifecycleFanout.publish({ type: "exit", terminalId: id });
     return;
   }
   if (status === "failed") {
+    const tail = flushTerminalDecoder(decoders, id);
+    if (tail) {
+      outputFanout.publish(id, tail);
+      queueOutput(id, tail);
+    }
     useTerminalStore.getState().markError(id, "PTY session failed.");
     lifecycleFanout.publish({ type: "error", terminalId: id, message: "PTY session failed." });
     return;
@@ -107,6 +132,11 @@ function handleExit(payload: unknown): void {
   const rec = payloadRecord(payload) as PtyExitPayload | null;
   const id = payloadId(payload);
   if (!id) return;
+  const tail = flushTerminalDecoder(decoders, id);
+  if (tail) {
+    outputFanout.publish(id, tail);
+    queueOutput(id, tail);
+  }
   const exitCode = typeof rec?.exitCode === "number" ? rec.exitCode : null;
   useTerminalStore.getState().markExited(id, exitCode);
   lifecycleFanout.publish({ type: "exit", terminalId: id });
@@ -116,6 +146,11 @@ function handleError(payload: unknown): void {
   const rec = payloadRecord(payload) as PtyErrorPayload | null;
   const id = payloadId(payload);
   if (!id) return;
+  const tail = flushTerminalDecoder(decoders, id);
+  if (tail) {
+    outputFanout.publish(id, tail);
+    queueOutput(id, tail);
+  }
   const message = typeof rec?.message === "string" ? rec.message : "PTY error";
   useTerminalStore.getState().markError(id, message);
   lifecycleFanout.publish({ type: "error", terminalId: id, message });
@@ -123,20 +158,16 @@ function handleError(payload: unknown): void {
 
 export async function startPtyBridge(): Promise<void> {
   if (started) return;
-  started = true;
   try {
-    const outputEvents = [PTY_EVENTS.output, "terminal-output"];
-    const statusEvents = [PTY_EVENTS.status, "terminal-status"];
-    for (const name of outputEvents) {
-      unlistens.push(await listen(name, (event) => handleOutput(event.payload)));
-    }
-    for (const name of statusEvents) {
-      unlistens.push(await listen(name, (event) => handleStatus(event.payload)));
-    }
-    unlistens.push(await listen(PTY_EVENTS.exit, (event) => handleExit(event.payload)));
-    unlistens.push(await listen(PTY_EVENTS.error, (event) => handleError(event.payload)));
+    const collected = await bindPtyListeners(listen, {
+      onOutput: handleOutput,
+      onStatus: handleStatus,
+      onExit: handleExit,
+      onError: handleError,
+    });
+    unlistens.push(...collected);
+    started = true;
   } catch (err) {
-    started = false;
     const parsed = toAppError(err);
     console.warn("PTY event bridge not available:", parsed.message);
   }
@@ -146,6 +177,9 @@ export async function stopPtyBridge(): Promise<void> {
   if (outputFrame) cancelAnimationFrame(outputFrame);
   outputFrame = 0;
   flushPendingOutput();
+  for (const id of [...decoders.keys()]) {
+    flushTerminalDecoder(decoders, id);
+  }
   await Promise.all(unlistens.map((fn) => fn()));
   unlistens.length = 0;
   started = false;

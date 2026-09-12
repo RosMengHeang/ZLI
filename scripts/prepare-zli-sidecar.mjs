@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, chmodSync, mkdirSync } from "node:fs";
+import {
+  copyFileSync,
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  unlinkSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -35,6 +41,69 @@ export function browserUseBuiltBinaryPath(targetDir, targetTriple, hasExplicitTa
   );
 }
 
+function isLockError(error) {
+  const code = error?.code;
+  if (code === "EBUSY" || code === "EPERM" || code === "EACCES" || code === "ETXTBSY") {
+    return true;
+  }
+  const message = String(error?.message ?? error).toLowerCase();
+  return (
+    message.includes("being used by another process")
+    || message.includes("ebusy")
+    || message.includes("resource busy")
+    || message.includes("text file busy")
+  );
+}
+
+/**
+ * Copy a built binary into the sidecar destination. Never silently clobber a
+ * locked/in-use target: on lock failure leave `<dest>.new` and throw.
+ */
+export function installSidecarBinary(
+  source,
+  destination,
+  {
+    copyFile = copyFileSync,
+    exists = existsSync,
+    remove = unlinkSync,
+  } = {},
+) {
+  if (!exists(destination)) {
+    copyFile(source, destination);
+    return { destination, staged: null };
+  }
+
+  const staging = `${destination}.new`;
+  try {
+    copyFile(source, staging);
+  } catch (error) {
+    throw error;
+  }
+
+  try {
+    copyFile(staging, destination);
+  } catch (error) {
+    if (isLockError(error)) {
+      throw new Error(
+        `Refusing to overwrite in-use sidecar '${destination}'; wrote '${staging}' instead. Stop the running process and retry. (${error.code ?? error.message})`,
+      );
+    }
+    try {
+      remove(staging);
+    } catch {
+      // Keep staging if cleanup fails; the overwrite error is primary.
+    }
+    throw error;
+  }
+
+  try {
+    remove(staging);
+  } catch {
+    // Destination is updated; orphan staging is non-fatal.
+  }
+  return { destination, staged: null };
+}
+
 export function prepareZliSidecar(root = projectRoot, environment = process.env) {
   const manifestPath = path.join(root, "src-tauri", "Cargo.toml");
   const explicitTarget = environment.CARGO_BUILD_TARGET?.trim() || "";
@@ -55,8 +124,8 @@ export function prepareZliSidecar(root = projectRoot, environment = process.env)
   const browserUseSource = browserUseBuiltBinaryPath(targetDir, targetTriple, Boolean(explicitTarget));
   const browserUseDestination = path.join(destinationDirectory, browserUseSidecarFileName(targetTriple));
   mkdirSync(destinationDirectory, { recursive: true });
-  copyFileSync(source, destination);
-  copyFileSync(browserUseSource, browserUseDestination);
+  installSidecarBinary(source, destination);
+  installSidecarBinary(browserUseSource, browserUseDestination);
   if (!isWindowsTarget(targetTriple)) chmodSync(destination, 0o755);
   if (!isWindowsTarget(targetTriple)) chmodSync(browserUseDestination, 0o755);
   return destination;

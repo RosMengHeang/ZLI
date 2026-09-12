@@ -6,6 +6,13 @@ use std::path::{Path, PathBuf};
 const EVENT_LOG_FILE: &str = "events.jsonl";
 const MAX_PERSISTED_TEXT_CHARS: usize = 4_096;
 
+/// Extra on-disk lines past `capacity` before a rewrite.
+/// Default hub capacity is 1024 → headroom 256. Tiny test capacities keep at
+/// least 1 so appends past capacity do not rewrite every time.
+fn rewrite_headroom(capacity: usize) -> usize {
+    (capacity / 4).max(1)
+}
+
 /// The durable event log is intentionally bounded by the event hub capacity.
 /// Snapshots own the full scrollback, so output events keep only their identity
 /// and sequence while lifecycle and coordination events keep their payloads.
@@ -13,6 +20,7 @@ pub(crate) struct DurableEventLog {
     path: PathBuf,
     capacity: usize,
     line_count: usize,
+    rewrite_count: usize,
 }
 
 impl DurableEventLog {
@@ -28,6 +36,7 @@ impl DurableEventLog {
             path,
             capacity,
             line_count,
+            rewrite_count: 0,
         };
         if line_count != events.len() {
             log.rewrite(&events)?;
@@ -51,24 +60,34 @@ impl DurableEventLog {
             .open(&self.path)?;
         file.write_all(&bytes)?;
         file.write_all(b"\n")?;
+        // Lifecycle durability stays on sync_all. AgentOutput is already
+        // payload-stripped; headroom cuts rewrite thrash without deferred sync.
         file.sync_all()?;
+        // Windows cannot replace events.jsonl while this append handle is open.
+        drop(file);
         self.line_count += 1;
-        if self.line_count > self.capacity {
+        if self.line_count > self.capacity + rewrite_headroom(self.capacity) {
             self.rewrite(retained)?;
         }
         Ok(())
     }
 
+    pub(crate) fn rewrite_count(&self) -> usize {
+        self.rewrite_count
+    }
+
     fn rewrite(&mut self, retained: &[AgentEventEnvelope]) -> io::Result<()> {
         let mut bytes = Vec::new();
         let start = retained.len().saturating_sub(self.capacity);
-        for event in &retained[start..] {
+        let kept = &retained[start..];
+        for event in kept {
             let persisted = compact_event(event);
             serde_json::to_writer(&mut bytes, &persisted).map_err(io::Error::other)?;
             bytes.push(b'\n');
         }
         crate::control::persistence::save_bytes_atomic_file(&self.path, &bytes)?;
-        self.line_count = retained.len().min(self.capacity);
+        self.line_count = kept.len();
+        self.rewrite_count += 1;
         Ok(())
     }
 }
@@ -116,4 +135,63 @@ fn compact_event(event: &AgentEventEnvelope) -> AgentEventEnvelope {
         }
     }
     compacted
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{rewrite_headroom, DurableEventLog};
+    use crate::control::{AgentEventEnvelope, AgentEventKind, AgentEventPayload};
+    use tempfile::tempdir;
+
+    fn lifecycle_event(id: &str, sequence: u64) -> AgentEventEnvelope {
+        let mut event = AgentEventEnvelope::new(
+            id.into(),
+            "project-1".into(),
+            Some("agent-1".into()),
+            AgentEventKind::AgentStarted,
+            AgentEventPayload::Empty,
+        );
+        event.sequence = sequence;
+        event
+    }
+
+    #[test]
+    fn append_past_capacity_rewrites_o_of_n_over_headroom_not_o_of_n() {
+        let root = tempdir().expect("temporary event log directory");
+        let capacity = 8;
+        let headroom = rewrite_headroom(capacity);
+        let (mut log, _) =
+            DurableEventLog::open(root.path(), capacity).expect("open durable event log");
+
+        let mut retained = Vec::new();
+        let append_count = capacity + headroom * 20;
+        for index in 0..append_count {
+            let event = lifecycle_event(&format!("event-{index}"), (index as u64) + 1);
+            retained.push(event.clone());
+            if retained.len() > capacity {
+                retained.remove(0);
+            }
+            log.append(&event, &retained)
+                .expect("append durable event");
+        }
+
+        let past_capacity = append_count.saturating_sub(capacity);
+        let expected = if append_count <= capacity + headroom {
+            0
+        } else {
+            1 + (append_count - capacity - headroom - 1) / (headroom + 1)
+        };
+        assert_eq!(log.rewrite_count(), expected);
+        assert!(
+            log.rewrite_count() <= past_capacity / headroom + 1,
+            "rewrites must be O(N/HEADROOM), got {} for {} past-capacity appends (headroom {})",
+            log.rewrite_count(),
+            past_capacity,
+            headroom
+        );
+        assert!(
+            log.rewrite_count() < past_capacity,
+            "must not rewrite on every past-capacity append"
+        );
+    }
 }

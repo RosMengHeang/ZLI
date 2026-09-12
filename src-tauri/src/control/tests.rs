@@ -1923,6 +1923,26 @@ fn claude_prompt_detection_flows_from_pty_output_to_waiting_once() {
 }
 
 #[test]
+fn agent_output_normalizer_reassembles_split_utf8_without_replacement() {
+    use super::prompt_detector::AgentOutputNormalizer;
+
+    let marker = "❯".as_bytes();
+    let mut normalizer = AgentOutputNormalizer::new("project-1", "agent-1", "claude-code");
+    let first = normalizer.accept_output(&marker[..2]);
+    let second = normalizer.accept_output(&marker[2..]);
+    let texts: Vec<&str> = first
+        .iter()
+        .chain(second.iter())
+        .filter_map(|event| match &event.payload {
+            AgentEventPayload::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(texts.join(""), "❯");
+    assert!(texts.iter().all(|text| !text.contains('\u{FFFD}')));
+}
+
+#[test]
 fn provider_prompt_detection_handles_claude_epochs_and_unknown_providers() {
     use super::prompt_detector::AgentOutputNormalizer;
 

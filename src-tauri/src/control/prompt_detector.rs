@@ -1,3 +1,4 @@
+use super::utf8_stream::Utf8StreamDecoder;
 use super::{AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource};
 use uuid::Uuid;
 
@@ -190,6 +191,7 @@ pub(crate) struct AgentOutputNormalizer {
     project_id: String,
     agent_id: String,
     detector: ProviderPromptDetector,
+    utf8: Utf8StreamDecoder,
 }
 
 impl AgentOutputNormalizer {
@@ -198,17 +200,21 @@ impl AgentOutputNormalizer {
             project_id: project_id.to_owned(),
             agent_id: agent_id.to_owned(),
             detector: ProviderPromptDetector::new(provider_id),
+            utf8: Utf8StreamDecoder::new(),
         }
     }
 
     pub(crate) fn accept_output(&mut self, chunk: &[u8]) -> Vec<AgentEventEnvelope> {
-        let mut events = vec![self.event(
-            AgentEventKind::AgentOutput,
-            AgentEventPayload::Text {
-                text: String::from_utf8_lossy(chunk).into_owned(),
-            },
-            AgentEventSource::Pty,
-        )];
+        // Prompt detection stays byte-based so split markers still match.
+        let text = self.utf8.push(chunk);
+        let mut events = Vec::new();
+        if !text.is_empty() {
+            events.push(self.event(
+                AgentEventKind::AgentOutput,
+                AgentEventPayload::Text { text },
+                AgentEventSource::Pty,
+            ));
+        }
         if let Some(reason) = self.detector.accept(chunk) {
             events.push(self.event(
                 AgentEventKind::AgentPromptDetected,
@@ -223,6 +229,7 @@ impl AgentOutputNormalizer {
 
     pub(crate) fn clear(&mut self) {
         self.detector.clear();
+        self.utf8.clear();
     }
 
     pub(crate) fn accept_input(&mut self, input: &[u8]) {

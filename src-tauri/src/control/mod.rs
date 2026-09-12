@@ -9,6 +9,7 @@ mod managed_agent_context;
 mod ownership;
 pub(crate) mod persistence;
 pub(crate) mod prompt_detector;
+pub(crate) mod utf8_stream;
 mod protocol;
 mod reconcile;
 mod router;

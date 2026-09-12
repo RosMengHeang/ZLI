@@ -163,6 +163,57 @@ fn refuses_to_remove_dirty_worktree_without_explicit_force() {
 }
 
 #[test]
+fn refuses_to_remove_git_locked_worktree_even_with_force() {
+    let repo = init_repo();
+    let repo_path = repo.path().to_string_lossy().into_owned();
+    let created = create_worktree(CreateWorktreeRequest {
+        repository_root: repo_path.clone(),
+        provider: "locked-agent".to_string(),
+        base_branch: None,
+    })
+    .expect("create_worktree");
+
+    git(
+        repo.path(),
+        &["worktree", "lock", &created.worktree_path, "--reason", "held"],
+    );
+
+    let audit = audit_worktrees(&repo_path).expect("audit locked worktree");
+    assert!(audit
+        .entries
+        .iter()
+        .any(|entry| entry.path == created.worktree_path && entry.state == WorktreeAuditState::Locked));
+
+    let without_force = remove_worktree(RemoveWorktreeRequest {
+        repository_root: repo_path.clone(),
+        worktree_path: created.worktree_path.clone(),
+        force: false,
+    })
+    .expect_err("locked worktree must be refused without force");
+    assert!(matches!(without_force, GitError::WorktreeLocked { .. }));
+
+    let with_force = remove_worktree(RemoveWorktreeRequest {
+        repository_root: repo_path.clone(),
+        worktree_path: created.worktree_path.clone(),
+        force: true,
+    })
+    .expect_err("locked worktree must stay refused with force");
+    assert!(matches!(with_force, GitError::WorktreeLocked { .. }));
+    assert!(
+        Path::new(&created.worktree_path).exists(),
+        "locked worktree must remain on disk"
+    );
+
+    git(repo.path(), &["worktree", "unlock", &created.worktree_path]);
+    remove_worktree(RemoveWorktreeRequest {
+        repository_root: repo_path,
+        worktree_path: created.worktree_path.clone(),
+        force: false,
+    })
+    .expect("unlocked worktree should remove");
+}
+
+#[test]
 fn removes_missing_registered_worktree_by_pruning_metadata() {
     let repo = init_repo();
     let repo_path = repo.path().to_string_lossy().into_owned();

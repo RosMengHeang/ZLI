@@ -387,6 +387,12 @@ pub fn remove_worktree(req: RemoveWorktreeRequest) -> Result<RemovedWorktreeResu
             message: "refusing to remove the repository's main worktree".to_string(),
         });
     }
+    if entry.locked {
+        return Err(GitError::WorktreeLocked {
+            path: req.worktree_path.clone(),
+            message: "Unlock this worktree explicitly before removing it.".to_string(),
+        });
+    }
 
     if !req.force && !is_clean(&target)? {
         return Err(GitError::DirtyWorktree {
@@ -611,25 +617,50 @@ fn directory_has_entries(path: &Path) -> Result<bool, GitError> {
 }
 
 fn remove_directory(path: &Path, force: bool) -> Result<(), GitError> {
+    let map_remove_error = |error: std::io::Error| -> GitError {
+        let detail = error.to_string();
+        if is_share_violation_message(&detail) {
+            GitError::FileLocked {
+                path: path.display().to_string(),
+                message: format!(
+                    "{detail}; close programs using this folder and retry"
+                ),
+            }
+        } else {
+            GitError::Io {
+                message: format!(
+                    "failed to delete worktree directory '{}': {detail}; close programs using this folder and retry",
+                    path.display()
+                ),
+            }
+        }
+    };
     if force {
         clear_readonly(path)?;
-        std::fs::remove_dir_all(path).map_err(|error| GitError::Io {
-            message: format!("failed to delete worktree directory '{}': {error}; close programs using this folder and retry", path.display()),
-        })
+        std::fs::remove_dir_all(path).map_err(map_remove_error)
     } else {
-        std::fs::remove_dir(path).map_err(|error| GitError::Io {
-            message: format!("failed to delete empty worktree directory '{}': {error}; close programs using this folder and retry", path.display()),
-        })
+        std::fs::remove_dir(path).map_err(map_remove_error)
     }
 }
 
-fn is_permission_error(error: &GitError) -> bool {
-    let message = match error {
-        GitError::GitCommandFailed { message, .. } | GitError::Io { message } => message,
-        _ => return false,
-    };
+fn is_share_violation_message(message: &str) -> bool {
     let message = message.to_ascii_lowercase();
-    message.contains("permission denied") || message.contains("access is denied")
+    message.contains("being used by another process")
+        || message.contains("os error 32")
+        || message.contains("(os error 32)")
+}
+
+fn is_permission_error(error: &GitError) -> bool {
+    match error {
+        GitError::FileLocked { .. } => true,
+        GitError::GitCommandFailed { message, .. } | GitError::Io { message } => {
+            let message = message.to_ascii_lowercase();
+            message.contains("permission denied")
+                || message.contains("access is denied")
+                || is_share_violation_message(&message)
+        }
+        _ => false,
+    }
 }
 
 fn retry_worktree_operation<T, F>(mut operation: F, delay: Duration) -> Result<T, GitError>
@@ -830,7 +861,9 @@ fn parse_worktree_list(porcelain: &str) -> Vec<WorktreeInfo> {
 
 #[cfg(test)]
 mod tests {
-    use super::{retry_worktree_operation, GitError};
+    use super::{
+        is_permission_error, is_share_violation_message, retry_worktree_operation, GitError,
+    };
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
@@ -854,5 +887,19 @@ mod tests {
 
         assert_eq!(result, "removed");
         assert_eq!(attempts.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn share_violation_messages_count_as_permission_errors() {
+        assert!(is_share_violation_message(
+            "The process cannot access the file because it is being used by another process. (os error 32)"
+        ));
+        assert!(is_permission_error(&GitError::Io {
+            message: "failed: being used by another process".into(),
+        }));
+        assert!(is_permission_error(&GitError::FileLocked {
+            path: "C:/tmp/wt".into(),
+            message: "os error 32".into(),
+        }));
     }
 }

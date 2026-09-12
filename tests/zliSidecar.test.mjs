@@ -42,3 +42,42 @@ test("browser-use sidecars resolve to the paired release binary", async () => {
     path.join(path.resolve("build-target"), "x86_64-pc-windows-msvc", "release", "zli-browser-use.exe"),
   );
 });
+
+test("installSidecarBinary refuses to clobber a locked destination and leaves .new", async () => {
+  const { installSidecarBinary } = await import("../scripts/prepare-zli-sidecar.mjs");
+  const copied = [];
+  const error = Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" });
+
+  assert.throws(
+    () =>
+      installSidecarBinary("built.exe", "binaries/zli.exe", {
+        exists: () => true,
+        copyFile: (source, destination) => {
+          copied.push([source, destination]);
+          if (destination === "binaries/zli.exe") throw error;
+        },
+        remove: () => {
+          throw new Error("should not remove staging after lock failure");
+        },
+      }),
+    /Refusing to overwrite in-use sidecar/,
+  );
+
+  assert.deepEqual(copied, [
+    ["built.exe", "binaries/zli.exe.new"],
+    ["binaries/zli.exe.new", "binaries/zli.exe"],
+  ]);
+});
+
+test("installSidecarBinary copies when the destination is missing", async () => {
+  const { installSidecarBinary } = await import("../scripts/prepare-zli-sidecar.mjs");
+  const copied = [];
+  const result = installSidecarBinary("built.exe", "binaries/zli.exe", {
+    exists: () => false,
+    copyFile: (source, destination) => {
+      copied.push([source, destination]);
+    },
+  });
+  assert.deepEqual(copied, [["built.exe", "binaries/zli.exe"]]);
+  assert.equal(result.destination, "binaries/zli.exe");
+});

@@ -39,7 +39,7 @@ import { useWorkspaceStore } from "../stores/workspaceStore";
 import { configureTaxChatRuntime, useTaxChatStore } from "../stores/taxChatStore";
 import { useUiStore } from "../stores/uiStore";
 import { controlClient } from "../control/client";
-import { startPtyBridge, subscribePtyLifecycle, subscribePtyOutput } from "../terminal/ptyBridge";
+import { startPtyBridge, stopPtyBridge, subscribePtyLifecycle, subscribePtyOutput } from "../terminal/ptyBridge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "./CommandPalette";
@@ -218,6 +218,7 @@ export function AppShell() {
     });
     void startPtyBridge();
     return () => {
+      void stopPtyBridge();
       useTaxChatStore.getState().reset();
     };
   }, []);

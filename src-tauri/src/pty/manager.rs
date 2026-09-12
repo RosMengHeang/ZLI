@@ -2,6 +2,7 @@
 use super::process::ProcessGroup;
 use super::process::{capture, ProcessIdentity};
 use crate::control::prompt_detector::AgentOutputNormalizer;
+use crate::control::utf8_stream::Utf8StreamDecoder;
 use crate::control::{AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource};
 use crate::error::BackendError;
 use crate::system::{default_cwd, detect_shell};
@@ -854,18 +855,32 @@ fn spawn_reader(
         .name(format!("pty-reader-{}", session.id))
         .spawn(move || {
             let mut buffer = [0_u8; 8192];
+            let mut utf8 = Utf8StreamDecoder::new();
             loop {
                 match reader.read(&mut buffer) {
-                    Ok(0) => break,
+                    Ok(0) => {
+                        let tail = utf8.finish();
+                        if !tail.is_empty() {
+                            session.sink.emit_output(TerminalOutputEvent {
+                                terminal_id: session.id.to_string(),
+                                data: tail,
+                            });
+                        }
+                        break;
+                    }
                     Ok(size) => {
-                        let event = TerminalOutputEvent {
-                            terminal_id: session.id.to_string(),
-                            data: String::from_utf8_lossy(&buffer[..size]).into_owned(),
-                        };
-                        session.sink.emit_output(event.clone());
+                        let data = utf8.push(&buffer[..size]);
+                        if !data.is_empty() {
+                            let event = TerminalOutputEvent {
+                                terminal_id: session.id.to_string(),
+                                data,
+                            };
+                            session.sink.emit_output(event);
+                        }
                         session.emit_agent_output(&buffer[..size]);
                     }
                     Err(_) => {
+                        let _ = utf8.finish();
                         let (transitioned, control_event) =
                             session.transition_status(TerminalStatus::Failed, None);
                         if transitioned {

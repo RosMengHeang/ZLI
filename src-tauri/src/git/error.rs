@@ -28,6 +28,10 @@ pub enum GitError {
     WorktreeNotFound { path: String },
     /// A ZLI-owned terminal is still running from this worktree.
     WorktreeInUse { path: String, terminal_id: String },
+    /// Git reports the worktree as locked; unlock explicitly before remove.
+    WorktreeLocked { path: String, message: String },
+    /// The filesystem path is locked by another process (Windows share violation).
+    FileLocked { path: String, message: String },
     /// No branch with this name could be found.
     BranchNotFound { branch: String },
     /// A path failed validation (missing, not a directory, escapes allowed roots, etc).
@@ -62,6 +66,12 @@ impl fmt::Display for GitError {
                 f,
                 "worktree at '{path}' is still in use by terminal '{terminal_id}'; stop it before removing the worktree"
             ),
+            GitError::WorktreeLocked { path, message } => {
+                write!(f, "worktree at '{path}' is locked: {message}")
+            }
+            GitError::FileLocked { path, message } => {
+                write!(f, "path '{path}' is locked by another process: {message}")
+            }
             GitError::BranchNotFound { branch } => write!(f, "branch '{branch}' was not found"),
             GitError::InvalidPath { path, reason } => {
                 write!(f, "invalid path '{path}': {reason}")
