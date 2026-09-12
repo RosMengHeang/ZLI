@@ -1593,7 +1593,6 @@ fn contract_enums_serialize_with_snake_case_wire_values() {
             AgentEventKind::BrowserCommandFailed,
             "browser_command_failed",
         ),
-        (AgentEventKind::TaxchatRoomStarted, "taxchat_room_started"),
         (
             AgentEventKind::TaxchatMessageQueued,
             "taxchat_message_queued",
@@ -1602,7 +1601,6 @@ fn contract_enums_serialize_with_snake_case_wire_values() {
             AgentEventKind::TaxchatMessageDelivered,
             "taxchat_message_delivered",
         ),
-        (AgentEventKind::TaxchatMessageSent, "taxchat_message_sent"),
         (
             AgentEventKind::TaxchatMessageFailed,
             "taxchat_message_failed",
@@ -4094,6 +4092,105 @@ fn capability_report_does_not_equate_installation_with_integration() {
             crate::agents::providers::IdentityVerdict::Verified { .. }
         )
     );
+}
+
+#[test]
+fn taxchat_after_idle_glyph_writes_once() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+    drain_spawn_task(&coordinator, &backend, &child);
+
+    coordinator.handle_event(&prompt_detected(
+        "project-1",
+        &child.agent_id,
+        "codex_prompt_marker",
+    ));
+    assert!(backend.deliveries.lock().unwrap().is_empty());
+
+    let result = coordinator
+        .send_taxchat(
+            "project-1",
+            None,
+            "after idle taxchat",
+            std::slice::from_ref(&child.agent_id),
+        )
+        .expect("send TaxChat after idle");
+    assert_eq!(result["queuedIds"], json!([child.agent_id]));
+    assert_eq!(result["deliveredIds"], json!([]));
+    assert_eq!(backend.deliveries.lock().unwrap().len(), 1);
+    assert!(backend.deliveries.lock().unwrap()[0]
+        .1
+        .contains("after idle taxchat"));
+}
+
+#[test]
+fn taxchat_to_explicit_pull_stays_pending_until_pull() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
+
+    let mut cursor_request = team_spawn_request();
+    cursor_request.provider_id = "cursor-agent".into();
+    cursor_request.task = "Inspect the repo".into();
+    let cursor = coordinator.spawn(cursor_request).expect("spawn cursor");
+    backend.deliveries.lock().unwrap().clear();
+    backend.events.lock().unwrap().clear();
+
+    let result = coordinator
+        .send_taxchat(
+            "project-1",
+            None,
+            "wait for pull",
+            std::slice::from_ref(&cursor.agent_id),
+        )
+        .expect("queue TaxChat for pull provider");
+    assert_eq!(result["queuedIds"], json!([cursor.agent_id]));
+    assert_eq!(result["deliveredIds"], json!([]));
+    assert!(backend.deliveries.lock().unwrap().is_empty());
+    let queued = backend.events.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(queued.kind, AgentEventKind::TaxchatMessageQueued);
+
+    coordinator.handle_event(&prompt_detected(
+        "project-1",
+        &cursor.agent_id,
+        "codex_prompt_marker",
+    ));
+    assert!(backend.deliveries.lock().unwrap().is_empty());
+
+    let pulled_spawn = coordinator
+        .pull("project-1", &cursor.agent_id)
+        .expect("pull spawn task");
+    assert!(pulled_spawn.delivered);
+    assert!(backend.deliveries.lock().unwrap().iter().any(|(_, body)| body == "Inspect the repo"));
+    assert!(!backend
+        .deliveries
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(_, body)| body.contains("wait for pull")));
+
+    let pulled = coordinator
+        .pull("project-1", &cursor.agent_id)
+        .expect("pull TaxChat inbox");
+    assert!(pulled.delivered);
+    assert!(backend
+        .deliveries
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(_, body)| body.contains("wait for pull")));
+    let delivered = backend
+        .events
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|event| event.kind == AgentEventKind::TaxchatMessageDelivered)
+        .cloned()
+        .expect("taxchat delivered event");
+    assert_eq!(delivered.kind, AgentEventKind::TaxchatMessageDelivered);
 }
 
 fn wait_for_control_event(

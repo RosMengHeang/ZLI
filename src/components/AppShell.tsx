@@ -38,7 +38,7 @@ import { useProjectStore } from "../stores/projectStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { configureTaxChatRuntime, useTaxChatStore } from "../stores/taxChatStore";
 import { useUiStore } from "../stores/uiStore";
-import { ptyWrite } from "../tauri/terminal";
+import { controlClient } from "../control/client";
 import { startPtyBridge, subscribePtyLifecycle, subscribePtyOutput } from "../terminal/ptyBridge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
@@ -204,21 +204,12 @@ export function AppShell() {
   useEffect(() => {
     configureTaxChatRuntime({
       transport: {
-        write: async (terminalId, data) => {
-          const child = Object.values(useTeamStore.getState().agents)
-            .find((agent) => agent.terminalId === terminalId);
-          if (!child) {
-            await ptyWrite(terminalId, data);
-            return;
-          }
-          const deliveryId = await useTeamStore.getState().sendMessage({
-            projectId: child.projectId,
-            agentId: child.agentId,
-            body: data.replace(/\r$/, ""),
-          });
-          const delivery = useTeamStore.getState().deliveries[deliveryId];
-          if (delivery.status === "failed") throw new Error(delivery.error ?? "Message delivery failed");
-        },
+        send: async (input) => controlClient.request("taxchat.send", {
+          projectId: input.projectId,
+          body: input.body,
+          recipientIds: input.recipientIds,
+          ...(input.senderAgentId ? { senderAgentId: input.senderAgentId } : {}),
+        }),
       },
       bridge: {
         subscribePtyOutput,
@@ -230,6 +221,10 @@ export function AppShell() {
       useTaxChatStore.getState().reset();
     };
   }, []);
+
+  useEffect(() => {
+    configureTaxChatRuntime({ projectId: project?.path ?? null });
+  }, [project?.path]);
 
   useEffect(() => {
     if (restoreAttempted.current) return;

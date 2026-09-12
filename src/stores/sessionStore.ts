@@ -258,6 +258,22 @@ async function synchronizeFrontend(
   }
 }
 
+async function hydrateTaxChatRoom(taxChatRoom: unknown, agents: RestoredAgent[]): Promise<void> {
+  if (taxChatRoom == null) return;
+  const { configureTaxChatRuntime, useTaxChatStore } = await import("./taxChatStore.ts");
+  const projectId = agents[0]?.projectId ?? null;
+  if (projectId) configureTaxChatRuntime({ projectId });
+  useTaxChatStore.getState().restore(
+    taxChatRoom as import("../types/models.ts").TaxChatRoom,
+    agents.map((agent) => ({
+      id: agent.id,
+      name: agent.name,
+      provider: agent.providerId,
+      terminalId: agent.terminalId,
+    })),
+  );
+}
+
 function makeState(client: SessionClient) {
   return (set: StoreApi<SessionState>["setState"], get: StoreApi<SessionState>["getState"]): SessionState => ({
     phase: "idle",
@@ -286,6 +302,9 @@ function makeState(client: SessionClient) {
           return { agents, phase: "ready", error: null };
         });
         await Promise.all(automaticResumeIds.map((id) => get().resumeAgent(id)));
+        if (restored.snapshot?.taxChatRoom != null) {
+          await hydrateTaxChatRoom(restored.snapshot.taxChatRoom, Object.values(get().agents));
+        }
       } catch (error) {
         set({ phase: "error", error: errorMessage(error) });
       }
@@ -329,6 +348,7 @@ function makeState(client: SessionClient) {
       const paneTree = isPaneNode(decoded.value.paneTree) ? decoded.value.paneTree : null;
       set({ phase: "ready", projectId: decoded.value.projectId, agents, error: null });
       await synchronizeFrontend(decoded.value.projectId, records, paneTree, decoded.value.browser);
+      await hydrateTaxChatRoom(decoded.value.taxChatRoom, records);
     },
 
     forgetAgent: async (agentId) => {

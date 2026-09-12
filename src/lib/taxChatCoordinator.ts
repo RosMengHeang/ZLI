@@ -1,11 +1,11 @@
 import { newId } from "./ids.ts";
 import {
   consumeTaxChatChunk,
-  formatTaxChatDelivery,
   type TaxChatParserState,
 } from "./taxChatProtocol.ts";
 import type {
   TaxChatMessage,
+  TaxChatMessageStatus,
   TaxChatParticipant,
   TaxChatRoomStatus,
   TaxChatRoomSettings,
@@ -18,8 +18,24 @@ export interface TaxChatAgentDescriptor {
   terminalId: string;
 }
 
+export interface TaxChatSendRequest {
+  projectId: string;
+  body: string;
+  recipientIds: string[];
+  senderAgentId?: string;
+}
+
+export interface TaxChatSendResult {
+  messageId: string;
+  recipientIds: string[];
+  queuedIds: string[];
+  deliveredIds: string[];
+  failedIds: string[];
+  scheduled: boolean;
+}
+
 export interface TaxChatTransport {
-  write: (terminalId: string, data: string) => Promise<void>;
+  send: (input: TaxChatSendRequest) => Promise<TaxChatSendResult>;
 }
 
 export type TaxChatCoordinatorEvent =
@@ -28,7 +44,15 @@ export type TaxChatCoordinatorEvent =
   | { type: "participant"; participant: TaxChatParticipant }
   | { type: "error"; message: TaxChatMessage };
 
+export interface TaxChatCoordinatorSnapshot {
+  status: TaxChatRoomStatus;
+  round: number;
+  participants: TaxChatParticipant[];
+  messages: TaxChatMessage[];
+}
+
 export interface TaxChatCoordinatorOptions {
+  projectId: string;
   agents: TaxChatAgentDescriptor[];
   settings: TaxChatRoomSettings;
   transport: TaxChatTransport;
@@ -44,12 +68,8 @@ export interface TaxChatCoordinator {
   handleOutput(agentId: string, chunk: string): void;
   handleAgentExit(agentId: string): void;
   recordExternalMessage(message: TaxChatMessage): void;
-  snapshot(): {
-    status: TaxChatRoomStatus;
-    round: number;
-    participants: TaxChatParticipant[];
-    messages: TaxChatMessage[];
-  };
+  hydrate(snapshot: TaxChatCoordinatorSnapshot): void;
+  snapshot(): TaxChatCoordinatorSnapshot;
   dispose(): void;
 }
 
@@ -67,6 +87,13 @@ function normalizeSettings(settings: TaxChatRoomSettings): TaxChatRoomSettings {
   };
 }
 
+function statusFromSendResult(result: TaxChatSendResult): TaxChatMessageStatus {
+  if (result.deliveredIds.length > 0) return "delivered";
+  if (result.failedIds.length > 0 && result.queuedIds.length === 0) return "failed";
+  if (result.queuedIds.length > 0) return "submitted";
+  return "pending";
+}
+
 export function createTaxChatCoordinator(options: TaxChatCoordinatorOptions): TaxChatCoordinator {
   const settings = normalizeSettings(options.settings);
   const agentMap = new Map(options.agents.map((agent) => [agent.id, agent]));
@@ -81,7 +108,7 @@ export function createTaxChatCoordinator(options: TaxChatCoordinatorOptions): Ta
     ]),
   );
   const parserStates = new Map<string, TaxChatParserState>();
-  const queues = new Map<string, Promise<void>>();
+  let outbound: Promise<void> = Promise.resolve();
   let status: TaxChatRoomStatus = "ready";
   let round = 1;
   let totalRouted = 0;
@@ -118,17 +145,27 @@ export function createTaxChatCoordinator(options: TaxChatCoordinatorOptions): Ta
   }
 
   function appendMessage(
-    input: Omit<TaxChatMessage, "id" | "createdAt" | "round">,
+    input: Omit<TaxChatMessage, "id" | "createdAt" | "round"> & { id?: string; createdAt?: string; round?: number },
   ): TaxChatMessage {
     const message: TaxChatMessage = {
       ...input,
-      id: newId(),
-      createdAt: new Date().toISOString(),
-      round,
+      id: input.id ?? newId(),
+      createdAt: input.createdAt ?? new Date().toISOString(),
+      round: input.round ?? round,
+      recipientIds: [...input.recipientIds],
     };
     messages.push(message);
     emit({ type: "message", message });
     return message;
+  }
+
+  function replaceMessage(message: TaxChatMessage, previousId?: string): TaxChatMessage {
+    const index = messages.findIndex((candidate) => candidate.id === (previousId ?? message.id));
+    const copy = { ...message, recipientIds: [...message.recipientIds] };
+    if (index >= 0) messages[index] = copy;
+    else messages.push(copy);
+    emit({ type: "message", message: copy });
+    return copy;
   }
 
   function appendSystem(body: string, kind: "system" | "error" = "system"): TaxChatMessage {
@@ -161,12 +198,6 @@ export function createTaxChatCoordinator(options: TaxChatCoordinatorOptions): Ta
     });
   }
 
-  function transcriptWith(body: string, senderName: string): string {
-    const history = messages.slice(-24).map((message) => `${message.senderId}: ${message.body}`);
-    history.push(`${senderName}: ${body}`);
-    return history.join("\n");
-  }
-
   function pauseAtLimit(reason: string): void {
     appendSystem(reason);
     setStatus("paused", reason);
@@ -186,42 +217,66 @@ export function createTaxChatCoordinator(options: TaxChatCoordinatorOptions): Ta
     return true;
   }
 
-  function enqueue(agentId: string, senderName: string, senderId: string, recipientIds: string[], body: string): Promise<void> {
-    const agent = agentMap.get(agentId);
-    if (!agent) return Promise.resolve();
+  function enqueueSend(
+    localMessageId: string,
+    senderId: string,
+    recipientIds: string[],
+    body: string,
+  ): Promise<void> {
     const run = async () => {
       if (disposed || status === "stopped" || status === "paused") return;
-      updateParticipant(agentId, { status: "delivering" });
+      for (const agentId of recipientIds) {
+        updateParticipant(agentId, { status: "delivering" });
+      }
       try {
-        await options.transport.write(
-          agent.terminalId,
-          `${formatTaxChatDelivery({
-            senderName,
-            senderId,
-            recipientIds,
-            transcript: transcriptWith(body, senderName),
-          })}\r`,
-        );
-        if (participantMap.get(agentId)?.status !== "unavailable") {
-          updateParticipant(agentId, { status: "available" });
-        }
-        appendMessage({
-          senderId: "system",
-          recipientIds: [agentId],
-          kind: "delivery",
-          body: `Delivered to ${agent.name}.`,
-          status: "delivered",
+        const result = await options.transport.send({
+          projectId: options.projectId,
+          body,
+          recipientIds,
+          ...(senderId !== "user" ? { senderAgentId: senderId } : {}),
         });
+        if (disposed) return;
+        const existing = messages.find((message) => message.id === localMessageId);
+        if (existing) {
+          replaceMessage({
+            ...existing,
+            id: result.messageId,
+            status: statusFromSendResult(result),
+            recipientIds: result.recipientIds.length ? result.recipientIds : recipientIds,
+          }, localMessageId);
+        }
+        for (const agentId of recipientIds) {
+          if (result.failedIds.includes(agentId)) {
+            updateParticipant(agentId, { status: "available" });
+            continue;
+          }
+          if (participantMap.get(agentId)?.status === "unavailable") continue;
+          updateParticipant(agentId, {
+            status: result.deliveredIds.includes(agentId) ? "available" : "queued",
+          });
+        }
+        if (result.failedIds.length && result.queuedIds.length === 0 && result.deliveredIds.length === 0) {
+          appendSystem("TaxChat message was not queued for any recipient.", "error");
+        }
         scheduleIdle();
       } catch (error) {
-        updateParticipant(agentId, { status: "available" });
-        appendSystem(`Could not deliver TaxChat message to ${agent.name}: ${error instanceof Error ? error.message : String(error)}`, "error");
+        const existing = messages.find((message) => message.id === localMessageId);
+        if (existing) {
+          replaceMessage({ ...existing, status: "failed" });
+        }
+        for (const agentId of recipientIds) {
+          if (participantMap.get(agentId)?.status !== "unavailable") {
+            updateParticipant(agentId, { status: "available" });
+          }
+        }
+        appendSystem(
+          `Could not submit TaxChat message: ${error instanceof Error ? error.message : String(error)}`,
+          "error",
+        );
       }
     };
-    const previous = queues.get(agentId);
-    const write = previous ? previous.then(run) : run();
-    queues.set(agentId, write.catch(() => undefined));
-    return write;
+    outbound = outbound.then(run, run);
+    return outbound;
   }
 
   function routeBlock(senderId: string, recipient: string, body: string): void {
@@ -243,13 +298,12 @@ export function createTaxChatCoordinator(options: TaxChatCoordinatorOptions): Ta
 
     const routedIds = recipientIds.filter((recipientId) => canRoute(recipientId));
     if (!routedIds.length || status !== "running") return;
-    const sender = agentMap.get(senderId);
-    appendMessage({
+    const message = appendMessage({
       senderId,
       recipientIds: routedIds,
       kind: "agent",
       body,
-      status: "pending",
+      status: "queued",
     });
     totalRouted += routedIds.length;
     for (const recipientId of routedIds) {
@@ -258,8 +312,8 @@ export function createTaxChatCoordinator(options: TaxChatCoordinatorOptions): Ta
         status: "queued",
         routedCount: (participant?.routedCount ?? 0) + 1,
       });
-      void enqueue(recipientId, sender?.name ?? senderId, senderId, routedIds, body);
     }
+    void enqueueSend(message.id, senderId, routedIds, body);
     scheduleIdle();
     if (totalRouted >= settings.totalMessageLimit) {
       pauseAtLimit("TaxChat paused: the room reached its message limit.");
@@ -296,7 +350,7 @@ export function createTaxChatCoordinator(options: TaxChatCoordinatorOptions): Ta
 
     stop: () => {
       if (disposed || status === "stopped") return;
-      queues.clear();
+      outbound = Promise.resolve();
       setStatus("stopped", "Stopped by user.");
       appendSystem("TaxChat stopped. Terminal sessions remain running.");
     },
@@ -309,22 +363,22 @@ export function createTaxChatCoordinator(options: TaxChatCoordinatorOptions): Ta
         appendSystem("Choose at least one available agent before sending a TaxChat message.", "error");
         return;
       }
-      appendMessage({
+      const message = appendMessage({
         senderId: "user",
         recipientIds: validRecipients,
         kind: "user",
         body: text,
-        status: "delivered",
+        status: "queued",
       });
-      scheduleIdle();
-      await Promise.all(validRecipients.map((agentId) => {
+      for (const agentId of validRecipients) {
         const participant = participantMap.get(agentId);
         updateParticipant(agentId, {
           status: "queued",
           routedCount: participant?.routedCount ?? 0,
         });
-        return enqueue(agentId, "You", "user", validRecipients, text);
-      }));
+      }
+      scheduleIdle();
+      await enqueueSend(message.id, "user", validRecipients, text);
     },
 
     handleOutput: (agentId, chunk) => {
@@ -349,9 +403,13 @@ export function createTaxChatCoordinator(options: TaxChatCoordinatorOptions): Ta
       const existingIndex = messages.findIndex((candidate) => candidate.id === message.id);
       if (existingIndex >= 0) {
         const existing = messages[existingIndex];
+        const nextStatus = existing.status === "delivered" && message.status !== "failed"
+          ? "delivered"
+          : message.status;
         const updated = {
           ...existing,
           ...message,
+          status: nextStatus,
           recipientIds: [...message.recipientIds],
         };
         messages[existingIndex] = updated;
@@ -365,6 +423,28 @@ export function createTaxChatCoordinator(options: TaxChatCoordinatorOptions): Ta
       scheduleIdle();
     },
 
+    hydrate: (snapshot) => {
+      if (disposed) return;
+      status = snapshot.status;
+      round = Math.max(1, snapshot.round || 1);
+      totalRouted = snapshot.participants.reduce((sum, participant) => sum + participant.routedCount, 0);
+      participantMap.clear();
+      for (const participant of snapshot.participants) {
+        participantMap.set(participant.agentId, { ...participant });
+      }
+      for (const agentId of agentMap.keys()) {
+        if (!participantMap.has(agentId)) {
+          participantMap.set(agentId, { agentId, status: "available", routedCount: 0 });
+        }
+      }
+      messages.splice(0, messages.length, ...snapshot.messages.map((message) => ({
+        ...message,
+        recipientIds: [...message.recipientIds],
+      })));
+      if (status === "running") scheduleIdle();
+      else clearInactivityTimer();
+    },
+
     snapshot: () => ({
       status,
       round,
@@ -375,7 +455,7 @@ export function createTaxChatCoordinator(options: TaxChatCoordinatorOptions): Ta
     dispose: () => {
       disposed = true;
       clearInactivityTimer();
-      queues.clear();
+      outbound = Promise.resolve();
       parserStates.clear();
     },
   };

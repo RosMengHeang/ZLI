@@ -58,7 +58,13 @@ export interface Agent {
 
 export type TaxChatRoomStatus = "ready" | "running" | "idle" | "paused" | "stopped";
 export type TaxChatMessageKind = "user" | "agent" | "delivery" | "system" | "error";
-export type TaxChatMessageStatus = "pending" | "delivered" | "failed" | "informational";
+export type TaxChatMessageStatus =
+  | "queued"
+  | "submitted"
+  | "pending"
+  | "delivered"
+  | "failed"
+  | "informational";
 
 export interface TaxChatParticipant {
   agentId: AgentId;

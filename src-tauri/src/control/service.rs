@@ -276,9 +276,27 @@ impl ControlHandler for RuntimeControlHandler {
                         .map(|session| session.agent_id)
                         .collect();
                 }
+                let sender_agent_id = match (
+                    identity.agent_id.as_deref(),
+                    request
+                        .params
+                        .get("senderAgentId")
+                        .and_then(Value::as_str)
+                        .filter(|value| !value.trim().is_empty()),
+                ) {
+                    (Some(identity_agent), Some(sender)) if sender != identity_agent => {
+                        return Err(ControlError::new(
+                            ControlErrorCode::CapabilityDenied,
+                            "Caller cannot spoof TaxChat sender identity",
+                        ));
+                    }
+                    (Some(identity_agent), _) => Some(identity_agent.to_owned()),
+                    (None, Some(sender)) => Some(sender.to_owned()),
+                    (None, None) => None,
+                };
                 self.team.send_taxchat(
                     &project_id,
-                    identity.agent_id.as_deref(),
+                    sender_agent_id.as_deref(),
                     param(&request.params, "body")?,
                     &recipient_ids,
                 )

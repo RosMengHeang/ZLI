@@ -53,10 +53,8 @@ const AGENT_EVENT_KINDS = [
   "browser_command_started",
   "browser_command_completed",
   "browser_command_failed",
-  "taxchat_room_started",
   "taxchat_message_queued",
   "taxchat_message_delivered",
-  "taxchat_message_sent",
   "taxchat_message_failed",
   "attention_ack",
   "attention_mark_all_read",
@@ -173,7 +171,6 @@ function payloadMatchesEventKind(kind: string, payload: AgentEventPayload): bool
   }
   if (kind === "taxchat_message_queued"
     || kind === "taxchat_message_delivered"
-    || kind === "taxchat_message_sent"
     || kind === "taxchat_message_failed") {
     return payload.type === "taxchat";
   }

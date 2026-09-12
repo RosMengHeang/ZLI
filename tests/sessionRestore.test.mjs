@@ -162,6 +162,57 @@ test("a pending resume suppresses duplicate requests", async () => {
   assert.equal(calls, 1);
 });
 
+test("restoreSession applies taxChatRoom after agents are restored", async () => {
+  const { createSessionStoreForTest } = await import("../src/stores/sessionStore.ts");
+  const { useTaxChatStore, configureTaxChatRuntime } = await import("../src/stores/taxChatStore.ts");
+  configureTaxChatRuntime({
+    projectId: "D:/project",
+    transport: {
+      send: async ({ recipientIds }) => ({
+        messageId: "unused",
+        recipientIds,
+        queuedIds: recipientIds,
+        deliveredIds: [],
+        failedIds: [],
+        scheduled: false,
+      }),
+    },
+    bridge: null,
+  });
+  useTaxChatStore.getState().reset();
+  const store = createSessionStoreForTest({
+    reconnect: async () => ({ protocolVersion: 1, currentSequence: 0, events: [], sessions: [] }),
+    restoreProject: async () => ({ snapshot: null, sessionIds: [], createdSessionIds: [] }),
+    resume: async () => { throw new Error("unused"); },
+  });
+  const checkpoint = {
+    ...checkpointWithAgent("available"),
+    taxChatRoom: {
+      id: "room-restored",
+      status: "idle",
+      participantIds: ["agent-1"],
+      participants: [{ agentId: "agent-1", status: "available", routedCount: 0 }],
+      messages: [{
+        id: "msg-1",
+        senderId: "user",
+        recipientIds: ["agent-1"],
+        kind: "user",
+        body: "Checkpointed TaxChat",
+        createdAt: "2026-09-12T00:00:00Z",
+        status: "pending",
+        round: 1,
+      }],
+      round: 1,
+    },
+  };
+
+  await store.restoreSession(checkpoint);
+
+  assert.equal(store.getState().agents["agent-1"].id, "agent-1");
+  assert.equal(useTaxChatStore.getState().room?.id, "room-restored");
+  assert.equal(useTaxChatStore.getState().room?.messages[0].body, "Checkpointed TaxChat");
+});
+
 test("forget removes the restored agent from local state after backend cleanup", async () => {
   const { createSessionStoreForTest } = await import("../src/stores/sessionStore.ts");
   const calls = [];

@@ -48,7 +48,7 @@ test("agent event decoder accepts bounded TaxChat delivery details", async () =>
     failedIds: ["agent-2"],
   };
 
-  assert.equal(isAgentEventEnvelope({ ...validEvent, source: "taxchat", kind: "taxchat_message_sent", payload }), true);
+  assert.equal(isAgentEventEnvelope({ ...validEvent, source: "taxchat", kind: "taxchat_message_delivered", payload }), true);
   assert.equal(isAgentEventEnvelope({ ...validEvent, payload: { ...payload, recipientIds: [""] } }), false);
 });
 
