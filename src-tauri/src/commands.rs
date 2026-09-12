@@ -2,9 +2,11 @@ use crate::agents::{self, Agent, AgentManager, AgentProvider, LaunchAgentRequest
 use crate::control::browser::commands::BrowserCapability;
 use crate::control::{
     AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, BrowserControlStatus,
-    BrowserManager, BrowserSurfaceRecord, ProjectSnapshot, ReconcileReport, ReconnectResult, RestoreResult,
-    SessionCommandError, SessionDescriptor, Supervisor, TeamCoordinator, TauriBrowserExecutor,
+    BrowserManager, BrowserSurfaceRecord, ControlErrorCode, LaunchIntent, ProjectSnapshot,
+    PullReceipt, ReconcileReport, ReconnectResult, RestoreResult, SessionCommandError,
+    SessionDescriptor, Supervisor, TeamCoordinator, TauriBrowserExecutor,
 };
+use crate::agents::providers::ProviderCapabilityReport;
 use crate::error::BackendError;
 use crate::event_hub::EventHub;
 use crate::pty::{
@@ -334,78 +336,63 @@ pub async fn detect_providers() -> Result<Vec<AgentProvider>, BackendError> {
 
 #[tauri::command]
 pub async fn launch_agent(
-    app: AppHandle,
     manager: State<'_, PtyManager>,
     agents: State<'_, AgentManager>,
-    event_hub: State<'_, EventHub>,
     supervisor: State<'_, Arc<Supervisor>>,
     team: State<'_, Arc<TeamCoordinator>>,
     request: LaunchAgentRequest,
 ) -> Result<Agent, BackendError> {
-    let pty = manager.inner().clone();
-    let agents = agents.inner().clone();
-    let event_hub = event_hub.inner().clone();
-    let supervisor = supervisor.inner().clone();
-    let team = team.inner().clone();
+    let (pty, agents) = (manager.inner().clone(), agents.inner().clone());
+    let (supervisor, team) = (supervisor.inner().clone(), team.inner().clone());
     run_blocking(move || {
         let project_id = request.cwd.clone();
-        if !supervisor
-            .reserve_agent_slot(&project_id)
-            .map_err(|error| BackendError::Internal(format!("could not reserve agent slot: {error:?}")))?
-        {
+        if !supervisor.reserve_agent_slot(&project_id).map_err(|error| {
+            BackendError::Internal(format!("could not reserve agent slot: {error:?}"))
+        })? {
             return Err(BackendError::InvalidInput(
-                "This project already has 12 agents".to_owned(),
+                "This project already has 12 agents".into(),
             ));
         }
-        let _launch_slot = DirectAgentLaunchSlot {
+        let _slot = DirectAgentLaunchSlot {
             supervisor: supervisor.clone(),
             project_id: project_id.clone(),
         };
-        let app_sink = Arc::new(AppEventSink {
-            app,
-            event_hub,
-            waits_for_agent_binding: true,
-            observer: None,
-        });
-        let runtime_sink = supervisor.runtime_sink(app_sink);
-        let agent_id = Uuid::new_v4().to_string();
-        let managed_environment = team
-            .prepare_direct_agent_environment(&project_id, &agent_id)
-            .map_err(|error| {
-                BackendError::Internal(format!(
-                    "could not prepare the managed agent environment: {error}"
-                ))
-            })?;
-        let agent = match agents.launch_scoped(
-            request,
+
+        let launch = team.context().prepare(match request.restart_agent_id.as_deref() {
+            Some(replaces) => LaunchIntent::Restart {
+                replaces,
+                project_id: &project_id,
+                provider_id: &request.provider,
+            },
+            None => LaunchIntent::Direct {
+                project_id: &project_id,
+                provider_id: &request.provider,
+            },
+        })?;
+
+        let runtime_sink = supervisor.runtime_sink(launch.sink());
+        let agent = agents.launch_scoped(
+            &request,
             &pty,
             runtime_sink.clone(),
-            managed_environment,
-            Some(agent_id.clone()),
-        ) {
-            Ok(agent) => agent,
-            Err(error) => {
-                team.revoke_agent_token(&agent_id);
-                return Err(error);
-            }
-        };
-        if let Err(error) = pty.bind_agent(
+            launch.environment(),
+            launch.agent().agent_id.clone(),
+        )?;
+        pty.bind_agent(
             &agent.terminal_id,
             project_id.clone(),
             agent.id.clone(),
             agent.provider.clone(),
-        ) {
-            team.revoke_agent_token(&agent.id);
-            rollback_agent_launch(&agents, &pty, &agent, &project_id);
-            return Err(error);
-        }
-        if let Err(error) = supervisor.register_agent(&agent, project_id.clone(), runtime_sink) {
-            team.revoke_agent_token(&agent.id);
-            rollback_agent_launch(&agents, &pty, &agent, &project_id);
-            return Err(BackendError::Internal(format!(
-                "session registration failed: {error:?}"
-            )));
-        }
+        )
+        .inspect_err(|_| rollback_agent_launch(&agents, &pty, &agent, &project_id))?;
+        supervisor
+            .register_agent(&agent, project_id.clone(), runtime_sink)
+            .inspect_err(|_| rollback_agent_launch(&agents, &pty, &agent, &project_id))
+            .map_err(|error| {
+                BackendError::Internal(format!("session registration failed: {error:?}"))
+            })?;
+
+        launch.commit();
         Ok(agent)
     })
     .await
@@ -509,19 +496,21 @@ pub async fn control_session_forget(
 
 #[tauri::command]
 pub async fn control_session_resume(
-    app: AppHandle,
     supervisor: State<'_, Arc<Supervisor>>,
-    event_hub: State<'_, EventHub>,
+    team: State<'_, Arc<TeamCoordinator>>,
     session_id: String,
 ) -> Result<SessionDescriptor, SessionCommandError> {
-    let supervisor = supervisor.inner().clone();
-    let sink = Arc::new(AppEventSink {
-        app,
-        event_hub: event_hub.inner().clone(),
-        waits_for_agent_binding: true,
-        observer: None,
-    });
-    run_control_blocking(move || supervisor.resume(&session_id, sink)).await
+    let (supervisor, team) = (supervisor.inner().clone(), team.inner().clone());
+    run_control_blocking(move || {
+        let (descriptor, _) = supervisor.read_session(&session_id)?;
+        let launch = team
+            .context()
+            .prepare(LaunchIntent::Resume {
+                descriptor: &descriptor,
+            })?;
+        supervisor.resume(&session_id, launch)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -680,20 +669,41 @@ pub fn attention_mark_all_read(
 
 #[tauri::command]
 pub async fn stop_agent(
-    manager: State<'_, PtyManager>,
-    agents: State<'_, AgentManager>,
     team: State<'_, Arc<TeamCoordinator>>,
     id: String,
 ) -> Result<(), BackendError> {
-    let pty = manager.inner().clone();
-    let agents = agents.inner().clone();
+    let team = team.inner().clone();
+    run_blocking(move || match team.stop("*", &id) {
+        Ok(_) => Ok(()),
+        Err(error) if error.code == ControlErrorCode::SessionNotFound => Ok(()),
+        Err(error) => Err(BackendError::Internal(error.message)),
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn pull_agent_inbox(
+    team: State<'_, Arc<TeamCoordinator>>,
+    project_id: String,
+    agent_id: String,
+) -> Result<PullReceipt, BackendError> {
     let team = team.inner().clone();
     run_blocking(move || {
-        let result = agents.stop(&id, &pty);
-        if result.is_ok() {
-            team.revoke_agent_token(&id);
-        }
-        result
+        team.pull(&project_id, &agent_id)
+            .map_err(|error| BackendError::Internal(error.message))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn provider_capability_report(
+    team: State<'_, Arc<TeamCoordinator>>,
+    provider_id: String,
+) -> Result<ProviderCapabilityReport, BackendError> {
+    let team = team.inner().clone();
+    run_blocking(move || {
+        team.capability_report(&provider_id)
+            .map_err(|error| BackendError::Internal(error.message))
     })
     .await
 }
@@ -748,6 +758,7 @@ mod tests {
                     provider: "shell".to_owned(),
                     cwd: directory.path().to_string_lossy().into_owned(),
                     create_worktree: false,
+                    restart_agent_id: None,
                     cols: Some(80),
                     rows: Some(24),
                 },

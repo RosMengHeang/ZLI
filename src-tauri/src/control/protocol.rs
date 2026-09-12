@@ -20,6 +20,8 @@ pub enum ControlMethod {
     AgentSpawn,
     #[serde(rename = "agent.send")]
     AgentSend,
+    #[serde(rename = "agent.pull")]
+    AgentPull,
     #[serde(rename = "agent.read")]
     AgentRead,
     #[serde(rename = "agent.focus")]
@@ -76,6 +78,8 @@ pub enum ControlMethod {
     BrowserScreenshot,
     #[serde(rename = "taxchat.send")]
     TaxChatSend,
+    #[serde(rename = "provider.capability_report")]
+    ProviderCapabilityReport,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash, Serialize)]

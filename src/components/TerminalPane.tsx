@@ -129,7 +129,7 @@ export const TerminalPane = memo(function TerminalPane({ paneId, terminalId }: T
       const cols = session.cols ?? 80;
       const rows = session.rows ?? 24;
       if (agent) {
-        const restarted = await launchAgent({ name: agent.name, provider: agent.provider, cwd: agent.worktreePath ?? agent.cwd, createWorktree: false, cols, rows });
+        const restarted = await launchAgent({ name: agent.name, provider: agent.provider, cwd: agent.worktreePath ?? agent.cwd, createWorktree: false, restartAgentId: agent.id, cols, rows });
         restartedAgent = restarted;
         const replacement = sessionFromAgent(restarted, cols, rows);
         useTerminalStore.getState().registerSession(replacement);

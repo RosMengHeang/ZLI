@@ -5,6 +5,11 @@ import type { Agent, PaneNode } from "../types/models.ts";
 
 type ResumeAvailability = "available" | "unsupported" | "unknown";
 
+type ResumeRecord =
+  | { type: "unsupported" }
+  | { type: "unknown"; reason?: string; lastProbeAt?: string }
+  | { type: "available"; id?: string; provenance?: unknown; resumeCommandKind?: string };
+
 interface SessionDescriptor {
   sessionId: string;
   projectId: string;
@@ -16,7 +21,7 @@ interface SessionDescriptor {
   workingDirectory: string;
   branch: string;
   worktreePath: string | null;
-  resume: { availability: ResumeAvailability } | null;
+  resume: ResumeRecord | { availability: ResumeAvailability } | null;
   attached: boolean;
 }
 
@@ -103,11 +108,21 @@ export type SessionStore = StoreApi<SessionState> & {
   resumeAgent: SessionState["resumeAgent"];
 };
 
+function resumeAvailability(resume: SessionDescriptor["resume"]): ResumeAvailability {
+  if (!resume) return "unknown";
+  if ("type" in resume) {
+    if (resume.type === "available") return "available";
+    if (resume.type === "unsupported") return "unsupported";
+    return "unknown";
+  }
+  return resume.availability ?? "unknown";
+}
+
 function actionFor(descriptor: SessionDescriptor): Pick<RestoredAgent, "action" | "restoreMessage" | "resumeAvailability"> {
   if (descriptor.attached) {
-    return { action: "reconnect", restoreMessage: "Reconnect to running session", resumeAvailability: descriptor.resume?.availability ?? "unknown" };
+    return { action: "reconnect", restoreMessage: "Reconnect to running session", resumeAvailability: resumeAvailability(descriptor.resume) };
   }
-  const availability = descriptor.resume?.availability ?? "unknown";
+  const availability = resumeAvailability(descriptor.resume);
   if (availability === "available") return { action: "resume", restoreMessage: "Resume available", resumeAvailability: availability };
   if (availability === "unsupported") {
     return { action: "unavailable", restoreMessage: "Resume unavailable for this provider", resumeAvailability: availability };

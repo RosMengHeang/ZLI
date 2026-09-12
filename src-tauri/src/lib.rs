@@ -19,8 +19,8 @@ use commands::{
     control_session_forget, control_session_restore, control_session_resume,
     control_session_snapshot, create_terminal,
     detect_agent_providers, detect_providers, kill_terminal, launch_agent, list_agent_providers,
-    list_agents, pty_close, pty_create, pty_resize, pty_write, resize_terminal, stop_agent,
-    write_terminal,
+    list_agents, provider_capability_report, pull_agent_inbox, pty_close, pty_create, pty_resize,
+    pty_write, resize_terminal, stop_agent, write_terminal,
 };
 use git::commands::{
     git_abort_merge, git_audit_worktrees, git_commit, git_create_worktree, git_delete_branch,
@@ -120,11 +120,17 @@ pub fn run() {
                 supervisor.clone(),
                 sink.clone(),
             ));
+            let context = control::ManagedAgentContext::new(
+                tokens.clone(),
+                control::ControlEndpoint::from_transport(endpoint.clone()),
+                control::install_directory().map_err(|error| error.to_string())?,
+                sink.clone(),
+            );
             let team = Arc::new(
-                control::TeamCoordinator::new(team_backend, tokens.clone(), endpoint.clone())
-                    .with_control_executable(control::zli_executable_path())
+                control::TeamCoordinator::new(team_backend, context)
                     .with_message_store(control::SnapshotStore::new(app_data_dir.clone()))?,
             );
+            app.manage(team.clone());
             let team_observer = Arc::downgrade(&team);
             if let Ok(mut observer) = observer_slot.lock() {
                 *observer = Some(Arc::new(move |event| {
@@ -186,6 +192,8 @@ pub fn run() {
             detect_providers,
             launch_agent,
             stop_agent,
+            pull_agent_inbox,
+            provider_capability_report,
             list_agents,
             control_events_after,
             attention_ack,

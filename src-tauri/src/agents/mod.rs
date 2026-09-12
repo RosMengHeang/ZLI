@@ -2,7 +2,6 @@ use crate::error::BackendError;
 use crate::pty::{EventSink, PtyManager, TerminalStatus};
 use crate::system::{detect_powershell, find_executable};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
 use std::fs;
@@ -37,6 +36,8 @@ pub struct LaunchAgentRequest {
     pub cwd: String,
     #[serde(default)]
     pub create_worktree: bool,
+    #[serde(default)]
+    pub restart_agent_id: Option<String>,
     #[serde(default)]
     pub cols: Option<u16>,
     #[serde(default)]
@@ -83,16 +84,22 @@ impl AgentManager {
         pty: &PtyManager,
         sink: Arc<dyn EventSink>,
     ) -> Result<Agent, BackendError> {
-        self.launch_scoped(request, pty, sink, HashMap::new(), None)
+        self.launch_scoped(
+            &request,
+            pty,
+            sink,
+            &crate::control::ManagedEnvironment::empty(),
+            Uuid::new_v4().to_string(),
+        )
     }
 
     pub(crate) fn launch_scoped(
         &self,
-        request: LaunchAgentRequest,
+        request: &LaunchAgentRequest,
         pty: &PtyManager,
         sink: Arc<dyn EventSink>,
-        scoped_environment: HashMap<OsString, OsString>,
-        agent_id: Option<String>,
+        environment: &crate::control::ManagedEnvironment,
+        agent_id: String,
     ) -> Result<Agent, BackendError> {
         let provider_id = request.provider.as_str();
         let provider_registry = providers::ProviderRegistry::default();
@@ -144,18 +151,13 @@ impl AgentManager {
                         return Err(error);
                     }
                 };
-                let environment = plan
-                    .environment
-                    .into_iter()
-                    .chain(scoped_environment)
-                    .collect();
                 pty.spawn_agent_with_size_args_env(
                     plan.program,
                     plan.arguments,
                     Some(plan.cwd.to_string_lossy().as_ref()),
                     request.cols.unwrap_or(120),
                     request.rows.unwrap_or(30),
-                    environment,
+                    environment.merge_provider(&plan.environment),
                     sink,
                 )
             }
@@ -174,7 +176,7 @@ impl AgentManager {
                     Some(&launch_cwd),
                     request.cols.unwrap_or(120),
                     request.rows.unwrap_or(30),
-                    scoped_environment,
+                    environment.merge_provider(&std::collections::BTreeMap::new()),
                     sink,
                 )
             }
@@ -187,14 +189,14 @@ impl AgentManager {
             }
         };
         let agent = Agent {
-            id: agent_id.unwrap_or_else(|| Uuid::new_v4().to_string()),
+            id: agent_id,
             name: if request.name.trim().is_empty() {
                 provider
                     .as_ref()
                     .map(|item| item.display_name.to_owned())
                     .unwrap_or_else(|| "Terminal".to_owned())
             } else {
-                request.name
+                request.name.clone()
             },
             provider: provider
                 .as_ref()
@@ -431,11 +433,7 @@ const CURSOR_CANDIDATES: &[&str] = &[
     "cursor-agent",
     "cursor-agent.exe",
     "cursor-agent.cmd",
-    "agent",
-    "agent.exe",
-    "agent.cmd",
     "cursor-agent.ps1",
-    "agent.ps1",
 ];
 const OPENCODE_CANDIDATES: &[&str] = &["opencode", "opencode.exe", "opencode.cmd", "opencode.ps1"];
 const GEMINI_CANDIDATES: &[&str] = &["gemini", "gemini.exe", "gemini.cmd", "gemini.ps1"];
@@ -501,9 +499,13 @@ pub fn provider_spec(provider_id: &str) -> Option<ProviderSpec> {
 pub fn resolve_provider(provider_id: &str) -> Result<(ProviderSpec, PathBuf), BackendError> {
     let spec = provider_spec(provider_id)
         .ok_or_else(|| BackendError::ProviderNotFound(provider_id.to_owned()))?;
-    let executable = find_executable(spec.candidates).ok_or_else(|| {
-        BackendError::ExecutableNotFound(format!("{} ({})", spec.display_name, spec.id))
-    })?;
+    let executable = providers::ProviderRegistry::default()
+        .get(spec.id)
+        .and_then(|adapter| adapter.detect_installation())
+        .or_else(|| find_executable(spec.candidates))
+        .ok_or_else(|| {
+            BackendError::ExecutableNotFound(format!("{} ({})", spec.display_name, spec.id))
+        })?;
     Ok((spec, executable))
 }
 
@@ -551,10 +553,14 @@ pub fn detect_providers_cached(force: bool) -> Vec<AgentProvider> {
 }
 
 fn scan_providers() -> Vec<AgentProvider> {
+    let registry = providers::ProviderRegistry::default();
     provider_specs()
         .into_iter()
         .map(|spec| {
-            let executable = find_executable(spec.candidates);
+            let executable = registry
+                .get(spec.id)
+                .and_then(|adapter| adapter.detect_installation())
+                .or_else(|| find_executable(spec.candidates));
             let installed = executable.is_some();
             AgentProvider {
                 id: spec.id.to_owned(),
@@ -595,6 +601,29 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn cmd_scripts_launch_through_cmd_exe_with_quoting_switches() {
+        use std::ffi::OsString;
+        use std::path::PathBuf;
+        let script = PathBuf::from(r"D:\Program Files\Cursor Agent\cursor-agent.cmd");
+        let (program, arguments) =
+            super::launcher_for_executable(script.clone()).expect("cmd launcher");
+        assert!(program
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case("cmd.exe")));
+        assert_eq!(
+            arguments,
+            vec![
+                OsString::from("/D"),
+                OsString::from("/S"),
+                OsString::from("/C"),
+                script.into_os_string(),
+            ]
+        );
+    }
+
     #[test]
     fn provider_specs_include_reasonable_cli_variants() {
         let specs = provider_specs();
@@ -613,7 +642,7 @@ mod tests {
             .contains(&"codex"));
         let cursor = specs.iter().find(|spec| spec.id == "cursor-agent").unwrap();
         assert!(cursor.candidates.contains(&"cursor-agent"));
-        assert!(cursor.candidates.contains(&"agent"));
+        assert!(!cursor.candidates.contains(&"agent"));
         assert!(specs
             .iter()
             .find(|spec| spec.id == "opencode")
@@ -656,6 +685,7 @@ bearer_token_env_var = "SWARMTERM_SESSION"
                     provider: provider.id,
                     cwd: directory.path().to_string_lossy().into_owned(),
                     create_worktree: false,
+                    restart_agent_id: None,
                     cols: Some(80),
                     rows: Some(24),
                 },
@@ -692,6 +722,7 @@ bearer_token_env_var = "SWARMTERM_SESSION"
                     provider: "shell".to_owned(),
                     cwd: repository.path().to_string_lossy().into_owned(),
                     create_worktree: true,
+                    restart_agent_id: None,
                     cols: Some(0),
                     rows: Some(30),
                 },
@@ -722,6 +753,7 @@ bearer_token_env_var = "SWARMTERM_SESSION"
                     provider: "shell".to_owned(),
                     cwd: directory.path().to_string_lossy().into_owned(),
                     create_worktree: false,
+                    restart_agent_id: None,
                     cols: Some(80),
                     rows: Some(24),
                 },

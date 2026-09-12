@@ -255,6 +255,7 @@ export interface LaunchAgentRequest {
   provider: AgentProviderId;
   cwd: string;
   createWorktree: boolean;
+  restartAgentId?: string;
   cols?: number;
   rows?: number;
 }

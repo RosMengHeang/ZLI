@@ -31,6 +31,7 @@ const AGENT_EVENT_KINDS = [
   "agent_started",
   "agent_output",
   "agent_prompt_detected",
+  "agent_local_input",
   "agent_waiting",
   "agent_message_received",
   "agent_message_queued",

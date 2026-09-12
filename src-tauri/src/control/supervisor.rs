@@ -1,10 +1,11 @@
 use super::events::utc_rfc3339_now;
 use super::{
-    AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, OwnershipLedger,
-    OwnershipLedgerError, ProjectSnapshot, ReconcileReport, RuntimeOwnershipRecord, RuntimeSession,
-    SessionDescriptor, SessionManager, SessionRegistry, SnapshotStore, SnapshotStoreError,
+    AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, ManagedLaunch,
+    OwnershipLedger, OwnershipLedgerError, ProjectSnapshot, ReconcileReport, RuntimeOwnershipRecord,
+    RuntimeSession, SessionDescriptor, SessionManager, SessionRegistry, SnapshotStore,
+    SnapshotStoreError,
 };
-use crate::agents::providers::{ProviderRegistry, ResumeAvailability, ResumeSupport};
+use crate::agents::providers::{ProviderRegistry, ResumeRecord, ResumeSupport};
 use crate::error::BackendError;
 use crate::event_hub::{EventHub, EventHubHealth};
 use crate::pty::{
@@ -417,7 +418,7 @@ impl Supervisor {
     pub fn resume(
         &self,
         session_id: &str,
-        sink: Arc<dyn EventSink>,
+        launch: ManagedLaunch,
     ) -> Result<SessionDescriptor, SessionCommandError> {
         let _resume_guard = self
             .resume_lock
@@ -430,7 +431,9 @@ impl Supervisor {
             .session_status(&descriptor.terminal_id)
             .is_ok_and(|status| status == TerminalStatus::Running)
         {
-            return Ok(existing.attach(Some(sink))?);
+            let attached = existing.attach(Some(launch.sink()))?;
+            drop(launch);
+            return Ok(attached);
         }
         let adapter = self.providers.get(&descriptor.provider_id).ok_or_else(|| {
             SessionCommandError::ResumeUnsupported(descriptor.provider_id.clone())
@@ -443,29 +446,32 @@ impl Supervisor {
         let resume = descriptor.resume.as_ref().ok_or_else(|| {
             SessionCommandError::ResumeUnsupported("provider session ID is unavailable".into())
         })?;
-        if resume.availability != ResumeAvailability::Available {
+        if !matches!(resume, ResumeRecord::Available { .. }) {
             return Err(SessionCommandError::ResumeUnsupported(
                 descriptor.provider_id.clone(),
             ));
         }
-        let plan = adapter.build_resume(resume)?.ok_or_else(|| {
-            SessionCommandError::ResumeUnsupported(descriptor.provider_id.clone())
-        })?;
+        let plan = adapter
+            .build_resume(resume, std::path::Path::new(&descriptor.working_directory))?
+            .ok_or_else(|| {
+                SessionCommandError::ResumeUnsupported(descriptor.provider_id.clone())
+            })?;
         let mut resumed_descriptor = descriptor.clone();
         resumed_descriptor.terminal_id.clear();
         let resumed = Arc::new(RuntimeSession::new(
             resumed_descriptor,
             self.pty.clone(),
-            Some(sink),
+            Some(launch.sink()),
             RESTORED_SCROLLBACK_LIMIT,
         ));
         resumed.restore_scrollback(&existing.scrollback()?);
-        let terminal = self.pty.spawn_agent_with_size_args(
+        let terminal = self.pty.spawn_agent_with_size_args_env(
             plan.program,
             plan.arguments,
             Some(plan.cwd.to_string_lossy().as_ref()),
             120,
             30,
+            launch.environment().merge_provider(&plan.environment),
             resumed.event_sink(),
         )?;
         if let Err(error) = resumed.set_terminal_id(terminal.id.clone()) {
@@ -504,6 +510,7 @@ impl Supervisor {
             let _ = self.pty.abort(&terminal.id);
             return Err(error);
         }
+        launch.commit();
         Ok(result)
     }
 
@@ -639,37 +646,30 @@ impl Supervisor {
     fn discover_resume_descriptors(&self, project_id: &str) -> Result<(), SessionCommandError> {
         for session in self.registry.list()? {
             let descriptor = session.descriptor()?;
-            if descriptor.project_id != project_id || descriptor.resume.is_some() {
+            if descriptor.project_id != project_id {
                 continue;
             }
             let Some(adapter) = self.providers.get(&descriptor.provider_id) else {
                 continue;
             };
-            let resume = if adapter.resume_support() == ResumeSupport::Unsupported {
-                crate::agents::providers::ResumeDescriptor {
-                    provider_id: descriptor.provider_id.clone(),
-                    provider_session_id: None,
-                    resume_command_kind: None,
-                    working_directory: descriptor.working_directory.clone().into(),
-                    last_checkpoint_at: None,
-                    availability: ResumeAvailability::Unsupported,
+            if adapter.resume_support() == ResumeSupport::Unsupported {
+                if !matches!(descriptor.resume, Some(ResumeRecord::Unsupported)) {
+                    session.set_resume(ResumeRecord::Unsupported)?;
                 }
-            } else if let Some(resume) = adapter.detect_resume(
+                continue;
+            }
+            if descriptor
+                .resume
+                .as_ref()
+                .is_some_and(|resume| !resume.needs_probe())
+            {
+                continue;
+            }
+            let probe = adapter.probe_resume(
                 &session.scrollback()?,
                 std::path::Path::new(&descriptor.working_directory),
-            ) {
-                resume
-            } else {
-                crate::agents::providers::ResumeDescriptor {
-                    provider_id: descriptor.provider_id.clone(),
-                    provider_session_id: None,
-                    resume_command_kind: None,
-                    working_directory: descriptor.working_directory.clone().into(),
-                    last_checkpoint_at: None,
-                    availability: ResumeAvailability::Unknown,
-                }
-            };
-            session.set_resume(resume)?;
+            );
+            session.set_resume(ResumeRecord::from_probe(probe))?;
         }
         Ok(())
     }

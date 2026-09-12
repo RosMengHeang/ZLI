@@ -42,6 +42,7 @@ pub enum AgentEventKind {
     AgentStarted,
     AgentOutput,
     AgentPromptDetected,
+    AgentLocalInput,
     AgentWaiting,
     AgentMessageReceived,
     AgentMessageQueued,

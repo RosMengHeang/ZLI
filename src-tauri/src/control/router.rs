@@ -158,6 +158,7 @@ fn capability_for(method: ControlMethod) -> Capability {
         ControlMethod::AgentQueueStatus => Capability::AgentRead,
         ControlMethod::AgentSpawn => Capability::AgentSpawn,
         ControlMethod::AgentSend => Capability::AgentSend,
+        ControlMethod::AgentPull => Capability::AgentSend,
         ControlMethod::AgentRead => Capability::AgentRead,
         ControlMethod::AgentFocus => Capability::AgentFocus,
         ControlMethod::AgentPause => Capability::AgentPause,
@@ -169,6 +170,7 @@ fn capability_for(method: ControlMethod) -> Capability {
         ControlMethod::SessionReconcile => Capability::SessionReconcile,
         ControlMethod::SessionResume => Capability::SessionResume,
         ControlMethod::RuntimeHealth => Capability::RuntimeRead,
+        ControlMethod::ProviderCapabilityReport => Capability::RuntimeRead,
         ControlMethod::TaxChatSend => Capability::TaxChatSend,
         ControlMethod::BrowserList
         | ControlMethod::BrowserStatus

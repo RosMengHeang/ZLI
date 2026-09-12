@@ -1,5 +1,6 @@
 mod claude_code;
 mod codex;
+mod contract;
 mod cursor;
 mod opencode;
 
@@ -13,7 +14,13 @@ use std::sync::Arc;
 
 pub use claude_code::ClaudeCodeAdapter;
 pub use codex::CodexAdapter;
-pub use cursor::CursorAdapter;
+pub use contract::{
+    named_cursor_identity, parse_session_id, path_looks_like_agent_alias,
+    path_looks_like_cursor_agent, probe_cursor_identity, provider_contract_flags, DeliveryKind,
+    IdentityVerdict, ParsedSessionId, ProviderCapabilityReport, ProviderContractFlags, ResumeProbe,
+    ResumeRecord, SessionProvenance,
+};
+pub use cursor::{CursorAdapter, CURSOR_ALIAS, CURSOR_CANDIDATES};
 pub use opencode::OpenCodeAdapter;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,32 +47,6 @@ pub enum ResumeSupport {
     Unsupported,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ResumeAvailability {
-    Available,
-    Unsupported,
-    Unknown,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ResumeDescriptor {
-    pub provider_id: String,
-    pub provider_session_id: Option<String>,
-    pub resume_command_kind: Option<String>,
-    pub working_directory: PathBuf,
-    pub last_checkpoint_at: Option<String>,
-    pub availability: ResumeAvailability,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ProviderEvent {
-    Started,
-    Waiting,
-    Completed,
-}
-
 pub trait ProviderAdapter: Send + Sync {
     fn id(&self) -> &'static str;
     fn display_name(&self) -> &'static str;
@@ -74,13 +55,29 @@ pub trait ProviderAdapter: Send + Sync {
         find_executable(self.candidates())
     }
     fn build_launch(&self, request: &ProviderLaunchRequest) -> Result<LaunchPlan, BackendError>;
-    fn parse_output(&self, output: &str) -> Vec<ProviderEvent>;
-    fn detect_resume(&self, output: &str, cwd: &Path) -> Option<ResumeDescriptor>;
+    fn probe_resume(&self, output: &str, cwd: &Path) -> ResumeProbe {
+        let _ = (output, cwd);
+        ResumeProbe::Unsupported
+    }
     fn build_resume(
         &self,
-        descriptor: &ResumeDescriptor,
-    ) -> Result<Option<LaunchPlan>, BackendError>;
+        record: &ResumeRecord,
+        cwd: &Path,
+    ) -> Result<Option<LaunchPlan>, BackendError> {
+        let _ = (record, cwd);
+        Ok(None)
+    }
     fn resume_support(&self) -> ResumeSupport;
+    fn delivery_kind(&self) -> DeliveryKind {
+        provider_contract_flags(self.id()).delivery
+    }
+    fn verify_executable(&self, path: &Path) -> IdentityVerdict {
+        IdentityVerdict::Verified {
+            path: path.to_path_buf(),
+            product: self.display_name().to_owned(),
+            version: None,
+        }
+    }
 }
 
 pub struct ProviderRegistry {
@@ -103,6 +100,40 @@ impl ProviderRegistry {
             .iter()
             .find(|adapter| adapter.id() == canonical)
             .map(Arc::as_ref)
+    }
+
+    pub fn capability_report(
+        &self,
+        provider_id: &str,
+        shell_tools_available: bool,
+    ) -> Option<ProviderCapabilityReport> {
+        let adapter = self.get(provider_id)?;
+        let flags = provider_contract_flags(adapter.id());
+        let path = adapter.detect_installation();
+        let identity = match &path {
+            Some(path) => adapter.verify_executable(path),
+            None => IdentityVerdict::Missing,
+        };
+        let executable_verified = matches!(identity, IdentityVerdict::Verified { .. });
+        let executable_path = match &identity {
+            IdentityVerdict::Verified { path, .. } | IdentityVerdict::Rejected { path, .. } => {
+                Some(path.clone())
+            }
+            IdentityVerdict::Missing => None,
+        };
+        Some(ProviderCapabilityReport {
+            provider_id: adapter.id().to_owned(),
+            display_name: adapter.display_name().to_owned(),
+            executable_verified,
+            mcp_configured: false,
+            shell_tools_available,
+            readiness_reliable: flags.readiness_reliable,
+            acknowledgement_available: flags.acknowledgement_available,
+            exact_resume_available: flags.exact_resume_available,
+            delivery: adapter.delivery_kind(),
+            executable_path,
+            identity,
+        })
     }
 }
 
@@ -165,21 +196,36 @@ impl ProviderAdapter for UnsupportedAdapter {
     fn build_launch(&self, request: &ProviderLaunchRequest) -> Result<LaunchPlan, BackendError> {
         base_launch_plan(self.id, request, self.candidates, Vec::new())
     }
-    fn parse_output(&self, output: &str) -> Vec<ProviderEvent> {
-        common_output_events(output)
-    }
-    fn detect_resume(&self, _output: &str, _cwd: &Path) -> Option<ResumeDescriptor> {
-        None
-    }
-    fn build_resume(
-        &self,
-        _descriptor: &ResumeDescriptor,
-    ) -> Result<Option<LaunchPlan>, BackendError> {
-        Ok(None)
-    }
     fn resume_support(&self) -> ResumeSupport {
         ResumeSupport::Unsupported
     }
+}
+
+pub(super) fn resume_plan_from_record(
+    adapter: &dyn ProviderAdapter,
+    record: &ResumeRecord,
+    cwd: &Path,
+    arguments: impl IntoIterator<Item = OsString>,
+) -> Result<Option<LaunchPlan>, BackendError> {
+    let ResumeRecord::Available { id, .. } = record else {
+        return Ok(None);
+    };
+    if cwd.as_os_str().is_empty() {
+        return Err(BackendError::InvalidWorkingDirectory(String::new()));
+    }
+    let executable = adapter
+        .detect_installation()
+        .unwrap_or_else(|| PathBuf::from(adapter.candidates()[0]));
+    let (program, mut command_arguments) = super::launcher_for_executable(executable)?;
+    command_arguments.extend(arguments);
+    command_arguments.push(OsString::from(id.as_str()));
+    Ok(Some(LaunchPlan {
+        program,
+        arguments: command_arguments,
+        cwd: cwd.to_path_buf(),
+        environment: BTreeMap::new(),
+        provider_session_hint: Some(id.as_str().to_owned()),
+    }))
 }
 
 pub(super) fn base_launch_plan(
@@ -207,84 +253,6 @@ pub(super) fn base_launch_plan(
         cwd: request.cwd.clone(),
         environment: BTreeMap::new(),
         provider_session_hint: request.provider_session_hint.clone(),
-    })
-}
-
-pub(super) fn resume_plan(
-    adapter: &dyn ProviderAdapter,
-    descriptor: &ResumeDescriptor,
-    arguments: impl IntoIterator<Item = OsString>,
-) -> Result<Option<LaunchPlan>, BackendError> {
-    if descriptor.provider_id != adapter.id()
-        || descriptor.availability != ResumeAvailability::Available
-    {
-        return Ok(None);
-    }
-    let Some(session_id) = descriptor
-        .provider_session_id
-        .as_ref()
-        .filter(|id| !id.trim().is_empty())
-    else {
-        return Ok(None);
-    };
-    if descriptor.working_directory.as_os_str().is_empty() {
-        return Err(BackendError::InvalidWorkingDirectory(String::new()));
-    }
-    let executable = adapter
-        .detect_installation()
-        .unwrap_or_else(|| PathBuf::from(adapter.candidates()[0]));
-    let (program, mut command_arguments) = super::launcher_for_executable(executable)?;
-    command_arguments.extend(arguments);
-    command_arguments.push(OsString::from(session_id));
-    Ok(Some(LaunchPlan {
-        program,
-        arguments: command_arguments,
-        cwd: descriptor.working_directory.clone(),
-        environment: BTreeMap::new(),
-        provider_session_hint: Some(session_id.clone()),
-    }))
-}
-
-pub(super) fn common_output_events(output: &str) -> Vec<ProviderEvent> {
-    let lowered = output.to_ascii_lowercase();
-    let mut events = Vec::new();
-    if lowered.contains("session") || lowered.contains("ready") {
-        events.push(ProviderEvent::Started);
-    }
-    if lowered.contains("ask codex") || lowered.contains("type help") || lowered.contains('❯') {
-        events.push(ProviderEvent::Waiting);
-    }
-    if lowered.contains("completed") || lowered.contains("tests passed") {
-        events.push(ProviderEvent::Completed);
-    }
-    events
-}
-
-pub(super) fn resume_from_marker(
-    provider_id: &str,
-    output: &str,
-    cwd: &Path,
-    marker: &str,
-) -> Option<ResumeDescriptor> {
-    let marker = marker.to_ascii_lowercase();
-    let (line, marker_offset) = output.lines().find_map(|line| {
-        line.to_ascii_lowercase()
-            .find(&marker)
-            .map(|offset| (line, offset))
-    })?;
-    let session_id = line[marker_offset + marker.len()..]
-        .trim_start_matches([':', ' ', '\t'])
-        .trim();
-    if session_id.is_empty() {
-        return None;
-    }
-    Some(ResumeDescriptor {
-        provider_id: provider_id.to_owned(),
-        provider_session_id: Some(session_id.to_owned()),
-        resume_command_kind: Some("session_id".to_owned()),
-        working_directory: cwd.to_path_buf(),
-        last_checkpoint_at: None,
-        availability: ResumeAvailability::Available,
     })
 }
 

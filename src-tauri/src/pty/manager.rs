@@ -360,7 +360,18 @@ impl PtyManager {
         if session.status() != TerminalStatus::Running {
             return Err(BackendError::SessionNotFound(id.to_owned()));
         }
-        write_agent_input(&session.agent, &session.writer, data.as_bytes())
+        write_agent_input(&session.agent, &session.writer, data.as_bytes())?;
+        if let Ok(agent) = session.agent.lock() {
+            if let Some(mapping) = agent.as_ref() {
+                session.sink.emit_control(Self::agent_event(
+                    &mapping.project_id,
+                    &mapping.agent_id,
+                    AgentEventKind::AgentLocalInput,
+                    AgentEventPayload::Empty,
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub fn process_identity(&self, id: &str) -> Result<Option<ProcessIdentity>, BackendError> {

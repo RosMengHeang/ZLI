@@ -1,4 +1,6 @@
 use super::*;
+use std::path::Path;
+
 const CANDIDATES: &[&str] = &["claude", "claude.exe", "claude.cmd", "claude.ps1"];
 pub struct ClaudeCodeAdapter;
 impl ProviderAdapter for ClaudeCodeAdapter {
@@ -14,19 +16,21 @@ impl ProviderAdapter for ClaudeCodeAdapter {
     fn build_launch(&self, request: &ProviderLaunchRequest) -> Result<LaunchPlan, BackendError> {
         base_launch_plan(self.id(), request, CANDIDATES, Vec::new())
     }
-    fn parse_output(&self, output: &str) -> Vec<ProviderEvent> {
-        common_output_events(output)
-    }
-    fn detect_resume(&self, output: &str, cwd: &Path) -> Option<ResumeDescriptor> {
-        resume_from_marker(self.id(), output, cwd, "session id")
+    fn probe_resume(&self, output: &str, cwd: &Path) -> ResumeProbe {
+        let _ = cwd;
+        parse_session_id(output)
     }
     fn build_resume(
         &self,
-        descriptor: &ResumeDescriptor,
+        record: &ResumeRecord,
+        cwd: &Path,
     ) -> Result<Option<LaunchPlan>, BackendError> {
-        resume_plan(self, descriptor, [OsString::from("--resume")])
+        resume_plan_from_record(self, record, cwd, [OsString::from("--resume")])
     }
     fn resume_support(&self) -> ResumeSupport {
         ResumeSupport::Supported
+    }
+    fn delivery_kind(&self) -> DeliveryKind {
+        DeliveryKind::MintedSlots
     }
 }

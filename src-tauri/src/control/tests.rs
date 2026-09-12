@@ -614,8 +614,9 @@ fn supervisor_reports_protocol_and_resume_failures_with_stable_codes() {
         serde_json::to_value(protocol).expect("serialize error")["code"],
         "protocol_mismatch"
     );
+    let (launch, _sidecars) = unused_managed_launch();
     let missing = supervisor
-        .resume("missing", std::sync::Arc::new(MemoryEventSink::default()))
+        .resume("missing", launch)
         .expect_err("missing session");
     assert_eq!(
         serde_json::to_value(missing).expect("serialize error")["code"],
@@ -935,14 +936,61 @@ fn checkpoint_discovers_a_real_provider_resume_marker_from_bounded_scrollback() 
     let snapshot = supervisor
         .checkpoint("project-1", serde_json::Value::Null, Vec::new(), None, 0)
         .expect("checkpoint");
+    assert_eq!(snapshot.agents[0]["descriptor"]["resume"]["type"], "available");
+    assert_eq!(snapshot.agents[0]["descriptor"]["resume"]["id"], "exact-session-42");
     assert_eq!(
-        snapshot.agents[0]["descriptor"]["resume"]["providerSessionId"],
-        "exact-session-42"
+        snapshot.agents[0]["descriptor"]["resume"]["resumeCommandKind"],
+        "session_id"
     );
-    assert_eq!(
-        snapshot.agents[0]["descriptor"]["resume"]["workingDirectory"],
-        "D:/project"
+}
+
+#[test]
+fn checkpoint_reprobes_unknown_resume_records() {
+    use crate::agents::{Agent, AgentStatus};
+    use crate::pty::{EventSink, TerminalOutputEvent};
+    let root = tempfile::tempdir().expect("temp dir");
+    let supervisor = super::Supervisor::new(
+        root.path().to_path_buf(),
+        PtyManager::new(),
+        EventHub::new(8),
     );
+    let runtime_sink = supervisor.runtime_sink(std::sync::Arc::new(MemoryEventSink::default()));
+    runtime_sink.emit_output(TerminalOutputEvent {
+        terminal_id: "terminal-1".into(),
+        data: "OpenAI Codex ready\r\n".into(),
+    });
+    supervisor
+        .register_agent(
+            &Agent {
+                id: "agent-1".into(),
+                name: "Codex".into(),
+                provider: "codex".into(),
+                terminal_id: "terminal-1".into(),
+                cwd: "D:/project".into(),
+                branch: String::new(),
+                worktree_path: None,
+                status: AgentStatus::Running,
+                error: None,
+            },
+            "project-1".into(),
+            runtime_sink.clone(),
+        )
+        .expect("register runtime");
+
+    let unknown = supervisor
+        .checkpoint("project-1", serde_json::Value::Null, Vec::new(), None, 0)
+        .expect("unknown checkpoint");
+    assert_eq!(unknown.agents[0]["descriptor"]["resume"]["type"], "unknown");
+
+    runtime_sink.emit_output(TerminalOutputEvent {
+        terminal_id: "terminal-1".into(),
+        data: "Session ID: exact-session-42\r\n".into(),
+    });
+    let available = supervisor
+        .checkpoint("project-1", serde_json::Value::Null, Vec::new(), None, 0)
+        .expect("re-probe checkpoint");
+    assert_eq!(available.agents[0]["descriptor"]["resume"]["type"], "available");
+    assert_eq!(available.agents[0]["descriptor"]["resume"]["id"], "exact-session-42");
 }
 
 #[test]
@@ -1369,6 +1417,7 @@ fn contract_enums_serialize_with_snake_case_wire_values() {
         (AgentEventKind::AgentStarted, "agent_started"),
         (AgentEventKind::AgentOutput, "agent_output"),
         (AgentEventKind::AgentPromptDetected, "agent_prompt_detected"),
+        (AgentEventKind::AgentLocalInput, "agent_local_input"),
         (AgentEventKind::AgentWaiting, "agent_waiting"),
         (
             AgentEventKind::AgentMessageReceived,
@@ -2283,17 +2332,25 @@ fn assert_real_provider_prompt_fixture(
     manager.kill(&terminal.id).expect("kill prompt fixture");
 }
 
+#[derive(Clone, Debug)]
+struct CapturedChildLaunch {
+    agent_id: String,
+    environment: std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>,
+}
+
 #[derive(Default)]
 struct FakeTeamBackend {
     active: AtomicUsize,
     fail_launch: std::sync::atomic::AtomicBool,
     fail_delivery: std::sync::atomic::AtomicBool,
     delivery_hook: std::sync::Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
-    launches: std::sync::Mutex<Vec<super::team::ChildLaunch>>,
+    launches: std::sync::Mutex<Vec<CapturedChildLaunch>>,
     deliveries: std::sync::Mutex<Vec<(String, String)>>,
     aborts: std::sync::Mutex<Vec<String>>,
+    stops: std::sync::Mutex<Vec<String>>,
     cleanups: std::sync::Mutex<Vec<(String, String)>>,
     events: std::sync::Mutex<Vec<AgentEventEnvelope>>,
+    launch_hook: std::sync::Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl super::team::TeamBackend for FakeTeamBackend {
@@ -2314,7 +2371,9 @@ impl super::team::TeamBackend for FakeTeamBackend {
     }
 
     fn provider_installed(&self, provider_id: &str) -> bool {
-        provider_id == "codex"
+        crate::agents::providers::ProviderRegistry::default()
+            .get(provider_id)
+            .is_some()
     }
 
     fn create_worktree(
@@ -2330,9 +2389,20 @@ impl super::team::TeamBackend for FakeTeamBackend {
 
     fn launch_child(
         &self,
-        launch: super::team::ChildLaunch,
+        launch: &super::ManagedLaunch,
+        name: String,
+        worktree: super::team::PreparedWorktree,
     ) -> Result<crate::agents::Agent, super::ControlError> {
-        self.launches.lock().unwrap().push(launch.clone());
+        let captured = CapturedChildLaunch {
+            agent_id: launch.agent().agent_id.clone(),
+            environment: launch
+                .environment()
+                .merge_provider(&std::collections::BTreeMap::new()),
+        };
+        self.launches.lock().unwrap().push(captured);
+        if let Some(hook) = self.launch_hook.lock().unwrap().clone() {
+            hook();
+        }
         if self.fail_launch.load(Ordering::SeqCst) {
             return Err(super::ControlError::new(
                 super::ControlErrorCode::ControlRuntimeError,
@@ -2340,13 +2410,13 @@ impl super::team::TeamBackend for FakeTeamBackend {
             ));
         }
         Ok(crate::agents::Agent {
-            id: launch.agent_id,
-            name: launch.name,
-            provider: launch.provider_id,
+            id: launch.agent().agent_id.clone(),
+            name,
+            provider: launch.agent().provider_id.clone(),
             terminal_id: "terminal-child".into(),
-            cwd: launch.worktree.path.clone(),
-            branch: launch.worktree.branch,
-            worktree_path: Some(launch.worktree.path),
+            cwd: worktree.path.clone(),
+            branch: worktree.branch,
+            worktree_path: Some(worktree.path),
             status: crate::agents::AgentStatus::Running,
             error: None,
         })
@@ -2376,7 +2446,8 @@ impl super::team::TeamBackend for FakeTeamBackend {
         Ok(("running".into(), "output".into()))
     }
 
-    fn stop(&self, _agent_id: &str) -> Result<(), super::ControlError> {
+    fn stop(&self, agent_id: &str) -> Result<(), super::ControlError> {
+        self.stops.lock().unwrap().push(agent_id.into());
         Ok(())
     }
 
@@ -2398,6 +2469,76 @@ impl super::team::TeamBackend for FakeTeamBackend {
     }
 }
 
+fn write_test_sidecars(directory: &std::path::Path) {
+    let control = if cfg!(windows) {
+        "zli.exe"
+    } else {
+        "zli"
+    };
+    let browser = if cfg!(windows) {
+        "zli-browser-use.exe"
+    } else {
+        "zli-browser-use"
+    };
+    std::fs::write(directory.join(control), []).expect("control sidecar");
+    std::fs::write(directory.join(browser), []).expect("browser sidecar");
+}
+
+fn managed_team(
+    backend: Arc<FakeTeamBackend>,
+    endpoint: impl Into<String>,
+) -> (
+    super::TeamCoordinator,
+    Arc<CapabilityTokenStore>,
+    tempfile::TempDir,
+) {
+    let sidecars = tempfile::tempdir().expect("sidecar directory");
+    write_test_sidecars(sidecars.path());
+    let tokens = Arc::new(CapabilityTokenStore::default());
+    let context = super::ManagedAgentContext::new(
+        tokens.clone(),
+        super::ControlEndpoint::from_transport(endpoint.into()),
+        sidecars.path().to_path_buf(),
+        Arc::new(MemoryEventSink::default()),
+    );
+    (
+        super::TeamCoordinator::new(backend, context),
+        tokens,
+        sidecars,
+    )
+}
+
+fn unused_managed_launch() -> (super::ManagedLaunch, tempfile::TempDir) {
+    let sidecars = tempfile::tempdir().expect("sidecar directory");
+    write_test_sidecars(sidecars.path());
+    let context = super::ManagedAgentContext::new(
+        Arc::new(CapabilityTokenStore::default()),
+        super::ControlEndpoint::from_transport("pipe".into()),
+        sidecars.path().to_path_buf(),
+        Arc::new(MemoryEventSink::default()),
+    );
+    let descriptor = super::SessionDescriptor {
+        session_id: "missing".into(),
+        project_id: "project-1".into(),
+        agent_id: "agent-1".into(),
+        parent_agent_id: None,
+        name: String::new(),
+        provider_id: "codex".into(),
+        terminal_id: "terminal-1".into(),
+        working_directory: String::new(),
+        branch: String::new(),
+        worktree_path: None,
+        resume: None,
+        attached: false,
+    };
+    let launch = context
+        .prepare(super::LaunchIntent::Resume {
+            descriptor: &descriptor,
+        })
+        .expect("prepare unused resume launch");
+    (launch, sidecars)
+}
+
 fn team_spawn_request() -> super::team::SpawnAgentRequest {
     super::team::SpawnAgentRequest {
         project_id: "project-1".into(),
@@ -2408,17 +2549,37 @@ fn team_spawn_request() -> super::team::SpawnAgentRequest {
     }
 }
 
+fn prompt_detected(project_id: &str, agent_id: &str, reason: &str) -> AgentEventEnvelope {
+    let mut event = AgentEventEnvelope::new(
+        format!("prompt-{agent_id}-{reason}"),
+        project_id.into(),
+        Some(agent_id.into()),
+        AgentEventKind::AgentPromptDetected,
+        AgentEventPayload::Attention {
+            reason: reason.into(),
+        },
+    );
+    event.source = AgentEventSource::Provider;
+    event
+}
+
+fn drain_spawn_task(coordinator: &super::TeamCoordinator, backend: &FakeTeamBackend, child: &super::TeamAgent) {
+    coordinator.handle_event(&prompt_detected(
+        &child.project_id,
+        &child.agent_id,
+        "codex_prompt_marker",
+    ));
+    assert_eq!(
+        backend.deliveries.lock().unwrap().as_slice(),
+        &[("terminal-child".into(), "Run the focused tests".into())]
+    );
+    backend.deliveries.lock().unwrap().clear();
+}
+
 #[test]
 fn team_spawn_creates_scoped_child_and_delivers_initial_task() {
     let backend = Arc::new(FakeTeamBackend::default());
-    let coordinator = super::TeamCoordinator::new(
-        backend.clone(),
-        Arc::new(CapabilityTokenStore::default()),
-        r"\\.\pipe\zli-test".into(),
-    )
-    .with_control_executable(Some(std::path::PathBuf::from(
-        r"C:\Program Files\Taxzy\zli.exe",
-    )));
+    let (coordinator, _tokens, sidecars) = managed_team(backend.clone(), r"\\.\pipe\zli-test");
 
     let child = coordinator
         .spawn(team_spawn_request())
@@ -2452,7 +2613,10 @@ fn team_spawn_creates_scoped_child_and_delivers_initial_task() {
             .environment
             .get(std::ffi::OsStr::new("ZLI_COMMAND"))
             .unwrap(),
-        r"C:\Program Files\Taxzy\zli.exe"
+        sidecars
+            .path()
+            .join(if cfg!(windows) { "zli.exe" } else { "zli" })
+            .as_os_str()
     );
     assert_eq!(
         launch
@@ -2473,7 +2637,14 @@ fn team_spawn_creates_scoped_child_and_delivers_initial_task() {
             .environment
             .get(std::ffi::OsStr::new("ZLI_BROWSER_USE_COMMAND"))
             .unwrap(),
-        r"C:\Program Files\Taxzy\zli-browser-use.exe"
+        sidecars
+            .path()
+            .join(if cfg!(windows) {
+                "zli-browser-use.exe"
+            } else {
+                "zli-browser-use"
+            })
+            .as_os_str()
     );
     assert!(std::env::split_paths(
         launch
@@ -2482,14 +2653,29 @@ fn team_spawn_creates_scoped_child_and_delivers_initial_task() {
             .unwrap()
     )
     .next()
-    .is_some_and(|path| path == std::path::Path::new(r"C:\Program Files\Taxzy")));
+    .is_some_and(|path| path == sidecars.path()));
     drop(launches);
+    assert!(backend.deliveries.lock().unwrap().is_empty());
+    assert_eq!(
+        coordinator
+            .queue_status(Some("project-1"))
+            .expect("queue status")[0]
+            .pending_count,
+        1
+    );
+    coordinator.handle_event(&prompt_detected(
+        "project-1",
+        &child.agent_id,
+        "codex_prompt_marker",
+    ));
     assert_eq!(
         backend.deliveries.lock().unwrap().as_slice(),
         &[("terminal-child".into(), "Run the focused tests".into())]
     );
     let events = backend.events.lock().unwrap();
-    assert_eq!(events.len(), 1);
+    assert!(events
+        .iter()
+        .any(|event| event.kind == AgentEventKind::AgentStarted));
     assert_eq!(events[0].kind, AgentEventKind::AgentStarted);
     assert_eq!(events[0].parent_agent_id.as_deref(), Some("parent-1"));
 }
@@ -2520,11 +2706,7 @@ fn child_spawn_scope_cannot_reparent_delegated_work() {
 fn team_spawn_enforces_the_twelve_agent_project_cap() {
     let backend = Arc::new(FakeTeamBackend::default());
     backend.active.store(12, Ordering::SeqCst);
-    let coordinator = super::TeamCoordinator::new(
-        backend,
-        Arc::new(CapabilityTokenStore::default()),
-        "endpoint".into(),
-    );
+    let (coordinator, _tokens, _sidecars) = managed_team(backend, "endpoint");
 
     let error = coordinator
         .spawn(team_spawn_request())
@@ -2535,14 +2717,7 @@ fn team_spawn_enforces_the_twelve_agent_project_cap() {
 #[test]
 fn managed_agent_browser_capability_reports_safe_fallback_without_credentials() {
     let backend = Arc::new(FakeTeamBackend::default());
-    let coordinator = super::TeamCoordinator::new(
-        backend,
-        Arc::new(CapabilityTokenStore::default()),
-        r"\\.\pipe\zli-test".into(),
-    )
-    .with_control_executable(Some(std::path::PathBuf::from(
-        r"C:\Program Files\Taxzy\zli.exe",
-    )));
+    let (coordinator, _tokens, _sidecars) = managed_team(backend, r"\\.\pipe\zli-test");
 
     let child = coordinator
         .spawn(team_spawn_request())
@@ -2562,19 +2737,16 @@ fn managed_agent_browser_capability_reports_safe_fallback_without_credentials() 
 #[test]
 fn direct_ui_agents_receive_the_same_scoped_browser_environment() {
     let backend = Arc::new(FakeTeamBackend::default());
-    let tokens = Arc::new(CapabilityTokenStore::default());
-    let coordinator = super::TeamCoordinator::new(
-        backend,
-        tokens.clone(),
-        r"\\.\pipe\zli-test".into(),
-    )
-    .with_control_executable(Some(std::path::PathBuf::from(
-        r"C:\Program Files\Taxzy\zli.exe",
-    )));
+    let (coordinator, tokens, sidecars) = managed_team(backend, r"\\.\pipe\zli-test");
 
-    let environment = coordinator
-        .prepare_direct_agent_environment("project-1", "agent-1")
+    let launch = coordinator
+        .context()
+        .prepare(super::LaunchIntent::Direct {
+            project_id: "project-1",
+            provider_id: "codex",
+        })
         .expect("prepare direct agent environment");
+    let environment = launch.environment().merge_provider(&std::collections::BTreeMap::new());
 
     assert_eq!(
         environment
@@ -2586,7 +2758,7 @@ fn direct_ui_agents_receive_the_same_scoped_browser_environment() {
         environment
             .get(std::ffi::OsStr::new("ZLI_AGENT_ID"))
             .unwrap(),
-        "agent-1"
+        launch.agent().agent_id.as_str()
     );
     assert_eq!(
         environment
@@ -2598,19 +2770,29 @@ fn direct_ui_agents_receive_the_same_scoped_browser_environment() {
         environment
             .get(std::ffi::OsStr::new("ZLI_BROWSER_SESSION"))
             .unwrap(),
-        "agent-1"
+        launch.agent().agent_id.as_str()
     );
     assert_eq!(
         environment
             .get(std::ffi::OsStr::new("ZLI_COMMAND"))
             .unwrap(),
-        r"C:\Program Files\Taxzy\zli.exe"
+        sidecars
+            .path()
+            .join(if cfg!(windows) { "zli.exe" } else { "zli" })
+            .as_os_str()
     );
     assert_eq!(
         environment
             .get(std::ffi::OsStr::new("ZLI_BROWSER_USE_COMMAND"))
             .unwrap(),
-        r"C:\Program Files\Taxzy\zli-browser-use.exe"
+        sidecars
+            .path()
+            .join(if cfg!(windows) {
+                "zli-browser-use.exe"
+            } else {
+                "zli-browser-use"
+            })
+            .as_os_str()
     );
     let token = environment
         .get(std::ffi::OsStr::new("ZLI_CONTROL_TOKEN"))
@@ -2619,7 +2801,8 @@ fn direct_ui_agents_receive_the_same_scoped_browser_environment() {
         .unwrap();
     let identity = tokens.verify(token).expect("direct token should verify");
     assert_eq!(identity.project_id, "project-1");
-    assert_eq!(identity.agent_id.as_deref(), Some("agent-1"));
+    assert_eq!(identity.agent_id.as_deref(), Some(launch.agent().agent_id.as_str()));
+    launch.commit();
 }
 
 #[test]
@@ -2691,11 +2874,7 @@ fn supervisor_health_reports_capacity_and_event_persistence_without_reconciliati
 fn team_spawn_rolls_back_worktree_when_launch_fails() {
     let backend = Arc::new(FakeTeamBackend::default());
     backend.fail_launch.store(true, Ordering::SeqCst);
-    let coordinator = super::TeamCoordinator::new(
-        backend.clone(),
-        Arc::new(CapabilityTokenStore::default()),
-        "endpoint".into(),
-    );
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
 
     coordinator
         .spawn(team_spawn_request())
@@ -2837,35 +3016,34 @@ fn event_hub_compacts_durable_history_to_its_replay_capacity() {
 }
 
 #[test]
-fn team_spawn_aborts_the_session_when_initial_delivery_fails() {
+fn team_spawn_queues_the_initial_task_when_delivery_would_fail() {
     let backend = Arc::new(FakeTeamBackend::default());
     backend.fail_delivery.store(true, Ordering::SeqCst);
-    let coordinator = super::TeamCoordinator::new(
-        backend.clone(),
-        Arc::new(CapabilityTokenStore::default()),
-        "endpoint".into(),
-    );
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
 
     coordinator
         .spawn(team_spawn_request())
-        .expect_err("initial delivery must fail");
+        .expect("spawn queues without writing");
 
-    assert_eq!(backend.aborts.lock().unwrap().len(), 1);
-    assert_eq!(backend.cleanups.lock().unwrap().len(), 1);
+    assert!(backend.aborts.lock().unwrap().is_empty());
+    assert!(backend.deliveries.lock().unwrap().is_empty());
+    assert_eq!(
+        coordinator
+            .queue_status(Some("project-1"))
+            .expect("queue status")[0]
+            .pending_count,
+        1
+    );
 }
 
 #[test]
 fn child_exit_during_initial_delivery_does_not_leave_coordination_state() {
     let backend = Arc::new(FakeTeamBackend::default());
-    let tokens = Arc::new(CapabilityTokenStore::default());
-    let coordinator = Arc::new(super::TeamCoordinator::new(
-        backend.clone(),
-        tokens.clone(),
-        "endpoint".into(),
-    ));
+    let (coordinator, tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
+    let coordinator = Arc::new(coordinator);
     let coordinator_for_hook = coordinator.clone();
     let backend_for_hook = backend.clone();
-    *backend.delivery_hook.lock().unwrap() = Some(Arc::new(move || {
+    *backend.launch_hook.lock().unwrap() = Some(Arc::new(move || {
         let agent_id = backend_for_hook.launches.lock().unwrap().last().unwrap().agent_id.clone();
         coordinator_for_hook.handle_event(&AgentEventEnvelope::new(
             "startup-exit".into(),
@@ -2895,9 +3073,7 @@ fn child_exit_during_initial_delivery_does_not_leave_coordination_state() {
 #[test]
 fn team_stop_revokes_the_child_control_token() {
     let backend = Arc::new(FakeTeamBackend::default());
-    let tokens = Arc::new(CapabilityTokenStore::default());
-    let coordinator =
-        super::TeamCoordinator::new(backend.clone(), tokens.clone(), "endpoint".into());
+    let (coordinator, tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
     let child = coordinator
         .spawn(team_spawn_request())
         .expect("spawn child");
@@ -2917,13 +3093,22 @@ fn team_stop_revokes_the_child_control_token() {
 }
 
 #[test]
+fn team_stop_kills_even_when_recover_misses_a_non_running_terminal() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
+    coordinator
+        .stop("*", "wedged-agent")
+        .expect("stop must succeed without a recovered record");
+    assert_eq!(
+        backend.stops.lock().unwrap().as_slice(),
+        &["wedged-agent".to_owned()]
+    );
+}
+
+#[test]
 fn team_stop_removes_the_agent_from_coordination_registry() {
     let backend = Arc::new(FakeTeamBackend::default());
-    let coordinator = super::TeamCoordinator::new(
-        backend,
-        Arc::new(CapabilityTokenStore::default()),
-        "endpoint".into(),
-    );
+    let (coordinator, _tokens, _sidecars) = managed_team(backend, "endpoint");
     let child = coordinator
         .spawn(team_spawn_request())
         .expect("spawn child");
@@ -2965,11 +3150,7 @@ fn runtime_team_stop_accepts_an_already_removed_agent() {
 #[test]
 fn stopping_agent_fails_and_removes_queued_messages() {
     let backend = Arc::new(FakeTeamBackend::default());
-    let coordinator = super::TeamCoordinator::new(
-        backend.clone(),
-        Arc::new(CapabilityTokenStore::default()),
-        "endpoint".into(),
-    );
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
     let child = coordinator
         .spawn(team_spawn_request())
         .expect("spawn child");
@@ -2998,8 +3179,7 @@ fn stopping_agent_fails_and_removes_queued_messages() {
 #[test]
 fn exited_agent_is_removed_from_coordination_and_cannot_keep_its_child_token() {
     let backend = Arc::new(FakeTeamBackend::default());
-    let tokens = Arc::new(CapabilityTokenStore::default());
-    let coordinator = super::TeamCoordinator::new(backend.clone(), tokens.clone(), "endpoint".into());
+    let (coordinator, tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
     let child = coordinator
         .spawn(team_spawn_request())
         .expect("spawn child");
@@ -3028,11 +3208,7 @@ fn exited_agent_is_removed_from_coordination_and_cannot_keep_its_child_token() {
 #[test]
 fn team_message_queue_is_parent_child_scoped_and_not_written_early() {
     let backend = Arc::new(FakeTeamBackend::default());
-    let coordinator = super::TeamCoordinator::new(
-        backend.clone(),
-        Arc::new(CapabilityTokenStore::default()),
-        "endpoint".into(),
-    );
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
     let child = coordinator
         .spawn(team_spawn_request())
         .expect("spawn child");
@@ -3042,7 +3218,8 @@ fn team_message_queue_is_parent_child_scoped_and_not_written_early() {
         .expect("deliver message");
 
     assert_eq!(result["queued"], true);
-    assert_eq!(backend.deliveries.lock().unwrap().len(), 1);
+    assert_eq!(result["scheduled"], false);
+    assert!(backend.deliveries.lock().unwrap().is_empty());
     assert_eq!(
         backend.events.lock().unwrap().last().unwrap().kind,
         AgentEventKind::AgentMessageQueued
@@ -3051,7 +3228,7 @@ fn team_message_queue_is_parent_child_scoped_and_not_written_early() {
         .send("project-2", &child.agent_id, "Cross project")
         .expect_err("cross-project delivery must fail");
     assert_eq!(error.code, super::ControlErrorCode::SessionNotFound);
-    assert_eq!(backend.deliveries.lock().unwrap().len(), 1);
+    assert!(backend.deliveries.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -3131,15 +3308,11 @@ fn pending_agent_messages_survive_coordinator_restart() {
 #[test]
 fn team_message_waits_for_a_provider_prompt_before_writing_to_the_pty() {
     let backend = Arc::new(FakeTeamBackend::default());
-    let coordinator = super::TeamCoordinator::new(
-        backend.clone(),
-        Arc::new(CapabilityTokenStore::default()),
-        "endpoint".into(),
-    );
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
     let child = coordinator
         .spawn(team_spawn_request())
         .expect("spawn child");
-    backend.deliveries.lock().unwrap().clear();
+    drain_spawn_task(&coordinator, &backend, &child);
     backend.events.lock().unwrap().clear();
 
     let result = coordinator
@@ -3178,15 +3351,11 @@ fn team_message_waits_for_a_provider_prompt_before_writing_to_the_pty() {
 #[test]
 fn failed_agent_message_stays_queued_until_a_later_prompt() {
     let backend = Arc::new(FakeTeamBackend::default());
-    let coordinator = super::TeamCoordinator::new(
-        backend.clone(),
-        Arc::new(CapabilityTokenStore::default()),
-        "endpoint".into(),
-    );
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
     let child = coordinator
         .spawn(team_spawn_request())
         .expect("spawn child");
-    backend.deliveries.lock().unwrap().clear();
+    drain_spawn_task(&coordinator, &backend, &child);
     backend.events.lock().unwrap().clear();
     backend.fail_delivery.store(true, Ordering::SeqCst);
 
@@ -3234,17 +3403,14 @@ fn failed_agent_message_stays_queued_until_a_later_prompt() {
 fn delivered_message_retries_acknowledgement_before_next_delivery() {
     let root = tempdir().expect("temporary directory");
     let backend = Arc::new(FakeTeamBackend::default());
-    let coordinator = super::TeamCoordinator::new(
-        backend.clone(),
-        Arc::new(CapabilityTokenStore::default()),
-        "endpoint".into(),
-    )
-    .with_message_store(SnapshotStore::new(root.path().to_path_buf()))
-    .expect("create persistent coordinator");
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
+    let coordinator = coordinator
+        .with_message_store(SnapshotStore::new(root.path().to_path_buf()))
+        .expect("create persistent coordinator");
     let child = coordinator
         .spawn(team_spawn_request())
         .expect("spawn child");
-    backend.deliveries.lock().unwrap().clear();
+    drain_spawn_task(&coordinator, &backend, &child);
     backend.events.lock().unwrap().clear();
 
     coordinator
@@ -3316,17 +3482,14 @@ fn delivered_message_retries_acknowledgement_before_next_delivery() {
 fn failed_delivery_retries_requeue_before_reporting_failure() {
     let root = tempdir().expect("temporary directory");
     let backend = Arc::new(FakeTeamBackend::default());
-    let coordinator = super::TeamCoordinator::new(
-        backend.clone(),
-        Arc::new(CapabilityTokenStore::default()),
-        "endpoint".into(),
-    )
-    .with_message_store(SnapshotStore::new(root.path().to_path_buf()))
-    .expect("create persistent coordinator");
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
+    let coordinator = coordinator
+        .with_message_store(SnapshotStore::new(root.path().to_path_buf()))
+        .expect("create persistent coordinator");
     let child = coordinator
         .spawn(team_spawn_request())
         .expect("spawn child");
-    backend.deliveries.lock().unwrap().clear();
+    drain_spawn_task(&coordinator, &backend, &child);
     backend.events.lock().unwrap().clear();
 
     coordinator
@@ -3460,15 +3623,11 @@ fn agent_queue_status_is_project_scoped_and_body_free() {
 #[test]
 fn taxchat_delivery_is_project_scoped_bounded_and_evented() {
     let backend = Arc::new(FakeTeamBackend::default());
-    let coordinator = super::TeamCoordinator::new(
-        backend.clone(),
-        Arc::new(CapabilityTokenStore::default()),
-        "endpoint".into(),
-    );
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
     let child = coordinator
         .spawn(team_spawn_request())
         .expect("spawn child");
-    backend.deliveries.lock().unwrap().clear();
+    drain_spawn_task(&coordinator, &backend, &child);
 
     let result = coordinator
         .send_taxchat(
@@ -3514,15 +3673,11 @@ fn taxchat_delivery_is_project_scoped_bounded_and_evented() {
 #[test]
 fn queued_taxchat_message_is_failed_when_recipient_exits() {
     let backend = Arc::new(FakeTeamBackend::default());
-    let coordinator = super::TeamCoordinator::new(
-        backend.clone(),
-        Arc::new(CapabilityTokenStore::default()),
-        "endpoint".into(),
-    );
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
     let child = coordinator
         .spawn(team_spawn_request())
         .expect("spawn child");
-    backend.deliveries.lock().unwrap().clear();
+    drain_spawn_task(&coordinator, &backend, &child);
     backend.events.lock().unwrap().clear();
 
     coordinator
@@ -3557,15 +3712,11 @@ fn queued_taxchat_message_is_failed_when_recipient_exits() {
 #[test]
 fn exited_agent_cleanup_retries_before_a_later_prompt_can_deliver() {
     let backend = Arc::new(FakeTeamBackend::default());
-    let coordinator = super::TeamCoordinator::new(
-        backend.clone(),
-        Arc::new(CapabilityTokenStore::default()),
-        "endpoint".into(),
-    );
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
     let child = coordinator
         .spawn(team_spawn_request())
         .expect("spawn child");
-    backend.deliveries.lock().unwrap().clear();
+    drain_spawn_task(&coordinator, &backend, &child);
     backend.events.lock().unwrap().clear();
 
     coordinator
@@ -3609,6 +3760,201 @@ fn exited_agent_cleanup_retries_before_a_later_prompt_can_deliver() {
         .unwrap()
         .iter()
         .any(|event| event.kind == AgentEventKind::AgentMessageFailed));
+}
+
+#[test]
+fn send_before_ready_does_not_write_and_stays_unknown() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), r"\\.\pipe\zli-test");
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+
+    let queued = coordinator
+        .send("project-1", &child.agent_id, "and then lint")
+        .expect("queue follow-up");
+    assert_eq!(queued["queued"], true);
+    assert_eq!(queued["scheduled"], false);
+    assert!(backend.deliveries.lock().unwrap().is_empty());
+
+    let status = coordinator
+        .queue_status(Some("project-1"))
+        .expect("queue status");
+    assert_eq!(status[0].pending_count, 2);
+    assert_eq!(status[0].in_flight_count, 0);
+    assert_eq!(status[0].readiness, super::ReadinessView::Unknown);
+    assert_eq!(
+        status[0].delivery,
+        crate::agents::providers::DeliveryKind::MintedSlots
+    );
+}
+
+#[test]
+fn send_after_idle_glyph_writes_once() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+    drain_spawn_task(&coordinator, &backend, &child);
+
+    coordinator.handle_event(&prompt_detected(
+        "project-1",
+        &child.agent_id,
+        "codex_prompt_marker",
+    ));
+    assert!(backend.deliveries.lock().unwrap().is_empty());
+    assert_eq!(
+        coordinator
+            .queue_status(Some("project-1"))
+            .expect("queue status")[0]
+            .readiness,
+        super::ReadinessView::Ready
+    );
+
+    let queued = coordinator
+        .send("project-1", &child.agent_id, "after idle")
+        .expect("send after idle");
+    assert_eq!(queued["queued"], true);
+    assert_eq!(queued["scheduled"], true);
+    assert_eq!(
+        backend.deliveries.lock().unwrap().as_slice(),
+        &[("terminal-child".into(), "after idle".into())]
+    );
+    assert_eq!(
+        coordinator
+            .queue_status(Some("project-1"))
+            .expect("queue status")[0]
+            .readiness,
+        super::ReadinessView::Busy
+    );
+}
+
+#[test]
+fn cursor_and_opencode_need_pull_while_claude_and_codex_drain_on_prompt() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
+
+    let mut cursor_request = team_spawn_request();
+    cursor_request.provider_id = "cursor-agent".into();
+    cursor_request.task = "Inspect the repo".into();
+    let cursor = coordinator.spawn(cursor_request).expect("spawn cursor");
+    coordinator
+        .send("project-1", &cursor.agent_id, "then run tests")
+        .expect("queue cursor follow-up");
+    assert!(backend.deliveries.lock().unwrap().is_empty());
+    let cursor_status = coordinator
+        .queue_status(Some("project-1"))
+        .expect("queue status")
+        .into_iter()
+        .find(|status| status.agent_id == cursor.agent_id)
+        .expect("cursor status");
+    assert_eq!(cursor_status.readiness, super::ReadinessView::Unsupported);
+    assert_eq!(
+        cursor_status.delivery,
+        crate::agents::providers::DeliveryKind::ExplicitPull
+    );
+    assert_eq!(cursor_status.pending_count, 2);
+
+    coordinator.handle_event(&prompt_detected(
+        "project-1",
+        &cursor.agent_id,
+        "codex_prompt_marker",
+    ));
+    assert!(backend.deliveries.lock().unwrap().is_empty());
+
+    let pulled = coordinator
+        .pull("project-1", &cursor.agent_id)
+        .expect("pull cursor inbox");
+    assert!(pulled.delivered);
+    assert_eq!(backend.deliveries.lock().unwrap()[0].1, "Inspect the repo");
+
+    coordinator
+        .pull("project-1", &cursor.agent_id)
+        .expect("pull second cursor message");
+    assert_eq!(backend.deliveries.lock().unwrap()[1].1, "then run tests");
+
+    let mut opencode_request = team_spawn_request();
+    opencode_request.provider_id = "opencode".into();
+    opencode_request.task = "Open the workspace".into();
+    let opencode = coordinator.spawn(opencode_request).expect("spawn opencode");
+    coordinator.handle_event(&prompt_detected(
+        "project-1",
+        &opencode.agent_id,
+        "codex_prompt_marker",
+    ));
+    assert!(!backend
+        .deliveries
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(_, body)| body == "Open the workspace"));
+    let pulled_open = coordinator
+        .pull("project-1", &opencode.agent_id)
+        .expect("pull opencode");
+    assert!(pulled_open.delivered);
+}
+
+#[test]
+fn pull_on_codex_is_denied_and_claude_still_drains_on_prompt() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let (coordinator, _tokens, _sidecars) = managed_team(backend.clone(), "endpoint");
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn codex");
+    let error = coordinator
+        .pull("project-1", &child.agent_id)
+        .expect_err("codex cannot pull");
+    assert_eq!(error.code, super::ControlErrorCode::CapabilityDenied);
+    assert!(backend.deliveries.lock().unwrap().is_empty());
+
+    coordinator.handle_event(&prompt_detected(
+        "project-1",
+        &child.agent_id,
+        "codex_prompt_marker",
+    ));
+    assert_eq!(
+        backend.deliveries.lock().unwrap().as_slice(),
+        &[("terminal-child".into(), "Run the focused tests".into())]
+    );
+
+    let mut claude_request = team_spawn_request();
+    claude_request.provider_id = "claude-code".into();
+    claude_request.task = "Review the patch".into();
+    let claude = coordinator.spawn(claude_request).expect("spawn claude");
+    coordinator.handle_event(&prompt_detected(
+        "project-1",
+        &claude.agent_id,
+        "claude_code_prompt_marker",
+    ));
+    assert!(backend
+        .deliveries
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(_, body)| body == "Review the patch"));
+}
+
+#[test]
+fn capability_report_does_not_equate_installation_with_integration() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let (coordinator, _tokens, _sidecars) = managed_team(backend, "endpoint");
+    let report = coordinator
+        .capability_report("cursor-agent")
+        .expect("cursor report");
+    assert_eq!(
+        report.delivery,
+        crate::agents::providers::DeliveryKind::ExplicitPull
+    );
+    assert!(!report.readiness_reliable);
+    assert!(!report.mcp_configured);
+    assert_eq!(
+        report.executable_verified,
+        matches!(
+            report.identity,
+            crate::agents::providers::IdentityVerdict::Verified { .. }
+        )
+    );
 }
 
 fn wait_for_control_event(

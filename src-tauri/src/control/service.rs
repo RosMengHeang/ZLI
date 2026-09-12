@@ -203,6 +203,16 @@ impl ControlHandler for RuntimeControlHandler {
                 let body = param(&request.params, "body")?;
                 self.team.send(&identity.project_id, agent_id, body)
             }
+            ControlMethod::AgentPull => {
+                let agent_id = param(&request.params, "agentId")?;
+                serde_json::to_value(self.team.pull(&identity.project_id, agent_id)?)
+                    .map_err(serialization_error)
+            }
+            ControlMethod::ProviderCapabilityReport => {
+                let provider_id = param(&request.params, "providerId")?;
+                serde_json::to_value(self.team.capability_report(provider_id)?)
+                    .map_err(serialization_error)
+            }
             ControlMethod::AgentRead => self
                 .team
                 .read(&identity.project_id, param(&request.params, "agentId")?),
@@ -227,10 +237,16 @@ impl ControlHandler for RuntimeControlHandler {
                         "Caller cannot resume another project's session",
                     ));
                 }
-                let descriptor = self
-                    .supervisor
-                    .resume(session_id, self.sink.clone())
-                    .map_err(session_runtime)?;
+                let descriptor = {
+                    let launch = self.team.context().prepare(
+                        crate::control::LaunchIntent::Resume {
+                            descriptor: &existing,
+                        },
+                    )?;
+                    self.supervisor
+                        .resume(session_id, launch)
+                        .map_err(session_runtime)?
+                };
                 serde_json::to_value(descriptor).map_err(serialization_error)
             }
             ControlMethod::TaxChatSend => {

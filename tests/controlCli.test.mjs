@@ -11,6 +11,13 @@ test("cli maps agent send arguments to a versioned control request", async () =>
   assert.equal(parsed.request.protocolVersion, 1);
 });
 
+test("cli maps agent pull to the inbox drain request", async () => {
+  const { parseCli } = await import("../src/control/cli.ts");
+  const parsed = parseCli(["agent", "pull", "agent-1"]);
+  assert.equal(parsed.request.method, "agent.pull");
+  assert.deepEqual(parsed.request.params, { agentId: "agent-1" });
+});
+
 test("cli exposes queue diagnostics without accepting message content", async () => {
   const { parseCli } = await import("../src/control/cli.ts");
   const parsed = parseCli(["agent", "queue", "--project", "D:/repo"]);

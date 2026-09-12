@@ -16,14 +16,16 @@ const checkpointWithAgent = (availability, attached = false) => ({
       branch: "main",
       worktreePath: null,
       attached,
-      resume: {
-        providerId: "cursor-agent",
-        providerSessionId: null,
-        resumeCommandKind: null,
-        workingDirectory: "D:/project",
-        lastCheckpointAt: null,
-        availability,
-      },
+      resume: availability === "available"
+        ? {
+          type: "available",
+          id: "session-token-1",
+          provenance: { marker: "session id", sourceLine: "Session ID: session-token-1", capturedAt: "0" },
+          resumeCommandKind: "session_id",
+        }
+        : availability === "unsupported"
+          ? { type: "unsupported" }
+          : { type: "unknown", reason: "no session id marker", lastProbeAt: "0" },
     },
     scrollback: "saved output",
   }],

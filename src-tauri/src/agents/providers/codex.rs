@@ -1,4 +1,6 @@
 use super::*;
+use std::path::Path;
+
 const CANDIDATES: &[&str] = &["codex", "codex.exe", "codex.cmd", "codex.ps1"];
 pub struct CodexAdapter;
 impl ProviderAdapter for CodexAdapter {
@@ -19,21 +21,23 @@ impl ProviderAdapter for CodexAdapter {
             super::super::runtime_codex_compatibility_args(self.id()),
         )
     }
-    fn parse_output(&self, output: &str) -> Vec<ProviderEvent> {
-        common_output_events(output)
-    }
-    fn detect_resume(&self, output: &str, cwd: &Path) -> Option<ResumeDescriptor> {
-        resume_from_marker(self.id(), output, cwd, "session id")
+    fn probe_resume(&self, output: &str, cwd: &Path) -> ResumeProbe {
+        let _ = cwd;
+        parse_session_id(output)
     }
     fn build_resume(
         &self,
-        descriptor: &ResumeDescriptor,
+        record: &ResumeRecord,
+        cwd: &Path,
     ) -> Result<Option<LaunchPlan>, BackendError> {
         let mut arguments = super::super::runtime_codex_compatibility_args(self.id());
         arguments.push(OsString::from("resume"));
-        resume_plan(self, descriptor, arguments)
+        resume_plan_from_record(self, record, cwd, arguments)
     }
     fn resume_support(&self) -> ResumeSupport {
         ResumeSupport::Supported
+    }
+    fn delivery_kind(&self) -> DeliveryKind {
+        DeliveryKind::MintedSlots
     }
 }

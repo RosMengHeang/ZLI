@@ -1,4 +1,4 @@
-use crate::agents::providers::ResumeDescriptor;
+use crate::agents::providers::ResumeRecord;
 use crate::error::BackendError;
 use crate::pty::{EventSink, PtyManager, TerminalOutputEvent, TerminalStatusEvent};
 use serde::{Deserialize, Serialize};
@@ -26,7 +26,7 @@ pub struct SessionDescriptor {
     pub branch: String,
     #[serde(default)]
     pub worktree_path: Option<String>,
-    pub resume: Option<ResumeDescriptor>,
+    pub resume: Option<ResumeRecord>,
     pub attached: bool,
 }
 
@@ -149,7 +149,7 @@ impl RuntimeSession {
 
     pub fn set_resume(
         &self,
-        resume: crate::agents::providers::ResumeDescriptor,
+        resume: crate::agents::providers::ResumeRecord,
     ) -> Result<(), BackendError> {
         self.descriptor
             .lock()

@@ -1,21 +1,22 @@
 use super::{
-    AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, CallerIdentity,
-    Capability, CapabilityTokenStore, ControlError, ControlErrorCode, SnapshotStore, Supervisor,
+    delivery_desk::{DeliveryDesk, PullReceipt, ReadinessObservation, ReadinessView},
+    AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, ControlError,
+    ControlErrorCode, LaunchIntent, ManagedAgentContext, ManagedLaunch, SnapshotStore, Supervisor,
     SUPERVISOR_PROTOCOL_VERSION,
 };
-use crate::agents::{self, Agent, AgentManager, LaunchAgentRequest};
+use crate::agents::{
+    self,
+    providers::{DeliveryKind, ProviderCapabilityReport, ProviderRegistry},
+    Agent, AgentManager, LaunchAgentRequest,
+};
 use crate::git::worktree::{self, CreateWorktreeRequest, RemoveWorktreeRequest};
 use crate::pty::{EventSink, PtyManager, TerminalStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::env;
-use std::ffi::OsString;
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
 use uuid::Uuid;
 
 pub const MAX_TEAM_AGENTS: usize = 12;
@@ -92,6 +93,8 @@ pub struct AgentQueueStatus {
     pub pending_count: usize,
     pub in_flight_count: usize,
     pub oldest_message_id: Option<String>,
+    pub readiness: ReadinessView,
+    pub delivery: DeliveryKind,
 }
 
 #[derive(Clone, Default)]
@@ -289,6 +292,8 @@ impl AgentMessageInbox {
                 pending_count: 0,
                 in_flight_count: 0,
                 oldest_message_id: None,
+                readiness: ReadinessView::Unknown,
+                delivery: DeliveryKind::MintedSlots,
             });
             status.in_flight_count += 1;
             if status.oldest_message_id.is_none() {
@@ -308,6 +313,8 @@ impl AgentMessageInbox {
                     pending_count: 0,
                     in_flight_count: 0,
                     oldest_message_id: None,
+                    readiness: ReadinessView::Unknown,
+                    delivery: DeliveryKind::MintedSlots,
                 });
                 status.pending_count += 1;
                 if status.oldest_message_id.is_none() {
@@ -413,17 +420,6 @@ pub struct PreparedWorktree {
     pub path: String,
 }
 
-#[derive(Clone, Debug)]
-pub struct ChildLaunch {
-    pub agent_id: String,
-    pub parent_agent_id: Option<String>,
-    pub project_id: String,
-    pub provider_id: String,
-    pub name: String,
-    pub worktree: PreparedWorktree,
-    pub environment: HashMap<OsString, OsString>,
-}
-
 pub trait TeamBackend: Send + Sync {
     fn active_agent_count(&self, project_id: &str) -> Result<usize, ControlError>;
     fn begin_agent_launch(&self, _project_id: &str) -> Result<(), ControlError> {
@@ -442,7 +438,12 @@ pub trait TeamBackend: Send + Sync {
         project_id: &str,
         provider_id: &str,
     ) -> Result<PreparedWorktree, ControlError>;
-    fn launch_child(&self, launch: ChildLaunch) -> Result<Agent, ControlError>;
+    fn launch_child(
+        &self,
+        launch: &ManagedLaunch,
+        name: String,
+        worktree: PreparedWorktree,
+    ) -> Result<Agent, ControlError>;
     fn deliver(&self, terminal_id: &str, body: &str) -> Result<(), ControlError>;
     fn read(&self, agent_id: &str) -> Result<(String, String), ControlError>;
     fn stop(&self, agent_id: &str) -> Result<(), ControlError>;
@@ -468,12 +469,10 @@ impl Drop for LaunchSlotGuard<'_> {
 
 pub struct TeamCoordinator {
     backend: Arc<dyn TeamBackend>,
-    tokens: Arc<CapabilityTokenStore>,
-    endpoint: String,
-    control_executable: Option<PathBuf>,
+    context: ManagedAgentContext,
+    providers: ProviderRegistry,
+    desk: DeliveryDesk,
     records: Mutex<HashMap<String, TeamAgent>>,
-    child_tokens: Mutex<HashMap<String, String>>,
-    direct_tokens: Mutex<HashMap<String, String>>,
     inbox: AgentMessageInbox,
     delivery_ack_pending: Mutex<HashMap<(String, String), QueuedAgentMessage>>,
     delivery_requeue_pending: Mutex<HashMap<(String, String), QueuedAgentMessage>>,
@@ -483,19 +482,13 @@ pub struct TeamCoordinator {
 }
 
 impl TeamCoordinator {
-    pub fn new(
-        backend: Arc<dyn TeamBackend>,
-        tokens: Arc<CapabilityTokenStore>,
-        endpoint: String,
-    ) -> Self {
+    pub fn new(backend: Arc<dyn TeamBackend>, context: ManagedAgentContext) -> Self {
         Self {
             backend,
-            tokens,
-            endpoint,
-            control_executable: None,
+            context,
+            providers: ProviderRegistry::default(),
+            desk: DeliveryDesk::new(),
             records: Mutex::new(HashMap::new()),
-            child_tokens: Mutex::new(HashMap::new()),
-            direct_tokens: Mutex::new(HashMap::new()),
             inbox: AgentMessageInbox::default(),
             delivery_ack_pending: Mutex::new(HashMap::new()),
             delivery_requeue_pending: Mutex::new(HashMap::new()),
@@ -505,59 +498,8 @@ impl TeamCoordinator {
         }
     }
 
-    pub fn with_control_executable(mut self, executable: Option<PathBuf>) -> Self {
-        self.control_executable = executable;
-        self
-    }
-
-    pub(crate) fn prepare_direct_agent_environment(
-        &self,
-        project_id: &str,
-        agent_id: &str,
-    ) -> Result<HashMap<OsString, OsString>, ControlError> {
-        if self.control_executable.is_none() || self.endpoint.trim().is_empty() {
-            return Ok(HashMap::new());
-        }
-        let request = SpawnAgentRequest {
-            project_id: project_id.to_owned(),
-            parent_agent_id: None,
-            provider_id: "direct".to_owned(),
-            task: String::new(),
-            name: None,
-        };
-        let issued = self.tokens.issue(
-            agent_identity(project_id, agent_id, None),
-            Duration::from_secs(12 * 60 * 60),
-        );
-        let environment = control_environment(
-            &request,
-            agent_id,
-            &self.endpoint,
-            &issued.token,
-            self.control_executable.as_deref(),
-        );
-        match self.direct_tokens.lock() {
-            Ok(mut direct_tokens) => {
-                direct_tokens.insert(agent_id.to_owned(), issued.token);
-                Ok(environment)
-            }
-            Err(_) => {
-                self.tokens.revoke(&issued.token);
-                Err(ControlError::new(
-                    ControlErrorCode::ControlRuntimeError,
-                    "Team state is unavailable",
-                ))
-            }
-        }
-    }
-
-    pub(crate) fn revoke_agent_token(&self, agent_id: &str) {
-        self.revoke_child_token(agent_id);
-        if let Ok(mut direct_tokens) = self.direct_tokens.lock() {
-            if let Some(token) = direct_tokens.remove(agent_id) {
-                self.tokens.revoke(&token);
-            }
-        }
+    pub fn context(&self) -> &ManagedAgentContext {
+        &self.context
     }
 
     pub fn with_message_store(mut self, store: SnapshotStore) -> Result<Self, ControlError> {
@@ -575,7 +517,34 @@ impl TeamCoordinator {
         project_id: Option<&str>,
     ) -> Result<Vec<AgentQueueStatus>, ControlError> {
         self.retry_pending_exit_cleanups();
-        self.inbox.queue_status(project_id)
+        let mut statuses = BTreeMap::<(String, String), AgentQueueStatus>::new();
+        for status in self.inbox.queue_status(project_id)? {
+            statuses.insert((status.project_id.clone(), status.agent_id.clone()), status);
+        }
+        let records = self.records.lock().map_err(lock_error)?;
+        for record in records.values() {
+            if project_id.is_some_and(|requested| requested != record.project_id) {
+                continue;
+            }
+            let delivery = self.delivery_kind_for(&record.provider_id);
+            let readiness = self.desk.view(&record.agent_id);
+            statuses
+                .entry((record.project_id.clone(), record.agent_id.clone()))
+                .and_modify(|status| {
+                    status.readiness = readiness.clone();
+                    status.delivery = delivery;
+                })
+                .or_insert_with(|| AgentQueueStatus {
+                    project_id: record.project_id.clone(),
+                    agent_id: record.agent_id.clone(),
+                    pending_count: 0,
+                    in_flight_count: 0,
+                    oldest_message_id: None,
+                    readiness,
+                    delivery,
+                });
+        }
+        Ok(statuses.into_values().collect())
     }
 
     pub fn spawn(&self, request: SpawnAgentRequest) -> Result<TeamAgent, ControlError> {
@@ -607,59 +576,40 @@ impl TeamCoordinator {
             project_id: request.project_id.clone(),
         };
 
+        let launch = self.context.prepare(LaunchIntent::Child {
+            project_id: &request.project_id,
+            provider_id: &request.provider_id,
+            parent_agent_id: request.parent_agent_id.as_deref(),
+        })?;
         let worktree = self
             .backend
             .create_worktree(&request.project_id, &request.provider_id)?;
-        let agent_id = Uuid::new_v4().to_string();
-        let issued = self.tokens.issue(
-            child_identity(&request, &agent_id),
-            Duration::from_secs(12 * 60 * 60),
-        );
+        let agent_id = launch.agent().agent_id.clone();
         self.starting_agents
             .lock()
             .map_err(lock_error)?
             .insert(agent_id.clone());
-        let environment = control_environment(
-            &request,
-            &agent_id,
-            &self.endpoint,
-            &issued.token,
-            self.control_executable.as_deref(),
-        );
-        let launch = ChildLaunch {
-            agent_id: agent_id.clone(),
-            parent_agent_id: request.parent_agent_id.clone(),
-            project_id: request.project_id.clone(),
-            provider_id: request.provider_id.clone(),
-            name: request
-                .name
-                .clone()
-                .unwrap_or_else(|| format!("{} child", request.provider_id)),
-            worktree: worktree.clone(),
-            environment,
-        };
-        let agent = match self.backend.launch_child(launch) {
+        self.desk
+            .bind(&agent_id, self.delivery_kind_for(&request.provider_id))?;
+
+        let name = request
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("{} child", request.provider_id));
+        let agent = match self.backend.launch_child(&launch, name, worktree.clone()) {
             Ok(agent) => agent,
             Err(error) => {
                 self.forget_starting_agent(&agent_id);
+                let _ = self.desk.apply(ReadinessObservation::Exited {
+                    agent_id: agent_id.clone(),
+                });
                 self.retire_coordination_record(&agent_id);
-                self.tokens.revoke(&issued.token);
                 let _ = self
                     .backend
                     .cleanup_worktree(&request.project_id, &worktree.path);
                 return Err(error);
             }
         };
-        if let Err(error) = self.backend.deliver(&agent.terminal_id, &request.task) {
-            self.forget_starting_agent(&agent.id);
-            self.retire_coordination_record(&agent.id);
-            let _ = self.backend.abort(&agent.id);
-            self.tokens.revoke(&issued.token);
-            let _ = self
-                .backend
-                .cleanup_worktree(&request.project_id, &worktree.path);
-            return Err(error);
-        }
 
         let child = TeamAgent {
             agent_id: agent.id.clone(),
@@ -672,14 +622,30 @@ impl TeamCoordinator {
             worktree_path: worktree.path,
             paused: false,
         };
+        if let Err(error) = self.inbox.enqueue(QueuedAgentMessage {
+            message_id: Uuid::new_v4().to_string(),
+            project_id: child.project_id.clone(),
+            agent_id: child.agent_id.clone(),
+            terminal_id: child.terminal_id.clone(),
+            body: request.task.clone(),
+            kind: QueuedAgentMessageKind::Agent,
+        }) {
+            self.forget_starting_agent(&child.agent_id);
+            let _ = self.desk.apply(ReadinessObservation::Exited {
+                agent_id: child.agent_id.clone(),
+            });
+            self.retire_coordination_record(&child.agent_id);
+            let _ = self.backend.abort(&child.agent_id);
+            let _ = self
+                .backend
+                .cleanup_worktree(&request.project_id, &child.worktree_path);
+            return Err(error);
+        }
         self.records
             .lock()
             .map_err(lock_error)?
             .insert(child.agent_id.clone(), child.clone());
-        self.child_tokens
-            .lock()
-            .map_err(lock_error)?
-            .insert(child.agent_id.clone(), issued.token);
+        launch.commit();
         self.forget_starting_agent(&child.agent_id);
         let exited_during_start = self
             .early_exit_pending
@@ -687,7 +653,11 @@ impl TeamCoordinator {
             .map_err(lock_error)?
             .remove(&child.agent_id);
         if exited_during_start {
-            self.revoke_child_token(&child.agent_id);
+            let _ = self.drain_inbox_for_exit(&child.agent_id);
+            let _ = self.desk.apply(ReadinessObservation::Exited {
+                agent_id: child.agent_id.clone(),
+            });
+            self.context.revoke(&child.agent_id);
             self.retire_coordination_record(&child.agent_id);
         } else if self
             .records
@@ -695,6 +665,7 @@ impl TeamCoordinator {
             .map(|records| records.contains_key(&child.agent_id))
             .unwrap_or(false)
         {
+            let _ = self.dispatch_ready(&child);
             self.emit(
                 &child,
                 AgentEventKind::AgentStarted,
@@ -717,22 +688,12 @@ impl TeamCoordinator {
         agent_id: &str,
     ) -> Result<BrowserAgentCapability, ControlError> {
         let _record = self.record(project_id, agent_id)?;
-        let adapter_command = self.control_executable.as_ref().and_then(|executable| {
-            executable.parent().map(|directory| {
-                directory
-                    .join(if cfg!(windows) {
-                        "zli-browser-use.exe"
-                    } else {
-                        "zli-browser-use"
-                    })
-                    .to_string_lossy()
-                    .into_owned()
-            })
+        let sidecars = self.context.sidecars();
+        let adapter_command = sidecars.as_ref().ok().map(|paths| {
+            paths.browser_use().to_string_lossy().into_owned()
         });
-        let shell_fallback_available = self.control_executable.is_some();
-        let mcp_adapter_available = adapter_command
-            .as_deref()
-            .is_some_and(|command| Path::new(command).is_file());
+        let shell_fallback_available = sidecars.is_ok();
+        let mcp_adapter_available = sidecars.is_ok();
         let mcp_provider_configured = false;
         let mode = if mcp_provider_configured {
             "mcp"
@@ -794,7 +755,8 @@ impl TeamCoordinator {
                 message_id: message_id.clone(),
             },
         );
-        Ok(json!({ "messageId": message_id, "queued": true }))
+        let scheduled = self.dispatch_ready(&record)?.is_some();
+        Ok(json!({ "messageId": message_id, "queued": true, "scheduled": scheduled }))
     }
 
     pub fn handle_event(&self, event: &AgentEventEnvelope) {
@@ -802,12 +764,40 @@ impl TeamCoordinator {
         let Some(agent_id) = event.agent_id.as_deref() else {
             return;
         };
+        self.context.touch(agent_id);
         if matches!(
             event.kind,
             AgentEventKind::AgentExited | AgentEventKind::AgentFailed
         ) {
+            let _ = self.desk.apply(ReadinessObservation::Exited {
+                agent_id: agent_id.to_owned(),
+            });
             self.cleanup_exited_agent(agent_id);
             return;
+        }
+        match event.kind {
+            AgentEventKind::AgentPromptDetected => {
+                let reason = match &event.payload {
+                    AgentEventPayload::Attention { reason } if reason == "claude_code_prompt_marker" => {
+                        "claude_code_prompt_marker"
+                    }
+                    AgentEventPayload::Attention { reason } if reason == "codex_prompt_marker" => {
+                        "codex_prompt_marker"
+                    }
+                    _ => "provider_prompt",
+                };
+                let _ = self.desk.apply(ReadinessObservation::MintGlyph {
+                    agent_id: agent_id.to_owned(),
+                    reason,
+                });
+            }
+            AgentEventKind::AgentLocalInput => {
+                let _ = self.desk.apply(ReadinessObservation::LocalInput {
+                    agent_id: agent_id.to_owned(),
+                });
+                return;
+            }
+            _ => {}
         }
         if self
             .exit_cleanup_pending
@@ -826,48 +816,7 @@ impl TeamCoordinator {
         if record.paused {
             return;
         }
-        self.retry_pending_delivery_ack(agent_id);
-        self.retry_pending_delivery_requeue(agent_id);
-        let message = match self.inbox.take_next(agent_id) {
-            Ok(Some(message)) => message,
-            Ok(None) | Err(_) => return,
-        };
-        if message.project_id != record.project_id {
-            let _ = self.inbox.ack(&record.agent_id, &message.message_id);
-            self.fail_queued_message(message);
-            return;
-        }
-        let result = self.backend.deliver(&record.terminal_id, &message.body);
-        if result.is_err() {
-            match self
-                .inbox
-                .requeue(&record.agent_id, &message.message_id)
-            {
-                Ok(true) | Ok(false) => return,
-                Err(_) => {
-                    if let Ok(mut pending) = self.delivery_requeue_pending.lock() {
-                        pending.insert(
-                            (record.agent_id.clone(), message.message_id.clone()),
-                            message,
-                        );
-                    }
-                    return;
-                }
-            }
-        } else if self
-            .inbox
-            .ack(&record.agent_id, &message.message_id)
-            .is_err()
-        {
-            if let Ok(mut pending) = self.delivery_ack_pending.lock() {
-                pending.insert(
-                    (record.agent_id.clone(), message.message_id.clone()),
-                    message,
-                );
-            }
-            return;
-        }
-        self.emit_delivery_result(&record, message, result.is_ok());
+        let _ = self.dispatch_ready(&record);
     }
 
     fn cleanup_exited_agent(&self, agent_id: &str) {
@@ -892,18 +841,7 @@ impl TeamCoordinator {
             .records
             .lock()
             .map(|records| records.contains_key(agent_id))
-            .unwrap_or(false)
-            || self
-                .child_tokens
-                .lock()
-                .map(|tokens| tokens.contains_key(agent_id))
-                .unwrap_or(false);
-        let has_coordination_state = has_coordination_state
-            || self
-                .direct_tokens
-                .lock()
-                .map(|tokens| tokens.contains_key(agent_id))
-                .unwrap_or(false);
+            .unwrap_or(false);
         let is_starting = self
             .starting_agents
             .lock()
@@ -914,8 +852,10 @@ impl TeamCoordinator {
                 pending.insert(agent_id.to_owned());
             }
         } else if has_coordination_state {
-            self.revoke_agent_token(agent_id);
+            self.context.revoke(agent_id);
             self.retire_coordination_record(agent_id);
+        } else {
+            self.context.revoke(agent_id);
         }
     }
 
@@ -1202,12 +1142,21 @@ impl TeamCoordinator {
             Vec::new(),
             failed_ids.clone(),
         );
+        let mut scheduled = false;
+        for agent_id in &queued_ids {
+            if let Ok(record) = self.record(project_id, agent_id) {
+                if self.dispatch_ready(&record)?.is_some() {
+                    scheduled = true;
+                }
+            }
+        }
         Ok(json!({
             "messageId": message_id,
             "recipientIds": recipients,
             "queuedIds": queued_ids,
             "deliveredIds": [],
             "failedIds": failed_ids,
+            "scheduled": scheduled,
         }))
     }
 
@@ -1246,22 +1195,70 @@ impl TeamCoordinator {
     }
 
     pub fn stop(&self, project_id: &str, agent_id: &str) -> Result<Value, ControlError> {
-        let record = self.record(project_id, agent_id)?;
+        let record = match self.record(project_id, agent_id) {
+            Ok(record) => Some(record),
+            Err(error) if error.code == ControlErrorCode::SessionNotFound => None,
+            Err(error) => return Err(error),
+        };
         self.backend.stop(agent_id)?;
         let drained = self.inbox.drain(agent_id)?;
         self.clear_pending_delivery_acks(agent_id);
         self.clear_pending_delivery_requeues(agent_id);
+        let _ = self.desk.apply(ReadinessObservation::Exited {
+            agent_id: agent_id.to_owned(),
+        });
         for message in drained {
             self.fail_queued_message(message);
         }
-        self.revoke_agent_token(agent_id);
+        self.context.revoke(agent_id);
         self.retire_coordination_record(agent_id);
-        self.emit(
-            &record,
-            AgentEventKind::AgentStopped,
-            AgentEventPayload::Empty,
-        );
+        if let Some(record) = record {
+            self.emit(
+                &record,
+                AgentEventKind::AgentStopped,
+                AgentEventPayload::Empty,
+            );
+        }
         Ok(json!({ "agentId": agent_id, "stopped": true }))
+    }
+
+    pub fn pull(&self, project_id: &str, agent_id: &str) -> Result<PullReceipt, ControlError> {
+        let record = self.record(project_id, agent_id)?;
+        if record.paused {
+            return Err(ControlError::new(
+                ControlErrorCode::CapabilityDenied,
+                "Agent is paused",
+            ));
+        }
+        if self.delivery_kind_for(&record.provider_id) == DeliveryKind::MintedSlots {
+            return Err(ControlError::new(
+                ControlErrorCode::CapabilityDenied,
+                "This provider mints delivery slots from its prompt; pull is not available",
+            ));
+        }
+        self.desk.arm_pull(&record.agent_id)?;
+        let minted = self.desk.view(&record.agent_id) == ReadinessView::Ready;
+        let delivered = self.dispatch_ready(&record)?;
+        Ok(PullReceipt {
+            minted,
+            delivered: delivered.is_some(),
+            message_id: delivered.map(|message| message.message_id),
+        })
+    }
+
+    pub fn capability_report(
+        &self,
+        provider_id: &str,
+    ) -> Result<ProviderCapabilityReport, ControlError> {
+        let shell_tools_available = self.context.sidecars().is_ok();
+        self.providers
+            .capability_report(provider_id, shell_tools_available)
+            .ok_or_else(|| {
+                ControlError::new(
+                    ControlErrorCode::ProviderNotInstalled,
+                    "The selected provider is not installed",
+                )
+            })
     }
 
     pub fn list(&self, project_id: &str) -> Result<Vec<TeamAgent>, ControlError> {
@@ -1290,6 +1287,8 @@ impl TeamCoordinator {
             .backend
             .recover_agent(project_id, agent_id)?
             .ok_or_else(session_not_found)?;
+        self.desk
+            .bind(&recovered.agent_id, self.delivery_kind_for(&recovered.provider_id))?;
         self.records
             .lock()
             .map_err(lock_error)?
@@ -1315,12 +1314,40 @@ impl TeamCoordinator {
         }
     }
 
-    fn revoke_child_token(&self, agent_id: &str) {
-        if let Ok(mut child_tokens) = self.child_tokens.lock() {
-            if let Some(token) = child_tokens.remove(agent_id) {
-                self.tokens.revoke(&token);
-            }
+    fn delivery_kind_for(&self, provider_id: &str) -> DeliveryKind {
+        self.providers
+            .get(provider_id)
+            .map(crate::agents::providers::ProviderAdapter::delivery_kind)
+            .unwrap_or(DeliveryKind::ExplicitPull)
+    }
+
+    fn dispatch_ready(
+        &self,
+        record: &TeamAgent,
+    ) -> Result<Option<QueuedAgentMessage>, ControlError> {
+        self.retry_pending_delivery_ack(&record.agent_id);
+        self.retry_pending_delivery_requeue(&record.agent_id);
+        let delivered = self.desk.try_dispatch(
+            &self.inbox,
+            self.backend.as_ref(),
+            record,
+            &self.delivery_ack_pending,
+            &self.delivery_requeue_pending,
+        )?;
+        if let Some(message) = delivered.as_ref() {
+            self.emit_delivery_result(record, message.clone(), true);
         }
+        Ok(delivered)
+    }
+
+    fn drain_inbox_for_exit(&self, agent_id: &str) -> Result<(), ControlError> {
+        let messages = self.inbox.drain(agent_id)?;
+        self.clear_pending_delivery_acks(agent_id);
+        self.clear_pending_delivery_requeues(agent_id);
+        for message in messages {
+            self.fail_queued_message(message);
+        }
+        Ok(())
     }
 
     fn emit(&self, child: &TeamAgent, kind: AgentEventKind, payload: AgentEventPayload) {
@@ -1452,35 +1479,41 @@ impl TeamBackend for RuntimeTeamBackend {
         })
     }
 
-    fn launch_child(&self, launch: ChildLaunch) -> Result<Agent, ControlError> {
-        let runtime_sink = self.supervisor.runtime_sink(self.sink.clone());
+    fn launch_child(
+        &self,
+        launch: &ManagedLaunch,
+        name: String,
+        worktree: PreparedWorktree,
+    ) -> Result<Agent, ControlError> {
+        let runtime_sink = self.supervisor.runtime_sink(launch.sink());
         let agent = self
             .agents
             .launch_scoped(
-                LaunchAgentRequest {
-                    name: launch.name,
-                    provider: launch.provider_id,
-                    cwd: launch.worktree.path.clone(),
+                &LaunchAgentRequest {
+                    name,
+                    provider: launch.agent().provider_id.clone(),
+                    cwd: worktree.path.clone(),
                     create_worktree: false,
+                    restart_agent_id: None,
                     cols: Some(120),
                     rows: Some(30),
                 },
                 &self.pty,
                 runtime_sink.clone(),
-                launch.environment,
-                Some(launch.agent_id),
+                launch.environment(),
+                launch.agent().agent_id.clone(),
             )
             .map_err(control_runtime)?;
         let agent = self
             .agents
-            .set_worktree_metadata(&agent.id, launch.worktree.branch, launch.worktree.path)
+            .set_worktree_metadata(&agent.id, worktree.branch, worktree.path)
             .map_err(|error| {
                 let _ = self.agents.abort(&agent.id, &self.pty);
                 control_runtime(error)
             })?;
         if let Err(error) = self.pty.bind_agent(
             &agent.terminal_id,
-            launch.project_id.clone(),
+            launch.agent().project_id.clone(),
             agent.id.clone(),
             agent.provider.clone(),
         ) {
@@ -1489,8 +1522,8 @@ impl TeamBackend for RuntimeTeamBackend {
         }
         if let Err(error) = self.supervisor.register_agent_with_parent(
             &agent,
-            launch.project_id,
-            launch.parent_agent_id,
+            launch.agent().project_id.clone(),
+            launch.agent().parent_agent_id.clone(),
             runtime_sink,
         ) {
             let _ = self.agents.abort(&agent.id, &self.pty);
@@ -1618,96 +1651,12 @@ fn validate_spawn(request: &SpawnAgentRequest) -> Result<(), ControlError> {
     Ok(())
 }
 
-fn agent_identity(
-    project_id: &str,
-    agent_id: &str,
-    parent_agent_id: Option<String>,
-) -> CallerIdentity {
-    CallerIdentity {
-        caller_id: agent_id.to_owned(),
-        project_id: project_id.to_owned(),
-        agent_id: Some(agent_id.to_owned()),
-        parent_agent_id,
-        capabilities: vec![
-            Capability::AgentList,
-            Capability::AgentSpawn,
-            Capability::AgentSend,
-            Capability::AgentRead,
-            Capability::AttentionRead,
-            Capability::AttentionAck,
-            Capability::SessionRead,
-            Capability::BrowserRead,
-            Capability::BrowserControl,
-            Capability::TaxChatSend,
-        ],
-        expires_at: None,
-    }
-}
-
-fn child_identity(request: &SpawnAgentRequest, agent_id: &str) -> CallerIdentity {
-    agent_identity(
-        &request.project_id,
-        agent_id,
-        request.parent_agent_id.clone(),
-    )
-}
-
-fn control_environment(
-    request: &SpawnAgentRequest,
-    agent_id: &str,
-    endpoint: &str,
-    token: &str,
-    control_executable: Option<&Path>,
-) -> HashMap<OsString, OsString> {
-    let mut environment = HashMap::new();
-    for (key, value) in [
-        ("ZLI_PROJECT_ID", request.project_id.as_str()),
-        ("ZLI_AGENT_ID", agent_id),
-        (
-            "ZLI_PARENT_AGENT_ID",
-            request.parent_agent_id.as_deref().unwrap_or(""),
-        ),
-        ("ZLI_CONTROL_ENDPOINT", endpoint),
-        ("ZLI_CONTROL_TOKEN", token),
-        ("ZLI_BROWSER_PROFILE", "clean"),
-        ("ZLI_BROWSER_SESSION", agent_id),
-    ] {
-        environment.insert(OsString::from(key), OsString::from(value));
-    }
-    if let Some(executable) = control_executable {
-        environment.insert("ZLI_COMMAND".into(), executable.as_os_str().to_owned());
-        if let Some(directory) = executable.parent() {
-            let browser_use = directory.join(if cfg!(windows) {
-                "zli-browser-use.exe"
-            } else {
-                "zli-browser-use"
-            });
-            environment.insert("ZLI_BROWSER_USE_COMMAND".into(), browser_use.into_os_string());
-        }
-        if let Some(directory) = executable.parent() {
-            let inherited: Vec<PathBuf> = env::var_os("PATH")
-                .map(|value| env::split_paths(&value).collect())
-                .unwrap_or_default();
-            let paths = std::iter::once(directory.to_path_buf()).chain(inherited);
-            if let Ok(path) = env::join_paths(paths) {
-                environment.insert("PATH".into(), path);
-            }
-        }
-    }
-    environment
-}
-
 fn format_taxchat_delivery(sender: &str, recipients: &[String], body: &str) -> String {
     format!(
         "\n[TaxChat delivery]\nFrom: {sender}\nTo: {}\n\n{}\n\nTo reply, emit:\n[[TAXCHAT:to=user]]\nYour message\n[[/TAXCHAT]]\n",
         recipients.join(", "),
         body.trim()
     )
-}
-
-pub fn zli_executable_path() -> Option<PathBuf> {
-    let directory = env::current_exe().ok()?.parent()?.to_path_buf();
-    Some(directory.join(if cfg!(windows) { "zli.exe" } else { "zli" }))
 }
 
 fn lock_error<T>(_: std::sync::PoisonError<T>) -> ControlError {

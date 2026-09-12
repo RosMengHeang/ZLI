@@ -63,6 +63,10 @@ function command(
       required(message.join(" "), "Message is required");
       return ["agent.send", { agentId, body: message.join(" ") }];
     }
+    if (action === "pull") {
+      required(args[0], "Agent ID is required");
+      return ["agent.pull", { agentId: args[0] }];
+    }
     if (action === "spawn") {
       if (args.includes("--provider") || args.includes("--task")) {
         const projectId = option(args, "--project") ?? environment.projectId;

@@ -5,14 +5,15 @@ export const SESSION_PROTOCOL_VERSION = 1 as const;
 
 export type ResumeAvailability = "available" | "unsupported" | "unknown";
 
-export interface ResumeDescriptor {
-  providerId: string;
-  providerSessionId: string | null;
-  resumeCommandKind: string | null;
-  workingDirectory: string;
-  lastCheckpointAt: string | null;
-  availability: ResumeAvailability;
-}
+export type ResumeRecord =
+  | { type: "unsupported" }
+  | { type: "unknown"; reason: string; lastProbeAt: string }
+  | {
+      type: "available";
+      id: string;
+      provenance: { marker: string; sourceLine: string; capturedAt: string };
+      resumeCommandKind: string;
+    };
 
 export interface SessionDescriptor {
   sessionId: string;
@@ -25,7 +26,7 @@ export interface SessionDescriptor {
   workingDirectory: string;
   branch: string;
   worktreePath: string | null;
-  resume: ResumeDescriptor | null;
+  resume: ResumeRecord | null;
   attached: boolean;
 }
 
