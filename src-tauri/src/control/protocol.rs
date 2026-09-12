@@ -3,6 +3,8 @@ use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const CONTROL_PROTOCOL_VERSION: u16 = 1;
+pub const MAX_CONTROL_FRAME_BYTES: usize = 4 * 1024 * 1024;
+pub const CONTROL_FRAME_ENVELOPE_OVERHEAD: usize = 8 * 1024;
 const MIN_TIMEOUT_MS: u64 = 100;
 const MAX_TIMEOUT_MS: u64 = 120_000;
 
@@ -245,6 +247,7 @@ pub enum ControlErrorCode {
     BrowserInvalidCommand,
     BrowserResultTooLarge,
     BrowserControlDisabled,
+    BrowserProjectInactive,
     ControlTimeout,
     ControlRuntimeError,
     MethodNotImplemented,
@@ -271,6 +274,7 @@ impl ControlErrorCode {
             Self::BrowserInvalidCommand => "BROWSER_INVALID_COMMAND",
             Self::BrowserResultTooLarge => "BROWSER_RESULT_TOO_LARGE",
             Self::BrowserControlDisabled => "BROWSER_CONTROL_DISABLED",
+            Self::BrowserProjectInactive => "BROWSER_PROJECT_INACTIVE",
             Self::ControlTimeout => "CONTROL_TIMEOUT",
             Self::ControlRuntimeError => "CONTROL_RUNTIME_ERROR",
             Self::MethodNotImplemented => "METHOD_NOT_IMPLEMENTED",

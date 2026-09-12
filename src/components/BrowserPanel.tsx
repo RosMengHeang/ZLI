@@ -11,6 +11,7 @@ import { useUiStore } from "../stores/uiStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import {
   closeBrowserSurface,
+  createBrowserPanelWebview,
   grantBrowserCapability,
   registerBrowserSurface,
   updateBrowserNavigation,
@@ -61,6 +62,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
   const savedUrl = useUiStore((state) => state.browserUrl);
   const permissionOpen = useBrowserStore((state) => state.permissionOpen);
   const browserSurface = useBrowserStore((state) => state.surface);
+  const pendingOpen = useBrowserStore((state) => state.pendingOpen);
   const setPermissionOpen = useBrowserStore((state) => state.setPermissionOpen);
   const refreshControlStatus = useBrowserStore((state) => state.refreshControlStatus);
   const [history, setHistory] = useState<string[]>(() => savedUrl ? [savedUrl] : []);
@@ -139,7 +141,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
   }, [nativeBrowser]);
 
   useEffect(() => {
-    if (!nativeBrowser || !request.url || !activeProjectRoot) return;
+    if (!nativeBrowser || !request.url || !activeProjectRoot || pendingOpen) return;
     const projectRoot = activeProjectRoot;
     let cancelled = false;
     let observer: ResizeObserver | null = null;
@@ -179,22 +181,15 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       nativeLabelRef.current = label;
       expectedNavigationRef.current = request.url;
       const bounds = nativeBrowserHiddenBounds();
-      const webview = new Webview(getCurrentWindow(), label, {
+      await createBrowserPanelWebview({
+        label,
         url: request.url,
         x: bounds.x,
         y: bounds.y,
         width: bounds.width,
         height: bounds.height,
-        focus: false,
-        dragDropEnabled: false,
-        backgroundColor: [11, 14, 20, 255],
       });
-      await new Promise<void>((resolve, reject) => {
-        void webview.once("tauri://created", () => resolve()).catch(reject);
-        void webview.once("tauri://error", (event) => {
-          reject(new Error(`The embedded browser could not be created: ${String(event.payload)}`));
-        }).catch(reject);
-      });
+      const webview = new Webview(getCurrentWindow(), label);
       if (cancelled) {
         await webview.hide().catch(() => undefined);
         await webview.close().catch(() => undefined);
@@ -208,6 +203,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
         webviewLabel: label,
         url: request.url,
         profileId: "clean",
+        requestId: request.requestId ?? null,
       });
       const savedCapabilities = useBrowserStore.getState().savedCapabilities(projectRoot, "clean");
       for (const capability of savedCapabilities) {
@@ -271,7 +267,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       }
       if (surfaceId) void closeBrowserSurface(surfaceId).catch(() => undefined);
     };
-  }, [request, nativeBrowser, activeProjectRoot]);
+  }, [request, nativeBrowser, activeProjectRoot, pendingOpen]);
 
   useEffect(() => {
     const webview = nativeWebviewRef.current;
@@ -307,7 +303,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
     };
   }, [shouldHideNativeView]);
 
-  function navigate(value: string) {
+  function navigate(value: string, openRequestId?: string | null) {
     const normalized = normalizeBrowserInput(value);
     if (!normalized) {
       setNativeError("Enter a valid http or https address.");
@@ -319,8 +315,14 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
     setHistoryIndex(next.index);
     setNativeError(null);
     setDraft(normalized);
-    setRequest((current) => nextBrowserRequest(normalized, current.sequence));
+    setRequest((current) => nextBrowserRequest(normalized, current.sequence, openRequestId));
   }
+
+  useEffect(() => {
+    if (!pendingOpen) return;
+    navigate(pendingOpen.url, pendingOpen.requestId);
+    useBrowserStore.getState().setPendingOpen(null);
+  }, [pendingOpen]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

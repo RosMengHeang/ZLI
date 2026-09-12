@@ -5,8 +5,8 @@ pub mod settings;
 mod executor;
 mod security;
 
-pub use executor::{BrowserExecutor, TauriBrowserExecutor};
-pub use settings::BrowserControlSettingsStore;
+pub use executor::{instrumentation_script, BrowserExecutor, TauriBrowserExecutor};
+pub use settings::{clean_profile_data_dir, BrowserControlSettingsStore, CLEAN_PROFILE_ID};
 
 use self::commands::{
     BrowserCapability, BrowserCommand, BrowserConsoleEntry, BrowserPageError, BrowserResult,
@@ -20,10 +20,23 @@ use crate::control::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 type EventPublisher = Arc<dyn Fn(AgentEventEnvelope) + Send + Sync>;
+
+#[derive(Clone, Debug)]
+pub enum OpenOutcome {
+    Pending,
+    Rejected(ControlError),
+    Bound { surface_id: String },
+}
+
+#[derive(Clone, Debug)]
+struct OpenTicket {
+    outcome: OpenOutcome,
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,6 +68,8 @@ struct BrowserSurface {
 struct BrowserState {
     surfaces: HashMap<String, BrowserSurface>,
     profile_capabilities: HashMap<(String, String), Vec<BrowserCapability>>,
+    open_tickets: HashMap<String, OpenTicket>,
+    surface_locks: HashMap<String, Arc<Mutex<()>>>,
 }
 
 #[derive(Clone)]
@@ -140,6 +155,123 @@ impl BrowserManager {
         );
         self.emit(&record, AgentEventKind::BrowserSurfaceCreated, &record.url);
         Ok(record)
+    }
+
+    pub fn bind_open(
+        &self,
+        request_id: &str,
+        surface_id: &str,
+    ) -> Result<BrowserSurfaceRecord, ControlError> {
+        let mut state = self.state();
+        let record = state
+            .surfaces
+            .get(surface_id)
+            .map(|surface| surface.record.clone())
+            .ok_or_else(not_found)?;
+        if let Some(ticket) = state.open_tickets.get_mut(request_id) {
+            if matches!(ticket.outcome, OpenOutcome::Pending) {
+                ticket.outcome = OpenOutcome::Bound {
+                    surface_id: surface_id.to_owned(),
+                };
+            }
+        }
+        Ok(record)
+    }
+
+    pub fn reject_open(&self, request_id: &str, error: ControlError) {
+        let mut state = self.state();
+        if let Some(ticket) = state.open_tickets.get_mut(request_id) {
+            if matches!(ticket.outcome, OpenOutcome::Pending) {
+                ticket.outcome = OpenOutcome::Rejected(error);
+            }
+        }
+    }
+
+    pub fn surface(&self, surface_id: &str) -> Result<BrowserSurfaceRecord, ControlError> {
+        self.state()
+            .surfaces
+            .get(surface_id)
+            .map(|surface| surface.record.clone())
+            .ok_or_else(not_found)
+    }
+
+    pub fn find_project_url(&self, project_id: &str, url: &str) -> Option<BrowserSurfaceRecord> {
+        self.state()
+            .surfaces
+            .values()
+            .find(|surface| surface.record.project_id == project_id && surface.record.url == url)
+            .map(|surface| surface.record.clone())
+    }
+
+    pub fn open_and_wait(
+        &self,
+        executor: &dyn BrowserExecutor,
+        request_id: &str,
+        project_id: &str,
+        url: &str,
+        timeout: Duration,
+    ) -> Result<BrowserSurfaceRecord, ControlError> {
+        if let Some(existing) = self.find_project_url(project_id, url) {
+            return Ok(existing);
+        }
+        {
+            let mut state = self.state();
+            state.open_tickets.insert(
+                request_id.to_owned(),
+                OpenTicket {
+                    outcome: OpenOutcome::Pending,
+                },
+            );
+        }
+        executor.request_open(request_id, project_id, url)?;
+        let started = Instant::now();
+        loop {
+            let outcome = {
+                let state = self.state();
+                state
+                    .open_tickets
+                    .get(request_id)
+                    .map(|ticket| ticket.outcome.clone())
+                    .unwrap_or(OpenOutcome::Pending)
+            };
+            match outcome {
+                OpenOutcome::Bound { surface_id } => {
+                    self.forget_open(request_id);
+                    return self.surface(&surface_id).map_err(|_| {
+                        ControlError::new(
+                            ControlErrorCode::BrowserSurfaceNotFound,
+                            "Browser pane was closed",
+                        )
+                    });
+                }
+                OpenOutcome::Rejected(error) => {
+                    self.forget_open(request_id);
+                    return Err(error);
+                }
+                OpenOutcome::Pending => {
+                    if started.elapsed() >= timeout {
+                        self.forget_open(request_id);
+                        return Err(ControlError::new(
+                            ControlErrorCode::BrowserCommandTimeout,
+                            "Browser pane did not open before the deadline",
+                        ));
+                    }
+                    thread::sleep(Duration::from_millis(50));
+                }
+            }
+        }
+    }
+
+    fn forget_open(&self, request_id: &str) {
+        self.state().open_tickets.remove(request_id);
+    }
+
+    fn surface_lock(&self, surface_id: &str) -> Arc<Mutex<()>> {
+        self.state()
+            .surface_locks
+            .entry(surface_id.to_owned())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
     }
 
     pub fn list(&self, identity: &CallerIdentity) -> Vec<BrowserSurfaceRecord> {
@@ -350,6 +482,8 @@ impl BrowserManager {
                 "Open commands require the browser surface creation flow",
             )
         })?;
+        let lock = self.surface_lock(surface_id);
+        let _op_guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let started = Instant::now();
         let record = match self.authorize(identity, surface_id, &command) {
             Ok(record) => record,
@@ -402,7 +536,9 @@ impl BrowserManager {
     }
 
     pub fn close(&self, surface_id: &str) -> Result<BrowserSurfaceRecord, ControlError> {
-        self.state()
+        let mut state = self.state();
+        state.surface_locks.remove(surface_id);
+        state
             .surfaces
             .remove(surface_id)
             .map(|surface| surface.record)

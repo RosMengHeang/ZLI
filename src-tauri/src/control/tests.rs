@@ -77,6 +77,32 @@ fn browser_control_settings_reload_profile_values() {
 }
 
 #[test]
+fn browser_control_settings_fail_closed_for_unknown_schema_version() {
+    let control_dir = tempdir().expect("temporary control directory");
+    std::fs::write(
+        control_dir.path().join("settings.json"),
+        br#"{"schemaVersion":99,"profiles":{"clean":{"builtInBrowserControlEnabled":true}}}"#,
+    )
+    .expect("write future settings");
+
+    let store = super::browser::settings::BrowserControlSettingsStore::open(control_dir.path())
+        .expect("open future settings store");
+
+    assert!(!store
+        .is_enabled("clean")
+        .expect("unknown schema must fail closed"));
+}
+
+#[test]
+fn clean_browser_profile_lives_under_app_data_browser_clean() {
+    let root = std::path::Path::new("C:/Users/me/AppData/Roaming/com.taxzy.cli");
+    assert_eq!(
+        super::browser::settings::clean_profile_data_dir(root),
+        root.join("browser").join("clean")
+    );
+}
+
+#[test]
 fn browser_control_protocol_accepts_status_methods_and_error_code() {
     let status = ControlRequest::from_json(
         r#"{"id":"browser-status","protocolVersion":1,"method":"browser.status","params":{},"timeoutMs":5000}"#,
@@ -89,6 +115,15 @@ fn browser_control_protocol_accepts_status_methods_and_error_code() {
         "Built-in browser control is disabled",
     );
     assert_eq!(error.code, "BROWSER_CONTROL_DISABLED");
+}
+
+#[test]
+fn browser_project_inactive_uses_a_stable_error_code() {
+    let error = super::ControlError::new(
+        super::ControlErrorCode::BrowserProjectInactive,
+        "The browser project is not the active workspace",
+    );
+    assert_eq!(error.code, "BROWSER_PROJECT_INACTIVE");
 }
 
 #[test]
@@ -291,6 +326,40 @@ fn concurrent_duplicate_request_ids_execute_only_once() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
+struct HangHandler;
+
+impl ControlHandler for HangHandler {
+    fn handle(
+        &self,
+        _request: &ControlRequest,
+        _identity: &super::CallerIdentity,
+    ) -> Result<serde_json::Value, super::ControlError> {
+        thread::sleep(Duration::from_millis(400));
+        Ok(json!({ "agents": [] }))
+    }
+}
+
+#[test]
+fn duplicate_in_flight_waiter_obeys_request_timeout() {
+    let router = Arc::new(CommandRouter::new(Arc::new(HangHandler)));
+    let request = ControlRequest::new("hang-1", ControlMethod::AgentList, json!({}), 150)
+        .expect("valid request");
+    let started = Instant::now();
+    let first = {
+        let router = router.clone();
+        let request = request.clone();
+        thread::spawn(move || router.dispatch(request, test_parent_identity()))
+    };
+    thread::sleep(Duration::from_millis(20));
+    let second = router.dispatch(request, test_parent_identity());
+    assert!(started.elapsed() < Duration::from_millis(300));
+    assert_eq!(
+        second.error.expect("waiter timeout").code,
+        super::ControlErrorCode::ControlTimeout
+    );
+    let _ = first.join().expect("owner finished");
+}
+
 #[test]
 fn router_rejects_capability_and_cross_project_access() {
     let calls = Arc::new(AtomicUsize::new(0));
@@ -343,6 +412,59 @@ fn named_pipe_client_receives_a_json_response_from_the_router() {
         ControlRequest::new("pipe-1", ControlMethod::AgentList, json!({}), 5_000).expect("request");
     let response = client.request(request).expect("response");
     assert!(response.ok);
+    server.stop().expect("stop server");
+}
+
+#[cfg(windows)]
+#[test]
+fn named_pipe_serves_two_clients_at_once() {
+    struct PipeSlowHandler;
+
+    impl ControlHandler for PipeSlowHandler {
+        fn handle(
+            &self,
+            _request: &ControlRequest,
+            _identity: &super::CallerIdentity,
+        ) -> Result<serde_json::Value, super::ControlError> {
+            thread::sleep(Duration::from_millis(120));
+            Ok(json!({ "agents": [] }))
+        }
+    }
+
+    let router = Arc::new(CommandRouter::new(Arc::new(PipeSlowHandler)));
+    let tokens = Arc::new(CapabilityTokenStore::default());
+    let issued = tokens.issue(test_parent_identity(), Duration::from_secs(60));
+    let server = super::NamedPipeServer::start_random(router, tokens).expect("start pipe");
+    let start = Arc::new(Barrier::new(2));
+    let workers = (0..2)
+        .map(|index| {
+            let client =
+                super::NamedPipeClient::new(server.endpoint().to_owned(), issued.token.clone());
+            let start = start.clone();
+            thread::spawn(move || {
+                start.wait();
+                let request = ControlRequest::new(
+                    format!("pipe-concurrent-{index}"),
+                    ControlMethod::AgentList,
+                    json!({}),
+                    5_000,
+                )
+                .expect("request");
+                client.request(request)
+            })
+        })
+        .collect::<Vec<_>>();
+    let started = Instant::now();
+    let responses = workers
+        .into_iter()
+        .map(|worker| worker.join().expect("worker").expect("response"))
+        .collect::<Vec<_>>();
+    let elapsed = started.elapsed();
+    assert!(responses.iter().all(|response| response.ok));
+    assert!(
+        elapsed < Duration::from_millis(200),
+        "clients were serialized: {elapsed:?}"
+    );
     server.stop().expect("stop server");
 }
 

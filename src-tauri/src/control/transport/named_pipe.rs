@@ -1,13 +1,13 @@
 use super::ControlTransport;
 use crate::control::{
     CapabilityTokenStore, CommandRouter, ControlError, ControlErrorCode, ControlRequest,
-    ControlResponse,
+    ControlResponse, MAX_CONTROL_FRAME_BYTES,
 };
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, SyncSender};
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -29,7 +29,10 @@ use windows_sys::Win32::System::Threading::{
     GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
-const MAX_FRAME_BYTES: usize = 1024 * 1024;
+const MAX_FRAME_BYTES: usize = MAX_CONTROL_FRAME_BYTES;
+const PIPE_INSTANCE_COUNT: u32 = 4;
+const PIPE_SHUTDOWN_DEADLINE: Duration = Duration::from_secs(2);
+const ERROR_PIPE_BUSY: i32 = 231;
 const PREAMBLE_TIMEOUT: Duration = Duration::from_secs(5);
 const PIPE_RETRY_DELAY: Duration = Duration::from_millis(50);
 const MAX_PIPE_STARTUP_RETRIES: usize = 5;
@@ -44,7 +47,7 @@ struct AuthenticatedRequest {
 pub struct NamedPipeServer {
     endpoint: String,
     stopping: Arc<AtomicBool>,
-    thread: Option<JoinHandle<io::Result<()>>>,
+    threads: Vec<JoinHandle<io::Result<()>>>,
 }
 
 impl NamedPipeServer {
@@ -65,33 +68,48 @@ impl NamedPipeServer {
         tokens: Arc<CapabilityTokenStore>,
     ) -> io::Result<Self> {
         let stopping = Arc::new(AtomicBool::new(false));
-        let thread_endpoint = endpoint.clone();
-        let thread_stopping = stopping.clone();
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-        let handle = thread::Builder::new()
-            .name("zli-control-pipe".into())
-            .spawn(move || {
-                serve(
-                    thread_endpoint,
-                    thread_stopping,
-                    router,
-                    tokens,
-                    Some(ready_tx),
-                )
-            })?;
+        let ready_sent = Arc::new(AtomicBool::new(false));
+        let mut threads = Vec::with_capacity(PIPE_INSTANCE_COUNT as usize);
+        for index in 0..PIPE_INSTANCE_COUNT {
+            let thread_endpoint = endpoint.clone();
+            let thread_stopping = stopping.clone();
+            let thread_router = router.clone();
+            let thread_tokens = tokens.clone();
+            let ready_tx = ready_tx.clone();
+            let ready_sent = ready_sent.clone();
+            let handle = thread::Builder::new()
+                .name(format!("zli-control-pipe-{index}"))
+                .spawn(move || {
+                    serve_instance(
+                        thread_endpoint,
+                        thread_stopping,
+                        thread_router,
+                        thread_tokens,
+                        move || {
+                            if !ready_sent.swap(true, Ordering::AcqRel) {
+                                let _ = ready_tx.send(());
+                            }
+                        },
+                    )
+                })?;
+            threads.push(handle);
+        }
+        drop(ready_tx);
         if ready_rx.recv_timeout(Duration::from_secs(2)).is_err() {
             stopping.store(true, Ordering::Release);
-            let result = handle
-                .join()
-                .map_err(|_| io::Error::other("control pipe thread panicked"))?;
-            return Err(result.err().unwrap_or_else(|| {
-                io::Error::new(io::ErrorKind::TimedOut, "control pipe did not become ready")
-            }));
+            for handle in threads {
+                let _ = join_with_deadline(handle, PIPE_SHUTDOWN_DEADLINE);
+            }
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "control pipe did not become ready",
+            ));
         }
         Ok(Self {
             endpoint,
             stopping,
-            thread: Some(handle),
+            threads,
         })
     }
 
@@ -105,12 +123,16 @@ impl NamedPipeServer {
 
     fn stop_inner(&mut self) -> io::Result<()> {
         self.stopping.store(true, Ordering::Release);
-        if let Some(handle) = self.thread.take() {
-            handle
-                .join()
-                .map_err(|_| io::Error::other("control pipe thread panicked"))??;
+        let mut first_error = None;
+        for handle in self.threads.drain(..) {
+            if let Err(error) = join_with_deadline(handle, PIPE_SHUTDOWN_DEADLINE) {
+                first_error.get_or_insert(error);
+            }
         }
-        Ok(())
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 }
 
@@ -196,14 +218,66 @@ fn is_retryable_pipe_error(error: &io::Error) -> bool {
     matches!(error.raw_os_error(), Some(2) | Some(121) | Some(231))
 }
 
-fn serve(
+fn join_with_deadline(
+    handle: JoinHandle<io::Result<()>>,
+    deadline: Duration,
+) -> io::Result<()> {
+    let (sender, receiver) = mpsc::sync_channel(1);
+    thread::spawn(move || {
+        let _ = sender.send(handle.join());
+    });
+    match receiver.recv_timeout(deadline) {
+        Ok(Ok(Ok(()))) => Ok(()),
+        Ok(Ok(Err(error))) => Err(error),
+        Ok(Err(_)) => Err(io::Error::other("control pipe thread panicked")),
+        Err(_) => Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "control pipe shutdown timed out",
+        )),
+    }
+}
+
+pub(crate) fn encode_control_frame(response: ControlResponse) -> Vec<u8> {
+    let id = response.id.clone();
+    match serde_json::to_vec(&response) {
+        Ok(bytes) if bytes.len() <= MAX_FRAME_BYTES => bytes,
+        _ => serde_json::to_vec(&ControlResponse::failure(
+            id,
+            ControlError::new(
+                ControlErrorCode::BrowserResultTooLarge,
+                "Control response exceeds the frame limit",
+            ),
+        ))
+        .unwrap_or_else(|_| {
+            br#"{"id":"invalid","protocolVersion":1,"ok":false,"error":{"code":"BROWSER_RESULT_TOO_LARGE","message":"Control response exceeds the frame limit"}}"#
+                .to_vec()
+        }),
+    }
+}
+
+fn write_checked(handle: *mut core::ffi::c_void, bytes: &[u8]) -> bool {
+    let mut written = 0_u32;
+    let ok = unsafe {
+        WriteFile(
+            handle,
+            bytes.as_ptr(),
+            bytes.len() as u32,
+            &mut written,
+            ptr::null_mut(),
+        )
+    };
+    ok != 0 && written as usize == bytes.len()
+}
+
+fn serve_instance(
     endpoint: String,
     stopping: Arc<AtomicBool>,
     router: Arc<CommandRouter>,
     tokens: Arc<CapabilityTokenStore>,
-    mut ready: Option<SyncSender<()>>,
+    mut on_listen: impl FnMut(),
 ) -> io::Result<()> {
     let endpoint = wide(&endpoint);
+    let mut announced = false;
     while !stopping.load(Ordering::Acquire) {
         let handle = unsafe {
             CreateNamedPipeW(
@@ -213,7 +287,7 @@ fn serve(
                     | PIPE_READMODE_MESSAGE
                     | PIPE_NOWAIT
                     | PIPE_REJECT_REMOTE_CLIENTS,
-                1,
+                PIPE_INSTANCE_COUNT,
                 MAX_FRAME_BYTES as u32,
                 MAX_FRAME_BYTES as u32,
                 100,
@@ -221,25 +295,23 @@ fn serve(
             )
         };
         if handle == INVALID_HANDLE_VALUE {
-            return Err(io::Error::last_os_error());
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(ERROR_PIPE_BUSY) {
+                thread::sleep(Duration::from_millis(10));
+                continue;
+            }
+            return Err(error);
         }
-        if let Some(sender) = ready.take() {
-            let _ = sender.send(());
+        if !announced {
+            announced = true;
+            on_listen();
         }
 
         let connected = wait_for_connection(handle, &stopping);
         if connected && !stopping.load(Ordering::Acquire) && same_user_client(handle) {
-            let response = read_response(handle, &router, &tokens);
-            let encoded = serde_json::to_vec(&response).map_err(io::Error::other)?;
-            let mut written = 0_u32;
+            let encoded = encode_control_frame(read_response(handle, &router, &tokens));
+            let _ = write_checked(handle, &encoded);
             unsafe {
-                WriteFile(
-                    handle,
-                    encoded.as_ptr(),
-                    encoded.len() as u32,
-                    &mut written,
-                    ptr::null_mut(),
-                );
                 DisconnectNamedPipe(handle);
             }
         }
@@ -396,7 +468,9 @@ fn token_user_buffer(token: *mut core::ffi::c_void) -> Option<Vec<usize>> {
 
 #[cfg(test)]
 mod tests {
-    use super::is_retryable_pipe_error;
+    use super::{encode_control_frame, is_retryable_pipe_error, MAX_FRAME_BYTES};
+    use crate::control::ControlResponse;
+    use serde_json::json;
     use std::io;
 
     #[test]
@@ -405,5 +479,26 @@ mod tests {
         assert!(is_retryable_pipe_error(&io::Error::from_raw_os_error(121)));
         assert!(is_retryable_pipe_error(&io::Error::from_raw_os_error(231)));
         assert!(!is_retryable_pipe_error(&io::Error::from_raw_os_error(5)));
+    }
+
+    #[test]
+    fn encode_control_frame_keeps_payloads_that_fit() {
+        let response = ControlResponse::success("pipe-1", json!({ "ok": true }));
+        let encoded = encode_control_frame(response);
+        assert!(encoded.len() < MAX_FRAME_BYTES);
+        assert!(encoded.starts_with(b"{"));
+        assert!(std::str::from_utf8(&encoded).unwrap().contains("pipe-1"));
+    }
+
+    #[test]
+    fn encode_control_frame_rejects_oversize_payloads() {
+        let huge = "x".repeat(MAX_FRAME_BYTES);
+        let response = ControlResponse::success("pipe-oversize", json!({ "blob": huge }));
+        let encoded = encode_control_frame(response);
+        assert!(encoded.len() <= MAX_FRAME_BYTES);
+        let body = std::str::from_utf8(&encoded).expect("utf8");
+        assert!(body.contains("BROWSER_RESULT_TOO_LARGE"));
+        assert!(body.contains("pipe-oversize"));
+        assert!(!body.contains(&"x".repeat(1024)));
     }
 }

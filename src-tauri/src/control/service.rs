@@ -11,7 +11,7 @@ use crate::pty::{EventSink, PtyManager};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use uuid::Uuid;
 
 pub struct RuntimeControlHandler {
@@ -374,34 +374,14 @@ impl ControlHandler for RuntimeControlHandler {
                     &project_id,
                     BrowserCapability::Control,
                 )?;
-                if let Some(surface) = self
-                    .browser
-                    .list(identity)
-                    .into_iter()
-                    .find(|surface| surface.project_id == project_id && surface.url == url)
-                {
-                    return serde_json::to_value(surface).map_err(serialization_error);
-                }
-                self.browser_executor.request_open(&project_id, &url)?;
-                let started = Instant::now();
-                let timeout = Duration::from_millis(request.timeout_ms);
-                loop {
-                    if let Some(surface) = self
-                        .browser
-                        .list(identity)
-                        .into_iter()
-                        .find(|surface| surface.project_id == project_id && surface.url == url)
-                    {
-                        return serde_json::to_value(surface).map_err(serialization_error);
-                    }
-                    if started.elapsed() >= timeout {
-                        return Err(ControlError::new(
-                            ControlErrorCode::BrowserCommandTimeout,
-                            "Browser pane did not open before the deadline",
-                        ));
-                    }
-                    std::thread::sleep(Duration::from_millis(50));
-                }
+                serde_json::to_value(self.browser.open_and_wait(
+                    self.browser_executor.as_ref(),
+                    &request.id,
+                    &project_id,
+                    &url,
+                    Duration::from_millis(request.timeout_ms),
+                )?)
+                .map_err(serialization_error)
             }
             ControlMethod::BrowserNavigate
             | ControlMethod::BrowserWait

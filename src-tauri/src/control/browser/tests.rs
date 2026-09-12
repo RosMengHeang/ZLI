@@ -2,9 +2,10 @@ use super::commands::{
     BrowserCapability, BrowserCommand, BrowserResult, BrowserWaitCondition, NavigationPhase,
     BROWSER_LIMITS,
 };
-use super::BrowserManager;
+use super::{BrowserExecutor, BrowserManager};
 use crate::control::{
-    AgentEventKind, AgentEventSource, CallerIdentity, Capability, ControlErrorCode,
+    AgentEventKind, AgentEventSource, CallerIdentity, Capability, ControlError, ControlErrorCode,
+    ControlResponse, MAX_CONTROL_FRAME_BYTES,
 };
 use serde_json::json;
 use std::sync::{Arc, Mutex};
@@ -384,4 +385,227 @@ fn browser_checkpoint_keeps_safe_state_and_drops_secrets() {
     assert!(!encoded.contains("cookie"));
     assert!(!encoded.contains("storage"));
     assert!(!encoded.contains("authorization"));
+}
+
+struct NoopExecutor;
+
+impl BrowserExecutor for NoopExecutor {
+    fn request_open(
+        &self,
+        _request_id: &str,
+        _project_id: &str,
+        _url: &str,
+    ) -> Result<(), ControlError> {
+        Ok(())
+    }
+
+    fn execute(
+        &self,
+        _webview_label: &str,
+        _command: &BrowserCommand,
+        _timeout: Duration,
+    ) -> Result<BrowserResult, ControlError> {
+        Err(ControlError::new(
+            ControlErrorCode::MethodNotImplemented,
+            "Noop executor does not run commands",
+        ))
+    }
+}
+
+struct NotifyExecutor {
+    started: std::sync::mpsc::SyncSender<()>,
+}
+
+impl BrowserExecutor for NotifyExecutor {
+    fn request_open(
+        &self,
+        _request_id: &str,
+        _project_id: &str,
+        _url: &str,
+    ) -> Result<(), ControlError> {
+        let _ = self.started.send(());
+        Ok(())
+    }
+
+    fn execute(
+        &self,
+        _webview_label: &str,
+        _command: &BrowserCommand,
+        _timeout: Duration,
+    ) -> Result<BrowserResult, ControlError> {
+        Err(ControlError::new(
+            ControlErrorCode::MethodNotImplemented,
+            "Notify executor does not run commands",
+        ))
+    }
+}
+
+#[test]
+fn browser_open_completes_by_request_id_after_redirect() {
+    let manager = Arc::new(BrowserManager::default());
+    let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+    let waiter = {
+        let manager = manager.clone();
+        thread::spawn(move || {
+            manager.open_and_wait(
+                &NotifyExecutor {
+                    started: started_tx,
+                },
+                "open-1",
+                "project-1",
+                "https://example.com/start",
+                Duration::from_secs(2),
+            )
+        })
+    };
+    started_rx.recv_timeout(Duration::from_secs(1)).expect("open started");
+    let surface = manager
+        .register(
+            "project-1",
+            None,
+            "browser-panel-1",
+            "https://example.com/final",
+            "clean",
+        )
+        .expect("register redirected surface");
+    manager
+        .bind_open("open-1", &surface.surface_id)
+        .expect("bind open request");
+    let opened = waiter.join().expect("open waiter").expect("open completed");
+    assert_eq!(opened.surface_id, surface.surface_id);
+    assert_eq!(opened.url, "https://example.com/final");
+    assert_ne!(opened.url, "https://example.com/start");
+}
+
+#[test]
+fn browser_open_inactive_project_returns_explicit_error() {
+    let manager = Arc::new(BrowserManager::default());
+    let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+    let waiter = {
+        let manager = manager.clone();
+        thread::spawn(move || {
+            manager.open_and_wait(
+                &NotifyExecutor {
+                    started: started_tx,
+                },
+                "open-inactive",
+                "project-1",
+                "https://example.com",
+                Duration::from_secs(2),
+            )
+        })
+    };
+    started_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("open started");
+    manager.reject_open(
+        "open-inactive",
+        ControlError::new(
+            ControlErrorCode::BrowserProjectInactive,
+            "The browser project is not the active workspace",
+        ),
+    );
+    let error = waiter
+        .join()
+        .expect("open waiter")
+        .expect_err("inactive project must fail");
+    assert_eq!(error.code, ControlErrorCode::BrowserProjectInactive);
+    assert_eq!(
+        error.message,
+        "The browser project is not the active workspace"
+    );
+}
+
+#[test]
+fn browser_open_returns_existing_surface_for_the_same_url() {
+    let manager = BrowserManager::default();
+    let existing = manager
+        .register(
+            "project-1",
+            None,
+            "browser-panel-1",
+            "https://example.com/",
+            "clean",
+        )
+        .expect("register");
+    let opened = manager
+        .open_and_wait(
+            &NoopExecutor,
+            "open-existing",
+            "project-1",
+            "https://example.com/",
+            Duration::from_secs(1),
+        )
+        .expect("existing surface");
+    assert_eq!(opened.surface_id, existing.surface_id);
+}
+
+#[test]
+fn browser_dispatch_serializes_operations_on_one_surface() {
+    let manager = Arc::new(BrowserManager::default());
+    let surface = manager
+        .register(
+            "project-1",
+            None,
+            "browser-panel-1",
+            "about:blank",
+            "profile-1",
+        )
+        .expect("register");
+    manager
+        .grant(&surface.surface_id, BrowserCapability::Read)
+        .expect("grant");
+    let caller = identity("project-1", None, vec![Capability::BrowserRead]);
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let first = {
+        let manager = manager.clone();
+        let caller = caller.clone();
+        let command = snapshot(&surface.surface_id);
+        let order = order.clone();
+        thread::spawn(move || {
+            manager.dispatch(&caller, command, 1_000, |_, _| {
+                thread::sleep(Duration::from_millis(80));
+                order.lock().expect("order").push(1);
+                Ok(BrowserResult::Snapshot {
+                    surface_id: "surface".into(),
+                    content: String::new(),
+                    truncated: false,
+                })
+            })
+        })
+    };
+    thread::sleep(Duration::from_millis(20));
+    let second = {
+        let manager = manager.clone();
+        let command = snapshot(&surface.surface_id);
+        let order = order.clone();
+        thread::spawn(move || {
+            manager.dispatch(&caller, command, 1_000, |_, _| {
+                order.lock().expect("order").push(2);
+                Ok(BrowserResult::Snapshot {
+                    surface_id: "surface".into(),
+                    content: String::new(),
+                    truncated: false,
+                })
+            })
+        })
+    };
+    first.join().expect("first").expect("first dispatch");
+    second.join().expect("second").expect("second dispatch");
+    assert_eq!(*order.lock().expect("order"), vec![1, 2]);
+}
+
+#[test]
+fn screenshot_at_character_limit_fits_the_control_frame() {
+    let data_url = "a".repeat(BROWSER_LIMITS.max_screenshot_characters);
+    let result = BrowserResult::Screenshot {
+        surface_id: "surface-1".into(),
+        data_url,
+        width: 1,
+        height: 1,
+    };
+    let response =
+        ControlResponse::success("shot-1", serde_json::to_value(result).expect("encode result"));
+    let encoded = serde_json::to_vec(&response).expect("encode envelope");
+    assert!(encoded.len() <= MAX_CONTROL_FRAME_BYTES);
 }

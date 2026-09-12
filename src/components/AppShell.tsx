@@ -49,6 +49,8 @@ import { useTeamStore } from "../stores/teamStore";
 import { useBrowserStore } from "../stores/browserStore";
 import { controlEventsAfter, subscribeControlEvents } from "../tauri/control";
 import { isAgentEventEnvelope, type AgentEventPayload } from "../lib/agentEvents";
+import { rejectBrowserOpen } from "../lib/browser/browserBridge";
+import { resolveBrowserOpenRequest } from "../lib/browser/openRequest";
 import type { Agent } from "../types";
 
 const BrowserPanel = lazy(async () => {
@@ -84,10 +86,15 @@ export function AppShell() {
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen<{ projectId: string; url: string }>("browser-open-request", ({ payload }) => {
+    void listen<{ requestId: string; projectId: string; url: string }>("browser-open-request", ({ payload }) => {
       const active = useProjectStore.getState().project;
-      if (!active || (payload.projectId !== active.path && payload.projectId !== active.repositoryRoot)) return;
-      useUiStore.getState().setBrowserUrl(payload.url);
+      const decision = resolveBrowserOpenRequest(payload, active);
+      if (decision.kind === "inactive") {
+        void rejectBrowserOpen(decision.requestId).catch(() => undefined);
+        return;
+      }
+      useBrowserStore.getState().setPendingOpen({ requestId: decision.requestId, url: decision.url });
+      useUiStore.getState().setBrowserUrl(decision.url);
       useUiStore.getState().setBrowserOpen(true);
     }).then((cleanup) => {
       if (disposed) cleanup();

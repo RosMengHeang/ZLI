@@ -1,3 +1,6 @@
+use crate::control::protocol::{
+    CONTROL_FRAME_ENVELOPE_OVERHEAD, MAX_CONTROL_FRAME_BYTES,
+};
 use crate::control::{ControlError, ControlErrorCode, CONTROL_PROTOCOL_VERSION};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -40,7 +43,7 @@ pub const BROWSER_LIMITS: BrowserLimits = BrowserLimits {
     max_fill_characters: 100_000,
     max_console_entries: 500,
     max_page_errors: 200,
-    max_screenshot_characters: 10_000_000,
+    max_screenshot_characters: MAX_CONTROL_FRAME_BYTES - CONTROL_FRAME_ENVELOPE_OVERHEAD,
     min_command_timeout_ms: 100,
     max_command_timeout_ms: 120_000,
 };
@@ -61,6 +64,27 @@ pub enum BrowserKey {
     End,
     PageUp,
     PageDown,
+}
+
+impl BrowserKey {
+    pub fn dom_key(self) -> &'static str {
+        match self {
+            Self::Enter => "Enter",
+            Self::Tab => "Tab",
+            Self::Escape => "Escape",
+            Self::Backspace => "Backspace",
+            Self::Delete => "Delete",
+            Self::Space => " ",
+            Self::ArrowUp => "ArrowUp",
+            Self::ArrowDown => "ArrowDown",
+            Self::ArrowLeft => "ArrowLeft",
+            Self::ArrowRight => "ArrowRight",
+            Self::Home => "Home",
+            Self::End => "End",
+            Self::PageUp => "PageUp",
+            Self::PageDown => "PageDown",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]

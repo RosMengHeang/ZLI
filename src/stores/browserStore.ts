@@ -42,6 +42,7 @@ function persist(registry: BrowserPermissionRegistry): void {
 interface BrowserState {
   registry: BrowserPermissionRegistry;
   surface: BrowserSurfaceRecord | null;
+  pendingOpen: { requestId: string; url: string } | null;
   permissionOpen: boolean;
   pendingCapability: BrowserCapability | null;
   error: string | null;
@@ -49,6 +50,7 @@ interface BrowserState {
   controlStatus: (BrowserControlStatus & { bridgeAvailable: boolean }) | null;
   controlLoading: boolean;
   setSurface: (surface: BrowserSurfaceRecord | null) => void;
+  setPendingOpen: (pending: { requestId: string; url: string } | null) => void;
   setPermissionOpen: (open: boolean) => void;
   savedCapabilities: (projectId: string, profileId: string) => BrowserCapability[];
   restoreProfile: (projectId: string, profileId: string, capabilities: BrowserCapability[]) => void;
@@ -61,6 +63,7 @@ interface BrowserState {
 export const useBrowserStore = create<BrowserState>((set, get) => ({
   registry: readRegistry(),
   surface: null,
+  pendingOpen: null,
   permissionOpen: false,
   pendingCapability: null,
   error: null,
@@ -68,6 +71,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
   controlStatus: null,
   controlLoading: false,
   setSurface: (surface) => set({ surface, error: null }),
+  setPendingOpen: (pendingOpen) => set({ pendingOpen }),
   setPermissionOpen: (permissionOpen) => set({ permissionOpen }),
   savedCapabilities: (projectId, profileId) => capabilitiesFor(get().registry, projectId, profileId),
   restoreProfile: (projectId, profileId, capabilities) => {

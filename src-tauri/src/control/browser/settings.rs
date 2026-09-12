@@ -7,7 +7,11 @@ use std::sync::{Arc, Mutex};
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const SETTINGS_SCHEMA_VERSION: u16 = 1;
-const CLEAN_PROFILE_ID: &str = "clean";
+pub const CLEAN_PROFILE_ID: &str = "clean";
+
+pub fn clean_profile_data_dir(app_data_dir: impl AsRef<Path>) -> PathBuf {
+    app_data_dir.as_ref().join("browser").join(CLEAN_PROFILE_ID)
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,8 +61,7 @@ impl BrowserControlSettingsStore {
         fs::create_dir_all(control_dir)?;
         let path = control_dir.join(SETTINGS_FILE_NAME);
         let settings = match fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes)
-                .unwrap_or_else(|_| BrowserControlSettings::disabled()),
+            Ok(bytes) => parse_settings(&bytes),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 BrowserControlSettings::clean_default()
             }
@@ -105,9 +108,24 @@ impl BrowserControlSettingsStore {
     }
 }
 
+fn parse_settings(bytes: &[u8]) -> BrowserControlSettings {
+    let document: serde_json::Value = match serde_json::from_slice(bytes) {
+        Ok(document) => document,
+        Err(_) => return BrowserControlSettings::disabled(),
+    };
+    let version = document
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_u64);
+    if version != Some(u64::from(SETTINGS_SCHEMA_VERSION)) {
+        return BrowserControlSettings::disabled();
+    }
+    serde_json::from_value(document).unwrap_or_else(|_| BrowserControlSettings::disabled())
+}
+
 fn atomic_write(path: &Path, contents: &[u8]) -> io::Result<()> {
     let temporary = path.with_extension("json.tmp");
     fs::write(&temporary, contents)?;
+    // Windows cannot replace an existing file with rename. Remove the destination first.
     if let Err(rename_error) = fs::rename(&temporary, path) {
         if path.exists() {
             fs::remove_file(path)?;

@@ -12,15 +12,15 @@ mod event_hub;
 mod git;
 
 use commands::{
-    attention_ack, attention_mark_all_read, browser_close_surface, browser_grant_capability,
-    browser_register_surface, browser_revoke_capability, browser_update_navigation,
-    browser_control_set, browser_control_status,
-    control_events_after, control_request, control_session_reconcile, control_session_reconnect,
-    control_session_forget, control_session_restore, control_session_resume,
-    control_session_snapshot, create_terminal,
-    detect_agent_providers, detect_providers, kill_terminal, launch_agent, list_agent_providers,
-    list_agents, provider_capability_report, pull_agent_inbox, pty_close, pty_create, pty_resize,
-    pty_write, resize_terminal, stop_agent, write_terminal,
+    attention_ack, attention_mark_all_read, browser_close_surface, browser_create_panel_webview,
+    browser_grant_capability, browser_register_surface, browser_reject_open,
+    browser_revoke_capability, browser_update_navigation, browser_control_set,
+    browser_control_status, control_events_after, control_request, control_session_reconcile,
+    control_session_reconnect, control_session_forget, control_session_restore,
+    control_session_resume, control_session_snapshot, create_terminal, detect_agent_providers,
+    detect_providers, kill_terminal, launch_agent, list_agent_providers, list_agents,
+    provider_capability_report, pull_agent_inbox, pty_close, pty_create, pty_resize, pty_write,
+    resize_terminal, stop_agent, write_terminal,
 };
 use git::commands::{
     git_abort_merge, git_audit_worktrees, git_commit, git_create_worktree, git_delete_branch,
@@ -58,6 +58,9 @@ pub fn run() {
             if !webview.label().starts_with("browser-panel-") {
                 return;
             }
+            if matches!(payload.event(), PageLoadEvent::Started) {
+                let _ = webview.eval(control::instrumentation_script());
+            }
             let phase = match payload.event() {
                 PageLoadEvent::Started => "started",
                 PageLoadEvent::Finished => "finished",
@@ -76,6 +79,7 @@ pub fn run() {
         .manage(event_hub::EventHub::default())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(control::clean_profile_data_dir(&app_data_dir))?;
             let control_dir = app_data_dir.join("control");
             let pty = app.state::<pty::PtyManager>().inner().clone();
             let events = app.state::<event_hub::EventHub>().inner().clone();
@@ -210,6 +214,8 @@ pub fn run() {
             control_session_resume,
             control_request,
             browser_register_surface,
+            browser_reject_open,
+            browser_create_panel_webview,
             browser_update_navigation,
             browser_grant_capability,
             browser_revoke_capability,

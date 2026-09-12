@@ -6,7 +6,7 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const MAX_IDEMPOTENCY_ENTRIES: usize = 1024;
 
@@ -68,6 +68,7 @@ impl CommandRouter {
             .cache
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let deadline = Instant::now() + Duration::from_millis(request.timeout_ms);
         loop {
             if let Some(response) = cache.get(&key.0, &key.1) {
                 return response;
@@ -75,10 +76,22 @@ impl CommandRouter {
             if cache.in_flight.insert(key.clone()) {
                 break;
             }
+            let now = Instant::now();
+            if now >= deadline {
+                return ControlResponse::failure(
+                    request.id.clone(),
+                    ControlError::new(
+                        ControlErrorCode::ControlTimeout,
+                        "Control request timed out",
+                    ),
+                );
+            }
+            let remaining = deadline.saturating_duration_since(now);
             cache = self
                 .in_flight_changed
-                .wait(cache)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .wait_timeout(cache, remaining)
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .0;
         }
         drop(cache);
 

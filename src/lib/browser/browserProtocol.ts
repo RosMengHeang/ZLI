@@ -37,7 +37,7 @@ export const BROWSER_LIMITS = Object.freeze({
   maxFillCharacters: 100_000,
   maxConsoleEntries: 500,
   maxPageErrors: 200,
-  maxScreenshotCharacters: 10_000_000,
+  maxScreenshotCharacters: 4_186_112,
   minCommandTimeoutMs: 100,
   maxCommandTimeoutMs: 120_000,
 });

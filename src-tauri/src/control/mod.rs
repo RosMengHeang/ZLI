@@ -21,8 +21,9 @@ mod team;
 mod transport;
 
 pub use browser::{
-    BrowserControlSettingsStore, BrowserControlStatus, BrowserExecutor, BrowserManager,
-    BrowserSurfaceRecord, TauriBrowserExecutor,
+    clean_profile_data_dir, instrumentation_script, BrowserControlSettingsStore,
+    BrowserControlStatus, BrowserExecutor, BrowserManager, BrowserSurfaceRecord,
+    TauriBrowserExecutor, CLEAN_PROFILE_ID,
 };
 pub use browser::gateway::tool_names as gateway_tools;
 pub use mcp_stdio::{
@@ -48,7 +49,8 @@ pub use managed_agent_context::{
 };
 pub use protocol::{
     CallerIdentity, Capability, ControlError, ControlErrorCode, ControlMethod, ControlRequest,
-    ControlResponse, CONTROL_PROTOCOL_VERSION,
+    ControlResponse, CONTROL_FRAME_ENVELOPE_OVERHEAD, CONTROL_PROTOCOL_VERSION,
+    MAX_CONTROL_FRAME_BYTES,
 };
 pub use reconcile::ReconcileReport;
 pub use router::{CommandRouter, ControlHandler};

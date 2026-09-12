@@ -1,5 +1,6 @@
 use super::commands::{
-    BrowserAction, BrowserCommand, BrowserResult, BrowserWaitCondition, LoadState, SelectorState,
+    BrowserAction, BrowserCommand, BrowserKey, BrowserResult, BrowserWaitCondition, LoadState,
+    SelectorState,
 };
 use crate::control::{ControlError, ControlErrorCode};
 use serde_json::{json, Value};
@@ -8,7 +9,12 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub trait BrowserExecutor: Send + Sync {
-    fn request_open(&self, project_id: &str, url: &str) -> Result<(), ControlError>;
+    fn request_open(
+        &self,
+        request_id: &str,
+        project_id: &str,
+        url: &str,
+    ) -> Result<(), ControlError>;
 
     fn execute(
         &self,
@@ -175,11 +181,16 @@ impl TauriBrowserExecutor {
 }
 
 impl BrowserExecutor for TauriBrowserExecutor {
-    fn request_open(&self, project_id: &str, url: &str) -> Result<(), ControlError> {
+    fn request_open(
+        &self,
+        request_id: &str,
+        project_id: &str,
+        url: &str,
+    ) -> Result<(), ControlError> {
         self.app
             .emit(
                 "browser-open-request",
-                json!({ "projectId": project_id, "url": url }),
+                json!({ "requestId": request_id, "projectId": project_id, "url": url }),
             )
             .map_err(|error| runtime(format!("Browser open request failed: {error}")))
     }
@@ -262,7 +273,9 @@ impl BrowserExecutor for TauriBrowserExecutor {
                 })
             }
             BrowserCommand::Press { key, .. } => {
-                let key = serde_json::to_string(key).map_err(serialization)?;
+                // Synthetic KeyboardEvent is untrusted JS and does not enter iframes or shadow
+                // roots. Space must be the DOM key " ", not the enum name "Space".
+                let key = serde_json::to_string(key.dom_key()).map_err(serialization)?;
                 self.evaluate(
                     webview_label,
                     &format!("(() => {{ const target = document.activeElement || document.body; target.dispatchEvent(new KeyboardEvent('keydown', {{ key: {key}, bubbles: true }})); target.dispatchEvent(new KeyboardEvent('keyup', {{ key: {key}, bubbles: true }})); return true; }})()"),
@@ -326,7 +339,7 @@ impl BrowserExecutor for TauriBrowserExecutor {
     }
 }
 
-fn instrumentation_script() -> &'static str {
+pub fn instrumentation_script() -> &'static str {
     "if (!window.__zliBrowser) { window.__zliBrowser = { console: [], errors: [] }; const append = (items, item, limit) => { items.push(item); if (items.length > limit) items.splice(0, items.length - limit); }; for (const level of ['debug','info','warn','error']) { const original = console[level].bind(console); console[level] = (...args) => { try { append(window.__zliBrowser.console, { level, message: args.map(value => typeof value === 'string' ? value : JSON.stringify(value)).join(' '), timestamp: new Date().toISOString() }, 1000); } catch (_) {} return original(...args); }; } window.addEventListener('error', event => append(window.__zliBrowser.errors, { message: String(event.message || 'Page error'), source: event.filename || undefined, line: event.lineno || undefined, column: event.colno || undefined }, 400)); window.addEventListener('unhandledrejection', event => append(window.__zliBrowser.errors, { message: String(event.reason?.message || event.reason || 'Unhandled rejection') }, 400)); }"
 }
 
@@ -383,5 +396,18 @@ mod tests {
         let expression = wait_expression(&condition).expect("wait expression");
         assert!(expression.contains("\\\""));
         assert!(!expression.contains("querySelector(\"#x\")"));
+    }
+
+    #[test]
+    fn space_key_maps_to_the_dom_space_character() {
+        assert_eq!(BrowserKey::Space.dom_key(), " ");
+        assert_eq!(
+            serde_json::to_string(BrowserKey::Space.dom_key()).expect("json"),
+            "\" \""
+        );
+        assert_ne!(
+            serde_json::to_string(&BrowserKey::Space).expect("enum json"),
+            "\" \""
+        );
     }
 }

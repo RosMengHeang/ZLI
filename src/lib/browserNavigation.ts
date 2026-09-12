@@ -16,8 +16,16 @@ export function pushBrowserHistory(history: string[], index: number, url: string
 export interface BrowserRequest {
   url: string;
   sequence: number;
+  requestId?: string | null;
 }
 
-export function nextBrowserRequest(url: string, previousSequence: number): BrowserRequest {
+export function nextBrowserRequest(
+  url: string,
+  previousSequence: number,
+  requestId?: string | null,
+): BrowserRequest {
+  if (requestId) {
+    return { url, sequence: previousSequence + 1, requestId };
+  }
   return { url, sequence: previousSequence + 1 };
 }

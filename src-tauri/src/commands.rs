@@ -1,10 +1,11 @@
 use crate::agents::{self, Agent, AgentManager, AgentProvider, LaunchAgentRequest};
 use crate::control::browser::commands::BrowserCapability;
 use crate::control::{
-    AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, BrowserControlStatus,
-    BrowserManager, BrowserSurfaceRecord, ControlErrorCode, LaunchIntent, ProjectSnapshot,
-    PullReceipt, ReconcileReport, ReconnectResult, RestoreResult, SessionCommandError,
-    SessionDescriptor, Supervisor, TeamCoordinator, TauriBrowserExecutor,
+    clean_profile_data_dir, AgentEventEnvelope, AgentEventKind, AgentEventPayload,
+    AgentEventSource, BrowserControlStatus, BrowserManager, BrowserSurfaceRecord, ControlError,
+    ControlErrorCode, LaunchIntent, ProjectSnapshot, PullReceipt, ReconcileReport, ReconnectResult,
+    RestoreResult, SessionCommandError, SessionDescriptor, Supervisor, TeamCoordinator,
+    TauriBrowserExecutor,
 };
 use crate::agents::providers::ProviderCapabilityReport;
 use crate::error::BackendError;
@@ -15,7 +16,7 @@ use crate::pty::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 const MAX_COLS: u16 = 10_000;
@@ -54,6 +55,19 @@ pub struct RegisterBrowserSurfaceRequest {
     pub webview_label: String,
     pub url: String,
     pub profile_id: String,
+    #[serde(default)]
+    pub request_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePanelWebviewRequest {
+    pub label: String,
+    pub url: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
 }
 
 #[derive(Clone)]
@@ -533,13 +547,86 @@ pub fn browser_register_surface(
     request: RegisterBrowserSurfaceRequest,
 ) -> Result<BrowserSurfaceRecord, crate::control::ControlError> {
     executor.initialize(&request.webview_label)?;
-    browser.register(
+    let record = browser.register(
         request.project_id,
         request.agent_id,
         request.webview_label,
         request.url,
         request.profile_id,
+    )?;
+    if let Some(request_id) = request.request_id.as_deref().filter(|id| !id.trim().is_empty()) {
+        browser.bind_open(request_id, &record.surface_id)?;
+    }
+    Ok(record)
+}
+
+#[tauri::command]
+pub fn browser_reject_open(
+    browser: State<'_, Arc<BrowserManager>>,
+    request_id: String,
+) -> Result<(), crate::control::ControlError> {
+    if request_id.trim().is_empty() {
+        return Err(ControlError::new(
+            ControlErrorCode::InvalidControlRequest,
+            "Open request id is required",
+        ));
+    }
+    browser.reject_open(
+        &request_id,
+        ControlError::new(
+            ControlErrorCode::BrowserProjectInactive,
+            "The browser project is not the active workspace",
+        ),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn browser_create_panel_webview(
+    window: tauri::Window,
+    app: AppHandle,
+    request: CreatePanelWebviewRequest,
+) -> Result<(), ControlError> {
+    let app_data_dir = app.path().app_data_dir().map_err(|error| {
+        ControlError::new(
+            ControlErrorCode::ControlRuntimeError,
+            format!("Could not resolve app data: {error}"),
+        )
+    })?;
+    let data_directory = clean_profile_data_dir(&app_data_dir);
+    std::fs::create_dir_all(&data_directory).map_err(|error| {
+        ControlError::new(
+            ControlErrorCode::ControlRuntimeError,
+            format!("Could not create the browser profile directory: {error}"),
+        )
+    })?;
+    let parsed = tauri::Url::parse(&request.url).map_err(|_| {
+        ControlError::new(
+            ControlErrorCode::BrowserInvalidCommand,
+            "Browser URL is invalid",
+        )
+    })?;
+    let builder = tauri::webview::WebviewBuilder::new(
+        request.label,
+        tauri::WebviewUrl::External(parsed),
     )
+    .data_directory(data_directory)
+    .focused(false)
+    .disable_drag_drop_handler()
+    .background_color(tauri::webview::Color(11, 14, 20, 255));
+    window
+        .add_child(
+            builder,
+            tauri::LogicalPosition::new(request.x, request.y),
+            tauri::LogicalSize::new(request.width, request.height),
+        )
+        .map_err(|error| {
+            ControlError::new(
+                ControlErrorCode::ControlRuntimeError,
+                format!("Could not create the embedded browser: {error}"),
+            )
+        })?;
+    Ok(())
 }
 
 #[tauri::command]
