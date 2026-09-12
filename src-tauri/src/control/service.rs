@@ -244,7 +244,7 @@ impl ControlHandler for RuntimeControlHandler {
                         },
                     )?;
                     self.supervisor
-                        .resume(session_id, launch)
+                        .resume(session_id, launch, self.team.tools())
                         .map_err(session_runtime)?
                 };
                 serde_json::to_value(descriptor).map_err(serialization_error)

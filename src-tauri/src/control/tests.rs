@@ -614,9 +614,10 @@ fn supervisor_reports_protocol_and_resume_failures_with_stable_codes() {
         serde_json::to_value(protocol).expect("serialize error")["code"],
         "protocol_mismatch"
     );
-    let (launch, _sidecars) = unused_managed_launch();
+    let (launch, sidecars) = unused_managed_launch();
+    let tools = super::ProviderTools::new(sidecars.path().join("provider-tools"));
     let missing = supervisor
-        .resume("missing", launch)
+        .resume("missing", launch, &tools)
         .expect_err("missing session");
     assert_eq!(
         serde_json::to_value(missing).expect("serialize error")["code"],
@@ -2392,6 +2393,7 @@ impl super::team::TeamBackend for FakeTeamBackend {
         launch: &super::ManagedLaunch,
         name: String,
         worktree: super::team::PreparedWorktree,
+        _tools: &super::ProviderTools,
     ) -> Result<crate::agents::Agent, super::ControlError> {
         let captured = CapturedChildLaunch {
             agent_id: launch.agent().agent_id.clone(),
@@ -2502,7 +2504,11 @@ fn managed_team(
         Arc::new(MemoryEventSink::default()),
     );
     (
-        super::TeamCoordinator::new(backend, context),
+        super::TeamCoordinator::with_overlay_root(
+            backend,
+            context,
+            sidecars.path().join("provider-tools"),
+        ),
         tokens,
         sidecars,
     )
@@ -2728,10 +2734,21 @@ fn managed_agent_browser_capability_reports_safe_fallback_without_credentials() 
 
     assert_eq!(capability.profile_id, "clean");
     assert!(capability.shell_fallback_available);
-    assert!(!capability.mcp_provider_configured);
-    assert_eq!(capability.mode, "shell_fallback");
+    assert!(capability.mcp_provider_configured);
+    assert_eq!(capability.mode, "mcp");
     let serialized = serde_json::to_string(&capability).expect("serialize capability");
     assert!(!serialized.contains("ZLI_CONTROL_TOKEN"));
+
+    let mut cursor_request = team_spawn_request();
+    cursor_request.provider_id = "cursor-agent".into();
+    let cursor = coordinator
+        .spawn(cursor_request)
+        .expect("spawn cursor");
+    let cursor_capability = coordinator
+        .browser_capability("project-1", &cursor.agent_id)
+        .expect("cursor capability");
+    assert!(!cursor_capability.mcp_provider_configured);
+    assert_eq!(cursor_capability.mode, "shell_fallback");
 }
 
 #[test]

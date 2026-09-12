@@ -377,6 +377,11 @@ pub async fn launch_agent(
             runtime_sink.clone(),
             launch.environment(),
             launch.agent().agent_id.clone(),
+            Some(&crate::control::ToolBindContext {
+                tools: team.tools(),
+                agent: launch.agent(),
+                sidecars: launch.sidecars(),
+            }),
         )?;
         pty.bind_agent(
             &agent.terminal_id,
@@ -508,7 +513,7 @@ pub async fn control_session_resume(
             .prepare(LaunchIntent::Resume {
                 descriptor: &descriptor,
             })?;
-        supervisor.resume(&session_id, launch)
+        supervisor.resume(&session_id, launch, team.tools())
     })
     .await
 }

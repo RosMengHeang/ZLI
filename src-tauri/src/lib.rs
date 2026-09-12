@@ -127,7 +127,11 @@ pub fn run() {
                 sink.clone(),
             );
             let team = Arc::new(
-                control::TeamCoordinator::new(team_backend, context)
+                control::TeamCoordinator::with_overlay_root(
+                    team_backend,
+                    context,
+                    app_data_dir.join("provider-tools"),
+                )
                     .with_message_store(control::SnapshotStore::new(app_data_dir.clone()))?,
             );
             app.manage(team.clone());

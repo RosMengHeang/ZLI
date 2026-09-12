@@ -2,6 +2,8 @@ pub mod attention;
 pub mod browser;
 mod delivery_desk;
 mod events;
+mod mcp_stdio;
+mod provider_tools;
 pub(crate) mod event_log;
 mod managed_agent_context;
 mod ownership;
@@ -23,6 +25,15 @@ pub use browser::{
     BrowserSurfaceRecord, TauriBrowserExecutor,
 };
 pub use browser::gateway::tool_names as gateway_tools;
+pub use mcp_stdio::{
+    dispatch, handle as handle_mcp, json_rpc_error, negotiate_version, parse_incoming, Dispatch,
+    Incoming, DEFAULT_MCP_PROTOCOL_VERSION, SUPPORTED_MCP_PROTOCOL_VERSIONS,
+};
+pub use provider_tools::{
+    help_contains, merge_reserved_server, overlay_dir, recipe_for, write_claude_mcp_json,
+    write_shell_fallback_txt, BindError, BindEvidence, BindRequest, ProjectMcpFormat,
+    ProviderTools, ToolBindContext, ToolBinding, ToolRecipe, ZLI_MCP_SERVER_ID,
+};
 pub use events::{
     AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, AttentionStatus,
     ExecutionStatus,

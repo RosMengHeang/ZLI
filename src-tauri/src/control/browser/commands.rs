@@ -84,7 +84,8 @@ pub enum LoadState {
 #[serde(
     tag = "kind",
     rename_all = "snake_case",
-    rename_all_fields = "camelCase"
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
 )]
 pub enum BrowserWaitCondition {
     Selector {
@@ -104,7 +105,8 @@ pub enum BrowserWaitCondition {
 #[serde(
     tag = "kind",
     rename_all = "snake_case",
-    rename_all_fields = "camelCase"
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
 )]
 pub enum BrowserCommand {
     Open {

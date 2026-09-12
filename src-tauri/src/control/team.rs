@@ -1,8 +1,8 @@
 use super::{
     delivery_desk::{DeliveryDesk, PullReceipt, ReadinessObservation, ReadinessView},
-    AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, ControlError,
-    ControlErrorCode, LaunchIntent, ManagedAgentContext, ManagedLaunch, SnapshotStore, Supervisor,
-    SUPERVISOR_PROTOCOL_VERSION,
+    AgentEventEnvelope, AgentEventKind, AgentEventPayload, AgentEventSource, BindError,
+    BindRequest, ControlError, ControlErrorCode, LaunchIntent, ManagedAgentContext, ManagedLaunch,
+    ProviderTools, SnapshotStore, Supervisor, ToolBinding, SUPERVISOR_PROTOCOL_VERSION,
 };
 use crate::agents::{
     self,
@@ -14,6 +14,7 @@ use crate::pty::{EventSink, PtyManager, TerminalStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -443,6 +444,7 @@ pub trait TeamBackend: Send + Sync {
         launch: &ManagedLaunch,
         name: String,
         worktree: PreparedWorktree,
+        tools: &ProviderTools,
     ) -> Result<Agent, ControlError>;
     fn deliver(&self, terminal_id: &str, body: &str) -> Result<(), ControlError>;
     fn read(&self, agent_id: &str) -> Result<(String, String), ControlError>;
@@ -471,6 +473,7 @@ pub struct TeamCoordinator {
     backend: Arc<dyn TeamBackend>,
     context: ManagedAgentContext,
     providers: ProviderRegistry,
+    tools: ProviderTools,
     desk: DeliveryDesk,
     records: Mutex<HashMap<String, TeamAgent>>,
     inbox: AgentMessageInbox,
@@ -483,10 +486,19 @@ pub struct TeamCoordinator {
 
 impl TeamCoordinator {
     pub fn new(backend: Arc<dyn TeamBackend>, context: ManagedAgentContext) -> Self {
+        Self::with_overlay_root(backend, context, default_overlay_root())
+    }
+
+    pub fn with_overlay_root(
+        backend: Arc<dyn TeamBackend>,
+        context: ManagedAgentContext,
+        overlay_root: PathBuf,
+    ) -> Self {
         Self {
             backend,
             context,
             providers: ProviderRegistry::default(),
+            tools: ProviderTools::new(overlay_root),
             desk: DeliveryDesk::new(),
             records: Mutex::new(HashMap::new()),
             inbox: AgentMessageInbox::default(),
@@ -500,6 +512,10 @@ impl TeamCoordinator {
 
     pub fn context(&self) -> &ManagedAgentContext {
         &self.context
+    }
+
+    pub fn tools(&self) -> &ProviderTools {
+        &self.tools
     }
 
     pub fn with_message_store(mut self, store: SnapshotStore) -> Result<Self, ControlError> {
@@ -592,13 +608,40 @@ impl TeamCoordinator {
         self.desk
             .bind(&agent_id, self.delivery_kind_for(&request.provider_id))?;
 
+        let program = self
+            .providers
+            .get(&request.provider_id)
+            .and_then(|adapter| adapter.detect_installation())
+            .unwrap_or_else(|| PathBuf::from(request.provider_id.as_str()));
+        if let Err(error) = self.tools.bind(BindRequest {
+            agent: launch.agent().clone(),
+            cwd: PathBuf::from(&worktree.path),
+            sidecars: launch.sidecars().clone(),
+            extra_argv: Vec::new(),
+            program,
+        }) {
+            self.forget_starting_agent(&agent_id);
+            let _ = self.desk.apply(ReadinessObservation::Exited {
+                agent_id: agent_id.clone(),
+            });
+            self.retire_coordination_record(&agent_id);
+            let _ = self
+                .backend
+                .cleanup_worktree(&request.project_id, &worktree.path);
+            return Err(bind_error(error));
+        }
+
         let name = request
             .name
             .clone()
             .unwrap_or_else(|| format!("{} child", request.provider_id));
-        let agent = match self.backend.launch_child(&launch, name, worktree.clone()) {
+        let agent = match self
+            .backend
+            .launch_child(&launch, name, worktree.clone(), &self.tools)
+        {
             Ok(agent) => agent,
             Err(error) => {
+                self.tools.forget(&agent_id);
                 self.forget_starting_agent(&agent_id);
                 let _ = self.desk.apply(ReadinessObservation::Exited {
                     agent_id: agent_id.clone(),
@@ -630,6 +673,7 @@ impl TeamCoordinator {
             body: request.task.clone(),
             kind: QueuedAgentMessageKind::Agent,
         }) {
+            self.tools.forget(&child.agent_id);
             self.forget_starting_agent(&child.agent_id);
             let _ = self.desk.apply(ReadinessObservation::Exited {
                 agent_id: child.agent_id.clone(),
@@ -694,20 +738,23 @@ impl TeamCoordinator {
         });
         let shell_fallback_available = sidecars.is_ok();
         let mcp_adapter_available = sidecars.is_ok();
-        let mcp_provider_configured = false;
-        let mode = if mcp_provider_configured {
-            "mcp"
-        } else if shell_fallback_available {
-            "shell_fallback"
-        } else {
-            "unsupported"
-        };
-        let reason = if mcp_provider_configured {
-            "The provider launch adapter accepted the ZLI Browser Use configuration."
-        } else if shell_fallback_available {
-            "Use the scoped zli browser commands; this provider has no configured MCP launch adapter yet."
-        } else {
-            "The ZLI command was not available to this managed session."
+        let binding = self.tools.get(agent_id);
+        let mcp_provider_configured = binding.as_ref().is_some_and(ToolBinding::mcp_configured);
+        let mode = binding
+            .as_ref()
+            .map(ToolBinding::mode)
+            .unwrap_or("unsupported");
+        let reason = match binding.as_ref() {
+            Some(ToolBinding::Mcp { .. }) => {
+                "The provider launch adapter accepted the ZLI Browser Use configuration."
+            }
+            Some(ToolBinding::Shell { reason, .. } | ToolBinding::Unsupported { reason, .. }) => {
+                reason.as_str()
+            }
+            None if mcp_adapter_available => {
+                "Use the scoped zli browser commands; this provider has no configured MCP launch adapter yet."
+            }
+            None => "The ZLI command was not available to this managed session.",
         };
         Ok(BrowserAgentCapability {
             profile_id: "clean".into(),
@@ -1484,8 +1531,14 @@ impl TeamBackend for RuntimeTeamBackend {
         launch: &ManagedLaunch,
         name: String,
         worktree: PreparedWorktree,
+        tools: &ProviderTools,
     ) -> Result<Agent, ControlError> {
         let runtime_sink = self.supervisor.runtime_sink(launch.sink());
+        let bind = super::ToolBindContext {
+            tools,
+            agent: launch.agent(),
+            sidecars: launch.sidecars(),
+        };
         let agent = self
             .agents
             .launch_scoped(
@@ -1502,6 +1555,7 @@ impl TeamBackend for RuntimeTeamBackend {
                 runtime_sink.clone(),
                 launch.environment(),
                 launch.agent().agent_id.clone(),
+                Some(&bind),
             )
             .map_err(control_runtime)?;
         let agent = self
@@ -1682,4 +1736,20 @@ fn persistence_error(error: impl std::fmt::Display) -> ControlError {
 }
 fn queue_data_error(message: impl Into<String>) -> ControlError {
     ControlError::new(ControlErrorCode::ControlRuntimeError, message)
+}
+
+fn bind_error(error: BindError) -> ControlError {
+    ControlError::new(
+        ControlErrorCode::ControlRuntimeError,
+        format!("provider tool bind failed: {error}"),
+    )
+}
+
+fn default_overlay_root() -> PathBuf {
+    std::env::var_os("APPDATA")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("com.taxzy.cli")
+        .join("provider-tools")
 }

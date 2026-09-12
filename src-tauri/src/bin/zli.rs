@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 #[cfg(windows)]
 use swarmterm_lib::control::{
-    ControlMethod, ControlRequest, NamedPipeClient, CONTROL_PROTOCOL_VERSION,
+    ControlMethod, ControlRequest, ControlResponse, NamedPipeClient, CONTROL_PROTOCOL_VERSION,
 };
 
 #[cfg(windows)]
@@ -47,10 +47,12 @@ fn run() -> Result<(), String> {
         .request(request)
         .map_err(|error| format!("could not reach the running ZLI app: {error}"))?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string(&response).map_err(|error| error.to_string())?
-        );
+        let (body, code) = json_mode_result(&response)?;
+        println!("{body}");
+        if code != 0 {
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+            std::process::exit(code);
+        }
     } else if response.ok {
         let result = response.result.unwrap_or(Value::Null);
         if result.is_null() {
@@ -65,6 +67,12 @@ fn run() -> Result<(), String> {
         return Err(format!("{}: {}", error.code, error.message));
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn json_mode_result(response: &ControlResponse) -> Result<(String, i32), String> {
+    let body = serde_json::to_string(response).map_err(|error| error.to_string())?;
+    Ok((body, if response.ok { 0 } else { 1 }))
 }
 
 #[cfg(windows)]
@@ -456,6 +464,37 @@ impl UuidRequestId {
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
+    use swarmterm_lib::control::{ControlError, ControlErrorCode};
+
+    #[test]
+    fn json_mode_prints_a_failed_envelope_and_exits_nonzero() {
+        let response = ControlResponse::failure(
+            "req-fail",
+            ControlError::new(ControlErrorCode::SessionNotFound, "session missing"),
+        );
+
+        let (body, code) = json_mode_result(&response).expect("serialize failed envelope");
+
+        assert_eq!(code, 1);
+        let parsed: Value = serde_json::from_str(&body).expect("stdout JSON");
+        assert_eq!(parsed["ok"], false);
+        assert_eq!(parsed["id"], "req-fail");
+        assert_eq!(parsed["error"]["code"], "SESSION_NOT_FOUND");
+        assert_eq!(parsed["error"]["message"], "session missing");
+    }
+
+    #[test]
+    fn json_mode_prints_a_successful_envelope_and_exits_zero() {
+        let response = ControlResponse::success("req-ok", json!({ "agents": [] }));
+
+        let (body, code) = json_mode_result(&response).expect("serialize successful envelope");
+
+        assert_eq!(code, 0);
+        let parsed: Value = serde_json::from_str(&body).expect("stdout JSON");
+        assert_eq!(parsed["ok"], true);
+        assert_eq!(parsed["id"], "req-ok");
+        assert_eq!(parsed["result"], json!({ "agents": [] }));
+    }
 
     #[test]
     fn taxchat_flags_are_not_included_in_the_message_body() {

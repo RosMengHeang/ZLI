@@ -419,6 +419,7 @@ impl Supervisor {
         &self,
         session_id: &str,
         launch: ManagedLaunch,
+        tools: &super::ProviderTools,
     ) -> Result<SessionDescriptor, SessionCommandError> {
         let _resume_guard = self
             .resume_lock
@@ -456,6 +457,16 @@ impl Supervisor {
             .ok_or_else(|| {
                 SessionCommandError::ResumeUnsupported(descriptor.provider_id.clone())
             })?;
+        let program = adapter
+            .detect_installation()
+            .unwrap_or_else(|| std::path::PathBuf::from(adapter.candidates()[0]));
+        let plan = super::ToolBindContext {
+            tools,
+            agent: launch.agent(),
+            sidecars: launch.sidecars(),
+        }
+        .apply(plan, &program)
+        .map_err(|error| SessionCommandError::Runtime(error.to_string()))?;
         let mut resumed_descriptor = descriptor.clone();
         resumed_descriptor.terminal_id.clear();
         let resumed = Arc::new(RuntimeSession::new(

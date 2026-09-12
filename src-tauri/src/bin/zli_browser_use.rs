@@ -8,7 +8,8 @@ use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 #[cfg(windows)]
 use swarmterm_lib::control::{
-    gateway_tools, ControlMethod, ControlRequest, NamedPipeClient, CONTROL_PROTOCOL_VERSION,
+    dispatch, json_rpc_error, parse_incoming, ControlMethod, ControlRequest, Dispatch,
+    NamedPipeClient, CONTROL_PROTOCOL_VERSION,
 };
 
 #[cfg(windows)]
@@ -58,58 +59,23 @@ fn handle_message(line: &str) -> Option<Value> {
         Ok(value) => value,
         Err(_) => return Some(json_rpc_error(Value::Null, -32700, "Parse error")),
     };
-    let id = message.get("id").cloned().unwrap_or(Value::Null);
-    let method = message.get("method").and_then(Value::as_str).unwrap_or("");
-    match method {
-        "notifications/initialized" => None,
-        "initialize" => Some(json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": {
-                "protocolVersion": "2025-06-18",
-                "capabilities": { "tools": { "listChanged": false } },
-                "serverInfo": { "name": "zli-browser-use", "version": env!("CARGO_PKG_VERSION") }
-            }
-        })),
-        "tools/list" => Some(json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": { "tools": tools() }
-        })),
-        "tools/call" => Some(call_tool(
+    let incoming = match parse_incoming(message) {
+        Ok(incoming) => incoming,
+        Err(_) => return Some(json_rpc_error(Value::Null, -32600, "Invalid Request")),
+    };
+    match dispatch(incoming) {
+        Dispatch::Silent => None,
+        Dispatch::Reply(value) => Some(value),
+        Dispatch::Call {
             id,
-            message.get("params").cloned().unwrap_or(Value::Null),
-        )),
-        _ => Some(json_rpc_error(id, -32601, "Method not found")),
+            name,
+            arguments,
+        } => Some(call_tool(id, name, arguments)),
     }
 }
 
 #[cfg(windows)]
-fn tools() -> Vec<Value> {
-    gateway_tools()
-        .into_iter()
-        .map(|name| {
-            json!({
-                "name": name,
-                "description": "Use the ZLI built-in browser surface.",
-                "inputSchema": { "type": "object", "additionalProperties": true }
-            })
-        })
-        .collect()
-}
-
-#[cfg(windows)]
-fn call_tool(id: Value, params: Value) -> Value {
-    let Some(params) = params.as_object() else {
-        return json_rpc_error(id, -32602, "tools/call params must be an object");
-    };
-    let Some(name) = params.get("name").and_then(Value::as_str) else {
-        return json_rpc_error(id, -32602, "tools/call requires a tool name");
-    };
-    let arguments = params
-        .get("arguments")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
+fn call_tool(id: Value, name: String, arguments: Value) -> Value {
     let request_params = json!({ "tool": name, "arguments": arguments });
     let request = match ControlRequest::new(
         uuid::Uuid::new_v4().to_string(),
@@ -160,11 +126,6 @@ fn tool_error(id: Value, message: String) -> Value {
         "id": id,
         "result": { "isError": true, "content": [{ "type": "text", "text": message }] }
     })
-}
-
-#[cfg(windows)]
-fn json_rpc_error(id: Value, code: i32, message: &str) -> Value {
-    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
 
 #[cfg(windows)]

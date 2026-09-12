@@ -1,22 +1,9 @@
+use super::catalog;
 use crate::control::{ControlError, ControlErrorCode, ControlMethod};
 use serde_json::Value;
 
-pub const BROWSER_USE_TOOLS: &[&str] = &[
-    "browser_status",
-    "browser_open",
-    "browser_navigate",
-    "browser_wait",
-    "browser_snapshot",
-    "browser_click",
-    "browser_fill",
-    "browser_press",
-    "browser_console",
-    "browser_errors",
-    "browser_screenshot",
-];
-
-pub fn tool_names() -> &'static [&'static str] {
-    BROWSER_USE_TOOLS
+pub fn tool_names() -> Vec<&'static str> {
+    catalog::tool_names()
 }
 
 pub fn decode_browser_use(params: Value) -> Result<(ControlMethod, Value), ControlError> {
@@ -32,21 +19,7 @@ pub fn decode_browser_use(params: Value) -> Result<(ControlMethod, Value), Contr
     if !arguments.is_object() {
         return Err(invalid("browser.use arguments must be an object"));
     }
-    let method = match tool {
-        "browser_status" => ControlMethod::BrowserStatus,
-        "browser_open" => ControlMethod::BrowserOpen,
-        "browser_navigate" => ControlMethod::BrowserNavigate,
-        "browser_wait" => ControlMethod::BrowserWait,
-        "browser_snapshot" => ControlMethod::BrowserSnapshot,
-        "browser_click" => ControlMethod::BrowserClick,
-        "browser_fill" => ControlMethod::BrowserFill,
-        "browser_press" => ControlMethod::BrowserPress,
-        "browser_console" => ControlMethod::BrowserConsole,
-        "browser_errors" => ControlMethod::BrowserErrors,
-        "browser_screenshot" => ControlMethod::BrowserScreenshot,
-        _ => return Err(invalid("browser.use tool is not supported")),
-    };
-    Ok((method, arguments))
+    catalog::decode_tool(tool, &arguments)
 }
 
 fn invalid(message: impl Into<String>) -> ControlError {

@@ -90,6 +90,7 @@ impl AgentManager {
             sink,
             &crate::control::ManagedEnvironment::empty(),
             Uuid::new_v4().to_string(),
+            None,
         )
     }
 
@@ -100,6 +101,7 @@ impl AgentManager {
         sink: Arc<dyn EventSink>,
         environment: &crate::control::ManagedEnvironment,
         agent_id: String,
+        bind: Option<&crate::control::ToolBindContext<'_>>,
     ) -> Result<Agent, BackendError> {
         let provider_id = request.provider.as_str();
         let provider_registry = providers::ProviderRegistry::default();
@@ -142,7 +144,7 @@ impl AgentManager {
                 let plan = match adapter.build_launch(&providers::ProviderLaunchRequest {
                     provider_id: adapter.id().to_owned(),
                     cwd: PathBuf::from(&launch_cwd),
-                    executable: Some(executable),
+                    executable: Some(executable.clone()),
                     provider_session_hint: None,
                 }) {
                     Ok(plan) => plan,
@@ -150,6 +152,16 @@ impl AgentManager {
                         cleanup_created_worktree(&request.cwd, worktree_path.as_deref());
                         return Err(error);
                     }
+                };
+                let plan = match bind {
+                    Some(ctx) => match ctx.apply(plan, &executable) {
+                        Ok(plan) => plan,
+                        Err(error) => {
+                            cleanup_created_worktree(&request.cwd, worktree_path.as_deref());
+                            return Err(BackendError::Internal(error.to_string()));
+                        }
+                    },
+                    None => plan,
                 };
                 pty.spawn_agent_with_size_args_env(
                     plan.program,
