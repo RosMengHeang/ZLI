@@ -9,8 +9,8 @@ use super::merge::{abort_merge, merge_branch, MergeOutcome, MergeRequest};
 use super::repo::validate_repository;
 use super::status::{get_status, FileStatus};
 use super::worktree::{
-    audit_worktrees, create_worktree, list_worktrees, remove_worktree, CreateWorktreeRequest,
-    RemoveWorktreeRequest, WorktreeAuditState,
+    audit_worktrees, create_worktree, delete_branch, list_worktrees, remove_worktree,
+    CreateWorktreeRequest, DeleteBranchRequest, RemoveWorktreeRequest, WorktreeAuditState,
 };
 use std::fs;
 use std::path::Path;
@@ -53,7 +53,7 @@ fn full_worktree_review_workflow() {
         base_branch: None,
     })
     .expect("create_worktree");
-    assert!(created.branch.starts_with("swarm/test-agent-"));
+    assert!(created.branch.starts_with("zli/test-agent-"));
     assert!(Path::new(&created.worktree_path).exists());
     // Storage location must be a sibling of the repo, never nested inside it.
     assert!(!Path::new(&created.worktree_path).starts_with(&repo_path));
@@ -334,4 +334,27 @@ fn detects_merge_conflicts_and_leaves_them_for_manual_resolution() {
     assert!(status.clean);
     let restored = fs::read_to_string(repo.path().join("README.md")).unwrap();
     assert_eq!(restored.replace("\r\n", "\n"), "base's version\n");
+}
+
+#[test]
+fn delete_branch_accepts_legacy_swarm_prefix_and_rejects_foreign_branches() {
+    let repo = init_repo();
+    let repo_path = repo.path().to_string_lossy().into_owned();
+    let legacy = "swarm/legacy-agent-abcd1234";
+    git(repo.path(), &["branch", legacy]);
+
+    delete_branch(DeleteBranchRequest {
+        repository_root: repo_path.clone(),
+        branch: legacy.to_string(),
+        force: true,
+    })
+    .expect("legacy swarm/ branches remain deletable");
+
+    let err = delete_branch(DeleteBranchRequest {
+        repository_root: repo_path,
+        branch: "feature/keep".to_string(),
+        force: true,
+    })
+    .expect_err("foreign branches must stay protected");
+    assert!(matches!(err, GitError::InvalidInput { .. }));
 }

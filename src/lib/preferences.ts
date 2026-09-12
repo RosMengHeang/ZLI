@@ -1,11 +1,18 @@
-import { normalizeThemeMode, type ThemeMode } from "./theme";
-import { SHELL_LIMITS } from "./chromePresentation";
+import { normalizeThemeMode, type ThemeMode } from "./theme.ts";
+import { SHELL_LIMITS } from "./chromePresentation.ts";
 
-const LAST_PROJECT_KEY = "taxzy:last-project-path";
-const SETUP_DISMISSED_KEY = "taxzy:setup-dismissed";
-const CHROME_LAYOUT_KEY = "taxzy:chrome-layout";
-const PANE_LAYOUT_KEY = "taxzy:pane-layout";
-export const THEME_MODE_KEY = "taxzy:theme-mode";
+const PREF_PREFIX = "zli:";
+const LEGACY_PREF_PREFIX = "taxzy:";
+
+const LAST_PROJECT_SUFFIX = "last-project-path";
+const SETUP_DISMISSED_SUFFIX = "setup-dismissed";
+const CHROME_LAYOUT_SUFFIX = "chrome-layout";
+const PANE_LAYOUT_SUFFIX = "pane-layout";
+const THEME_MODE_SUFFIX = "theme-mode";
+export const WORKSPACE_REGISTRY_SUFFIX = "workspace-registry";
+export const BROWSER_PERMISSIONS_SUFFIX = "browser-permissions";
+
+export const THEME_MODE_KEY = `${PREF_PREFIX}${THEME_MODE_SUFFIX}`;
 
 export interface ChromeLayout {
   sidebar: number;
@@ -40,34 +47,60 @@ function write(key: string, value: string): void {
   }
 }
 
+function remove(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* private mode */
+  }
+}
+
+/** Dual-read `zli:*`, copying from `taxzy:*` once when the new key is absent. */
+export function readPref(suffix: string): string | null {
+  const key = `${PREF_PREFIX}${suffix}`;
+  const legacyKey = `${LEGACY_PREF_PREFIX}${suffix}`;
+  const current = read(key);
+  if (current !== null) return current;
+  const legacy = read(legacyKey);
+  if (legacy === null) return null;
+  write(key, legacy);
+  remove(legacyKey);
+  return legacy;
+}
+
+export function writePref(suffix: string, value: string): void {
+  write(`${PREF_PREFIX}${suffix}`, value);
+  remove(`${LEGACY_PREF_PREFIX}${suffix}`);
+}
+
 export function getLastProjectPath(): string | null {
-  const value = read(LAST_PROJECT_KEY)?.trim();
+  const value = readPref(LAST_PROJECT_SUFFIX)?.trim();
   return value ? value : null;
 }
 
 export function setLastProjectPath(path: string): void {
   const trimmed = path.trim();
-  if (trimmed) write(LAST_PROJECT_KEY, trimmed);
+  if (trimmed) writePref(LAST_PROJECT_SUFFIX, trimmed);
 }
 
 export function wasSetupDismissed(): boolean {
-  return read(SETUP_DISMISSED_KEY) === "1";
+  return readPref(SETUP_DISMISSED_SUFFIX) === "1";
 }
 
 export function setSetupDismissed(dismissed: boolean): void {
-  write(SETUP_DISMISSED_KEY, dismissed ? "1" : "0");
+  writePref(SETUP_DISMISSED_SUFFIX, dismissed ? "1" : "0");
 }
 
 export function getThemePreference(): ThemeMode {
-  return normalizeThemeMode(read(THEME_MODE_KEY));
+  return normalizeThemeMode(readPref(THEME_MODE_SUFFIX));
 }
 
 export function setThemePreference(mode: ThemeMode): void {
-  write(THEME_MODE_KEY, mode);
+  writePref(THEME_MODE_SUFFIX, mode);
 }
 
-function readJson<T>(key: string): T | null {
-  const raw = read(key);
+function readJson<T>(suffix: string): T | null {
+  const raw = readPref(suffix);
   if (!raw) return null;
   try {
     return JSON.parse(raw) as T;
@@ -77,7 +110,7 @@ function readJson<T>(key: string): T | null {
 }
 
 export function getChromeLayout(): Partial<ChromeLayout> {
-  const stored = readJson<Partial<ChromeLayout>>(CHROME_LAYOUT_KEY);
+  const stored = readJson<Partial<ChromeLayout>>(CHROME_LAYOUT_SUFFIX);
   return {
     sidebar: clampStoredPercentage(stored?.sidebar, 99),
     browser: clampStoredPercentage(stored?.browser, 48),
@@ -86,7 +119,7 @@ export function getChromeLayout(): Partial<ChromeLayout> {
 }
 
 export function setChromeLayout(layout: Partial<ChromeLayout>): void {
-  write(CHROME_LAYOUT_KEY, JSON.stringify({ ...getChromeLayout(), ...layout }));
+  writePref(CHROME_LAYOUT_SUFFIX, JSON.stringify({ ...getChromeLayout(), ...layout }));
 }
 
 function clampStoredPercentage(value: unknown, maximum: number): number | undefined {
@@ -97,12 +130,12 @@ function clampStoredPercentage(value: unknown, maximum: number): number | undefi
 
 export function getPaneLayout(signature: string): number[] | null {
   if (!signature) return null;
-  const stored = readJson<PaneLayoutSnapshot>(PANE_LAYOUT_KEY);
+  const stored = readJson<PaneLayoutSnapshot>(PANE_LAYOUT_SUFFIX);
   if (!stored || stored.signature !== signature) return null;
   return Array.isArray(stored.sizes) ? stored.sizes : null;
 }
 
 export function setPaneLayout(signature: string, sizes: number[]): void {
   if (!signature || sizes.length < 2) return;
-  write(PANE_LAYOUT_KEY, JSON.stringify({ signature, sizes } satisfies PaneLayoutSnapshot));
+  writePref(PANE_LAYOUT_SUFFIX, JSON.stringify({ signature, sizes } satisfies PaneLayoutSnapshot));
 }

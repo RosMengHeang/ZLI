@@ -7,7 +7,7 @@ use std::io::{self, BufRead, Write};
 #[cfg(windows)]
 use std::path::PathBuf;
 #[cfg(windows)]
-use swarmterm_lib::control::{
+use zli_desktop_lib::control::{
     dispatch, json_rpc_error, parse_incoming, ControlMethod, ControlRequest, Dispatch,
     NamedPipeClient, CONTROL_PROTOCOL_VERSION,
 };

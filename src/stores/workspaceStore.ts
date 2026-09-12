@@ -15,12 +15,15 @@ import {
   workspaceRootKey,
 } from "../lib/workspaceRegistry";
 import type { ProjectInfo } from "../types";
-
-const WORKSPACE_REGISTRY_KEY = "taxzy:workspace-registry";
+import {
+  WORKSPACE_REGISTRY_SUFFIX,
+  readPref,
+  writePref,
+} from "../lib/preferences";
 
 function readRegistry(): WorkspaceRegistry {
   try {
-    const raw = localStorage.getItem(WORKSPACE_REGISTRY_KEY);
+    const raw = readPref(WORKSPACE_REGISTRY_SUFFIX);
     return raw ? normalizeWorkspaceRegistry(JSON.parse(raw)) : DEFAULT_WORKSPACE_REGISTRY;
   } catch {
     return DEFAULT_WORKSPACE_REGISTRY;
@@ -29,7 +32,7 @@ function readRegistry(): WorkspaceRegistry {
 
 function persistRegistry(registry: WorkspaceRegistry): void {
   try {
-    localStorage.setItem(WORKSPACE_REGISTRY_KEY, JSON.stringify(registry));
+    writePref(WORKSPACE_REGISTRY_SUFFIX, JSON.stringify(registry));
   } catch {
     /* Storage can be unavailable in private or restricted webviews. */
   }

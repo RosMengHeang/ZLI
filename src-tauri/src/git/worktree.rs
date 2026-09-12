@@ -17,7 +17,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-const BRANCH_PREFIX: &str = "swarm/";
+const ACTIVE_BRANCH_PREFIX: &str = "zli/";
+const LEGACY_BRANCH_PREFIX: &str = "swarm/";
 const WORKTREE_CLEANUP_RETRY_DELAY: Duration = Duration::from_millis(250);
 const MAX_WORKTREE_CLEANUP_RETRIES: usize = 5;
 
@@ -452,16 +453,20 @@ pub struct DeleteBranchRequest {
     pub force: bool,
 }
 
-/// Delete a branch this app created for an agent. Refuses anything outside
-/// the `swarm/` namespace so we never touch a human's own branch.
+fn is_managed_branch(branch: &str) -> bool {
+    branch.starts_with(ACTIVE_BRANCH_PREFIX) || branch.starts_with(LEGACY_BRANCH_PREFIX)
+}
+
+/// Delete a branch this app created for an agent. Accepts current `zli/` and
+/// legacy `swarm/` prefixes so cleanup can still reach older worktrees.
 pub fn delete_branch(req: DeleteBranchRequest) -> Result<(), GitError> {
     let repo_dir = canonical_dir(&req.repository_root)?;
     ensure_is_repo(&repo_dir, &req.repository_root)?;
 
-    if !req.branch.starts_with(BRANCH_PREFIX) {
+    if !is_managed_branch(&req.branch) {
         return Err(GitError::InvalidInput {
             message: format!(
-                "refusing to delete '{}': not a Swarmterm-managed branch (expected '{BRANCH_PREFIX}' prefix)",
+                "refusing to delete '{}': not a ZLI-managed branch (expected '{ACTIVE_BRANCH_PREFIX}' or '{LEGACY_BRANCH_PREFIX}' prefix)",
                 req.branch
             ),
         });
@@ -710,7 +715,7 @@ fn allocate_unique_slot(
     let mut last_path_collision: Option<PathBuf> = None;
     for _ in 0..10 {
         let short_id = random_short_id();
-        let branch = format!("{BRANCH_PREFIX}{provider_slug}-{short_id}");
+        let branch = format!("{ACTIVE_BRANCH_PREFIX}{provider_slug}-{short_id}");
         let path = worktrees_root.join(format!("{provider_slug}-{short_id}"));
 
         let branch_taken = run_git_probe(
@@ -738,7 +743,7 @@ fn allocate_unique_slot(
         });
     }
     Err(GitError::BranchExists {
-        branch: format!("{BRANCH_PREFIX}{provider_slug}-*"),
+        branch: format!("{ACTIVE_BRANCH_PREFIX}{provider_slug}-*"),
     })
 }
 

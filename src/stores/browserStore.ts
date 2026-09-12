@@ -13,6 +13,11 @@ import {
   revokeBrowserCapability,
   setBrowserControlEnabled,
 } from "../lib/browser/browserBridge.ts";
+import {
+  BROWSER_PERMISSIONS_SUFFIX,
+  readPref,
+  writePref,
+} from "../lib/preferences.ts";
 import type {
   BrowserCapability,
   BrowserControlStatus,
@@ -20,11 +25,9 @@ import type {
 } from "../lib/browser/browserProtocol.ts";
 import type { AgentEventEnvelope, AgentEventPayload } from "../lib/agentEvents.ts";
 
-const STORAGE_KEY = "taxzy:browser-permissions";
-
 function readRegistry(): BrowserPermissionRegistry {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = readPref(BROWSER_PERMISSIONS_SUFFIX);
     return raw ? normalizeBrowserPermissions(JSON.parse(raw)) : EMPTY_BROWSER_PERMISSIONS;
   } catch {
     return EMPTY_BROWSER_PERMISSIONS;
@@ -33,7 +36,7 @@ function readRegistry(): BrowserPermissionRegistry {
 
 function persist(registry: BrowserPermissionRegistry): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(registry));
+    writePref(BROWSER_PERMISSIONS_SUFFIX, JSON.stringify(registry));
   } catch {
     // Permission changes still apply to the live surface when storage is unavailable.
   }

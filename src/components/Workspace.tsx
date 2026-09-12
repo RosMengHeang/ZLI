@@ -1,4 +1,4 @@
-import { IconGlobe, IconPlus, IconRestart, TaxzyMark } from "./AppIcons";
+import { IconGlobe, IconPlus, IconRestart, ZliMark } from "./AppIcons";
 import { PaneTreeView } from "./PaneTreeView";
 import { ProviderIcon } from "./ProviderIcon";
 import { APP_SHORTCUTS } from "../lib/platform";
@@ -82,7 +82,7 @@ function seedPreviewPanes(count = 3) {
       cwd: "",
       status: "error",
       title: `Pane ${index + 1}`,
-      error: "Preview pane. Launch terminals from the Taxzy desktop app.",
+      error: "Preview pane. Launch terminals from the ZLI desktop app.",
     });
     addLeaf(id);
   }
@@ -102,7 +102,7 @@ export function Workspace() {
     return (
       <div className="empty-panel">
         <div className="max-w-md px-6 text-center">
-          <TaxzyMark className="mx-auto h-10 w-10" />
+          <ZliMark className="mx-auto h-10 w-10" />
           <div className="mt-4 text-xl font-semibold tracking-tight text-paper">Open a repository</div>
           <p className="mt-2 text-[13px] leading-6 text-mute">
             Choose a Git project to launch terminals and coding agents. Worktrees, diffs, and review stay
@@ -131,7 +131,7 @@ export function Workspace() {
         {!visibleTree ? (
           <div className="empty-panel rounded-[var(--tile-radius)]">
             <div className="max-w-md px-6 text-center">
-              <TaxzyMark className="mx-auto h-10 w-10" />
+              <ZliMark className="mx-auto h-10 w-10" />
               <div className="mt-4 text-xl font-semibold tracking-tight text-paper">Your workspace is ready</div>
               <p className="mt-2 text-[13px] leading-6 text-mute">
                 Launch an agent to give it a pane, or open a terminal and work beside the team.

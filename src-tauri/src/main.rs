@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    swarmterm_lib::run()
+    zli_desktop_lib::run()
 }

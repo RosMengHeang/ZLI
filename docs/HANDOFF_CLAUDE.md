@@ -94,12 +94,13 @@ created on demand (`create_dir_all`) the first time a worktree is requested.
 
 ## Branch strategy
 
-`swarm/<provider-slug>-<shortid>` (e.g. `swarm/claude-code-9f3a1b2c`).
-`provider-slug` is the lowercased, alphanumeric-collapsed provider id
-(`claude-code`, `codex`, `cursor-agent`, `shell`, ...). The 8-char id is
-random (`rand`), retried up to 10x against both branch and directory name
-collisions. `delete_branch` refuses anything outside the `swarm/` prefix —
-this app will never delete a human's own branch.
+New branches use `zli/<provider-slug>-<shortid>` (e.g. `zli/claude-code-9f3a1b2c`).
+Legacy `swarm/<provider-slug>-<shortid>` worktrees remain recognized for audit
+and deletion. `provider-slug` is the lowercased, alphanumeric-collapsed
+provider id (`claude-code`, `codex`, `cursor-agent`, `shell`, ...). The 8-char
+id is random (`rand`), retried up to 10x against both branch and directory
+name collisions. `delete_branch` refuses anything outside the `zli/` and
+`swarm/` prefixes — this app will never delete a human's own branch.
 
 ## Status / diff behavior
 
@@ -153,7 +154,8 @@ is clean) -> `git merge --no-ff -m "..." <source>`.
   explicitly passed — there is no default-true path, no inference from
   context. Also refuses to ever remove the repository's main worktree.
 - `git_delete_branch { repositoryRoot, branch, force }`: refuses any branch
-  outside the `swarm/` namespace (never touches a human's own branch), and
+  outside the `zli/` and legacy `swarm/` namespaces (never touches a human's
+  own branch), and
   refuses if the branch is still checked out in a worktree (remove that
   first). `force: false` uses `git branch -d` (Git's own "only if merged"
   safety net); `force: true` uses `-D`.

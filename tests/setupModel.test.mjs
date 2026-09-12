@@ -72,7 +72,7 @@ test("coordinator retains successes, catches errors, and retries only failures",
     "./AppIcons": {
       IconHelp: "help",
       IconSettings: "settings",
-      TaxzyMark: "mark",
+      ZliMark: "mark",
     },
     "./setup/setupModel": model,
     "./setup/SetupProjectStep": { SetupProjectStep: "ProjectStep" },

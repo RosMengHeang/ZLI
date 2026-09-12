@@ -18,7 +18,7 @@ export function HelpDialog() {
     <Modal title="Help" description="Keyboard shortcuts for your workspace." open={open} onClose={() => setOpen(false)} width={420}>
       <div className="flex flex-col gap-3">
         <p className="text-[13px] leading-5 text-mute">
-          Taxzy stays on this machine. Shortcuts below match the current workspace.
+          ZLI stays on this machine. Shortcuts below match the current workspace.
         </p>
         <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line">
           {SHORTCUTS.map((item) => (

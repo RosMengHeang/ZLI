@@ -102,14 +102,14 @@ export function CommandPalette() {
     <Dialog open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); if (!nextOpen) setQuery(""); }}>
       <DialogContent showCloseButton={false} className="command-palette top-[18%] max-w-xl translate-y-0 gap-0 overflow-hidden border-line bg-panel p-0 shadow-xl">
         <DialogTitle className="sr-only">Command palette</DialogTitle>
-        <DialogDescription className="sr-only">Search Taxzy or run a command.</DialogDescription>
+        <DialogDescription className="sr-only">Search ZLI or run a command.</DialogDescription>
         <div className="border-b border-line px-3 py-2.5">
           <Input
             autoFocus
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search Taxzy or run a command…"
-            aria-label="Search Taxzy or run a command"
+            placeholder="Search ZLI or run a command…"
+            aria-label="Search ZLI or run a command"
             className="h-9 border-0 bg-transparent px-1 text-[13px] shadow-none focus-visible:ring-0"
           />
         </div>

@@ -31,10 +31,10 @@ const stroke = {
   strokeLinejoin: "round" as const,
 };
 
-export function TaxzyMark({ className = "h-5 w-5" }: IconProps) {
+export function ZliMark({ className = "h-5 w-5" }: IconProps) {
   return (
     <svg viewBox="0 0 32 32" className={className} aria-hidden="true">
-      <title>Taxzy</title>
+      <title>ZLI</title>
       <path d="M16 2.1 28.4 9.1v13.8L16 29.9 3.6 22.9V9.1L16 2.1Z" fill="#2563EB" />
       <path d="M11.8 10.15h8.4v1.95h-3.2V21.9h-2V12.1h-3.2v-1.95Z" fill="#ffffff" />
     </svg>

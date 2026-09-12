@@ -451,14 +451,14 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
             {!nativeBrowser ? (
               <iframe
                 key={`${currentUrl}:${request.sequence}`}
-                title="Taxzy browser"
+                title="ZLI browser"
                 src={currentUrl}
                 className="h-full w-full border-0 bg-white"
                 referrerPolicy="strict-origin-when-cross-origin"
               />
             ) : nativeError ? (
               <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
-                <p role="alert" className="text-[13px] font-medium text-paper">This page could not open inside Taxzy</p>
+                <p role="alert" className="text-[13px] font-medium text-paper">This page could not open inside ZLI</p>
                 <p className="max-w-sm break-words text-[12px] text-mute">{nativeError}</p>
                 <div className="flex flex-wrap justify-center gap-2">
                   <Button type="button" onClick={reload}>Retry</Button>

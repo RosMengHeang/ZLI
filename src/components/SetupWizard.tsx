@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { IconHelp, IconSettings, TaxzyMark } from "./AppIcons";
+import { IconHelp, IconSettings, ZliMark } from "./AppIcons";
 import { useAgentStore } from "../stores/agentStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useProjectStore } from "../stores/projectStore";
@@ -182,8 +182,8 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
       <div className="setup-container">
             <header className="setup-topbar">
               <div className="flex items-center gap-2.5">
-            <TaxzyMark className="h-6 w-6" />
-            <p className="text-[13px] font-semibold tracking-tight">Taxzy</p>
+            <ZliMark className="h-6 w-6" />
+            <p className="text-[13px] font-semibold tracking-tight">ZLI</p>
           </div>
 
           <span className="flex-1" aria-hidden="true" />

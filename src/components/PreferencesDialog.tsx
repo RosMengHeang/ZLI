@@ -51,7 +51,7 @@ export function PreferencesDialog() {
         <label className="flex cursor-pointer items-start justify-between gap-4 rounded-xl border border-line bg-ink px-3 py-3">
           <span>
             <span className="block text-[13px] font-medium text-paper">Built-in browser control</span>
-            <span className="mt-1 block text-[11px] leading-5 text-mute">Allow managed agents to inspect and control the isolated Taxzy browser.</span>
+            <span className="mt-1 block text-[11px] leading-5 text-mute">Allow managed agents to inspect and control the isolated ZLI browser.</span>
           </span>
           <input
             type="checkbox"

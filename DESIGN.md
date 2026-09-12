@@ -1,4 +1,4 @@
-# Taxzy interface direction
+# ZLI interface direction
 
 ## Design read
 
@@ -8,7 +8,7 @@ RHYTHM 2 / MOTION 1.
 
 ## Identity
 
-Taxzy is a room for work already in motion. The interface should feel like a
+ZLI is a room for work already in motion. The interface should feel like a
 well-organized control room, not a marketing page: the repository is the home,
 agents are the visible workers, and terminals, browser, changes, and TaxChat
 are tools that share the same work surface.
@@ -37,7 +37,7 @@ are tools that share the same work surface.
 - The left tree is the persistent home for project and agent context.
 - Collapsing the left tree removes it completely so the workbench gains the
   full window width. One quiet panel control remains fixed at the top-left,
-  before the Taxzy mark when the tree is open and before project context when
+  before the ZLI mark when the tree is open and before project context when
   it is closed.
 - Lucide's closed and open folder glyphs mirror the familiar ChatGPT desktop
   geometry and carry project expansion state, removing the

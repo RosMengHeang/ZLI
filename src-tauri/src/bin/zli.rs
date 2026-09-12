@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 #[cfg(windows)]
 use std::path::PathBuf;
 #[cfg(windows)]
-use swarmterm_lib::control::{
+use zli_desktop_lib::control::{
     ControlMethod, ControlRequest, ControlResponse, NamedPipeClient, CONTROL_PROTOCOL_VERSION,
 };
 
@@ -464,7 +464,7 @@ impl UuidRequestId {
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
-    use swarmterm_lib::control::{ControlError, ControlErrorCode};
+    use zli_desktop_lib::control::{ControlError, ControlErrorCode};
 
     #[test]
     fn json_mode_prints_a_failed_envelope_and_exits_nonzero() {

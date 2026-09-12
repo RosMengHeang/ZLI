@@ -7,6 +7,7 @@ import { useProjectStore } from "../stores/projectStore";
 import { useUiStore } from "../stores/uiStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { toAppError } from "../lib/errors";
+import { managedAuditEntries } from "../lib/worktreePresentation";
 import { gitAuditWorktrees, gitPruneWorktrees, gitRemoveWorktree, gitStatus } from "../tauri/git";
 import { sessionClient, type ReconcileReport } from "../tauri/sessions";
 import type { GitStatus, WorktreeAudit, WorktreeAuditEntry } from "../types";
@@ -17,11 +18,7 @@ function pathKey(path: string): string {
 }
 
 function worktreesForAudit(report: WorktreeAudit): WorktreeAuditEntry[] {
-  return report.entries.filter(
-    (entry) =>
-      entry.state !== "main" &&
-      (entry.branch?.startsWith("swarm/") || entry.state.startsWith("orphaned_") || entry.state === "prunable_metadata"),
-  );
+  return managedAuditEntries(report.entries);
 }
 
 export function WorktreeDialog() {
@@ -53,11 +50,7 @@ export function WorktreeDialog() {
       .map(pathKey),
   );
 
-  const worktrees = (audit?.entries ?? []).filter(
-    (entry) =>
-      entry.state !== "main" &&
-      (entry.branch?.startsWith("swarm/") || entry.state.startsWith("orphaned_") || entry.state === "prunable_metadata"),
-  );
+  const worktrees = managedAuditEntries(audit?.entries ?? []);
 
   const loadWorktrees = useCallback(async () => {
     if (!repositoryRoot) return;

@@ -8,7 +8,7 @@ import {
   IconPlus,
   IconSettings,
   IconTerminal,
-  TaxzyMark,
+  ZliMark,
 } from "./AppIcons";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { ProviderIcon } from "./ProviderIcon";
@@ -389,11 +389,11 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="sidebar-shell" aria-label="Taxzy navigation">
+    <aside className="sidebar-shell" aria-label="ZLI navigation">
       <div className="sidebar-brand">
-        <TaxzyMark className="h-6 w-6" />
+        <ZliMark className="h-6 w-6" />
         <div className="sidebar-brand-copy">
-          <span className="sidebar-brand-name">Taxzy</span>
+          <span className="sidebar-brand-name">ZLI</span>
         </div>
       </div>
 
