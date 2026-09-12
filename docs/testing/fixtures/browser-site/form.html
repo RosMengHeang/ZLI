@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Form</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main>
+    <h1>Form</h1>
+    <form id="fixture-form" action="form-result.html" method="get">
+      <label for="name">Name</label>
+      <input id="name" name="name" type="text" autocomplete="off" />
+
+      <label for="note">Note</label>
+      <textarea id="note" name="note" rows="3"></textarea>
+
+      <fieldset>
+        <legend>Choice</legend>
+        <label><input type="radio" name="choice" value="a" /> A</label>
+        <label><input type="radio" name="choice" value="b" /> B</label>
+      </fieldset>
+
+      <label>
+        <input id="agree" name="agree" type="checkbox" value="yes" />
+        Agree
+      </label>
+
+      <button type="submit" id="submit">Submit</button>
+      <button type="reset" id="reset">Reset</button>
+    </form>
+    <p id="form-hint">Submit navigates to form-result.html with query parameters.</p>
+  </main>
+</body>
+</html>

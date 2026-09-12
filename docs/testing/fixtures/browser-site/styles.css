@@ -1,0 +1,51 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", Tahoma, sans-serif;
+  line-height: 1.4;
+}
+
+body {
+  margin: 1.5rem;
+  color: #1a1a1a;
+  background: #f7f7f5;
+}
+
+main {
+  max-width: 40rem;
+}
+
+label,
+fieldset {
+  display: block;
+  margin: 0.75rem 0;
+}
+
+input[type="text"],
+textarea,
+select {
+  display: block;
+  width: min(100%, 24rem);
+  margin-top: 0.25rem;
+}
+
+button,
+a {
+  margin-right: 0.5rem;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+  background: #ddd;
+  border: 1px solid #bbb;
+}
+
+code,
+pre {
+  font-family: Consolas, "Courier New", monospace;
+}
+
+:focus {
+  outline: 2px solid #0b57d0;
+  outline-offset: 2px;
+}

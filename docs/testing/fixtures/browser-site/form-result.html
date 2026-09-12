@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Form result</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main>
+    <h1>Form result</h1>
+    <pre id="query"></pre>
+    <p><a href="form.html">Back to form</a></p>
+  </main>
+  <script>
+    document.getElementById("query").textContent = location.search || "(no query)";
+  </script>
+</body>
+</html>

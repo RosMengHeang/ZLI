@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Focus</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main>
+    <h1>Focus</h1>
+    <p>Tab through these controls. The active element id is shown below.</p>
+    <button type="button" id="first">First</button>
+    <a href="#second-target" id="link">Link</a>
+    <input id="text" type="text" value="text" />
+    <select id="select">
+      <option value="one">One</option>
+      <option value="two">Two</option>
+    </select>
+    <button type="button" id="last">Last</button>
+    <p id="second-target">Anchor target</p>
+    <p>Active: <code id="active-id">(none)</code></p>
+  </main>
+  <script>
+    function report() {
+      const el = document.activeElement;
+      document.getElementById("active-id").textContent = el && el.id ? el.id : el ? el.tagName : "(none)";
+    }
+    document.addEventListener("focusin", report);
+    document.addEventListener("keyup", report);
+    report();
+  </script>
+</body>
+</html>

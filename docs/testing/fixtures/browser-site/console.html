@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Console</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main>
+    <h1>Console</h1>
+    <p id="console-status">Emitting console noise on load.</p>
+    <button type="button" id="emit-again">Emit again</button>
+  </main>
+  <script>
+    function emit() {
+      console.log("zli-fixture log");
+      console.warn("zli-fixture warn");
+      console.error("zli-fixture error");
+      document.getElementById("console-status").textContent = "Emitted log, warn, and error.";
+    }
+    emit();
+    document.getElementById("emit-again").addEventListener("click", emit);
+  </script>
+</body>
+</html>
