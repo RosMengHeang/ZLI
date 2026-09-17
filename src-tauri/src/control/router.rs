@@ -196,6 +196,8 @@ fn capability_for(method: ControlMethod) -> Capability {
         | ControlMethod::BrowserControlSet
         | ControlMethod::BrowserUse
         | ControlMethod::BrowserNavigate
+        | ControlMethod::BrowserGoBack
+        | ControlMethod::BrowserScroll
         | ControlMethod::BrowserClick
         | ControlMethod::BrowserFill
         | ControlMethod::BrowserPress

@@ -1,6 +1,5 @@
 use super::commands::{
-    BrowserAction, BrowserCommand, BrowserKey, BrowserResult, BrowserWaitCondition, LoadState,
-    SelectorState,
+    BrowserAction, BrowserCommand, BrowserResult, BrowserWaitCondition, LoadState, SelectorState,
 };
 use crate::control::{ControlError, ControlErrorCode};
 use serde_json::{json, Value};
@@ -13,6 +12,7 @@ pub trait BrowserExecutor: Send + Sync {
         &self,
         request_id: &str,
         project_id: &str,
+        agent_id: Option<&str>,
         url: &str,
     ) -> Result<(), ControlError>;
 
@@ -185,12 +185,18 @@ impl BrowserExecutor for TauriBrowserExecutor {
         &self,
         request_id: &str,
         project_id: &str,
+        agent_id: Option<&str>,
         url: &str,
     ) -> Result<(), ControlError> {
         self.app
             .emit(
                 "browser-open-request",
-                json!({ "requestId": request_id, "projectId": project_id, "url": url }),
+                json!({
+                    "requestId": request_id,
+                    "projectId": project_id,
+                    "agentId": agent_id,
+                    "url": url
+                }),
             )
             .map_err(|error| runtime(format!("Browser open request failed: {error}")))
     }
@@ -217,6 +223,32 @@ impl BrowserExecutor for TauriBrowserExecutor {
                     surface_id,
                     url: url.clone(),
                     phase: super::commands::NavigationPhase::Started,
+                })
+            }
+            BrowserCommand::GoBack { .. } => {
+                self.evaluate(
+                    webview_label,
+                    "(() => { history.back(); return true; })()",
+                    timeout,
+                )?;
+                Ok(BrowserResult::Action {
+                    surface_id,
+                    action: BrowserAction::GoBack,
+                })
+            }
+            BrowserCommand::Scroll { direction, .. } => {
+                let amount = match direction {
+                    super::commands::ScrollDirection::Up => "-window.innerHeight",
+                    super::commands::ScrollDirection::Down => "window.innerHeight",
+                };
+                self.evaluate(
+                    webview_label,
+                    &format!("(() => {{ window.scrollBy({{ top: {amount}, behavior: 'auto' }}); return true; }})()"),
+                    timeout,
+                )?;
+                Ok(BrowserResult::Action {
+                    surface_id,
+                    action: BrowserAction::Scroll,
                 })
             }
             BrowserCommand::Wait { condition, .. } => {
@@ -386,6 +418,7 @@ fn serialization(error: impl std::fmt::Display) -> ControlError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::control::browser::commands::BrowserKey;
 
     #[test]
     fn fixed_scripts_escape_user_values_as_json() {

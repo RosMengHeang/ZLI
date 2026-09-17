@@ -23,6 +23,7 @@ Registered adapters: Claude Code, Codex, Cursor Agent, OpenCode, Gemini CLI, Aid
 | Shell / cookbook fallback | verified | verified | verified | verified | verified | verified | verified |
 | Readiness (glyph slots) | verified | verified | unsupported | unsupported | unsupported | unsupported | unsupported |
 | Explicit inbox pull | unsupported | unsupported | verified | verified | partial | partial | partial |
+| Startup pull bootstrap | n/a | n/a | verified; live trust-blocked | verified; interactive launch; live auth/config still needs acceptance | not tested | not tested | not tested |
 | Send before ready holds | verified | verified | verified | verified | not tested | not tested | not tested |
 | Send after idle / prompt | verified | verified | not tested | not tested | not tested | not tested | not tested |
 | TaxChat enqueue / deliver | verified | verified | verified | verified | not tested | not tested | not tested |
@@ -30,7 +31,7 @@ Registered adapters: Claude Code, Codex, Cursor Agent, OpenCode, Gemini CLI, Aid
 | Stop / credential revoke | verified | verified | verified | verified | not tested | not tested | not tested |
 | Live desktop send/receive | not tested | not tested | not tested | not tested | not tested | not tested | not tested |
 | Packaged Windows smoke | not tested | not tested | not tested | not tested | not tested | not tested | not tested |
-| Live browser via ZLI IPC | not tested | not tested | not tested | not tested | not tested | not tested | not tested |
+| Live browser via ZLI IPC | partial | partial | blocked by workspace trust | blocked by managed process exit | not tested | not tested | not tested |
 
 ### Notes on the table
 
@@ -42,7 +43,7 @@ Registered adapters: Claude Code, Codex, Cursor Agent, OpenCode, Gemini CLI, Aid
 
 **Shell fallback.** Absolute `zli` cookbook / shell binding is unit-tested for shell recipes. Sidecar env injection is covered for managed and direct agents in control tests.
 
-**Readiness.** DeliveryDesk glyph minting and burn-on-input is verified for MintedSlots (Claude, Codex). Cursor and OpenCode are ExplicitPull; pull arming is unit-tested. Gemini/Aider/Goose inherit ExplicitPull contract flags but lack dedicated delivery harness cases.
+**Readiness.** DeliveryDesk glyph minting and burn-on-input is verified for MintedSlots (Claude, Codex). Cursor and OpenCode are ExplicitPull; their generated cookbooks, scoped pull commands, and interactive launch behavior are unit-tested. Cursor's live run stopped at its own workspace-trust confirmation. OpenCode is launched without a one-shot prompt because that path can exit after the model answers; live acceptance still depends on provider auth/configuration. Gemini/Aider/Goose inherit ExplicitPull contract flags but lack dedicated delivery harness cases.
 
 **Resume.** Session-id parsing rejects prose and accepts validated tokens. Claude and Codex resume command builders exist. Live exact conversation recovery against real CLIs is **not tested**. Cursor, OpenCode, Gemini, Aider, Goose are **unsupported** for exact resume in ZLI.
 
@@ -59,6 +60,8 @@ Registered adapters: Claude Code, Codex, Cursor Agent, OpenCode, Gemini CLI, Aid
 | WebView2 clean profile path | verified | unit path assertion under app data |
 | Keyboard Space → DOM `" "` | verified | executor unit test |
 | Shared surface op serialization | verified | browser dispatch unit test |
+| Exact per-agent browser ownership | verified | authorization, open-ticket, reuse, event-payload, and navigation-owner tests |
+| Runtime Browser Use evidence phases | verified | coordinator event and cleanup tests |
 | Event-log rewrite headroom | verified | event_log rewrite-count test |
 | PTY UTF-8 streaming decode | verified | Rust normalizer + JS TextDecoder tests |
 | Preference `taxzy:*` → `zli:*` migration | verified | JS preferences tests |
@@ -66,7 +69,7 @@ Registered adapters: Claude Code, Codex, Cursor Agent, OpenCode, Gemini CLI, Aid
 | Sidecar lock refuse overwrite | verified | JS `installSidecarBinary` test |
 | Desktop `tauri dev` startup | not tested | manual checklist only |
 | Packaged `tauri build` install/run | not tested | manual checklist only |
-| Fixture site through live WebView2 | not tested | fixture ready; no live run recorded |
+| Fixture site through live WebView2 | partial | redirect + form submit via `zli browser open/fill/click/snapshot` on project `D:\kh-address` (2026-09-13 live smoke) |
 
 ## How to read README claims
 

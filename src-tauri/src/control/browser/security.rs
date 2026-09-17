@@ -10,6 +10,8 @@ pub fn required_capability(kind: BrowserCommandKind) -> (BrowserCapability, Capa
         | BrowserCommandKind::Errors => (BrowserCapability::Read, Capability::BrowserRead),
         BrowserCommandKind::Open
         | BrowserCommandKind::Navigate
+        | BrowserCommandKind::GoBack
+        | BrowserCommandKind::Scroll
         | BrowserCommandKind::Click
         | BrowserCommandKind::Fill
         | BrowserCommandKind::Press
@@ -31,15 +33,13 @@ pub fn authorize_surface(
             "Browser surface belongs to another project",
         ));
     }
-    if let (Some(caller_agent), Some(surface_agent)) =
-        (identity.agent_id.as_deref(), surface.agent_id.as_deref())
-    {
-        if caller_agent != surface_agent {
-            return Err(ControlError::new(
-                ControlErrorCode::BrowserSurfaceForbidden,
-                "Browser surface belongs to another agent",
-            ));
-        }
+    if identity.agent_id.as_deref().is_some_and(|caller_agent| {
+        surface.agent_id.as_deref() != Some(caller_agent)
+    }) {
+        return Err(ControlError::new(
+            ControlErrorCode::BrowserSurfaceForbidden,
+            "Browser surface belongs to another agent or to the user",
+        ));
     }
 
     let (surface_capability, caller_capability) = required_capability(kind);

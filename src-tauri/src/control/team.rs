@@ -58,9 +58,35 @@ pub struct BrowserAgentCapability {
     pub shell_fallback_available: bool,
     pub mcp_adapter_available: bool,
     pub mcp_provider_configured: bool,
+    pub integration_phase: BrowserIntegrationPhase,
+    pub prompt_observed: bool,
+    pub browser_surface_observed: bool,
+    pub browser_command_observed: bool,
+    pub last_error: Option<String>,
     pub mode: String,
     pub reason: String,
     pub adapter_command: Option<String>,
+}
+
+const MAX_ARCHIVED_BROWSER_FAILURES: usize = 128;
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserIntegrationPhase {
+    Unavailable,
+    Configured,
+    PromptReady,
+    BrowserOpened,
+    Verified,
+    Failed,
+}
+
+#[derive(Clone, Debug, Default)]
+struct BrowserIntegrationEvidence {
+    prompt_observed: bool,
+    browser_surface_observed: bool,
+    browser_command_observed: bool,
+    last_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -482,6 +508,8 @@ pub struct TeamCoordinator {
     exit_cleanup_pending: Mutex<HashSet<String>>,
     starting_agents: Mutex<HashSet<String>>,
     early_exit_pending: Mutex<HashSet<String>>,
+    browser_integration: Mutex<HashMap<String, BrowserIntegrationEvidence>>,
+    archived_browser_failures: Mutex<HashMap<(String, String), BrowserIntegrationEvidence>>,
 }
 
 impl TeamCoordinator {
@@ -507,6 +535,8 @@ impl TeamCoordinator {
             exit_cleanup_pending: Mutex::new(HashSet::new()),
             starting_agents: Mutex::new(HashSet::new()),
             early_exit_pending: Mutex::new(HashSet::new()),
+            browser_integration: Mutex::new(HashMap::new()),
+            archived_browser_failures: Mutex::new(HashMap::new()),
         }
     }
 
@@ -731,7 +761,21 @@ impl TeamCoordinator {
         project_id: &str,
         agent_id: &str,
     ) -> Result<BrowserAgentCapability, ControlError> {
-        let _record = self.record(project_id, agent_id)?;
+        let archived = match self.record(project_id, agent_id) {
+            Ok(_) => None,
+            Err(error) => {
+                let archived = self
+                    .archived_browser_failures
+                    .lock()
+                    .map_err(lock_error)?
+                    .get(&(project_id.to_owned(), agent_id.to_owned()))
+                    .cloned();
+                if archived.is_none() {
+                    return Err(error);
+                }
+                archived
+            }
+        };
         let sidecars = self.context.sidecars();
         let adapter_command = sidecars.as_ref().ok().map(|paths| {
             paths.browser_use().to_string_lossy().into_owned()
@@ -744,23 +788,50 @@ impl TeamCoordinator {
             .as_ref()
             .map(ToolBinding::mode)
             .unwrap_or("unsupported");
-        let reason = match binding.as_ref() {
-            Some(ToolBinding::Mcp { .. }) => {
+        let reason = match (archived.as_ref(), binding.as_ref()) {
+            (Some(_), _) => "The provider exited before ZLI could verify Browser Use.",
+            (_, Some(ToolBinding::Mcp { .. })) => {
                 "The provider launch adapter accepted the ZLI Browser Use configuration."
             }
-            Some(ToolBinding::Shell { reason, .. } | ToolBinding::Unsupported { reason, .. }) => {
+            (_, Some(ToolBinding::Shell { reason, .. } | ToolBinding::Unsupported { reason, .. })) => {
                 reason.as_str()
             }
-            None if mcp_adapter_available => {
+            (None, None) if mcp_adapter_available => {
                 "Use the scoped zli browser commands; this provider has no configured MCP launch adapter yet."
             }
-            None => "The ZLI command was not available to this managed session.",
+            (None, None) => "The ZLI command was not available to this managed session.",
+        };
+        let evidence = archived.unwrap_or(
+            self.browser_integration
+                .lock()
+                .map_err(lock_error)?
+                .get(agent_id)
+                .cloned()
+                .unwrap_or_default(),
+        );
+        let integration_phase = if evidence.last_error.is_some() {
+            BrowserIntegrationPhase::Failed
+        } else if evidence.browser_command_observed {
+            BrowserIntegrationPhase::Verified
+        } else if evidence.browser_surface_observed {
+            BrowserIntegrationPhase::BrowserOpened
+        } else if evidence.prompt_observed {
+            BrowserIntegrationPhase::PromptReady
+        } else if binding.is_some() && sidecars.is_ok() {
+            BrowserIntegrationPhase::Configured
+        } else {
+            BrowserIntegrationPhase::Unavailable
         };
         Ok(BrowserAgentCapability {
             profile_id: "clean".into(),
             shell_fallback_available,
             mcp_adapter_available,
             mcp_provider_configured,
+            integration_phase,
+            prompt_observed: evidence.prompt_observed,
+            browser_surface_observed: evidence.browser_surface_observed,
+            browser_command_observed: evidence.browser_command_observed,
+            last_error: evidence.last_error,
             mode: mode.into(),
             reason: reason.into(),
             adapter_command,
@@ -816,11 +887,15 @@ impl TeamCoordinator {
             event.kind,
             AgentEventKind::AgentExited | AgentEventKind::AgentFailed
         ) {
+            self.archive_browser_failure(event, agent_id);
             let _ = self.desk.apply(ReadinessObservation::Exited {
                 agent_id: agent_id.to_owned(),
             });
             self.cleanup_exited_agent(agent_id);
             return;
+        }
+        if self.record(&event.project_id, agent_id).is_ok() {
+            self.observe_browser_integration(event, agent_id);
         }
         match event.kind {
             AgentEventKind::AgentPromptDetected => {
@@ -1353,6 +1428,88 @@ impl TeamCoordinator {
         if let Ok(mut pending) = self.early_exit_pending.lock() {
             pending.remove(agent_id);
         }
+        if let Ok(mut evidence) = self.browser_integration.lock() {
+            evidence.remove(agent_id);
+        }
+    }
+
+    fn archive_browser_failure(&self, event: &AgentEventEnvelope, agent_id: &str) {
+        let code = match event.payload {
+            AgentEventPayload::Exit { code } => code,
+            _ => None,
+        };
+        let Some(code) = code else {
+            return;
+        };
+        let evidence = self
+            .browser_integration
+            .lock()
+            .ok()
+            .and_then(|evidence| evidence.get(agent_id).cloned())
+            .unwrap_or_default();
+        if evidence.browser_command_observed {
+            return;
+        }
+        let mut archived = match self.archived_browser_failures.lock() {
+            Ok(archived) => archived,
+            Err(_) => return,
+        };
+        if archived.len() >= MAX_ARCHIVED_BROWSER_FAILURES {
+            if let Some(oldest) = archived.keys().next().cloned() {
+                archived.remove(&oldest);
+            }
+        }
+        let mut failure = evidence;
+        failure.last_error = Some(
+            failure.last_error.unwrap_or_else(|| {
+                format!(
+                    "provider exited before Browser Use verification (exit code {code})"
+                )
+            }),
+        );
+        archived.insert((event.project_id.clone(), agent_id.to_owned()), failure);
+    }
+
+    fn observe_browser_integration(&self, event: &AgentEventEnvelope, agent_id: &str) {
+        let relevant = event.kind == AgentEventKind::AgentPromptDetected
+            || (event.source == AgentEventSource::Browser
+                && matches!(
+                    event.kind,
+                    AgentEventKind::BrowserSurfaceCreated
+                        | AgentEventKind::BrowserCommandCompleted
+                        | AgentEventKind::BrowserCommandFailed
+                ));
+        if !relevant {
+            return;
+        }
+        let Ok(mut evidence) = self.browser_integration.lock() else {
+            return;
+        };
+        let evidence = evidence.entry(agent_id.to_owned()).or_default();
+        match event.kind {
+            AgentEventKind::AgentPromptDetected => evidence.prompt_observed = true,
+            AgentEventKind::BrowserSurfaceCreated => evidence.browser_surface_observed = true,
+            AgentEventKind::BrowserCommandCompleted => {
+                evidence.browser_command_observed = true;
+                evidence.last_error = None;
+            }
+            AgentEventKind::BrowserCommandFailed => {
+                let text = match &event.payload {
+                    AgentEventPayload::Text { text } => text,
+                    _ => "Browser command failed",
+                };
+                evidence.last_error = Some(text.chars().take(512).collect());
+            }
+            _ => {}
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn browser_integration_evidence_count(&self) -> usize {
+        self.browser_integration
+            .lock()
+            .map(|evidence| evidence.len())
+            .unwrap_or_default()
     }
 
     fn forget_starting_agent(&self, agent_id: &str) {

@@ -86,14 +86,18 @@ export function AppShell() {
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen<{ requestId: string; projectId: string; url: string }>("browser-open-request", ({ payload }) => {
+    void listen<{ requestId: string; projectId: string; agentId: string | null; url: string }>("browser-open-request", ({ payload }) => {
       const active = useProjectStore.getState().project;
       const decision = resolveBrowserOpenRequest(payload, active);
       if (decision.kind === "inactive") {
         void rejectBrowserOpen(decision.requestId).catch(() => undefined);
         return;
       }
-      useBrowserStore.getState().setPendingOpen({ requestId: decision.requestId, url: decision.url });
+      useBrowserStore.getState().setPendingOpen({
+        requestId: decision.requestId,
+        agentId: decision.agentId,
+        url: decision.url,
+      });
       useUiStore.getState().setBrowserUrl(decision.url);
       useUiStore.getState().setBrowserOpen(true);
     }).then((cleanup) => {

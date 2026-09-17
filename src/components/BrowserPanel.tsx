@@ -3,7 +3,6 @@ import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Webview } from "@tauri-apps/api/webview";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { IconBack, IconExternal, IconForward, IconGlobe, IconReload, IconShield } from "./AppIcons";
 import { rafThrottle } from "../lib/schedule";
 import { isTauriRuntime } from "../tauri/invoke";
@@ -20,7 +19,12 @@ import { useBrowserStore } from "../stores/browserStore";
 import { BrowserPermissionDialog } from "./BrowserPermissionDialog";
 import { BrowserAutomationStatus } from "./BrowserAutomationStatus";
 import { BrowserControlStatus } from "./BrowserControlStatus";
-import { nextBrowserRequest, normalizeBrowserInput, pushBrowserHistory } from "../lib/browserNavigation";
+import {
+  nextBrowserRequest,
+  normalizeBrowserInput,
+  pushBrowserHistory,
+  type BrowserRequest,
+} from "../lib/browserNavigation";
 import {
   nativeBrowserBounds,
   nativeBrowserHiddenBounds,
@@ -67,7 +71,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
   const refreshControlStatus = useBrowserStore((state) => state.refreshControlStatus);
   const [history, setHistory] = useState<string[]>(() => savedUrl ? [savedUrl] : []);
   const [historyIndex, setHistoryIndex] = useState(savedUrl ? 0 : -1);
-  const [request, setRequest] = useState({ url: savedUrl, sequence: 0 });
+  const [request, setRequest] = useState<BrowserRequest>({ url: savedUrl, sequence: 0 });
   const [draft, setDraft] = useState(savedUrl);
   const [nativeError, setNativeError] = useState<string | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -189,7 +193,8 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
         width: bounds.width,
         height: bounds.height,
       });
-      const webview = new Webview(getCurrentWindow(), label);
+      const webview = await Webview.getByLabel(label);
+      if (!webview) throw new Error("ZLI could not attach to the browser pane.");
       if (cancelled) {
         await webview.hide().catch(() => undefined);
         await webview.close().catch(() => undefined);
@@ -199,7 +204,7 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
       nativeWebviewRef.current = webview;
       let surface = await registerBrowserSurface({
         projectId: projectRoot,
-        agentId: null,
+        agentId: request.agentId ?? null,
         webviewLabel: label,
         url: request.url,
         profileId: "clean",
@@ -303,7 +308,11 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
     };
   }, [shouldHideNativeView]);
 
-  function navigate(value: string, openRequestId?: string | null) {
+  function navigate(
+    value: string,
+    openRequestId?: string | null,
+    ownerAgentId?: string | null,
+  ) {
     const normalized = normalizeBrowserInput(value);
     if (!normalized) {
       setNativeError("Enter a valid http or https address.");
@@ -315,12 +324,17 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
     setHistoryIndex(next.index);
     setNativeError(null);
     setDraft(normalized);
-    setRequest((current) => nextBrowserRequest(normalized, current.sequence, openRequestId));
+    setRequest((current) => nextBrowserRequest(
+      normalized,
+      current.sequence,
+      openRequestId,
+      ownerAgentId ?? current.agentId,
+    ));
   }
 
   useEffect(() => {
     if (!pendingOpen) return;
-    navigate(pendingOpen.url, pendingOpen.requestId);
+    navigate(pendingOpen.url, pendingOpen.requestId, pendingOpen.agentId);
     useBrowserStore.getState().setPendingOpen(null);
   }, [pendingOpen]);
 
@@ -342,7 +356,12 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
     expectedNavigationRef.current = history[next];
     setHistoryIndex(next);
     setDraft(history[next]);
-    setRequest((current) => nextBrowserRequest(history[next], current.sequence));
+    setRequest((current) => nextBrowserRequest(
+      history[next],
+      current.sequence,
+      undefined,
+      current.agentId,
+    ));
   }
 
   function goForward() {
@@ -351,13 +370,23 @@ export function BrowserPanel({ obscured = false }: BrowserPanelProps) {
     expectedNavigationRef.current = history[next];
     setHistoryIndex(next);
     setDraft(history[next]);
-    setRequest((current) => nextBrowserRequest(history[next], current.sequence));
+    setRequest((current) => nextBrowserRequest(
+      history[next],
+      current.sequence,
+      undefined,
+      current.agentId,
+    ));
   }
 
   function reload() {
     if (!currentUrl) return;
     expectedNavigationRef.current = currentUrl;
-    setRequest((current) => nextBrowserRequest(currentUrl, current.sequence));
+    setRequest((current) => nextBrowserRequest(
+      currentUrl,
+      current.sequence,
+      undefined,
+      current.agentId,
+    ));
   }
 
   async function openExternally() {

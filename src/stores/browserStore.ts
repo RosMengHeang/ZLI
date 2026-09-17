@@ -45,7 +45,7 @@ function persist(registry: BrowserPermissionRegistry): void {
 interface BrowserState {
   registry: BrowserPermissionRegistry;
   surface: BrowserSurfaceRecord | null;
-  pendingOpen: { requestId: string; url: string } | null;
+  pendingOpen: { requestId: string; agentId: string | null; url: string } | null;
   permissionOpen: boolean;
   pendingCapability: BrowserCapability | null;
   error: string | null;
@@ -53,7 +53,7 @@ interface BrowserState {
   controlStatus: (BrowserControlStatus & { bridgeAvailable: boolean }) | null;
   controlLoading: boolean;
   setSurface: (surface: BrowserSurfaceRecord | null) => void;
-  setPendingOpen: (pending: { requestId: string; url: string } | null) => void;
+  setPendingOpen: (pending: { requestId: string; agentId: string | null; url: string } | null) => void;
   setPermissionOpen: (open: boolean) => void;
   savedCapabilities: (projectId: string, profileId: string) => BrowserCapability[];
   restoreProfile: (projectId: string, profileId: string, capabilities: BrowserCapability[]) => void;

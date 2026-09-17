@@ -35,6 +35,8 @@ pub enum OpenOutcome {
 
 #[derive(Clone, Debug)]
 struct OpenTicket {
+    project_id: String,
+    agent_id: Option<String>,
     outcome: OpenOutcome,
 }
 
@@ -168,12 +170,22 @@ impl BrowserManager {
             .get(surface_id)
             .map(|surface| surface.record.clone())
             .ok_or_else(not_found)?;
-        if let Some(ticket) = state.open_tickets.get_mut(request_id) {
-            if matches!(ticket.outcome, OpenOutcome::Pending) {
-                ticket.outcome = OpenOutcome::Bound {
-                    surface_id: surface_id.to_owned(),
-                };
-            }
+        let ticket = state.open_tickets.get_mut(request_id).ok_or_else(|| {
+            ControlError::new(
+                ControlErrorCode::BrowserInvalidCommand,
+                "Browser open request is no longer pending",
+            )
+        })?;
+        if ticket.project_id != record.project_id || ticket.agent_id != record.agent_id {
+            return Err(ControlError::new(
+                ControlErrorCode::BrowserSurfaceForbidden,
+                "Browser surface owner does not match the open request",
+            ));
+        }
+        if matches!(ticket.outcome, OpenOutcome::Pending) {
+            ticket.outcome = OpenOutcome::Bound {
+                surface_id: surface_id.to_owned(),
+            };
         }
         Ok(record)
     }
@@ -195,11 +207,20 @@ impl BrowserManager {
             .ok_or_else(not_found)
     }
 
-    pub fn find_project_url(&self, project_id: &str, url: &str) -> Option<BrowserSurfaceRecord> {
+    pub fn find_owned_url(
+        &self,
+        project_id: &str,
+        agent_id: Option<&str>,
+        url: &str,
+    ) -> Option<BrowserSurfaceRecord> {
         self.state()
             .surfaces
             .values()
-            .find(|surface| surface.record.project_id == project_id && surface.record.url == url)
+            .find(|surface| {
+                surface.record.project_id == project_id
+                    && surface.record.agent_id.as_deref() == agent_id
+                    && surface.record.url == url
+            })
             .map(|surface| surface.record.clone())
     }
 
@@ -208,10 +229,11 @@ impl BrowserManager {
         executor: &dyn BrowserExecutor,
         request_id: &str,
         project_id: &str,
+        agent_id: Option<&str>,
         url: &str,
         timeout: Duration,
     ) -> Result<BrowserSurfaceRecord, ControlError> {
-        if let Some(existing) = self.find_project_url(project_id, url) {
+        if let Some(existing) = self.find_owned_url(project_id, agent_id, url) {
             return Ok(existing);
         }
         {
@@ -219,11 +241,13 @@ impl BrowserManager {
             state.open_tickets.insert(
                 request_id.to_owned(),
                 OpenTicket {
+                    project_id: project_id.to_owned(),
+                    agent_id: agent_id.map(str::to_owned),
                     outcome: OpenOutcome::Pending,
                 },
             );
         }
-        executor.request_open(request_id, project_id, url)?;
+        executor.request_open(request_id, project_id, agent_id, url)?;
         let started = Instant::now();
         loop {
             let outcome = {
@@ -279,7 +303,10 @@ impl BrowserManager {
             .surfaces
             .values()
             .filter(|surface| {
-                identity.project_id == "*" || surface.record.project_id == identity.project_id
+                (identity.project_id == "*" || surface.record.project_id == identity.project_id)
+                    && identity.agent_id.as_ref().is_none_or(|agent_id| {
+                        surface.record.agent_id.as_ref() == Some(agent_id)
+                    })
             })
             .map(|surface| surface.record.clone())
             .collect()
@@ -368,15 +395,13 @@ impl BrowserManager {
                 "Browser surface belongs to another project",
             ));
         }
-        if let (Some(caller_agent), Some(surface_agent)) =
-            (identity.agent_id.as_deref(), record.agent_id.as_deref())
-        {
-            if caller_agent != surface_agent {
-                return Err(ControlError::new(
-                    ControlErrorCode::BrowserSurfaceForbidden,
-                    "Browser surface belongs to another agent",
-                ));
-            }
+        if identity.agent_id.as_deref().is_some_and(|caller_agent| {
+            record.agent_id.as_deref() != Some(caller_agent)
+        }) {
+            return Err(ControlError::new(
+                ControlErrorCode::BrowserSurfaceForbidden,
+                "Browser surface belongs to another agent or to the user",
+            ));
         }
         if self.settings.is_some() && !self.control_enabled(&record.profile_id)? {
             return Err(ControlError::new(

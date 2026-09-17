@@ -248,6 +248,50 @@ fn browser_authorization_rejects_cross_project_and_cross_agent_before_grants() {
 }
 
 #[test]
+fn agent_browser_access_requires_an_exact_surface_owner() {
+    let manager = BrowserManager::default();
+    let unowned = manager
+        .register(
+            "project-1",
+            None,
+            "browser-panel-user",
+            "about:blank",
+            "clean",
+        )
+        .expect("register user surface");
+    let owned = manager
+        .register(
+            "project-1",
+            Some("agent-1".into()),
+            "browser-panel-agent",
+            "about:blank",
+            "clean",
+        )
+        .expect("register agent surface");
+    manager
+        .grant(&unowned.surface_id, BrowserCapability::Read)
+        .expect("grant unowned read");
+    manager
+        .grant(&owned.surface_id, BrowserCapability::Read)
+        .expect("grant owned read");
+
+    let agent = identity("project-1", Some("agent-1"), vec![Capability::BrowserRead]);
+    let listed = manager.list(&agent);
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].surface_id, owned.surface_id);
+    assert_eq!(
+        manager
+            .authorize(&agent, &unowned.surface_id, &snapshot(&unowned.surface_id))
+            .expect_err("an agent cannot use a user-owned pane")
+            .code,
+        ControlErrorCode::BrowserSurfaceForbidden
+    );
+
+    let user = identity("project-1", None, vec![Capability::BrowserRead]);
+    assert_eq!(manager.list(&user).len(), 2);
+}
+
+#[test]
 fn browser_dispatch_enforces_deadlines_and_utf8_safe_output_limits() {
     let manager = BrowserManager::default();
     let surface = manager
@@ -394,6 +438,7 @@ impl BrowserExecutor for NoopExecutor {
         &self,
         _request_id: &str,
         _project_id: &str,
+        _agent_id: Option<&str>,
         _url: &str,
     ) -> Result<(), ControlError> {
         Ok(())
@@ -421,6 +466,7 @@ impl BrowserExecutor for NotifyExecutor {
         &self,
         _request_id: &str,
         _project_id: &str,
+        _agent_id: Option<&str>,
         _url: &str,
     ) -> Result<(), ControlError> {
         let _ = self.started.send(());
@@ -453,6 +499,7 @@ fn browser_open_completes_by_request_id_after_redirect() {
                 },
                 "open-1",
                 "project-1",
+                Some("agent-1"),
                 "https://example.com/start",
                 Duration::from_secs(2),
             )
@@ -462,7 +509,7 @@ fn browser_open_completes_by_request_id_after_redirect() {
     let surface = manager
         .register(
             "project-1",
-            None,
+            Some("agent-1".into()),
             "browser-panel-1",
             "https://example.com/final",
             "clean",
@@ -478,6 +525,52 @@ fn browser_open_completes_by_request_id_after_redirect() {
 }
 
 #[test]
+fn browser_open_ticket_rejects_a_surface_owned_by_another_agent() {
+    let manager = Arc::new(BrowserManager::default());
+    let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+    let waiter = {
+        let manager = manager.clone();
+        thread::spawn(move || {
+            manager.open_and_wait(
+                &NotifyExecutor {
+                    started: started_tx,
+                },
+                "open-owned",
+                "project-1",
+                Some("agent-1"),
+                "https://example.com",
+                Duration::from_millis(250),
+            )
+        })
+    };
+    started_rx.recv_timeout(Duration::from_secs(1)).expect("open started");
+    let foreign = manager
+        .register(
+            "project-1",
+            Some("agent-2".into()),
+            "browser-panel-foreign",
+            "https://example.com",
+            "clean",
+        )
+        .expect("register foreign surface");
+    assert_eq!(
+        manager
+            .bind_open("open-owned", &foreign.surface_id)
+            .expect_err("foreign owner cannot satisfy ticket")
+            .code,
+        ControlErrorCode::BrowserSurfaceForbidden
+    );
+    assert_eq!(
+        waiter
+            .join()
+            .expect("open waiter")
+            .expect_err("unbound request times out")
+            .code,
+        ControlErrorCode::BrowserCommandTimeout
+    );
+}
+
+#[test]
 fn browser_open_inactive_project_returns_explicit_error() {
     let manager = Arc::new(BrowserManager::default());
     let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
@@ -490,6 +583,7 @@ fn browser_open_inactive_project_returns_explicit_error() {
                 },
                 "open-inactive",
                 "project-1",
+                None,
                 "https://example.com",
                 Duration::from_secs(2),
             )
@@ -533,6 +627,7 @@ fn browser_open_returns_existing_surface_for_the_same_url() {
             &NoopExecutor,
             "open-existing",
             "project-1",
+            None,
             "https://example.com/",
             Duration::from_secs(1),
         )

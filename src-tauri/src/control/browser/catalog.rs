@@ -1,5 +1,5 @@
 use super::commands::{
-    BrowserCommand, BrowserKey, LoadState, SelectorState, BROWSER_LIMITS,
+    BrowserCommand, BrowserKey, LoadState, ScrollDirection, SelectorState, BROWSER_LIMITS,
 };
 use crate::control::{ControlError, ControlErrorCode, ControlMethod};
 use serde::Serialize;
@@ -117,11 +117,61 @@ const TOOLS: &[BrowserToolSpec] = &[
         schema: schema_surface_only,
         to_command: command_screenshot,
     },
+    BrowserToolSpec {
+        name: "browser_get_state",
+        description: "Get the current bounded page state from a ZLI built-in browser pane.",
+        control_method: ControlMethod::BrowserSnapshot,
+        schema: schema_snapshot,
+        to_command: command_snapshot,
+    },
+    BrowserToolSpec {
+        name: "browser_type",
+        description: "Type replacement text into a selector in the ZLI built-in browser pane.",
+        control_method: ControlMethod::BrowserFill,
+        schema: schema_fill,
+        to_command: command_fill,
+    },
+    BrowserToolSpec {
+        name: "browser_extract_content",
+        description: "Extract bounded content from a selector in the ZLI built-in browser pane.",
+        control_method: ControlMethod::BrowserSnapshot,
+        schema: schema_snapshot,
+        to_command: command_snapshot,
+    },
+    BrowserToolSpec {
+        name: "browser_list_tabs",
+        description: "List browser surfaces available to this agent in ZLI.",
+        control_method: ControlMethod::BrowserList,
+        schema: schema_list_tabs,
+        to_command: command_list_tabs,
+    },
+    BrowserToolSpec {
+        name: "browser_go_back",
+        description: "Go back in the history of a ZLI built-in browser pane.",
+        control_method: ControlMethod::BrowserGoBack,
+        schema: schema_surface_only,
+        to_command: command_go_back,
+    },
+    BrowserToolSpec {
+        name: "browser_scroll",
+        description: "Scroll a ZLI built-in browser pane by one viewport.",
+        control_method: ControlMethod::BrowserScroll,
+        schema: schema_scroll,
+        to_command: command_scroll,
+    },
 ];
 
 fn schema_status() -> Value {
     object(
         &format!("No arguments. Reports {PANE} control status."),
+        Map::new(),
+        &[],
+    )
+}
+
+fn schema_list_tabs() -> Value {
+    object(
+        "No arguments. Lists browser surfaces available to this agent in ZLI.",
         Map::new(),
         &[],
     )
@@ -228,6 +278,31 @@ fn command_status(arguments: &Value) -> Result<Option<BrowserCommand>, ControlEr
     Ok(None)
 }
 
+fn schema_scroll() -> Value {
+    object(
+        &format!("Scroll the {PANE} by one viewport."),
+        properties(&[
+            ("surfaceId", surface_id_property()),
+            (
+                "direction",
+                json!({
+                    "type": "string",
+                    "enum": enum_values(&[ScrollDirection::Up, ScrollDirection::Down]),
+                }),
+            ),
+        ]),
+        &["surfaceId", "direction"],
+    )
+}
+
+fn command_list_tabs(arguments: &Value) -> Result<Option<BrowserCommand>, ControlError> {
+    let object = object_args(arguments)?;
+    if !object.is_empty() {
+        return Err(invalid("browser_list_tabs does not accept arguments"));
+    }
+    Ok(None)
+}
+
 fn command_open(arguments: &Value) -> Result<Option<BrowserCommand>, ControlError> {
     decode_kind(arguments, "open")
 }
@@ -266,6 +341,14 @@ fn command_errors(arguments: &Value) -> Result<Option<BrowserCommand>, ControlEr
 
 fn command_screenshot(arguments: &Value) -> Result<Option<BrowserCommand>, ControlError> {
     decode_kind(arguments, "screenshot")
+}
+
+fn command_go_back(arguments: &Value) -> Result<Option<BrowserCommand>, ControlError> {
+    decode_kind(arguments, "go_back")
+}
+
+fn command_scroll(arguments: &Value) -> Result<Option<BrowserCommand>, ControlError> {
+    decode_kind(arguments, "scroll")
 }
 
 fn decode_kind(arguments: &Value, kind: &str) -> Result<Option<BrowserCommand>, ControlError> {
@@ -481,23 +564,81 @@ mod tests {
 
     #[test]
     fn catalog_names_match_the_former_gateway_list() {
-        assert_eq!(
-            tool_names(),
-            vec![
-                "browser_status",
-                "browser_open",
-                "browser_navigate",
-                "browser_wait",
-                "browser_snapshot",
-                "browser_click",
-                "browser_fill",
-                "browser_press",
-                "browser_console",
-                "browser_errors",
-                "browser_screenshot",
-            ]
-        );
+        let names = tool_names();
+        for name in [
+            "browser_status",
+            "browser_open",
+            "browser_navigate",
+            "browser_wait",
+            "browser_snapshot",
+            "browser_click",
+            "browser_fill",
+            "browser_press",
+            "browser_console",
+            "browser_errors",
+            "browser_screenshot",
+            "browser_get_state",
+            "browser_type",
+            "browser_extract_content",
+            "browser_list_tabs",
+        ] {
+            assert!(names.contains(&name), "missing {name}");
+        }
         assert!(input_schema("browser_eval").is_none());
+    }
+
+    #[test]
+    fn browser_use_compatible_names_map_to_existing_zli_operations() {
+        let (method, params) =
+            decode_tool("browser_get_state", &json!({ "surfaceId": "surface-1" }))
+                .expect("get state");
+        assert_eq!(method, ControlMethod::BrowserSnapshot);
+        assert_eq!(params, json!({ "surfaceId": "surface-1" }));
+
+        let (method, params) = decode_tool(
+            "browser_type",
+            &json!({
+                "surfaceId": "surface-1",
+                "selector": "#name",
+                "text": "ZLI"
+            }),
+        )
+        .expect("type");
+        assert_eq!(method, ControlMethod::BrowserFill);
+        assert_eq!(
+            params,
+            json!({ "surfaceId": "surface-1", "selector": "#name", "text": "ZLI" })
+        );
+
+        let (method, _) = decode_tool(
+            "browser_extract_content",
+            &json!({ "surfaceId": "surface-1", "selector": "main" }),
+        )
+        .expect("extract content");
+        assert_eq!(method, ControlMethod::BrowserSnapshot);
+
+        let (method, params) = decode_tool("browser_list_tabs", &json!({})).expect("list tabs");
+        assert_eq!(method, ControlMethod::BrowserList);
+        assert_eq!(params, json!({}));
+    }
+
+    #[test]
+    fn browser_use_navigation_helpers_decode_to_typed_commands() {
+        let (method, params) =
+            decode_tool("browser_go_back", &json!({ "surfaceId": "surface-1" })).expect("go back");
+        assert_eq!(method, ControlMethod::BrowserGoBack);
+        assert_eq!(params, json!({ "surfaceId": "surface-1" }));
+
+        let (method, params) = decode_tool(
+            "browser_scroll",
+            &json!({ "surfaceId": "surface-1", "direction": "down" }),
+        )
+        .expect("scroll");
+        assert_eq!(method, ControlMethod::BrowserScroll);
+        assert_eq!(
+            params,
+            json!({ "surfaceId": "surface-1", "direction": "down" })
+        );
     }
 
     #[test]

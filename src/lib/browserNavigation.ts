@@ -17,15 +17,18 @@ export interface BrowserRequest {
   url: string;
   sequence: number;
   requestId?: string | null;
+  agentId?: string | null;
 }
 
 export function nextBrowserRequest(
   url: string,
   previousSequence: number,
   requestId?: string | null,
+  agentId?: string | null,
 ): BrowserRequest {
   if (requestId) {
-    return { url, sequence: previousSequence + 1, requestId };
+    return { url, sequence: previousSequence + 1, requestId, agentId: agentId ?? null };
   }
+  if (agentId) return { url, sequence: previousSequence + 1, agentId };
   return { url, sequence: previousSequence + 1 };
 }

@@ -24,13 +24,14 @@ test("Back and Reload issue fresh requests after an in-page navigation", async (
   assert.deepEqual(request, { url: observedUrl, sequence: 2 });
 });
 
-test("agent open navigation carries the control request id", async () => {
+test("agent open navigation carries the control request id and owner", async () => {
   const { nextBrowserRequest } = await import("../src/lib/browserNavigation.ts");
-  const request = nextBrowserRequest("https://example.com/", 0, "open-7");
+  const request = nextBrowserRequest("https://example.com/", 0, "open-7", "agent-1");
   assert.deepEqual(request, {
     url: "https://example.com/",
     sequence: 1,
     requestId: "open-7",
+    agentId: "agent-1",
   });
   assert.deepEqual(nextBrowserRequest("https://example.com/next", request.sequence), {
     url: "https://example.com/next",

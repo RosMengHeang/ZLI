@@ -64,8 +64,8 @@ pub use supervisor::{
 };
 pub use delivery_desk::{PullReceipt, ReadinessView};
 pub use team::{
-    AgentQueueStatus, BrowserAgentCapability, RuntimeTeamBackend, SpawnAgentRequest, TeamAgent,
-    TeamBackend, TeamCoordinator,
+    AgentQueueStatus, BrowserAgentCapability, BrowserIntegrationPhase, RuntimeTeamBackend,
+    SpawnAgentRequest, TeamAgent, TeamBackend, TeamCoordinator,
 };
 #[cfg(windows)]
 pub use transport::named_pipe::{NamedPipeClient, NamedPipeServer};

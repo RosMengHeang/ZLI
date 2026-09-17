@@ -24,16 +24,16 @@ test("active project accepts an open request by path or repository root", async 
   const active = { path: "D:/work/app", repositoryRoot: "D:/repos/app" };
   assert.deepEqual(
     resolveBrowserOpenRequest(
-      { requestId: "open-3", projectId: "D:/work/app", url: "https://example.com/a" },
+      { requestId: "open-3", projectId: "D:/work/app", agentId: "agent-1", url: "https://example.com/a" },
       active,
     ),
-    { kind: "open", requestId: "open-3", url: "https://example.com/a" },
+    { kind: "open", requestId: "open-3", agentId: "agent-1", url: "https://example.com/a" },
   );
   assert.deepEqual(
     resolveBrowserOpenRequest(
-      { requestId: "open-4", projectId: "D:/repos/app", url: "https://example.com/b" },
+      { requestId: "open-4", projectId: "D:/repos/app", agentId: null, url: "https://example.com/b" },
       active,
     ),
-    { kind: "open", requestId: "open-4", url: "https://example.com/b" },
+    { kind: "open", requestId: "open-4", agentId: null, url: "https://example.com/b" },
   );
 });

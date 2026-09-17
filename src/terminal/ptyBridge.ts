@@ -1,7 +1,6 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toAppError } from "../lib/errors";
 import type { PtyErrorPayload, PtyExitPayload, SessionStatus } from "../types";
-import { PTY_EVENTS } from "../types/commands";
 import { useTerminalStore } from "../stores/terminalStore";
 import {
   createPtyLifecycleFanout,

@@ -104,6 +104,13 @@ pub enum LoadState {
     NetworkIdle,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScrollDirection {
+    Up,
+    Down,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(
     tag = "kind",
@@ -139,6 +146,13 @@ pub enum BrowserCommand {
     Navigate {
         surface_id: String,
         url: String,
+    },
+    GoBack {
+        surface_id: String,
+    },
+    Scroll {
+        surface_id: String,
+        direction: ScrollDirection,
     },
     Wait {
         surface_id: String,
@@ -184,6 +198,8 @@ pub enum BrowserCommand {
 pub enum BrowserCommandKind {
     Open,
     Navigate,
+    GoBack,
+    Scroll,
     Wait,
     Snapshot,
     Click,
@@ -200,6 +216,8 @@ impl BrowserCommand {
         match self {
             Self::Open { .. } => BrowserCommandKind::Open,
             Self::Navigate { .. } => BrowserCommandKind::Navigate,
+            Self::GoBack { .. } => BrowserCommandKind::GoBack,
+            Self::Scroll { .. } => BrowserCommandKind::Scroll,
             Self::Wait { .. } => BrowserCommandKind::Wait,
             Self::Snapshot { .. } => BrowserCommandKind::Snapshot,
             Self::Click { .. } => BrowserCommandKind::Click,
@@ -216,6 +234,8 @@ impl BrowserCommand {
         match self {
             Self::Open { .. } => None,
             Self::Navigate { surface_id, .. }
+            | Self::GoBack { surface_id }
+            | Self::Scroll { surface_id, .. }
             | Self::Wait { surface_id, .. }
             | Self::Snapshot { surface_id, .. }
             | Self::Click { surface_id, .. }
@@ -241,6 +261,9 @@ impl BrowserCommand {
             Self::Navigate { surface_id, url } => {
                 validate_id(surface_id)?;
                 validate_url(url)
+            }
+            Self::GoBack { surface_id } | Self::Scroll { surface_id, .. } => {
+                validate_id(surface_id)
             }
             Self::Wait {
                 surface_id,
@@ -353,6 +376,8 @@ pub enum NavigationPhase {
 #[serde(rename_all = "snake_case")]
 pub enum BrowserAction {
     Wait,
+    GoBack,
+    Scroll,
     Click,
     Fill,
     Press,

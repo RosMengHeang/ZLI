@@ -138,6 +138,10 @@ fn parse_command(args: &[String]) -> Result<(ControlMethod, Value), String> {
                 json!({ "agentId": agent_id, "body": body }),
             ))
         }
+        (Some("agent"), Some("pull")) => Ok((
+            ControlMethod::AgentPull,
+            json!({ "agentId": required(args.get(2), "agent ID")? }),
+        )),
         (Some("agent"), Some("spawn")) => {
             let managed_project = std::env::var("ZLI_PROJECT_ID")
                 .ok()
@@ -210,9 +214,20 @@ fn parse_command(args: &[String]) -> Result<(ControlMethod, Value), String> {
         (Some("browser"), Some("status")) => Ok((ControlMethod::BrowserStatus, json!({}))),
         (Some("browser"), Some("doctor")) => Ok((
             ControlMethod::BrowserStatus,
-            option(args, "--agent")
-                .map(|agent_id| json!({ "doctor": true, "agentId": agent_id }))
-                .unwrap_or_else(|| json!({ "doctor": true })),
+            {
+                let mut params = json!({ "doctor": true });
+                if let Some(agent_id) = option(args, "--agent") {
+                    params["agentId"] = json!(agent_id);
+                }
+                let project_id = option(args, "--project")
+                    .map(str::to_owned)
+                    .or_else(|| std::env::var("ZLI_PROJECT_ID").ok())
+                    .filter(|value| !value.trim().is_empty());
+                if let Some(project_id) = project_id {
+                    params["projectId"] = json!(project_id);
+                }
+                params
+            },
         )),
         (Some("browser"), Some(action)) => parse_browser_command(args, action),
         (Some("taxchat"), Some("send")) => {
@@ -448,7 +463,7 @@ fn joined(args: &[String], start: usize, label: &str) -> Result<String, String> 
 
 #[cfg(windows)]
 fn usage() -> String {
-    "unknown command. Try: status | health [--project <path>] | doctor | agents | agent queue [--project <path>] | attention [list] | attention ack <agent> --project <path> | agent send <id> <message> | agent spawn --project <path> --provider <provider> --task <task> | worktree audit --project <path> | session list | session reconcile | session resume <id> | browser status | browser doctor [--agent <agent-id>] | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message> --project <path> [--to <agent>]".into()
+    "unknown command. Try: status | health [--project <path>] | doctor | agents | agent queue [--project <path>] | attention [list] | attention ack <agent> --project <path> | agent send <id> <message> | agent pull <id> | agent spawn --project <path> --provider <provider> --task <task> | worktree audit --project <path> | session list | session reconcile | session resume <id> | browser status | browser doctor [--agent <agent-id>] | browser list | browser open <url> --project <path> | browser snapshot <surface> | browser click <surface> <selector> | browser fill <surface> <selector> <text> | browser screenshot <surface> | taxchat send <message> --project <path> [--to <agent>]".into()
 }
 
 #[cfg(windows)]
@@ -554,6 +569,19 @@ mod tests {
     }
 
     #[test]
+    fn agent_pull_command_targets_the_managed_agent() {
+        let args = ["agent", "pull", "agent-1"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+
+        let (method, params) = parse_command(&args).expect("parse pull command");
+
+        assert_eq!(method, ControlMethod::AgentPull);
+        assert_eq!(params, json!({ "agentId": "agent-1" }));
+    }
+
+    #[test]
     fn worktree_audit_is_project_scoped_and_read_only() {
         let args = ["worktree", "audit", "--project", r"D:\repo"]
             .into_iter()
@@ -589,5 +617,32 @@ mod tests {
 
         assert_eq!(method, ControlMethod::BrowserStatus);
         assert_eq!(params, json!({}));
+    }
+
+    #[test]
+    fn browser_doctor_keeps_the_agent_project_scope() {
+        let args = [
+            "browser",
+            "doctor",
+            "--agent",
+            "agent-1",
+            "--project",
+            r"D:\repo",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+
+        let (method, params) = parse_command(&args).expect("parse browser doctor");
+
+        assert_eq!(method, ControlMethod::BrowserStatus);
+        assert_eq!(
+            params,
+            json!({
+                "doctor": true,
+                "agentId": "agent-1",
+                "projectId": r"D:\repo",
+            })
+        );
     }
 }

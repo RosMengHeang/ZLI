@@ -60,6 +60,10 @@ pub enum ControlMethod {
     BrowserOpen,
     #[serde(rename = "browser.navigate")]
     BrowserNavigate,
+    #[serde(rename = "browser.go_back")]
+    BrowserGoBack,
+    #[serde(rename = "browser.scroll")]
+    BrowserScroll,
     #[serde(rename = "browser.wait")]
     BrowserWait,
     #[serde(rename = "browser.snapshot")]

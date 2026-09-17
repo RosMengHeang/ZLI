@@ -2021,6 +2021,65 @@ fn provider_prompt_detection_accepts_codex_screen_fixture_without_redraw_storms(
 }
 
 #[test]
+fn provider_prompt_detection_accepts_live_placeholder_rows_only_when_cursor_is_shown() {
+    use super::prompt_detector::AgentOutputNormalizer;
+
+    let prompt_count = |events: &[AgentEventEnvelope]| {
+        events
+            .iter()
+            .filter(|event| event.kind == AgentEventKind::AgentPromptDetected)
+            .count()
+    };
+
+    let mut claude = AgentOutputNormalizer::new("project-1", "agent-claude", "claude-code");
+    assert_eq!(
+        prompt_count(
+            &claude.accept_output("\x1b[2K\r❯\u{00a0}Try \"fix lint errors\"\x1b[?25h".as_bytes())
+        ),
+        1
+    );
+
+    let mut codex = AgentOutputNormalizer::new("project-1", "agent-codex", "codex");
+    assert_eq!(
+        prompt_count(
+            &codex.accept_output("\x1b[12;1H› Ask Codex to do anything\x1b[?25h".as_bytes())
+        ),
+        1
+    );
+
+    let mut output = AgentOutputNormalizer::new("project-1", "agent-output", "codex");
+    assert_eq!(
+        prompt_count(&output.accept_output("› ordinary progress\r\n".as_bytes())),
+        0
+    );
+}
+
+#[test]
+fn provider_prompt_detection_reports_known_startup_blockers() {
+    use super::prompt_detector::AgentOutputNormalizer;
+
+    let mut cursor = AgentOutputNormalizer::new("project-1", "agent-cursor", "cursor-agent");
+    let cursor_events = cursor.accept_output(b"Workspace Trust Required\r\n");
+    assert_eq!(
+        cursor_events.last().and_then(|event| match &event.payload {
+            AgentEventPayload::Attention { reason } => Some(reason.as_str()),
+            _ => None,
+        }),
+        Some("cursor_workspace_trust_required")
+    );
+
+    let mut claude = AgentOutputNormalizer::new("project-1", "agent-claude", "claude-code");
+    let claude_events = claude.accept_output(b"SessionStart:startup hook error\r\n");
+    assert_eq!(
+        claude_events.last().and_then(|event| match &event.payload {
+            AgentEventPayload::Attention { reason } => Some(reason.as_str()),
+            _ => None,
+        }),
+        Some("claude_startup_error")
+    );
+}
+
+#[test]
 fn provider_prompt_detection_starts_a_clean_epoch_after_input() {
     use super::prompt_detector::AgentOutputNormalizer;
 
@@ -2889,6 +2948,128 @@ fn managed_agent_browser_capability_reports_safe_fallback_without_credentials() 
         .expect("cursor capability");
     assert!(!cursor_capability.mcp_provider_configured);
     assert_eq!(cursor_capability.mode, "shell_fallback");
+}
+
+#[test]
+fn browser_integration_evidence_advances_only_from_runtime_events() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let (coordinator, _tokens, _sidecars) = managed_team(backend, r"\\.\pipe\zli-test");
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+
+    let capability = coordinator
+        .browser_capability("project-1", &child.agent_id)
+        .expect("configured capability");
+    assert_eq!(capability.integration_phase, super::BrowserIntegrationPhase::Configured);
+    assert!(!capability.prompt_observed);
+    assert!(!capability.browser_surface_observed);
+    assert!(!capability.browser_command_observed);
+
+    coordinator.handle_event(&prompt_detected(
+        "project-1",
+        &child.agent_id,
+        "codex_prompt_marker",
+    ));
+    let capability = coordinator
+        .browser_capability("project-1", &child.agent_id)
+        .expect("prompt capability");
+    assert_eq!(capability.integration_phase, super::BrowserIntegrationPhase::PromptReady);
+    assert!(capability.prompt_observed);
+
+    let browser_event = |kind, text: &str| {
+        let mut event = AgentEventEnvelope::new(
+            uuid::Uuid::new_v4().to_string(),
+            "project-1".into(),
+            Some(child.agent_id.clone()),
+            kind,
+            AgentEventPayload::Text { text: text.into() },
+        );
+        event.source = AgentEventSource::Browser;
+        event
+    };
+    coordinator.handle_event(&browser_event(
+        AgentEventKind::BrowserSurfaceCreated,
+        "https://example.com",
+    ));
+    let capability = coordinator
+        .browser_capability("project-1", &child.agent_id)
+        .expect("opened capability");
+    assert_eq!(capability.integration_phase, super::BrowserIntegrationPhase::BrowserOpened);
+    assert!(capability.browser_surface_observed);
+
+    coordinator.handle_event(&browser_event(
+        AgentEventKind::BrowserCommandCompleted,
+        "snapshot",
+    ));
+    let capability = coordinator
+        .browser_capability("project-1", &child.agent_id)
+        .expect("verified capability");
+    assert_eq!(capability.integration_phase, super::BrowserIntegrationPhase::Verified);
+    assert!(capability.browser_command_observed);
+    assert_eq!(capability.last_error, None);
+
+    coordinator.handle_event(&browser_event(
+        AgentEventKind::BrowserCommandFailed,
+        "navigation failed",
+    ));
+    let capability = coordinator
+        .browser_capability("project-1", &child.agent_id)
+        .expect("failed capability");
+    assert_eq!(capability.integration_phase, super::BrowserIntegrationPhase::Failed);
+    assert_eq!(capability.last_error.as_deref(), Some("navigation failed"));
+}
+
+#[test]
+fn browser_integration_evidence_is_removed_when_an_agent_exits() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let (coordinator, _tokens, _sidecars) = managed_team(backend, r"\\.\pipe\zli-test");
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+    coordinator.handle_event(&prompt_detected(
+        "project-1",
+        &child.agent_id,
+        "codex_prompt_marker",
+    ));
+    assert_eq!(coordinator.browser_integration_evidence_count(), 1);
+
+    let exited = AgentEventEnvelope::new(
+        uuid::Uuid::new_v4().to_string(),
+        "project-1".into(),
+        Some(child.agent_id.clone()),
+        AgentEventKind::AgentExited,
+        AgentEventPayload::Exit { code: Some(0) },
+    );
+    coordinator.handle_event(&exited);
+    assert_eq!(coordinator.browser_integration_evidence_count(), 0);
+}
+
+#[test]
+fn browser_capability_reports_an_archived_provider_exit_reason() {
+    let backend = Arc::new(FakeTeamBackend::default());
+    let (coordinator, _tokens, _sidecars) = managed_team(backend, r"\\.\pipe\zli-test");
+    let child = coordinator
+        .spawn(team_spawn_request())
+        .expect("spawn child");
+
+    let exited = AgentEventEnvelope::new(
+        uuid::Uuid::new_v4().to_string(),
+        "project-1".into(),
+        Some(child.agent_id.clone()),
+        AgentEventKind::AgentExited,
+        AgentEventPayload::Exit { code: Some(17) },
+    );
+    coordinator.handle_event(&exited);
+
+    let capability = coordinator
+        .browser_capability("project-1", &child.agent_id)
+        .expect("archived browser capability");
+    assert_eq!(capability.integration_phase, super::BrowserIntegrationPhase::Failed);
+    assert_eq!(
+        capability.last_error.as_deref(),
+        Some("provider exited before Browser Use verification (exit code 17)")
+    );
 }
 
 #[test]

@@ -1,6 +1,7 @@
 export interface BrowserOpenRequestPayload {
   requestId: string;
   projectId: string;
+  agentId: string | null;
   url: string;
 }
 
@@ -11,7 +12,7 @@ export interface ActiveProjectIdentity {
 
 export type BrowserOpenDecision =
   | { kind: "inactive"; requestId: string }
-  | { kind: "open"; requestId: string; url: string };
+  | { kind: "open"; requestId: string; agentId: string | null; url: string };
 
 export function resolveBrowserOpenRequest(
   request: BrowserOpenRequestPayload,
@@ -23,5 +24,10 @@ export function resolveBrowserOpenRequest(
   ) {
     return { kind: "inactive", requestId: request.requestId };
   }
-  return { kind: "open", requestId: request.requestId, url: request.url };
+  return {
+    kind: "open",
+    requestId: request.requestId,
+    agentId: request.agentId,
+    url: request.url,
+  };
 }

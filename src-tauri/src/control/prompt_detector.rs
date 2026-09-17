@@ -9,6 +9,8 @@ const MAX_CSI_PARAMETER_BYTES: usize = 16;
 enum PromptProvider {
     ClaudeCode,
     Codex,
+    CursorAgent,
+    OpenCode,
 }
 
 impl PromptProvider {
@@ -16,14 +18,17 @@ impl PromptProvider {
         match provider_id {
             "claude" | "claude-code" => Some(Self::ClaudeCode),
             "codex" => Some(Self::Codex),
+            "cursor-agent" | "cursor" => Some(Self::CursorAgent),
+            "opencode" => Some(Self::OpenCode),
             _ => None,
         }
     }
 
-    fn marker(self) -> &'static [u8] {
+    fn marker(self) -> Option<&'static [u8]> {
         match self {
-            Self::ClaudeCode => "❯".as_bytes(),
-            Self::Codex => "›".as_bytes(),
+            Self::ClaudeCode => Some("❯".as_bytes()),
+            Self::Codex => Some("›".as_bytes()),
+            Self::CursorAgent | Self::OpenCode => None,
         }
     }
 
@@ -31,6 +36,30 @@ impl PromptProvider {
         match self {
             Self::ClaudeCode => "claude_code_prompt_marker",
             Self::Codex => "codex_prompt_marker",
+            Self::CursorAgent => "cursor_prompt_marker",
+            Self::OpenCode => "opencode_prompt_marker",
+        }
+    }
+
+    fn startup_blocker_reason(self, line: &[u8]) -> Option<&'static str> {
+        match self {
+            Self::ClaudeCode if contains_ascii_case_insensitive(line, b"sessionstart:startup hook error") => {
+                Some("claude_startup_error")
+            }
+            Self::CursorAgent
+                if contains_ascii_case_insensitive(line, b"workspace trust")
+                    || contains_ascii_case_insensitive(line, b"do you trust the contents") =>
+            {
+                Some("cursor_workspace_trust_required")
+            }
+            Self::OpenCode
+                if contains_ascii_case_insensitive(line, b"no provider configured")
+                    || contains_ascii_case_insensitive(line, b"authentication required")
+                    || contains_ascii_case_insensitive(line, b"api key required") =>
+            {
+                Some("opencode_provider_auth_required")
+            }
+            _ => None,
         }
     }
 }
@@ -51,6 +80,7 @@ struct ProviderPromptDetector {
     csi_parameters: Vec<u8>,
     escape_state: EscapeState,
     armed: bool,
+    startup_blocker_armed: bool,
     active: bool,
 }
 
@@ -62,6 +92,7 @@ impl ProviderPromptDetector {
             csi_parameters: Vec::with_capacity(MAX_CSI_PARAMETER_BYTES),
             escape_state: EscapeState::Text,
             armed: true,
+            startup_blocker_armed: true,
             active: true,
         }
     }
@@ -78,11 +109,11 @@ impl ProviderPromptDetector {
                 EscapeState::Text => match byte {
                     0x1b => self.escape_state = EscapeState::Escape,
                     b'\r' => {
-                        evidence = evidence.or_else(|| self.observe_line(provider));
+                        evidence = evidence.or_else(|| self.observe_line(provider, false));
                         self.line.clear();
                     }
                     b'\n' => {
-                        evidence = evidence.or_else(|| self.observe_line(provider));
+                        evidence = evidence.or_else(|| self.observe_line(provider, false));
                         self.line.clear();
                     }
                     0x08 => {
@@ -111,11 +142,11 @@ impl ProviderPromptDetector {
                     if (0x40..=0x7e).contains(&byte) {
                         match byte {
                             b'H' | b'f' | b'G' => {
-                                evidence = evidence.or_else(|| self.observe_line(provider));
+                                evidence = evidence.or_else(|| self.observe_line(provider, false));
                                 self.line.clear();
                             }
                             b'h' if self.csi_parameters == b"?25" => {
-                                evidence = evidence.or_else(|| self.observe_line(provider));
+                                evidence = evidence.or_else(|| self.observe_line(provider, true));
                             }
                             b'K' => self.line.clear(),
                             _ => {}
@@ -146,9 +177,23 @@ impl ProviderPromptDetector {
         evidence
     }
 
-    fn observe_line(&mut self, provider: PromptProvider) -> Option<&'static str> {
+    fn observe_line(
+        &mut self,
+        provider: PromptProvider,
+        allow_placeholder: bool,
+    ) -> Option<&'static str> {
         let line = trim_ascii(&self.line);
-        if line == provider.marker() {
+        if self.startup_blocker_armed {
+            if let Some(reason) = provider.startup_blocker_reason(line) {
+                self.startup_blocker_armed = false;
+                return Some(reason);
+            }
+        }
+        let marker = provider.marker();
+        if marker.is_some_and(|marker| {
+            line == marker
+                || (allow_placeholder && prompt_row_has_placeholder(line, marker))
+        }) {
             if self.armed {
                 self.armed = false;
                 return Some(provider.reason());
@@ -165,6 +210,7 @@ impl ProviderPromptDetector {
             self.csi_parameters.clear();
             self.escape_state = EscapeState::Text;
             self.armed = true;
+            self.startup_blocker_armed = true;
         }
     }
 
@@ -173,8 +219,23 @@ impl ProviderPromptDetector {
         self.csi_parameters.clear();
         self.escape_state = EscapeState::Text;
         self.armed = false;
+        self.startup_blocker_armed = false;
         self.active = false;
     }
+}
+
+fn prompt_row_has_placeholder(line: &[u8], marker: &[u8]) -> bool {
+    let Some(suffix) = line.strip_prefix(marker) else {
+        return false;
+    };
+    suffix.starts_with(b" ") || suffix.starts_with("\u{00a0}".as_bytes())
+}
+
+fn contains_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
+    !needle.is_empty()
+        && haystack
+            .windows(needle.len())
+            .any(|window| window.eq_ignore_ascii_case(needle))
 }
 
 fn trim_ascii(mut bytes: &[u8]) -> &[u8] {

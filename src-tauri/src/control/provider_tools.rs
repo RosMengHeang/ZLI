@@ -253,6 +253,7 @@ pub fn write_shell_fallback_txt(
          {zli} browser status\n\
          \n\
          Messaging stays on the CLI, not MCP:\n\
+         {zli} agent pull {agent_id}\n\
          {zli} taxchat send <message> --project <project> [--to <agentId>]\n\
          {zli} agent send <agentId> <message>\n"
     );
@@ -334,6 +335,16 @@ fn bind_shell(
         request.sidecars.control(),
         &request.agent.agent_id,
     )?;
+    // Explicit-pull providers must remain interactive. Passing the cookbook
+    // as a provider prompt turns it into a one-shot request; once the model
+    // answers, the provider exits and ZLI loses the session. The cookbook is
+    // still created in the overlay so the user or provider can run the
+    // scoped `agent pull` command from the live terminal.
+    let reason = format!(
+        "{reason} Run `agent pull {}` in the live provider terminal; instructions are in `{}`.",
+        request.agent.agent_id,
+        prompt.display()
+    );
     Ok(shell_binding(request, prompt, reason, Vec::new()))
 }
 
@@ -676,17 +687,59 @@ mod tests {
                 reason,
                 prompt_path,
                 zli,
+                argv,
                 ..
             } => {
                 assert!(reason.contains("verification"));
+                assert!(reason.contains("agent pull agent-1"));
                 assert!(prompt_path.is_file());
                 assert!(fs::read_to_string(&prompt_path)
                     .unwrap()
                     .contains(&zli.display().to_string()));
+                assert!(argv.is_empty());
             }
             other => panic!("Cursor must not claim MCP: {other:?}"),
         }
         assert!(!tools.get("agent-1").unwrap().mcp_configured());
+    }
+
+    #[test]
+    fn opencode_shell_fallback_keeps_the_provider_interactive() {
+        let root = tempfile::tempdir().unwrap();
+        let (tools, request) = request(root.path(), "opencode", root.path().join("opencode"), Vec::new());
+        let binding = tools.bind(request).expect("opencode bind");
+        match binding {
+            ToolBinding::Shell { argv, prompt_path, .. } => {
+                assert!(argv.is_empty());
+                assert!(fs::read_to_string(prompt_path)
+                    .unwrap()
+                    .contains("agent pull agent-1"));
+            }
+            other => panic!("OpenCode must use the verified shell bootstrap: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn explicit_pull_providers_start_interactively_without_a_one_shot_prompt() {
+        for provider in ["cursor-agent", "opencode"] {
+            let root = tempfile::tempdir().unwrap();
+            let (tools, request) = request(
+                root.path(),
+                provider,
+                root.path().join(provider),
+                Vec::new(),
+            );
+            let binding = tools.bind(request).expect("explicit-pull bind");
+            match binding {
+                ToolBinding::Shell { argv, prompt_path, .. } => {
+                    assert!(argv.is_empty(), "{provider} must remain interactive");
+                    assert!(fs::read_to_string(prompt_path)
+                        .unwrap()
+                        .contains("agent pull agent-1"));
+                }
+                other => panic!("{provider} must use the interactive shell fallback: {other:?}"),
+            }
+        }
     }
 
     #[test]

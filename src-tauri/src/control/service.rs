@@ -396,12 +396,15 @@ impl ControlHandler for RuntimeControlHandler {
                     self.browser_executor.as_ref(),
                     &request.id,
                     &project_id,
+                    identity.agent_id.as_deref(),
                     &url,
                     Duration::from_millis(request.timeout_ms),
                 )?)
                 .map_err(serialization_error)
             }
             ControlMethod::BrowserNavigate
+            | ControlMethod::BrowserGoBack
+            | ControlMethod::BrowserScroll
             | ControlMethod::BrowserWait
             | ControlMethod::BrowserSnapshot
             | ControlMethod::BrowserClick
@@ -473,6 +476,8 @@ fn decode_browser_command(
 ) -> Result<BrowserCommand, ControlError> {
     let kind = match method {
         ControlMethod::BrowserNavigate => "navigate",
+        ControlMethod::BrowserGoBack => "go_back",
+        ControlMethod::BrowserScroll => "scroll",
         ControlMethod::BrowserWait => "wait",
         ControlMethod::BrowserSnapshot => "snapshot",
         ControlMethod::BrowserClick => "click",
@@ -645,6 +650,7 @@ fn browser_profile_id(params: &Value) -> String {
 fn browser_gateway_capability(method: ControlMethod) -> Capability {
     match method {
         ControlMethod::BrowserStatus
+        | ControlMethod::BrowserList
         | ControlMethod::BrowserControlStatus
         | ControlMethod::BrowserWait
         | ControlMethod::BrowserSnapshot
@@ -653,6 +659,8 @@ fn browser_gateway_capability(method: ControlMethod) -> Capability {
         ControlMethod::BrowserEval => Capability::BrowserJavascript,
         ControlMethod::BrowserOpen
         | ControlMethod::BrowserNavigate
+        | ControlMethod::BrowserGoBack
+        | ControlMethod::BrowserScroll
         | ControlMethod::BrowserClick
         | ControlMethod::BrowserFill
         | ControlMethod::BrowserPress
