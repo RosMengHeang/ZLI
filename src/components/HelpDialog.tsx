@@ -1,6 +1,7 @@
 import { Modal } from "./Modal";
 import { APP_SHORTCUTS } from "../lib/platform";
 import { useUiStore } from "../stores/uiStore";
+import { downloadLegacySnapshot } from "../lib/legacySnapshot";
 
 const SHORTCUTS = [
   { label: "Open project", keys: APP_SHORTCUTS.openProject },
@@ -20,6 +21,14 @@ export function HelpDialog() {
         <p className="text-[13px] leading-5 text-mute">
           ZLI stays on this machine. Shortcuts below match the current workspace.
         </p>
+        <button
+          type="button"
+          className="rounded-lg border border-line bg-ink px-3 py-2 text-left text-[13px] text-paper transition hover:border-line-strong"
+          onClick={() => downloadLegacySnapshot()}
+        >
+          Export migration snapshot
+          <span className="mt-1 block text-[11px] text-mute">Creates an allowlisted JSON file for the Electron V2 importer.</span>
+        </button>
         <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line">
           {SHORTCUTS.map((item) => (
             <li key={item.label} className="flex items-center justify-between gap-3 px-3 py-2">
