@@ -24,24 +24,24 @@ export class ReviewReactor {
     const event = envelope.event;
     switch (event.type) {
       case "review.refresh.requested":
-        this.start(() => this.runRefresh(event.worktreeId, event.baseRef));
+        this.start(event.worktreeId, () => this.runRefresh(event.worktreeId, event.baseRef));
         return;
       case "review.commit.requested":
-        this.start(() => this.runCommit(event.worktreeId, event.message));
+        this.start(event.worktreeId, () => this.runCommit(event.worktreeId, event.message));
         return;
       case "review.merge.requested":
-        this.start(() => this.runMerge(event.worktreeId, event.targetRef));
+        this.start(event.worktreeId, () => this.runMerge(event.worktreeId, event.targetRef));
         return;
       case "review.abortMerge.requested":
-        this.start(() => this.runAbortMerge(event.worktreeId));
+        this.start(event.worktreeId, () => this.runAbortMerge(event.worktreeId));
         return;
       default:
         return;
     }
   }
 
-  private start(taskFactory: () => Promise<void>): void {
-    const task = taskFactory();
+  private start(worktreeId: string, taskFactory: () => Promise<void>): void {
+    const task = taskFactory().catch((error) => this.dispatchError(worktreeId, error));
     this.tasks.add(task);
     void task.then(() => this.tasks.delete(task), () => this.tasks.delete(task));
   }
@@ -84,5 +84,16 @@ export class ReviewReactor {
       commandId: CommandId.parse(randomUUID()),
       command: { type: "review.updated", review: ReviewProjection.parse(review) },
     }).then(() => undefined);
+  }
+
+  private async dispatchError(worktreeId: string, error: unknown): Promise<void> {
+    const projection = await this.engine.projection();
+    const review = projection.reviews?.find((candidate) => candidate.worktreeId === worktreeId);
+    if (!review) return;
+    await this.dispatchUpdated({
+      ...review,
+      errorMessage: error instanceof Error ? error.message : "Git review operation failed.",
+      updatedAt: new Date().toISOString(),
+    });
   }
 }

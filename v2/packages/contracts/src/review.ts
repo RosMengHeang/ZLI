@@ -20,6 +20,7 @@ export const ReviewProjection = z.object({
   state: z.enum(["clean", "changes", "conflicted"]),
   files: z.array(ReviewFileProjection),
   conflictFiles: z.array(z.string().min(1)),
+  errorMessage: z.string().min(1).optional(),
   updatedAt: z.string().datetime({ offset: true }),
 });
 export type ReviewProjection = z.infer<typeof ReviewProjection>;
