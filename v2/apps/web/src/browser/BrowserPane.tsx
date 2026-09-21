@@ -30,7 +30,7 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
       worktreeId: restoredTab.worktreeId,
       profileId: restoredTab.profileId,
       url: restoredTab.url,
-    }).then((next) => {
+    }).then((next) => bridge.browser.activate(next.browserTabId)).then((next) => {
       if (disposed) return;
       setTab(next);
       setUrl(next.url);
@@ -67,11 +67,18 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
     try {
       const next = tab
         ? await bridge.browser.navigate(tab.browserTabId, normalizeUrl(url))
-        : await bridge.browser.create({ worktreeId: worktree.worktreeId, profileId: DEFAULT_PROFILE_ID, url: normalizeUrl(url) });
+        : await bridge.browser.create({ worktreeId: worktree.worktreeId, profileId: DEFAULT_PROFILE_ID, url: normalizeUrl(url) }).then((created) => bridge.browser.activate(created.browserTabId));
       setTab(next); setUrl(next.url);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "The browser could not open this URL."); }
     finally { setBusy(false); }
   };
+
+  useEffect(() => {
+    if (!tab) return;
+    const next = projection?.browserTabs.find((candidate) => candidate.browserTabId === tab.browserTabId);
+    if (!next || next.title === tab.title && next.url === tab.url && next.status === tab.status && next.active === tab.active) return;
+    setTab(next);
+  }, [projection?.browserTabs, tab]);
 
   const run = async (operation: () => Promise<unknown>) => {
     if (!tab) return;
