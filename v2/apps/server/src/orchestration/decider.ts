@@ -48,6 +48,8 @@ export type DomainDecision = Extract<
       | "terminal.write.requested"
       | "terminal.resize.requested"
       | "terminal.stop.requested"
+      | "browser.updated"
+      | "browser.closed"
       | "review.refresh.requested"
       | "review.commit.requested"
       | "review.merge.requested"
@@ -184,6 +186,11 @@ export function decide(
     case "terminal.attach":
     case "terminal.list":
       return [];
+    case "browser.updated":
+      assertWorktree(projection, command.tab.worktreeId);
+      return [{ type: "browser.updated", tab: command.tab }];
+    case "browser.closed":
+      return [{ type: "browser.closed", browserTabId: command.browserTabId }];
     case "review.refresh":
       assertWorktree(projection, command.worktreeId);
       return [{ type: "review.refresh.requested", worktreeId: command.worktreeId, baseRef: command.baseRef }];

@@ -20,7 +20,7 @@ const projection: RuntimeProjection = {
 };
 
 const bridge: ZliBridge = {
-  runtime: { dispatch: async () => ({ commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"), accepted: true as const }), getProjection: async () => projection, onProjection: () => () => undefined },
+  runtime: { dispatch: async () => ({ commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"), accepted: true as const }), getProjection: async () => projection, onProjection: () => () => undefined, attachTerminal: async () => ({ accepted: true }), onTerminal: () => () => undefined },
   browser: {
     create: async () => projection.browserTabs[0]!, close: async () => undefined, activate: async () => projection.browserTabs[0]!, navigate: async () => projection.browserTabs[0]!, setBounds: async () => undefined, back: async () => undefined, forward: async () => undefined, reload: async () => undefined, stop: async () => undefined, snapshot: async () => undefined, click: async () => undefined, fill: async () => undefined, press: async () => undefined, waitForNetworkIdle: async () => ({ idle: true }), screenshot: async () => undefined, inspectElement: async () => undefined, designInspect: async () => undefined, consoleEntries: async () => [], networkEntries: async () => [],
   },

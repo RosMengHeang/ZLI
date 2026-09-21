@@ -57,4 +57,30 @@ describe("BrowserManager", () => {
     await expect(manager.create({ worktreeId, profileId, url: "javascript:alert(1)" })).rejects.toThrow("browser URL");
     await expect(manager.setBounds("00000000-0000-4000-8000-000000000099", { x: 0, y: 0, width: 0, height: 400 })).rejects.toThrow("browser tab");
   });
+
+  it("restores a durable tab id and reports lifecycle changes", async () => {
+    const updates: string[] = [];
+    const closes: string[] = [];
+    const browserTabId = "00000000-0000-4000-8000-000000000003";
+    const manager = new BrowserManager(
+      { create: () => createFakeView("https://example.com") },
+      { addChildView: () => undefined, removeChildView: () => undefined },
+      {
+        onProjection: (tab) => updates.push(tab.browserTabId),
+        onClose: (tab) => closes.push(tab.browserTabId),
+      },
+    );
+
+    const tab = await manager.create({ browserTabId, worktreeId, profileId, url: "https://example.com" });
+
+    expect(tab.browserTabId).toBe(browserTabId);
+    expect(updates).toContain(browserTabId);
+    manager.close(browserTabId);
+    expect(closes).toEqual([browserTabId]);
+
+    const second = await manager.create({ browserTabId, worktreeId, profileId, url: "https://example.com" });
+    expect(second.browserTabId).toBe(browserTabId);
+    manager.closeAll({ persist: false });
+    expect(closes).toEqual([browserTabId]);
+  });
 });

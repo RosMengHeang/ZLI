@@ -1,10 +1,12 @@
-import type { BrowserTabProjection, RuntimeProjection, RpcResponse } from "@zli-v2/contracts";
+import type { BrowserTabProjection, RuntimeProjection, RpcResponse, TerminalAttachSnapshot, TerminalStreamMessage } from "@zli-v2/contracts";
 
 export type ZliBridge = {
   runtime: {
     dispatch(request: unknown): Promise<RpcResponse>;
     getProjection(): Promise<RuntimeProjection | undefined>;
     onProjection(listener: (projection: RuntimeProjection) => void): () => void;
+    attachTerminal(terminalId: string, afterSequence?: number): Promise<unknown>;
+    onTerminal(listener: (message: { kind: "snapshot"; snapshot: TerminalAttachSnapshot } | { kind: "stream"; message: TerminalStreamMessage }) => void): () => void;
   };
   browser: {
     create(input: unknown): Promise<BrowserTabProjection>;

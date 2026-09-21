@@ -91,6 +91,21 @@ export function projectEvent(
     case "terminal.resize.requested":
     case "terminal.stop.requested":
       return { ...projection, lastSequence: envelope.sequence };
+    case "browser.updated":
+      return {
+        ...projection,
+        browserTabs: [
+          ...projection.browserTabs.filter((tab) => tab.browserTabId !== event.tab.browserTabId),
+          event.tab,
+        ],
+        lastSequence: envelope.sequence,
+      };
+    case "browser.closed":
+      return {
+        ...projection,
+        browserTabs: projection.browserTabs.filter((tab) => tab.browserTabId !== event.browserTabId),
+        lastSequence: envelope.sequence,
+      };
     case "review.updated":
       return {
         ...projection,

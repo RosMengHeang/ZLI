@@ -17,6 +17,7 @@ kbd { padding: 2px 5px; border: 1px solid var(--zli-border-strong); border-radiu
 .worktree-sidebar { display: flex; width: 252px; flex: 0 0 252px; flex-direction: column; border-right: 1px solid var(--zli-border); background: var(--zli-sidebar); }
 .sidebar-heading { display: flex; align-items: center; justify-content: space-between; padding: 17px 14px 12px; }
 .wordmark { color: var(--zli-text); font-size: 13px; font-weight: 700; letter-spacing: .12em; }
+.sidebar-actions { display: flex; align-items: center; gap: 2px; }
 .quiet-button, .icon-button { border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: pointer; }
 .quiet-button { padding: 5px 7px; font-size: 11px; }
 .sidebar-scroll { min-height: 0; flex: 1; overflow: auto; padding: 6px 8px; }
@@ -63,6 +64,9 @@ kbd { padding: 2px 5px; border: 1px solid var(--zli-border-strong); border-radiu
 .empty-detail, .center-state p { max-width: 420px; margin: 8px 0 0; color: var(--zli-muted); font-size: 12px; line-height: 1.5; }
 .terminal-output { min-height: 0; margin: 4px 14px 14px; flex: 1; padding: 15px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: #151515; color: #d7d7d7; font-family: var(--zli-mono); font-size: 12px; line-height: 1.7; }
 .terminal-output p { margin: 0; }
+.terminal-input-row { display: flex; align-items: center; gap: 8px; margin: 0 14px 14px; padding: 6px 8px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: #151515; }
+.terminal-input-row input { min-width: 0; height: 28px; flex: 1; border: 0; outline: none; background: transparent; color: var(--zli-text); font-family: var(--zli-mono); font-size: 12px; }
+.empty-actions { display: flex; gap: 8px; margin-top: 14px; }
 .terminal-muted { color: var(--zli-dim); }
 .terminal-prompt { color: var(--zli-green); }
 .secondary-button, .primary-button { min-height: 30px; padding: 0 10px; border-radius: var(--zli-radius-sm); cursor: pointer; font-size: 12px; }
@@ -101,5 +105,13 @@ kbd { padding: 2px 5px; border: 1px solid var(--zli-border-strong); border-radiu
 .palette-section .eyebrow { padding: 7px 8px; }
 .palette-section button { padding: 9px 8px; border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: pointer; text-align: left; font-size: 12px; }
 .palette-section button:hover { background: var(--zli-surface); color: var(--zli-text); }
+.worktree-dialog { width: min(420px, calc(100vw - 32px)); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-raised); box-shadow: 0 18px 48px rgba(0, 0, 0, .38); overflow: hidden; }
+.dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 18px 18px 8px; }
+.dialog-header h2 { margin: 5px 0 0; color: var(--zli-text); font-size: 14px; font-weight: 550; }
+.worktree-dialog form { display: flex; flex-direction: column; gap: 12px; padding: 10px 18px 18px; }
+.worktree-dialog label { display: flex; flex-direction: column; gap: 5px; color: var(--zli-muted); font-size: 11px; }
+.worktree-dialog input { height: 32px; padding: 0 9px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); outline: none; background: var(--zli-canvas); color: var(--zli-text); font-family: var(--zli-mono); font-size: 12px; }
+.worktree-dialog input:focus { border-color: var(--zli-border-strong); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
 @media (max-width: 800px) { .worktree-sidebar { width: 210px; flex-basis: 210px; } .topbar-brand { min-width: 170px; } .context-name { display: none; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }

@@ -6,7 +6,11 @@ import {
   type EnvironmentDescriptor,
   type RpcResponse,
   type RuntimeProjection,
+  TerminalAttachSnapshot,
+  TerminalId,
+  TerminalStreamMessage,
 } from "@zli-v2/contracts";
+import type { TerminalAttachSnapshot as TerminalAttachSnapshotValue, TerminalStreamMessage as TerminalStreamMessageValue } from "@zli-v2/contracts";
 
 import { ProjectionStore, type ProjectionListener } from "./ProjectionStore.js";
 
@@ -16,6 +20,10 @@ export interface RuntimeTransport {
   onMessage(listener: (message: unknown) => void): () => void;
   onClose(listener: () => void): () => void;
 }
+
+export type TerminalClientMessage =
+  | { kind: "snapshot"; snapshot: TerminalAttachSnapshotValue }
+  | { kind: "stream"; message: TerminalStreamMessageValue };
 
 export interface RuntimeClientOptions {
   readonly token: string;
@@ -57,6 +65,7 @@ export class RuntimeClient {
   readonly #sleep;
   readonly #reconnectDelaysMs;
   readonly #store = new ProjectionStore();
+  readonly #terminalListeners = new Set<(message: TerminalClientMessage) => void>();
   readonly #pending = new Map<string, PendingCommand>();
   #transport: RuntimeTransport | undefined;
   #removeMessageListener: (() => void) | undefined;
@@ -91,6 +100,17 @@ export class RuntimeClient {
 
   subscribe(listener: ProjectionListener): () => void {
     return this.#store.subscribe(listener);
+  }
+
+  subscribeTerminal(listener: (message: TerminalClientMessage) => void): () => void {
+    this.#terminalListeners.add(listener);
+    return () => this.#terminalListeners.delete(listener);
+  }
+
+  attachTerminal(terminalId: string, afterSequence = 0): void {
+    const transport = this.#transport;
+    if (!transport || this.#handshake !== undefined) throw new Error("runtime is not connected");
+    transport.send(ClientWireMessage.parse({ type: "terminal.attach", terminalId: TerminalId.parse(terminalId), afterSequence }));
   }
 
   command(input: unknown): Promise<RpcResponse> {
@@ -184,6 +204,12 @@ export class RuntimeClient {
       }
       case "projection":
         this.#store.replace(message.projection);
+        return;
+      case "terminal.snapshot":
+        for (const listener of this.#terminalListeners) listener({ kind: "snapshot", snapshot: message.snapshot });
+        return;
+      case "terminal.stream":
+        for (const listener of this.#terminalListeners) listener({ kind: "stream", message: message.message });
         return;
       case "event":
         if (this.#store.apply(message.envelope) === "gap") {

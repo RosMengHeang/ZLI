@@ -15,6 +15,8 @@ import {
   RpcResponse,
   RuntimeEventEnvelope,
   RuntimeProjection,
+  TerminalAttachSnapshot,
+  TerminalStreamMessage,
 } from "@zli-v2/contracts";
 
 type IpcBridge = {
@@ -37,6 +39,19 @@ export function createPreloadApi(ipc: IpcBridge) {
         ipc.on("zli:runtime:projection", (_event, value) => {
           const parsed = RuntimeProjection.safeParse(value);
           if (parsed.success) listener(parsed.data);
+        }),
+      attachTerminal: (terminalId: string, afterSequence = 0) => ipc.invoke("zli:runtime:terminal:attach", { terminalId, afterSequence }),
+      onTerminal: (listener: (message: { kind: "snapshot"; snapshot: unknown } | { kind: "stream"; message: unknown }) => void) =>
+        ipc.on("zli:runtime:terminal", (_event, value) => {
+          if (!value || typeof value !== "object" || !("kind" in value)) return;
+          const message = value as { kind: unknown; snapshot?: unknown; message?: unknown };
+          if (message.kind === "snapshot") {
+            const parsed = TerminalAttachSnapshot.safeParse(message.snapshot);
+            if (parsed.success) listener({ kind: "snapshot", snapshot: parsed.data });
+          } else if (message.kind === "stream") {
+            const parsed = TerminalStreamMessage.safeParse(message.message);
+            if (parsed.success) listener({ kind: "stream", message: parsed.data });
+          }
         }),
       onEvent: (listener: (event: RuntimeEventEnvelope) => void) =>
         ipc.on("zli:runtime:event", (_event, value) => {

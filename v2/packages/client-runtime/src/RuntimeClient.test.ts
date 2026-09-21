@@ -207,4 +207,20 @@ describe("RuntimeClient", () => {
     expect(transport.sent.filter((message: any) => message.type === "command")).toHaveLength(1);
     client.close();
   });
+
+  it("attaches terminal streams and forwards validated snapshots and output", async () => {
+    const { client, transport } = await connectedClient();
+    const terminalId = "50000000-0000-4000-8000-000000000001";
+    const messages: unknown[] = [];
+    const unsubscribe = client.subscribeTerminal((message) => messages.push(message));
+    client.attachTerminal(terminalId, 4);
+    expect(transport.sent.at(-1)).toEqual({ type: "terminal.attach", terminalId, afterSequence: 4 });
+    transport.receive({ type: "terminal.snapshot", snapshot: { terminalId, chunks: [], nextSequence: 4, truncated: false } });
+    transport.receive({ type: "terminal.stream", message: { kind: "chunk", chunk: { terminalId, sequence: 5, bytesBase64: "aGk=" } } });
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toMatchObject({ kind: "snapshot", snapshot: { nextSequence: 4 } });
+    expect(messages[1]).toMatchObject({ kind: "stream", message: { kind: "chunk" } });
+    unsubscribe();
+    client.close();
+  });
 });

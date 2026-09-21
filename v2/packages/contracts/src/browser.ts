@@ -11,6 +11,7 @@ export const BrowserBounds = z.object({
 export type BrowserBounds = z.infer<typeof BrowserBounds>;
 
 export const BrowserTabCreateInput = z.object({
+  browserTabId: BrowserTabId.optional(),
   worktreeId: WorktreeId,
   profileId: BrowserProfileId,
   url: z.string().url(),

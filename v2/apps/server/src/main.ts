@@ -58,7 +58,7 @@ export async function startRuntime(options: {
   const terminalService = new TerminalService(new NodePtyFactory());
   const terminalReactor = new TerminalReactor(engine, terminalService);
   const reviewReactor = new ReviewReactor(engine, new ReviewService(new GitProcess()));
-  const server = new RpcServer({ engine, environment, token });
+  const server = new RpcServer({ engine, environment, token, terminalService });
   await server.start();
   return {
     database,

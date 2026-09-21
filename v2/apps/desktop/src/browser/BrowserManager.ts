@@ -60,6 +60,8 @@ export type BrowserManagerOptions = {
   readonly sessionModule?: BrowserSessionModule;
   readonly defaultBounds?: BrowserBoundsValue;
   readonly automationFactory?: (view: BrowserViewLike) => { cdp: CdpClientLike; automation: BrowserAutomation; designMode: DesignMode };
+  readonly onProjection?: (tab: BrowserTabProjectionValue) => void;
+  readonly onClose?: (tab: BrowserTabProjectionValue) => void;
 };
 
 type ManagedTab = {
@@ -79,6 +81,8 @@ export class BrowserManager {
   readonly #sessionModule: BrowserSessionModule | undefined;
   readonly #defaultBounds: BrowserBoundsValue;
   readonly #automationFactory: BrowserManagerOptions["automationFactory"];
+  readonly #onProjection: BrowserManagerOptions["onProjection"];
+  readonly #onClose: BrowserManagerOptions["onClose"];
 
   constructor(
     private readonly factory: BrowserViewFactory,
@@ -89,12 +93,19 @@ export class BrowserManager {
     this.#sessionModule = options.sessionModule;
     this.#defaultBounds = options.defaultBounds ?? DEFAULT_BOUNDS;
     this.#automationFactory = options.automationFactory;
+    this.#onProjection = options.onProjection;
+    this.#onClose = options.onClose;
   }
 
   async create(input: unknown): Promise<BrowserTabProjectionValue> {
     const parsed = BrowserTabCreateInput.parse(input);
     assertBrowserUrl(parsed.url);
-    const browserTabId = BrowserTabId.parse(randomUUID());
+    const browserTabId = parsed.browserTabId ?? BrowserTabId.parse(randomUUID());
+    const existing = this.#tabs.get(browserTabId);
+    if (existing) {
+      await this.activate(browserTabId);
+      return existing.projection;
+    }
     const partition = this.#sessionManager.partitionFor(parsed.worktreeId, parsed.profileId);
     const browserSession = this.#sessionModule
       ? this.#sessionManager.getSession(this.#sessionModule, parsed.worktreeId, parsed.profileId)
@@ -194,16 +205,17 @@ export class BrowserManager {
   consoleEntries(browserTabId: string): readonly unknown[] { return this.#automation(browserTabId).consoleEntries(); }
   networkEntries(browserTabId: string): readonly unknown[] { return this.#automation(browserTabId).networkEntries(); }
 
-  close(browserTabId: string): void {
+  close(browserTabId: string, options: { persist?: boolean } = {}): void {
     const tab = this.#require(browserTabId);
+    if (options.persist !== false) this.#onClose?.(tab.projection);
     this.host.removeChildView(tab.view);
     tab.automation?.dispose();
     tab.view.webContents.destroy?.();
     this.#tabs.delete(browserTabId);
   }
 
-  closeAll(): void {
-    for (const browserTabId of [...this.#tabs.keys()]) this.close(browserTabId);
+  closeAll(options: { persist?: boolean } = {}): void {
+    for (const browserTabId of [...this.#tabs.keys()]) this.close(browserTabId, options);
   }
 
   #installObservers(browserTabId: string, tab: ManagedTab): void {
@@ -253,6 +265,11 @@ export class BrowserManager {
   }
 
   #publish(tab: BrowserTabProjectionValue): void {
+    try {
+      this.#onProjection?.(tab);
+    } catch {
+      // Persistence failure must not tear down the live browser view.
+    }
     for (const listener of this.#listeners) listener(tab);
   }
 

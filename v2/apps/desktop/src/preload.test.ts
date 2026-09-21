@@ -17,7 +17,7 @@ describe("preload API", () => {
     const unsubscribe = api.runtime.onEvent(() => undefined);
     unsubscribe();
     expect(calls[0]?.channel).toBe("zli:runtime:dispatch");
-    expect(Object.keys(api.runtime)).toEqual(["dispatch", "getProjection", "onProjection", "onEvent"]);
+    expect(Object.keys(api.runtime)).toEqual(["dispatch", "getProjection", "onProjection", "attachTerminal", "onTerminal", "onEvent"]);
     expect("send" in api).toBe(false);
   });
 });

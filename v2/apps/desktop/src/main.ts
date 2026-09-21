@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, WebContentsView } from "electron";
+import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
@@ -14,6 +15,7 @@ import {
   BrowserSetBoundsInput,
   BrowserTabIdInput,
   BrowserWaitForNetworkIdleInput,
+  TerminalId,
 } from "@zli-v2/contracts";
 
 import { BrowserManager } from "./browser/BrowserManager.js";
@@ -75,6 +77,20 @@ async function main(): Promise<void> {
     },
     {
       sessionModule: session,
+      onProjection: (tab) => {
+        void runtime?.command({
+          protocolVersion: 1,
+          commandId: randomUUID(),
+          command: { type: "browser.updated", tab },
+        }).catch(() => undefined);
+      },
+      onClose: (tab) => {
+        void runtime?.command({
+          protocolVersion: 1,
+          commandId: randomUUID(),
+          command: { type: "browser.closed", browserTabId: tab.browserTabId },
+        }).catch(() => undefined);
+      },
       automationFactory: (view) => {
         const debuggerLike = (view.webContents as unknown as { debugger: ElectronDebuggerLike }).debugger;
         const cdp = new CdpSession(debuggerLike);
@@ -88,6 +104,11 @@ async function main(): Promise<void> {
       window.webContents.send("zli:runtime:projection", projection);
     }
   });
+  runtime.subscribeTerminal((message) => {
+    if (!window.webContents.isDestroyed?.() && window.webContents.send) {
+      window.webContents.send("zli:runtime:terminal", message);
+    }
+  });
   const rendererUrl = process.env.ZLI_RENDERER_URL ?? `${APP_ORIGIN}/index.html`;
   if (window.loadURL) await window.loadURL(rendererUrl);
   window.once?.("ready-to-show", () => window.show?.());
@@ -99,6 +120,16 @@ function registerIpc(): void {
     return runtime.command(request);
   });
   ipcMain.handle("zli:runtime:projection", () => runtime?.projection() ?? null);
+  ipcMain.handle("zli:runtime:terminal:attach", (_event, input: unknown) => {
+    if (!runtime) throw new Error("Runtime is not ready.");
+    if (!input || typeof input !== "object" || !("terminalId" in input)) throw new Error("Terminal id is required.");
+    const terminalId = TerminalId.parse((input as { terminalId: unknown }).terminalId);
+    const afterSequence = "afterSequence" in input && typeof (input as { afterSequence?: unknown }).afterSequence === "number"
+      ? (input as { afterSequence: number }).afterSequence
+      : 0;
+    runtime.attachTerminal(terminalId, afterSequence);
+    return { accepted: true };
+  });
   ipcMain.handle("zli:app:version", () => app.getVersion());
   ipcMain.handle("zli:app:quit", () => { app.quit(); });
   ipcMain.handle("zli:dialog:open-project", async () => {
@@ -195,8 +226,8 @@ void main().catch((error) => {
 });
 
 app.on("window-all-closed", () => {
+  browserManager?.closeAll({ persist: false });
   runtime?.close();
   environment?.stop();
-  browserManager?.closeAll();
   if (process.platform !== "darwin") app.quit();
 });

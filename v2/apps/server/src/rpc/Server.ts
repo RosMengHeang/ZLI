@@ -5,12 +5,14 @@ import type { AddressInfo } from "node:net";
 import {
   ClientWireMessage,
   ServerWireMessage,
+  TerminalId,
   type EnvironmentDescriptor,
   type RuntimeError,
 } from "@zli-v2/contracts";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 import { Engine } from "../orchestration/Engine.js";
+import type { TerminalService, TerminalSubscription } from "../terminal/TerminalService.js";
 
 const MAX_FRAME_BYTES = 1024 * 1024;
 const HELLO_TIMEOUT_MS = 5_000;
@@ -19,6 +21,7 @@ type RpcServerOptions = {
   engine: Engine;
   environment: EnvironmentDescriptor;
   token: string;
+  terminalService?: TerminalService;
   host?: string;
   port?: number;
 };
@@ -27,6 +30,7 @@ export class RpcServer {
   private readonly engine: Engine;
   private readonly environment: EnvironmentDescriptor;
   private readonly token: string;
+  private readonly terminalService: TerminalService | undefined;
   private readonly host: string;
   private readonly port: number;
   private httpServer: HttpServer | undefined;
@@ -42,6 +46,7 @@ export class RpcServer {
     this.engine = options.engine;
     this.environment = options.environment;
     this.token = options.token;
+    this.terminalService = options.terminalService;
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
   }
@@ -118,6 +123,7 @@ export class RpcServer {
 
   private accept(client: WebSocket): void {
     this.clients.add(client);
+    const terminalSubscriptions = new Map<string, TerminalSubscription>();
     let authenticated = false;
     let unsubscribe: (() => void) | undefined;
     const helloTimer = setTimeout(() => {
@@ -129,6 +135,8 @@ export class RpcServer {
     const cleanup = () => {
       clearTimeout(helloTimer);
       unsubscribe?.();
+      for (const subscription of terminalSubscriptions.values()) subscription.close();
+      terminalSubscriptions.clear();
       this.clients.delete(client);
       this.clientCleanup.delete(client);
     };
@@ -141,7 +149,7 @@ export class RpcServer {
       }, (nextUnsubscribe) => {
         unsubscribe?.();
         unsubscribe = nextUnsubscribe;
-      });
+      }, terminalSubscriptions);
     });
   }
 
@@ -151,6 +159,7 @@ export class RpcServer {
     isAuthenticated: () => boolean,
     setAuthenticated: (value: boolean) => void,
     setUnsubscribe: (unsubscribe: () => void) => void,
+    terminalSubscriptions: Map<string, TerminalSubscription>,
   ): Promise<void> {
     const text = raw.toString();
     if (Buffer.byteLength(text, "utf8") > MAX_FRAME_BYTES) {
@@ -252,6 +261,23 @@ export class RpcServer {
       case "projection.get":
         send(client, { type: "projection", projection: await this.engine.projection() });
         return;
+      case "terminal.attach": {
+        if (!this.terminalService) {
+          sendError(client, { code: "unavailable", message: "Terminal streaming is unavailable.", retryable: true });
+          return;
+        }
+        const key = message.data.terminalId as string;
+        terminalSubscriptions.get(key)?.close();
+        try {
+          const attachment = this.terminalService.attach(TerminalId.parse(key), message.data.afterSequence);
+          terminalSubscriptions.set(key, attachment.subscription);
+          send(client, { type: "terminal.snapshot", snapshot: attachment.snapshot });
+          void pumpTerminal(client, key, attachment.subscription, terminalSubscriptions);
+        } catch (error) {
+          sendError(client, { code: "unavailable", message: error instanceof Error ? error.message : "Terminal attach failed.", retryable: true });
+        }
+        return;
+      }
       case "hello":
         sendError(client, { code: "invalid_request", message: "RPC hello was already completed.", retryable: false });
         return;
@@ -276,4 +302,23 @@ function send(client: WebSocket, message: unknown): void {
 
 function sendError(client: WebSocket, error: RuntimeError): void {
   send(client, { type: "error", error });
+}
+
+async function pumpTerminal(
+  client: WebSocket,
+  terminalId: string,
+  subscription: TerminalSubscription,
+  subscriptions: Map<string, TerminalSubscription>,
+): Promise<void> {
+  try {
+    while (subscriptions.get(terminalId) === subscription) {
+      const message = await subscription.next();
+      if (!message) return;
+      send(client, { type: "terminal.stream", message });
+      if (message.kind === "exit") return;
+    }
+  } finally {
+    if (subscriptions.get(terminalId) === subscription) subscriptions.delete(terminalId);
+    subscription.close();
+  }
 }

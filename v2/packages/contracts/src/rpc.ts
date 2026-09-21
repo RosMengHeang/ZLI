@@ -1,10 +1,11 @@
 import { z } from "zod";
 
-import { CommandId, EnvironmentId, ProjectId, TerminalId, WorktreeId } from "./ids.js";
+import { BrowserTabId, CommandId, EnvironmentId, ProjectId, TerminalId, WorktreeId } from "./ids.js";
 import { RuntimeEventEnvelope } from "./events.js";
 import { EnvironmentDescriptor, RuntimeProjection, WorktreeProjection } from "./projections.js";
-import { TerminalProjection } from "./terminal.js";
+import { TerminalAttachSnapshot, TerminalProjection, TerminalStreamMessage } from "./terminal.js";
 import { ReviewProjection } from "./review.js";
+import { BrowserTabProjection } from "./browser.js";
 
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 
@@ -52,6 +53,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("terminal.attach"), terminalId: TerminalId, afterSequence: z.number().int().nonnegative() }),
   z.object({ type: z.literal("terminal.stop"), terminalId: TerminalId }),
   z.object({ type: z.literal("terminal.list") }),
+  z.object({ type: z.literal("browser.updated"), tab: BrowserTabProjection }),
+  z.object({ type: z.literal("browser.closed"), browserTabId: BrowserTabId }),
   z.object({
     type: z.literal("terminal.status"),
     terminalId: TerminalId,
@@ -115,6 +118,7 @@ export const ClientWireMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("command"), request: RpcRequest }),
   z.object({ type: z.literal("subscribe"), afterSequence: z.number().int().nonnegative() }),
   z.object({ type: z.literal("projection.get") }),
+  z.object({ type: z.literal("terminal.attach"), terminalId: TerminalId, afterSequence: z.number().int().nonnegative() }),
 ]);
 export type ClientWireMessage = z.infer<typeof ClientWireMessage>;
 
@@ -127,6 +131,8 @@ export const ServerWireMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("response"), response: RpcResponse }),
   z.object({ type: z.literal("event"), envelope: RuntimeEventEnvelope }),
   z.object({ type: z.literal("projection"), projection: RuntimeProjection }),
+  z.object({ type: z.literal("terminal.snapshot"), snapshot: TerminalAttachSnapshot }),
+  z.object({ type: z.literal("terminal.stream"), message: TerminalStreamMessage }),
   z.object({ type: z.literal("error"), error: RuntimeError }),
 ]);
 export type ServerWireMessage = z.infer<typeof ServerWireMessage>;

@@ -15,8 +15,32 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
   const restoredTab = projection?.browserTabs.find((candidate) => candidate.worktreeId === worktree?.worktreeId);
 
   useEffect(() => {
-    if (!tab && restoredTab) { setTab(restoredTab); setUrl(restoredTab.url); }
-  }, [restoredTab, tab]);
+    setTab(undefined);
+    setUrl("");
+    setError(undefined);
+  }, [worktree?.worktreeId]);
+
+  useEffect(() => {
+    if (!bridge || !worktree || !restoredTab || tab) return;
+    let disposed = false;
+    setBusy(true);
+    setError(undefined);
+    void bridge.browser.create({
+      browserTabId: restoredTab.browserTabId,
+      worktreeId: restoredTab.worktreeId,
+      profileId: restoredTab.profileId,
+      url: restoredTab.url,
+    }).then((next) => {
+      if (disposed) return;
+      setTab(next);
+      setUrl(next.url);
+    }).catch((cause) => {
+      if (!disposed) setError(cause instanceof Error ? cause.message : "The saved browser tab could not be restored.");
+    }).finally(() => {
+      if (!disposed) setBusy(false);
+    });
+    return () => { disposed = true; };
+  }, [bridge, restoredTab, tab, worktree]);
 
   useEffect(() => {
     if (!tab || !surfaceRef.current || !bridge) return;

@@ -5,6 +5,7 @@ type Props = {
   activeWorktreeId: string | undefined;
   onSelect(worktree: WorktreeProjection): void;
   onOpenProject(): void;
+  onCreateWorktree(): void;
 };
 
 const statusLabel: Record<WorktreeProjection["status"], string> = {
@@ -18,14 +19,14 @@ const statusLabel: Record<WorktreeProjection["status"], string> = {
   cancelled: "Cancelled",
 };
 
-export function WorktreeSidebar({ projection, activeWorktreeId, onSelect, onOpenProject }: Props) {
+export function WorktreeSidebar({ projection, activeWorktreeId, onSelect, onOpenProject, onCreateWorktree }: Props) {
   const projects = projection?.projects ?? [];
   const worktrees = projection?.worktrees ?? [];
   return (
     <aside className="worktree-sidebar" aria-label="Projects and worktrees">
       <div className="sidebar-heading">
         <span className="wordmark">ZLI</span>
-        <button className="quiet-button" type="button" onClick={onOpenProject} aria-label="Open project">Open</button>
+        <div className="sidebar-actions"><button className="quiet-button" type="button" onClick={onOpenProject} aria-label="Open project">Open</button><button className="quiet-button" type="button" onClick={onCreateWorktree} disabled={projects.length === 0} aria-label="Create worktree">New</button></div>
       </div>
       <div className="sidebar-scroll">
         {projects.length === 0 ? (
