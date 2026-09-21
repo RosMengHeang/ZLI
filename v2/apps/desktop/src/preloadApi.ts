@@ -24,8 +24,8 @@ type IpcBridge = {
   on(channel: string, listener: (event: unknown, value: unknown) => void): () => void;
 };
 
-export function createPreloadApi(ipc: IpcBridge) {
-  return {
+export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean } = {}) {
+  const bridge = {
     runtime: {
       dispatch: async (request: unknown) => {
         const parsed = RpcRequest.parse(request);
@@ -100,4 +100,7 @@ export function createPreloadApi(ipc: IpcBridge) {
       quit: () => ipc.invoke("zli:app:quit"),
     },
   };
+  return options.testMode
+    ? { ...bridge, test: { restartRuntime: () => ipc.invoke("zli:test:restart-runtime") } }
+    : bridge;
 }

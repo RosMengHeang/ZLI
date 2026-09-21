@@ -36,6 +36,7 @@ export type ZliBridge = {
   };
   menu: { trigger(command: string): Promise<unknown> };
   app: { getVersion(): Promise<string>; quit(): Promise<void> };
+  test?: { restartRuntime(): Promise<unknown> };
 };
 
 declare global {

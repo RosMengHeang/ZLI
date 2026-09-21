@@ -12,6 +12,7 @@ import {
 } from "@zli-v2/contracts";
 
 import { Database } from "../db/Database.js";
+import { StructuredLogger, type LogCorrelation } from "../diagnostics/StructuredLogger.js";
 import { DomainError, decide } from "./decider.js";
 import { createEmptyProjection, projectEvent } from "./projector.js";
 import {
@@ -39,6 +40,7 @@ export type ProjectEvent = (
 export type EngineOptions = {
   database: Database;
   environment: EnvironmentDescriptor;
+  logger?: StructuredLogger;
   projectEvent?: ProjectEvent;
   reactors?: readonly (NamedReactor | Reactor)[];
 };
@@ -60,6 +62,7 @@ export class Engine {
   private readonly environment: EnvironmentDescriptor;
   private readonly applyEvent: ProjectEvent;
   private readonly reactorRunner: ReactorRunner;
+  private readonly logger: StructuredLogger;
   private readonly listeners = new Set<(event: RuntimeEventEnvelope) => void>();
   private commandQueue: Promise<void> = Promise.resolve();
   private reactorTasks = new Set<Promise<void>>();
@@ -67,6 +70,7 @@ export class Engine {
   constructor(options: EngineOptions) {
     this.database = options.database;
     this.environment = options.environment;
+    this.logger = options.logger ?? new StructuredLogger();
     this.applyEvent = options.projectEvent ?? projectEvent;
     this.reactorRunner = new ReactorRunner(
       (options.reactors ?? []).map((reactor, index) =>
@@ -131,6 +135,7 @@ export class Engine {
   }
 
   private async dispatchSerialized(request: RpcRequest): Promise<CommandReceipt> {
+    this.logger.record("info", "runtime command received", commandCorrelation(request, this.environment.environmentId));
     const intentHash = hashIntent(request.command);
     const existing = this.readReceiptRow(request.commandId);
     if (existing) {
@@ -157,6 +162,9 @@ export class Engine {
       const committed = this.commitAccepted(request, intentHash, projection, decisions);
       this.publish(committed.events);
       this.scheduleReactors(committed.events, committed.projection);
+      this.logger.record("info", "runtime command accepted", commandCorrelation(request, this.environment.environmentId), {
+        eventCount: committed.events.length,
+      });
       return committed.receipt;
     } catch (error) {
       if (!(error instanceof DomainError)) {
@@ -173,6 +181,7 @@ export class Engine {
       this.database.transaction(() => {
         this.insertReceipt(receipt, intentHash);
       });
+      this.logger.record("warn", "runtime command rejected", commandCorrelation(request, this.environment.environmentId), { code: error.code });
       return receipt;
     }
   }
@@ -371,4 +380,21 @@ function hashIntent(command: RuntimeCommand): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function commandCorrelation(request: RpcRequest, workspaceId: string): LogCorrelation {
+  const command = request.command;
+  return {
+    commandId: request.commandId,
+    workspaceId,
+    ...(command.type.startsWith("thread.") && "threadId" in command && typeof command.threadId === "string"
+      ? { threadId: command.threadId }
+      : {}),
+    ...(command.type.startsWith("terminal.") && "terminalId" in command && typeof command.terminalId === "string"
+      ? { terminalId: command.terminalId }
+      : {}),
+    ...(command.type.startsWith("browser.") && "tab" in command && typeof command.tab === "object" && command.tab !== null && "browserTabId" in command.tab && typeof command.tab.browserTabId === "string"
+      ? { browserTabId: command.tab.browserTabId }
+      : {}),
+  };
 }

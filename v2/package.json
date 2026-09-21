@@ -10,6 +10,7 @@
   "scripts": {
     "boundaries": "node scripts/enforce-boundaries.mjs",
     "desktop:pack": "pnpm --filter @zli-v2/desktop pack",
+    "e2e": "playwright test",
     "build": "node scripts/build.mjs && pnpm run web:build",
     "web:build": "pnpm --filter @zli-v2/web exec vite build",
     "test": "vitest run",

@@ -15,6 +15,7 @@ import {
   BrowserSetBoundsInput,
   BrowserTabIdInput,
   BrowserWaitForNetworkIdleInput,
+  RpcRequest,
   TerminalId,
 } from "@zli-v2/contracts";
 
@@ -22,6 +23,7 @@ import { BrowserManager } from "./browser/BrowserManager.js";
 import { BrowserAutomation } from "./browser/BrowserAutomation.js";
 import { CdpSession, type ElectronDebuggerLike } from "./browser/CdpSession.js";
 import { DesignMode } from "./browser/DesignMode.js";
+import { DesktopDiagnostics } from "./diagnostics/DesktopDiagnostics.js";
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
 import { resolveAppAsset } from "./window/ElectronProtocol.js";
 import { createMainWindow, type BrowserWindowConstructor } from "./window/ElectronWindow.js";
@@ -57,7 +59,8 @@ async function main(): Promise<void> {
     environmentId: process.env.ZLI_ENVIRONMENT_ID ?? DEFAULT_ENVIRONMENT_ID,
     connectTransport: async () => connectWebSocket((await environment?.start() ?? descriptor).url),
   });
-  registerIpc();
+  await registerTestProject(runtime);
+  registerIpc(new DesktopDiagnostics());
   const window = createMainWindow(BrowserWindow as unknown as BrowserWindowConstructor, join(DESKTOP_DIST, "preload.js"), APP_ORIGIN);
   const electronWindow = window as unknown as BrowserWindow;
   browserManager = new BrowserManager(
@@ -114,10 +117,37 @@ async function main(): Promise<void> {
   window.once?.("ready-to-show", () => window.show?.());
 }
 
-function registerIpc(): void {
+async function registerTestProject(client: RuntimeClient): Promise<void> {
+  const projectPath = process.env.ZLI_TEST_PROJECT_PATH;
+  if (!projectPath) return;
+  const response = await client.command({
+    protocolVersion: 1,
+    commandId: randomUUID(),
+    command: { type: "project.register", path: projectPath },
+  });
+  if (!response.accepted && !response.error.message.startsWith("Project is already registered:")) {
+    throw new Error(`Test project bootstrap failed: ${response.error.message}`);
+  }
+}
+
+function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
   ipcMain.handle("zli:runtime:dispatch", async (_event, request: unknown) => {
     if (!runtime) throw new Error("Runtime is not ready.");
-    return runtime.command(request);
+    const parsed = RpcRequest.safeParse(request);
+    if (!parsed.success) return runtime.command(request);
+    desktopDiagnostics.record("info", "renderer command received", {
+      commandId: parsed.data.commandId,
+    });
+    if (parsed.data.command.type === "diagnostics.createSupportBundle") {
+      return runtime.command({
+        ...parsed.data,
+        command: {
+          ...parsed.data.command,
+          desktopLogs: desktopDiagnostics.snapshot(),
+        },
+      });
+    }
+    return runtime.command(parsed.data);
   });
   ipcMain.handle("zli:runtime:projection", () => runtime?.projection() ?? null);
   ipcMain.handle("zli:runtime:terminal:attach", (_event, input: unknown) => {
@@ -132,6 +162,11 @@ function registerIpc(): void {
   });
   ipcMain.handle("zli:app:version", () => app.getVersion());
   ipcMain.handle("zli:app:quit", () => { app.quit(); });
+  ipcMain.handle("zli:test:restart-runtime", () => {
+    if (process.env.ZLI_TEST_PROVIDER !== "mock") throw new Error("Test runtime controls are disabled.");
+    environment?.stop();
+    return { accepted: true };
+  });
   ipcMain.handle("zli:dialog:open-project", async () => {
     const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
     return result.canceled ? undefined : result.filePaths[0];

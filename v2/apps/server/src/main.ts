@@ -23,6 +23,8 @@ import { ProviderReactor } from "./providers/ProviderReactor.js";
 import { ProviderRegistry, ProviderService } from "./providers/ProviderService.js";
 import { DiagnosticsReactor } from "./diagnostics/DiagnosticsReactor.js";
 import { LegacyImportReactor } from "./import/LegacyImportReactor.js";
+import { StructuredLogger } from "./diagnostics/StructuredLogger.js";
+import { MockProviderAdapter } from "./providers/MockProviderAdapter.js";
 
 export type RuntimeProcess = {
   database: Database;
@@ -65,17 +67,20 @@ export async function startRuntime(options: {
     },
   };
   const database = new Database({ path: databasePath });
-  const engine = new Engine({ database, environment });
+  const logger = new StructuredLogger();
+  const engine = new Engine({ database, environment, logger });
   const worktreeReactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()));
   const daemonSupervisor = new DaemonSupervisor({ endpointPath: `${databasePath}.daemon.json` });
   const terminalService = new TerminalService(new RemotePtyFactory({ connect: () => daemonSupervisor.connect() }));
   const terminalReactor = new TerminalReactor(engine, terminalService);
   const reviewReactor = new ReviewReactor(engine, new ReviewService(new GitProcess()));
   const providerService = new ProviderService(new ProviderRegistry([
-    new CodexProviderAdapter({ createClient: () => CodexAppServerClient.connect() }),
+    process.env.ZLI_TEST_PROVIDER === "mock"
+      ? new MockProviderAdapter()
+      : new CodexProviderAdapter({ createClient: () => CodexAppServerClient.connect() }),
   ]));
   const providerReactor = new ProviderReactor(engine, providerService);
-  const diagnosticsReactor = new DiagnosticsReactor(engine);
+  const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
   const legacyImportReactor = new LegacyImportReactor(engine);
   const server = new RpcServer({ engine, environment, token, terminalService });
   await server.start();

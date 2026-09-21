@@ -308,7 +308,11 @@ export function decide(
       assertWorktree(projection, command.worktreeId);
       return [{ type: "review.archived", worktreeId: command.worktreeId }];
     case "diagnostics.createSupportBundle":
-      return [{ type: "diagnostics.bundle.requested", destinationPath: command.destinationPath }];
+      return [{
+        type: "diagnostics.bundle.requested",
+        destinationPath: command.destinationPath,
+        ...(command.desktopLogs ? { desktopLogs: command.desktopLogs } : {}),
+      }];
     case "diagnostics.bundle.created":
       return [{ type: "diagnostics.bundle.created", bundle: command.bundle }];
     case "diagnostics.bundle.failed":

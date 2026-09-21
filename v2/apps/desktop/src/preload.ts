@@ -9,4 +9,4 @@ contextBridge.exposeInMainWorld("zli", createPreloadApi({
     ipcRenderer.on(channel, wrapped);
     return () => ipcRenderer.removeListener(channel, wrapped);
   },
-}));
+}, { testMode: process.env.ZLI_TEST_PROVIDER === "mock" }));

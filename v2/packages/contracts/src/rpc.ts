@@ -8,6 +8,7 @@ import { ReviewProjection } from "./review.js";
 import { BrowserTabProjection } from "./browser.js";
 import { ProviderCapabilities, ProviderKind, ThreadMessageProjection, ThreadProjection, ThreadRequestProjection } from "./provider.js";
 import { LegacyImportPreview } from "./import.js";
+import { DiagnosticLog } from "./diagnostics.js";
 
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 
@@ -84,7 +85,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("review.abortMerge"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("review.archive"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("review.updated"), review: ReviewProjection }),
-  z.object({ type: z.literal("diagnostics.createSupportBundle"), destinationPath: z.string().min(1) }),
+  z.object({ type: z.literal("diagnostics.createSupportBundle"), destinationPath: z.string().min(1), desktopLogs: z.array(DiagnosticLog).optional() }),
   z.object({ type: z.literal("diagnostics.bundle.created"), bundle: SupportBundleProjection }),
   z.object({ type: z.literal("diagnostics.bundle.failed"), message: z.string().min(1) }),
   z.object({ type: z.literal("legacy.scan"), batchId: z.string().min(1), snapshotPath: z.string().min(1) }),

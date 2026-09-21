@@ -10,8 +10,8 @@ const REDACTED_URL = "[REDACTED_URL]";
 export type SupportLog = {
   level: "debug" | "info" | "warn" | "error";
   message: string;
-  timestamp?: string;
-  context?: Record<string, unknown>;
+  timestamp?: string | undefined;
+  context?: Record<string, unknown> | undefined;
 };
 
 export type SupportBundleInput = {
@@ -149,7 +149,7 @@ export async function createSupportBundle(input: SupportBundleInput): Promise<{ 
 
 function safeLogContext(context: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   if (!context) return undefined;
-  const allowedKeys = new Set(["component", "operation", "code", "retryable", "durationMs", "status"]);
+  const allowedKeys = new Set(["component", "operation", "code", "retryable", "durationMs", "status", "commandId", "workspaceId", "threadId", "terminalId", "browserTabId", "worktreeId"]);
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(context)) {
     if (!allowedKeys.has(key)) continue;

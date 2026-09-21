@@ -4,12 +4,13 @@ import { CommandId, type RuntimeEventEnvelope } from "@zli-v2/contracts";
 
 import { Engine } from "../orchestration/Engine.js";
 import { createSupportBundle, SupportBundleError } from "./SupportBundle.js";
+import { StructuredLogger } from "./StructuredLogger.js";
 
 export class DiagnosticsReactor {
   private readonly tasks = new Set<Promise<void>>();
   private readonly unsubscribe: () => void;
 
-  constructor(private readonly engine: Engine) {
+  constructor(private readonly engine: Engine, private readonly logger = new StructuredLogger()) {
     this.unsubscribe = engine.subscribe((envelope) => this.onEvent(envelope));
   }
 
@@ -36,7 +37,9 @@ export class DiagnosticsReactor {
     try {
       const projection = await this.engine.projection();
       const events = await this.engine.eventsAfter(Math.max(0, projection.lastSequence - 200));
-      const result = await createSupportBundle({ destinationPath, projection, events });
+      const request = events.at(-1)?.event;
+      const desktopLogs = request?.type === "diagnostics.bundle.requested" ? request.desktopLogs ?? [] : [];
+      const result = await createSupportBundle({ destinationPath, projection, events, logs: [...this.logger.snapshot(), ...desktopLogs] });
       await this.engine.dispatch({
         protocolVersion: 1,
         commandId: CommandId.parse(randomUUID()),
