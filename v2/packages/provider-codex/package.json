@@ -1,0 +1,12 @@
+{
+  "name": "@zli-v2/provider-codex",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@zli-v2/contracts": "workspace:*"
+  }
+}

@@ -34,6 +34,9 @@ importers:
       '@zli-v2/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@zli-v2/provider-codex':
+        specifier: workspace:*
+        version: link:../../packages/provider-codex
       node-pty:
         specifier: 1.1.0
         version: 1.1.0
@@ -61,6 +64,12 @@ importers:
       zod:
         specifier: 4.1.11
         version: 4.1.11
+
+  packages/provider-codex:
+    dependencies:
+      '@zli-v2/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/shared: {}
 
