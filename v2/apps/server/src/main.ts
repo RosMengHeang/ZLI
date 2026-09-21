@@ -11,12 +11,17 @@ import { Engine } from "./orchestration/Engine.js";
 import { RpcServer } from "./rpc/Server.js";
 import { WorktreeReactor } from "./worktrees/WorktreeReactor.js";
 import { WorktreeService } from "./worktrees/WorktreeService.js";
+import { NodePtyFactory } from "./terminal/NodePtyFactory.js";
+import { TerminalReactor } from "./terminal/TerminalReactor.js";
+import { TerminalService } from "./terminal/TerminalService.js";
 
 export type RuntimeProcess = {
   database: Database;
   engine: Engine;
   server: RpcServer;
   worktreeReactor: WorktreeReactor;
+  terminalService: TerminalService;
+  terminalReactor: TerminalReactor;
   token: string;
   close: () => Promise<void>;
 };
@@ -47,6 +52,8 @@ export async function startRuntime(options: {
   const database = new Database({ path: databasePath });
   const engine = new Engine({ database, environment });
   const worktreeReactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()));
+  const terminalService = new TerminalService(new NodePtyFactory());
+  const terminalReactor = new TerminalReactor(engine, terminalService);
   const server = new RpcServer({ engine, environment, token });
   await server.start();
   return {
@@ -54,11 +61,16 @@ export async function startRuntime(options: {
     engine,
     server,
     worktreeReactor,
+    terminalService,
+    terminalReactor,
     token,
     close: async () => {
       await server.stop();
       await worktreeReactor.waitForIdle();
+      await terminalReactor.waitForIdle();
       worktreeReactor.stop();
+      terminalReactor.stop();
+      terminalService.stopAll();
       database.close();
     },
   };

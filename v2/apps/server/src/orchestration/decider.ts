@@ -14,6 +14,8 @@ export type DomainErrorCode =
   | "project_missing"
   | "worktree_exists"
   | "worktree_missing"
+  | "terminal_exists"
+  | "terminal_missing"
   | "unsupported_command";
 
 export class DomainError extends Error {
@@ -41,7 +43,12 @@ export type DomainDecision = Extract<
       | "worktree.remove.requested"
       | "worktree.archive.requested"
       | "worktree.removed"
-      | "worktree.archived";
+      | "worktree.archived"
+      | "terminal.create.requested"
+      | "terminal.write.requested"
+      | "terminal.resize.requested"
+      | "terminal.stop.requested"
+      | "terminal.status.changed";
   }
 >;
 
@@ -117,6 +124,60 @@ export function decide(
     case "worktree.archived":
       assertWorktree(projection, command.worktreeId);
       return [{ type: "worktree.archived", worktreeId: command.worktreeId }];
+    case "terminal.create": {
+      if (!projection.worktrees.some((worktree) => worktree.worktreeId === command.worktreeId)) {
+        throw new DomainError("worktree_missing", `Worktree does not exist: ${command.worktreeId}`);
+      }
+      if (projection.terminals.some((terminal) => terminal.terminalId === command.terminalId)) {
+        throw new DomainError("terminal_exists", `Terminal already exists: ${command.terminalId}`);
+      }
+      return [
+        {
+          type: "terminal.create.requested",
+          terminal: {
+            terminalId: command.terminalId,
+            worktreeId: command.worktreeId,
+            title: command.title,
+            status: "starting",
+            lastSequence: 0,
+          },
+          cwd: command.cwd,
+          shell: command.shell,
+          cols: command.cols,
+          rows: command.rows,
+        },
+      ];
+    }
+    case "terminal.write":
+      assertTerminal(projection, command.terminalId);
+      return [{ type: "terminal.write.requested", terminalId: command.terminalId, data: command.data }];
+    case "terminal.resize":
+      assertTerminal(projection, command.terminalId);
+      return [
+        {
+          type: "terminal.resize.requested",
+          terminalId: command.terminalId,
+          cols: command.cols,
+          rows: command.rows,
+        },
+      ];
+    case "terminal.stop":
+      assertTerminal(projection, command.terminalId);
+      return [{ type: "terminal.stop.requested", terminalId: command.terminalId }];
+    case "terminal.status":
+      assertTerminal(projection, command.terminalId);
+      return [
+        {
+          type: "terminal.status.changed",
+          terminalId: command.terminalId,
+          status: command.status,
+          ...(command.lastSequence === undefined ? {} : { lastSequence: command.lastSequence }),
+          ...(command.errorMessage ? { errorMessage: command.errorMessage } : {}),
+        },
+      ];
+    case "terminal.attach":
+    case "terminal.list":
+      return [];
     default:
       throw new DomainError("unsupported_command", `Command ${command.type} is not a domain mutation.`);
   }
@@ -125,6 +186,12 @@ export function decide(
 function assertWorktree(projection: RuntimeProjection, worktreeId: string): void {
   if (!projection.worktrees.some((worktree) => worktree.worktreeId === worktreeId)) {
     throw new DomainError("worktree_missing", `Worktree does not exist: ${worktreeId}`);
+  }
+}
+
+function assertTerminal(projection: RuntimeProjection, terminalId: string): void {
+  if (!projection.terminals.some((terminal) => terminal.terminalId === terminalId)) {
+    throw new DomainError("terminal_missing", `Terminal does not exist: ${terminalId}`);
   }
 }
 

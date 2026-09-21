@@ -66,6 +66,31 @@ export function projectEvent(
     case "worktree.remove.requested":
     case "worktree.archive.requested":
       return { ...projection, lastSequence: envelope.sequence };
+    case "terminal.create.requested":
+      return {
+        ...projection,
+        terminals: [...projection.terminals, event.terminal],
+        lastSequence: envelope.sequence,
+      };
+    case "terminal.status.changed":
+      return {
+        ...projection,
+        terminals: projection.terminals.map((terminal) =>
+          terminal.terminalId === event.terminalId
+            ? {
+                ...terminal,
+                status: event.status,
+                ...(event.lastSequence === undefined ? {} : { lastSequence: event.lastSequence }),
+                ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+              }
+            : terminal,
+        ),
+        lastSequence: envelope.sequence,
+      };
+    case "terminal.write.requested":
+    case "terminal.resize.requested":
+    case "terminal.stop.requested":
+      return { ...projection, lastSequence: envelope.sequence };
     case "runtime.ready":
     case "runtime.reactor.failed":
       return { ...projection, lastSequence: envelope.sequence };

@@ -1,8 +1,9 @@
 import { z } from "zod";
 
-import { CommandId, EnvironmentId, ProjectId, WorktreeId } from "./ids.js";
+import { CommandId, EnvironmentId, ProjectId, TerminalId, WorktreeId } from "./ids.js";
 import { RuntimeEventEnvelope } from "./events.js";
 import { EnvironmentDescriptor, RuntimeProjection, WorktreeProjection } from "./projections.js";
+import { TerminalProjection } from "./terminal.js";
 
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 
@@ -28,6 +29,33 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     type: z.literal("worktree.status"),
     worktreeId: WorktreeId,
     status: WorktreeProjection.shape.status,
+    errorMessage: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("terminal.create"),
+    terminalId: TerminalId,
+    worktreeId: WorktreeId,
+    cwd: z.string().min(1),
+    shell: z.string().min(1),
+    title: z.string().min(1),
+    cols: z.number().int().positive(),
+    rows: z.number().int().positive(),
+  }),
+  z.object({ type: z.literal("terminal.write"), terminalId: TerminalId, data: z.string() }),
+  z.object({
+    type: z.literal("terminal.resize"),
+    terminalId: TerminalId,
+    cols: z.number().int().positive(),
+    rows: z.number().int().positive(),
+  }),
+  z.object({ type: z.literal("terminal.attach"), terminalId: TerminalId, afterSequence: z.number().int().nonnegative() }),
+  z.object({ type: z.literal("terminal.stop"), terminalId: TerminalId }),
+  z.object({ type: z.literal("terminal.list") }),
+  z.object({
+    type: z.literal("terminal.status"),
+    terminalId: TerminalId,
+    status: TerminalProjection.shape.status,
+    lastSequence: z.number().int().nonnegative().optional(),
     errorMessage: z.string().min(1).optional(),
   }),
   z.object({ type: z.literal("runtime.subscribe"), afterSequence: z.number().int().nonnegative() }),

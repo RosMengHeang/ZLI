@@ -1,7 +1,8 @@
 import { z } from "zod";
 
-import { EventId, WorktreeId, WorkspaceId } from "./ids.js";
+import { EventId, TerminalId, WorktreeId, WorkspaceId } from "./ids.js";
 import { ProjectProjection, WorktreeProjection } from "./projections.js";
+import { TerminalProjection, TerminalStatus } from "./terminal.js";
 
 export const RuntimeEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("runtime.ready") }),
@@ -32,6 +33,29 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     force: z.boolean(),
   }),
   z.object({ type: z.literal("worktree.archive.requested"), worktreeId: WorktreeId }),
+  z.object({
+    type: z.literal("terminal.create.requested"),
+    terminal: TerminalProjection,
+    cwd: z.string().min(1),
+    shell: z.string().min(1),
+    cols: z.number().int().positive(),
+    rows: z.number().int().positive(),
+  }),
+  z.object({ type: z.literal("terminal.write.requested"), terminalId: TerminalId, data: z.string() }),
+  z.object({
+    type: z.literal("terminal.resize.requested"),
+    terminalId: TerminalId,
+    cols: z.number().int().positive(),
+    rows: z.number().int().positive(),
+  }),
+  z.object({ type: z.literal("terminal.stop.requested"), terminalId: TerminalId }),
+  z.object({
+    type: z.literal("terminal.status.changed"),
+    terminalId: TerminalId,
+    status: TerminalStatus,
+    lastSequence: z.number().int().nonnegative().optional(),
+    errorMessage: z.string().min(1).optional(),
+  }),
 ]);
 export type RuntimeEvent = z.infer<typeof RuntimeEvent>;
 
