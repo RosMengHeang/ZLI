@@ -38,9 +38,11 @@ export type ProjectRegisteredDecision = {
 export type DomainDecision = Extract<
   RuntimeEvent,
   {
-    type:
-      | "project.registered"
+      type:
+        | "project.registered"
+      | "project.archived"
       | "worktree.create.requested"
+      | "worktree.imported"
       | "worktree.status.changed"
       | "worktree.remove.requested"
       | "worktree.archive.requested"
@@ -61,6 +63,13 @@ export type DomainDecision = Extract<
       | "diagnostics.bundle.requested"
       | "diagnostics.bundle.created"
       | "diagnostics.bundle.failed"
+      | "legacy.scan.requested"
+      | "legacy.scan.completed"
+      | "legacy.import.requested"
+      | "legacy.import.completed"
+      | "legacy.rollback.requested"
+      | "legacy.rollback.completed"
+      | "legacy.operation.failed"
       | "terminal.status.changed"
       | "thread.start.requested"
       | "thread.send.requested"
@@ -97,6 +106,12 @@ export function decide(
         },
       ];
     }
+    case "project.archive":
+      assertProject(projection, command.projectId);
+      if (projection.worktrees.some((worktree) => worktree.projectId === command.projectId)) {
+        throw new DomainError("unsupported_command", "Archive worktrees before archiving the project.");
+      }
+      return [{ type: "project.archived", projectId: command.projectId }];
     case "worktree.create": {
       const project = projection.projects.find((entry) => entry.projectId === command.projectId);
       if (!project) throw new DomainError("project_missing", `Project does not exist: ${command.projectId}`);
@@ -118,6 +133,26 @@ export function decide(
           },
         },
       ];
+    }
+    case "worktree.import": {
+      assertProject(projection, command.projectId);
+      if (!win32.isAbsolute(command.path) && !posix.isAbsolute(command.path)) {
+        throw new DomainError("unsupported_command", "Imported worktree path must be absolute.");
+      }
+      assertSafeRef(command.branch);
+      if (projection.worktrees.some((worktree) => worktree.worktreeId === command.worktreeId)) {
+        throw new DomainError("worktree_exists", "Worktree already exists: " + command.worktreeId);
+      }
+      return [{
+        type: "worktree.imported",
+        worktree: {
+          worktreeId: command.worktreeId,
+          projectId: command.projectId,
+          path: command.path,
+          branch: command.branch,
+          status: "ready",
+        },
+      }];
     }
     case "worktree.status":
       assertWorktree(projection, command.worktreeId);
@@ -278,6 +313,25 @@ export function decide(
       return [{ type: "diagnostics.bundle.created", bundle: command.bundle }];
     case "diagnostics.bundle.failed":
       return [{ type: "diagnostics.bundle.failed", message: command.message }];
+    case "legacy.scan":
+      return [{ type: "legacy.scan.requested", batchId: command.batchId, snapshotPath: command.snapshotPath }];
+    case "legacy.scan.completed":
+      return [{ type: "legacy.scan.completed", preview: command.preview }];
+    case "legacy.import":
+      return [{ type: "legacy.import.requested", batchId: command.batchId, selectedRecordIds: command.selectedRecordIds }];
+    case "legacy.import.completed":
+      return [{
+        type: "legacy.import.completed",
+        batchId: command.batchId,
+        importedProjectIds: command.importedProjectIds,
+        importedWorktreeIds: command.importedWorktreeIds,
+      }];
+    case "legacy.rollbackImport":
+      return [{ type: "legacy.rollback.requested", batchId: command.batchId }];
+    case "legacy.rollback.completed":
+      return [{ type: "legacy.rollback.completed", batchId: command.batchId }];
+    case "legacy.operation.failed":
+      return [{ type: "legacy.operation.failed", batchId: command.batchId, message: command.message }];
     default:
       throw new DomainError("unsupported_command", `Command ${command.type} is not a domain mutation.`);
   }
@@ -286,6 +340,12 @@ export function decide(
 function assertWorktree(projection: RuntimeProjection, worktreeId: string): void {
   if (!projection.worktrees.some((worktree) => worktree.worktreeId === worktreeId)) {
     throw new DomainError("worktree_missing", `Worktree does not exist: ${worktreeId}`);
+  }
+}
+
+function assertProject(projection: RuntimeProjection, projectId: string): void {
+  if (!projection.projects.some((project) => project.projectId === projectId)) {
+    throw new DomainError("project_missing", "Project does not exist: " + projectId);
   }
 }
 

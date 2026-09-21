@@ -7,11 +7,13 @@ import { TerminalAttachSnapshot, TerminalProjection, TerminalStreamMessage } fro
 import { ReviewProjection } from "./review.js";
 import { BrowserTabProjection } from "./browser.js";
 import { ProviderCapabilities, ProviderKind, ThreadMessageProjection, ThreadProjection, ThreadRequestProjection } from "./provider.js";
+import { LegacyImportPreview } from "./import.js";
 
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 
 export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("project.register"), path: z.string().min(1) }),
+  z.object({ type: z.literal("project.archive"), projectId: ProjectId }),
   z.object({
     type: z.literal("worktree.create"),
     worktreeId: WorktreeId,
@@ -22,6 +24,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     baseRef: z.string().min(1).optional(),
     checkoutExistingBranch: z.boolean().optional(),
   }),
+  z.object({ type: z.literal("worktree.import"), worktreeId: WorktreeId, projectId: ProjectId, path: z.string().min(1), branch: z.string().min(1) }),
   z.object({ type: z.literal("worktree.cancel"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("worktree.retry"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("worktree.remove"), worktreeId: WorktreeId, force: z.boolean().optional() }),
@@ -84,6 +87,13 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("diagnostics.createSupportBundle"), destinationPath: z.string().min(1) }),
   z.object({ type: z.literal("diagnostics.bundle.created"), bundle: SupportBundleProjection }),
   z.object({ type: z.literal("diagnostics.bundle.failed"), message: z.string().min(1) }),
+  z.object({ type: z.literal("legacy.scan"), batchId: z.string().min(1), snapshotPath: z.string().min(1) }),
+  z.object({ type: z.literal("legacy.scan.completed"), preview: LegacyImportPreview }),
+  z.object({ type: z.literal("legacy.import"), batchId: z.string().min(1), selectedRecordIds: z.array(z.string().min(1)) }),
+  z.object({ type: z.literal("legacy.import.completed"), batchId: z.string().min(1), importedProjectIds: z.array(ProjectId), importedWorktreeIds: z.array(WorktreeId) }),
+  z.object({ type: z.literal("legacy.rollbackImport"), batchId: z.string().min(1) }),
+  z.object({ type: z.literal("legacy.rollback.completed"), batchId: z.string().min(1) }),
+  z.object({ type: z.literal("legacy.operation.failed"), batchId: z.string().min(1), message: z.string().min(1) }),
 ]);
 export type RuntimeCommand = z.infer<typeof RuntimeCommand>;
 

@@ -32,6 +32,7 @@ export type ZliBridge = {
   dialog: {
     openProject(): Promise<string | undefined>;
     saveSupportBundle(): Promise<string | undefined>;
+    openLegacySnapshot(): Promise<string | undefined>;
   };
   menu: { trigger(command: string): Promise<unknown> };
   app: { getVersion(): Promise<string>; quit(): Promise<void> };

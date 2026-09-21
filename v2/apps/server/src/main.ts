@@ -22,6 +22,7 @@ import { CodexProviderAdapter } from "./providers/CodexProviderAdapter.js";
 import { ProviderReactor } from "./providers/ProviderReactor.js";
 import { ProviderRegistry, ProviderService } from "./providers/ProviderService.js";
 import { DiagnosticsReactor } from "./diagnostics/DiagnosticsReactor.js";
+import { LegacyImportReactor } from "./import/LegacyImportReactor.js";
 
 export type RuntimeProcess = {
   database: Database;
@@ -35,6 +36,7 @@ export type RuntimeProcess = {
   providerReactor: ProviderReactor;
   reviewReactor: ReviewReactor;
   diagnosticsReactor: DiagnosticsReactor;
+  legacyImportReactor: LegacyImportReactor;
   token: string;
   close: () => Promise<void>;
 };
@@ -74,6 +76,7 @@ export async function startRuntime(options: {
   ]));
   const providerReactor = new ProviderReactor(engine, providerService);
   const diagnosticsReactor = new DiagnosticsReactor(engine);
+  const legacyImportReactor = new LegacyImportReactor(engine);
   const server = new RpcServer({ engine, environment, token, terminalService });
   await server.start();
   await terminalReactor.restore();
@@ -89,6 +92,7 @@ export async function startRuntime(options: {
     providerReactor,
     reviewReactor,
     diagnosticsReactor,
+    legacyImportReactor,
     token,
     close: async () => {
       await server.stop();
@@ -97,11 +101,13 @@ export async function startRuntime(options: {
       await reviewReactor.waitForIdle();
       await providerReactor.waitForIdle();
       await diagnosticsReactor.waitForIdle();
+      await legacyImportReactor.waitForIdle();
       worktreeReactor.stop();
       terminalReactor.stop();
       reviewReactor.stop();
       providerReactor.stop();
       diagnosticsReactor.stop();
+      legacyImportReactor.stop();
       await providerService.stopAll();
       providerService.dispose();
       database.close();

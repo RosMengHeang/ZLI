@@ -1,15 +1,18 @@
 import { z } from "zod";
 
-import { BrowserTabId, EventId, TerminalId, ThreadId, TurnId, WorktreeId, WorkspaceId } from "./ids.js";
+import { BrowserTabId, EventId, ProjectId, TerminalId, ThreadId, TurnId, WorktreeId, WorkspaceId } from "./ids.js";
 import { BrowserTabProjection } from "./browser.js";
 import { ProjectProjection, WorktreeProjection, SupportBundleProjection } from "./projections.js";
 import { ProviderCapabilities, ThreadMessageProjection, ThreadProjection, ThreadRequestProjection } from "./provider.js";
 import { TerminalProjection, TerminalStatus } from "./terminal.js";
 import { ReviewProjection } from "./review.js";
+import { LegacyImportPreview } from "./import.js";
 
 export const RuntimeEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("runtime.ready") }),
   z.object({ type: z.literal("project.registered"), project: ProjectProjection }),
+  z.object({ type: z.literal("project.archive.requested"), projectId: ProjectId }),
+  z.object({ type: z.literal("project.archived"), projectId: ProjectId }),
   z.object({
     type: z.literal("runtime.reactor.failed"),
     reactor: z.string().min(1),
@@ -22,6 +25,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     baseRef: z.string().min(1).optional(),
     checkoutExistingBranch: z.boolean().optional(),
   }),
+  z.object({ type: z.literal("worktree.imported"), worktree: WorktreeProjection }),
   z.object({
     type: z.literal("worktree.status.changed"),
     worktreeId: WorktreeId,
@@ -73,6 +77,13 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("diagnostics.bundle.requested"), destinationPath: z.string().min(1) }),
   z.object({ type: z.literal("diagnostics.bundle.created"), bundle: SupportBundleProjection }),
   z.object({ type: z.literal("diagnostics.bundle.failed"), message: z.string().min(1) }),
+  z.object({ type: z.literal("legacy.scan.requested"), batchId: z.string().min(1), snapshotPath: z.string().min(1) }),
+  z.object({ type: z.literal("legacy.scan.completed"), preview: LegacyImportPreview }),
+  z.object({ type: z.literal("legacy.import.requested"), batchId: z.string().min(1), selectedRecordIds: z.array(z.string().min(1)) }),
+  z.object({ type: z.literal("legacy.import.completed"), batchId: z.string().min(1), importedProjectIds: z.array(ProjectId), importedWorktreeIds: z.array(WorktreeId) }),
+  z.object({ type: z.literal("legacy.rollback.requested"), batchId: z.string().min(1) }),
+  z.object({ type: z.literal("legacy.rollback.completed"), batchId: z.string().min(1) }),
+  z.object({ type: z.literal("legacy.operation.failed"), batchId: z.string().min(1), message: z.string().min(1) }),
   z.object({
     type: z.literal("terminal.status.changed"),
     terminalId: TerminalId,

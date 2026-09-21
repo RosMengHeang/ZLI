@@ -5,6 +5,7 @@ import { BrowserTabProjection } from "./browser.js";
 import { ThreadMessageProjection, ThreadProjection, ThreadRequestProjection } from "./provider.js";
 import { TerminalProjection } from "./terminal.js";
 import { ReviewProjection } from "./review.js";
+import { LegacyImportProjection } from "./import.js";
 
 export const EnvironmentCapabilities = z.object({
   worktrees: z.boolean().optional(),
@@ -81,6 +82,7 @@ export const RuntimeProjection = z.object({
   browserTabs: z.array(BrowserTabProjection),
   reviews: z.array(ReviewProjection).optional(),
   diagnostics: DiagnosticsProjection.optional(),
+  legacyImport: LegacyImportProjection.optional(),
   attention: z.array(AttentionProjection),
   lastSequence: z.number().int().nonnegative(),
 });

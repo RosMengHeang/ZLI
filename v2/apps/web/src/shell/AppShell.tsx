@@ -10,6 +10,7 @@ import { TerminalPane } from "../terminal/TerminalPane.js";
 import { WorktreeSidebar } from "../worktrees/WorktreeSidebar.js";
 import { PaneTree, type WorkspacePane } from "../workspace/PaneTree.js";
 import { getBridge, type ZliBridge } from "../runtime/bridge.js";
+import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
 import "./AppShell.css";
 
 export function AppShell({ bridge = getBridge() }: { bridge?: ZliBridge } = {}) {
@@ -23,6 +24,7 @@ function WorkspaceApp() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [worktreeDialogOpen, setWorktreeDialogOpen] = useState(false);
   const [notice, setNotice] = useState<string>();
+  const [legacyImportBatchId, setLegacyImportBatchId] = useState<string>();
   const activeWorktree = useMemo(() => projection?.worktrees.find((worktree) => worktree.worktreeId === activeWorktreeId), [activeWorktreeId, projection]);
 
   useEffect(() => {
@@ -58,6 +60,41 @@ function WorkspaceApp() {
     });
     if (response?.accepted === false) setNotice(response.error.message);
     else setNotice("Creating a redacted support bundle...");
+  };
+
+  const startLegacyImport = async () => {
+    if (!bridge) { setNotice("The desktop bridge is unavailable. Start ZLI from Electron."); return; }
+    const snapshotPath = await bridge.dialog.openLegacySnapshot();
+    if (!snapshotPath) return;
+    const batchId = makeId();
+    setLegacyImportBatchId(batchId);
+    setPaletteOpen(false);
+    const response = await dispatch({
+      protocolVersion: 1,
+      commandId: makeId(),
+      command: { type: "legacy.scan", batchId, snapshotPath },
+    });
+    if (response?.accepted === false) setNotice(response.error.message);
+  };
+
+  const importLegacyRecords = async (selectedRecordIds: string[]) => {
+    if (!legacyImportBatchId) return;
+    const response = await dispatch({
+      protocolVersion: 1,
+      commandId: makeId(),
+      command: { type: "legacy.import", batchId: legacyImportBatchId, selectedRecordIds },
+    });
+    if (response?.accepted === false) setNotice(response.error.message);
+  };
+
+  const rollbackLegacyImport = async () => {
+    if (!legacyImportBatchId) return;
+    const response = await dispatch({
+      protocolVersion: 1,
+      commandId: makeId(),
+      command: { type: "legacy.rollbackImport", batchId: legacyImportBatchId },
+    });
+    if (response?.accepted === false) setNotice(response.error.message);
   };
 
   useEffect(() => {
@@ -100,7 +137,8 @@ function WorkspaceApp() {
           {!bridge ? <DisconnectedState /> : !projection ? <LoadingState /> : <PaneTree pane={pane} onChange={setPane}>{pane === "agent" ? <AgentPane projection={projection} worktree={activeWorktree} /> : pane === "terminal" ? <TerminalPane projection={projection} worktree={activeWorktree} onOpenBrowser={() => choosePane("browser")} /> : pane === "browser" ? <BrowserPane worktree={activeWorktree} /> : <ReviewPane worktree={activeWorktree} />}</PaneTree>}
         </main>
       </div>
-      {paletteOpen && <div className="palette-backdrop" role="presentation" onMouseDown={() => setPaletteOpen(false)}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={(event) => event.stopPropagation()}><div className="palette-search"><span aria-hidden="true">⌕</span><input autoFocus placeholder="Search commands" aria-label="Search commands" /></div><div className="palette-section"><span className="eyebrow">Workspace</span><button type="button" onClick={() => void openProject()}>Open project</button><button type="button" onClick={() => void exportSupportBundle()}>Export support bundle</button><button type="button" onClick={() => choosePane("agent")}>Focus agent</button><button type="button" onClick={() => choosePane("terminal")}>Focus terminal</button><button type="button" onClick={() => choosePane("browser")}>Focus browser</button><button type="button" onClick={() => choosePane("review")}>Focus review</button></div></section></div>}
+      {paletteOpen && <div className="palette-backdrop" role="presentation" onMouseDown={() => setPaletteOpen(false)}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={(event) => event.stopPropagation()}><div className="palette-search"><span aria-hidden="true">⌕</span><input autoFocus placeholder="Search commands" aria-label="Search commands" /></div><div className="palette-section"><span className="eyebrow">Workspace</span><button type="button" onClick={() => void openProject()}>Open project</button><button type="button" onClick={() => void exportSupportBundle()}>Export support bundle</button><button type="button" onClick={() => void startLegacyImport()}>Import legacy snapshot</button><button type="button" onClick={() => choosePane("agent")}>Focus agent</button><button type="button" onClick={() => choosePane("terminal")}>Focus terminal</button><button type="button" onClick={() => choosePane("browser")}>Focus browser</button><button type="button" onClick={() => choosePane("review")}>Focus review</button></div></section></div>}
+      {legacyImportBatchId && projection && <LegacyImportDialog projection={projection} batchId={legacyImportBatchId} onImport={(selected) => void importLegacyRecords(selected)} onRollback={() => void rollbackLegacyImport()} onClose={() => setLegacyImportBatchId(undefined)} />}
       {worktreeDialogOpen && <WorktreeDialog onClose={() => setWorktreeDialogOpen(false)} onSubmit={(branch, baseRef) => void createWorktree(branch, baseRef)} />}
     </div>
   );

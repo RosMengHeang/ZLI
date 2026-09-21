@@ -24,7 +24,7 @@ const bridge: ZliBridge = {
   browser: {
     create: async () => projection.browserTabs[0]!, close: async () => undefined, activate: async () => projection.browserTabs[0]!, navigate: async () => projection.browserTabs[0]!, setBounds: async () => undefined, back: async () => undefined, forward: async () => undefined, reload: async () => undefined, stop: async () => undefined, snapshot: async () => undefined, click: async () => undefined, fill: async () => undefined, press: async () => undefined, waitForNetworkIdle: async () => ({ idle: true }), screenshot: async () => undefined, inspectElement: async () => undefined, designInspect: async () => undefined, consoleEntries: async () => [], networkEntries: async () => [],
   },
-  dialog: { openProject: async () => undefined, saveSupportBundle: async () => undefined }, menu: { trigger: async () => undefined }, app: { getVersion: async () => "0.0.0", quit: async () => undefined },
+  dialog: { openProject: async () => undefined, saveSupportBundle: async () => undefined, openLegacySnapshot: async () => undefined }, menu: { trigger: async () => undefined }, app: { getVersion: async () => "0.0.0", quit: async () => undefined },
 };
 
 afterEach(() => document.body.replaceChildren());

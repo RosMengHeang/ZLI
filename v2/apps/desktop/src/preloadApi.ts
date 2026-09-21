@@ -87,6 +87,10 @@ export function createPreloadApi(ipc: IpcBridge) {
         const path = await ipc.invoke("zli:dialog:save-support-bundle");
         return typeof path === "string" ? path : undefined;
       },
+      openLegacySnapshot: async () => {
+        const path = await ipc.invoke("zli:dialog:open-legacy-snapshot");
+        return typeof path === "string" ? path : undefined;
+      },
     },
     menu: {
       trigger: (command: string) => ipc.invoke("zli:menu:trigger", { command }),

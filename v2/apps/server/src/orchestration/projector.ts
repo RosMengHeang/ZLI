@@ -13,6 +13,7 @@ export function createEmptyProjection(environment: EnvironmentDescriptor): Runti
     threads: [],
     terminals: [],
     browserTabs: [],
+    legacyImport: { status: "idle", importedProjectIds: [], importedWorktreeIds: [] },
     attention: [],
     lastSequence: 0,
   };
@@ -36,7 +37,21 @@ export function projectEvent(
         projects: [...projection.projects, event.project],
         lastSequence: envelope.sequence,
       };
+    case "project.archived":
+      return {
+        ...projection,
+        projects: projection.projects.filter((project) => project.projectId !== event.projectId),
+        lastSequence: envelope.sequence,
+      };
+    case "project.archive.requested":
+      return { ...projection, lastSequence: envelope.sequence };
     case "worktree.create.requested":
+      return {
+        ...projection,
+        worktrees: [...projection.worktrees, event.worktree],
+        lastSequence: envelope.sequence,
+      };
+    case "worktree.imported":
       return {
         ...projection,
         worktrees: [...projection.worktrees, event.worktree],
@@ -191,6 +206,85 @@ export function projectEvent(
       return {
         ...projection,
         diagnostics: { ...(projection.diagnostics ?? {}), lastError: event.message },
+        lastSequence: envelope.sequence,
+      };
+    case "legacy.scan.completed":
+      return {
+        ...projection,
+        legacyImport: {
+          status: "ready",
+          preview: event.preview,
+          batchId: event.preview.batchId,
+          importedProjectIds: [],
+          importedWorktreeIds: [],
+        },
+        lastSequence: envelope.sequence,
+      };
+    case "legacy.scan.requested":
+      return {
+        ...projection,
+        legacyImport: {
+          ...(projection.legacyImport ?? { importedProjectIds: [], importedWorktreeIds: [] }),
+          status: "scanning",
+          batchId: event.batchId,
+        },
+        lastSequence: envelope.sequence,
+      };
+    case "legacy.import.requested":
+      return {
+        ...projection,
+        legacyImport: {
+          ...(projection.legacyImport ?? { importedProjectIds: [], importedWorktreeIds: [] }),
+          status: "importing",
+          batchId: event.batchId,
+        },
+        lastSequence: envelope.sequence,
+      };
+    case "legacy.import.completed":
+      return {
+        ...projection,
+        legacyImport: {
+          ...(projection.legacyImport ?? { importedProjectIds: [], importedWorktreeIds: [] }),
+          status: "imported",
+          batchId: event.batchId,
+          importedProjectIds: event.importedProjectIds,
+          importedWorktreeIds: event.importedWorktreeIds,
+          error: undefined,
+        },
+        lastSequence: envelope.sequence,
+      };
+    case "legacy.rollback.requested":
+      return {
+        ...projection,
+        legacyImport: {
+          ...(projection.legacyImport ?? { importedProjectIds: [], importedWorktreeIds: [] }),
+          status: "importing",
+          batchId: event.batchId,
+        },
+        lastSequence: envelope.sequence,
+      };
+    case "legacy.rollback.completed":
+      return {
+        ...projection,
+        legacyImport: {
+          ...(projection.legacyImport ?? { importedProjectIds: [], importedWorktreeIds: [] }),
+          status: "rolled-back",
+          batchId: event.batchId,
+          importedProjectIds: [],
+          importedWorktreeIds: [],
+          error: undefined,
+        },
+        lastSequence: envelope.sequence,
+      };
+    case "legacy.operation.failed":
+      return {
+        ...projection,
+        legacyImport: {
+          ...(projection.legacyImport ?? { importedProjectIds: [], importedWorktreeIds: [] }),
+          status: "failed",
+          batchId: event.batchId,
+          error: event.message,
+        },
         lastSequence: envelope.sequence,
       };
     case "runtime.ready":
