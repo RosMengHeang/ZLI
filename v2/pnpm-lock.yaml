@@ -29,7 +29,21 @@ importers:
 
   apps/desktop: {}
 
-  apps/server: {}
+  apps/server:
+    dependencies:
+      '@zli-v2/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      ws:
+        specifier: 8.21.3
+        version: 8.21.3
+    devDependencies:
+      '@types/node':
+        specifier: 24.10.1
+        version: 24.10.1
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
 
   apps/web: {}
 
@@ -272,6 +286,9 @@ packages:
   '@types/ms@2.1.0':
     resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
 
+  '@types/node@24.10.1':
+    resolution: {integrity: sha512-GNWcUTRBgIRJD5zj+Tq0fKOJ5XZajIiBroOF0yvj2bSU1WvNdYS/dn9UxwsujGW4JX06dnHyjV2y9rRaybH0iQ==}
+
   '@types/node@24.13.6':
     resolution: {integrity: sha512-SGrw/h3KPFshy3OE6ZL53LMBG5vGQQ8/gIpiqz/kRZhPJ7HgwCEs8LBuNtWLa8dvGZVpSF7+Bf+c11HUrCb/yg==}
 
@@ -280,6 +297,9 @@ packages:
 
   '@types/responselike@1.0.3':
     resolution: {integrity: sha512-H/+L+UkTV33uf49PH5pCAUBVPNj2nDBXTN+qS1dOwyyg24l3CcicicCA7ca+HMvJBZcFgl5r8e+RR6elsb4Lyw==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@vitest/expect@4.1.11':
     resolution: {integrity: sha512-VX2x5vNJXET47KAFzwERI+KRMtTTCSWTfSMKsW7JsUsXV4psq++e3DvZpuTDOpHcxytiDs6p2nhVb2tVDiiUYw==}
@@ -1306,6 +1326,9 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
+  undici-types@7.16.0:
+    resolution: {integrity: sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==}
+
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
@@ -1450,6 +1473,18 @@ packages:
 
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
+
+  ws@8.21.3:
+    resolution: {integrity: sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
 
   xmlbuilder@15.1.1:
     resolution: {integrity: sha512-yMqGBqtXyeN1e3TGYvgNgDVZ3j84W4cwkOXQswghol6APgZWaff9lnbvN7MHYJOiXsvGPXtjTYJEiC9J2wv9Eg==}
@@ -1687,7 +1722,7 @@ snapshots:
     dependencies:
       '@types/http-cache-semantics': 4.2.0
       '@types/keyv': 3.1.4
-      '@types/node': 26.6.2
+      '@types/node': 24.10.1
       '@types/responselike': 1.0.3
 
   '@types/chai@5.2.3':
@@ -1705,15 +1740,19 @@ snapshots:
 
   '@types/fs-extra@9.0.13':
     dependencies:
-      '@types/node': 26.6.2
+      '@types/node': 24.10.1
 
   '@types/http-cache-semantics@4.2.0': {}
 
   '@types/keyv@3.1.4':
     dependencies:
-      '@types/node': 26.6.2
+      '@types/node': 24.10.1
 
   '@types/ms@2.1.0': {}
+
+  '@types/node@24.10.1':
+    dependencies:
+      undici-types: 7.16.0
 
   '@types/node@24.13.6':
     dependencies:
@@ -1722,10 +1761,15 @@ snapshots:
   '@types/node@26.6.2':
     dependencies:
       undici-types: 8.9.0
+    optional: true
 
   '@types/responselike@1.0.3':
     dependencies:
-      '@types/node': 26.6.2
+      '@types/node': 24.10.1
+
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 24.10.1
 
   '@vitest/expect@4.1.11':
     dependencies:
@@ -2816,9 +2860,12 @@ snapshots:
 
   typescript@6.0.3: {}
 
+  undici-types@7.16.0: {}
+
   undici-types@7.18.2: {}
 
-  undici-types@8.9.0: {}
+  undici-types@8.9.0:
+    optional: true
 
   undici@6.28.1: {}
 
@@ -2912,6 +2959,8 @@ snapshots:
       strip-ansi: 6.0.1
 
   wrappy@1.0.2: {}
+
+  ws@8.21.3: {}
 
   xmlbuilder@15.1.1: {}
 

@@ -2,5 +2,13 @@
   "name": "@zli-v2/server",
   "private": true,
   "version": "0.0.0",
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@zli-v2/contracts": "workspace:*",
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "@types/ws": "8.18.1"
+  }
 }

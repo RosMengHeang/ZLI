@@ -1,0 +1,279 @@
+import { createServer, type IncomingMessage, type Server as HttpServer } from "node:http";
+import { timingSafeEqual } from "node:crypto";
+import type { AddressInfo } from "node:net";
+
+import {
+  ClientWireMessage,
+  ServerWireMessage,
+  type EnvironmentDescriptor,
+  type RuntimeError,
+} from "@zli-v2/contracts";
+import { WebSocket, WebSocketServer, type RawData } from "ws";
+
+import { Engine } from "../orchestration/Engine.js";
+
+const MAX_FRAME_BYTES = 1024 * 1024;
+const HELLO_TIMEOUT_MS = 5_000;
+
+type RpcServerOptions = {
+  engine: Engine;
+  environment: EnvironmentDescriptor;
+  token: string;
+  host?: string;
+  port?: number;
+};
+
+export class RpcServer {
+  private readonly engine: Engine;
+  private readonly environment: EnvironmentDescriptor;
+  private readonly token: string;
+  private readonly host: string;
+  private readonly port: number;
+  private httpServer: HttpServer | undefined;
+  private webSocketServer: WebSocketServer | undefined;
+  private boundPort: number | undefined;
+  private readonly clients = new Set<WebSocket>();
+  private readonly clientCleanup = new Map<WebSocket, () => void>();
+
+  constructor(options: RpcServerOptions) {
+    if (options.token.length === 0) {
+      throw new Error("RPC token is required");
+    }
+    this.engine = options.engine;
+    this.environment = options.environment;
+    this.token = options.token;
+    this.host = options.host ?? "127.0.0.1";
+    this.port = options.port ?? 0;
+  }
+
+  async start(): Promise<void> {
+    if (this.httpServer) return;
+    const httpServer = createServer((_request, response) => {
+      response.statusCode = 404;
+      response.end();
+    });
+    const webSocketServer = new WebSocketServer({
+      noServer: true,
+      maxPayload: MAX_FRAME_BYTES,
+    });
+    httpServer.on("upgrade", (request, socket, head) => {
+      if (!isLoopback(request) || request.url !== "/rpc") {
+        socket.destroy();
+        return;
+      }
+      webSocketServer.handleUpgrade(request, socket, head, (client) => {
+        webSocketServer.emit("connection", client, request);
+      });
+    });
+    webSocketServer.on("connection", (client) => this.accept(client));
+    this.httpServer = httpServer;
+    this.webSocketServer = webSocketServer;
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error) => {
+        httpServer.off("listening", onListening);
+        reject(error);
+      };
+      const onListening = () => {
+        httpServer.off("error", onError);
+        const address = httpServer.address();
+        if (!address || typeof address === "string") {
+          reject(new Error("RPC server did not receive a TCP address"));
+          return;
+        }
+        this.boundPort = (address as AddressInfo).port;
+        resolve();
+      };
+      httpServer.once("error", onError);
+      httpServer.once("listening", onListening);
+      httpServer.listen(this.port, this.host);
+    });
+  }
+
+  url(): string {
+    if (this.boundPort === undefined) {
+      throw new Error("RPC server is not started");
+    }
+    return `ws://${this.host}:${this.boundPort}/rpc`;
+  }
+
+  async stop(): Promise<void> {
+    for (const client of this.clients) {
+      client.close(1001, "server stopping");
+    }
+    this.clients.clear();
+    for (const cleanup of this.clientCleanup.values()) cleanup();
+    this.clientCleanup.clear();
+    const webSocketServer = this.webSocketServer;
+    const httpServer = this.httpServer;
+    this.webSocketServer = undefined;
+    this.httpServer = undefined;
+    this.boundPort = undefined;
+    if (webSocketServer) {
+      await new Promise<void>((resolve) => webSocketServer.close(() => resolve()));
+    }
+    if (httpServer) {
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    }
+  }
+
+  private accept(client: WebSocket): void {
+    this.clients.add(client);
+    let authenticated = false;
+    let unsubscribe: (() => void) | undefined;
+    const helloTimer = setTimeout(() => {
+      if (!authenticated) {
+        sendError(client, { code: "unauthorized", message: "RPC hello required.", retryable: false });
+        client.close(1008, "hello required");
+      }
+    }, HELLO_TIMEOUT_MS);
+    const cleanup = () => {
+      clearTimeout(helloTimer);
+      unsubscribe?.();
+      this.clients.delete(client);
+      this.clientCleanup.delete(client);
+    };
+    this.clientCleanup.set(client, cleanup);
+    client.on("close", cleanup);
+    client.on("error", cleanup);
+    client.on("message", (raw) => {
+      void this.receive(client, raw, () => authenticated, (value) => {
+        authenticated = value;
+      }, (nextUnsubscribe) => {
+        unsubscribe?.();
+        unsubscribe = nextUnsubscribe;
+      });
+    });
+  }
+
+  private async receive(
+    client: WebSocket,
+    raw: RawData,
+    isAuthenticated: () => boolean,
+    setAuthenticated: (value: boolean) => void,
+    setUnsubscribe: (unsubscribe: () => void) => void,
+  ): Promise<void> {
+    const text = raw.toString();
+    if (Buffer.byteLength(text, "utf8") > MAX_FRAME_BYTES) {
+      sendError(client, { code: "invalid_request", message: "RPC frame is too large.", retryable: false });
+      client.close(1009, "frame too large");
+      return;
+    }
+    let input: unknown;
+    try {
+      input = JSON.parse(text) as unknown;
+    } catch {
+      sendError(client, { code: "invalid_request", message: "RPC frame must be valid JSON.", retryable: false });
+      client.close(1003, "invalid JSON");
+      return;
+    }
+    const message = ClientWireMessage.safeParse(input);
+    if (!message.success) {
+      sendError(client, { code: "invalid_request", message: "RPC message failed validation.", retryable: false });
+      return;
+    }
+
+    if (!isAuthenticated()) {
+      if (message.data.type !== "hello") {
+        sendError(client, { code: "unauthorized", message: "RPC hello required.", retryable: false });
+        client.close(1008, "hello required");
+        return;
+      }
+      if (!secureEqual(message.data.token, this.token)) {
+        sendError(client, { code: "unauthorized", message: "Invalid RPC token.", retryable: false });
+        client.close(1008, "unauthorized");
+        return;
+      }
+      if (message.data.environmentId !== this.environment.environmentId) {
+        sendError(client, { code: "environment_mismatch", message: "Wrong environment.", retryable: false });
+        client.close(1008, "environment mismatch");
+        return;
+      }
+      setAuthenticated(true);
+      send(client, {
+        type: "hello",
+        protocolVersion: 1,
+        environment: this.environment,
+      });
+      return;
+    }
+
+    switch (message.data.type) {
+      case "command":
+        try {
+          const receipt = await this.engine.dispatch(message.data.request);
+          if (receipt.status === "accepted") {
+            send(client, {
+              type: "response",
+              response: {
+                commandId: message.data.request.commandId,
+                accepted: true,
+                ...(receipt.result ? { result: receipt.result } : {}),
+              },
+            });
+          } else {
+            send(client, {
+              type: "response",
+              response: {
+                commandId: message.data.request.commandId,
+                accepted: false,
+                error: {
+                  code: "invalid_request",
+                  message: receipt.error?.message ?? "Command rejected.",
+                  retryable: false,
+                },
+              },
+            });
+          }
+        } catch (error) {
+          sendError(client, {
+            code: "internal",
+            message: error instanceof Error ? error.message : "Command failed.",
+            retryable: true,
+          });
+        }
+        return;
+      case "subscribe": {
+        const unsubscribe = this.engine.subscribe((event) => send(client, { type: "event", envelope: event }));
+        setUnsubscribe(unsubscribe);
+        try {
+          send(client, { type: "projection", projection: await this.engine.projection() });
+          for (const event of await this.engine.eventsAfter(message.data.afterSequence)) {
+            send(client, { type: "event", envelope: event });
+          }
+        } catch (error) {
+          sendError(client, {
+            code: "internal",
+            message: error instanceof Error ? error.message : "Subscription failed.",
+            retryable: true,
+          });
+        }
+        return;
+      }
+      case "projection.get":
+        send(client, { type: "projection", projection: await this.engine.projection() });
+        return;
+      case "hello":
+        sendError(client, { code: "invalid_request", message: "RPC hello was already completed.", retryable: false });
+        return;
+    }
+  }
+}
+
+function isLoopback(request: IncomingMessage): boolean {
+  const address = request.socket.remoteAddress?.replace(/^::ffff:/u, "");
+  return address === "127.0.0.1" || address === "::1";
+}
+
+function secureEqual(left: string, right: string): boolean {
+  const leftBytes = Buffer.from(left);
+  const rightBytes = Buffer.from(right);
+  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
+}
+
+function send(client: WebSocket, message: unknown): void {
+  if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(message));
+}
+
+function sendError(client: WebSocket, error: RuntimeError): void {
+  send(client, { type: "error", error });
+}

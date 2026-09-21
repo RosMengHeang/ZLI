@@ -6,6 +6,11 @@ import { ProjectProjection } from "./projections.js";
 export const RuntimeEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("runtime.ready") }),
   z.object({ type: z.literal("project.registered"), project: ProjectProjection }),
+  z.object({
+    type: z.literal("runtime.reactor.failed"),
+    reactor: z.string().min(1),
+    message: z.string().min(1),
+  }),
 ]);
 export type RuntimeEvent = z.infer<typeof RuntimeEvent>;
 
