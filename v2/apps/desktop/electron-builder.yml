@@ -7,11 +7,6 @@ directories:
 files:
   - dist/**
   - renderer/**
-extraResources:
-  - from: ../server/dist
-    to: server
-    filter:
-      - '**/*'
 win:
   target:
     - nsis
