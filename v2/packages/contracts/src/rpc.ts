@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { BrowserTabId, CommandId, EnvironmentId, ProjectId, TerminalId, ThreadId, TurnId, WorktreeId } from "./ids.js";
 import { RuntimeEventEnvelope } from "./events.js";
-import { EnvironmentDescriptor, RuntimeProjection, WorktreeProjection } from "./projections.js";
+import { EnvironmentDescriptor, RuntimeProjection, WorktreeProjection, SupportBundleProjection } from "./projections.js";
 import { TerminalAttachSnapshot, TerminalProjection, TerminalStreamMessage } from "./terminal.js";
 import { ReviewProjection } from "./review.js";
 import { BrowserTabProjection } from "./browser.js";
@@ -81,6 +81,9 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("review.abortMerge"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("review.archive"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("review.updated"), review: ReviewProjection }),
+  z.object({ type: z.literal("diagnostics.createSupportBundle"), destinationPath: z.string().min(1) }),
+  z.object({ type: z.literal("diagnostics.bundle.created"), bundle: SupportBundleProjection }),
+  z.object({ type: z.literal("diagnostics.bundle.failed"), message: z.string().min(1) }),
 ]);
 export type RuntimeCommand = z.infer<typeof RuntimeCommand>;
 

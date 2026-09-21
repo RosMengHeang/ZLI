@@ -179,6 +179,20 @@ export function projectEvent(
     case "review.merge.requested":
     case "review.abortMerge.requested":
       return { ...projection, lastSequence: envelope.sequence };
+    case "diagnostics.bundle.requested":
+      return { ...projection, lastSequence: envelope.sequence };
+    case "diagnostics.bundle.created":
+      return {
+        ...projection,
+        diagnostics: { lastBundle: event.bundle },
+        lastSequence: envelope.sequence,
+      };
+    case "diagnostics.bundle.failed":
+      return {
+        ...projection,
+        diagnostics: { ...(projection.diagnostics ?? {}), lastError: event.message },
+        lastSequence: envelope.sequence,
+      };
     case "runtime.ready":
     case "runtime.reactor.failed":
       return { ...projection, lastSequence: envelope.sequence };

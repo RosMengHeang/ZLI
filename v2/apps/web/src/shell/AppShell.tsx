@@ -47,6 +47,29 @@ function WorkspaceApp() {
     if (response?.accepted === false) setNotice(response.error.message);
   };
 
+  const exportSupportBundle = async () => {
+    if (!bridge) { setNotice("The desktop bridge is unavailable. Start ZLI from Electron."); return; }
+    const destinationPath = await bridge.dialog.saveSupportBundle();
+    if (!destinationPath) return;
+    const response = await dispatch({
+      protocolVersion: 1,
+      commandId: makeId(),
+      command: { type: "diagnostics.createSupportBundle", destinationPath },
+    });
+    if (response?.accepted === false) setNotice(response.error.message);
+    else setNotice("Creating a redacted support bundle...");
+  };
+
+  useEffect(() => {
+    const bundle = projection?.diagnostics?.lastBundle;
+    if (bundle) setNotice("Support bundle saved: " + bundle.path);
+  }, [projection?.diagnostics?.lastBundle?.createdAt]);
+
+  useEffect(() => {
+    const message = projection?.diagnostics?.lastError;
+    if (message) setNotice("Support bundle failed: " + message);
+  }, [projection?.diagnostics?.lastError]);
+
   const createWorktree = async (branch: string, baseRef: string) => {
     const project = projection?.projects[0];
     if (!project) return;
@@ -77,7 +100,7 @@ function WorkspaceApp() {
           {!bridge ? <DisconnectedState /> : !projection ? <LoadingState /> : <PaneTree pane={pane} onChange={setPane}>{pane === "agent" ? <AgentPane projection={projection} worktree={activeWorktree} /> : pane === "terminal" ? <TerminalPane projection={projection} worktree={activeWorktree} onOpenBrowser={() => choosePane("browser")} /> : pane === "browser" ? <BrowserPane worktree={activeWorktree} /> : <ReviewPane worktree={activeWorktree} />}</PaneTree>}
         </main>
       </div>
-      {paletteOpen && <div className="palette-backdrop" role="presentation" onMouseDown={() => setPaletteOpen(false)}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={(event) => event.stopPropagation()}><div className="palette-search"><span aria-hidden="true">⌕</span><input autoFocus placeholder="Search commands" aria-label="Search commands" /></div><div className="palette-section"><span className="eyebrow">Workspace</span><button type="button" onClick={() => void openProject()}>Open project</button><button type="button" onClick={() => choosePane("agent")}>Focus agent</button><button type="button" onClick={() => choosePane("terminal")}>Focus terminal</button><button type="button" onClick={() => choosePane("browser")}>Focus browser</button><button type="button" onClick={() => choosePane("review")}>Focus review</button></div></section></div>}
+      {paletteOpen && <div className="palette-backdrop" role="presentation" onMouseDown={() => setPaletteOpen(false)}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={(event) => event.stopPropagation()}><div className="palette-search"><span aria-hidden="true">⌕</span><input autoFocus placeholder="Search commands" aria-label="Search commands" /></div><div className="palette-section"><span className="eyebrow">Workspace</span><button type="button" onClick={() => void openProject()}>Open project</button><button type="button" onClick={() => void exportSupportBundle()}>Export support bundle</button><button type="button" onClick={() => choosePane("agent")}>Focus agent</button><button type="button" onClick={() => choosePane("terminal")}>Focus terminal</button><button type="button" onClick={() => choosePane("browser")}>Focus browser</button><button type="button" onClick={() => choosePane("review")}>Focus review</button></div></section></div>}
       {worktreeDialogOpen && <WorktreeDialog onClose={() => setWorktreeDialogOpen(false)} onSubmit={(branch, baseRef) => void createWorktree(branch, baseRef)} />}
     </div>
   );

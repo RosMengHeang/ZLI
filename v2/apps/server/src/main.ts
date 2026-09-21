@@ -21,6 +21,7 @@ import { CodexAppServerClient } from "@zli-v2/provider-codex";
 import { CodexProviderAdapter } from "./providers/CodexProviderAdapter.js";
 import { ProviderReactor } from "./providers/ProviderReactor.js";
 import { ProviderRegistry, ProviderService } from "./providers/ProviderService.js";
+import { DiagnosticsReactor } from "./diagnostics/DiagnosticsReactor.js";
 
 export type RuntimeProcess = {
   database: Database;
@@ -33,6 +34,7 @@ export type RuntimeProcess = {
   providerService: ProviderService;
   providerReactor: ProviderReactor;
   reviewReactor: ReviewReactor;
+  diagnosticsReactor: DiagnosticsReactor;
   token: string;
   close: () => Promise<void>;
 };
@@ -71,6 +73,7 @@ export async function startRuntime(options: {
     new CodexProviderAdapter({ createClient: () => CodexAppServerClient.connect() }),
   ]));
   const providerReactor = new ProviderReactor(engine, providerService);
+  const diagnosticsReactor = new DiagnosticsReactor(engine);
   const server = new RpcServer({ engine, environment, token, terminalService });
   await server.start();
   await terminalReactor.restore();
@@ -85,6 +88,7 @@ export async function startRuntime(options: {
     providerService,
     providerReactor,
     reviewReactor,
+    diagnosticsReactor,
     token,
     close: async () => {
       await server.stop();
@@ -92,10 +96,12 @@ export async function startRuntime(options: {
       await terminalReactor.waitForIdle();
       await reviewReactor.waitForIdle();
       await providerReactor.waitForIdle();
+      await diagnosticsReactor.waitForIdle();
       worktreeReactor.stop();
       terminalReactor.stop();
       reviewReactor.stop();
       providerReactor.stop();
+      diagnosticsReactor.stop();
       await providerService.stopAll();
       providerService.dispose();
       database.close();

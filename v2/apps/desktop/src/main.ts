@@ -136,6 +136,13 @@ function registerIpc(): void {
     const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
     return result.canceled ? undefined : result.filePaths[0];
   });
+  ipcMain.handle("zli:dialog:save-support-bundle", async () => {
+    const result = await dialog.showSaveDialog({
+      defaultPath: "zli-support-bundle.zip",
+      filters: [{ name: "ZLI support bundle", extensions: ["zip"] }],
+    });
+    return result.canceled ? undefined : result.filePath;
+  });
   ipcMain.handle("zli:menu:trigger", (_event, input: { command?: string }) => {
     if (!input || !["new-project", "settings", "toggle-sidebar"].includes(input.command ?? "")) {
       throw new Error("Unknown menu command.");

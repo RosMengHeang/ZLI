@@ -58,6 +58,9 @@ export type DomainDecision = Extract<
       | "review.abortMerge.requested"
       | "review.updated"
       | "review.archived"
+      | "diagnostics.bundle.requested"
+      | "diagnostics.bundle.created"
+      | "diagnostics.bundle.failed"
       | "terminal.status.changed"
       | "thread.start.requested"
       | "thread.send.requested"
@@ -269,6 +272,12 @@ export function decide(
     case "review.archive":
       assertWorktree(projection, command.worktreeId);
       return [{ type: "review.archived", worktreeId: command.worktreeId }];
+    case "diagnostics.createSupportBundle":
+      return [{ type: "diagnostics.bundle.requested", destinationPath: command.destinationPath }];
+    case "diagnostics.bundle.created":
+      return [{ type: "diagnostics.bundle.created", bundle: command.bundle }];
+    case "diagnostics.bundle.failed":
+      return [{ type: "diagnostics.bundle.failed", message: command.message }];
     default:
       throw new DomainError("unsupported_command", `Command ${command.type} is not a domain mutation.`);
   }

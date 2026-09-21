@@ -83,6 +83,10 @@ export function createPreloadApi(ipc: IpcBridge) {
     },
     dialog: {
       openProject: () => ipc.invoke("zli:dialog:open-project"),
+      saveSupportBundle: async () => {
+        const path = await ipc.invoke("zli:dialog:save-support-bundle");
+        return typeof path === "string" ? path : undefined;
+      },
     },
     menu: {
       trigger: (command: string) => ipc.invoke("zli:menu:trigger", { command }),

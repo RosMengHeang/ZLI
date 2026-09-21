@@ -56,6 +56,20 @@ export const AttentionProjection = z.object({
 });
 export type AttentionProjection = z.infer<typeof AttentionProjection>;
 
+export const SupportBundleProjection = z.object({
+  path: z.string().min(1),
+  bytes: z.number().int().positive(),
+  entries: z.array(z.string().min(1)),
+  createdAt: z.string().datetime({ offset: true }),
+});
+export type SupportBundleProjection = z.infer<typeof SupportBundleProjection>;
+
+export const DiagnosticsProjection = z.object({
+  lastBundle: SupportBundleProjection.optional(),
+  lastError: z.string().min(1).optional(),
+});
+export type DiagnosticsProjection = z.infer<typeof DiagnosticsProjection>;
+
 export const RuntimeProjection = z.object({
   environment: EnvironmentDescriptor,
   projects: z.array(ProjectProjection),
@@ -66,6 +80,7 @@ export const RuntimeProjection = z.object({
   terminals: z.array(TerminalProjection),
   browserTabs: z.array(BrowserTabProjection),
   reviews: z.array(ReviewProjection).optional(),
+  diagnostics: DiagnosticsProjection.optional(),
   attention: z.array(AttentionProjection),
   lastSequence: z.number().int().nonnegative(),
 });

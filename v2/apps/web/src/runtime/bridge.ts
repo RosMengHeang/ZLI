@@ -29,7 +29,10 @@ export type ZliBridge = {
     consoleEntries(browserTabId: string): Promise<readonly unknown[]>;
     networkEntries(browserTabId: string): Promise<readonly unknown[]>;
   };
-  dialog: { openProject(): Promise<string | undefined> };
+  dialog: {
+    openProject(): Promise<string | undefined>;
+    saveSupportBundle(): Promise<string | undefined>;
+  };
   menu: { trigger(command: string): Promise<unknown> };
   app: { getVersion(): Promise<string>; quit(): Promise<void> };
 };

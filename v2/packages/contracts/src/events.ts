@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { BrowserTabId, EventId, TerminalId, ThreadId, TurnId, WorktreeId, WorkspaceId } from "./ids.js";
 import { BrowserTabProjection } from "./browser.js";
-import { ProjectProjection, WorktreeProjection } from "./projections.js";
+import { ProjectProjection, WorktreeProjection, SupportBundleProjection } from "./projections.js";
 import { ProviderCapabilities, ThreadMessageProjection, ThreadProjection, ThreadRequestProjection } from "./provider.js";
 import { TerminalProjection, TerminalStatus } from "./terminal.js";
 import { ReviewProjection } from "./review.js";
@@ -70,6 +70,9 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("review.abortMerge.requested"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("review.updated"), review: ReviewProjection }),
   z.object({ type: z.literal("review.archived"), worktreeId: WorktreeId }),
+  z.object({ type: z.literal("diagnostics.bundle.requested"), destinationPath: z.string().min(1) }),
+  z.object({ type: z.literal("diagnostics.bundle.created"), bundle: SupportBundleProjection }),
+  z.object({ type: z.literal("diagnostics.bundle.failed"), message: z.string().min(1) }),
   z.object({
     type: z.literal("terminal.status.changed"),
     terminalId: TerminalId,
