@@ -11,11 +11,12 @@ import { Engine } from "./orchestration/Engine.js";
 import { RpcServer } from "./rpc/Server.js";
 import { WorktreeReactor } from "./worktrees/WorktreeReactor.js";
 import { WorktreeService } from "./worktrees/WorktreeService.js";
-import { NodePtyFactory } from "./terminal/NodePtyFactory.js";
 import { TerminalReactor } from "./terminal/TerminalReactor.js";
 import { TerminalService } from "./terminal/TerminalService.js";
 import { ReviewReactor } from "./review/ReviewReactor.js";
 import { ReviewService } from "./review/ReviewService.js";
+import { DaemonSupervisor } from "./daemon/DaemonSupervisor.js";
+import { RemotePtyFactory } from "./terminal/RemotePtyFactory.js";
 
 export type RuntimeProcess = {
   database: Database;
@@ -24,6 +25,7 @@ export type RuntimeProcess = {
   worktreeReactor: WorktreeReactor;
   terminalService: TerminalService;
   terminalReactor: TerminalReactor;
+  daemonSupervisor: DaemonSupervisor;
   reviewReactor: ReviewReactor;
   token: string;
   close: () => Promise<void>;
@@ -55,11 +57,13 @@ export async function startRuntime(options: {
   const database = new Database({ path: databasePath });
   const engine = new Engine({ database, environment });
   const worktreeReactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()));
-  const terminalService = new TerminalService(new NodePtyFactory());
+  const daemonSupervisor = new DaemonSupervisor({ endpointPath: `${databasePath}.daemon.json` });
+  const terminalService = new TerminalService(new RemotePtyFactory({ connect: () => daemonSupervisor.connect() }));
   const terminalReactor = new TerminalReactor(engine, terminalService);
   const reviewReactor = new ReviewReactor(engine, new ReviewService(new GitProcess()));
   const server = new RpcServer({ engine, environment, token, terminalService });
   await server.start();
+  await terminalReactor.restore();
   return {
     database,
     engine,
@@ -67,6 +71,7 @@ export async function startRuntime(options: {
     worktreeReactor,
     terminalService,
     terminalReactor,
+    daemonSupervisor,
     reviewReactor,
     token,
     close: async () => {
@@ -77,7 +82,6 @@ export async function startRuntime(options: {
       worktreeReactor.stop();
       terminalReactor.stop();
       reviewReactor.stop();
-      terminalService.stopAll();
       database.close();
     },
   };

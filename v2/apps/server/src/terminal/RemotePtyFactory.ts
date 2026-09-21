@@ -33,6 +33,9 @@ export class RemotePtyFactory implements PtyFactory {
         rows: input.rows,
       });
       const pid = readPid(created);
+      if (pid === 0 && !isAlreadyExists(created)) {
+        throw new Error(readError(created) ?? "Terminal daemon did not create the PTY.");
+      }
       const attachment = await connection.request({
         type: "terminal.attach",
         terminalId: input.terminalId,
@@ -126,6 +129,16 @@ function readPid(value: unknown): number {
   if (!value || typeof value !== "object") return 0;
   const terminal = (value as { terminal?: { pid?: unknown } }).terminal;
   return typeof terminal?.pid === "number" ? terminal.pid : 0;
+}
+
+function isAlreadyExists(value: unknown): boolean {
+  return readError(value)?.toLowerCase().includes("already exists") ?? false;
+}
+
+function readError(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const message = (value as { message?: unknown }).message;
+  return typeof message === "string" ? message : undefined;
 }
 
 function readSnapshot(value: unknown, terminalId: TerminalId): TerminalAttachSnapshot {

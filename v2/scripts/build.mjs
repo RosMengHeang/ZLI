@@ -40,3 +40,11 @@ await build({
   format: "esm",
   external: ["node-pty", "ws"],
 });
+
+await build({
+  ...shared,
+  entryPoints: [resolve(root, "apps/server/src/daemon-entry.ts")],
+  outfile: resolve(desktopDist, "daemon-entry.js"),
+  format: "esm",
+  external: ["node-pty"],
+});

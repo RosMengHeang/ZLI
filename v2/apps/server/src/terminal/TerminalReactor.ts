@@ -33,6 +33,20 @@ export class TerminalReactor {
     await this.engine.projection();
   }
 
+  async restore(): Promise<void> {
+    const projection = await this.engine.projection();
+    const events = await this.engine.eventsAfter(0);
+    for (const envelope of events) {
+      if (envelope.event.type !== "terminal.create.requested") continue;
+      const intent = envelope.event;
+      const terminal = projection.terminals.find((candidate) => candidate.terminalId === intent.terminal.terminalId);
+      if (!terminal || (terminal.status !== "running" && terminal.status !== "starting") || this.intents.has(terminal.terminalId)) continue;
+      this.intents.set(terminal.terminalId, intent);
+      this.startCreate(intent);
+    }
+    await this.waitForIdle();
+  }
+
   private onEvent(envelope: RuntimeEventEnvelope): void {
     switch (envelope.event.type) {
       case "terminal.create.requested":
