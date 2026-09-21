@@ -1,10 +1,25 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, WebContentsView } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
 
 import { RuntimeClient, type RuntimeTransport } from "@zli-v2/client-runtime";
+import {
+  BrowserFillInput,
+  BrowserNavigateInput,
+  BrowserPressInput,
+  BrowserReloadInput,
+  BrowserScreenshotInput,
+  BrowserSelectorInput,
+  BrowserSetBoundsInput,
+  BrowserTabIdInput,
+  BrowserWaitForNetworkIdleInput,
+} from "@zli-v2/contracts";
 
+import { BrowserManager } from "./browser/BrowserManager.js";
+import { BrowserAutomation } from "./browser/BrowserAutomation.js";
+import { CdpSession, type ElectronDebuggerLike } from "./browser/CdpSession.js";
+import { DesignMode } from "./browser/DesignMode.js";
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
 import { resolveAppAsset } from "./window/ElectronProtocol.js";
 import { createMainWindow, type BrowserWindowConstructor } from "./window/ElectronWindow.js";
@@ -19,6 +34,7 @@ protocol.registerSchemesAsPrivileged([{
 
 let environment: EnvironmentProcess | undefined;
 let runtime: RuntimeClient | undefined;
+let browserManager: BrowserManager | undefined;
 
 async function main(): Promise<void> {
   await app.whenReady();
@@ -40,6 +56,32 @@ async function main(): Promise<void> {
   });
   registerIpc();
   const window = createMainWindow(BrowserWindow as unknown as BrowserWindowConstructor, join(__dirname, "preload.js"), APP_ORIGIN);
+  const electronWindow = window as unknown as BrowserWindow;
+  browserManager = new BrowserManager(
+    {
+      create: ({ session: browserSession }) => new WebContentsView({
+        webPreferences: {
+          contextIsolation: true,
+          sandbox: true,
+          nodeIntegration: false,
+          ...(browserSession ? { session: browserSession as Electron.Session } : {}),
+        },
+      }) as unknown as import("./browser/BrowserManager.js").BrowserViewLike,
+    },
+    {
+      addChildView: (view) => electronWindow.contentView.addChildView(view as unknown as WebContentsView),
+      removeChildView: (view) => electronWindow.contentView.removeChildView(view as unknown as WebContentsView),
+    },
+    {
+      sessionModule: session,
+      automationFactory: (view) => {
+        const debuggerLike = (view.webContents as unknown as { debugger: ElectronDebuggerLike }).debugger;
+        const cdp = new CdpSession(debuggerLike);
+        const automation = new BrowserAutomation(cdp);
+        return { cdp, automation, designMode: new DesignMode(automation) };
+      },
+    },
+  );
   runtime.subscribe((projection) => {
     if (!window.webContents.isDestroyed?.() && window.webContents.send) {
       window.webContents.send("zli:runtime:projection", projection);
@@ -68,6 +110,59 @@ function registerIpc(): void {
     }
     return { accepted: true };
   });
+  ipcMain.handle("zli:browser:create", async (_event, input: unknown) => {
+    if (!browserManager) throw new Error("Browser is not ready.");
+    return browserManager.create(input);
+  });
+  ipcMain.handle("zli:browser:close", (_event, input: unknown) => browserManager?.close(BrowserTabIdInput.parse(input).browserTabId));
+  ipcMain.handle("zli:browser:activate", async (_event, input: unknown) => browserManager?.activate(BrowserTabIdInput.parse(input).browserTabId));
+  ipcMain.handle("zli:browser:navigate", async (_event, input: unknown) => browserManager?.navigate(BrowserNavigateInput.parse(input)));
+  ipcMain.handle("zli:browser:set-bounds", async (_event, input: unknown) => {
+    const parsed = BrowserSetBoundsInput.parse(input);
+    return browserManager?.setBounds(parsed.browserTabId, parsed.bounds);
+  });
+  ipcMain.handle("zli:browser:back", (_event, input: unknown) => browserManager?.back(BrowserTabIdInput.parse(input).browserTabId));
+  ipcMain.handle("zli:browser:forward", (_event, input: unknown) => browserManager?.forward(BrowserTabIdInput.parse(input).browserTabId));
+  ipcMain.handle("zli:browser:reload", (_event, input: unknown) => {
+    const parsed = BrowserReloadInput.parse(input);
+    return browserManager?.reload(parsed.browserTabId, parsed.hard);
+  });
+  ipcMain.handle("zli:browser:stop", (_event, input: unknown) => browserManager?.stop(BrowserTabIdInput.parse(input).browserTabId));
+  ipcMain.handle("zli:browser:devtools", (_event, input: unknown) => browserManager?.openDevTools(BrowserTabIdInput.parse(input).browserTabId));
+  ipcMain.handle("zli:browser:snapshot", (_event, input: unknown) => browserManager?.snapshot(BrowserTabIdInput.parse(input).browserTabId));
+  ipcMain.handle("zli:browser:click", (_event, input: unknown) => {
+    const parsed = BrowserSelectorInput.parse(input);
+    return browserManager?.click(parsed.browserTabId, { selector: parsed.selector });
+  });
+  ipcMain.handle("zli:browser:fill", (_event, input: unknown) => {
+    const parsed = BrowserFillInput.parse(input);
+    return browserManager?.fill(parsed.browserTabId, { selector: parsed.selector, value: parsed.value });
+  });
+  ipcMain.handle("zli:browser:press", (_event, input: unknown) => {
+    const parsed = BrowserPressInput.parse(input);
+    return browserManager?.press(parsed.browserTabId, { key: parsed.key });
+  });
+  ipcMain.handle("zli:browser:wait-network-idle", (_event, input: unknown) => {
+    const parsed = BrowserWaitForNetworkIdleInput.parse(input);
+    return browserManager?.waitForNetworkIdle(parsed.browserTabId, {
+      ...(parsed.idleMs === undefined ? {} : { idleMs: parsed.idleMs }),
+      ...(parsed.timeoutMs === undefined ? {} : { timeoutMs: parsed.timeoutMs }),
+    });
+  });
+  ipcMain.handle("zli:browser:screenshot", (_event, input: unknown) => {
+    const parsed = BrowserScreenshotInput.parse(input);
+    return browserManager?.screenshot(parsed.browserTabId, parsed.format === undefined ? {} : { format: parsed.format });
+  });
+  ipcMain.handle("zli:browser:inspect", (_event, input: unknown) => {
+    const parsed = BrowserSelectorInput.parse(input);
+    return browserManager?.inspectElement(parsed.browserTabId, { selector: parsed.selector });
+  });
+  ipcMain.handle("zli:browser:design-inspect", (_event, input: unknown) => {
+    const parsed = BrowserSelectorInput.parse(input);
+    return browserManager?.designInspect(parsed.browserTabId, { selector: parsed.selector });
+  });
+  ipcMain.handle("zli:browser:console", (_event, input: unknown) => browserManager?.consoleEntries(BrowserTabIdInput.parse(input).browserTabId));
+  ipcMain.handle("zli:browser:network", (_event, input: unknown) => browserManager?.networkEntries(BrowserTabIdInput.parse(input).browserTabId));
 }
 
 function connectWebSocket(url: string): Promise<RuntimeTransport> {
@@ -101,5 +196,6 @@ void main().catch((error) => {
 app.on("window-all-closed", () => {
   runtime?.close();
   environment?.stop();
+  browserManager?.closeAll();
   if (process.platform !== "darwin") app.quit();
 });
