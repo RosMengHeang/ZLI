@@ -48,6 +48,12 @@ export type DomainDecision = Extract<
       | "terminal.write.requested"
       | "terminal.resize.requested"
       | "terminal.stop.requested"
+      | "review.refresh.requested"
+      | "review.commit.requested"
+      | "review.merge.requested"
+      | "review.abortMerge.requested"
+      | "review.updated"
+      | "review.archived"
       | "terminal.status.changed";
   }
 >;
@@ -178,6 +184,25 @@ export function decide(
     case "terminal.attach":
     case "terminal.list":
       return [];
+    case "review.refresh":
+      assertWorktree(projection, command.worktreeId);
+      return [{ type: "review.refresh.requested", worktreeId: command.worktreeId, baseRef: command.baseRef }];
+    case "review.commit":
+      assertWorktree(projection, command.worktreeId);
+      return [{ type: "review.commit.requested", worktreeId: command.worktreeId, message: command.message }];
+    case "review.merge":
+      assertWorktree(projection, command.worktreeId);
+      assertSafeRef(command.targetRef);
+      return [{ type: "review.merge.requested", worktreeId: command.worktreeId, targetRef: command.targetRef }];
+    case "review.abortMerge":
+      assertWorktree(projection, command.worktreeId);
+      return [{ type: "review.abortMerge.requested", worktreeId: command.worktreeId }];
+    case "review.updated":
+      assertWorktree(projection, command.review.worktreeId);
+      return [{ type: "review.updated", review: command.review }];
+    case "review.archive":
+      assertWorktree(projection, command.worktreeId);
+      return [{ type: "review.archived", worktreeId: command.worktreeId }];
     default:
       throw new DomainError("unsupported_command", `Command ${command.type} is not a domain mutation.`);
   }
@@ -192,6 +217,12 @@ function assertWorktree(projection: RuntimeProjection, worktreeId: string): void
 function assertTerminal(projection: RuntimeProjection, terminalId: string): void {
   if (!projection.terminals.some((terminal) => terminal.terminalId === terminalId)) {
     throw new DomainError("terminal_missing", `Terminal does not exist: ${terminalId}`);
+  }
+}
+
+function assertSafeRef(ref: string): void {
+  if (!ref || ref.startsWith("-") || ref.includes("\0") || ref.includes("\\") || /(^|\/)\.\.?($|\/)/u.test(ref) || /[~^:?*\[]/u.test(ref) || ref.endsWith(".lock") || ref.endsWith(".")) {
+    throw new DomainError("unsupported_command", `Unsafe Git ref: ${ref}`);
   }
 }
 

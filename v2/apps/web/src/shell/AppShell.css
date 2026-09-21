@@ -81,6 +81,18 @@ kbd { padding: 2px 5px; border: 1px solid var(--zli-border-strong); border-radiu
 .browser-surface.has-tab { background: #111; }
 .browser-empty { min-height: 100%; }
 .coming-soon { margin-top: 12px; color: var(--zli-dim); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+.review-controls { display: flex; flex-direction: column; gap: 9px; margin: 0 20px 18px; padding-top: 12px; border-top: 1px solid var(--zli-border); }
+.review-controls label { display: flex; flex-direction: column; gap: 5px; color: var(--zli-muted); font-size: 11px; }
+.review-controls input { height: 30px; padding: 0 9px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); background: var(--zli-canvas); color: var(--zli-text); outline: none; font-family: var(--zli-mono); font-size: 11px; }
+.review-controls input:focus { border-color: var(--zli-border-strong); }
+.review-summary { color: var(--zli-muted); font-size: 12px; }
+.review-file-list { min-height: 0; margin: 0 14px 10px; padding: 0 6px; overflow: auto; }
+.review-file { display: flex; align-items: center; gap: 9px; min-height: 31px; padding: 5px 8px; border-bottom: 1px solid var(--zli-border); color: var(--zli-text); font-family: var(--zli-mono); font-size: 11px; }
+.review-file > span:nth-child(2) { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-stat { color: var(--zli-dim); }
+.status-added, .status-untracked { background: var(--zli-green); }
+.status-modified, .status-renamed { background: var(--zli-amber); }
+.status-deleted { background: var(--zli-red); }
 .palette-backdrop { position: fixed; z-index: 10; inset: 0; display: flex; justify-content: center; padding-top: 84px; background: rgba(0, 0, 0, .42); }
 .command-palette { width: min(520px, calc(100vw - 32px)); height: max-content; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-raised); box-shadow: 0 18px 48px rgba(0, 0, 0, .38); overflow: hidden; }
 .palette-search { display: flex; align-items: center; gap: 8px; margin: 8px; padding: 0 10px; color: var(--zli-dim); }

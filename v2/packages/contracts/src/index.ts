@@ -3,5 +3,6 @@ export * from "./events.js";
 export * from "./ids.js";
 export * from "./projections.js";
 export * from "./provider.js";
+export * from "./review.js";
 export * from "./rpc.js";
 export * from "./terminal.js";

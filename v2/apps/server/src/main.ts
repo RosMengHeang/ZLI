@@ -14,6 +14,8 @@ import { WorktreeService } from "./worktrees/WorktreeService.js";
 import { NodePtyFactory } from "./terminal/NodePtyFactory.js";
 import { TerminalReactor } from "./terminal/TerminalReactor.js";
 import { TerminalService } from "./terminal/TerminalService.js";
+import { ReviewReactor } from "./review/ReviewReactor.js";
+import { ReviewService } from "./review/ReviewService.js";
 
 export type RuntimeProcess = {
   database: Database;
@@ -22,6 +24,7 @@ export type RuntimeProcess = {
   worktreeReactor: WorktreeReactor;
   terminalService: TerminalService;
   terminalReactor: TerminalReactor;
+  reviewReactor: ReviewReactor;
   token: string;
   close: () => Promise<void>;
 };
@@ -54,6 +57,7 @@ export async function startRuntime(options: {
   const worktreeReactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()));
   const terminalService = new TerminalService(new NodePtyFactory());
   const terminalReactor = new TerminalReactor(engine, terminalService);
+  const reviewReactor = new ReviewReactor(engine, new ReviewService(new GitProcess()));
   const server = new RpcServer({ engine, environment, token });
   await server.start();
   return {
@@ -63,13 +67,16 @@ export async function startRuntime(options: {
     worktreeReactor,
     terminalService,
     terminalReactor,
+    reviewReactor,
     token,
     close: async () => {
       await server.stop();
       await worktreeReactor.waitForIdle();
       await terminalReactor.waitForIdle();
+      await reviewReactor.waitForIdle();
       worktreeReactor.stop();
       terminalReactor.stop();
+      reviewReactor.stop();
       terminalService.stopAll();
       database.close();
     },

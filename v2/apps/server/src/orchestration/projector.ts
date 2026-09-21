@@ -91,6 +91,23 @@ export function projectEvent(
     case "terminal.resize.requested":
     case "terminal.stop.requested":
       return { ...projection, lastSequence: envelope.sequence };
+    case "review.updated":
+      return {
+        ...projection,
+        reviews: [...(projection.reviews ?? []).filter((review) => review.worktreeId !== event.review.worktreeId), event.review],
+        lastSequence: envelope.sequence,
+      };
+    case "review.archived":
+      return {
+        ...projection,
+        reviews: (projection.reviews ?? []).filter((review) => review.worktreeId !== event.worktreeId),
+        lastSequence: envelope.sequence,
+      };
+    case "review.refresh.requested":
+    case "review.commit.requested":
+    case "review.merge.requested":
+    case "review.abortMerge.requested":
+      return { ...projection, lastSequence: envelope.sequence };
     case "runtime.ready":
     case "runtime.reactor.failed":
       return { ...projection, lastSequence: envelope.sequence };

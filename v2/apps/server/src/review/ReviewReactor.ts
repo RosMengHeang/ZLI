@@ -1,0 +1,88 @@
+import { randomUUID } from "node:crypto";
+
+import { CommandId, ReviewProjection, WorktreeId, type RuntimeEventEnvelope } from "@zli-v2/contracts";
+
+import { Engine } from "../orchestration/Engine.js";
+import { ReviewService, type ReviewServiceInput } from "./ReviewService.js";
+
+export class ReviewReactor {
+  private readonly tasks = new Set<Promise<void>>();
+  private readonly unsubscribe: () => void;
+
+  constructor(private readonly engine: Engine, private readonly service: ReviewService) {
+    this.unsubscribe = engine.subscribe((envelope) => this.onEvent(envelope));
+  }
+
+  stop(): void { this.unsubscribe(); }
+
+  async waitForIdle(): Promise<void> {
+    while (this.tasks.size > 0) await Promise.all([...this.tasks]);
+    await this.engine.projection();
+  }
+
+  private onEvent(envelope: RuntimeEventEnvelope): void {
+    const event = envelope.event;
+    switch (event.type) {
+      case "review.refresh.requested":
+        this.start(() => this.runRefresh(event.worktreeId, event.baseRef));
+        return;
+      case "review.commit.requested":
+        this.start(() => this.runCommit(event.worktreeId, event.message));
+        return;
+      case "review.merge.requested":
+        this.start(() => this.runMerge(event.worktreeId, event.targetRef));
+        return;
+      case "review.abortMerge.requested":
+        this.start(() => this.runAbortMerge(event.worktreeId));
+        return;
+      default:
+        return;
+    }
+  }
+
+  private start(taskFactory: () => Promise<void>): void {
+    const task = taskFactory();
+    this.tasks.add(task);
+    void task.then(() => this.tasks.delete(task), () => this.tasks.delete(task));
+  }
+
+  private async runRefresh(worktreeId: string, baseRef: string): Promise<void> {
+    await this.dispatchUpdated(await this.service.refresh(await this.input(worktreeId, baseRef)));
+  }
+
+  private async runCommit(worktreeId: string, message: string): Promise<void> {
+    const input = await this.input(worktreeId, await this.baseRef(worktreeId));
+    await this.dispatchUpdated(await this.service.commit({ ...input, message }));
+  }
+
+  private async runMerge(worktreeId: string, targetRef: string): Promise<void> {
+    const input = await this.input(worktreeId, await this.baseRef(worktreeId));
+    await this.dispatchUpdated(await this.service.merge({ ...input, targetRef }));
+  }
+
+  private async runAbortMerge(worktreeId: string): Promise<void> {
+    const input = await this.input(worktreeId, await this.baseRef(worktreeId));
+    await this.dispatchUpdated(await this.service.abortMerge(input));
+  }
+
+  private async input(worktreeId: string, baseRef: string): Promise<ReviewServiceInput> {
+    const projection = await this.engine.projection();
+    const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === worktreeId);
+    const project = worktree ? projection.projects.find((candidate) => candidate.projectId === worktree.projectId) : undefined;
+    if (!worktree || !project) throw new Error(`Cannot review missing worktree ${worktreeId}.`);
+    return { worktreeId: WorktreeId.parse(worktreeId), worktreePath: worktree.path, branch: worktree.branch, baseRef };
+  }
+
+  private async baseRef(worktreeId: string): Promise<string> {
+    const projection = await this.engine.projection();
+    return projection.reviews?.find((review) => review.worktreeId === worktreeId)?.baseRef ?? "main";
+  }
+
+  private dispatchUpdated(review: unknown): Promise<void> {
+    return this.engine.dispatch({
+      protocolVersion: 1,
+      commandId: CommandId.parse(randomUUID()),
+      command: { type: "review.updated", review: ReviewProjection.parse(review) },
+    }).then(() => undefined);
+  }
+}

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { EventId, TerminalId, WorktreeId, WorkspaceId } from "./ids.js";
 import { ProjectProjection, WorktreeProjection } from "./projections.js";
 import { TerminalProjection, TerminalStatus } from "./terminal.js";
+import { ReviewProjection } from "./review.js";
 
 export const RuntimeEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("runtime.ready") }),
@@ -49,6 +50,12 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     rows: z.number().int().positive(),
   }),
   z.object({ type: z.literal("terminal.stop.requested"), terminalId: TerminalId }),
+  z.object({ type: z.literal("review.refresh.requested"), worktreeId: WorktreeId, baseRef: z.string().min(1) }),
+  z.object({ type: z.literal("review.commit.requested"), worktreeId: WorktreeId, message: z.string().min(1).max(10_000) }),
+  z.object({ type: z.literal("review.merge.requested"), worktreeId: WorktreeId, targetRef: z.string().min(1) }),
+  z.object({ type: z.literal("review.abortMerge.requested"), worktreeId: WorktreeId }),
+  z.object({ type: z.literal("review.updated"), review: ReviewProjection }),
+  z.object({ type: z.literal("review.archived"), worktreeId: WorktreeId }),
   z.object({
     type: z.literal("terminal.status.changed"),
     terminalId: TerminalId,

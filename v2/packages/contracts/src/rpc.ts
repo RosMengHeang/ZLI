@@ -4,6 +4,7 @@ import { CommandId, EnvironmentId, ProjectId, TerminalId, WorktreeId } from "./i
 import { RuntimeEventEnvelope } from "./events.js";
 import { EnvironmentDescriptor, RuntimeProjection, WorktreeProjection } from "./projections.js";
 import { TerminalProjection } from "./terminal.js";
+import { ReviewProjection } from "./review.js";
 
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 
@@ -60,6 +61,12 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("runtime.subscribe"), afterSequence: z.number().int().nonnegative() }),
   z.object({ type: z.literal("runtime.getProjection") }),
+  z.object({ type: z.literal("review.refresh"), worktreeId: WorktreeId, baseRef: z.string().min(1) }),
+  z.object({ type: z.literal("review.commit"), worktreeId: WorktreeId, message: z.string().min(1).max(10_000) }),
+  z.object({ type: z.literal("review.merge"), worktreeId: WorktreeId, targetRef: z.string().min(1) }),
+  z.object({ type: z.literal("review.abortMerge"), worktreeId: WorktreeId }),
+  z.object({ type: z.literal("review.archive"), worktreeId: WorktreeId }),
+  z.object({ type: z.literal("review.updated"), review: ReviewProjection }),
 ]);
 export type RuntimeCommand = z.infer<typeof RuntimeCommand>;
 

@@ -4,6 +4,7 @@ import { EnvironmentId, ProjectId, WorktreeId } from "./ids.js";
 import { BrowserTabProjection } from "./browser.js";
 import { ThreadProjection } from "./provider.js";
 import { TerminalProjection } from "./terminal.js";
+import { ReviewProjection } from "./review.js";
 
 export const EnvironmentCapabilities = z.object({
   worktrees: z.boolean().optional(),
@@ -62,6 +63,7 @@ export const RuntimeProjection = z.object({
   threads: z.array(ThreadProjection),
   terminals: z.array(TerminalProjection),
   browserTabs: z.array(BrowserTabProjection),
+  reviews: z.array(ReviewProjection).optional(),
   attention: z.array(AttentionProjection),
   lastSequence: z.number().int().nonnegative(),
 });

@@ -34,6 +34,18 @@ export class ProjectionStore {
       case "runtime.ready":
         this.#projection = { ...current, lastSequence: envelope.sequence };
         break;
+      case "runtime.reactor.failed":
+      case "worktree.remove.requested":
+      case "worktree.archive.requested":
+      case "terminal.write.requested":
+      case "terminal.resize.requested":
+      case "terminal.stop.requested":
+      case "review.refresh.requested":
+      case "review.commit.requested":
+      case "review.merge.requested":
+      case "review.abortMerge.requested":
+        this.#projection = { ...current, lastSequence: envelope.sequence };
+        break;
       case "project.registered": {
         const projects = current.projects.filter(
           (project) => project.projectId !== event.project.projectId,
@@ -45,6 +57,61 @@ export class ProjectionStore {
         };
         break;
       }
+      case "worktree.create.requested":
+        this.#projection = {
+          ...current,
+          worktrees: [...current.worktrees.filter((worktree) => worktree.worktreeId !== event.worktree.worktreeId), event.worktree],
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "worktree.status.changed":
+        this.#projection = {
+          ...current,
+          worktrees: current.worktrees.map((worktree) => worktree.worktreeId === event.worktreeId ? {
+            ...worktree,
+            status: event.status,
+            ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+          } : worktree),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "worktree.removed":
+      case "worktree.archived":
+        this.#projection = { ...current, worktrees: current.worktrees.filter((worktree) => worktree.worktreeId !== event.worktreeId), lastSequence: envelope.sequence };
+        break;
+      case "terminal.create.requested":
+        this.#projection = {
+          ...current,
+          terminals: [...current.terminals.filter((terminal) => terminal.terminalId !== event.terminal.terminalId), event.terminal],
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "terminal.status.changed":
+        this.#projection = {
+          ...current,
+          terminals: current.terminals.map((terminal) => terminal.terminalId === event.terminalId ? {
+            ...terminal,
+            status: event.status,
+            ...(event.lastSequence === undefined ? {} : { lastSequence: event.lastSequence }),
+            ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+          } : terminal),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "review.updated":
+        this.#projection = {
+          ...current,
+          reviews: [...(current.reviews ?? []).filter((review) => review.worktreeId !== event.review.worktreeId), event.review],
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "review.archived":
+        this.#projection = {
+          ...current,
+          reviews: (current.reviews ?? []).filter((review) => review.worktreeId !== event.worktreeId),
+          lastSequence: envelope.sequence,
+        };
+        break;
     }
 
     this.#publish();
