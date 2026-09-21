@@ -1,0 +1,6 @@
+{
+  "name": "@zli-v2/server",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module"
+}

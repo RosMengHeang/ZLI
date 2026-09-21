@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "v2": "pnpm --dir v2",
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",

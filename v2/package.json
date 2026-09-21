@@ -1,0 +1,24 @@
+{
+  "name": "zli-v2",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "packageManager": "pnpm@10.14.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "boundaries": "node scripts/enforce-boundaries.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc -b --pretty false",
+    "verify": "pnpm run boundaries && pnpm run test && pnpm run typecheck"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.60.0",
+    "electron": "44.4.2",
+    "electron-builder": "26.15.6",
+    "playwright-core": "1.60.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11"
+  }
+}
