@@ -9,6 +9,7 @@
   },
   "scripts": {
     "boundaries": "node scripts/enforce-boundaries.mjs",
+    "desktop:pack": "pnpm --filter @zli-v2/desktop pack",
     "test": "vitest run",
     "typecheck": "tsc -b --pretty false",
     "verify": "pnpm run boundaries && pnpm run test && pnpm run typecheck"

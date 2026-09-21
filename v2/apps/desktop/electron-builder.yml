@@ -1,0 +1,24 @@
+appId: dev.zli.desktop
+productName: ZLI
+artifactName: ZLI-${version}-${os}-${arch}.${ext}
+asar: true
+directories:
+  output: release
+files:
+  - dist/**
+  - renderer/**
+extraResources:
+  - from: ../server/dist
+    to: server
+    filter:
+      - '**/*'
+win:
+  target:
+    - nsis
+  requestedExecutionLevel: asInvoker
+mac:
+  target:
+    - dmg
+linux:
+  target:
+    - AppImage
