@@ -50,4 +50,15 @@ describe("ReviewService", () => {
       { args: ["merge", "--no-edit", "--no-ff", "--", "feature/ui"], cwd: "C:/repo" },
     ]);
   });
+
+  it("aborts a target checkout merge instead of touching the worktree", async () => {
+    const calls: Array<{ args: string[]; cwd: string }> = [];
+    const service = new ReviewService({ run: async (args, options) => {
+      calls.push({ args: [...args], cwd: options.cwd });
+      if (args[0] === "rev-parse") return { code: 0, stdout: "feature/ui\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    } });
+    await service.abortMerge({ worktreeId: WorktreeId.parse("00000000-0000-4000-8000-000000000001"), worktreePath: "C:/repo/worktree", repositoryPath: "C:/repo", branch: "feature/ui", baseRef: "main" });
+    expect(calls[0]).toEqual({ args: ["merge", "--abort"], cwd: "C:/repo" });
+  });
 });

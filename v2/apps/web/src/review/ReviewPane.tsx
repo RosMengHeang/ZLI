@@ -36,6 +36,7 @@ export function ReviewPane({ worktree }: { worktree: WorktreeProjection | undefi
           <button className="primary-button" type="button" disabled={busy || !message.trim() || review.state === "conflicted"} onClick={() => void run({ type: "review.commit", worktreeId: worktree.worktreeId, message: message.trim() })}>Commit changes</button>
           <label>Merge target<input value={targetRef} onChange={(event) => setTargetRef(event.target.value)} placeholder="main" /></label>
           <button className="secondary-button" type="button" disabled={busy || !targetRef.trim() || review.state === "conflicted"} onClick={() => void run({ type: "review.merge", worktreeId: worktree.worktreeId, targetRef: targetRef.trim() })}>Merge into target</button>
+          {(review.state === "conflicted" || review.errorMessage) && <button className="secondary-button" type="button" disabled={busy} onClick={() => void run({ type: "review.abortMerge", worktreeId: worktree.worktreeId })}>Abort merge</button>}
         </>}
         {error && <p className="inline-error" role="alert">{error}</p>}
       </div>}

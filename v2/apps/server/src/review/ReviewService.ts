@@ -67,7 +67,7 @@ export class ReviewService {
   }
 
   async abortMerge(input: ReviewServiceInput): Promise<ReviewProjectionValue> {
-    await this.git.run(["merge", "--abort"], { cwd: input.worktreePath });
+    await this.git.run(["merge", "--abort"], { cwd: input.repositoryPath });
     return this.refresh(input);
   }
 }
