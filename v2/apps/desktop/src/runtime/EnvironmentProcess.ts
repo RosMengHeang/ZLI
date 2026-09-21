@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 
 type EnvironmentChild = {
   stdout: { on(event: "data", listener: (chunk: string | Buffer) => void): void };
@@ -11,7 +12,7 @@ type EnvironmentProcessOptions = {
   serverEntryPath: string;
   databasePath: string;
   timeoutMs?: number;
-  launcher?: (input: { serverEntryPath: string; databasePath: string }) => EnvironmentChild;
+  launcher?: (input: { serverEntryPath: string; databasePath: string; token: string }) => EnvironmentChild;
 };
 
 export type EnvironmentDescriptorLine = { url: string; token: string };
@@ -19,8 +20,11 @@ export type EnvironmentDescriptorLine = { url: string; token: string };
 export class EnvironmentProcess {
   private child: EnvironmentChild | undefined;
   private startPromise: Promise<EnvironmentDescriptorLine> | undefined;
+  private readonly token: string;
 
-  constructor(private readonly options: EnvironmentProcessOptions) {}
+  constructor(private readonly options: EnvironmentProcessOptions) {
+    this.token = randomBytes(32).toString("hex");
+  }
 
   start(): Promise<EnvironmentDescriptorLine> {
     if (this.startPromise) return this.startPromise;
@@ -28,6 +32,7 @@ export class EnvironmentProcess {
       const child = (this.options.launcher ?? defaultLauncher)({
         serverEntryPath: this.options.serverEntryPath,
         databasePath: this.options.databasePath,
+        token: this.token,
       });
       this.child = child;
       let buffer = "";
@@ -61,7 +66,13 @@ export class EnvironmentProcess {
         }
       });
       child.once("error", (...args) => finish(args[0] instanceof Error ? args[0] : new Error("ZLI server failed to start.")));
-      child.once("close", (...args) => finish(new Error(`ZLI server exited before ready (${String(args[0] ?? "unknown")}).`)));
+      child.once("close", (...args) => {
+        if (this.child === child) {
+          this.child = undefined;
+          this.startPromise = undefined;
+        }
+        finish(new Error("ZLI server exited before ready (" + String(args[0] ?? "unknown") + ")."));
+      });
     });
     return this.startPromise;
   }
@@ -73,12 +84,13 @@ export class EnvironmentProcess {
   }
 }
 
-function defaultLauncher(input: { serverEntryPath: string; databasePath: string }): EnvironmentChild {
+function defaultLauncher(input: { serverEntryPath: string; databasePath: string; token: string }): EnvironmentChild {
   return spawn(process.execPath, [input.serverEntryPath], {
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: "1",
       ZLI_DATABASE_PATH: input.databasePath,
+      ZLI_RUNTIME_TOKEN: input.token,
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,

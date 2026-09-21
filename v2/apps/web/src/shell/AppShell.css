@@ -127,6 +127,12 @@ kbd { padding: 2px 5px; border: 1px solid var(--zli-border-strong); border-radiu
 .worktree-dialog input:focus { border-color: var(--zli-border-strong); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
 .legacy-import-dialog { max-height: min(680px, calc(100vh - 48px)); }
+.help-dialog { width: min(460px, calc(100vw - 32px)); }
+.help-body { display: flex; flex-direction: column; gap: 14px; padding: 4px 18px 18px; color: var(--zli-muted); font-size: 12px; line-height: 1.55; }
+.help-body p { margin: 0; }
+.help-actions { display: flex; flex-direction: column; gap: 8px; }
+.help-actions .secondary-button { margin-top: 0; text-align: left; }
+.help-version { color: var(--zli-dim); font-family: var(--zli-mono); font-size: 10px; }
 .legacy-import-body { display: flex; min-height: 0; flex-direction: column; gap: 10px; padding: 4px 18px 18px; }
 .import-summary, .import-state { margin: 0; color: var(--zli-muted); font-size: 12px; line-height: 1.5; }
 .import-records { max-height: 340px; overflow: auto; padding: 4px 0; border-top: 1px solid var(--zli-border); border-bottom: 1px solid var(--zli-border); }

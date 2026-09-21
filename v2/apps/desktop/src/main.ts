@@ -55,7 +55,7 @@ async function main(): Promise<void> {
   runtime = await RuntimeClient.connect({
     token: descriptor.token,
     environmentId: process.env.ZLI_ENVIRONMENT_ID ?? DEFAULT_ENVIRONMENT_ID,
-    connectTransport: () => connectWebSocket(descriptor.url),
+    connectTransport: async () => connectWebSocket((await environment?.start() ?? descriptor).url),
   });
   registerIpc();
   const window = createMainWindow(BrowserWindow as unknown as BrowserWindowConstructor, join(DESKTOP_DIST, "preload.js"), APP_ORIGIN);
