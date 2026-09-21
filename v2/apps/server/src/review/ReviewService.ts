@@ -10,6 +10,7 @@ import { GitProcess, type GitResult } from "../git/GitProcess.js";
 export type ReviewServiceInput = {
   worktreeId: WorktreeId;
   worktreePath: string;
+  repositoryPath: string;
   branch: string;
   baseRef: string;
 };
@@ -49,8 +50,14 @@ export class ReviewService {
 
   async merge(input: ReviewServiceInput & { targetRef: string }): Promise<ReviewProjectionValue> {
     assertRef(input.targetRef);
+    const targetStatus = await this.git.run(["status", "--porcelain=v1"], { cwd: input.repositoryPath });
+    if (targetStatus.stdout.trim().length > 0) throw new Error("Target repository has uncommitted changes.");
+    const targetBranch = await this.git.run(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: input.repositoryPath });
+    if (targetBranch.stdout.trim() !== input.targetRef) {
+      throw new Error(`Target repository must be checked out at ${input.targetRef}.`);
+    }
     try {
-      await this.git.run(["merge", "--no-edit", "--", input.targetRef], { cwd: input.worktreePath });
+      await this.git.run(["merge", "--no-edit", "--no-ff", "--", input.branch], { cwd: input.repositoryPath });
     } catch (error) {
       const current = await this.refresh(input);
       if (current.conflictFiles.length === 0) throw error;

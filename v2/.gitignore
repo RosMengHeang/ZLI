@@ -5,3 +5,4 @@ node_modules/
 **/*.tsbuildinfo
 apps/desktop/renderer/
 release/
+test-results/

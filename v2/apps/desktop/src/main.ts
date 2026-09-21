@@ -179,6 +179,9 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
     return result.canceled ? undefined : result.filePath;
   });
   ipcMain.handle("zli:dialog:open-legacy-snapshot", async () => {
+    if (process.env.ZLI_TEST_PROVIDER === "mock" && process.env.ZLI_TEST_LEGACY_SNAPSHOT_PATH) {
+      return process.env.ZLI_TEST_LEGACY_SNAPSHOT_PATH;
+    }
     const result = await dialog.showOpenDialog({
       properties: ["openFile"],
       filters: [{ name: "ZLI legacy snapshot", extensions: ["json"] }],

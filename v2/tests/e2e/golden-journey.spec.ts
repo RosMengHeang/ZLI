@@ -57,7 +57,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await page.getByRole("button", { name: "Commit changes" }).click();
     await expect.poll(() => git(worktreePath, ["status", "--porcelain"])).toBe("");
     await page.getByRole("button", { name: "Merge into target" }).click();
-    await expect.poll(() => git(repo, ["log", "main", "-1", "--pretty=%s"])).toBe("exercise review flow");
+    await expect.poll(() => git(repo, ["show", "main:change.txt"])).toBe("integration change");
 
     await fixture.app.close();
     fixture = await launchDesktop(repo, root);

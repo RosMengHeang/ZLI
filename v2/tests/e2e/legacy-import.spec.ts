@@ -23,12 +23,7 @@ test("previews and completes a legacy snapshot import through the desktop UI", a
 
   let fixture: DesktopFixture | undefined;
   try {
-    fixture = await launchDesktop(repo, root);
-    await fixture.page.evaluate((path) => {
-      const bridge = window.zli;
-      if (!bridge) throw new Error("Desktop bridge is unavailable.");
-      bridge.dialog.openLegacySnapshot = async () => path;
-    }, snapshotPath);
+    fixture = await launchDesktop(repo, root, { legacySnapshotPath: snapshotPath });
     await fixture.page.keyboard.press("Control+k");
     await fixture.page.getByRole("button", { name: "Import legacy snapshot" }).click();
     const dialog = fixture.page.getByRole("dialog", { name: "Import legacy workspace" });

@@ -70,7 +70,7 @@ export class ReviewReactor {
     const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === worktreeId);
     const project = worktree ? projection.projects.find((candidate) => candidate.projectId === worktree.projectId) : undefined;
     if (!worktree || !project) throw new Error(`Cannot review missing worktree ${worktreeId}.`);
-    return { worktreeId: WorktreeId.parse(worktreeId), worktreePath: worktree.path, branch: worktree.branch, baseRef };
+    return { worktreeId: WorktreeId.parse(worktreeId), worktreePath: worktree.path, repositoryPath: project.path, branch: worktree.branch, baseRef };
   }
 
   private async baseRef(worktreeId: string): Promise<string> {

@@ -17,6 +17,10 @@ export type DesktopFixture = {
   repo: string;
 };
 
+export type DesktopLaunchOptions = {
+  legacySnapshotPath?: string;
+};
+
 export async function createGitFixture(): Promise<{ root: string; repo: string }> {
   const root = await mkdtemp(join(tmpdir(), "zli-v2-e2e-"));
   const repo = join(root, "repo");
@@ -31,7 +35,7 @@ export async function createGitFixture(): Promise<{ root: string; repo: string }
   return { root, repo };
 }
 
-export async function launchDesktop(repo: string, root: string): Promise<DesktopFixture> {
+export async function launchDesktop(repo: string, root: string, options: DesktopLaunchOptions = {}): Promise<DesktopFixture> {
   const databasePath = join(root, "runtime.sqlite");
   const app = await electron.launch({
     args: [join(V2_ROOT, "apps/desktop/dist/main.js")],
@@ -43,6 +47,7 @@ export async function launchDesktop(repo: string, root: string): Promise<Desktop
       ZLI_SERVER_ENTRY: join(V2_ROOT, "apps/desktop/dist/server-entry.js"),
       ZLI_TEST_PROJECT_PATH: repo,
       ZLI_TEST_PROVIDER: "mock",
+      ZLI_TEST_LEGACY_SNAPSHOT_PATH: options.legacySnapshotPath,
     },
     timeout: 30_000,
   });
