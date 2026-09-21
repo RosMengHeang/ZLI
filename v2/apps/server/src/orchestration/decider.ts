@@ -64,7 +64,11 @@ export type DomainDecision = Extract<
       | "thread.interrupt.requested"
       | "thread.stop.requested"
       | "thread.status.changed"
-      | "thread.message.appended";
+      | "thread.message.appended"
+      | "thread.request.requested"
+      | "thread.request.resolved"
+      | "thread.respond.requested"
+      | "thread.user-input.requested";
   }
 >;
 
@@ -212,6 +216,21 @@ export function decide(
     case "thread.message":
       assertThread(projection, command.message.threadId);
       return [{ type: "thread.message.appended", message: command.message }];
+    case "thread.request":
+      assertThread(projection, command.request.threadId);
+      return [{ type: "thread.request.requested", request: command.request }];
+    case "thread.request.resolved":
+      assertThread(projection, command.threadId);
+      assertRequest(projection, command.requestId);
+      return [{ type: "thread.request.resolved", threadId: command.threadId, requestId: command.requestId }];
+    case "thread.respond":
+      assertThread(projection, command.threadId);
+      assertRequest(projection, command.requestId);
+      return [{ type: "thread.respond.requested", threadId: command.threadId, requestId: command.requestId, decision: command.decision }];
+    case "thread.user-input":
+      assertThread(projection, command.threadId);
+      assertRequest(projection, command.requestId);
+      return [{ type: "thread.user-input.requested", threadId: command.threadId, requestId: command.requestId, answers: command.answers }];
     case "terminal.status":
       assertTerminal(projection, command.terminalId);
       return [
@@ -270,6 +289,12 @@ function assertTerminal(projection: RuntimeProjection, terminalId: string): void
 function assertThread(projection: RuntimeProjection, threadId: string): void {
   if (!projection.threads.some((thread) => thread.threadId === threadId)) {
     throw new DomainError("thread_missing", "Thread does not exist: " + threadId);
+  }
+}
+
+function assertRequest(projection: RuntimeProjection, requestId: string): void {
+  if (!(projection.requests ?? []).some((request) => request.requestId === requestId)) {
+    throw new DomainError("thread_missing", "Thread request does not exist: " + requestId);
   }
 }
 

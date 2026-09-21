@@ -119,6 +119,30 @@ export function projectEvent(
         messages: [...(projection.messages ?? []), event.message].slice(-2_000),
         lastSequence: envelope.sequence,
       };
+    case "thread.request.requested":
+      return {
+        ...projection,
+        requests: [...(projection.requests ?? []).filter((request) => request.requestId !== event.request.requestId), event.request],
+        attention: [
+          ...projection.attention.filter((item) => item.id !== "thread-request:" + event.request.requestId),
+          {
+            id: "thread-request:" + event.request.requestId,
+            kind: event.request.kind,
+            title: event.request.kind === "approval" ? "Agent approval required" : "Agent input required",
+          },
+        ],
+        lastSequence: envelope.sequence,
+      };
+    case "thread.request.resolved":
+      return {
+        ...projection,
+        requests: (projection.requests ?? []).filter((request) => request.requestId !== event.requestId),
+        attention: projection.attention.filter((item) => item.id !== "thread-request:" + event.requestId),
+        lastSequence: envelope.sequence,
+      };
+    case "thread.respond.requested":
+    case "thread.user-input.requested":
+      return { ...projection, lastSequence: envelope.sequence };
     case "thread.send.requested":
     case "thread.interrupt.requested":
     case "thread.stop.requested":

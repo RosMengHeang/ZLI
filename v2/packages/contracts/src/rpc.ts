@@ -6,7 +6,7 @@ import { EnvironmentDescriptor, RuntimeProjection, WorktreeProjection } from "./
 import { TerminalAttachSnapshot, TerminalProjection, TerminalStreamMessage } from "./terminal.js";
 import { ReviewProjection } from "./review.js";
 import { BrowserTabProjection } from "./browser.js";
-import { ProviderCapabilities, ProviderKind, ThreadMessageProjection, ThreadProjection } from "./provider.js";
+import { ProviderCapabilities, ProviderKind, ThreadMessageProjection, ThreadProjection, ThreadRequestProjection } from "./provider.js";
 
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 
@@ -62,6 +62,10 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thread.stop"), threadId: ThreadId }),
   z.object({ type: z.literal("thread.status"), threadId: ThreadId, status: ThreadProjection.shape.status, turnId: TurnId.optional(), capabilities: ProviderCapabilities.optional(), errorMessage: z.string().min(1).optional() }),
   z.object({ type: z.literal("thread.message"), message: ThreadMessageProjection }),
+  z.object({ type: z.literal("thread.request"), request: ThreadRequestProjection }),
+  z.object({ type: z.literal("thread.request.resolved"), threadId: ThreadId, requestId: z.string().min(1) }),
+  z.object({ type: z.literal("thread.respond"), threadId: ThreadId, requestId: z.string().min(1), decision: z.unknown() }),
+  z.object({ type: z.literal("thread.user-input"), threadId: ThreadId, requestId: z.string().min(1), answers: z.record(z.string(), z.string()) }),
   z.object({
     type: z.literal("terminal.status"),
     terminalId: TerminalId,

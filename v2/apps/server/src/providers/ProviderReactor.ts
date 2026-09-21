@@ -50,6 +50,12 @@ export class ProviderReactor {
       case "thread.stop.requested":
         this.track(this.stopSession(envelope.event.threadId));
         return;
+      case "thread.respond.requested":
+        this.track(this.respond(envelope.event.threadId, envelope.event.requestId, envelope.event.decision));
+        return;
+      case "thread.user-input.requested":
+        this.track(this.respondUserInput(envelope.event.threadId, envelope.event.requestId, envelope.event.answers));
+        return;
       default:
         return;
     }
@@ -114,6 +120,7 @@ export class ProviderReactor {
       return;
     }
     if (event.type === "approval.requested" || event.type === "user-input.requested") {
+      this.track(this.request(event.threadId, event.type === "approval.requested" ? "approval" : "user-input", event.requestId, event.payload));
       this.track(this.status(event.threadId, "waiting"));
       return;
     }
@@ -136,6 +143,43 @@ export class ProviderReactor {
         ...(capabilities ? { capabilities } : {}),
       },
     }).then(() => undefined);
+  }
+
+  private async respond(threadId: string, requestId: string, decision: unknown): Promise<void> {
+    try {
+      await this.service.respondToRequest({ threadId: ThreadId.parse(threadId), requestId, decision });
+      await this.resolveRequest(threadId, requestId);
+    } catch (error) {
+      await this.status(threadId, "failed", error instanceof Error ? error.message : "Approval response failed.");
+    }
+  }
+
+  private async respondUserInput(threadId: string, requestId: string, answers: Record<string, string>): Promise<void> {
+    try {
+      await this.service.respondToUserInput({ threadId: ThreadId.parse(threadId), requestId, answers });
+      await this.resolveRequest(threadId, requestId);
+    } catch (error) {
+      await this.status(threadId, "failed", error instanceof Error ? error.message : "User input response failed.");
+    }
+  }
+
+  private request(threadId: string, kind: "approval" | "user-input", requestId: string, payload: Record<string, unknown>): Promise<void> {
+    return this.engine.dispatch({
+      protocolVersion: 1,
+      commandId: CommandId.parse(randomUUID()),
+      command: {
+        type: "thread.request",
+        request: { requestId, threadId: ThreadId.parse(threadId), kind, payload },
+      },
+    }).then(() => undefined);
+  }
+
+  private resolveRequest(threadId: string, requestId: string): Promise<void> {
+    return this.engine.dispatch({
+      protocolVersion: 1,
+      commandId: CommandId.parse(randomUUID()),
+      command: { type: "thread.request.resolved", threadId: ThreadId.parse(threadId), requestId },
+    }).then(() => this.status(threadId, "idle"));
   }
 
   private message(threadId: string, role: "user" | "assistant" | "system", text: string, turnId?: string): Promise<void> {

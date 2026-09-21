@@ -28,6 +28,7 @@ class FakeAdapter implements ProviderAdapter {
   readonly capabilities = { structuredApproval: true, structuredUserInput: true };
   readonly events = new Set<(event: ProviderEvent) => void>();
   started = false;
+  responded = false;
 
   async startSession(input: { threadId: ThreadIdValue; cwd: string }): Promise<ProviderSession> {
     this.started = true;
@@ -35,7 +36,7 @@ class FakeAdapter implements ProviderAdapter {
   }
   async sendTurn(): Promise<{ turnId: string }> { return { turnId: "provider-turn" }; }
   async interruptTurn(): Promise<void> {}
-  async respondToRequest(): Promise<void> {}
+  async respondToRequest(): Promise<void> { this.responded = true; }
   async respondToUserInput(): Promise<void> {}
   async stopSession(): Promise<void> { this.started = false; }
   listSessions(): ReadonlyArray<ProviderSession> { return []; }
@@ -80,6 +81,15 @@ describe("ProviderReactor", () => {
       expect.objectContaining({ threadId, role: "user", text: "run tests" }),
       expect.objectContaining({ threadId, role: "assistant", text: "Tests are running." }),
     ]));
+    adapter.emit({ type: "approval.requested", threadId, requestId: "approval-1", payload: { command: "git status" } });
+    await reactor.waitForIdle();
+    expect((await engine.projection()).requests).toEqual([
+      expect.objectContaining({ requestId: "approval-1", kind: "approval" }),
+    ]);
+    await engine.dispatch({ protocolVersion: 1, commandId: CommandId.parse("10000000-0000-4000-8000-000000000905"), command: { type: "thread.respond", threadId, requestId: "approval-1", decision: { approved: true } } });
+    await reactor.waitForIdle();
+    expect(adapter.responded).toBe(true);
+    expect((await engine.projection()).requests).toEqual([]);
     reactor.stop();
     await service.stopAll();
     service.dispose();

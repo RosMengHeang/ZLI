@@ -71,6 +71,10 @@ kbd { padding: 2px 5px; border: 1px solid var(--zli-border-strong); border-radiu
 .agent-composer { margin: 0 14px 14px; padding: 8px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: #151515; }
 .agent-composer textarea { display: block; width: 100%; box-sizing: border-box; min-height: 64px; resize: vertical; border: 0; outline: none; background: transparent; color: var(--zli-text); font-family: inherit; font-size: 12px; line-height: 1.5; }
 .agent-composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 6px; }
+.agent-request { margin: 0 14px 10px; padding: 10px; border: 1px solid rgba(224, 184, 107, .45); border-radius: var(--zli-radius-md); background: rgba(224, 184, 107, .07); }
+.agent-request pre { max-height: 160px; margin: 8px 0; overflow: auto; color: var(--zli-text); font-family: var(--zli-mono); font-size: 11px; white-space: pre-wrap; }
+.agent-request textarea { display: block; width: 100%; box-sizing: border-box; margin: 8px 0; padding: 7px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); outline: none; background: var(--zli-canvas); color: var(--zli-text); font-family: var(--zli-mono); font-size: 11px; }
+.agent-request-actions { display: flex; gap: 8px; }
 .terminal-output { min-height: 0; margin: 4px 14px 14px; flex: 1; padding: 15px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: #151515; color: #d7d7d7; font-family: var(--zli-mono); font-size: 12px; line-height: 1.7; }
 .terminal-output p { margin: 0; }
 .terminal-input-row { display: flex; align-items: center; gap: 8px; margin: 0 14px 14px; padding: 6px 8px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: #151515; }

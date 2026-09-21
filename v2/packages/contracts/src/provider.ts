@@ -33,3 +33,11 @@ export const ThreadMessageProjection = z.object({
   text: z.string(),
 });
 export type ThreadMessageProjection = z.infer<typeof ThreadMessageProjection>;
+
+export const ThreadRequestProjection = z.object({
+  requestId: z.string().min(1),
+  threadId: ThreadId,
+  kind: z.enum(["approval", "user-input"]),
+  payload: z.record(z.string(), z.unknown()),
+});
+export type ThreadRequestProjection = z.infer<typeof ThreadRequestProjection>;
