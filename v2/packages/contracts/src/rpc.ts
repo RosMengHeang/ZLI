@@ -1,11 +1,12 @@
 import { z } from "zod";
 
-import { BrowserTabId, CommandId, EnvironmentId, ProjectId, TerminalId, WorktreeId } from "./ids.js";
+import { BrowserTabId, CommandId, EnvironmentId, ProjectId, TerminalId, ThreadId, TurnId, WorktreeId } from "./ids.js";
 import { RuntimeEventEnvelope } from "./events.js";
 import { EnvironmentDescriptor, RuntimeProjection, WorktreeProjection } from "./projections.js";
 import { TerminalAttachSnapshot, TerminalProjection, TerminalStreamMessage } from "./terminal.js";
 import { ReviewProjection } from "./review.js";
 import { BrowserTabProjection } from "./browser.js";
+import { ProviderCapabilities, ProviderKind, ThreadMessageProjection, ThreadProjection } from "./provider.js";
 
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 
@@ -55,6 +56,12 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("terminal.list") }),
   z.object({ type: z.literal("browser.updated"), tab: BrowserTabProjection }),
   z.object({ type: z.literal("browser.closed"), browserTabId: BrowserTabId }),
+  z.object({ type: z.literal("thread.start"), threadId: ThreadId, worktreeId: WorktreeId, provider: ProviderKind, cwd: z.string().min(1) }),
+  z.object({ type: z.literal("thread.send"), threadId: ThreadId, text: z.string(), model: z.string().min(1).optional() }),
+  z.object({ type: z.literal("thread.interrupt"), threadId: ThreadId, turnId: TurnId.optional() }),
+  z.object({ type: z.literal("thread.stop"), threadId: ThreadId }),
+  z.object({ type: z.literal("thread.status"), threadId: ThreadId, status: ThreadProjection.shape.status, turnId: TurnId.optional(), capabilities: ProviderCapabilities.optional(), errorMessage: z.string().min(1).optional() }),
+  z.object({ type: z.literal("thread.message"), message: ThreadMessageProjection }),
   z.object({
     type: z.literal("terminal.status"),
     terminalId: TerminalId,

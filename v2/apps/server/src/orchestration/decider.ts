@@ -16,6 +16,8 @@ export type DomainErrorCode =
   | "worktree_missing"
   | "terminal_exists"
   | "terminal_missing"
+  | "thread_exists"
+  | "thread_missing"
   | "unsupported_command";
 
 export class DomainError extends Error {
@@ -56,7 +58,13 @@ export type DomainDecision = Extract<
       | "review.abortMerge.requested"
       | "review.updated"
       | "review.archived"
-      | "terminal.status.changed";
+      | "terminal.status.changed"
+      | "thread.start.requested"
+      | "thread.send.requested"
+      | "thread.interrupt.requested"
+      | "thread.stop.requested"
+      | "thread.status.changed"
+      | "thread.message.appended";
   }
 >;
 
@@ -172,6 +180,38 @@ export function decide(
     case "terminal.stop":
       assertTerminal(projection, command.terminalId);
       return [{ type: "terminal.stop.requested", terminalId: command.terminalId }];
+    case "thread.start": {
+      assertWorktree(projection, command.worktreeId);
+      if (projection.threads.some((thread) => thread.threadId === command.threadId)) {
+        throw new DomainError("thread_exists", "Thread already exists: " + command.threadId);
+      }
+      return [{
+        type: "thread.start.requested",
+        cwd: command.cwd,
+        thread: {
+          threadId: command.threadId,
+          worktreeId: command.worktreeId,
+          provider: command.provider,
+          status: "starting",
+          capabilities: {},
+        },
+      }];
+    }
+    case "thread.send":
+      assertThread(projection, command.threadId);
+      return [{ type: "thread.send.requested", threadId: command.threadId, text: command.text, ...(command.model ? { model: command.model } : {}) }];
+    case "thread.interrupt":
+      assertThread(projection, command.threadId);
+      return [{ type: "thread.interrupt.requested", threadId: command.threadId, ...(command.turnId ? { turnId: command.turnId } : {}) }];
+    case "thread.stop":
+      assertThread(projection, command.threadId);
+      return [{ type: "thread.stop.requested", threadId: command.threadId }];
+    case "thread.status":
+      assertThread(projection, command.threadId);
+      return [{ type: "thread.status.changed", threadId: command.threadId, status: command.status, ...(command.turnId ? { turnId: command.turnId } : {}), ...(command.capabilities ? { capabilities: command.capabilities } : {}), ...(command.errorMessage ? { errorMessage: command.errorMessage } : {}) }];
+    case "thread.message":
+      assertThread(projection, command.message.threadId);
+      return [{ type: "thread.message.appended", message: command.message }];
     case "terminal.status":
       assertTerminal(projection, command.terminalId);
       return [
@@ -224,6 +264,12 @@ function assertWorktree(projection: RuntimeProjection, worktreeId: string): void
 function assertTerminal(projection: RuntimeProjection, terminalId: string): void {
   if (!projection.terminals.some((terminal) => terminal.terminalId === terminalId)) {
     throw new DomainError("terminal_missing", `Terminal does not exist: ${terminalId}`);
+  }
+}
+
+function assertThread(projection: RuntimeProjection, threadId: string): void {
+  if (!projection.threads.some((thread) => thread.threadId === threadId)) {
+    throw new DomainError("thread_missing", "Thread does not exist: " + threadId);
   }
 }
 

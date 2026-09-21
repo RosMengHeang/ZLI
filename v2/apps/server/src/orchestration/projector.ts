@@ -91,6 +91,38 @@ export function projectEvent(
     case "terminal.resize.requested":
     case "terminal.stop.requested":
       return { ...projection, lastSequence: envelope.sequence };
+    case "thread.start.requested":
+      return {
+        ...projection,
+        threads: [...projection.threads, event.thread],
+        lastSequence: envelope.sequence,
+      };
+    case "thread.status.changed":
+      return {
+        ...projection,
+        threads: projection.threads.map((thread) =>
+          thread.threadId === event.threadId
+            ? {
+                ...thread,
+                status: event.status,
+                ...(event.turnId ? { activeTurnId: event.turnId } : {}),
+                ...(event.capabilities ? { capabilities: event.capabilities } : {}),
+                ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+              }
+            : thread,
+        ),
+        lastSequence: envelope.sequence,
+      };
+    case "thread.message.appended":
+      return {
+        ...projection,
+        messages: [...(projection.messages ?? []), event.message].slice(-2_000),
+        lastSequence: envelope.sequence,
+      };
+    case "thread.send.requested":
+    case "thread.interrupt.requested":
+    case "thread.stop.requested":
+      return { ...projection, lastSequence: envelope.sequence };
     case "browser.updated":
       return {
         ...projection,

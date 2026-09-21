@@ -62,6 +62,15 @@ kbd { padding: 2px 5px; border: 1px solid var(--zli-border-strong); border-radiu
 .empty-pane, .center-state { display: flex; align-items: center; justify-content: center; min-height: 220px; flex: 1; flex-direction: column; padding: 30px; text-align: center; }
 .empty-title, .center-state h1 { margin: 0; color: var(--zli-text); font-size: 14px; font-weight: 550; }
 .empty-detail, .center-state p { max-width: 420px; margin: 8px 0 0; color: var(--zli-muted); font-size: 12px; line-height: 1.5; }
+.agent-messages { min-height: 0; margin: 0 14px 10px; flex: 1; overflow: auto; padding: 8px 5px; }
+.agent-empty { margin: 20px 8px; color: var(--zli-dim); font-size: 12px; text-align: center; }
+.agent-message { max-width: min(760px, 92%); margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-canvas); }
+.agent-message-user { margin-left: auto; background: var(--zli-raised); }
+.agent-message-role { color: var(--zli-dim); font-size: 10px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+.agent-message p { margin: 6px 0 0; color: var(--zli-text); font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
+.agent-composer { margin: 0 14px 14px; padding: 8px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: #151515; }
+.agent-composer textarea { display: block; width: 100%; box-sizing: border-box; min-height: 64px; resize: vertical; border: 0; outline: none; background: transparent; color: var(--zli-text); font-family: inherit; font-size: 12px; line-height: 1.5; }
+.agent-composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 6px; }
 .terminal-output { min-height: 0; margin: 4px 14px 14px; flex: 1; padding: 15px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: #151515; color: #d7d7d7; font-family: var(--zli-mono); font-size: 12px; line-height: 1.7; }
 .terminal-output p { margin: 0; }
 .terminal-input-row { display: flex; align-items: center; gap: 8px; margin: 0 14px 14px; padding: 6px 8px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: #151515; }

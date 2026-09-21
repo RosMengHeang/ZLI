@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { WorktreeProjection } from "@zli-v2/contracts";
+import { AgentPane } from "../agent/AgentPane.js";
 import { AttentionPanel } from "../attention/AttentionPanel.js";
 import { BrowserPane } from "../browser/BrowserPane.js";
 import { RuntimeProvider, useRuntime } from "../runtime/RuntimeProvider.js";
@@ -73,10 +74,10 @@ function WorkspaceApp() {
         <main className="main-workspace">
           {notice && <div className="notice-bar" role="alert">{notice}<button type="button" onClick={() => setNotice(undefined)} aria-label="Dismiss message">Dismiss</button></div>}
           <AttentionPanel items={projection?.attention ?? []} />
-          {!bridge ? <DisconnectedState /> : !projection ? <LoadingState /> : <PaneTree pane={pane} onChange={setPane}>{pane === "terminal" ? <TerminalPane projection={projection} worktree={activeWorktree} onOpenBrowser={() => choosePane("browser")} /> : pane === "browser" ? <BrowserPane worktree={activeWorktree} /> : <ReviewPane worktree={activeWorktree} />}</PaneTree>}
+          {!bridge ? <DisconnectedState /> : !projection ? <LoadingState /> : <PaneTree pane={pane} onChange={setPane}>{pane === "agent" ? <AgentPane projection={projection} worktree={activeWorktree} /> : pane === "terminal" ? <TerminalPane projection={projection} worktree={activeWorktree} onOpenBrowser={() => choosePane("browser")} /> : pane === "browser" ? <BrowserPane worktree={activeWorktree} /> : <ReviewPane worktree={activeWorktree} />}</PaneTree>}
         </main>
       </div>
-      {paletteOpen && <div className="palette-backdrop" role="presentation" onMouseDown={() => setPaletteOpen(false)}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={(event) => event.stopPropagation()}><div className="palette-search"><span aria-hidden="true">⌕</span><input autoFocus placeholder="Search commands" aria-label="Search commands" /></div><div className="palette-section"><span className="eyebrow">Workspace</span><button type="button" onClick={() => void openProject()}>Open project</button><button type="button" onClick={() => choosePane("terminal")}>Focus terminal</button><button type="button" onClick={() => choosePane("browser")}>Focus browser</button><button type="button" onClick={() => choosePane("review")}>Focus review</button></div></section></div>}
+      {paletteOpen && <div className="palette-backdrop" role="presentation" onMouseDown={() => setPaletteOpen(false)}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={(event) => event.stopPropagation()}><div className="palette-search"><span aria-hidden="true">⌕</span><input autoFocus placeholder="Search commands" aria-label="Search commands" /></div><div className="palette-section"><span className="eyebrow">Workspace</span><button type="button" onClick={() => void openProject()}>Open project</button><button type="button" onClick={() => choosePane("agent")}>Focus agent</button><button type="button" onClick={() => choosePane("terminal")}>Focus terminal</button><button type="button" onClick={() => choosePane("browser")}>Focus browser</button><button type="button" onClick={() => choosePane("review")}>Focus review</button></div></section></div>}
       {worktreeDialogOpen && <WorktreeDialog onClose={() => setWorktreeDialogOpen(false)} onSubmit={(branch, baseRef) => void createWorktree(branch, baseRef)} />}
     </div>
   );

@@ -17,6 +17,10 @@ import { ReviewReactor } from "./review/ReviewReactor.js";
 import { ReviewService } from "./review/ReviewService.js";
 import { DaemonSupervisor } from "./daemon/DaemonSupervisor.js";
 import { RemotePtyFactory } from "./terminal/RemotePtyFactory.js";
+import { CodexAppServerClient } from "@zli-v2/provider-codex";
+import { CodexProviderAdapter } from "./providers/CodexProviderAdapter.js";
+import { ProviderReactor } from "./providers/ProviderReactor.js";
+import { ProviderRegistry, ProviderService } from "./providers/ProviderService.js";
 
 export type RuntimeProcess = {
   database: Database;
@@ -26,6 +30,8 @@ export type RuntimeProcess = {
   terminalService: TerminalService;
   terminalReactor: TerminalReactor;
   daemonSupervisor: DaemonSupervisor;
+  providerService: ProviderService;
+  providerReactor: ProviderReactor;
   reviewReactor: ReviewReactor;
   token: string;
   close: () => Promise<void>;
@@ -61,6 +67,10 @@ export async function startRuntime(options: {
   const terminalService = new TerminalService(new RemotePtyFactory({ connect: () => daemonSupervisor.connect() }));
   const terminalReactor = new TerminalReactor(engine, terminalService);
   const reviewReactor = new ReviewReactor(engine, new ReviewService(new GitProcess()));
+  const providerService = new ProviderService(new ProviderRegistry([
+    new CodexProviderAdapter({ createClient: () => CodexAppServerClient.connect() }),
+  ]));
+  const providerReactor = new ProviderReactor(engine, providerService);
   const server = new RpcServer({ engine, environment, token, terminalService });
   await server.start();
   await terminalReactor.restore();
@@ -72,6 +82,8 @@ export async function startRuntime(options: {
     terminalService,
     terminalReactor,
     daemonSupervisor,
+    providerService,
+    providerReactor,
     reviewReactor,
     token,
     close: async () => {
@@ -79,9 +91,13 @@ export async function startRuntime(options: {
       await worktreeReactor.waitForIdle();
       await terminalReactor.waitForIdle();
       await reviewReactor.waitForIdle();
+      await providerReactor.waitForIdle();
       worktreeReactor.stop();
       terminalReactor.stop();
       reviewReactor.stop();
+      providerReactor.stop();
+      await providerService.stopAll();
+      providerService.dispose();
       database.close();
     },
   };

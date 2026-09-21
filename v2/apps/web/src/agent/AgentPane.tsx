@@ -1,0 +1,94 @@
+import { useMemo, useState } from "react";
+
+import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
+import { useRuntime } from "../runtime/RuntimeProvider.js";
+
+export function AgentPane({ projection, worktree }: { projection: RuntimeProjection; worktree: WorktreeProjection | undefined }) {
+  const { dispatch } = useRuntime();
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const thread = projection.threads.find((candidate) => candidate.worktreeId === worktree?.worktreeId);
+  const messages = useMemo(
+    () => (projection.messages ?? []).filter((message) => message.threadId === thread?.threadId),
+    [projection.messages, thread?.threadId],
+  );
+
+  const start = async () => {
+    if (!worktree) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const response = await dispatch({
+        protocolVersion: 1,
+        commandId: makeId(),
+        command: { type: "thread.start", threadId: makeId(), worktreeId: worktree.worktreeId, provider: "codex", cwd: worktree.path },
+      });
+      if (response?.accepted === false) setError(response.error.message);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The agent could not start.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const send = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!thread || !draft.trim() || thread.status === "starting") return;
+    const text = draft.trim();
+    setDraft("");
+    setError(undefined);
+    const response = await dispatch({
+      protocolVersion: 1,
+      commandId: makeId(),
+      command: { type: "thread.send", threadId: thread.threadId, text },
+    });
+    if (response?.accepted === false) {
+      setDraft(text);
+      setError(response.error.message);
+    }
+  };
+
+  return (
+    <div className="tool-pane agent-pane">
+      <div className="tool-pane-header">
+        <div><span className="eyebrow">Agent</span><h2>{worktree?.branch ?? "No worktree selected"}</h2></div>
+        <span className="pane-meta">{thread?.status ?? "Idle"}</span>
+      </div>
+      {!worktree ? (
+        <EmptyAgent title="Select a worktree" detail="Agent sessions are isolated to the selected worktree." />
+      ) : !thread ? (
+        <div className="empty-pane">
+          <p className="empty-title">No Codex session</p>
+          <p className="empty-detail">Start the structured Codex app-server session for this worktree.</p>
+          <button className="primary-button" type="button" onClick={() => void start()} disabled={busy}>{busy ? "Starting" : "Start Codex"}</button>
+          {error && <p className="inline-error" role="alert">{error}</p>}
+        </div>
+      ) : (
+        <>
+          <div className="agent-messages" role="log" aria-label="Agent conversation">
+            {messages.length === 0 ? <p className="agent-empty">Send a task to begin.</p> : messages.map((message) => (
+              <article className={"agent-message agent-message-" + message.role} key={message.messageId}>
+                <span className="agent-message-role">{message.role}</span>
+                <p>{message.text}</p>
+              </article>
+            ))}
+          </div>
+          <form className="agent-composer" onSubmit={(event) => void send(event)}>
+            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ask Codex to change this workspace…" aria-label="Message Codex" rows={3} />
+            <div className="agent-composer-footer"><span className="pane-meta">{thread.provider} · {thread.status}</span><button className="primary-button" type="submit" disabled={!draft.trim() || thread.status === "starting"}>Send</button></div>
+          </form>
+          {error && <p className="inline-error" role="alert">{error}</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
+function EmptyAgent({ title, detail }: { title: string; detail: string }) {
+  return <div className="empty-pane"><p className="empty-title">{title}</p><p className="empty-detail">{detail}</p></div>;
+}
+
+function makeId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? "00000000-0000-4000-8000-000000000996";
+}

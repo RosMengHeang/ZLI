@@ -1,8 +1,9 @@
 import { z } from "zod";
 
-import { BrowserTabId, EventId, TerminalId, WorktreeId, WorkspaceId } from "./ids.js";
+import { BrowserTabId, EventId, TerminalId, ThreadId, TurnId, WorktreeId, WorkspaceId } from "./ids.js";
 import { BrowserTabProjection } from "./browser.js";
 import { ProjectProjection, WorktreeProjection } from "./projections.js";
+import { ProviderCapabilities, ThreadMessageProjection, ThreadProjection } from "./provider.js";
 import { TerminalProjection, TerminalStatus } from "./terminal.js";
 import { ReviewProjection } from "./review.js";
 
@@ -51,6 +52,12 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     rows: z.number().int().positive(),
   }),
   z.object({ type: z.literal("terminal.stop.requested"), terminalId: TerminalId }),
+  z.object({ type: z.literal("thread.start.requested"), thread: ThreadProjection, cwd: z.string().min(1) }),
+  z.object({ type: z.literal("thread.send.requested"), threadId: ThreadId, text: z.string(), model: z.string().min(1).optional() }),
+  z.object({ type: z.literal("thread.interrupt.requested"), threadId: ThreadId, turnId: TurnId.optional() }),
+  z.object({ type: z.literal("thread.stop.requested"), threadId: ThreadId }),
+  z.object({ type: z.literal("thread.status.changed"), threadId: ThreadId, status: ThreadProjection.shape.status, turnId: TurnId.optional(), capabilities: ProviderCapabilities.optional(), errorMessage: z.string().min(1).optional() }),
+  z.object({ type: z.literal("thread.message.appended"), message: ThreadMessageProjection }),
   z.object({ type: z.literal("browser.updated"), tab: BrowserTabProjection }),
   z.object({ type: z.literal("browser.closed"), browserTabId: BrowserTabId }),
   z.object({ type: z.literal("review.refresh.requested"), worktreeId: WorktreeId, baseRef: z.string().min(1) }),

@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { ThreadId, TurnId } from "./ids.js";
+import { ThreadId, TurnId, WorktreeId } from "./ids.js";
+
+export const ProviderKind = z.enum(["codex", "claude-code", "cursor-agent", "opencode"]);
+export type ProviderKind = z.infer<typeof ProviderKind>;
 
 export const ProviderCapabilities = z.object({
   exactResume: z.boolean().optional(),
@@ -13,9 +16,20 @@ export type ProviderCapabilities = z.infer<typeof ProviderCapabilities>;
 
 export const ThreadProjection = z.object({
   threadId: ThreadId,
+  worktreeId: WorktreeId,
   provider: z.string().min(1),
   status: z.enum(["starting", "idle", "working", "waiting", "stopped", "failed"]),
   activeTurnId: TurnId.optional(),
   capabilities: ProviderCapabilities,
+  errorMessage: z.string().min(1).optional(),
 });
 export type ThreadProjection = z.infer<typeof ThreadProjection>;
+
+export const ThreadMessageProjection = z.object({
+  messageId: z.string().min(1),
+  threadId: ThreadId,
+  turnId: z.string().min(1).optional(),
+  role: z.enum(["user", "assistant", "system"]),
+  text: z.string(),
+});
+export type ThreadMessageProjection = z.infer<typeof ThreadMessageProjection>;
