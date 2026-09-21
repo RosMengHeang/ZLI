@@ -6,13 +6,17 @@ import { fileURLToPath } from "node:url";
 import { EnvironmentId } from "@zli-v2/contracts";
 
 import { Database } from "./db/Database.js";
+import { GitProcess } from "./git/GitProcess.js";
 import { Engine } from "./orchestration/Engine.js";
 import { RpcServer } from "./rpc/Server.js";
+import { WorktreeReactor } from "./worktrees/WorktreeReactor.js";
+import { WorktreeService } from "./worktrees/WorktreeService.js";
 
 export type RuntimeProcess = {
   database: Database;
   engine: Engine;
   server: RpcServer;
+  worktreeReactor: WorktreeReactor;
   token: string;
   close: () => Promise<void>;
 };
@@ -42,15 +46,19 @@ export async function startRuntime(options: {
   };
   const database = new Database({ path: databasePath });
   const engine = new Engine({ database, environment });
+  const worktreeReactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()));
   const server = new RpcServer({ engine, environment, token });
   await server.start();
   return {
     database,
     engine,
     server,
+    worktreeReactor,
     token,
     close: async () => {
       await server.stop();
+      await worktreeReactor.waitForIdle();
+      worktreeReactor.stop();
       database.close();
     },
   };

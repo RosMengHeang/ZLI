@@ -1,13 +1,35 @@
 import { z } from "zod";
 
-import { CommandId, EnvironmentId, ProjectId } from "./ids.js";
+import { CommandId, EnvironmentId, ProjectId, WorktreeId } from "./ids.js";
 import { RuntimeEventEnvelope } from "./events.js";
-import { EnvironmentDescriptor, RuntimeProjection } from "./projections.js";
+import { EnvironmentDescriptor, RuntimeProjection, WorktreeProjection } from "./projections.js";
 
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 
 export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("project.register"), path: z.string().min(1) }),
+  z.object({
+    type: z.literal("worktree.create"),
+    worktreeId: WorktreeId,
+    projectId: ProjectId,
+    path: z.string().min(1),
+    workspaceRoot: z.string().min(1),
+    branch: z.string().min(1),
+    baseRef: z.string().min(1).optional(),
+    checkoutExistingBranch: z.boolean().optional(),
+  }),
+  z.object({ type: z.literal("worktree.cancel"), worktreeId: WorktreeId }),
+  z.object({ type: z.literal("worktree.retry"), worktreeId: WorktreeId }),
+  z.object({ type: z.literal("worktree.remove"), worktreeId: WorktreeId, force: z.boolean().optional() }),
+  z.object({ type: z.literal("worktree.archive"), worktreeId: WorktreeId }),
+  z.object({ type: z.literal("worktree.removed"), worktreeId: WorktreeId }),
+  z.object({ type: z.literal("worktree.archived"), worktreeId: WorktreeId }),
+  z.object({
+    type: z.literal("worktree.status"),
+    worktreeId: WorktreeId,
+    status: WorktreeProjection.shape.status,
+    errorMessage: z.string().min(1).optional(),
+  }),
   z.object({ type: z.literal("runtime.subscribe"), afterSequence: z.number().int().nonnegative() }),
   z.object({ type: z.literal("runtime.getProjection") }),
 ]);

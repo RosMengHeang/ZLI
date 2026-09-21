@@ -36,6 +36,36 @@ export function projectEvent(
         projects: [...projection.projects, event.project],
         lastSequence: envelope.sequence,
       };
+    case "worktree.create.requested":
+      return {
+        ...projection,
+        worktrees: [...projection.worktrees, event.worktree],
+        lastSequence: envelope.sequence,
+      };
+    case "worktree.status.changed":
+      return {
+        ...projection,
+        worktrees: projection.worktrees.map((worktree) =>
+          worktree.worktreeId === event.worktreeId
+            ? {
+                ...worktree,
+                status: event.status,
+                ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+              }
+            : worktree,
+        ),
+        lastSequence: envelope.sequence,
+      };
+    case "worktree.removed":
+    case "worktree.archived":
+      return {
+        ...projection,
+        worktrees: projection.worktrees.filter((worktree) => worktree.worktreeId !== event.worktreeId),
+        lastSequence: envelope.sequence,
+      };
+    case "worktree.remove.requested":
+    case "worktree.archive.requested":
+      return { ...projection, lastSequence: envelope.sequence };
     case "runtime.ready":
     case "runtime.reactor.failed":
       return { ...projection, lastSequence: envelope.sequence };

@@ -44,6 +44,7 @@ export const WorktreeProjection = z.object({
     "cancelling",
     "cancelled",
   ]),
+  errorMessage: z.string().min(1).optional(),
 });
 export type WorktreeProjection = z.infer<typeof WorktreeProjection>;
 

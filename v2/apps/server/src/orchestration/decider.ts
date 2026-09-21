@@ -1,9 +1,20 @@
 import { createHash } from "node:crypto";
 import { posix, win32 } from "node:path";
 
-import { ProjectId, type ProjectProjection, type RuntimeCommand, type RuntimeProjection } from "@zli-v2/contracts";
+import {
+  ProjectId,
+  type ProjectProjection,
+  type RuntimeCommand,
+  type RuntimeEvent,
+  type RuntimeProjection,
+} from "@zli-v2/contracts";
 
-export type DomainErrorCode = "project_exists" | "unsupported_command";
+export type DomainErrorCode =
+  | "project_exists"
+  | "project_missing"
+  | "worktree_exists"
+  | "worktree_missing"
+  | "unsupported_command";
 
 export class DomainError extends Error {
   constructor(
@@ -20,32 +31,101 @@ export type ProjectRegisteredDecision = {
   project: ProjectProjection;
 };
 
-export type DomainDecision = ProjectRegisteredDecision;
+export type DomainDecision = Extract<
+  RuntimeEvent,
+  {
+    type:
+      | "project.registered"
+      | "worktree.create.requested"
+      | "worktree.status.changed"
+      | "worktree.remove.requested"
+      | "worktree.archive.requested"
+      | "worktree.removed"
+      | "worktree.archived";
+  }
+>;
 
 export function decide(
   projection: RuntimeProjection,
   command: RuntimeCommand,
 ): DomainDecision[] {
-  if (command.type !== "project.register") {
-    throw new DomainError("unsupported_command", `Command ${command.type} is not a domain mutation.`);
+  switch (command.type) {
+    case "project.register": {
+      const path = canonicalPath(command.path);
+      if (projection.projects.some((project) => canonicalPath(project.path) === path)) {
+        throw new DomainError("project_exists", `Project is already registered: ${command.path}`);
+      }
+      const projectId = ProjectId.parse(stableProjectId(path));
+      return [
+        {
+          type: "project.registered",
+          project: {
+            projectId,
+            path: command.path,
+            name: projectName(command.path),
+          },
+        },
+      ];
+    }
+    case "worktree.create": {
+      const project = projection.projects.find((entry) => entry.projectId === command.projectId);
+      if (!project) throw new DomainError("project_missing", `Project does not exist: ${command.projectId}`);
+      if (projection.worktrees.some((worktree) => worktree.worktreeId === command.worktreeId)) {
+        throw new DomainError("worktree_exists", `Worktree already exists: ${command.worktreeId}`);
+      }
+      return [
+        {
+          type: "worktree.create.requested",
+          workspaceRoot: command.workspaceRoot,
+          ...(command.baseRef ? { baseRef: command.baseRef } : {}),
+          ...(command.checkoutExistingBranch ? { checkoutExistingBranch: true } : {}),
+          worktree: {
+            worktreeId: command.worktreeId,
+            projectId: command.projectId,
+            path: command.path,
+            branch: command.branch,
+            status: "queued",
+          },
+        },
+      ];
+    }
+    case "worktree.status":
+      assertWorktree(projection, command.worktreeId);
+      return [
+        {
+          type: "worktree.status.changed",
+          worktreeId: command.worktreeId,
+          status: command.status,
+          ...(command.errorMessage ? { errorMessage: command.errorMessage } : {}),
+        },
+      ];
+    case "worktree.cancel":
+      assertWorktree(projection, command.worktreeId);
+      return [{ type: "worktree.status.changed", worktreeId: command.worktreeId, status: "cancelling" }];
+    case "worktree.retry":
+      assertWorktree(projection, command.worktreeId);
+      return [{ type: "worktree.status.changed", worktreeId: command.worktreeId, status: "queued" }];
+    case "worktree.remove":
+      assertWorktree(projection, command.worktreeId);
+      return [{ type: "worktree.remove.requested", worktreeId: command.worktreeId, force: command.force ?? false }];
+    case "worktree.archive":
+      assertWorktree(projection, command.worktreeId);
+      return [{ type: "worktree.archive.requested", worktreeId: command.worktreeId }];
+    case "worktree.removed":
+      assertWorktree(projection, command.worktreeId);
+      return [{ type: "worktree.removed", worktreeId: command.worktreeId }];
+    case "worktree.archived":
+      assertWorktree(projection, command.worktreeId);
+      return [{ type: "worktree.archived", worktreeId: command.worktreeId }];
+    default:
+      throw new DomainError("unsupported_command", `Command ${command.type} is not a domain mutation.`);
   }
+}
 
-  const path = canonicalPath(command.path);
-  if (projection.projects.some((project) => canonicalPath(project.path) === path)) {
-    throw new DomainError("project_exists", `Project is already registered: ${command.path}`);
+function assertWorktree(projection: RuntimeProjection, worktreeId: string): void {
+  if (!projection.worktrees.some((worktree) => worktree.worktreeId === worktreeId)) {
+    throw new DomainError("worktree_missing", `Worktree does not exist: ${worktreeId}`);
   }
-
-  const projectId = ProjectId.parse(stableProjectId(path));
-  return [
-    {
-      type: "project.registered",
-      project: {
-        projectId,
-        path: command.path,
-        name: projectName(command.path),
-      },
-    },
-  ];
 }
 
 export function canonicalPath(path: string): string {
