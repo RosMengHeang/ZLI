@@ -10,6 +10,7 @@
   "scripts": {
     "boundaries": "node scripts/enforce-boundaries.mjs",
     "desktop:pack": "pnpm --filter @zli-v2/desktop pack",
+    "build": "node scripts/build.mjs && pnpm run web:build",
     "web:build": "pnpm --filter @zli-v2/web exec vite build",
     "test": "vitest run",
     "typecheck": "tsc -b --pretty false",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@playwright/test": "1.60.0",
+    "esbuild": "0.28.1",
     "electron": "44.4.2",
     "electron-builder": "26.15.6",
     "playwright-core": "1.60.0",

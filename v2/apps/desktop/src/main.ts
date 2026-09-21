@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, WebContentsView } from "electron";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
 
 import { RuntimeClient, type RuntimeTransport } from "@zli-v2/client-runtime";
@@ -26,6 +26,7 @@ import { createMainWindow, type BrowserWindowConstructor } from "./window/Electr
 
 const DEFAULT_ENVIRONMENT_ID = "00000000-0000-4000-8000-000000000001";
 const APP_ORIGIN = "zli-v2://app";
+const DESKTOP_DIST = dirname(fileURLToPath(import.meta.url));
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "zli-v2",
@@ -45,7 +46,7 @@ async function main(): Promise<void> {
     return net.fetch(pathToFileURL(asset).toString());
   });
   environment = new EnvironmentProcess({
-    serverEntryPath: process.env.ZLI_SERVER_ENTRY ?? join(app.getAppPath(), "server-entry.js"),
+    serverEntryPath: process.env.ZLI_SERVER_ENTRY ?? join(DESKTOP_DIST, "server-entry.js"),
     databasePath: process.env.ZLI_DATABASE_PATH ?? join(app.getPath("userData"), "runtime.sqlite"),
   });
   const descriptor = await environment.start();
@@ -55,7 +56,7 @@ async function main(): Promise<void> {
     connectTransport: () => connectWebSocket(descriptor.url),
   });
   registerIpc();
-  const window = createMainWindow(BrowserWindow as unknown as BrowserWindowConstructor, join(__dirname, "preload.js"), APP_ORIGIN);
+  const window = createMainWindow(BrowserWindow as unknown as BrowserWindowConstructor, join(DESKTOP_DIST, "preload.js"), APP_ORIGIN);
   const electronWindow = window as unknown as BrowserWindow;
   browserManager = new BrowserManager(
     {

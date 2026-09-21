@@ -5,11 +5,12 @@
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
-    "pack": "electron-builder --config electron-builder.yml"
+    "pack": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml"
   },
   "dependencies": {
     "@zli-v2/client-runtime": "workspace:*",
     "@zli-v2/contracts": "workspace:*",
+    "node-pty": "1.1.0",
     "ws": "8.21.3"
   },
   "devDependencies": {
