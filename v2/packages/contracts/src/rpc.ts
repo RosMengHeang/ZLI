@@ -1,0 +1,78 @@
+import { z } from "zod";
+
+import { CommandId, EnvironmentId, ProjectId } from "./ids.js";
+import { RuntimeEventEnvelope } from "./events.js";
+import { EnvironmentDescriptor, RuntimeProjection } from "./projections.js";
+
+export const RUNTIME_PROTOCOL_VERSION = 1 as const;
+
+export const RuntimeCommand = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("project.register"), path: z.string().min(1) }),
+  z.object({ type: z.literal("runtime.subscribe"), afterSequence: z.number().int().nonnegative() }),
+  z.object({ type: z.literal("runtime.getProjection") }),
+]);
+export type RuntimeCommand = z.infer<typeof RuntimeCommand>;
+
+export const RpcRequest = z.object({
+  protocolVersion: z.literal(RUNTIME_PROTOCOL_VERSION),
+  commandId: CommandId,
+  command: RuntimeCommand,
+});
+export type RpcRequest = z.infer<typeof RpcRequest>;
+
+export const RuntimeError = z.object({
+  code: z.enum([
+    "invalid_request",
+    "unauthorized",
+    "protocol_mismatch",
+    "environment_mismatch",
+    "unavailable",
+    "internal",
+  ]),
+  message: z.string(),
+  retryable: z.boolean(),
+});
+export type RuntimeError = z.infer<typeof RuntimeError>;
+
+export const RpcResponse = z.discriminatedUnion("accepted", [
+  z.object({
+    commandId: CommandId,
+    accepted: z.literal(true),
+    result: z.unknown().optional(),
+  }),
+  z.object({
+    commandId: CommandId,
+    accepted: z.literal(false),
+    error: RuntimeError,
+  }),
+]);
+export type RpcResponse = z.infer<typeof RpcResponse>;
+
+export const ClientWireMessage = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("hello"),
+    protocolVersion: z.literal(RUNTIME_PROTOCOL_VERSION),
+    token: z.string().min(1),
+    environmentId: EnvironmentId,
+  }),
+  z.object({ type: z.literal("command"), request: RpcRequest }),
+  z.object({ type: z.literal("subscribe"), afterSequence: z.number().int().nonnegative() }),
+  z.object({ type: z.literal("projection.get") }),
+]);
+export type ClientWireMessage = z.infer<typeof ClientWireMessage>;
+
+export const ServerWireMessage = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("hello"),
+    protocolVersion: z.literal(RUNTIME_PROTOCOL_VERSION),
+    environment: EnvironmentDescriptor,
+  }),
+  z.object({ type: z.literal("response"), response: RpcResponse }),
+  z.object({ type: z.literal("event"), envelope: RuntimeEventEnvelope }),
+  z.object({ type: z.literal("projection"), projection: RuntimeProjection }),
+  z.object({ type: z.literal("error"), error: RuntimeError }),
+]);
+export type ServerWireMessage = z.infer<typeof ServerWireMessage>;
+
+export const ProjectRegisterResult = z.object({ projectId: ProjectId });
+export type ProjectRegisterResult = z.infer<typeof ProjectRegisterResult>;
