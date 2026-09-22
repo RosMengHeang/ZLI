@@ -103,6 +103,7 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
     if (!bridge) return;
     setBusy(true); setError(undefined);
     try {
+      if (candidate.browserTabId !== tab?.browserTabId) await selectTab(candidate);
       await bridge.browser.close(candidate.browserTabId);
       if (candidate.browserTabId === tab?.browserTabId) {
         const next = worktreeTabs.find((tabCandidate) => tabCandidate.browserTabId !== candidate.browserTabId);
@@ -132,6 +133,7 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
           <button className="icon-button" type="button" disabled={!tab} onClick={() => void run(() => bridge!.browser.back(tab!.browserTabId))} aria-label="Back">←</button>
           <button className="icon-button" type="button" disabled={!tab} onClick={() => void run(() => bridge!.browser.forward(tab!.browserTabId))} aria-label="Forward">→</button>
           <button className="icon-button" type="button" disabled={!tab} onClick={() => void run(() => bridge!.browser.reload(tab!.browserTabId))} aria-label="Reload">↻</button>
+          <button className="icon-button" type="button" disabled={!tab} onClick={() => void run(() => bridge!.browser.openDevTools(tab!.browserTabId))} aria-label="Open browser developer tools">⌘</button>
         </div>
       </div>
       <form className="browser-address" onSubmit={(event) => void openUrl(event)}>

@@ -58,4 +58,45 @@ describe("LegacyImporter", () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+
+  it("rolls back the records already created when a later worktree is rejected", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "zli-legacy-partial-"));
+    const repository = join(directory, "repo");
+    const firstWorktree = join(directory, "first-worktree");
+    const secondWorktree = join(directory, "second-worktree");
+    await mkdir(repository);
+    await mkdir(firstWorktree);
+    await mkdir(secondWorktree);
+    const database = new Database({ path: join(directory, "runtime.sqlite") });
+    const engine = new Engine({
+      database,
+      environment: {
+        environmentId: EnvironmentId.parse("00000000-0000-4000-8000-000000000001"),
+        label: "test",
+        protocolVersion: 1,
+        capabilities: { eventReplay: true },
+      },
+    });
+    try {
+      const preview = {
+        batchId: "partial-batch",
+        snapshotPath: join(directory, "legacy.json"),
+        projects: [{ recordId: "project:0", name: "repo", path: repository, repositoryRoot: repository, state: "ready" as const }],
+        worktrees: [
+          { recordId: "worktree:0:0", projectRecordId: "project:0", path: firstWorktree, branch: "feature/good", state: "ready" as const },
+          { recordId: "worktree:0:1", projectRecordId: "project:0", path: secondWorktree, branch: "-rejected", state: "ready" as const },
+        ],
+        sessions: [],
+        skipped: [],
+        conflicts: [],
+      };
+      const selected = ["project:0", "worktree:0:0", "worktree:0:1"];
+      await expect(new LegacyImporter(engine).import(preview, selected)).rejects.toThrow("Unsafe Git ref: -rejected");
+      expect((await engine.projection()).projects).toEqual([]);
+      expect((await engine.projection()).worktrees).toEqual([]);
+    } finally {
+      database.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });

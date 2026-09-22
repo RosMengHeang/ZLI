@@ -18,6 +18,7 @@ export type ZliBridge = {
     forward(browserTabId: string): Promise<void>;
     reload(browserTabId: string, hard?: boolean): Promise<void>;
     stop(browserTabId: string): Promise<void>;
+    openDevTools(browserTabId: string): Promise<void>;
     snapshot(browserTabId: string): Promise<unknown>;
     click(input: unknown): Promise<void>;
     fill(input: unknown): Promise<void>;
