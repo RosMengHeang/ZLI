@@ -41,9 +41,10 @@ async function main(): Promise<void> {
   await writeFile(endpointPath, JSON.stringify(endpoint), "utf8");
 }
 
-function accept(socket: Socket, terminals: TerminalService): void {
+export function accept(socket: Socket, terminals: TerminalService): void {
   const client: Client = { socket, authenticated: false, subscriptions: [] };
   socket.setEncoding("utf8");
+  socket.on("error", () => socket.destroy());
   let buffer = "";
   socket.on("data", (chunk: string) => {
     buffer += chunk;
