@@ -23,6 +23,8 @@ function WorkspaceApp() {
   const [activeWorktreeId, setActiveWorktreeId] = useState<string>();
   const [pane, setPane] = useState<WorkspacePane>("terminal");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
+  const [activeCommandIndex, setActiveCommandIndex] = useState(0);
   const [worktreeDialogOpen, setWorktreeDialogOpen] = useState(false);
   const [notice, setNotice] = useState<string>();
   const [legacyImportBatchId, setLegacyImportBatchId] = useState<string>();
@@ -37,8 +39,8 @@ function WorkspaceApp() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setPaletteOpen(true); }
-      if (event.key === "Escape") setPaletteOpen(false);
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setPaletteQuery(""); setActiveCommandIndex(0); setPaletteOpen(true); }
+      if (event.key === "Escape") { setPaletteOpen(false); setPaletteQuery(""); }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -128,6 +130,35 @@ function WorkspaceApp() {
   };
 
   const choosePane = (next: WorkspacePane) => { setPane(next); setPaletteOpen(false); };
+  const commands: PaletteCommand[] = [
+    { label: "Open project", action: () => { void openProject(); } },
+    { label: "Export support bundle", action: () => { void exportSupportBundle(); } },
+    { label: "Import legacy snapshot", action: () => { void startLegacyImport(); } },
+    { label: "Help and diagnostics", action: () => setHelpOpen(true) },
+    { label: "Focus agent", action: () => choosePane("agent") },
+    { label: "Focus terminal", action: () => choosePane("terminal") },
+    { label: "Focus browser", action: () => choosePane("browser") },
+    { label: "Focus review", action: () => choosePane("review") },
+  ];
+  const filteredCommands = commands.filter((command) => command.label.toLowerCase().includes(paletteQuery.trim().toLowerCase()));
+  const runPaletteCommand = (command: PaletteCommand) => {
+    setPaletteOpen(false);
+    setPaletteQuery("");
+    command.action();
+  };
+  const handlePaletteKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveCommandIndex((index) => filteredCommands.length === 0 ? 0 : (index + 1) % filteredCommands.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveCommandIndex((index) => filteredCommands.length === 0 ? 0 : (index - 1 + filteredCommands.length) % filteredCommands.length);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const command = filteredCommands[activeCommandIndex];
+      if (command) runPaletteCommand(command);
+    }
+  };
   const worktreeLabel = activeWorktree?.branch ?? "No worktree selected";
 
   return (
@@ -145,7 +176,7 @@ function WorkspaceApp() {
           {!bridge ? <DisconnectedState /> : !projection ? <LoadingState /> : <PaneTree pane={pane} onChange={setPane}>{pane === "agent" ? <AgentPane projection={projection} worktree={activeWorktree} /> : pane === "terminal" ? <TerminalPane projection={projection} worktree={activeWorktree} onOpenBrowser={() => choosePane("browser")} /> : pane === "browser" ? <BrowserPane worktree={activeWorktree} /> : <ReviewPane worktree={activeWorktree} />}</PaneTree>}
         </main>
       </div>
-      {paletteOpen && <div className="palette-backdrop" role="presentation" onMouseDown={() => setPaletteOpen(false)}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={(event) => event.stopPropagation()}><div className="palette-search"><span aria-hidden="true">⌕</span><input autoFocus placeholder="Search commands" aria-label="Search commands" /></div><div className="palette-section"><span className="eyebrow">Workspace</span><button type="button" onClick={() => void openProject()}>Open project</button><button type="button" onClick={() => void exportSupportBundle()}>Export support bundle</button><button type="button" onClick={() => void startLegacyImport()}>Import legacy snapshot</button><button type="button" onClick={() => setHelpOpen(true)}>Help and diagnostics</button><button type="button" onClick={() => choosePane("agent")}>Focus agent</button><button type="button" onClick={() => choosePane("terminal")}>Focus terminal</button><button type="button" onClick={() => choosePane("browser")}>Focus browser</button><button type="button" onClick={() => choosePane("review")}>Focus review</button></div></section></div>}
+      {paletteOpen && <div className="palette-backdrop" role="presentation" onMouseDown={() => setPaletteOpen(false)}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={(event) => event.stopPropagation()}><div className="palette-search"><span aria-hidden="true">⌕</span><input autoFocus value={paletteQuery} onChange={(event) => { setPaletteQuery(event.target.value); setActiveCommandIndex(0); }} onKeyDown={handlePaletteKeyDown} placeholder="Search commands" aria-label="Search commands" /></div><div className="palette-section"><span className="eyebrow">Workspace</span>{filteredCommands.length === 0 ? <p className="palette-empty">No matching commands.</p> : filteredCommands.map((command, index) => <button className={index === activeCommandIndex ? "is-active" : undefined} type="button" key={command.label} onClick={() => runPaletteCommand(command)}>{command.label}</button>)}</div></section></div>}
       {legacyImportBatchId && projection && <LegacyImportDialog projection={projection} batchId={legacyImportBatchId} onImport={(selected) => void importLegacyRecords(selected)} onRollback={() => void rollbackLegacyImport()} onClose={() => setLegacyImportBatchId(undefined)} />}
       {helpOpen && <HelpDialog version={version} onSupportBundle={() => { setHelpOpen(false); void exportSupportBundle(); }} onImportLegacy={() => { setHelpOpen(false); void startLegacyImport(); }} onClose={() => setHelpOpen(false)} />}
       {worktreeDialogOpen && <WorktreeDialog onClose={() => setWorktreeDialogOpen(false)} onSubmit={(branch, baseRef) => void createWorktree(branch, baseRef)} />}
@@ -155,6 +186,7 @@ function WorkspaceApp() {
 
 function LoadingState() { return <div className="center-state"><span className="eyebrow">Runtime</span><h1>Connecting to your workspace</h1><p>The local environment is restoring projects, worktrees, and sessions.</p></div>; }
 function DisconnectedState() { return <div className="center-state"><span className="eyebrow">Desktop shell</span><h1>Start ZLI from Electron</h1><p>This renderer is intentionally isolated from Node and the filesystem. The desktop shell provides the local runtime bridge.</p></div>; }
+type PaletteCommand = { label: string; action(): void };
 function makeId(): string { return globalThis.crypto?.randomUUID?.() ?? "00000000-0000-4000-8000-000000000999"; }
 
 function WorktreeDialog({ onClose, onSubmit }: { onClose(): void; onSubmit(branch: string, baseRef: string): void }) {

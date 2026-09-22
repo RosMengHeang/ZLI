@@ -53,4 +53,25 @@ describe("AppShell", () => {
     await act(async () => { browserAction?.click(); });
     expect(container.textContent).toContain("A browser that belongs to this worktree");
   });
+
+  it("filters palette commands and closes the palette before opening help", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    await act(async () => { createRoot(container).render(<AppShell bridge={bridge} />); });
+    await act(async () => { container.querySelector<HTMLButtonElement>(".command-trigger")?.click(); });
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="Search commands"]');
+    expect(input).not.toBeNull();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, "help");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.textContent).toContain("Help and diagnostics");
+    expect(container.textContent).not.toContain("Focus agent");
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "Help and diagnostics")?.click();
+    });
+    expect(container.querySelector('[aria-label="Command palette"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Help and diagnostics"]')).not.toBeNull();
+  });
 });

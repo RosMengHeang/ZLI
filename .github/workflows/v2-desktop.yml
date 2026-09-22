@@ -33,6 +33,7 @@ jobs:
           cache-dependency-path: v2/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm run verify
+      - run: pnpm audit --audit-level high
       - run: pnpm run build
       - run: pnpm run desktop:dir
       - name: Electron integration journey
@@ -47,3 +48,13 @@ jobs:
             pnpm run e2e
           fi
       - run: pnpm run desktop:pack
+      - name: Upload Electron diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zli-v2-${{ matrix.os }}-diagnostics
+          if-no-files-found: ignore
+          path: |
+            v2/test-results/**
+            v2/apps/desktop/release/**
+            v2/apps/desktop/dist/**/*.map

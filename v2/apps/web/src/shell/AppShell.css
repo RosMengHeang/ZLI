@@ -117,7 +117,8 @@ kbd { padding: 2px 5px; border: 1px solid var(--zli-border-strong); border-radiu
 .palette-section { display: flex; flex-direction: column; padding: 8px 8px 10px; }
 .palette-section .eyebrow { padding: 7px 8px; }
 .palette-section button { padding: 9px 8px; border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: pointer; text-align: left; font-size: 12px; }
-.palette-section button:hover { background: var(--zli-surface); color: var(--zli-text); }
+.palette-section button:hover, .palette-section button.is-active { background: var(--zli-surface); color: var(--zli-text); }
+.palette-empty { margin: 8px; color: var(--zli-dim); font-size: 12px; }
 .worktree-dialog { width: min(420px, calc(100vw - 32px)); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-raised); box-shadow: 0 18px 48px rgba(0, 0, 0, .38); overflow: hidden; }
 .dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 18px 18px 8px; }
 .dialog-header h2 { margin: 5px 0 0; color: var(--zli-text); font-size: 14px; font-weight: 550; }

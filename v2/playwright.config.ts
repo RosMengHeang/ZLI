@@ -6,4 +6,9 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   workers: 1,
   reporter: [["list"]],
+  use: {
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
+  },
 });
