@@ -1,47 +1,17 @@
 import { execFile } from "node:child_process";
-import { createHook } from "node:async_hooks";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { getActiveResourcesInfo } from "node:process";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { _electron as electron, test, type ElectronApplication, type Page } from "@playwright/test";
+import { _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
 
 import { closeChildProcess } from "../closeChildProcess.js";
 import { getProcessTreeTerminationOrder } from "../processTree.js";
 
 const execFileAsync = promisify(execFile);
-const require = createRequire(import.meta.url);
 export const V2_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
-const activeAsyncResources = new Map<number, { type: string; triggerAsyncId: number; stack: string[] }>();
-const linuxCiDiagnostics = process.platform === "linux" && process.env.CI === "true";
-if (linuxCiDiagnostics) {
-  createHook({
-    init(asyncId, type, triggerAsyncId) {
-      if (!/^(?:FSREQCALLBACK|PIPEWRAP|TCPWRAP|TCPCONNECTWRAP|Timeout)$/u.test(type)) return;
-      activeAsyncResources.set(asyncId, {
-        type,
-        triggerAsyncId,
-        stack:
-          new Error().stack
-            ?.split("\n")
-            .slice(2, 7)
-            .map((line) => line.trim()) ?? [],
-      });
-      while (activeAsyncResources.size > 250) {
-        const oldest = activeAsyncResources.keys().next().value as number | undefined;
-        if (oldest === undefined) break;
-        activeAsyncResources.delete(oldest);
-      }
-    },
-    destroy(asyncId) {
-      activeAsyncResources.delete(asyncId);
-    },
-  }).enable();
-}
 
 export type DesktopFixture = {
   app: ElectronApplication;
@@ -53,47 +23,6 @@ export type DesktopFixture = {
 export type DesktopLaunchOptions = {
   legacySnapshotPath?: string;
 };
-
-test.afterEach(() => {
-  if (linuxCiDiagnostics) {
-    console.log(`[e2e-playwright-close-set] ${getPlaywrightCloseSetSize()}`);
-    console.log(`[e2e-active-resources] ${JSON.stringify(getActiveResourcesInfo())}`);
-    console.log(`[e2e-active-handles] ${JSON.stringify(getActiveHandleDiagnostics())}`);
-    console.log(`[e2e-resource-origins] ${JSON.stringify([...activeAsyncResources.entries()].slice(-30))}`);
-  }
-});
-
-function getPlaywrightCloseSetSize(): number {
-  const coreBundlePath = join(dirname(require.resolve("playwright-core")), "lib/coreBundle.js");
-  const coreBundle = require(coreBundlePath) as { utils?: { gracefullyCloseSet?: Set<unknown> } };
-  return coreBundle.utils?.gracefullyCloseSet?.size ?? -1;
-}
-
-function getActiveHandleDiagnostics(): Array<Record<string, unknown>> {
-  const processWithHandleInspection = process as NodeJS.Process & { _getActiveHandles?: () => object[] };
-  return (processWithHandleInspection._getActiveHandles?.() ?? []).map((handle) => {
-    const activeHandle = handle as {
-      constructor?: { name?: string };
-      connecting?: boolean;
-      destroyed?: boolean;
-      hasRef?: () => boolean;
-      localAddress?: string;
-      localPort?: number;
-      remoteAddress?: string;
-      remotePort?: number;
-    };
-    return {
-      type: activeHandle.constructor?.name ?? typeof handle,
-      ...(typeof activeHandle.hasRef === "function" ? { hasRef: activeHandle.hasRef() } : {}),
-      ...(activeHandle.connecting !== undefined ? { connecting: activeHandle.connecting } : {}),
-      ...(activeHandle.destroyed !== undefined ? { destroyed: activeHandle.destroyed } : {}),
-      ...(activeHandle.localAddress !== undefined ? { localAddress: activeHandle.localAddress } : {}),
-      ...(activeHandle.localPort !== undefined ? { localPort: activeHandle.localPort } : {}),
-      ...(activeHandle.remoteAddress !== undefined ? { remoteAddress: activeHandle.remoteAddress } : {}),
-      ...(activeHandle.remotePort !== undefined ? { remotePort: activeHandle.remotePort } : {}),
-    };
-  });
-}
 
 export async function createGitFixture(): Promise<{ root: string; repo: string }> {
   const root = await mkdtemp(join(tmpdir(), "zli-v2-e2e-"));
