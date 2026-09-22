@@ -221,7 +221,10 @@ export class TerminalService {
       pty.onExit((event) => this.onExit(session, event));
       return session.projection;
     } catch (error) {
-      throw new TerminalError("spawn_failed", `Unable to start terminal in ${request.cwd}.`, { cause: error });
+      const reason = error instanceof Error ? error.message : typeof error === "string" ? error : "unknown error";
+      throw new TerminalError("spawn_failed", `Unable to start terminal in ${request.cwd}. (${reason})`, {
+        cause: error,
+      });
     }
   }
 

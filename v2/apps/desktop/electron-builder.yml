@@ -16,5 +16,6 @@ mac:
   target:
     - dmg
 linux:
+  executableName: zli
   target:
     - AppImage

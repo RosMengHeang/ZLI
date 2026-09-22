@@ -207,7 +207,10 @@ describe("TerminalService", () => {
         rows: 32,
         title: "shell",
       }),
-    ).rejects.toMatchObject({ code: "spawn_failed" });
+    ).rejects.toMatchObject({
+      code: "spawn_failed",
+      message: "Unable to start terminal in C:\\workspace\\tree. (node-pty unavailable)",
+    });
     expect(service.list()).toEqual([]);
   });
 });

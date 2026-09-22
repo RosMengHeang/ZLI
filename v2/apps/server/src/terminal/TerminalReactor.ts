@@ -164,5 +164,5 @@ function describeTerminalError(error: unknown, fallback: string): string {
   if (!(error instanceof Error)) return fallback;
   const cause =
     error.cause instanceof Error ? error.cause.message : typeof error.cause === "string" ? error.cause : undefined;
-  return cause ? `${error.message} (${cause})` : error.message;
+  return cause && !error.message.endsWith(`(${cause})`) ? `${error.message} (${cause})` : error.message;
 }
