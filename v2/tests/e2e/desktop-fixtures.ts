@@ -52,9 +52,36 @@ export type DesktopLaunchOptions = {
 test.afterEach(() => {
   if (linuxCiDiagnostics) {
     console.log(`[e2e-active-resources] ${JSON.stringify(getActiveResourcesInfo())}`);
+    console.log(`[e2e-active-handles] ${JSON.stringify(getActiveHandleDiagnostics())}`);
     console.log(`[e2e-resource-origins] ${JSON.stringify([...activeAsyncResources.entries()].slice(-30))}`);
   }
 });
+
+function getActiveHandleDiagnostics(): Array<Record<string, unknown>> {
+  const processWithHandleInspection = process as NodeJS.Process & { _getActiveHandles?: () => object[] };
+  return (processWithHandleInspection._getActiveHandles?.() ?? []).map((handle) => {
+    const activeHandle = handle as {
+      constructor?: { name?: string };
+      connecting?: boolean;
+      destroyed?: boolean;
+      hasRef?: () => boolean;
+      localAddress?: string;
+      localPort?: number;
+      remoteAddress?: string;
+      remotePort?: number;
+    };
+    return {
+      type: activeHandle.constructor?.name ?? typeof handle,
+      ...(typeof activeHandle.hasRef === "function" ? { hasRef: activeHandle.hasRef() } : {}),
+      ...(activeHandle.connecting !== undefined ? { connecting: activeHandle.connecting } : {}),
+      ...(activeHandle.destroyed !== undefined ? { destroyed: activeHandle.destroyed } : {}),
+      ...(activeHandle.localAddress !== undefined ? { localAddress: activeHandle.localAddress } : {}),
+      ...(activeHandle.localPort !== undefined ? { localPort: activeHandle.localPort } : {}),
+      ...(activeHandle.remoteAddress !== undefined ? { remoteAddress: activeHandle.remoteAddress } : {}),
+      ...(activeHandle.remotePort !== undefined ? { remotePort: activeHandle.remotePort } : {}),
+    };
+  });
+}
 
 export async function createGitFixture(): Promise<{ root: string; repo: string }> {
   const root = await mkdtemp(join(tmpdir(), "zli-v2-e2e-"));
