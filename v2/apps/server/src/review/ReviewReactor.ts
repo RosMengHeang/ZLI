@@ -87,7 +87,7 @@ export class ReviewReactor {
   }
 
   private dispatchUpdated(review: unknown): Promise<void> {
-    return this.engine.dispatch({
+    return this.engine.dispatchPromise({
       protocolVersion: 1,
       commandId: CommandId.parse(randomUUID()),
       command: { type: "review.updated", review: ReviewProjection.parse(review) },

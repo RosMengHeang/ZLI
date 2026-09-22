@@ -105,8 +105,8 @@ export class LegacyImportReactor {
     await this.dispatch({ type: "legacy.operation.failed", batchId, message });
   }
 
-  private dispatch(command: Parameters<Engine["dispatch"]>[0]["command"]): Promise<void> {
-    return this.engine.dispatch({
+  private dispatch(command: Parameters<Engine["dispatchPromise"]>[0]["command"]): Promise<void> {
+    return this.engine.dispatchPromise({
       protocolVersion: 1,
       commandId: CommandId.parse(randomUUID()),
       command,

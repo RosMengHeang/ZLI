@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import * as Effect from "effect/Effect";
 
 import {
   ProjectRegisterResult,
@@ -79,7 +80,15 @@ export class Engine {
     );
   }
 
-  dispatch(request: RpcRequest): Promise<CommandReceipt> {
+  dispatch(request: RpcRequest): Effect.Effect<CommandReceipt, Error> {
+    return Effect.tryPromise({
+      try: () => this.dispatchPromise(request),
+      catch: toError,
+    });
+  }
+
+  /** Promise interop for existing async boundaries; new orchestration code should compose dispatch(). */
+  dispatchPromise(request: RpcRequest): Promise<CommandReceipt> {
     const parsed = RpcRequest.parse(request);
     const operation = this.commandQueue.then(() => this.dispatchSerialized(parsed));
     this.commandQueue = operation.then(
@@ -380,6 +389,10 @@ function hashIntent(command: RuntimeCommand): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 function commandCorrelation(request: RpcRequest, workspaceId: string): LogCorrelation {

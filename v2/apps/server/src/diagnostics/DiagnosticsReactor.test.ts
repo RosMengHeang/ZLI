@@ -27,7 +27,7 @@ describe("DiagnosticsReactor", () => {
     const destination = join(directory, "support.zip");
 
     try {
-      await engine.dispatch({
+      await engine.dispatchPromise({
         protocolVersion: 1,
         commandId: CommandId.parse("00000000-0000-4000-8000-000000000010"),
         command: { type: "diagnostics.createSupportBundle", destinationPath: destination },

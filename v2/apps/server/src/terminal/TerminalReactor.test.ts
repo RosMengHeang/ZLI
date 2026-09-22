@@ -64,9 +64,9 @@ async function setup(factory: PtyFactory) {
   const engine = new Engine({ database, environment });
   const reactor = new TerminalReactor(engine, new TerminalService(factory));
   resources.push({ database, reactor });
-  const project = await engine.dispatch(command("project.register", { path: "C:/workspace/project" }));
+  const project = await engine.dispatchPromise(command("project.register", { path: "C:/workspace/project" }));
   const projectId = ProjectId.parse(project.result?.projectId);
-  await engine.dispatch(
+  await engine.dispatchPromise(
     command("worktree.create", {
       worktreeId: WorktreeId.parse("00000000-0000-4000-8000-000000000302"),
       projectId,
@@ -90,12 +90,12 @@ describe("TerminalReactor", () => {
     const original = new FakePty();
     const { engine, reactor, worktreeId } = await setup({ spawn: async () => original });
     const id = TerminalId.parse("00000000-0000-4000-8000-000000000306");
-    await engine.dispatch(command("terminal.create", {
+    await engine.dispatchPromise(command("terminal.create", {
       terminalId: id, worktreeId, cwd: "C:/workspace/project-tree",
       shell: "powershell.exe", title: "PowerShell", cols: 120, rows: 32,
     }));
     await reactor.waitForIdle();
-    await engine.dispatch(command("terminal.write", { terminalId: id, data: "deploy-production\r\n" }));
+    await engine.dispatchPromise(command("terminal.write", { terminalId: id, data: "deploy-production\r\n" }));
     await reactor.waitForIdle();
     expect(original.writes).toEqual(["deploy-production\r\n"]);
     reactor.stop();
@@ -114,7 +114,7 @@ describe("TerminalReactor", () => {
     const pty = new FakePty();
     const { engine, reactor, worktreeId } = await setup({ spawn: async () => pty });
     const id = TerminalId.parse("00000000-0000-4000-8000-000000000303");
-    await engine.dispatch(
+    await engine.dispatchPromise(
       command("terminal.create", {
         terminalId: id,
         worktreeId,
@@ -130,7 +130,7 @@ describe("TerminalReactor", () => {
       { terminalId: id, status: "running" },
     ]);
 
-    await engine.dispatch(command("terminal.write", { terminalId: id, data: "git status\r\n" }));
+    await engine.dispatchPromise(command("terminal.write", { terminalId: id, data: "git status\r\n" }));
     expect(pty.writes).toEqual(["git status\r\n"]);
     reactor.stop();
   });
@@ -138,7 +138,7 @@ describe("TerminalReactor", () => {
   it("projects a failed terminal startup and does not leave it running", async () => {
     const { engine } = await setup({ spawn: async () => { throw new Error("spawn denied"); } });
     const id = TerminalId.parse("00000000-0000-4000-8000-000000000304");
-    await engine.dispatch(
+    await engine.dispatchPromise(
       command("terminal.create", {
         terminalId: id,
         worktreeId: WorktreeId.parse("00000000-0000-4000-8000-000000000302"),
@@ -159,7 +159,7 @@ describe("TerminalReactor", () => {
     const pty = new FakePty();
     const { engine, worktreeId } = await setup({ spawn: async () => pty });
     const id = TerminalId.parse("00000000-0000-4000-8000-000000000305");
-    await engine.dispatch(
+    await engine.dispatchPromise(
       command("terminal.create", {
         terminalId: id,
         worktreeId,

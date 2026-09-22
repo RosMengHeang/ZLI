@@ -63,7 +63,7 @@ describe("durable worktree reactor", () => {
     const engine = makeEngine();
     const reactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()));
     reactors.push(reactor);
-    const projectReceipt = await engine.dispatch(
+    const projectReceipt = await engine.dispatchPromise(
       command("00000000-0000-4000-8000-000000000202", {
         type: "project.register",
         path: root.repoPath,
@@ -73,7 +73,7 @@ describe("durable worktree reactor", () => {
     const worktreeId = WorktreeId.parse("00000000-0000-4000-8000-000000000203");
     const worktreePath = join(root.workspaceRoot, "feature-reactor");
 
-    await engine.dispatch(
+    await engine.dispatchPromise(
       command("00000000-0000-4000-8000-000000000204", {
         type: "worktree.create",
         worktreeId,
@@ -104,14 +104,14 @@ describe("durable worktree reactor", () => {
       },
     });
     reactors.push(reactor);
-    const projectReceipt = await engine.dispatch(
+    const projectReceipt = await engine.dispatchPromise(
       command("00000000-0000-4000-8000-000000000205", {
         type: "project.register",
         path: root.repoPath,
       }),
     );
     const projectId = ProjectId.parse(projectReceipt.result?.projectId ?? "");
-    await engine.dispatch(
+    await engine.dispatchPromise(
       command("00000000-0000-4000-8000-000000000207", {
         type: "worktree.create",
         worktreeId: WorktreeId.parse("00000000-0000-4000-8000-000000000206"),

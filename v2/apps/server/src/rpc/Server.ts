@@ -209,7 +209,7 @@ export class RpcServer {
     switch (message.data.type) {
       case "command":
         try {
-          const receipt = await this.engine.dispatch(message.data.request);
+          const receipt = await this.engine.dispatchPromise(message.data.request);
           if (receipt.status === "accepted") {
             send(client, {
               type: "response",

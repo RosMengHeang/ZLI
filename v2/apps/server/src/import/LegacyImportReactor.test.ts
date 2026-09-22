@@ -32,7 +32,7 @@ describe("LegacyImportReactor", () => {
     const reactor = new LegacyImportReactor(engine);
 
     try {
-      await engine.dispatch({
+      await engine.dispatchPromise({
         protocolVersion: 1,
         commandId: CommandId.parse("00000000-0000-4000-8000-000000000020"),
         command: { type: "legacy.scan", batchId: "batch-1", snapshotPath: snapshot },
@@ -43,7 +43,7 @@ describe("LegacyImportReactor", () => {
       expect(scanned.legacyImport?.status).toBe("ready");
       expect(preview?.projects[0]?.recordId).toBe("project:0");
 
-      await engine.dispatch({
+      await engine.dispatchPromise({
         protocolVersion: 1,
         commandId: CommandId.parse("00000000-0000-4000-8000-000000000021"),
         command: { type: "legacy.import", batchId: "batch-1", selectedRecordIds: ["project:0"] },

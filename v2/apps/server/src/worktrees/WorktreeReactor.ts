@@ -165,7 +165,7 @@ export class WorktreeReactor {
   }
 
   private dispatchStatus(worktreeId: string, status: WorktreeState, errorMessage?: string): Promise<void> {
-    return this.engine.dispatch({
+    return this.engine.dispatchPromise({
       protocolVersion: 1,
       commandId: CommandId.parse(randomUUID()),
       command: {
@@ -178,7 +178,7 @@ export class WorktreeReactor {
   }
 
   private dispatchCompletion(type: "worktree.removed" | "worktree.archived", worktreeId: string): Promise<void> {
-    return this.engine.dispatch({
+    return this.engine.dispatchPromise({
       protocolVersion: 1,
       commandId: CommandId.parse(randomUUID()),
       command: { type, worktreeId: WorktreeId.parse(worktreeId) },

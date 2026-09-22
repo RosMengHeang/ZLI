@@ -85,8 +85,8 @@ export class LegacyImporter {
     }
   }
 
-  private dispatch(command: RuntimeCommand): ReturnType<Engine["dispatch"]> {
-    return this.engine.dispatch({
+  private dispatch(command: RuntimeCommand): ReturnType<Engine["dispatchPromise"]> {
+    return this.engine.dispatchPromise({
       protocolVersion: 1,
       commandId: CommandId.parse(randomUUID()),
       command,

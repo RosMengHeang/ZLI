@@ -63,16 +63,16 @@ describe("ProviderReactor", () => {
     const service = new ProviderService(new ProviderRegistry([adapter]));
     const reactor = new ProviderReactor(engine, service);
 
-    await engine.dispatch({ protocolVersion: 1, commandId: CommandId.parse("10000000-0000-4000-8000-000000000901"), command: { type: "project.register", path: "C:\\workspace\\provider" } });
+    await engine.dispatchPromise({ protocolVersion: 1, commandId: CommandId.parse("10000000-0000-4000-8000-000000000901"), command: { type: "project.register", path: "C:\\workspace\\provider" } });
     const projectId = ProjectId.parse((await engine.projection()).projects[0]!.projectId);
-    await engine.dispatch({ protocolVersion: 1, commandId: CommandId.parse("10000000-0000-4000-8000-000000000902"), command: { type: "worktree.create", worktreeId, projectId, path: "C:\\workspace\\provider-tree", workspaceRoot: "C:\\workspace", branch: "feature/provider" } });
-    await engine.dispatch({ protocolVersion: 1, commandId: CommandId.parse("10000000-0000-4000-8000-000000000903"), command: { type: "thread.start", threadId, worktreeId, provider: "codex", cwd: "C:\\workspace\\provider-tree" } });
+    await engine.dispatchPromise({ protocolVersion: 1, commandId: CommandId.parse("10000000-0000-4000-8000-000000000902"), command: { type: "worktree.create", worktreeId, projectId, path: "C:\\workspace\\provider-tree", workspaceRoot: "C:\\workspace", branch: "feature/provider" } });
+    await engine.dispatchPromise({ protocolVersion: 1, commandId: CommandId.parse("10000000-0000-4000-8000-000000000903"), command: { type: "thread.start", threadId, worktreeId, provider: "codex", cwd: "C:\\workspace\\provider-tree" } });
     await reactor.waitForIdle();
 
     expect(adapter.started).toBe(true);
     expect((await engine.projection()).threads[0]).toMatchObject({ threadId, status: "idle", worktreeId });
 
-    await engine.dispatch({ protocolVersion: 1, commandId: CommandId.parse("10000000-0000-4000-8000-000000000904"), command: { type: "thread.send", threadId, text: "run tests" } });
+    await engine.dispatchPromise({ protocolVersion: 1, commandId: CommandId.parse("10000000-0000-4000-8000-000000000904"), command: { type: "thread.send", threadId, text: "run tests" } });
     await reactor.waitForIdle();
     adapter.emit({ type: "assistant.delta", threadId: ThreadId.parse(threadId), turnId: "provider-turn", text: "Tests are running." });
     await reactor.waitForIdle();
@@ -86,7 +86,7 @@ describe("ProviderReactor", () => {
     expect((await engine.projection()).requests).toEqual([
       expect.objectContaining({ requestId: "approval-1", kind: "approval" }),
     ]);
-    await engine.dispatch({ protocolVersion: 1, commandId: CommandId.parse("10000000-0000-4000-8000-000000000905"), command: { type: "thread.respond", threadId, requestId: "approval-1", decision: { approved: true } } });
+    await engine.dispatchPromise({ protocolVersion: 1, commandId: CommandId.parse("10000000-0000-4000-8000-000000000905"), command: { type: "thread.respond", threadId, requestId: "approval-1", decision: { approved: true } } });
     await reactor.waitForIdle();
     expect(adapter.responded).toBe(true);
     expect((await engine.projection()).requests).toEqual([]);

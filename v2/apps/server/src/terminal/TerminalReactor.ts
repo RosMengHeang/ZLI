@@ -136,7 +136,7 @@ export class TerminalReactor {
     _exitCode?: number,
   ): Promise<void> {
     return this.engine
-      .dispatch({
+      .dispatchPromise({
         protocolVersion: 1,
         commandId: CommandId.parse(randomUUID()),
         command: {

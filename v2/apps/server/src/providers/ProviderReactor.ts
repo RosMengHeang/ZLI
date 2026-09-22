@@ -132,7 +132,7 @@ export class ProviderReactor {
   }
 
   private status(threadId: string, status: "starting" | "idle" | "working" | "waiting" | "stopped" | "failed", turnId?: string, capabilities?: ReturnType<ProviderService["getCapabilities"]>): Promise<void> {
-    return this.engine.dispatch({
+    return this.engine.dispatchPromise({
       protocolVersion: 1,
       commandId: CommandId.parse(randomUUID()),
       command: {
@@ -164,7 +164,7 @@ export class ProviderReactor {
   }
 
   private request(threadId: string, kind: "approval" | "user-input", requestId: string, payload: Record<string, unknown>): Promise<void> {
-    return this.engine.dispatch({
+    return this.engine.dispatchPromise({
       protocolVersion: 1,
       commandId: CommandId.parse(randomUUID()),
       command: {
@@ -175,7 +175,7 @@ export class ProviderReactor {
   }
 
   private resolveRequest(threadId: string, requestId: string): Promise<void> {
-    return this.engine.dispatch({
+    return this.engine.dispatchPromise({
       protocolVersion: 1,
       commandId: CommandId.parse(randomUUID()),
       command: { type: "thread.request.resolved", threadId: ThreadId.parse(threadId), requestId },
@@ -183,7 +183,7 @@ export class ProviderReactor {
   }
 
   private message(threadId: string, role: "user" | "assistant" | "system", text: string, turnId?: string): Promise<void> {
-    return this.engine.dispatch({
+    return this.engine.dispatchPromise({
       protocolVersion: 1,
       commandId: CommandId.parse(randomUUID()),
       command: {

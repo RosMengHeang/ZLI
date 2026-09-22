@@ -40,7 +40,7 @@ export class DiagnosticsReactor {
       const request = events.at(-1)?.event;
       const desktopLogs = request?.type === "diagnostics.bundle.requested" ? request.desktopLogs ?? [] : [];
       const result = await createSupportBundle({ destinationPath, projection, events, logs: [...this.logger.snapshot(), ...desktopLogs] });
-      await this.engine.dispatch({
+      await this.engine.dispatchPromise({
         protocolVersion: 1,
         commandId: CommandId.parse(randomUUID()),
         command: {
@@ -55,7 +55,7 @@ export class DiagnosticsReactor {
       });
     } catch (error) {
       const message = error instanceof SupportBundleError ? error.message : "Unable to create support bundle.";
-      await this.engine.dispatch({
+      await this.engine.dispatchPromise({
         protocolVersion: 1,
         commandId: CommandId.parse(randomUUID()),
         command: { type: "diagnostics.bundle.failed", message },
