@@ -91,6 +91,12 @@ kbd { padding: 2px 5px; border: 1px solid var(--zli-border-strong); border-radiu
 .icon-button { width: 28px; height: 28px; font-size: 16px; line-height: 1; }
 .browser-address { display: flex; gap: 8px; padding: 0 14px 10px; }
 .browser-address input, .palette-search { min-width: 0; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-canvas); color: var(--zli-text); }
+.browser-tabs { display: flex; min-width: 0; gap: 3px; padding: 7px 12px 0; overflow-x: auto; background: var(--zli-canvas); }
+.browser-tab { display: flex; min-width: 0; align-items: center; border: 1px solid transparent; border-bottom: 0; border-radius: var(--zli-radius-sm) var(--zli-radius-sm) 0 0; background: transparent; color: var(--zli-muted); }
+.browser-tab.is-active { border-color: var(--zli-border); background: var(--zli-raised); color: var(--zli-text); }
+.browser-tab > button:first-child { min-width: 96px; max-width: 220px; padding: 7px 9px; overflow: hidden; border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 11px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.browser-tab-close { width: 26px; height: 26px; margin-right: 2px; border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-dim); cursor: pointer; }
+.browser-tab-close:hover { background: var(--zli-surface); color: var(--zli-text); }
 .browser-address input { height: 30px; padding: 0 10px; flex: 1; font-size: 12px; outline: none; }
 .browser-address input:focus { border-color: var(--zli-border-strong); }
 .inline-error { margin: 0 14px 8px; color: var(--zli-red); font-size: 11px; }

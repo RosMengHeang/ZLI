@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { BrowserTabProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
@@ -12,7 +12,8 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const restoredTab = projection?.browserTabs.find((candidate) => candidate.worktreeId === worktree?.worktreeId);
+  const worktreeTabs = useMemo(() => projection?.browserTabs.filter((candidate) => candidate.worktreeId === worktree?.worktreeId) ?? [], [projection?.browserTabs, worktree?.worktreeId]);
+  const restoredTab = worktreeTabs.find((candidate) => candidate.active) ?? worktreeTabs[0];
 
   useEffect(() => {
     setTab(undefined);
@@ -76,7 +77,8 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
   useEffect(() => {
     if (!tab) return;
     const next = projection?.browserTabs.find((candidate) => candidate.browserTabId === tab.browserTabId);
-    if (!next || next.title === tab.title && next.url === tab.url && next.status === tab.status && next.active === tab.active) return;
+    if (!next) { setTab(undefined); setUrl(""); return; }
+    if (next.title === tab.title && next.url === tab.url && next.status === tab.status && next.active === tab.active) return;
     setTab(next);
   }, [projection?.browserTabs, tab]);
 
@@ -86,8 +88,33 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
     try { await operation(); } catch (cause) { setError(cause instanceof Error ? cause.message : "The browser operation failed."); }
   };
 
+  const selectTab = async (candidate: BrowserTabProjection) => {
+    if (!bridge) return;
+    setBusy(true); setError(undefined);
+    try {
+      const restored = await bridge.browser.create({ browserTabId: candidate.browserTabId, worktreeId: candidate.worktreeId, profileId: candidate.profileId, url: candidate.url });
+      const active = await bridge.browser.activate(restored.browserTabId);
+      setTab(active); setUrl(active.url);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "The browser tab could not be activated."); }
+    finally { setBusy(false); }
+  };
+
+  const closeTab = async (candidate: BrowserTabProjection) => {
+    if (!bridge) return;
+    setBusy(true); setError(undefined);
+    try {
+      await bridge.browser.close(candidate.browserTabId);
+      if (candidate.browserTabId === tab?.browserTabId) {
+        const next = worktreeTabs.find((tabCandidate) => tabCandidate.browserTabId !== candidate.browserTabId);
+        if (next) await selectTab(next); else { setTab(undefined); setUrl(""); }
+      }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "The browser tab could not be closed."); }
+    finally { setBusy(false); }
+  };
+
   return (
     <div className="tool-pane browser-pane">
+      {worktreeTabs.length > 0 && <div className="browser-tabs" role="tablist" aria-label="Worktree browser tabs">{worktreeTabs.map((candidate) => <div className={`browser-tab${candidate.browserTabId === tab?.browserTabId ? " is-active" : ""}`} key={candidate.browserTabId}><button type="button" role="tab" aria-selected={candidate.browserTabId === tab?.browserTabId} onClick={() => void selectTab(candidate)}>{candidate.title || candidate.url}</button><button className="browser-tab-close" type="button" onClick={() => void closeTab(candidate)} aria-label={`Close ${candidate.title || candidate.url}`}>×</button></div>)}</div>}
       <div className="tool-pane-header browser-header">
         <div><span className="eyebrow">Browser</span><h2>{tab?.title || "Chromium workspace"}</h2></div>
         <div className="browser-controls" aria-label="Browser controls">
