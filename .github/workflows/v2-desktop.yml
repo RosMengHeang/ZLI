@@ -36,6 +36,9 @@ jobs:
       - run: pnpm audit --audit-level high
       - run: pnpm run build
       - run: pnpm run desktop:dir
+      - name: Inspect unpacked Linux application files
+        if: runner.os == 'Linux'
+        run: find apps/desktop/release/linux-unpacked -maxdepth 2 -type f -printf '%P (%m)\n' | sort
       - name: Electron integration journey
         shell: bash
         env:

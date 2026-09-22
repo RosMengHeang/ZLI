@@ -57,8 +57,6 @@ test("completes the workspace, provider, browser, review, and restoration journe
     );
     await page.getByRole("button", { name: "Terminal", exact: true }).click();
     await page.getByRole("button", { name: "Start terminal" }).click();
-    await page.getByRole("textbox", { name: "Terminal command" }).fill("node dev-server.mjs");
-    await page.getByRole("button", { name: "Send" }).click();
     await expect
       .poll(
         async () =>
@@ -70,6 +68,8 @@ test("completes the workspace, provider, browser, review, and restoration journe
         { timeout: 10_000 },
       )
       .toBe("running:");
+    await page.getByRole("textbox", { name: "Terminal command" }).fill("node dev-server.mjs");
+    await page.getByRole("button", { name: "Send" }).click();
     await expect(page.getByRole("log", { name: "Terminal output" })).toContainText(`ZLI_DEV_READY ${terminalPort}`, {
       timeout: 20_000,
     });
