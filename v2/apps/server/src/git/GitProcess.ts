@@ -50,8 +50,9 @@ export class GitProcess {
       stderr: limitOutput(result.stderr, this.maxOutputBytes),
     };
     if (bounded.code !== 0) {
+      const diagnostic = bounded.stderr.trim();
       throw new GitProcessError(
-        `git ${args.join(" ")} exited with code ${bounded.code}.`,
+        `git ${args.join(" ")} exited with code ${bounded.code}.${diagnostic ? ` ${limitOutput(diagnostic, 2_000)}` : ""}`,
         bounded.code,
         args,
         bounded.stdout,

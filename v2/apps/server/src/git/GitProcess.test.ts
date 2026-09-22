@@ -27,6 +27,7 @@ describe("GitProcess", () => {
       name: "GitProcessError",
       code: 128,
       stderr: "fatal: repo",
+      message: expect.stringContaining("fatal: repo"),
     });
   });
 
