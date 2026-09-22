@@ -56,8 +56,9 @@ async function readEndpoint(path: string): Promise<DaemonEndpoint | undefined> {
   }
 }
 
-async function handshake(endpoint: DaemonEndpoint): Promise<boolean> {
+export async function handshake(endpoint: DaemonEndpoint, timeoutMs = 1_000): Promise<boolean> {
   const socket = createConnection({ host: endpoint.host, port: endpoint.port });
+  const timer = setTimeout(() => socket.destroy(new Error("Daemon handshake timed out.")), timeoutMs);
   socket.setEncoding("utf8");
   try {
     await new Promise<void>((resolveConnection, rejectConnection) => {
@@ -70,6 +71,7 @@ async function handshake(endpoint: DaemonEndpoint): Promise<boolean> {
   } catch {
     return false;
   } finally {
+    clearTimeout(timer);
     socket.destroy();
   }
 }
@@ -89,9 +91,11 @@ function readLine(socket: ReturnType<typeof createConnection>): Promise<{ type?:
       }
     };
     const onError = (error: Error) => { cleanup(); rejectLine(error); };
-    const cleanup = () => { socket.off("data", onData); socket.off("error", onError); };
+    const onClose = () => { cleanup(); resolveLine(undefined); };
+    const cleanup = () => { socket.off("data", onData); socket.off("error", onError); socket.off("close", onClose); };
     socket.on("data", onData);
     socket.once("error", onError);
+    socket.once("close", onClose);
   });
 }
 
