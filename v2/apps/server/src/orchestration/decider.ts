@@ -55,6 +55,7 @@ export type DomainDecision = Extract<
       | "browser.updated"
       | "browser.closed"
       | "review.refresh.requested"
+      | "review.diff.requested"
       | "review.commit.requested"
       | "review.merge.requested"
       | "review.abortMerge.requested"
@@ -291,6 +292,9 @@ export function decide(
     case "review.refresh":
       assertWorktree(projection, command.worktreeId);
       return [{ type: "review.refresh.requested", worktreeId: command.worktreeId, baseRef: command.baseRef }];
+    case "review.diff":
+      assertWorktree(projection, command.worktreeId);
+      return [{ type: "review.diff.requested", worktreeId: command.worktreeId, path: command.path }];
     case "review.commit":
       assertWorktree(projection, command.worktreeId);
       return [{ type: "review.commit.requested", worktreeId: command.worktreeId, message: command.message }];

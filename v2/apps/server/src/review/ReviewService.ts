@@ -1,7 +1,11 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import {
   ReviewProjection,
   WorktreeId,
   type ReviewFileProjection,
+  type ReviewDiffProjection,
   type ReviewProjection as ReviewProjectionValue,
 } from "@zli-v2/contracts";
 
@@ -46,6 +50,36 @@ export class ReviewService {
     await this.git.run(["add", "--all", "--", "."], { cwd: input.worktreePath });
     await this.git.run(["commit", "-m", message], { cwd: input.worktreePath });
     return this.refresh(input);
+  }
+
+  async diff(input: ReviewServiceInput & { path: string }): Promise<ReviewProjectionValue> {
+    assertRelativePath(input.path);
+    const review = await this.refresh(input);
+    const file = review.files.find((candidate) => candidate.path === input.path);
+    if (!file) throw new Error(`The file is not part of the current review: ${input.path}`);
+
+    let patch = "";
+    if (file.kind === "untracked") {
+      patch = await readUntrackedPatch(input.worktreePath, file);
+    } else {
+      const workingTreeDiff = await this.git.run(["diff", "--no-ext-diff", "--unified=3", "HEAD", "--", file.path], { cwd: input.worktreePath });
+      if (workingTreeDiff.stdout) {
+        patch = workingTreeDiff.stdout;
+      } else {
+        const committedDiff = await this.git.run(["diff", "--no-ext-diff", "--unified=3", `${input.baseRef}...HEAD`, "--", file.path], { cwd: input.worktreePath });
+        patch = committedDiff.stdout;
+      }
+    }
+    const bounded = boundPatch(patch);
+    const diff: ReviewDiffProjection = {
+      path: file.path,
+      ...(file.oldPath ? { oldPath: file.oldPath } : {}),
+      binary: file.binary,
+      patch: bounded.patch,
+      truncated: bounded.truncated,
+      generatedAt: new Date().toISOString(),
+    };
+    return ReviewProjection.parse({ ...review, diff });
   }
 
   async merge(input: ReviewServiceInput & { targetRef: string }): Promise<ReviewProjectionValue> {
@@ -154,5 +188,28 @@ function isConflict(xy: string): boolean {
 function assertRef(value: string): void {
   if (!value || value.startsWith("-") || value.includes("\0") || value.includes("\\") || /(^|\/)\.\.?($|\/)/u.test(value) || /[~^:?*\[]/u.test(value) || value.endsWith(".lock") || value.endsWith(".")) {
     throw new Error(`Unsafe Git ref: ${value}`);
+  }
+}
+
+function assertRelativePath(value: string): void {
+  if (!value || value.includes("\0") || value.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(value) || value.split(/[\\/]/u).some((part) => part === "..")) {
+    throw new Error(`Unsafe review path: ${value}`);
+  }
+}
+
+function boundPatch(value: string): { patch: string; truncated: boolean } {
+  const maxChars = 200_000;
+  return value.length <= maxChars
+    ? { patch: value, truncated: false }
+    : { patch: value.slice(0, maxChars), truncated: true };
+}
+
+async function readUntrackedPatch(worktreePath: string, file: ReviewFileProjection): Promise<string> {
+  if (file.binary) return `Untracked binary file: ${file.path}`;
+  try {
+    const content = await readFile(join(worktreePath, file.path), "utf8");
+    return `Untracked file: ${file.path}\n\n${content}`;
+  } catch {
+    return `Untracked file: ${file.path}`;
   }
 }

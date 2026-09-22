@@ -70,6 +70,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("browser.updated"), tab: BrowserTabProjection }),
   z.object({ type: z.literal("browser.closed"), browserTabId: BrowserTabId }),
   z.object({ type: z.literal("review.refresh.requested"), worktreeId: WorktreeId, baseRef: z.string().min(1) }),
+  z.object({ type: z.literal("review.diff.requested"), worktreeId: WorktreeId, path: z.string().min(1).max(4_000) }),
   z.object({ type: z.literal("review.commit.requested"), worktreeId: WorktreeId, message: z.string().min(1).max(10_000) }),
   z.object({ type: z.literal("review.merge.requested"), worktreeId: WorktreeId, targetRef: z.string().min(1) }),
   z.object({ type: z.literal("review.abortMerge.requested"), worktreeId: WorktreeId }),

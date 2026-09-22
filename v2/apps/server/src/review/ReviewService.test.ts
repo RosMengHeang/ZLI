@@ -48,6 +48,34 @@ describe("ReviewService", () => {
     expect(calls[2]).toEqual(["diff", "--numstat", "--find-renames", "main...HEAD"]);
   });
 
+  it("loads a bounded on-demand patch for a reviewed file", async () => {
+    const service = new ReviewService({ run: async (args) => {
+      if (args[0] === "rev-parse") return { code: 0, stdout: "feature/ui\n", stderr: "" };
+      if (args[0] === "status") return { code: 0, stdout: " M src/App.tsx\n", stderr: "" };
+      if (args[2] === "--numstat") return { code: 0, stdout: "2\t1\tsrc/App.tsx\n", stderr: "" };
+      return { code: 0, stdout: "@@ -1,1 +1,2 @@\n-old\n+new\n", stderr: "" };
+    } });
+
+    const review = await service.diff({ worktreeId: WORKTREE_ID, worktreePath: "C:/repo/worktree", repositoryPath: "C:/repo", branch: "feature/ui", baseRef: "main", path: "src/App.tsx" });
+    expect(review.diff).toMatchObject({ path: "src/App.tsx", patch: "@@ -1,1 +1,2 @@\n-old\n+new\n", truncated: false, binary: false });
+  });
+
+  it("rejects review paths that escape the worktree", async () => {
+    const service = new ReviewService({ run: async () => ({ code: 0, stdout: "", stderr: "" }) });
+    await expect(service.diff({ worktreeId: WORKTREE_ID, worktreePath: "C:/repo/worktree", repositoryPath: "C:/repo", branch: "feature/ui", baseRef: "main", path: "../secrets.txt" })).rejects.toThrow("Unsafe review path");
+  });
+
+  it("loads the content of an untracked text file on demand", async () => {
+    const fixture = await createRepository();
+    try {
+      await writeFile(join(fixture.worktreePath, "new-file.txt"), "new file content\n", "utf8");
+      const review = await new ReviewService(fixture.git).diff({ worktreeId: WORKTREE_ID, worktreePath: fixture.worktreePath, repositoryPath: fixture.repositoryPath, branch: "feature/ui", baseRef: "main", path: "new-file.txt" });
+      expect(review.diff?.patch).toContain("new file content");
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
   it("stages all files and commits with an argument-safe message", async () => {
     const calls: string[][] = [];
     const service = new ReviewService({ run: async (args) => {

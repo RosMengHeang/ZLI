@@ -75,6 +75,8 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await page.getByRole("button", { name: "Review" }).click();
     await page.getByRole("button", { name: "Refresh changes" }).click();
     await expect(page.getByText("change.txt")).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("button", { name: /change\.txt/iu }).click();
+    await expect(page.getByRole("region", { name: "Diff for change.txt" })).toContainText("integration change");
     await page.getByLabel("Commit message").fill("exercise review flow");
     await page.getByRole("button", { name: "Commit changes" }).click();
     await expect.poll(() => git(worktreePath, ["status", "--porcelain"])).toBe("");

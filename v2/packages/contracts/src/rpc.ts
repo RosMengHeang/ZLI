@@ -80,6 +80,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("runtime.subscribe"), afterSequence: z.number().int().nonnegative() }),
   z.object({ type: z.literal("runtime.getProjection") }),
   z.object({ type: z.literal("review.refresh"), worktreeId: WorktreeId, baseRef: z.string().min(1) }),
+  z.object({ type: z.literal("review.diff"), worktreeId: WorktreeId, path: z.string().min(1).max(4_000) }),
   z.object({ type: z.literal("review.commit"), worktreeId: WorktreeId, message: z.string().min(1).max(10_000) }),
   z.object({ type: z.literal("review.merge"), worktreeId: WorktreeId, targetRef: z.string().min(1) }),
   z.object({ type: z.literal("review.abortMerge"), worktreeId: WorktreeId }),

@@ -13,6 +13,16 @@ export const ReviewFileProjection = z.object({
 });
 export type ReviewFileProjection = z.infer<typeof ReviewFileProjection>;
 
+export const ReviewDiffProjection = z.object({
+  path: z.string().min(1),
+  oldPath: z.string().min(1).optional(),
+  binary: z.boolean(),
+  patch: z.string().max(200_000),
+  truncated: z.boolean(),
+  generatedAt: z.string().datetime({ offset: true }),
+});
+export type ReviewDiffProjection = z.infer<typeof ReviewDiffProjection>;
+
 export const ReviewProjection = z.object({
   worktreeId: WorktreeId,
   baseRef: z.string().min(1),
@@ -20,6 +30,7 @@ export const ReviewProjection = z.object({
   state: z.enum(["clean", "changes", "conflicted"]),
   files: z.array(ReviewFileProjection),
   conflictFiles: z.array(z.string().min(1)),
+  diff: ReviewDiffProjection.optional(),
   errorMessage: z.string().min(1).optional(),
   updatedAt: z.string().datetime({ offset: true }),
 });

@@ -190,6 +190,7 @@ export function projectEvent(
         lastSequence: envelope.sequence,
       };
     case "review.refresh.requested":
+    case "review.diff.requested":
     case "review.commit.requested":
     case "review.merge.requested":
     case "review.abortMerge.requested":

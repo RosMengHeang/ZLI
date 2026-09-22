@@ -26,6 +26,9 @@ export class ReviewReactor {
       case "review.refresh.requested":
         this.start(event.worktreeId, () => this.runRefresh(event.worktreeId, event.baseRef));
         return;
+      case "review.diff.requested":
+        this.start(event.worktreeId, () => this.runDiff(event.worktreeId, event.path));
+        return;
       case "review.commit.requested":
         this.start(event.worktreeId, () => this.runCommit(event.worktreeId, event.message));
         return;
@@ -53,6 +56,11 @@ export class ReviewReactor {
   private async runCommit(worktreeId: string, message: string): Promise<void> {
     const input = await this.input(worktreeId, await this.baseRef(worktreeId));
     await this.dispatchUpdated(await this.service.commit({ ...input, message }));
+  }
+
+  private async runDiff(worktreeId: string, path: string): Promise<void> {
+    const input = await this.input(worktreeId, await this.baseRef(worktreeId));
+    await this.dispatchUpdated(await this.service.diff({ ...input, path }));
   }
 
   private async runMerge(worktreeId: string, targetRef: string): Promise<void> {
