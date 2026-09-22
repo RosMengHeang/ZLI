@@ -108,6 +108,23 @@ describe("SupportBundle", () => {
     expect(entries["runtime.json"]).not.toContain("path");
   });
 
+  it("excludes cookie values and environment credentials from every bundle entry", () => {
+    const entries = buildSupportEntries({
+      projection,
+      events,
+      logs: [
+        { level: "warn", message: "Cookie: session=private-cookie" },
+        { level: "error", message: "ZLI_API_KEY=private-api-key ZLI_SECRET=private-env-secret" },
+      ],
+    });
+    const combined = Object.values(entries).join("\n");
+
+    expect(combined).not.toContain("private-cookie");
+    expect(combined).not.toContain("private-api-key");
+    expect(combined).not.toContain("private-env-secret");
+    expect(combined).toContain("REDACTED");
+  });
+
   it("writes a real non-overwriting zip bundle", async () => {
     const directory = await mkdtemp(join(tmpdir(), "zli-support-bundle-"));
     const destination = join(directory, "diagnostics.zip");
