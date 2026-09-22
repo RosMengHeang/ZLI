@@ -39,6 +39,14 @@ jobs:
       - name: Inspect unpacked Linux application files
         if: runner.os == 'Linux'
         run: find apps/desktop/release/linux-unpacked -maxdepth 2 -type f -printf '%P (%m)\n' | sort
+      - name: Inspect packaged macOS PTY helper
+        if: runner.os == 'macOS'
+        run: |
+          helper=$(find apps/desktop/release -path '*/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-*/spawn-helper' -type f -print -quit)
+          test -n "$helper"
+          ls -l "$helper"
+          file "$helper"
+          test -x "$helper"
       - name: Electron integration journey
         shell: bash
         env:
@@ -50,6 +58,9 @@ jobs:
           else
             pnpm run e2e
           fi
+      - name: Inspect remaining Linux runtime processes
+        if: always() && runner.os == 'Linux'
+        run: ps -eo pid,ppid,stat,args | grep -E '[Z]LI|[z]li|[d]aemon-entry|[s]erver-entry' || true
       - run: pnpm run desktop:pack
       - name: Upload Electron diagnostics on failure
         if: failure()
