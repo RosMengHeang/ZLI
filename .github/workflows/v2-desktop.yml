@@ -42,8 +42,12 @@ jobs:
       - name: Inspect packaged macOS PTY helper
         if: runner.os == 'macOS'
         run: |
-          helper=$(find apps/desktop/release -path '*/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-*/spawn-helper' -type f -print -quit)
-          test -n "$helper"
+          case "$(uname -m)" in
+            arm64) arch=arm64 ;;
+            x86_64) arch=x64 ;;
+            *) echo "Unsupported macOS runner architecture: $(uname -m)"; exit 1 ;;
+          esac
+          helper="apps/desktop/release/mac-${arch}/ZLI.app/Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-${arch}/spawn-helper"
           ls -l "$helper"
           file "$helper"
           test -x "$helper"
@@ -60,7 +64,7 @@ jobs:
           fi
       - name: Inspect remaining Linux runtime processes
         if: always() && runner.os == 'Linux'
-        run: ps -eo pid,ppid,stat,args | grep -E '[Z]LI|[z]li|[d]aemon-entry|[s]erver-entry' || true
+        run: ps -eo pid,ppid,stat,args | grep -Ei '[e]lectron|[c]hromium|dev-server\.mjs|[z]li|[d]aemon-entry|[s]erver-entry' || true
       - run: pnpm run desktop:pack
       - name: Upload Electron diagnostics on failure
         if: failure()
