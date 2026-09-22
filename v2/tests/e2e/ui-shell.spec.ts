@@ -23,7 +23,7 @@ test("provides a focused, keyboard-driven workbench shell", async () => {
     await fixture.page.getByRole("textbox", { name: "Search commands" }).press("Enter");
     await expect(fixture.page.getByRole("dialog", { name: "Help and diagnostics" })).toBeVisible();
     await expect(fixture.page.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
-    await fixture.page.getByRole("button", { name: "Close" }).click();
+    await fixture.page.getByRole("button", { name: "Close", exact: true }).click();
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { BrowserAutomation, type CdpClientLike } from "./BrowserAutomation.js";
 
-function fakeCdp(): { cdp: CdpClientLike; commands: Array<{ method: string; params?: unknown }>; emit: (method: string, params: unknown) => void } {
+function fakeCdp(): {
+  cdp: CdpClientLike;
+  commands: Array<{ method: string; params?: unknown }>;
+  emit: (method: string, params: unknown) => void;
+} {
   const commands: Array<{ method: string; params?: unknown }> = [];
   const listeners = new Set<(method: string, params: unknown) => void>();
   const cdp: CdpClientLike = {
@@ -10,25 +14,44 @@ function fakeCdp(): { cdp: CdpClientLike; commands: Array<{ method: string; para
       commands.push({ method, ...(params === undefined ? {} : { params }) });
       if (method === "Runtime.evaluate" && typeof params === "object" && params !== null && "expression" in params) {
         const expression = String((params as { expression: unknown }).expression);
-        if (expression.includes("tagName")) return { result: { result: { value: { tag: "button", name: "Save", url: "https://example.com" } } } };
-        if (expression.includes("getBoundingClientRect")) return { result: { result: { value: { x: 20, y: 30, width: 100, height: 40 } } } };
+        if (expression.includes("tagName"))
+          return { result: { result: { value: { tag: "button", name: "Save", url: "https://example.com" } } } };
+        if (expression.includes("getBoundingClientRect"))
+          return { result: { result: { value: { x: 20, y: 30, width: 100, height: 40 } } } };
         return { result: { result: { value: { tag: "button", name: "Save", url: "https://example.com" } } } };
       }
       if (method === "Page.captureScreenshot") return { data: "aGVsbG8=" };
       return {};
     },
-    onMessage: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+    onMessage: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
   };
-  return { cdp, commands, emit: (method, params) => { for (const listener of listeners) listener(method, params); } };
+  return {
+    cdp,
+    commands,
+    emit: (method, params) => {
+      for (const listener of listeners) listener(method, params);
+    },
+  };
 }
 
 describe("BrowserAutomation", () => {
   it("enables the CDP domains required for automation, design mode, and diagnostics", async () => {
     const { cdp, commands } = fakeCdp();
     await new BrowserAutomation(cdp).start();
-    expect(commands.map((command) => command.method)).toEqual(expect.arrayContaining([
-      "Page.enable", "Runtime.enable", "DOM.enable", "DOMSnapshot.enable", "Accessibility.enable", "Network.enable", "Log.enable",
-    ]));
+    expect(commands.map((command) => command.method)).toEqual(
+      expect.arrayContaining([
+        "Page.enable",
+        "Runtime.enable",
+        "DOM.enable",
+        "DOMSnapshot.enable",
+        "Accessibility.enable",
+        "Network.enable",
+        "Log.enable",
+      ]),
+    );
   });
 
   it("dispatches trusted input through Chromium and bounds returned data", async () => {
@@ -52,7 +75,10 @@ describe("BrowserAutomation", () => {
     const waiting = automation.waitForNetworkIdle({ idleMs: 10, timeoutMs: 200 });
     emit("Network.requestWillBeSent", { requestId: "1", request: { url: "https://example.com/api", type: "Fetch" } });
     emit("Network.loadingFinished", { requestId: "1" });
-    emit("Network.requestWillBeSent", { requestId: "2", request: { url: "wss://example.com/socket", type: "WebSocket" } });
+    emit("Network.requestWillBeSent", {
+      requestId: "2",
+      request: { url: "wss://example.com/socket", type: "WebSocket" },
+    });
     await expect(waiting).resolves.toEqual({ idle: true });
   });
 });

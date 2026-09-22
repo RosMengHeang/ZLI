@@ -31,10 +31,7 @@ test("rejects imports from the legacy application", async () => {
 
 test("rejects Electron and Node imports in the web renderer", async () => {
   const root = await fixture({
-    "v2/apps/web/src/main.tsx": [
-      'import { ipcRenderer } from "electron";',
-      'import fs from "node:fs";',
-    ].join("\n"),
+    "v2/apps/web/src/main.tsx": ['import { ipcRenderer } from "electron";', 'import fs from "node:fs";'].join("\n"),
   });
 
   const violations = await findBoundaryViolations(path.join(root, "v2"));

@@ -3,7 +3,14 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 import type { GitProcess } from "../git/GitProcess.js";
 
-export type WorktreeIncludeSkipReason = "missing" | "glob" | "negation" | "traversal" | "tracked" | "not_ignored" | "target_exists";
+export type WorktreeIncludeSkipReason =
+  | "missing"
+  | "glob"
+  | "negation"
+  | "traversal"
+  | "tracked"
+  | "not_ignored"
+  | "target_exists";
 
 export type WorktreeIncludeReport = {
   copied: string[];

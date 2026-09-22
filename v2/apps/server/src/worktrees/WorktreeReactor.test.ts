@@ -89,7 +89,9 @@ describe("durable worktree reactor", () => {
     expect((await engine.projection()).worktrees).toMatchObject([
       { worktreeId, status: "ready", branch: "feature/reactor" },
     ]);
-    await expect(execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: worktreePath })).resolves.toMatchObject({
+    await expect(
+      execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: worktreePath }),
+    ).resolves.toMatchObject({
       stdout: "feature/reactor\n",
     });
   });

@@ -59,17 +59,22 @@ export type BrowserManagerOptions = {
   readonly sessionManager?: BrowserSessionManager;
   readonly sessionModule?: BrowserSessionModule;
   readonly defaultBounds?: BrowserBoundsValue;
-  readonly automationFactory?: (view: BrowserViewLike) => { cdp: CdpClientLike; automation: BrowserAutomation; designMode: DesignMode };
+  readonly automationFactory?: (view: BrowserViewLike) => {
+    cdp: CdpClientLike;
+    automation: BrowserAutomation;
+    designMode: DesignMode;
+  };
   readonly onProjection?: (tab: BrowserTabProjectionValue) => void;
   readonly onClose?: (tab: BrowserTabProjectionValue) => void;
 };
 
 type ManagedTab = {
-  readonly view: BrowserViewLike;
+  view: BrowserViewLike;
   projection: BrowserTabProjectionValue;
   bounds: BrowserBoundsValue;
-  automation?: BrowserAutomation;
-  designMode?: DesignMode;
+  automation?: BrowserAutomation | undefined;
+  designMode?: DesignMode | undefined;
+  recoveryAttempted?: boolean;
 };
 
 const DEFAULT_BOUNDS: BrowserBoundsValue = { x: 0, y: 0, width: 1024, height: 720 };
@@ -175,20 +180,40 @@ export class BrowserManager {
     return tab.projection;
   }
 
-  back(browserTabId: string): void { this.#require(browserTabId).view.webContents.goBack(); }
-  forward(browserTabId: string): void { this.#require(browserTabId).view.webContents.goForward(); }
+  back(browserTabId: string): void {
+    this.#require(browserTabId).view.webContents.goBack();
+  }
+  forward(browserTabId: string): void {
+    this.#require(browserTabId).view.webContents.goForward();
+  }
   reload(browserTabId: string, hard = false): void {
     const contents = this.#require(browserTabId).view.webContents;
-    if (hard) contents.reloadIgnoringCache(); else contents.reload();
+    if (hard) contents.reloadIgnoringCache();
+    else contents.reload();
   }
-  stop(browserTabId: string): void { this.#require(browserTabId).view.webContents.stop(); }
-  openDevTools(browserTabId: string): void { this.#require(browserTabId).view.webContents.openDevTools?.(); }
+  stop(browserTabId: string): void {
+    this.#require(browserTabId).view.webContents.stop();
+  }
+  openDevTools(browserTabId: string): void {
+    this.#require(browserTabId).view.webContents.openDevTools?.();
+  }
 
-  async snapshot(browserTabId: string): Promise<BrowserSnapshot> { return this.#automation(browserTabId).snapshot(); }
-  async click(browserTabId: string, input: { selector: string } | { x: number; y: number }): Promise<void> { return this.#automation(browserTabId).click(input); }
-  async fill(browserTabId: string, input: { selector: string; value: string }): Promise<void> { return this.#automation(browserTabId).fill(input); }
-  async press(browserTabId: string, input: { key: string }): Promise<void> { return this.#automation(browserTabId).press(input); }
-  async waitForNetworkIdle(browserTabId: string, options: { idleMs?: number; timeoutMs?: number }): Promise<{ idle: boolean }> {
+  async snapshot(browserTabId: string): Promise<BrowserSnapshot> {
+    return this.#automation(browserTabId).snapshot();
+  }
+  async click(browserTabId: string, input: { selector: string } | { x: number; y: number }): Promise<void> {
+    return this.#automation(browserTabId).click(input);
+  }
+  async fill(browserTabId: string, input: { selector: string; value: string }): Promise<void> {
+    return this.#automation(browserTabId).fill(input);
+  }
+  async press(browserTabId: string, input: { key: string }): Promise<void> {
+    return this.#automation(browserTabId).press(input);
+  }
+  async waitForNetworkIdle(
+    browserTabId: string,
+    options: { idleMs?: number; timeoutMs?: number },
+  ): Promise<{ idle: boolean }> {
     return this.#automation(browserTabId).waitForNetworkIdle(options);
   }
   async screenshot(browserTabId: string, options: BrowserScreenshotOptions): Promise<BrowserScreenshot> {
@@ -202,8 +227,12 @@ export class BrowserManager {
     if (!tab.designMode) throw new Error("Browser automation is not available for this tab.");
     return tab.designMode.inspect(input);
   }
-  consoleEntries(browserTabId: string): readonly unknown[] { return this.#automation(browserTabId).consoleEntries(); }
-  networkEntries(browserTabId: string): readonly unknown[] { return this.#automation(browserTabId).networkEntries(); }
+  consoleEntries(browserTabId: string): readonly unknown[] {
+    return this.#automation(browserTabId).consoleEntries();
+  }
+  networkEntries(browserTabId: string): readonly unknown[] {
+    return this.#automation(browserTabId).networkEntries();
+  }
 
   close(browserTabId: string, options: { persist?: boolean } = {}): void {
     const tab = this.#require(browserTabId);
@@ -227,12 +256,15 @@ export class BrowserManager {
           profileId: tab.projection.profileId,
           url,
           bounds: tab.bounds,
-        }).then((created) => this.activate(created.browserTabId)).catch(() => undefined);
+        })
+          .then((created) => this.activate(created.browserTabId))
+          .catch(() => undefined);
       }
       return { action: "deny" };
     });
     contents.on("will-navigate", (event, url) => {
-      if (isRecordWithPreventDefault(event) && typeof url === "string" && !isAllowedBrowserNavigation(url)) event.preventDefault();
+      if (isRecordWithPreventDefault(event) && typeof url === "string" && !isAllowedBrowserNavigation(url))
+        event.preventDefault();
     });
     contents.on("did-start-loading", () => this.#replace(browserTabId, { status: "loading" }));
     contents.on("did-stop-loading", () => {
@@ -255,7 +287,43 @@ export class BrowserManager {
         ...(typeof url === "string" ? { url } : {}),
       });
     });
-    contents.on("render-process-gone", () => this.#replace(browserTabId, { status: "crashed" }));
+    contents.on("render-process-gone", () => {
+      if (tab.view.webContents !== contents) return;
+      void this.#recoverCrashedTab(browserTabId, tab);
+    });
+  }
+
+  async #recoverCrashedTab(browserTabId: string, tab: ManagedTab): Promise<void> {
+    if (this.#tabs.get(browserTabId) !== tab || tab.recoveryAttempted) {
+      if (this.#tabs.get(browserTabId) === tab) this.#replace(browserTabId, { status: "crashed" });
+      return;
+    }
+    tab.recoveryAttempted = true;
+    this.#replace(browserTabId, { status: "crashed" });
+    const previousView = tab.view;
+    try {
+      const { worktreeId, profileId, url } = tab.projection;
+      const partition = this.#sessionManager.partitionFor(worktreeId, profileId);
+      const browserSession = this.#sessionModule
+        ? this.#sessionManager.getSession(this.#sessionModule, worktreeId, profileId)
+        : undefined;
+      const replacement = this.factory.create({ partition, ...(browserSession ? { session: browserSession } : {}) });
+      replacement.setBounds(tab.bounds);
+      replacement.setVisible(tab.projection.active);
+      this.host.removeChildView(previousView);
+      this.host.addChildView(replacement);
+      tab.automation?.dispose();
+      const automation = this.#automationFactory?.(replacement);
+      tab.view = replacement;
+      tab.automation = automation?.automation;
+      tab.designMode = automation?.designMode;
+      previousView.webContents.destroy?.();
+      this.#installObservers(browserTabId, tab);
+      this.#replace(browserTabId, { status: "loading" });
+      await replacement.webContents.loadURL(url);
+    } catch {
+      if (this.#tabs.get(browserTabId) === tab) this.#replace(browserTabId, { status: "crashed" });
+    }
   }
 
   #replace(browserTabId: string, patch: Partial<BrowserTabProjectionValue>): void {
@@ -287,7 +355,8 @@ export class BrowserManager {
 }
 
 function assertBrowserUrl(url: string): void {
-  if (!isAllowedBrowserNavigation(url)) throw new Error("Invalid browser URL: only http(s) or about:blank navigation is allowed.");
+  if (!isAllowedBrowserNavigation(url))
+    throw new Error("Invalid browser URL: only http(s) or about:blank navigation is allowed.");
 }
 
 function safeCurrentUrl(contents: BrowserWebContentsLike, fallback: string): string {
@@ -300,9 +369,18 @@ function safeCurrentUrl(contents: BrowserWebContentsLike, fallback: string): str
 }
 
 function safeTitle(contents: BrowserWebContentsLike, fallback: string): string {
-  try { return contents.getTitle().slice(0, 512); } catch { return fallback; }
+  try {
+    return contents.getTitle().slice(0, 512);
+  } catch {
+    return fallback;
+  }
 }
 
 function isRecordWithPreventDefault(value: unknown): value is { preventDefault(): void } {
-  return typeof value === "object" && value !== null && "preventDefault" in value && typeof value.preventDefault === "function";
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "preventDefault" in value &&
+    typeof value.preventDefault === "function"
+  );
 }

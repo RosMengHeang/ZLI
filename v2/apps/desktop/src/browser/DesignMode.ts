@@ -1,8 +1,4 @@
-import type {
-  BrowserAutomation,
-  BrowserInspection,
-  BrowserScreenshot,
-} from "./BrowserAutomation.js";
+import type { BrowserAutomation, BrowserInspection, BrowserScreenshot } from "./BrowserAutomation.js";
 
 export type DesignInspection = BrowserInspection & {
   readonly screenshot?: BrowserScreenshot;

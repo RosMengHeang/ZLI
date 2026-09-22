@@ -1,9 +1,4 @@
-import {
-  TerminalChunk,
-  TerminalId,
-  WorktreeId,
-  type TerminalProjection,
-} from "@zli-v2/contracts";
+import { TerminalChunk, TerminalId, WorktreeId, type TerminalProjection } from "@zli-v2/contracts";
 
 export type PtySpawnInput = {
   terminalId?: TerminalId;
@@ -285,9 +280,7 @@ export class TerminalService {
     const session = this.session(terminalId);
     const oldestSequence = session.history[0]?.chunk.sequence ?? session.projection.lastSequence + 1;
     const truncated = afterSequence < oldestSequence - 1;
-    const chunks = session.history
-      .filter((entry) => entry.chunk.sequence > afterSequence)
-      .map((entry) => entry.chunk);
+    const chunks = session.history.filter((entry) => entry.chunk.sequence > afterSequence).map((entry) => entry.chunk);
     const subscriber = new Subscriber(
       terminalId,
       this.maxPendingChunks,

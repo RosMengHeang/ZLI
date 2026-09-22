@@ -73,9 +73,9 @@ async function createService(
   return service;
 }
 
-async function nextMessage(
-  subscription: { next(): Promise<TerminalStreamMessage | undefined> },
-): Promise<TerminalStreamMessage> {
+async function nextMessage(subscription: {
+  next(): Promise<TerminalStreamMessage | undefined>;
+}): Promise<TerminalStreamMessage> {
   const message = await subscription.next();
   if (!message) throw new Error("Expected a terminal message.");
   return message;
@@ -177,7 +177,9 @@ describe("TerminalService", () => {
     const service = await createService(pty);
     service.write(terminalId, "dir\r\n");
     service.resize(terminalId, 140, 40);
-    await expect(Promise.resolve().then(() => service.write(terminalId, "x".repeat(512 * 1024 + 1)))).rejects.toMatchObject({
+    await expect(
+      Promise.resolve().then(() => service.write(terminalId, "x".repeat(512 * 1024 + 1))),
+    ).rejects.toMatchObject({
       code: "input_too_large",
     });
     expect(() => service.resize(terminalId, 0, 40)).toThrowError(TerminalError);

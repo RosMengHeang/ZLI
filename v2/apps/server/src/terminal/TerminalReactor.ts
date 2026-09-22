@@ -40,7 +40,12 @@ export class TerminalReactor {
       if (envelope.event.type !== "terminal.create.requested") continue;
       const intent = envelope.event;
       const terminal = projection.terminals.find((candidate) => candidate.terminalId === intent.terminal.terminalId);
-      if (!terminal || (terminal.status !== "running" && terminal.status !== "starting") || this.intents.has(terminal.terminalId)) continue;
+      if (
+        !terminal ||
+        (terminal.status !== "running" && terminal.status !== "starting") ||
+        this.intents.has(terminal.terminalId)
+      )
+        continue;
       this.intents.set(terminal.terminalId, intent);
       this.startCreate(intent);
     }
@@ -121,11 +126,7 @@ export class TerminalReactor {
     try {
       this.service.stop(TerminalId.parse(terminalId));
     } catch (error) {
-      await this.dispatchStatus(
-        terminalId,
-        "failed",
-        error instanceof Error ? error.message : "Terminal stop failed.",
-      );
+      await this.dispatchStatus(terminalId, "failed", error instanceof Error ? error.message : "Terminal stop failed.");
     }
   }
 
@@ -161,6 +162,7 @@ export class TerminalReactor {
 
 function describeTerminalError(error: unknown, fallback: string): string {
   if (!(error instanceof Error)) return fallback;
-  const cause = error.cause instanceof Error ? error.cause.message : typeof error.cause === "string" ? error.cause : undefined;
+  const cause =
+    error.cause instanceof Error ? error.cause.message : typeof error.cause === "string" ? error.cause : undefined;
   return cause ? `${error.message} (${cause})` : error.message;
 }

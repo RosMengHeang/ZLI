@@ -18,7 +18,10 @@ export type LegacyScanResult = {
 };
 
 export class LegacyScanError extends Error {
-  constructor(readonly code: "unreadable_snapshot" | "invalid_snapshot", message: string) {
+  constructor(
+    readonly code: "unreadable_snapshot" | "invalid_snapshot",
+    message: string,
+  ) {
     super(message);
     this.name = "LegacyScanError";
   }
@@ -122,7 +125,11 @@ export class LegacyScanner {
         const provider = firstString(agent.provider, agent.providerId);
         const name = firstString(agent.name, provider);
         if (!provider || !name) {
-          skipped.push({ recordId: "session:" + recordBase, kind: "session", reason: "Provider or session name is missing." });
+          skipped.push({
+            recordId: "session:" + recordBase,
+            kind: "session",
+            reason: "Provider or session name is missing.",
+          });
           continue;
         }
         sessions.push({
@@ -137,11 +144,16 @@ export class LegacyScanner {
         if (!worktreePath) continue;
         const branch = firstString(agent.branch, name.replace(/[^a-zA-Z0-9._/-]/gu, "-")) ?? "legacy-import";
         if (!isAbsolute(worktreePath)) {
-          skipped.push({ recordId: "worktree:" + recordBase, kind: "worktree", reason: "Worktree path is not absolute." });
+          skipped.push({
+            recordId: "worktree:" + recordBase,
+            kind: "worktree",
+            reason: "Worktree path is not absolute.",
+          });
           continue;
         }
         const cwd = firstString(agent.cwd);
-        const state = cwd && isAbsolute(cwd) ? await this.recordState(worktreePath, cwd) : await this.recordState(worktreePath, "");
+        const state =
+          cwd && isAbsolute(cwd) ? await this.recordState(worktreePath, cwd) : await this.recordState(worktreePath, "");
         const worktreeEntry: LegacyWorktreeImport = {
           recordId: "worktree:" + recordBase,
           projectRecordId,
@@ -178,7 +190,7 @@ export class LegacyScanner {
 
   private async recordState(path: string, fallbackPath: string): Promise<"ready" | "missing" | "moved"> {
     if (await this.dependencies.pathExists(path)) return "ready";
-    if (path !== fallbackPath && await this.dependencies.pathExists(fallbackPath)) return "moved";
+    if (path !== fallbackPath && (await this.dependencies.pathExists(fallbackPath))) return "moved";
     return "missing";
   }
 }
@@ -187,7 +199,8 @@ function resumeState(agent: JsonRecord, provider: string): "exact" | "unsupporte
   const resume = isRecord(agent.resume) ? agent.resume : undefined;
   if (agent.resumeAvailability === "available" || resume?.type === "available") return "exact";
   if (agent.resumeAvailability === "unsupported" || resume?.type === "unsupported") return "unsupported";
-  if (provider === "codex" && (typeof agent.resumeId === "string" || typeof agent.sessionId === "string")) return "exact";
+  if (provider === "codex" && (typeof agent.resumeId === "string" || typeof agent.sessionId === "string"))
+    return "exact";
   return "unknown";
 }
 

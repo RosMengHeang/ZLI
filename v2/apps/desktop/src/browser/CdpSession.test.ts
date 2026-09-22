@@ -9,9 +9,16 @@ describe("CdpSession", () => {
     const debuggerLike: ElectronDebuggerLike = {
       attach: async () => undefined,
       detach: async () => undefined,
-      sendCommand: async (method) => { commands.push(method); return { ok: true }; },
-      on: (_event, listener) => { messages.add(listener); },
-      removeListener: (_event, listener) => { messages.delete(listener); },
+      sendCommand: async (method) => {
+        commands.push(method);
+        return { ok: true };
+      },
+      on: (_event, listener) => {
+        messages.add(listener);
+      },
+      removeListener: (_event, listener) => {
+        messages.delete(listener);
+      },
     };
     const session = new CdpSession(debuggerLike);
     const received: unknown[] = [];

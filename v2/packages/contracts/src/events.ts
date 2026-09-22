@@ -3,7 +3,12 @@ import { z } from "zod";
 import { BrowserTabId, EventId, ProjectId, TerminalId, ThreadId, TurnId, WorktreeId, WorkspaceId } from "./ids.js";
 import { BrowserTabProjection } from "./browser.js";
 import { ProjectProjection, WorktreeProjection, SupportBundleProjection } from "./projections.js";
-import { ProviderCapabilities, ThreadMessageProjection, ThreadProjection, ThreadRequestProjection } from "./provider.js";
+import {
+  ProviderCapabilities,
+  ThreadMessageProjection,
+  ThreadProjection,
+  ThreadRequestProjection,
+} from "./provider.js";
 import { TerminalProjection, TerminalStatus } from "./terminal.js";
 import { ReviewProjection } from "./review.js";
 import { LegacyImportPreview } from "./import.js";
@@ -58,31 +63,70 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("terminal.stop.requested"), terminalId: TerminalId }),
   z.object({ type: z.literal("thread.start.requested"), thread: ThreadProjection, cwd: z.string().min(1) }),
-  z.object({ type: z.literal("thread.send.requested"), threadId: ThreadId, text: z.string(), model: z.string().min(1).optional() }),
+  z.object({
+    type: z.literal("thread.send.requested"),
+    threadId: ThreadId,
+    text: z.string(),
+    model: z.string().min(1).optional(),
+  }),
   z.object({ type: z.literal("thread.interrupt.requested"), threadId: ThreadId, turnId: TurnId.optional() }),
   z.object({ type: z.literal("thread.stop.requested"), threadId: ThreadId }),
-  z.object({ type: z.literal("thread.status.changed"), threadId: ThreadId, status: ThreadProjection.shape.status, turnId: TurnId.optional(), capabilities: ProviderCapabilities.optional(), errorMessage: z.string().min(1).optional() }),
+  z.object({
+    type: z.literal("thread.status.changed"),
+    threadId: ThreadId,
+    status: ThreadProjection.shape.status,
+    turnId: TurnId.optional(),
+    capabilities: ProviderCapabilities.optional(),
+    errorMessage: z.string().min(1).optional(),
+  }),
   z.object({ type: z.literal("thread.message.appended"), message: ThreadMessageProjection }),
   z.object({ type: z.literal("thread.request.requested"), request: ThreadRequestProjection }),
   z.object({ type: z.literal("thread.request.resolved"), threadId: ThreadId, requestId: z.string().min(1) }),
-  z.object({ type: z.literal("thread.respond.requested"), threadId: ThreadId, requestId: z.string().min(1), decision: z.unknown() }),
-  z.object({ type: z.literal("thread.user-input.requested"), threadId: ThreadId, requestId: z.string().min(1), answers: z.record(z.string(), z.string()) }),
+  z.object({
+    type: z.literal("thread.respond.requested"),
+    threadId: ThreadId,
+    requestId: z.string().min(1),
+    decision: z.unknown(),
+  }),
+  z.object({
+    type: z.literal("thread.user-input.requested"),
+    threadId: ThreadId,
+    requestId: z.string().min(1),
+    answers: z.record(z.string(), z.string()),
+  }),
   z.object({ type: z.literal("browser.updated"), tab: BrowserTabProjection }),
   z.object({ type: z.literal("browser.closed"), browserTabId: BrowserTabId }),
   z.object({ type: z.literal("review.refresh.requested"), worktreeId: WorktreeId, baseRef: z.string().min(1) }),
   z.object({ type: z.literal("review.diff.requested"), worktreeId: WorktreeId, path: z.string().min(1).max(4_000) }),
-  z.object({ type: z.literal("review.commit.requested"), worktreeId: WorktreeId, message: z.string().min(1).max(10_000) }),
+  z.object({
+    type: z.literal("review.commit.requested"),
+    worktreeId: WorktreeId,
+    message: z.string().min(1).max(10_000),
+  }),
   z.object({ type: z.literal("review.merge.requested"), worktreeId: WorktreeId, targetRef: z.string().min(1) }),
   z.object({ type: z.literal("review.abortMerge.requested"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("review.updated"), review: ReviewProjection }),
   z.object({ type: z.literal("review.archived"), worktreeId: WorktreeId }),
-  z.object({ type: z.literal("diagnostics.bundle.requested"), destinationPath: z.string().min(1), desktopLogs: z.array(DiagnosticLog).optional() }),
+  z.object({
+    type: z.literal("diagnostics.bundle.requested"),
+    destinationPath: z.string().min(1),
+    desktopLogs: z.array(DiagnosticLog).optional(),
+  }),
   z.object({ type: z.literal("diagnostics.bundle.created"), bundle: SupportBundleProjection }),
   z.object({ type: z.literal("diagnostics.bundle.failed"), message: z.string().min(1) }),
   z.object({ type: z.literal("legacy.scan.requested"), batchId: z.string().min(1), snapshotPath: z.string().min(1) }),
   z.object({ type: z.literal("legacy.scan.completed"), preview: LegacyImportPreview }),
-  z.object({ type: z.literal("legacy.import.requested"), batchId: z.string().min(1), selectedRecordIds: z.array(z.string().min(1)) }),
-  z.object({ type: z.literal("legacy.import.completed"), batchId: z.string().min(1), importedProjectIds: z.array(ProjectId), importedWorktreeIds: z.array(WorktreeId) }),
+  z.object({
+    type: z.literal("legacy.import.requested"),
+    batchId: z.string().min(1),
+    selectedRecordIds: z.array(z.string().min(1)),
+  }),
+  z.object({
+    type: z.literal("legacy.import.completed"),
+    batchId: z.string().min(1),
+    importedProjectIds: z.array(ProjectId),
+    importedWorktreeIds: z.array(WorktreeId),
+  }),
   z.object({ type: z.literal("legacy.rollback.requested"), batchId: z.string().min(1) }),
   z.object({ type: z.literal("legacy.rollback.completed"), batchId: z.string().min(1) }),
   z.object({ type: z.literal("legacy.operation.failed"), batchId: z.string().min(1), message: z.string().min(1) }),

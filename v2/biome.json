@@ -1,0 +1,25 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "**/*.{ts,tsx,js,jsx,mjs,cjs,json}",
+      "!apps/desktop/renderer",
+      "!**/dist",
+      "!**/node_modules",
+      "!**/release",
+      "!**/coverage",
+      "!**/test-results"
+    ]
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120
+  },
+  "linter": {
+    "rules": {
+      "preset": "recommended"
+    }
+  }
+}

@@ -11,7 +11,9 @@ function createFakeView(url: string) {
     webContents: {
       getURL: () => url,
       getTitle: () => "Example",
-      loadURL: async (next: string) => { url = next; },
+      loadURL: async (next: string) => {
+        url = next;
+      },
       canGoBack: () => false,
       canGoForward: () => false,
       goBack: () => undefined,
@@ -20,12 +22,19 @@ function createFakeView(url: string) {
       reloadIgnoringCache: () => undefined,
       stop: () => undefined,
       setWindowOpenHandler: () => undefined,
-      on: (event: string, listener: (...args: unknown[]) => void) => { listeners.set(event, listener); },
+      on: (event: string, listener: (...args: unknown[]) => void) => {
+        listeners.set(event, listener);
+      },
       isDestroyed: () => false,
       destroy: () => undefined,
     },
-    setBounds: (bounds: unknown) => { view.bounds = bounds; },
-    setVisible: (visible: boolean) => { view.visible = visible; },
+    emit: (event: string, ...args: unknown[]) => listeners.get(event)?.(...args),
+    setBounds: (bounds: unknown) => {
+      view.bounds = bounds;
+    },
+    setVisible: (visible: boolean) => {
+      view.visible = visible;
+    },
     bounds: undefined as unknown,
     visible: false,
   };
@@ -36,7 +45,11 @@ describe("BrowserManager", () => {
   it("hosts Chromium WebContentsView tabs per worktree and activates one at a time", async () => {
     const views: Array<ReturnType<typeof createFakeView>> = [];
     const factory: BrowserViewFactory = {
-      create: () => { const view = createFakeView("https://example.com"); views.push(view); return view; },
+      create: () => {
+        const view = createFakeView("https://example.com");
+        views.push(view);
+        return view;
+      },
     };
     const host = { addChildView: () => undefined, removeChildView: () => undefined };
     const manager = new BrowserManager(factory, host);
@@ -53,9 +66,14 @@ describe("BrowserManager", () => {
   });
 
   it("rejects unsafe URLs and invalid bounds before Chromium navigation", async () => {
-    const manager = new BrowserManager({ create: () => createFakeView("https://example.com") }, { addChildView: () => undefined, removeChildView: () => undefined });
+    const manager = new BrowserManager(
+      { create: () => createFakeView("https://example.com") },
+      { addChildView: () => undefined, removeChildView: () => undefined },
+    );
     await expect(manager.create({ worktreeId, profileId, url: "javascript:alert(1)" })).rejects.toThrow("browser URL");
-    await expect(manager.setBounds("00000000-0000-4000-8000-000000000099", { x: 0, y: 0, width: 0, height: 400 })).rejects.toThrow("browser tab");
+    await expect(
+      manager.setBounds("00000000-0000-4000-8000-000000000099", { x: 0, y: 0, width: 0, height: 400 }),
+    ).rejects.toThrow("browser tab");
   });
 
   it("restores a durable tab id and reports lifecycle changes", async () => {
@@ -82,5 +100,38 @@ describe("BrowserManager", () => {
     expect(second.browserTabId).toBe(browserTabId);
     manager.closeAll({ persist: false });
     expect(closes).toEqual([browserTabId]);
+  });
+
+  it("recreates a crashed browser renderer from its durable tab metadata", async () => {
+    const views: Array<ReturnType<typeof createFakeView>> = [];
+    const host = { addChildView: () => undefined, removeChildView: () => undefined };
+    const manager = new BrowserManager(
+      {
+        create: () => {
+          const view = createFakeView("https://example.com");
+          views.push(view);
+          return view;
+        },
+      },
+      host,
+    );
+    const tab = await manager.create({ worktreeId, profileId, url: "https://example.com" });
+    await manager.activate(tab.browserTabId);
+
+    views[0]?.emit("render-process-gone");
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 0));
+
+    expect(views).toHaveLength(2);
+    expect(manager.list(worktreeId)[0]).toMatchObject({
+      browserTabId: tab.browserTabId,
+      status: "loading",
+      active: true,
+      url: "https://example.com",
+    });
+    expect(views[1]?.visible).toBe(true);
+
+    views[0]?.emit("render-process-gone");
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 0));
+    expect(manager.list(worktreeId)[0]?.status).toBe("loading");
   });
 });

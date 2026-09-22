@@ -1,13 +1,9 @@
-import {
-  TerminalAttachSnapshot,
-  TerminalId,
-  TerminalStreamMessage,
-} from "@zli-v2/contracts";
+import { TerminalAttachSnapshot, TerminalId, TerminalStreamMessage } from "@zli-v2/contracts";
 
 import type { DaemonConnection } from "../daemon/DaemonSupervisor.js";
 import type { PtyFactory, PtyProcess, PtySpawnInput } from "./TerminalService.js";
 
-type Connection = Pick<DaemonConnection, "request" | "onMessage" | "close">;
+type Connection = Pick<DaemonConnection, "request" | "onMessage" | "onClose" | "close">;
 
 type RemotePtyFactoryOptions = {
   connect(): Promise<Connection>;
@@ -60,6 +56,7 @@ class RemotePtyProcess implements PtyProcess {
   private readonly bufferedData: string[] = [];
   private exitEvent: { code: number; signal: number | null } | undefined;
   private unsubscribe: (() => void) | undefined;
+  private unsubscribeClose: (() => void) | undefined;
 
   constructor(
     private readonly connection: Connection,
@@ -111,6 +108,7 @@ class RemotePtyProcess implements PtyProcess {
         this.acceptExit({ code: parsed.data.code, signal: parsed.data.signal });
       }
     });
+    this.unsubscribeClose = this.connection.onClose(() => this.acceptExit({ code: 1, signal: null }));
   }
 
   private acceptData(data: string): void {
@@ -122,6 +120,7 @@ class RemotePtyProcess implements PtyProcess {
     if (this.exitEvent) return;
     this.exitEvent = event;
     this.unsubscribe?.();
+    this.unsubscribeClose?.();
     for (const listener of this.exitListeners) listener(event);
     this.connection.close();
   }

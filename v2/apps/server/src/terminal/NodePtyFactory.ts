@@ -52,7 +52,9 @@ export class NodePtyFactory implements PtyFactory {
         return () => subscription.dispose();
       },
       onExit: (listener) => {
-        const subscription = ptyProcess.onExit((event) => listener({ code: event.exitCode, signal: event.signal ?? null }));
+        const subscription = ptyProcess.onExit((event) =>
+          listener({ code: event.exitCode, signal: event.signal ?? null }),
+        );
         return () => subscription.dispose();
       },
     };

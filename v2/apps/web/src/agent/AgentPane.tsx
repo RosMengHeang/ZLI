@@ -3,7 +3,13 @@ import { useMemo, useState } from "react";
 import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 
-export function AgentPane({ projection, worktree }: { projection: RuntimeProjection; worktree: WorktreeProjection | undefined }) {
+export function AgentPane({
+  projection,
+  worktree,
+}: {
+  projection: RuntimeProjection;
+  worktree: WorktreeProjection | undefined;
+}) {
   const { dispatch } = useRuntime();
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -24,7 +30,13 @@ export function AgentPane({ projection, worktree }: { projection: RuntimeProject
       const response = await dispatch({
         protocolVersion: 1,
         commandId: makeId(),
-        command: { type: "thread.start", threadId: makeId(), worktreeId: worktree.worktreeId, provider: "codex", cwd: worktree.path },
+        command: {
+          type: "thread.start",
+          threadId: makeId(),
+          worktreeId: worktree.worktreeId,
+          provider: "codex",
+          cwd: worktree.path,
+        },
       });
       if (response?.accepted === false) setError(response.error.message);
     } catch (cause) {
@@ -66,12 +78,23 @@ export function AgentPane({ projection, worktree }: { projection: RuntimeProject
     if (!thread || !request) return;
     try {
       const parsed = JSON.parse(answers) as unknown;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || Object.values(parsed).some((value) => typeof value !== "string")) throw new Error("Answers must be a JSON object of strings.");
+      if (
+        !parsed ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed) ||
+        Object.values(parsed).some((value) => typeof value !== "string")
+      )
+        throw new Error("Answers must be a JSON object of strings.");
       setError(undefined);
       const response = await dispatch({
         protocolVersion: 1,
         commandId: makeId(),
-        command: { type: "thread.user-input", threadId: thread.threadId, requestId: request.requestId, answers: parsed },
+        command: {
+          type: "thread.user-input",
+          threadId: thread.threadId,
+          requestId: request.requestId,
+          answers: parsed,
+        },
       });
       if (response?.accepted === false) setError(response.error.message);
     } catch (cause) {
@@ -82,7 +105,10 @@ export function AgentPane({ projection, worktree }: { projection: RuntimeProject
   return (
     <div className="tool-pane agent-pane">
       <div className="tool-pane-header">
-        <div><span className="eyebrow">Agent</span><h2>{worktree?.branch ?? "No worktree selected"}</h2></div>
+        <div>
+          <span className="eyebrow">Agent</span>
+          <h2>{worktree?.branch ?? "No worktree selected"}</h2>
+        </div>
         <span className="pane-meta">{thread?.status ?? "Idle"}</span>
       </div>
       {!worktree ? (
@@ -91,29 +117,84 @@ export function AgentPane({ projection, worktree }: { projection: RuntimeProject
         <div className="empty-pane">
           <p className="empty-title">No Codex session</p>
           <p className="empty-detail">Start the structured Codex app-server session for this worktree.</p>
-          <button className="primary-button" type="button" onClick={() => void start()} disabled={busy}>{busy ? "Starting" : "Start Codex"}</button>
-          {error && <p className="inline-error" role="alert">{error}</p>}
+          <button className="primary-button" type="button" onClick={() => void start()} disabled={busy}>
+            {busy ? "Starting" : "Start Codex"}
+          </button>
+          {error && (
+            <p className="inline-error" role="alert">
+              {error}
+            </p>
+          )}
         </div>
       ) : (
         <>
           <div className="agent-messages" role="log" aria-label="Agent conversation">
-            {messages.length === 0 ? <p className="agent-empty">Send a task to begin.</p> : messages.map((message) => (
-              <article className={"agent-message agent-message-" + message.role} key={message.messageId}>
-                <span className="agent-message-role">{message.role}</span>
-                <p>{message.text}</p>
-              </article>
-            ))}
+            {messages.length === 0 ? (
+              <p className="agent-empty">Send a task to begin.</p>
+            ) : (
+              messages.map((message) => (
+                <article className={"agent-message agent-message-" + message.role} key={message.messageId}>
+                  <span className="agent-message-role">{message.role}</span>
+                  <p>{message.text}</p>
+                </article>
+              ))
+            )}
           </div>
-          {request && <section className="agent-request" aria-label={request.kind === "approval" ? "Approval request" : "User input request"}>
-            <span className="agent-message-role">{request.kind === "approval" ? "Approval required" : "Input required"}</span>
-            <pre>{JSON.stringify(request.payload, null, 2)}</pre>
-            {request.kind === "approval" ? <div className="agent-request-actions"><button className="primary-button" type="button" onClick={() => void respond({ approved: true })}>Approve</button><button className="secondary-button" type="button" onClick={() => void respond({ approved: false })}>Reject</button></div> : <><textarea value={answers} onChange={(event) => setAnswers(event.target.value)} aria-label="Structured user input answers" rows={3} /><button className="primary-button" type="button" onClick={() => void submitAnswers()}>Submit answers</button></>}
-          </section>}
+          {request && (
+            <section
+              className="agent-request"
+              aria-label={request.kind === "approval" ? "Approval request" : "User input request"}
+            >
+              <span className="agent-message-role">
+                {request.kind === "approval" ? "Approval required" : "Input required"}
+              </span>
+              <pre>{JSON.stringify(request.payload, null, 2)}</pre>
+              {request.kind === "approval" ? (
+                <div className="agent-request-actions">
+                  <button className="primary-button" type="button" onClick={() => void respond({ approved: true })}>
+                    Approve
+                  </button>
+                  <button className="secondary-button" type="button" onClick={() => void respond({ approved: false })}>
+                    Reject
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <textarea
+                    value={answers}
+                    onChange={(event) => setAnswers(event.target.value)}
+                    aria-label="Structured user input answers"
+                    rows={3}
+                  />
+                  <button className="primary-button" type="button" onClick={() => void submitAnswers()}>
+                    Submit answers
+                  </button>
+                </>
+              )}
+            </section>
+          )}
           <form className="agent-composer" onSubmit={(event) => void send(event)}>
-            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ask Codex to change this workspace…" aria-label="Message Codex" rows={3} />
-            <div className="agent-composer-footer"><span className="pane-meta">{thread.provider} · {thread.status}</span><button className="primary-button" type="submit" disabled={!draft.trim() || thread.status === "starting"}>Send</button></div>
+            <textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="Ask Codex to change this workspace…"
+              aria-label="Message Codex"
+              rows={3}
+            />
+            <div className="agent-composer-footer">
+              <span className="pane-meta">
+                {thread.provider} · {thread.status}
+              </span>
+              <button className="primary-button" type="submit" disabled={!draft.trim() || thread.status === "starting"}>
+                Send
+              </button>
+            </div>
           </form>
-          {error && <p className="inline-error" role="alert">{error}</p>}
+          {error && (
+            <p className="inline-error" role="alert">
+              {error}
+            </p>
+          )}
         </>
       )}
     </div>
@@ -121,7 +202,12 @@ export function AgentPane({ projection, worktree }: { projection: RuntimeProject
 }
 
 function EmptyAgent({ title, detail }: { title: string; detail: string }) {
-  return <div className="empty-pane"><p className="empty-title">{title}</p><p className="empty-detail">{detail}</p></div>;
+  return (
+    <div className="empty-pane">
+      <p className="empty-title">{title}</p>
+      <p className="empty-detail">{detail}</p>
+    </div>
+  );
 }
 
 function makeId(): string {

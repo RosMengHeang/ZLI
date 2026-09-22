@@ -16,9 +16,13 @@ describe("LegacyImportReactor", () => {
     const repository = join(directory, "repo");
     await mkdir(repository);
     const snapshot = join(directory, "legacy.json");
-    await writeFile(snapshot, JSON.stringify({
-      workspaces: [{ root: repository, project: { name: "repo", path: repository } }],
-    }), "utf8");
+    await writeFile(
+      snapshot,
+      JSON.stringify({
+        workspaces: [{ root: repository, project: { name: "repo", path: repository } }],
+      }),
+      "utf8",
+    );
     const database = new Database({ path: join(directory, "runtime.sqlite") });
     const engine = new Engine({
       database,

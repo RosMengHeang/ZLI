@@ -3,7 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SOURCE_EXTENSIONS = new Set([".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"]);
-const IMPORT_PATTERN = /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']|import\s*\(\s*["']([^"']+)["']\s*\)/g;
+const IMPORT_PATTERN =
+  /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']|import\s*\(\s*["']([^"']+)["']\s*\)/g;
 
 async function walk(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -78,7 +79,12 @@ export async function findBoundaryViolations(v2Root) {
         const target = path.resolve(path.dirname(file), specifier);
         const legacySrc = path.resolve(resolvedRoot, "..", "src");
         const legacyTauri = path.resolve(resolvedRoot, "..", "src-tauri");
-        if (target === legacySrc || target.startsWith(`${legacySrc}${path.sep}`) || target === legacyTauri || target.startsWith(`${legacyTauri}${path.sep}`)) {
+        if (
+          target === legacySrc ||
+          target.startsWith(`${legacySrc}${path.sep}`) ||
+          target === legacyTauri ||
+          target.startsWith(`${legacyTauri}${path.sep}`)
+        ) {
           violations.push(violation(file, specifier, "no-legacy-imports"));
         }
       }
@@ -106,7 +112,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const v2Root = path.resolve(process.argv[2] ?? path.join(path.dirname(fileURLToPath(import.meta.url)), ".."));
   const violations = await findBoundaryViolations(v2Root);
   if (violations.length > 0) {
-    for (const item of violations) console.error(`${item.rule}: ${path.relative(v2Root, item.file)} imports ${item.specifier}`);
+    for (const item of violations)
+      console.error(`${item.rule}: ${path.relative(v2Root, item.file)} imports ${item.specifier}`);
     process.exitCode = 1;
   }
 }

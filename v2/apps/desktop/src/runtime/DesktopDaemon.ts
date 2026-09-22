@@ -20,7 +20,7 @@ export async function ensureDesktopDaemon(options: {
 }): Promise<DaemonEndpoint> {
   const endpointPath = resolve(options.endpointPath);
   const existing = await readEndpoint(endpointPath);
-  if (existing && await handshake(existing)) return existing;
+  if (existing && (await handshake(existing))) return existing;
 
   const token = randomBytes(32).toString("hex");
   const child = spawn(process.execPath, [resolve(options.entryPath)], {
@@ -41,7 +41,7 @@ export async function ensureDesktopDaemon(options: {
   const deadline = Date.now() + (options.timeoutMs ?? 5_000);
   while (Date.now() < deadline) {
     const endpoint = await readEndpoint(endpointPath);
-    if (endpoint?.token === token && await handshake(endpoint)) return endpoint;
+    if (endpoint?.token === token && (await handshake(endpoint))) return endpoint;
     await delay(25);
   }
   throw new Error("Timed out waiting for the desktop terminal daemon.");
@@ -76,7 +76,9 @@ export async function handshake(endpoint: DaemonEndpoint, timeoutMs = 1_000): Pr
   }
 }
 
-function readLine(socket: ReturnType<typeof createConnection>): Promise<{ type?: unknown; protocolVersion?: unknown } | undefined> {
+function readLine(
+  socket: ReturnType<typeof createConnection>,
+): Promise<{ type?: unknown; protocolVersion?: unknown } | undefined> {
   return new Promise((resolveLine, rejectLine) => {
     let buffer = "";
     const onData = (chunk: string) => {
@@ -90,9 +92,19 @@ function readLine(socket: ReturnType<typeof createConnection>): Promise<{ type?:
         resolveLine(undefined);
       }
     };
-    const onError = (error: Error) => { cleanup(); rejectLine(error); };
-    const onClose = () => { cleanup(); resolveLine(undefined); };
-    const cleanup = () => { socket.off("data", onData); socket.off("error", onError); socket.off("close", onClose); };
+    const onError = (error: Error) => {
+      cleanup();
+      rejectLine(error);
+    };
+    const onClose = () => {
+      cleanup();
+      resolveLine(undefined);
+    };
+    const cleanup = () => {
+      socket.off("data", onData);
+      socket.off("error", onError);
+      socket.off("close", onClose);
+    };
     socket.on("data", onData);
     socket.once("error", onError);
     socket.once("close", onClose);
@@ -102,7 +114,15 @@ function readLine(socket: ReturnType<typeof createConnection>): Promise<{ type?:
 function isEndpoint(value: unknown): value is DaemonEndpoint {
   if (!value || typeof value !== "object") return false;
   const input = value as Partial<DaemonEndpoint>;
-  return input.protocolVersion === 1 && input.daemonVersion === "zli-v2-daemon/1" && input.host === "127.0.0.1" && typeof input.pid === "number" && typeof input.port === "number" && typeof input.token === "string" && input.token.length > 0;
+  return (
+    input.protocolVersion === 1 &&
+    input.daemonVersion === "zli-v2-daemon/1" &&
+    input.host === "127.0.0.1" &&
+    typeof input.pid === "number" &&
+    typeof input.port === "number" &&
+    typeof input.token === "string" &&
+    input.token.length > 0
+  );
 }
 
 function delay(milliseconds: number): Promise<void> {

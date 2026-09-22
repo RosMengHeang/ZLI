@@ -79,26 +79,22 @@ describe("Orca-style worktree lifecycle", () => {
     const service = new WorktreeService(new GitProcess());
 
     await expect(
-      service
-        .create({
-          jobId: "job-traversal",
-          repoPath,
-          workspaceRoot: worktreesPath,
-          worktreePath: join(worktreesPath, "..", "outside"),
-          branch: "feature/safe",
-        })
-        .promise,
+      service.create({
+        jobId: "job-traversal",
+        repoPath,
+        workspaceRoot: worktreesPath,
+        worktreePath: join(worktreesPath, "..", "outside"),
+        branch: "feature/safe",
+      }).promise,
     ).rejects.toMatchObject({ code: "unsafe_worktree_path" });
     await expect(
-      service
-        .create({
-          jobId: "job-ref",
-          repoPath,
-          workspaceRoot: worktreesPath,
-          worktreePath: join(worktreesPath, "safe"),
-          branch: "--upload-pack=evil",
-        })
-        .promise,
+      service.create({
+        jobId: "job-ref",
+        repoPath,
+        workspaceRoot: worktreesPath,
+        worktreePath: join(worktreesPath, "safe"),
+        branch: "--upload-pack=evil",
+      }).promise,
     ).rejects.toMatchObject({ code: "unsafe_git_ref" });
   });
 
@@ -110,15 +106,13 @@ describe("Orca-style worktree lifecycle", () => {
     const service = new WorktreeService(new GitProcess());
 
     await expect(
-      service
-        .create({
-          jobId: "job-partial",
-          repoPath,
-          workspaceRoot: worktreesPath,
-          worktreePath: target,
-          branch: "feature/partial",
-        })
-        .promise,
+      service.create({
+        jobId: "job-partial",
+        repoPath,
+        workspaceRoot: worktreesPath,
+        worktreePath: target,
+        branch: "feature/partial",
+      }).promise,
     ).rejects.toMatchObject({ code: "target_exists" });
     await expect(execFileAsync("git", ["status", "--short"], { cwd: repoPath })).resolves.toBeDefined();
   });
@@ -127,19 +121,19 @@ describe("Orca-style worktree lifecycle", () => {
     const { repoPath, worktreesPath } = await createRepository();
     const service = new WorktreeService(new GitProcess());
     const target = join(worktreesPath, "remove-me");
-    await service
-      .create({
-        jobId: "job-remove-create",
-        repoPath,
-        workspaceRoot: worktreesPath,
-        worktreePath: target,
-        branch: "feature/preserve",
-      })
-      .promise;
+    await service.create({
+      jobId: "job-remove-create",
+      repoPath,
+      workspaceRoot: worktreesPath,
+      worktreePath: target,
+      branch: "feature/preserve",
+    }).promise;
 
     await service.remove({ repoPath, workspaceRoot: worktreesPath, worktreePath: target });
 
-    await expect(execFileAsync("git", ["show-ref", "--verify", "refs/heads/feature/preserve"], { cwd: repoPath })).resolves.toBeDefined();
+    await expect(
+      execFileAsync("git", ["show-ref", "--verify", "refs/heads/feature/preserve"], { cwd: repoPath }),
+    ).resolves.toBeDefined();
   });
 
   it("cancels an in-flight Git operation and reports the cancelled terminal state", async () => {

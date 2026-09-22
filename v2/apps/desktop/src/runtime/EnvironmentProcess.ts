@@ -37,7 +37,10 @@ export class EnvironmentProcess {
       this.child = child;
       let buffer = "";
       let settled = false;
-      const timer = setTimeout(() => finish(new Error("Timed out waiting for the ZLI environment server.")), this.options.timeoutMs ?? 10_000);
+      const timer = setTimeout(
+        () => finish(new Error("Timed out waiting for the ZLI environment server.")),
+        this.options.timeoutMs ?? 10_000,
+      );
       const finish = (error?: Error, descriptor?: EnvironmentDescriptorLine) => {
         if (settled) return;
         settled = true;
@@ -65,7 +68,9 @@ export class EnvironmentProcess {
           newline = buffer.indexOf("\n");
         }
       });
-      child.once("error", (...args) => finish(args[0] instanceof Error ? args[0] : new Error("ZLI server failed to start.")));
+      child.once("error", (...args) =>
+        finish(args[0] instanceof Error ? args[0] : new Error("ZLI server failed to start.")),
+      );
       child.once("close", (...args) => {
         if (this.child === child) {
           this.child = undefined;
@@ -81,6 +86,14 @@ export class EnvironmentProcess {
     this.child?.kill();
     this.child = undefined;
     this.startPromise = undefined;
+  }
+
+  async stopAndWait(): Promise<void> {
+    const child = this.child;
+    if (!child) return;
+    const closed = new Promise<void>((resolveClose) => child.once("close", () => resolveClose()));
+    this.stop();
+    await closed;
   }
 }
 

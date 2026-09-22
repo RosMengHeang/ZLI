@@ -22,13 +22,18 @@ export type SupportBundleInput = {
 };
 
 export class SupportBundleError extends Error {
-  constructor(readonly code: "invalid_destination" | "already_exists" | "too_large" | "write_failed", message: string) {
+  constructor(
+    readonly code: "invalid_destination" | "already_exists" | "too_large" | "write_failed",
+    message: string,
+  ) {
     super(message);
     this.name = "SupportBundleError";
   }
 }
 
-export function buildSupportEntries(input: Pick<SupportBundleInput, "projection" | "events" | "logs">): Readonly<Record<string, string>> {
+export function buildSupportEntries(
+  input: Pick<SupportBundleInput, "projection" | "events" | "logs">,
+): Readonly<Record<string, string>> {
   const projection = input.projection;
   const runtime = {
     schemaVersion: 1,
@@ -94,35 +99,52 @@ export function buildSupportEntries(input: Pick<SupportBundleInput, "projection"
     })),
   };
 
-  const logs = (input.logs ?? []).map((log) => JSON.stringify({
-    level: log.level,
-    ...(log.timestamp ? { timestamp: log.timestamp } : {}),
-    message: redactSensitiveText(log.message),
-    ...(safeLogContext(log.context) ? { context: safeLogContext(log.context) } : {}),
-  })).join("\n") + ((input.logs ?? []).length > 0 ? "\n" : "");
+  const logs =
+    (input.logs ?? [])
+      .map((log) =>
+        JSON.stringify({
+          level: log.level,
+          ...(log.timestamp ? { timestamp: log.timestamp } : {}),
+          message: redactSensitiveText(log.message),
+          ...(safeLogContext(log.context) ? { context: safeLogContext(log.context) } : {}),
+        }),
+      )
+      .join("\n") + ((input.logs ?? []).length > 0 ? "\n" : "");
 
-  const events = (input.events ?? []).map((event) => JSON.stringify({
-    sequence: event.sequence,
-    eventId: event.eventId,
-    occurredAt: event.occurredAt,
-    type: event.event.type,
-  })).join("\n") + ((input.events ?? []).length > 0 ? "\n" : "");
+  const events =
+    (input.events ?? [])
+      .map((event) =>
+        JSON.stringify({
+          sequence: event.sequence,
+          eventId: event.eventId,
+          occurredAt: event.occurredAt,
+          type: event.event.type,
+        }),
+      )
+      .join("\n") + ((input.events ?? []).length > 0 ? "\n" : "");
 
   return {
-    "manifest.json": JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      entries: ["runtime.json", "logs.jsonl", "events.jsonl"],
-      redaction: "allowlist-v1",
-      note: "Runtime identifiers and operational metadata only; paths, URLs, prompts, cookies, credentials, and file contents are excluded.",
-    }, null, 2) + "\n",
+    "manifest.json":
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          generatedAt: new Date().toISOString(),
+          entries: ["runtime.json", "logs.jsonl", "events.jsonl"],
+          redaction: "allowlist-v1",
+          note: "Runtime identifiers and operational metadata only; paths, URLs, prompts, cookies, credentials, and file contents are excluded.",
+        },
+        null,
+        2,
+      ) + "\n",
     "runtime.json": JSON.stringify(runtime, null, 2) + "\n",
     "logs.jsonl": logs,
     "events.jsonl": events,
   };
 }
 
-export async function createSupportBundle(input: SupportBundleInput): Promise<{ path: string; bytes: number; entries: string[] }> {
+export async function createSupportBundle(
+  input: SupportBundleInput,
+): Promise<{ path: string; bytes: number; entries: string[] }> {
   const destinationPath = resolve(input.destinationPath);
   if (extname(destinationPath).toLowerCase() !== ".zip") {
     throw new SupportBundleError("invalid_destination", "Support bundles must use a .zip destination.");
@@ -149,7 +171,20 @@ export async function createSupportBundle(input: SupportBundleInput): Promise<{ 
 
 function safeLogContext(context: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   if (!context) return undefined;
-  const allowedKeys = new Set(["component", "operation", "code", "retryable", "durationMs", "status", "commandId", "workspaceId", "threadId", "terminalId", "browserTabId", "worktreeId"]);
+  const allowedKeys = new Set([
+    "component",
+    "operation",
+    "code",
+    "retryable",
+    "durationMs",
+    "status",
+    "commandId",
+    "workspaceId",
+    "threadId",
+    "terminalId",
+    "browserTabId",
+    "worktreeId",
+  ]);
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(context)) {
     if (!allowedKeys.has(key)) continue;
@@ -164,7 +199,10 @@ function redactSensitiveText(value: string): string {
     .replace(/https?:\/\/[^\s"']+/giu, REDACTED_URL)
     .replace(/(cookie|set-cookie|authorization)\s*:\s*[^\r\n]+/giu, "$1: " + REDACTED)
     .replace(/(bearer\s+)[^\s"']+/giu, "$1" + REDACTED)
-    .replace(/(["']?(?:password|passwd|secret|token|cookie|authorization|api[_-]?key|access[_-]?token|prompt|input|content)["']?\s*[:=]\s*)([^,\s}]+)/giu, "$1" + REDACTED)
+    .replace(
+      /(["']?(?:password|passwd|secret|token|cookie|authorization|api[_-]?key|access[_-]?token|prompt|input|content)["']?\s*[:=]\s*)([^,\s}]+)/giu,
+      "$1" + REDACTED,
+    )
     .replace(/(?:[a-z]:\\|\\\\)[^\s"']+/giu, REDACTED)
     .replace(/(?:^|\s)\/(?:Users|home|tmp|var|private|workspace)\/[^\s"']+/giu, " " + REDACTED);
 }

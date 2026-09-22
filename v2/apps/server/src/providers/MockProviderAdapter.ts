@@ -2,12 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { ProviderCapabilities, ThreadId } from "@zli-v2/contracts";
 
-import type {
-  ProviderAdapter,
-  ProviderEvent,
-  ProviderKind,
-  ProviderSession,
-} from "./ProviderService.js";
+import type { ProviderAdapter, ProviderEvent, ProviderKind, ProviderSession } from "./ProviderService.js";
 
 /**
  * Deterministic provider used only by the Electron integration harness.
@@ -28,7 +23,12 @@ export class MockProviderAdapter implements ProviderAdapter {
   private readonly listeners = new Set<(event: ProviderEvent) => void>();
 
   async startSession(input: { threadId: ThreadId; cwd: string }): Promise<ProviderSession> {
-    const session: ProviderSession = { threadId: input.threadId, provider: this.provider, cwd: input.cwd, status: "idle" };
+    const session: ProviderSession = {
+      threadId: input.threadId,
+      provider: this.provider,
+      cwd: input.cwd,
+      status: "idle",
+    };
     this.sessions.set(input.threadId, session);
     this.turns.set(input.threadId, []);
     return session;
@@ -76,7 +76,11 @@ export class MockProviderAdapter implements ProviderAdapter {
     this.context(input.threadId).status = "idle";
   }
 
-  async respondToUserInput(input: { threadId: ThreadId; requestId: string; answers: Record<string, string> }): Promise<void> {
+  async respondToUserInput(input: {
+    threadId: ThreadId;
+    requestId: string;
+    answers: Record<string, string>;
+  }): Promise<void> {
     this.context(input.threadId).status = "idle";
   }
 
@@ -98,7 +102,10 @@ export class MockProviderAdapter implements ProviderAdapter {
     return { threadId: input.threadId, turns: this.turns.get(input.threadId) ?? [] };
   }
 
-  async rollbackThread(input: { threadId: ThreadId; numTurns: number }): Promise<{ threadId: ThreadId; turns: ReadonlyArray<unknown> }> {
+  async rollbackThread(input: {
+    threadId: ThreadId;
+    numTurns: number;
+  }): Promise<{ threadId: ThreadId; turns: ReadonlyArray<unknown> }> {
     this.context(input.threadId);
     const turns = this.turns.get(input.threadId) ?? [];
     turns.splice(Math.max(0, turns.length - input.numTurns));

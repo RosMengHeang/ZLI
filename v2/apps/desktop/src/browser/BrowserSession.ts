@@ -3,7 +3,9 @@ import { createHash } from "node:crypto";
 import { isPermissionAllowed } from "../security/NavigationPolicy.js";
 
 export type BrowserSessionLike = {
-  setPermissionRequestHandler(handler: (webContents: unknown, permission: string, callback: (allowed: boolean) => void) => void): void;
+  setPermissionRequestHandler(
+    handler: (webContents: unknown, permission: string, callback: (allowed: boolean) => void) => void,
+  ): void;
   setPermissionCheckHandler(handler: (webContents: unknown, permission: string) => boolean): void;
   clearStorageData(options?: unknown): Promise<void>;
   clearCache(): Promise<void>;

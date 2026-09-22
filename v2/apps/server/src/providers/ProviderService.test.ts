@@ -39,17 +39,44 @@ class FakeAdapter implements ProviderAdapter {
     return { turnId: "turn-1" };
   }
 
-  async interruptTurn(): Promise<void> { this.calls.push("interrupt"); }
-  async respondToRequest(): Promise<void> { this.calls.push("approval"); }
-  async respondToUserInput(): Promise<void> { this.calls.push("input"); }
-  async stopSession(input: { threadId: ThreadId }): Promise<void> { this.calls.push("stop"); this.sessions.delete(input.threadId); }
-  listSessions(): ProviderSession[] { return [...this.sessions.values()]; }
-  hasSession(input: { threadId: ThreadId }): boolean { return this.sessions.has(input.threadId); }
-  async readThread(input: { threadId: ThreadId }): Promise<{ threadId: ThreadId; turns: unknown[] }> { return { threadId: input.threadId, turns: [] }; }
-  async rollbackThread(input: { threadId: ThreadId; numTurns: number }): Promise<{ threadId: ThreadId; turns: unknown[] }> { return { threadId: input.threadId, turns: [input.numTurns] }; }
-  async stopAll(): Promise<void> { this.sessions.clear(); }
-  subscribe(listener: (event: ProviderEvent) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
-  emit(event: ProviderEvent): void { for (const listener of this.listeners) listener(event); }
+  async interruptTurn(): Promise<void> {
+    this.calls.push("interrupt");
+  }
+  async respondToRequest(): Promise<void> {
+    this.calls.push("approval");
+  }
+  async respondToUserInput(): Promise<void> {
+    this.calls.push("input");
+  }
+  async stopSession(input: { threadId: ThreadId }): Promise<void> {
+    this.calls.push("stop");
+    this.sessions.delete(input.threadId);
+  }
+  listSessions(): ProviderSession[] {
+    return [...this.sessions.values()];
+  }
+  hasSession(input: { threadId: ThreadId }): boolean {
+    return this.sessions.has(input.threadId);
+  }
+  async readThread(input: { threadId: ThreadId }): Promise<{ threadId: ThreadId; turns: unknown[] }> {
+    return { threadId: input.threadId, turns: [] };
+  }
+  async rollbackThread(input: {
+    threadId: ThreadId;
+    numTurns: number;
+  }): Promise<{ threadId: ThreadId; turns: unknown[] }> {
+    return { threadId: input.threadId, turns: [input.numTurns] };
+  }
+  async stopAll(): Promise<void> {
+    this.sessions.clear();
+  }
+  subscribe(listener: (event: ProviderEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  emit(event: ProviderEvent): void {
+    for (const listener of this.listeners) listener(event);
+  }
 }
 
 describe("ProviderService", () => {
@@ -59,7 +86,9 @@ describe("ProviderService", () => {
     const events: ProviderEvent[] = [];
     service.subscribe((event) => events.push(event));
 
-    await expect(service.startSession({ provider: "codex", threadId, cwd: "C:/workspace/tree" })).resolves.toMatchObject({ threadId, provider: "codex" });
+    await expect(
+      service.startSession({ provider: "codex", threadId, cwd: "C:/workspace/tree" }),
+    ).resolves.toMatchObject({ threadId, provider: "codex" });
     await expect(service.sendTurn({ threadId, text: "hello" })).resolves.toEqual({ turnId: "turn-1" });
     expect(events).toEqual([{ type: "assistant.delta", threadId, turnId: "turn-1", text: "ok" }]);
     expect(adapter.calls).toEqual(["start:C:/workspace/tree", "turn:hello"]);
@@ -77,7 +106,9 @@ describe("ProviderService", () => {
 
   it("fails closed for unknown providers and sessions", async () => {
     const service = new ProviderService(new ProviderRegistry([]));
-    await expect(service.startSession({ provider: "cursor-agent", threadId, cwd: "C:/workspace/tree" })).rejects.toMatchObject({ code: "provider_missing" });
+    await expect(
+      service.startSession({ provider: "cursor-agent", threadId, cwd: "C:/workspace/tree" }),
+    ).rejects.toMatchObject({ code: "provider_missing" });
     await expect(service.sendTurn({ threadId, text: "hello" })).rejects.toMatchObject({ code: "session_missing" });
   });
 });

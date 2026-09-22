@@ -1,11 +1,7 @@
 import type { ThreadId, ProviderCapabilities } from "@zli-v2/contracts";
 import type { CodexAppServerClient, CodexProviderEvent } from "@zli-v2/provider-codex";
 
-import {
-  type ProviderAdapter,
-  type ProviderEvent,
-  type ProviderSession,
-} from "./ProviderService.js";
+import { type ProviderAdapter, type ProviderEvent, type ProviderSession } from "./ProviderService.js";
 
 type CodexClient = Pick<
   CodexAppServerClient,
@@ -38,7 +34,12 @@ export class CodexProviderAdapter implements ProviderAdapter {
   async startSession(input: { threadId: ThreadId; cwd: string }): Promise<ProviderSession> {
     const client = await this.ensureClient();
     const started = await client.startSession({ cwd: input.cwd });
-    const session: ProviderSession = { threadId: input.threadId, provider: this.provider, cwd: input.cwd, status: "idle" };
+    const session: ProviderSession = {
+      threadId: input.threadId,
+      provider: this.provider,
+      cwd: input.cwd,
+      status: "idle",
+    };
     this.sessions.set(input.threadId, { providerThreadId: started.providerThreadId, session });
     return session;
   }
@@ -46,7 +47,11 @@ export class CodexProviderAdapter implements ProviderAdapter {
   async sendTurn(input: { threadId: ThreadId; text: string; model?: string }): Promise<{ turnId: string }> {
     const context = this.context(input.threadId);
     const client = await this.ensureClient();
-    const result = await client.sendTurn({ providerThreadId: context.providerThreadId, text: input.text, ...(input.model ? { model: input.model } : {}) });
+    const result = await client.sendTurn({
+      providerThreadId: context.providerThreadId,
+      text: input.text,
+      ...(input.model ? { model: input.model } : {}),
+    });
     return { turnId: result.providerTurnId };
   }
 
@@ -61,7 +66,11 @@ export class CodexProviderAdapter implements ProviderAdapter {
     await (await this.ensureClient()).respondToRequest(input.requestId, input.decision);
   }
 
-  async respondToUserInput(input: { threadId: ThreadId; requestId: string; answers: Record<string, string> }): Promise<void> {
+  async respondToUserInput(input: {
+    threadId: ThreadId;
+    requestId: string;
+    answers: Record<string, string>;
+  }): Promise<void> {
     this.context(input.threadId);
     await (await this.ensureClient()).respondToRequest(input.requestId, { answers: input.answers });
   }
@@ -85,7 +94,10 @@ export class CodexProviderAdapter implements ProviderAdapter {
     return { threadId: input.threadId, turns: result.turns };
   }
 
-  async rollbackThread(input: { threadId: ThreadId; numTurns: number }): Promise<{ threadId: ThreadId; turns: ReadonlyArray<unknown> }> {
+  async rollbackThread(input: {
+    threadId: ThreadId;
+    numTurns: number;
+  }): Promise<{ threadId: ThreadId; turns: ReadonlyArray<unknown> }> {
     const context = this.context(input.threadId);
     const result = await (await this.ensureClient()).rollbackThread(context.providerThreadId, input.numTurns);
     return { threadId: input.threadId, turns: result.turns };
@@ -129,23 +141,45 @@ export class CodexProviderAdapter implements ProviderAdapter {
       return;
     }
     const providerThreadId = "providerThreadId" in event ? event.providerThreadId : undefined;
-    const context = providerThreadId ? [...this.sessions.values()].find((candidate) => candidate.providerThreadId === providerThreadId) : undefined;
+    const context = providerThreadId
+      ? [...this.sessions.values()].find((candidate) => candidate.providerThreadId === providerThreadId)
+      : undefined;
     if (!context) return;
     switch (event.type) {
       case "assistant.delta":
-        this.emit({ type: "assistant.delta", threadId: context.session.threadId, turnId: event.providerTurnId, text: event.text });
+        this.emit({
+          type: "assistant.delta",
+          threadId: context.session.threadId,
+          turnId: event.providerTurnId,
+          text: event.text,
+        });
         return;
       case "turn.started":
         this.emit({ type: "turn.started", threadId: context.session.threadId, turnId: event.providerTurnId });
         return;
       case "turn.completed":
-        this.emit({ type: "turn.completed", threadId: context.session.threadId, turnId: event.providerTurnId, status: event.status });
+        this.emit({
+          type: "turn.completed",
+          threadId: context.session.threadId,
+          turnId: event.providerTurnId,
+          status: event.status,
+        });
         return;
       case "approval.requested":
-        this.emit({ type: "approval.requested", threadId: context.session.threadId, requestId: event.requestId, payload: event.payload });
+        this.emit({
+          type: "approval.requested",
+          threadId: context.session.threadId,
+          requestId: event.requestId,
+          payload: event.payload,
+        });
         return;
       case "user-input.requested":
-        this.emit({ type: "user-input.requested", threadId: context.session.threadId, requestId: event.requestId, payload: event.payload });
+        this.emit({
+          type: "user-input.requested",
+          threadId: context.session.threadId,
+          requestId: event.requestId,
+          payload: event.payload,
+        });
         return;
       default:
         return;

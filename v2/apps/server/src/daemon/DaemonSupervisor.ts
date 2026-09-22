@@ -131,6 +131,8 @@ export class DaemonConnection {
     reject: (error: Error) => void;
   }> = [];
   private readonly messageListeners = new Set<(message: unknown) => void>();
+  private readonly closeListeners = new Set<() => void>();
+  private closeNotified = false;
   private closed = false;
 
   constructor(private readonly socket: Socket) {
@@ -153,6 +155,15 @@ export class DaemonConnection {
   onMessage(listener: (message: unknown) => void): () => void {
     this.messageListeners.add(listener);
     return () => this.messageListeners.delete(listener);
+  }
+
+  onClose(listener: () => void): () => void {
+    if (this.closeNotified) {
+      listener();
+      return () => undefined;
+    }
+    this.closeListeners.add(listener);
+    return () => this.closeListeners.delete(listener);
   }
 
   close(): void {
@@ -189,9 +200,12 @@ export class DaemonConnection {
   }
 
   private fail(error: Error): void {
-    if (this.closed && this.pending.length === 0) return;
+    if (this.closeNotified) return;
     this.closed = true;
     for (const pending of this.pending.splice(0)) pending.reject(error);
+    this.closeNotified = true;
+    for (const listener of this.closeListeners) listener();
+    this.closeListeners.clear();
   }
 }
 
@@ -217,20 +231,25 @@ async function defaultLaunch(input: LaunchInput): Promise<{ pid: number }> {
     ZLI_DAEMON_VERSION: input.daemonVersion,
     ZLI_DAEMON_TOKEN: input.token,
   };
-  const child = process.platform === "win32"
-    ? spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `start "" /b "${process.execPath}" "${entryPath}"`], {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-      windowsVerbatimArguments: true,
-      env: environment,
-    })
-    : spawn(process.execPath, [entryPath], {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-      env: environment,
-    });
+  const child =
+    process.platform === "win32"
+      ? spawn(
+          process.env.ComSpec ?? "cmd.exe",
+          ["/d", "/s", "/c", `start "" /b "${process.execPath}" "${entryPath}"`],
+          {
+            detached: true,
+            stdio: "ignore",
+            windowsHide: true,
+            windowsVerbatimArguments: true,
+            env: environment,
+          },
+        )
+      : spawn(process.execPath, [entryPath], {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: true,
+          env: environment,
+        });
   child.unref();
   if (!child.pid) throw new Error("Terminal daemon did not receive a process id.");
   return { pid: child.pid };

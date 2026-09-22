@@ -46,6 +46,24 @@ afterEach(async () => {
 });
 
 describe("DaemonSupervisor", () => {
+  it("notifies terminal clients when a daemon socket disconnects", async () => {
+    const server = createServer((socket) => socket.once("data", () => socket.end()));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    servers.push(server);
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("server did not bind");
+    const socket = createConnection({ host: "127.0.0.1", port: address.port });
+    await new Promise<void>((resolve, reject) => {
+      socket.once("connect", resolve);
+      socket.once("error", reject);
+    });
+    const connection = new DaemonConnection(socket);
+    const closed = new Promise<void>((resolve) => connection.onClose(resolve));
+
+    await expect(connection.request({ type: "terminal.list" })).rejects.toThrow("Terminal daemon connection closed.");
+    await expect(closed).resolves.toBeUndefined();
+  });
+
   it("routes terminal stream frames without consuming a pending request response", async () => {
     const server = createServer((socket) => {
       socket.setEncoding("utf8");

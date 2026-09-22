@@ -19,10 +19,7 @@ export function createEmptyProjection(environment: EnvironmentDescriptor): Runti
   };
 }
 
-export function projectEvent(
-  projection: RuntimeProjection,
-  envelope: RuntimeEventEnvelope,
-): RuntimeProjection {
+export function projectEvent(projection: RuntimeProjection, envelope: RuntimeEventEnvelope): RuntimeProjection {
   const event = RuntimeEvent.parse(envelope.event);
   if (envelope.sequence !== projection.lastSequence + 1) {
     throw new Error(
@@ -137,7 +134,10 @@ export function projectEvent(
     case "thread.request.requested":
       return {
         ...projection,
-        requests: [...(projection.requests ?? []).filter((request) => request.requestId !== event.request.requestId), event.request],
+        requests: [
+          ...(projection.requests ?? []).filter((request) => request.requestId !== event.request.requestId),
+          event.request,
+        ],
         attention: [
           ...projection.attention.filter((item) => item.id !== "thread-request:" + event.request.requestId),
           {
@@ -180,7 +180,10 @@ export function projectEvent(
     case "review.updated":
       return {
         ...projection,
-        reviews: [...(projection.reviews ?? []).filter((review) => review.worktreeId !== event.review.worktreeId), event.review],
+        reviews: [
+          ...(projection.reviews ?? []).filter((review) => review.worktreeId !== event.review.worktreeId),
+          event.review,
+        ],
         lastSequence: envelope.sequence,
       };
     case "review.archived":

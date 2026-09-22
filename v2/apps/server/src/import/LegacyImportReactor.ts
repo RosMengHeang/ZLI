@@ -106,10 +106,12 @@ export class LegacyImportReactor {
   }
 
   private dispatch(command: Parameters<Engine["dispatchPromise"]>[0]["command"]): Promise<void> {
-    return this.engine.dispatchPromise({
-      protocolVersion: 1,
-      commandId: CommandId.parse(randomUUID()),
-      command,
-    }).then(() => undefined);
+    return this.engine
+      .dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        command,
+      })
+      .then(() => undefined);
   }
 }

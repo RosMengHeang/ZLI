@@ -10,7 +10,10 @@ import {
   TerminalId,
   TerminalStreamMessage,
 } from "@zli-v2/contracts";
-import type { TerminalAttachSnapshot as TerminalAttachSnapshotValue, TerminalStreamMessage as TerminalStreamMessageValue } from "@zli-v2/contracts";
+import type {
+  TerminalAttachSnapshot as TerminalAttachSnapshotValue,
+  TerminalStreamMessage as TerminalStreamMessageValue,
+} from "@zli-v2/contracts";
 
 import { ProjectionStore, type ProjectionListener } from "./ProjectionStore.js";
 
@@ -110,7 +113,9 @@ export class RuntimeClient {
   attachTerminal(terminalId: string, afterSequence = 0): void {
     const transport = this.#transport;
     if (!transport || this.#handshake !== undefined) throw new Error("runtime is not connected");
-    transport.send(ClientWireMessage.parse({ type: "terminal.attach", terminalId: TerminalId.parse(terminalId), afterSequence }));
+    transport.send(
+      ClientWireMessage.parse({ type: "terminal.attach", terminalId: TerminalId.parse(terminalId), afterSequence }),
+    );
   }
 
   command(input: unknown): Promise<RpcResponse> {

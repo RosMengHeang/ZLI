@@ -144,12 +144,19 @@ export class RpcServer {
     client.on("close", cleanup);
     client.on("error", cleanup);
     client.on("message", (raw) => {
-      void this.receive(client, raw, () => authenticated, (value) => {
-        authenticated = value;
-      }, (nextUnsubscribe) => {
-        unsubscribe?.();
-        unsubscribe = nextUnsubscribe;
-      }, terminalSubscriptions);
+      void this.receive(
+        client,
+        raw,
+        () => authenticated,
+        (value) => {
+          authenticated = value;
+        },
+        (nextUnsubscribe) => {
+          unsubscribe?.();
+          unsubscribe = nextUnsubscribe;
+        },
+        terminalSubscriptions,
+      );
     });
   }
 
@@ -274,7 +281,11 @@ export class RpcServer {
           send(client, { type: "terminal.snapshot", snapshot: attachment.snapshot });
           void pumpTerminal(client, key, attachment.subscription, terminalSubscriptions);
         } catch (error) {
-          sendError(client, { code: "unavailable", message: error instanceof Error ? error.message : "Terminal attach failed.", retryable: true });
+          sendError(client, {
+            code: "unavailable",
+            message: error instanceof Error ? error.message : "Terminal attach failed.",
+            retryable: true,
+          });
         }
         return;
       }

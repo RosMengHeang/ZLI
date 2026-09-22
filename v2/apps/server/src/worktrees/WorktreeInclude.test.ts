@@ -21,14 +21,10 @@ describe(".worktreeinclude", () => {
     const worktreePath = join(root, "worktree");
     await mkdir(repoPath);
     await mkdir(worktreePath);
-    await writeFile(join(repoPath, ".worktreeinclude"), [
-      "ignored.env",
-      "tracked.txt",
-      "missing.txt",
-      "config/*.json",
-      "../outside.txt",
-      "!negated.txt",
-    ].join("\n"));
+    await writeFile(
+      join(repoPath, ".worktreeinclude"),
+      ["ignored.env", "tracked.txt", "missing.txt", "config/*.json", "../outside.txt", "!negated.txt"].join("\n"),
+    );
     await writeFile(join(repoPath, "ignored.env"), "secret=local\n");
     await writeFile(join(repoPath, "tracked.txt"), "tracked\n");
 

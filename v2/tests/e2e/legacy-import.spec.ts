@@ -9,17 +9,23 @@ test("previews and completes a legacy snapshot import through the desktop UI", a
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
   const { root, repo } = await createGitFixture();
   const snapshotPath = join(root, "legacy-snapshot.json");
-  await writeFile(snapshotPath, JSON.stringify({
-    format: "zli-legacy-snapshot",
-    schemaVersion: 1,
-    exportedAt: new Date().toISOString(),
-    workspaceRegistry: {
-      workspaces: [{
-        root: repo,
-        project: { name: "Imported fixture", path: repo, repositoryRoot: repo },
-      }],
-    },
-  }), "utf8");
+  await writeFile(
+    snapshotPath,
+    JSON.stringify({
+      format: "zli-legacy-snapshot",
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      workspaceRegistry: {
+        workspaces: [
+          {
+            root: repo,
+            project: { name: "Imported fixture", path: repo, repositoryRoot: repo },
+          },
+        ],
+      },
+    }),
+    "utf8",
+  );
 
   let fixture: DesktopFixture | undefined;
   try {

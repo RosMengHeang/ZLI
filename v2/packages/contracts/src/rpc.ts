@@ -2,11 +2,22 @@ import { z } from "zod";
 
 import { BrowserTabId, CommandId, EnvironmentId, ProjectId, TerminalId, ThreadId, TurnId, WorktreeId } from "./ids.js";
 import { RuntimeEventEnvelope } from "./events.js";
-import { EnvironmentDescriptor, RuntimeProjection, WorktreeProjection, SupportBundleProjection } from "./projections.js";
+import {
+  EnvironmentDescriptor,
+  RuntimeProjection,
+  WorktreeProjection,
+  SupportBundleProjection,
+} from "./projections.js";
 import { TerminalAttachSnapshot, TerminalProjection, TerminalStreamMessage } from "./terminal.js";
 import { ReviewProjection } from "./review.js";
 import { BrowserTabProjection } from "./browser.js";
-import { ProviderCapabilities, ProviderKind, ThreadMessageProjection, ThreadProjection, ThreadRequestProjection } from "./provider.js";
+import {
+  ProviderCapabilities,
+  ProviderKind,
+  ThreadMessageProjection,
+  ThreadProjection,
+  ThreadRequestProjection,
+} from "./provider.js";
 import { LegacyImportPreview } from "./import.js";
 import { DiagnosticLog } from "./diagnostics.js";
 
@@ -25,7 +36,13 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     baseRef: z.string().min(1).optional(),
     checkoutExistingBranch: z.boolean().optional(),
   }),
-  z.object({ type: z.literal("worktree.import"), worktreeId: WorktreeId, projectId: ProjectId, path: z.string().min(1), branch: z.string().min(1) }),
+  z.object({
+    type: z.literal("worktree.import"),
+    worktreeId: WorktreeId,
+    projectId: ProjectId,
+    path: z.string().min(1),
+    branch: z.string().min(1),
+  }),
   z.object({ type: z.literal("worktree.cancel"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("worktree.retry"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("worktree.remove"), worktreeId: WorktreeId, force: z.boolean().optional() }),
@@ -55,21 +72,53 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     cols: z.number().int().positive(),
     rows: z.number().int().positive(),
   }),
-  z.object({ type: z.literal("terminal.attach"), terminalId: TerminalId, afterSequence: z.number().int().nonnegative() }),
+  z.object({
+    type: z.literal("terminal.attach"),
+    terminalId: TerminalId,
+    afterSequence: z.number().int().nonnegative(),
+  }),
   z.object({ type: z.literal("terminal.stop"), terminalId: TerminalId }),
   z.object({ type: z.literal("terminal.list") }),
   z.object({ type: z.literal("browser.updated"), tab: BrowserTabProjection }),
   z.object({ type: z.literal("browser.closed"), browserTabId: BrowserTabId }),
-  z.object({ type: z.literal("thread.start"), threadId: ThreadId, worktreeId: WorktreeId, provider: ProviderKind, cwd: z.string().min(1) }),
-  z.object({ type: z.literal("thread.send"), threadId: ThreadId, text: z.string(), model: z.string().min(1).optional() }),
+  z.object({
+    type: z.literal("thread.start"),
+    threadId: ThreadId,
+    worktreeId: WorktreeId,
+    provider: ProviderKind,
+    cwd: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("thread.send"),
+    threadId: ThreadId,
+    text: z.string(),
+    model: z.string().min(1).optional(),
+  }),
   z.object({ type: z.literal("thread.interrupt"), threadId: ThreadId, turnId: TurnId.optional() }),
   z.object({ type: z.literal("thread.stop"), threadId: ThreadId }),
-  z.object({ type: z.literal("thread.status"), threadId: ThreadId, status: ThreadProjection.shape.status, turnId: TurnId.optional(), capabilities: ProviderCapabilities.optional(), errorMessage: z.string().min(1).optional() }),
+  z.object({
+    type: z.literal("thread.status"),
+    threadId: ThreadId,
+    status: ThreadProjection.shape.status,
+    turnId: TurnId.optional(),
+    capabilities: ProviderCapabilities.optional(),
+    errorMessage: z.string().min(1).optional(),
+  }),
   z.object({ type: z.literal("thread.message"), message: ThreadMessageProjection }),
   z.object({ type: z.literal("thread.request"), request: ThreadRequestProjection }),
   z.object({ type: z.literal("thread.request.resolved"), threadId: ThreadId, requestId: z.string().min(1) }),
-  z.object({ type: z.literal("thread.respond"), threadId: ThreadId, requestId: z.string().min(1), decision: z.unknown() }),
-  z.object({ type: z.literal("thread.user-input"), threadId: ThreadId, requestId: z.string().min(1), answers: z.record(z.string(), z.string()) }),
+  z.object({
+    type: z.literal("thread.respond"),
+    threadId: ThreadId,
+    requestId: z.string().min(1),
+    decision: z.unknown(),
+  }),
+  z.object({
+    type: z.literal("thread.user-input"),
+    threadId: ThreadId,
+    requestId: z.string().min(1),
+    answers: z.record(z.string(), z.string()),
+  }),
   z.object({
     type: z.literal("terminal.status"),
     terminalId: TerminalId,
@@ -86,13 +135,26 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("review.abortMerge"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("review.archive"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("review.updated"), review: ReviewProjection }),
-  z.object({ type: z.literal("diagnostics.createSupportBundle"), destinationPath: z.string().min(1), desktopLogs: z.array(DiagnosticLog).optional() }),
+  z.object({
+    type: z.literal("diagnostics.createSupportBundle"),
+    destinationPath: z.string().min(1),
+    desktopLogs: z.array(DiagnosticLog).optional(),
+  }),
   z.object({ type: z.literal("diagnostics.bundle.created"), bundle: SupportBundleProjection }),
   z.object({ type: z.literal("diagnostics.bundle.failed"), message: z.string().min(1) }),
   z.object({ type: z.literal("legacy.scan"), batchId: z.string().min(1), snapshotPath: z.string().min(1) }),
   z.object({ type: z.literal("legacy.scan.completed"), preview: LegacyImportPreview }),
-  z.object({ type: z.literal("legacy.import"), batchId: z.string().min(1), selectedRecordIds: z.array(z.string().min(1)) }),
-  z.object({ type: z.literal("legacy.import.completed"), batchId: z.string().min(1), importedProjectIds: z.array(ProjectId), importedWorktreeIds: z.array(WorktreeId) }),
+  z.object({
+    type: z.literal("legacy.import"),
+    batchId: z.string().min(1),
+    selectedRecordIds: z.array(z.string().min(1)),
+  }),
+  z.object({
+    type: z.literal("legacy.import.completed"),
+    batchId: z.string().min(1),
+    importedProjectIds: z.array(ProjectId),
+    importedWorktreeIds: z.array(WorktreeId),
+  }),
   z.object({ type: z.literal("legacy.rollbackImport"), batchId: z.string().min(1) }),
   z.object({ type: z.literal("legacy.rollback.completed"), batchId: z.string().min(1) }),
   z.object({ type: z.literal("legacy.operation.failed"), batchId: z.string().min(1), message: z.string().min(1) }),
@@ -144,7 +206,11 @@ export const ClientWireMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("command"), request: RpcRequest }),
   z.object({ type: z.literal("subscribe"), afterSequence: z.number().int().nonnegative() }),
   z.object({ type: z.literal("projection.get") }),
-  z.object({ type: z.literal("terminal.attach"), terminalId: TerminalId, afterSequence: z.number().int().nonnegative() }),
+  z.object({
+    type: z.literal("terminal.attach"),
+    terminalId: TerminalId,
+    afterSequence: z.number().int().nonnegative(),
+  }),
 ]);
 export type ClientWireMessage = z.infer<typeof ClientWireMessage>;
 

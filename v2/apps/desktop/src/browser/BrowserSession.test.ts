@@ -4,8 +4,12 @@ import { BrowserSessionManager } from "./BrowserSession.js";
 
 function createSession() {
   return {
-    setPermissionRequestHandler: (handler: unknown) => { (createSession as { request?: unknown }).request = handler; },
-    setPermissionCheckHandler: (handler: unknown) => { (createSession as { check?: unknown }).check = handler; },
+    setPermissionRequestHandler: (handler: unknown) => {
+      (createSession as { request?: unknown }).request = handler;
+    },
+    setPermissionCheckHandler: (handler: unknown) => {
+      (createSession as { check?: unknown }).check = handler;
+    },
     clearStorageData: async () => undefined,
     clearCache: async () => undefined,
   };

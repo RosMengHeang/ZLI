@@ -38,8 +38,8 @@ export type ProjectRegisteredDecision = {
 export type DomainDecision = Extract<
   RuntimeEvent,
   {
-      type:
-        | "project.registered"
+    type:
+      | "project.registered"
       | "project.archived"
       | "worktree.create.requested"
       | "worktree.imported"
@@ -85,10 +85,7 @@ export type DomainDecision = Extract<
   }
 >;
 
-export function decide(
-  projection: RuntimeProjection,
-  command: RuntimeCommand,
-): DomainDecision[] {
+export function decide(projection: RuntimeProjection, command: RuntimeCommand): DomainDecision[] {
   switch (command.type) {
     case "project.register": {
       const path = canonicalPath(command.path);
@@ -144,16 +141,18 @@ export function decide(
       if (projection.worktrees.some((worktree) => worktree.worktreeId === command.worktreeId)) {
         throw new DomainError("worktree_exists", "Worktree already exists: " + command.worktreeId);
       }
-      return [{
-        type: "worktree.imported",
-        worktree: {
-          worktreeId: command.worktreeId,
-          projectId: command.projectId,
-          path: command.path,
-          branch: command.branch,
-          status: "ready",
+      return [
+        {
+          type: "worktree.imported",
+          worktree: {
+            worktreeId: command.worktreeId,
+            projectId: command.projectId,
+            path: command.path,
+            branch: command.branch,
+            status: "ready",
+          },
         },
-      }];
+      ];
     }
     case "worktree.status":
       assertWorktree(projection, command.worktreeId);
@@ -228,30 +227,54 @@ export function decide(
       if (projection.threads.some((thread) => thread.threadId === command.threadId)) {
         throw new DomainError("thread_exists", "Thread already exists: " + command.threadId);
       }
-      return [{
-        type: "thread.start.requested",
-        cwd: command.cwd,
-        thread: {
-          threadId: command.threadId,
-          worktreeId: command.worktreeId,
-          provider: command.provider,
-          status: "starting",
-          capabilities: {},
+      return [
+        {
+          type: "thread.start.requested",
+          cwd: command.cwd,
+          thread: {
+            threadId: command.threadId,
+            worktreeId: command.worktreeId,
+            provider: command.provider,
+            status: "starting",
+            capabilities: {},
+          },
         },
-      }];
+      ];
     }
     case "thread.send":
       assertThread(projection, command.threadId);
-      return [{ type: "thread.send.requested", threadId: command.threadId, text: command.text, ...(command.model ? { model: command.model } : {}) }];
+      return [
+        {
+          type: "thread.send.requested",
+          threadId: command.threadId,
+          text: command.text,
+          ...(command.model ? { model: command.model } : {}),
+        },
+      ];
     case "thread.interrupt":
       assertThread(projection, command.threadId);
-      return [{ type: "thread.interrupt.requested", threadId: command.threadId, ...(command.turnId ? { turnId: command.turnId } : {}) }];
+      return [
+        {
+          type: "thread.interrupt.requested",
+          threadId: command.threadId,
+          ...(command.turnId ? { turnId: command.turnId } : {}),
+        },
+      ];
     case "thread.stop":
       assertThread(projection, command.threadId);
       return [{ type: "thread.stop.requested", threadId: command.threadId }];
     case "thread.status":
       assertThread(projection, command.threadId);
-      return [{ type: "thread.status.changed", threadId: command.threadId, status: command.status, ...(command.turnId ? { turnId: command.turnId } : {}), ...(command.capabilities ? { capabilities: command.capabilities } : {}), ...(command.errorMessage ? { errorMessage: command.errorMessage } : {}) }];
+      return [
+        {
+          type: "thread.status.changed",
+          threadId: command.threadId,
+          status: command.status,
+          ...(command.turnId ? { turnId: command.turnId } : {}),
+          ...(command.capabilities ? { capabilities: command.capabilities } : {}),
+          ...(command.errorMessage ? { errorMessage: command.errorMessage } : {}),
+        },
+      ];
     case "thread.message":
       assertThread(projection, command.message.threadId);
       return [{ type: "thread.message.appended", message: command.message }];
@@ -265,11 +288,25 @@ export function decide(
     case "thread.respond":
       assertThread(projection, command.threadId);
       assertRequest(projection, command.requestId);
-      return [{ type: "thread.respond.requested", threadId: command.threadId, requestId: command.requestId, decision: command.decision }];
+      return [
+        {
+          type: "thread.respond.requested",
+          threadId: command.threadId,
+          requestId: command.requestId,
+          decision: command.decision,
+        },
+      ];
     case "thread.user-input":
       assertThread(projection, command.threadId);
       assertRequest(projection, command.requestId);
-      return [{ type: "thread.user-input.requested", threadId: command.threadId, requestId: command.requestId, answers: command.answers }];
+      return [
+        {
+          type: "thread.user-input.requested",
+          threadId: command.threadId,
+          requestId: command.requestId,
+          answers: command.answers,
+        },
+      ];
     case "terminal.status":
       assertTerminal(projection, command.terminalId);
       return [
@@ -312,11 +349,13 @@ export function decide(
       assertWorktree(projection, command.worktreeId);
       return [{ type: "review.archived", worktreeId: command.worktreeId }];
     case "diagnostics.createSupportBundle":
-      return [{
-        type: "diagnostics.bundle.requested",
-        destinationPath: command.destinationPath,
-        ...(command.desktopLogs ? { desktopLogs: command.desktopLogs } : {}),
-      }];
+      return [
+        {
+          type: "diagnostics.bundle.requested",
+          destinationPath: command.destinationPath,
+          ...(command.desktopLogs ? { desktopLogs: command.desktopLogs } : {}),
+        },
+      ];
     case "diagnostics.bundle.created":
       return [{ type: "diagnostics.bundle.created", bundle: command.bundle }];
     case "diagnostics.bundle.failed":
@@ -326,14 +365,18 @@ export function decide(
     case "legacy.scan.completed":
       return [{ type: "legacy.scan.completed", preview: command.preview }];
     case "legacy.import":
-      return [{ type: "legacy.import.requested", batchId: command.batchId, selectedRecordIds: command.selectedRecordIds }];
+      return [
+        { type: "legacy.import.requested", batchId: command.batchId, selectedRecordIds: command.selectedRecordIds },
+      ];
     case "legacy.import.completed":
-      return [{
-        type: "legacy.import.completed",
-        batchId: command.batchId,
-        importedProjectIds: command.importedProjectIds,
-        importedWorktreeIds: command.importedWorktreeIds,
-      }];
+      return [
+        {
+          type: "legacy.import.completed",
+          batchId: command.batchId,
+          importedProjectIds: command.importedProjectIds,
+          importedWorktreeIds: command.importedWorktreeIds,
+        },
+      ];
     case "legacy.rollbackImport":
       return [{ type: "legacy.rollback.requested", batchId: command.batchId }];
     case "legacy.rollback.completed":
@@ -376,14 +419,26 @@ function assertRequest(projection: RuntimeProjection, requestId: string): void {
 }
 
 function assertSafeRef(ref: string): void {
-  if (!ref || ref.startsWith("-") || ref.includes("\0") || ref.includes("\\") || /(^|\/)\.\.?($|\/)/u.test(ref) || /[~^:?*\[]/u.test(ref) || ref.endsWith(".lock") || ref.endsWith(".")) {
+  if (
+    !ref ||
+    ref.startsWith("-") ||
+    ref.includes("\0") ||
+    ref.includes("\\") ||
+    /(^|\/)\.\.?($|\/)/u.test(ref) ||
+    /[~^:?*\[]/u.test(ref) ||
+    ref.endsWith(".lock") ||
+    ref.endsWith(".")
+  ) {
     throw new DomainError("unsupported_command", `Unsafe Git ref: ${ref}`);
   }
 }
 
 export function canonicalPath(path: string): string {
   const normalized = path.replaceAll("/", "\\");
-  return win32.normalize(normalized).replace(/[\\/]$/, "").toLowerCase();
+  return win32
+    .normalize(normalized)
+    .replace(/[\\/]$/, "")
+    .toLowerCase();
 }
 
 function projectName(path: string): string {

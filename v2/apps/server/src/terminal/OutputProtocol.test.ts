@@ -33,7 +33,11 @@ describe("terminal output protocol", () => {
 
   it("rejects malformed or oversized frames before they reach the runtime", () => {
     expect(() => decodeTerminalStreamMessage("not-json")).toThrowError(OutputProtocolError);
-    const oversized = JSON.stringify({ kind: "snapshot_required", terminalId, nextSequence: "x".repeat(MAX_TERMINAL_FRAME_BYTES) });
+    const oversized = JSON.stringify({
+      kind: "snapshot_required",
+      terminalId,
+      nextSequence: "x".repeat(MAX_TERMINAL_FRAME_BYTES),
+    });
     expect(() => decodeTerminalStreamMessage(oversized)).toThrowError(/frame is too large/);
   });
 });

@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ZodError } from "zod";
 
-import {
-  EnvironmentDescriptor,
-  RpcRequest,
-  RuntimeEventEnvelope,
-  RuntimeProjection,
-} from "./index.js";
+import { EnvironmentDescriptor, RpcRequest, RuntimeEventEnvelope, RuntimeProjection } from "./index.js";
 
 const commandId = "10000000-0000-4000-8000-000000000001";
 const eventId = "20000000-0000-4000-8000-000000000001";

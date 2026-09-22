@@ -1,11 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  CommandId,
-  WorktreeId,
-  type RuntimeEventEnvelope,
-  type WorktreeProjection,
-} from "@zli-v2/contracts";
+import { CommandId, WorktreeId, type RuntimeEventEnvelope, type WorktreeProjection } from "@zli-v2/contracts";
 
 import { Engine } from "../orchestration/Engine.js";
 import { WorktreeService, type WorktreeState } from "./WorktreeService.js";
@@ -136,9 +131,7 @@ export class WorktreeReactor {
   private async runRemove(worktreeId: string, force: boolean): Promise<void> {
     const projection = await this.engine.projection();
     const worktree = projection.worktrees.find((entry) => entry.worktreeId === worktreeId);
-    const project = worktree
-      ? projection.projects.find((entry) => entry.projectId === worktree.projectId)
-      : undefined;
+    const project = worktree ? projection.projects.find((entry) => entry.projectId === worktree.projectId) : undefined;
     const intent = this.intents.get(worktreeId);
     if (!worktree || !project || !intent) return;
     try {
@@ -151,7 +144,11 @@ export class WorktreeReactor {
       });
       await this.dispatchCompletion("worktree.removed", worktreeId);
     } catch (error) {
-      await this.dispatchStatus(worktreeId, "failed", error instanceof Error ? error.message : "Worktree removal failed.");
+      await this.dispatchStatus(
+        worktreeId,
+        "failed",
+        error instanceof Error ? error.message : "Worktree removal failed.",
+      );
     }
   }
 
@@ -165,23 +162,27 @@ export class WorktreeReactor {
   }
 
   private dispatchStatus(worktreeId: string, status: WorktreeState, errorMessage?: string): Promise<void> {
-    return this.engine.dispatchPromise({
-      protocolVersion: 1,
-      commandId: CommandId.parse(randomUUID()),
-      command: {
-        type: "worktree.status",
-        worktreeId: WorktreeId.parse(worktreeId),
-        status,
-        ...(errorMessage ? { errorMessage } : {}),
-      },
-    }).then(() => undefined);
+    return this.engine
+      .dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        command: {
+          type: "worktree.status",
+          worktreeId: WorktreeId.parse(worktreeId),
+          status,
+          ...(errorMessage ? { errorMessage } : {}),
+        },
+      })
+      .then(() => undefined);
   }
 
   private dispatchCompletion(type: "worktree.removed" | "worktree.archived", worktreeId: string): Promise<void> {
-    return this.engine.dispatchPromise({
-      protocolVersion: 1,
-      commandId: CommandId.parse(randomUUID()),
-      command: { type, worktreeId: WorktreeId.parse(worktreeId) },
-    }).then(() => undefined);
+    return this.engine
+      .dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        command: { type, worktreeId: WorktreeId.parse(worktreeId) },
+      })
+      .then(() => undefined);
   }
 }

@@ -4,7 +4,14 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { closeApp, closeDesktop, createGitFixture, git, launchDesktop, type DesktopFixture } from "./desktop-fixtures.js";
+import {
+  closeApp,
+  closeDesktop,
+  createGitFixture,
+  git,
+  launchDesktop,
+  type DesktopFixture,
+} from "./desktop-fixtures.js";
 
 test("completes the workspace, provider, browser, review, and restoration journey", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
@@ -25,7 +32,8 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await worktree.click();
     const worktreeId = await page.evaluate(async () => {
       const projection = await window.zli?.runtime.getProjection();
-      return projection?.worktrees.find((candidate) => candidate.path.replaceAll("\\", "/").endsWith("/e2e"))?.worktreeId;
+      return projection?.worktrees.find((candidate) => candidate.path.replaceAll("\\", "/").endsWith("/e2e"))
+        ?.worktreeId;
     });
     if (!worktreeId) throw new Error("The created worktree was not present in the runtime projection.");
 
@@ -36,23 +44,35 @@ test("completes the workspace, provider, browser, review, and restoration journe
       response.end("<!doctype html><title>ZLI fixture</title><main>browser fixture ready</main>");
     });
     const browserPort = await listen(browserServer);
-    await writeFile(join(worktreePath, "dev-server.mjs"), [
-      "import { createServer } from 'node:http';",
-      "createServer((_request, response) => {",
-      "  response.writeHead(200, { 'content-type': 'text/html' });",
-      "  response.end('<!doctype html><title>ZLI fixture</title><main>browser fixture ready</main>');",
-      `}).listen(${terminalPort}, '127.0.0.1', () => console.log('ZLI_DEV_READY ${terminalPort}'));`,
-    ].join("\n"), "utf8");
+    await writeFile(
+      join(worktreePath, "dev-server.mjs"),
+      [
+        "import { createServer } from 'node:http';",
+        "createServer((_request, response) => {",
+        "  response.writeHead(200, { 'content-type': 'text/html' });",
+        "  response.end('<!doctype html><title>ZLI fixture</title><main>browser fixture ready</main>');",
+        `}).listen(${terminalPort}, '127.0.0.1', () => console.log('ZLI_DEV_READY ${terminalPort}'));`,
+      ].join("\n"),
+      "utf8",
+    );
     await page.getByRole("button", { name: "Terminal", exact: true }).click();
     await page.getByRole("button", { name: "Start terminal" }).click();
     await page.getByRole("textbox", { name: "Terminal command" }).fill("node dev-server.mjs");
     await page.getByRole("button", { name: "Send" }).click();
-    await expect.poll(async () => page.evaluate(async () => {
-      const projection = await window.zli?.runtime.getProjection();
-      const terminal = projection?.terminals.at(-1);
-      return terminal ? `${terminal.status}:${terminal.errorMessage ?? ""}` : "missing";
-    }), { timeout: 10_000 }).toBe("running:");
-    await expect(page.getByRole("log", { name: "Terminal output" })).toContainText(`ZLI_DEV_READY ${terminalPort}`, { timeout: 20_000 });
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const projection = await window.zli?.runtime.getProjection();
+            const terminal = projection?.terminals.at(-1);
+            return terminal ? `${terminal.status}:${terminal.errorMessage ?? ""}` : "missing";
+          }),
+        { timeout: 10_000 },
+      )
+      .toBe("running:");
+    await expect(page.getByRole("log", { name: "Terminal output" })).toContainText(`ZLI_DEV_READY ${terminalPort}`, {
+      timeout: 20_000,
+    });
     await page.getByRole("button", { name: "Agent", exact: true }).click();
     await page.getByRole("button", { name: "Start Codex" }).click();
     const composer = page.getByRole("textbox", { name: "Message Codex" });
@@ -73,8 +93,15 @@ test("completes the workspace, provider, browser, review, and restoration journe
     if (!browserTabId) throw new Error("The browser tab was not projected to the renderer.");
     const snapshot = await page.evaluate(async (tabId) => window.zli!.browser.snapshot(tabId), browserTabId);
     expect(snapshot).toMatchObject({ url: `http://127.0.0.1:${browserPort}/`, title: "ZLI fixture" });
-    const designInspection = await page.evaluate(async (tabId) => window.zli!.browser.designInspect({ browserTabId: tabId, selector: "main" }), browserTabId);
-    expect(designInspection).toMatchObject({ tag: "main", text: "browser fixture ready", screenshot: { mimeType: "image/png" } });
+    const designInspection = await page.evaluate(
+      async (tabId) => window.zli!.browser.designInspect({ browserTabId: tabId, selector: "main" }),
+      browserTabId,
+    );
+    expect(designInspection).toMatchObject({
+      tag: "main",
+      text: "browser fixture ready",
+      screenshot: { mimeType: "image/png" },
+    });
 
     await writeFile(join(worktreePath, "change.txt"), "integration change\n", "utf8");
     await page.getByRole("button", { name: "Review", exact: true }).click();
@@ -86,17 +113,28 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await page.getByRole("button", { name: "Commit changes" }).click();
     await expect.poll(() => git(worktreePath, ["status", "--porcelain"])).toBe("");
     await page.getByRole("button", { name: "Merge into target" }).click();
-    await expect.poll(() => git(repo, ["show", "main:change.txt"]).catch(() => ""), { timeout: 20_000 }).toBe("integration change");
+    await expect
+      .poll(() => git(repo, ["show", "main:change.txt"]).catch(() => ""), { timeout: 20_000 })
+      .toBe("integration change");
 
     await fixture.page.evaluate(() => window.zli?.test?.restartRuntime());
     await fixture.page.getByRole("button", { name: "Terminal", exact: true }).click();
-    await expect(fixture.page.getByRole("log", { name: "Terminal output" })).toContainText(`ZLI_DEV_READY ${terminalPort}`, { timeout: 20_000 });
+    await expect(fixture.page.getByRole("log", { name: "Terminal output" })).toContainText(
+      `ZLI_DEV_READY ${terminalPort}`,
+      { timeout: 20_000 },
+    );
     await closeApp(fixture, { stopTerminals: false });
     fixture = await launchDesktop(repo, root);
-    await expect.poll(async () => fixture!.page.evaluate(async (id) => {
-      const projection = await window.zli?.runtime.getProjection();
-      return projection?.worktrees.find((candidate) => candidate.worktreeId === id)?.status;
-    }, worktreeId), { timeout: 30_000 }).toBe("ready");
+    await expect
+      .poll(
+        async () =>
+          fixture!.page.evaluate(async (id) => {
+            const projection = await window.zli?.runtime.getProjection();
+            return projection?.worktrees.find((candidate) => candidate.worktreeId === id)?.status;
+          }, worktreeId),
+        { timeout: 30_000 },
+      )
+      .toBe("ready");
     await expect(fixture.page.getByRole("button", { name: /e2e/iu })).toContainText("Ready", { timeout: 30_000 });
     await fixture.page.getByRole("button", { name: "Agent", exact: true }).click();
     await expect(fixture.page.getByText("Mock response: inspect workspace")).toBeVisible();

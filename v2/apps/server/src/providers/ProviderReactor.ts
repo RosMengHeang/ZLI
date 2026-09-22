@@ -1,12 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  CommandId,
-  ProviderKind,
-  ThreadId,
-  TurnId,
-  type RuntimeEventEnvelope,
-} from "@zli-v2/contracts";
+import { CommandId, ProviderKind, ThreadId, TurnId, type RuntimeEventEnvelope } from "@zli-v2/contracts";
 
 import { Engine } from "../orchestration/Engine.js";
 import { ProviderService, type ProviderEvent } from "./ProviderService.js";
@@ -70,7 +64,11 @@ export class ProviderReactor {
       });
       await this.status(intent.thread.threadId, "idle", undefined, this.service.getCapabilities(session.provider));
     } catch (error) {
-      await this.status(intent.thread.threadId, "failed", error instanceof Error ? error.message : "Provider session failed to start.");
+      await this.status(
+        intent.thread.threadId,
+        "failed",
+        error instanceof Error ? error.message : "Provider session failed to start.",
+      );
     }
   }
 
@@ -120,7 +118,14 @@ export class ProviderReactor {
       return;
     }
     if (event.type === "approval.requested" || event.type === "user-input.requested") {
-      this.track(this.request(event.threadId, event.type === "approval.requested" ? "approval" : "user-input", event.requestId, event.payload));
+      this.track(
+        this.request(
+          event.threadId,
+          event.type === "approval.requested" ? "approval" : "user-input",
+          event.requestId,
+          event.payload,
+        ),
+      );
       this.track(this.status(event.threadId, "waiting"));
       return;
     }
@@ -131,18 +136,25 @@ export class ProviderReactor {
     if (event.threadId) this.track(this.status(event.threadId, "failed", event.message));
   }
 
-  private status(threadId: string, status: "starting" | "idle" | "working" | "waiting" | "stopped" | "failed", turnId?: string, capabilities?: ReturnType<ProviderService["getCapabilities"]>): Promise<void> {
-    return this.engine.dispatchPromise({
-      protocolVersion: 1,
-      commandId: CommandId.parse(randomUUID()),
-      command: {
-        type: "thread.status",
-        threadId: ThreadId.parse(threadId),
-        status,
-        ...(turnId ? { turnId: safeTurnId(turnId) } : {}),
-        ...(capabilities ? { capabilities } : {}),
-      },
-    }).then(() => undefined);
+  private status(
+    threadId: string,
+    status: "starting" | "idle" | "working" | "waiting" | "stopped" | "failed",
+    turnId?: string,
+    capabilities?: ReturnType<ProviderService["getCapabilities"]>,
+  ): Promise<void> {
+    return this.engine
+      .dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        command: {
+          type: "thread.status",
+          threadId: ThreadId.parse(threadId),
+          status,
+          ...(turnId ? { turnId: safeTurnId(turnId) } : {}),
+          ...(capabilities ? { capabilities } : {}),
+        },
+      })
+      .then(() => undefined);
   }
 
   private async respond(threadId: string, requestId: string, decision: unknown): Promise<void> {
@@ -163,40 +175,56 @@ export class ProviderReactor {
     }
   }
 
-  private request(threadId: string, kind: "approval" | "user-input", requestId: string, payload: Record<string, unknown>): Promise<void> {
-    return this.engine.dispatchPromise({
-      protocolVersion: 1,
-      commandId: CommandId.parse(randomUUID()),
-      command: {
-        type: "thread.request",
-        request: { requestId, threadId: ThreadId.parse(threadId), kind, payload },
-      },
-    }).then(() => undefined);
+  private request(
+    threadId: string,
+    kind: "approval" | "user-input",
+    requestId: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    return this.engine
+      .dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        command: {
+          type: "thread.request",
+          request: { requestId, threadId: ThreadId.parse(threadId), kind, payload },
+        },
+      })
+      .then(() => undefined);
   }
 
   private resolveRequest(threadId: string, requestId: string): Promise<void> {
-    return this.engine.dispatchPromise({
-      protocolVersion: 1,
-      commandId: CommandId.parse(randomUUID()),
-      command: { type: "thread.request.resolved", threadId: ThreadId.parse(threadId), requestId },
-    }).then(() => this.status(threadId, "idle"));
+    return this.engine
+      .dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        command: { type: "thread.request.resolved", threadId: ThreadId.parse(threadId), requestId },
+      })
+      .then(() => this.status(threadId, "idle"));
   }
 
-  private message(threadId: string, role: "user" | "assistant" | "system", text: string, turnId?: string): Promise<void> {
-    return this.engine.dispatchPromise({
-      protocolVersion: 1,
-      commandId: CommandId.parse(randomUUID()),
-      command: {
-        type: "thread.message",
-        message: {
-          messageId: randomUUID(),
-          threadId: ThreadId.parse(threadId),
-          role,
-          text,
-          ...(turnId ? { turnId } : {}),
+  private message(
+    threadId: string,
+    role: "user" | "assistant" | "system",
+    text: string,
+    turnId?: string,
+  ): Promise<void> {
+    return this.engine
+      .dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        command: {
+          type: "thread.message",
+          message: {
+            messageId: randomUUID(),
+            threadId: ThreadId.parse(threadId),
+            role,
+            text,
+            ...(turnId ? { turnId } : {}),
+          },
         },
-      },
-    }).then(() => undefined);
+      })
+      .then(() => undefined);
   }
 
   private track(task: Promise<void>): void {

@@ -4,7 +4,15 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { GitProcess } from "../git/GitProcess.js";
 import { applyWorktreeInclude, type WorktreeIncludeReport } from "./WorktreeInclude.js";
 
-export type WorktreeState = "queued" | "fetching" | "creating" | "bootstrapping" | "ready" | "failed" | "cancelling" | "cancelled";
+export type WorktreeState =
+  | "queued"
+  | "fetching"
+  | "creating"
+  | "bootstrapping"
+  | "ready"
+  | "failed"
+  | "cancelling"
+  | "cancelled";
 
 export type WorktreeCreateRequest = {
   jobId: string;
@@ -44,7 +52,13 @@ export type WorktreeRemoveRequest = {
 
 export class WorktreeError extends Error {
   constructor(
-    readonly code: "unsafe_worktree_path" | "unsafe_git_ref" | "target_exists" | "not_found" | "cancelled" | "cleanup_failed",
+    readonly code:
+      | "unsafe_worktree_path"
+      | "unsafe_git_ref"
+      | "target_exists"
+      | "not_found"
+      | "cancelled"
+      | "cleanup_failed",
     message: string,
     options?: ErrorOptions,
   ) {
@@ -89,10 +103,7 @@ export class WorktreeService {
 
   async remove(request: WorktreeRemoveRequest): Promise<{ removed: true; branchDeleted: boolean }> {
     const repoPath = assertAbsolute(request.repoPath, "repoPath");
-    const worktreePath = await assertSafeWorktreePath(
-      request.workspaceRoot,
-      request.worktreePath,
-    );
+    const worktreePath = await assertSafeWorktreePath(request.workspaceRoot, request.worktreePath);
     const args = ["worktree", "remove"];
     if (request.force) args.push("--force");
     args.push(worktreePath);

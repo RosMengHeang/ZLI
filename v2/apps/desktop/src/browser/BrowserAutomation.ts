@@ -60,7 +60,8 @@ export class BrowserAutomation {
       "Accessibility.enable",
       "Network.enable",
       "Log.enable",
-    ]) await this.cdp.send(method);
+    ])
+      await this.cdp.send(method);
   }
 
   async snapshot(): Promise<BrowserSnapshot> {
@@ -74,7 +75,7 @@ export class BrowserAutomation {
           name: (element.getAttribute('aria-label') || element.textContent || element.getAttribute('name') || '').trim().slice(0, 200),
           role: element.getAttribute('role'),
         })),
-      }))()` ,
+      }))()`,
       returnByValue: true,
     });
     const value = extractValue(response);
@@ -89,8 +90,20 @@ export class BrowserAutomation {
   async click(input: { selector: string } | { x: number; y: number }): Promise<void> {
     await this.start();
     const point = "selector" in input ? await this.#elementCenter(input.selector) : input;
-    await this.cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", clickCount: 1 });
-    await this.cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", clickCount: 1 });
+    await this.cdp.send("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x: point.x,
+      y: point.y,
+      button: "left",
+      clickCount: 1,
+    });
+    await this.cdp.send("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x: point.x,
+      y: point.y,
+      button: "left",
+      clickCount: 1,
+    });
   }
 
   async fill(input: { selector: string; value: string }): Promise<void> {
@@ -126,9 +139,13 @@ export class BrowserAutomation {
   async screenshot(options: BrowserScreenshotOptions = {}): Promise<BrowserScreenshot> {
     await this.start();
     const format = options.format ?? "png";
-    const response = await this.cdp.send("Page.captureScreenshot", { format, ...(options.clip ? { clip: options.clip } : {}) });
+    const response = await this.cdp.send("Page.captureScreenshot", {
+      format,
+      ...(options.clip ? { clip: options.clip } : {}),
+    });
     const data = extractData(response);
-    if (data === undefined || data.length > MAX_RESULT_BYTES) throw new Error("Browser screenshot exceeded the IPC limit.");
+    if (data === undefined || data.length > MAX_RESULT_BYTES)
+      throw new Error("Browser screenshot exceeded the IPC limit.");
     return { data, mimeType: format === "jpeg" ? "image/jpeg" : "image/png" };
   }
 
@@ -156,12 +173,17 @@ export class BrowserAutomation {
       returnByValue: true,
     });
     const value = extractValue(response);
-    if (!isRecord(value) || typeof value.tag !== "string" || typeof value.name !== "string") throw new Error("Element was not found.");
+    if (!isRecord(value) || typeof value.tag !== "string" || typeof value.name !== "string")
+      throw new Error("Element was not found.");
     return value as unknown as BrowserInspection;
   }
 
-  consoleEntries(): readonly unknown[] { return [...this.#consoleEntries]; }
-  networkEntries(): readonly unknown[] { return [...this.#networkEntries]; }
+  consoleEntries(): readonly unknown[] {
+    return [...this.#consoleEntries];
+  }
+  networkEntries(): readonly unknown[] {
+    return [...this.#networkEntries];
+  }
 
   dispose(): void {
     this.#removeMessageListener?.();
@@ -177,7 +199,8 @@ export class BrowserAutomation {
       returnByValue: true,
     });
     const value = extractValue(response);
-    if (!isRecord(value) || typeof value.x !== "number" || typeof value.y !== "number") throw new Error("Element has no clickable bounds.");
+    if (!isRecord(value) || typeof value.x !== "number" || typeof value.y !== "number")
+      throw new Error("Element has no clickable bounds.");
     return { x: value.x, y: value.y };
   }
 
@@ -185,13 +208,18 @@ export class BrowserAutomation {
     if (method === "Network.requestWillBeSent" && isRecord(params)) {
       const request = isRecord(params.request) ? params.request : undefined;
       const type = request && typeof request.type === "string" ? request.type : "";
-      if (typeof params.requestId === "string" && type !== "WebSocket" && type !== "EventSource") this.#pendingRequests.add(params.requestId);
+      if (typeof params.requestId === "string" && type !== "WebSocket" && type !== "EventSource")
+        this.#pendingRequests.add(params.requestId);
       this.#networkEntries.push(trimRecord(params));
       this.#trim(this.#networkEntries);
       if (this.#pendingRequests.size > 0 && this.#idleTimer) clearTimeout(this.#idleTimer);
       return;
     }
-    if ((method === "Network.loadingFinished" || method === "Network.loadingFailed") && isRecord(params) && typeof params.requestId === "string") {
+    if (
+      (method === "Network.loadingFinished" || method === "Network.loadingFailed") &&
+      isRecord(params) &&
+      typeof params.requestId === "string"
+    ) {
       this.#pendingRequests.delete(params.requestId);
       this.#scheduleIdle(500);
       return;

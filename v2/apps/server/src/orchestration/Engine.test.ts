@@ -47,17 +47,13 @@ afterEach(() => {
 describe("durable environment engine", () => {
   it("exposes command dispatch as a lazy Effect", async () => {
     const engine = makeEngine();
-    const dispatch = engine.dispatch(
-      registerRequest("00000000-0000-4000-8000-000000000009", "C:\\workspace\\effect"),
-    );
+    const dispatch = engine.dispatch(registerRequest("00000000-0000-4000-8000-000000000009", "C:\\workspace\\effect"));
 
     expect(await engine.eventsAfter(0)).toEqual([]);
     const receipt = await Effect.runPromise(dispatch);
 
     expect(receipt.status).toBe("accepted");
-    expect((await engine.eventsAfter(0)).map((event) => event.event.type)).toEqual([
-      "project.registered",
-    ]);
+    expect((await engine.eventsAfter(0)).map((event) => event.event.type)).toEqual(["project.registered"]);
   });
 
   it("commits a receipt, event, and projection atomically", async () => {
@@ -74,18 +70,13 @@ describe("durable environment engine", () => {
       lastSequence: 1,
       eventTypes: ["project.registered"],
     });
-    expect((await engine.eventsAfter(0)).map((event) => event.event.type)).toEqual([
-      "project.registered",
-    ]);
+    expect((await engine.eventsAfter(0)).map((event) => event.event.type)).toEqual(["project.registered"]);
     expect((await engine.projection()).projects).toHaveLength(1);
   });
 
   it("returns the original receipt for a duplicate command without replaying it", async () => {
     const engine = makeEngine();
-    const request = registerRequest(
-      "00000000-0000-4000-8000-000000000011",
-      "C:\\workspace\\alpha",
-    );
+    const request = registerRequest("00000000-0000-4000-8000-000000000011", "C:\\workspace\\alpha");
 
     const first = await engine.dispatchPromise(request);
     const duplicate = await engine.dispatchPromise(request);
@@ -139,9 +130,7 @@ describe("durable environment engine", () => {
     const engine = makeEngine({
       reactors: [
         async () => {
-          expect((await engine.eventsAfter(0)).map((event) => event.event.type)).toEqual([
-            "project.registered",
-          ]);
+          expect((await engine.eventsAfter(0)).map((event) => event.event.type)).toEqual(["project.registered"]);
           throw new Error("reactor failed");
         },
       ],
@@ -161,9 +150,7 @@ describe("durable environment engine", () => {
 
   it("rebuilds the projection from the append-only event log", async () => {
     const engine = makeEngine();
-    await engine.dispatchPromise(
-      registerRequest("00000000-0000-4000-8000-000000000017", "C:\\workspace\\replay"),
-    );
+    await engine.dispatchPromise(registerRequest("00000000-0000-4000-8000-000000000017", "C:\\workspace\\replay"));
 
     await engine.rebuildProjection();
 
@@ -174,9 +161,7 @@ describe("durable environment engine", () => {
 
   it("reports incompatible stored events instead of silently dropping them", async () => {
     const engine = makeEngine();
-    await engine.dispatchPromise(
-      registerRequest("00000000-0000-4000-8000-000000000018", "C:\\workspace\\stored"),
-    );
+    await engine.dispatchPromise(registerRequest("00000000-0000-4000-8000-000000000018", "C:\\workspace\\stored"));
     engine.database.execute("UPDATE events SET event_json = ? WHERE sequence = 1", ["{broken"]);
 
     await expect(engine.eventsAfter(0)).rejects.toBeInstanceOf(StoredEventCompatibilityError);
@@ -184,9 +169,7 @@ describe("durable environment engine", () => {
 
   it("rejects a second project registration for the same path", async () => {
     const engine = makeEngine();
-    await engine.dispatchPromise(
-      registerRequest("00000000-0000-4000-8000-000000000019", "C:\\workspace\\same"),
-    );
+    await engine.dispatchPromise(registerRequest("00000000-0000-4000-8000-000000000019", "C:\\workspace\\same"));
 
     const duplicateProject = await engine.dispatchPromise(
       registerRequest("00000000-0000-4000-8000-000000000020", "C:\\workspace\\same"),

@@ -43,11 +43,14 @@ export class Database {
 
   constructor(options: { path: string }) {
     this.raw = new DatabaseSync(options.path);
-    this.raw.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
-    this.raw.exec(
-      "CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)",
-    );
-    this.applyMigrations();
+    try {
+      this.raw.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+      this.raw.exec("CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)");
+      this.applyMigrations();
+    } catch (error) {
+      this.raw.close();
+      throw error;
+    }
   }
 
   execute(sql: string, parameters: SqliteValue[] = []): void {
@@ -72,9 +75,9 @@ export class Database {
 
   private applyMigrations(): void {
     for (const migration of migrations) {
-      const applied = this.raw
-        .prepare("SELECT 1 AS applied FROM schema_migrations WHERE id = ?")
-        .get(migration.id) as { applied?: number } | undefined;
+      const applied = this.raw.prepare("SELECT 1 AS applied FROM schema_migrations WHERE id = ?").get(migration.id) as
+        | { applied?: number }
+        | undefined;
       if (applied?.applied === 1) {
         continue;
       }

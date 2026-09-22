@@ -10,7 +10,10 @@ export class DiagnosticsReactor {
   private readonly tasks = new Set<Promise<void>>();
   private readonly unsubscribe: () => void;
 
-  constructor(private readonly engine: Engine, private readonly logger = new StructuredLogger()) {
+  constructor(
+    private readonly engine: Engine,
+    private readonly logger = new StructuredLogger(),
+  ) {
     this.unsubscribe = engine.subscribe((envelope) => this.onEvent(envelope));
   }
 
@@ -38,8 +41,13 @@ export class DiagnosticsReactor {
       const projection = await this.engine.projection();
       const events = await this.engine.eventsAfter(Math.max(0, projection.lastSequence - 200));
       const request = events.at(-1)?.event;
-      const desktopLogs = request?.type === "diagnostics.bundle.requested" ? request.desktopLogs ?? [] : [];
-      const result = await createSupportBundle({ destinationPath, projection, events, logs: [...this.logger.snapshot(), ...desktopLogs] });
+      const desktopLogs = request?.type === "diagnostics.bundle.requested" ? (request.desktopLogs ?? []) : [];
+      const result = await createSupportBundle({
+        destinationPath,
+        projection,
+        events,
+        logs: [...this.logger.snapshot(), ...desktopLogs],
+      });
       await this.engine.dispatchPromise({
         protocolVersion: 1,
         commandId: CommandId.parse(randomUUID()),

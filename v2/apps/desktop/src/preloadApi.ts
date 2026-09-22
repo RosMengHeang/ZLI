@@ -40,8 +40,11 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
           const parsed = RuntimeProjection.safeParse(value);
           if (parsed.success) listener(parsed.data);
         }),
-      attachTerminal: (terminalId: string, afterSequence = 0) => ipc.invoke("zli:runtime:terminal:attach", { terminalId, afterSequence }),
-      onTerminal: (listener: (message: { kind: "snapshot"; snapshot: unknown } | { kind: "stream"; message: unknown }) => void) =>
+      attachTerminal: (terminalId: string, afterSequence = 0) =>
+        ipc.invoke("zli:runtime:terminal:attach", { terminalId, afterSequence }),
+      onTerminal: (
+        listener: (message: { kind: "snapshot"; snapshot: unknown } | { kind: "stream"; message: unknown }) => void,
+      ) =>
         ipc.on("zli:runtime:terminal", (_event, value) => {
           if (!value || typeof value !== "object" || !("kind" in value)) return;
           const message = value as { kind: unknown; snapshot?: unknown; message?: unknown };
@@ -60,26 +63,46 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
         }),
     },
     browser: {
-      create: async (input: unknown) => BrowserTabProjection.parse(await ipc.invoke("zli:browser:create", BrowserTabCreateInput.parse(input))),
+      create: async (input: unknown) =>
+        BrowserTabProjection.parse(await ipc.invoke("zli:browser:create", BrowserTabCreateInput.parse(input))),
       close: (browserTabId: string) => ipc.invoke("zli:browser:close", BrowserTabIdInput.parse({ browserTabId })),
-      activate: async (browserTabId: string) => BrowserTabProjection.parse(await ipc.invoke("zli:browser:activate", BrowserTabIdInput.parse({ browserTabId }))),
-      navigate: async (browserTabId: string, url: string) => BrowserTabProjection.parse(await ipc.invoke("zli:browser:navigate", BrowserNavigateInput.parse({ browserTabId, url }))),
-      setBounds: (browserTabId: string, bounds: unknown) => ipc.invoke("zli:browser:set-bounds", BrowserSetBoundsInput.parse({ browserTabId, bounds: BrowserBounds.parse(bounds) })),
+      activate: async (browserTabId: string) =>
+        BrowserTabProjection.parse(await ipc.invoke("zli:browser:activate", BrowserTabIdInput.parse({ browserTabId }))),
+      navigate: async (browserTabId: string, url: string) =>
+        BrowserTabProjection.parse(
+          await ipc.invoke("zli:browser:navigate", BrowserNavigateInput.parse({ browserTabId, url })),
+        ),
+      setBounds: (browserTabId: string, bounds: unknown) =>
+        ipc.invoke(
+          "zli:browser:set-bounds",
+          BrowserSetBoundsInput.parse({ browserTabId, bounds: BrowserBounds.parse(bounds) }),
+        ),
       back: (browserTabId: string) => ipc.invoke("zli:browser:back", BrowserTabIdInput.parse({ browserTabId })),
       forward: (browserTabId: string) => ipc.invoke("zli:browser:forward", BrowserTabIdInput.parse({ browserTabId })),
-      reload: (browserTabId: string, hard = false) => ipc.invoke("zli:browser:reload", BrowserReloadInput.parse({ browserTabId, hard })),
+      reload: (browserTabId: string, hard = false) =>
+        ipc.invoke("zli:browser:reload", BrowserReloadInput.parse({ browserTabId, hard })),
       stop: (browserTabId: string) => ipc.invoke("zli:browser:stop", BrowserTabIdInput.parse({ browserTabId })),
-      openDevTools: (browserTabId: string) => ipc.invoke("zli:browser:devtools", BrowserTabIdInput.parse({ browserTabId })),
+      openDevTools: (browserTabId: string) =>
+        ipc.invoke("zli:browser:devtools", BrowserTabIdInput.parse({ browserTabId })),
       snapshot: (browserTabId: string) => ipc.invoke("zli:browser:snapshot", BrowserTabIdInput.parse({ browserTabId })),
-      click: (input: { browserTabId: string; selector: string }) => ipc.invoke("zli:browser:click", BrowserSelectorInput.parse(input)),
-      fill: (input: { browserTabId: string; selector: string; value: string }) => ipc.invoke("zli:browser:fill", BrowserFillInput.parse(input)),
-      press: (input: { browserTabId: string; key: string }) => ipc.invoke("zli:browser:press", BrowserPressInput.parse(input)),
-      waitForNetworkIdle: (input: { browserTabId: string; idleMs?: number; timeoutMs?: number }) => ipc.invoke("zli:browser:wait-network-idle", BrowserWaitForNetworkIdleInput.parse(input)),
-      screenshot: (input: { browserTabId: string; format?: "png" | "jpeg" }) => ipc.invoke("zli:browser:screenshot", BrowserScreenshotInput.parse(input)),
-      inspectElement: (input: { browserTabId: string; selector: string }) => ipc.invoke("zli:browser:inspect", BrowserSelectorInput.parse(input)),
-      designInspect: (input: { browserTabId: string; selector: string }) => ipc.invoke("zli:browser:design-inspect", BrowserSelectorInput.parse(input)),
-      consoleEntries: (browserTabId: string) => ipc.invoke("zli:browser:console", BrowserTabIdInput.parse({ browserTabId })),
-      networkEntries: (browserTabId: string) => ipc.invoke("zli:browser:network", BrowserTabIdInput.parse({ browserTabId })),
+      click: (input: { browserTabId: string; selector: string }) =>
+        ipc.invoke("zli:browser:click", BrowserSelectorInput.parse(input)),
+      fill: (input: { browserTabId: string; selector: string; value: string }) =>
+        ipc.invoke("zli:browser:fill", BrowserFillInput.parse(input)),
+      press: (input: { browserTabId: string; key: string }) =>
+        ipc.invoke("zli:browser:press", BrowserPressInput.parse(input)),
+      waitForNetworkIdle: (input: { browserTabId: string; idleMs?: number; timeoutMs?: number }) =>
+        ipc.invoke("zli:browser:wait-network-idle", BrowserWaitForNetworkIdleInput.parse(input)),
+      screenshot: (input: { browserTabId: string; format?: "png" | "jpeg" }) =>
+        ipc.invoke("zli:browser:screenshot", BrowserScreenshotInput.parse(input)),
+      inspectElement: (input: { browserTabId: string; selector: string }) =>
+        ipc.invoke("zli:browser:inspect", BrowserSelectorInput.parse(input)),
+      designInspect: (input: { browserTabId: string; selector: string }) =>
+        ipc.invoke("zli:browser:design-inspect", BrowserSelectorInput.parse(input)),
+      consoleEntries: (browserTabId: string) =>
+        ipc.invoke("zli:browser:console", BrowserTabIdInput.parse({ browserTabId })),
+      networkEntries: (browserTabId: string) =>
+        ipc.invoke("zli:browser:network", BrowserTabIdInput.parse({ browserTabId })),
     },
     dialog: {
       openProject: () => ipc.invoke("zli:dialog:open-project"),
@@ -101,6 +124,12 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
     },
   };
   return options.testMode
-    ? { ...bridge, test: { restartRuntime: () => ipc.invoke("zli:test:restart-runtime") } }
+    ? {
+        ...bridge,
+        test: {
+          restartRuntime: () => ipc.invoke("zli:test:restart-runtime"),
+          crashMain: () => ipc.invoke("zli:test:crash-main"),
+        },
+      }
     : bridge;
 }

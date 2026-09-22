@@ -12,10 +12,7 @@ export type GitRunOptions = {
   timeoutMs?: number;
 };
 
-export type GitExecutor = (
-  args: readonly string[],
-  options: GitRunOptions,
-) => Promise<GitResult>;
+export type GitExecutor = (args: readonly string[], options: GitRunOptions) => Promise<GitResult>;
 
 export class GitProcessError extends Error {
   constructor(

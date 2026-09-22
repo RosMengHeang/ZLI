@@ -40,31 +40,58 @@ export class TerminalCompatibilityAdapter implements ProviderAdapter {
   private readonly sessions = new Map<string, { session: ProviderSession; child: TerminalChild; turnId: string }>();
   private readonly listeners = new Set<(event: ProviderEvent) => void>();
 
-  constructor(private readonly options: {
-    provider: Exclude<ProviderKind, "codex">;
-    command: string;
-    args?: readonly string[];
-    spawn(command: string, args: readonly string[], options: { cwd: string; shell: false; stdio: readonly ["pipe", "pipe", "pipe"] }): TerminalChild;
-  }) {}
+  constructor(
+    private readonly options: {
+      provider: Exclude<ProviderKind, "codex">;
+      command: string;
+      args?: readonly string[];
+      spawn(
+        command: string,
+        args: readonly string[],
+        options: { cwd: string; shell: false; stdio: readonly ["pipe", "pipe", "pipe"] },
+      ): TerminalChild;
+    },
+  ) {}
 
   get provider(): Exclude<ProviderKind, "codex"> {
     return this.options.provider;
   }
 
   async startSession(input: { threadId: ThreadId; cwd: string }): Promise<ProviderSession> {
-    if (this.sessions.has(input.threadId)) throw new Error(`Terminal provider session already exists: ${input.threadId}`);
-    const child = this.options.spawn(this.options.command, this.options.args ?? [], { cwd: input.cwd, shell: false, stdio: ["pipe", "pipe", "pipe"] });
-    const session: ProviderSession = { threadId: input.threadId, provider: this.provider, cwd: input.cwd, status: "idle" };
+    if (this.sessions.has(input.threadId))
+      throw new Error(`Terminal provider session already exists: ${input.threadId}`);
+    const child = this.options.spawn(this.options.command, this.options.args ?? [], {
+      cwd: input.cwd,
+      shell: false,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const session: ProviderSession = {
+      threadId: input.threadId,
+      provider: this.provider,
+      cwd: input.cwd,
+      status: "idle",
+    };
     const context = { session, child, turnId: "" };
     this.sessions.set(input.threadId, context);
     child.stdout.on("data", (chunk) => {
-      this.emit({ type: "assistant.delta", threadId: input.threadId, turnId: context.turnId, text: Buffer.from(chunk).toString("utf8") });
+      this.emit({
+        type: "assistant.delta",
+        threadId: input.threadId,
+        turnId: context.turnId,
+        text: Buffer.from(chunk).toString("utf8"),
+      });
     });
     child.stderr.on("data", (chunk) => {
       const text = Buffer.from(chunk).toString("utf8");
       if (text) this.emit({ type: "provider.error", threadId: input.threadId, message: text });
     });
-    child.once("error", (...args) => this.emit({ type: "provider.error", threadId: input.threadId, message: String(args[0] ?? "Terminal provider process failed.") }));
+    child.once("error", (...args) =>
+      this.emit({
+        type: "provider.error",
+        threadId: input.threadId,
+        message: String(args[0] ?? "Terminal provider process failed."),
+      }),
+    );
     child.once("close", () => {
       this.sessions.delete(input.threadId);
       this.emit({ type: "session.closed", threadId: input.threadId, reason: "Terminal provider process exited." });

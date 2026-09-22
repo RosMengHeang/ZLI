@@ -16,14 +16,16 @@ describe("LegacyScanner", () => {
     const snapshot = join(directory, "legacy.json");
     const original = JSON.stringify({
       workspaceRegistry: {
-        workspaces: [{
-          root: repository,
-          project: { name: "Tax project", path: repository, repositoryRoot: repository },
-          agents: [
-            { name: "Codex", provider: "codex", resumeId: "resume-1", worktreePath: worktree, branch: "feature/tax" },
-            { name: "Claude", provider: "claude-code", resumeAvailability: "unsupported" },
-          ],
-        }],
+        workspaces: [
+          {
+            root: repository,
+            project: { name: "Tax project", path: repository, repositoryRoot: repository },
+            agents: [
+              { name: "Codex", provider: "codex", resumeId: "resume-1", worktreePath: worktree, branch: "feature/tax" },
+              { name: "Claude", provider: "claude-code", resumeAvailability: "unsupported" },
+            ],
+          },
+        ],
       },
     });
     await writeFile(snapshot, original, "utf8");
@@ -49,14 +51,26 @@ describe("LegacyScanner", () => {
     await mkdir(movedCwd);
     const scanner = new LegacyScanner();
     try {
-      const preview = await scanner.scanValue({
-        workspaces: [
-          { root: repository, project: { path: repository, name: "one" } },
-          { root: repository, project: { path: repository, name: "duplicate" } },
-          { root: repository, project: { path: join(directory, "missing") }, agents: [{ name: "Missing", provider: "codex", worktreePath: join(directory, "missing-tree") }] },
-          { root: movedRepository, project: { path: join(directory, "old-location") }, agents: [{ name: "Moved", provider: "codex", cwd: movedCwd, worktreePath: join(directory, "old-tree") }] },
-        ],
-      }, join(directory, "snapshot.json"), "batch-2");
+      const preview = await scanner.scanValue(
+        {
+          workspaces: [
+            { root: repository, project: { path: repository, name: "one" } },
+            { root: repository, project: { path: repository, name: "duplicate" } },
+            {
+              root: repository,
+              project: { path: join(directory, "missing") },
+              agents: [{ name: "Missing", provider: "codex", worktreePath: join(directory, "missing-tree") }],
+            },
+            {
+              root: movedRepository,
+              project: { path: join(directory, "old-location") },
+              agents: [{ name: "Moved", provider: "codex", cwd: movedCwd, worktreePath: join(directory, "old-tree") }],
+            },
+          ],
+        },
+        join(directory, "snapshot.json"),
+        "batch-2",
+      );
       expect(preview.conflicts.length).toBeGreaterThan(0);
       expect(preview.projects.some((project) => project.state === "duplicate")).toBe(true);
       expect(preview.projects.some((project) => project.state === "moved")).toBe(true);

@@ -33,10 +33,12 @@ const DEFAULT_ENVIRONMENT_ID = "00000000-0000-4000-8000-000000000001";
 const APP_ORIGIN = "zli-v2://app";
 const DESKTOP_DIST = dirname(fileURLToPath(import.meta.url));
 
-protocol.registerSchemesAsPrivileged([{
-  scheme: "zli-v2",
-  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
-}]);
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "zli-v2",
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+  },
+]);
 
 let environment: EnvironmentProcess | undefined;
 let runtime: RuntimeClient | undefined;
@@ -63,22 +65,27 @@ async function main(): Promise<void> {
   runtime = await RuntimeClient.connect({
     token: descriptor.token,
     environmentId: process.env.ZLI_ENVIRONMENT_ID ?? DEFAULT_ENVIRONMENT_ID,
-    connectTransport: async () => connectWebSocket((await environment?.start() ?? descriptor).url),
+    connectTransport: async () => connectWebSocket(((await environment?.start()) ?? descriptor).url),
   });
   await registerTestProject(runtime);
   registerIpc(new DesktopDiagnostics());
-  const window = createMainWindow(BrowserWindow as unknown as BrowserWindowConstructor, join(DESKTOP_DIST, "preload.js"), APP_ORIGIN);
+  const window = createMainWindow(
+    BrowserWindow as unknown as BrowserWindowConstructor,
+    join(DESKTOP_DIST, "preload.js"),
+    APP_ORIGIN,
+  );
   const electronWindow = window as unknown as BrowserWindow;
   browserManager = new BrowserManager(
     {
-      create: ({ session: browserSession }) => new WebContentsView({
-        webPreferences: {
-          contextIsolation: true,
-          sandbox: true,
-          nodeIntegration: false,
-          ...(browserSession ? { session: browserSession as Electron.Session } : {}),
-        },
-      }) as unknown as import("./browser/BrowserManager.js").BrowserViewLike,
+      create: ({ session: browserSession }) =>
+        new WebContentsView({
+          webPreferences: {
+            contextIsolation: true,
+            sandbox: true,
+            nodeIntegration: false,
+            ...(browserSession ? { session: browserSession as Electron.Session } : {}),
+          },
+        }) as unknown as import("./browser/BrowserManager.js").BrowserViewLike,
     },
     {
       addChildView: (view) => electronWindow.contentView.addChildView(view as unknown as WebContentsView),
@@ -87,18 +94,22 @@ async function main(): Promise<void> {
     {
       sessionModule: session,
       onProjection: (tab) => {
-        void runtime?.command({
-          protocolVersion: 1,
-          commandId: randomUUID(),
-          command: { type: "browser.updated", tab },
-        }).catch(() => undefined);
+        void runtime
+          ?.command({
+            protocolVersion: 1,
+            commandId: randomUUID(),
+            command: { type: "browser.updated", tab },
+          })
+          .catch(() => undefined);
       },
       onClose: (tab) => {
-        void runtime?.command({
-          protocolVersion: 1,
-          commandId: randomUUID(),
-          command: { type: "browser.closed", browserTabId: tab.browserTabId },
-        }).catch(() => undefined);
+        void runtime
+          ?.command({
+            protocolVersion: 1,
+            commandId: randomUUID(),
+            command: { type: "browser.closed", browserTabId: tab.browserTabId },
+          })
+          .catch(() => undefined);
       },
       automationFactory: (view) => {
         const debuggerLike = (view.webContents as unknown as { debugger: ElectronDebuggerLike }).debugger;
@@ -160,17 +171,26 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
     if (!runtime) throw new Error("Runtime is not ready.");
     if (!input || typeof input !== "object" || !("terminalId" in input)) throw new Error("Terminal id is required.");
     const terminalId = TerminalId.parse((input as { terminalId: unknown }).terminalId);
-    const afterSequence = "afterSequence" in input && typeof (input as { afterSequence?: unknown }).afterSequence === "number"
-      ? (input as { afterSequence: number }).afterSequence
-      : 0;
+    const afterSequence =
+      "afterSequence" in input && typeof (input as { afterSequence?: unknown }).afterSequence === "number"
+        ? (input as { afterSequence: number }).afterSequence
+        : 0;
     runtime.attachTerminal(terminalId, afterSequence);
     return { accepted: true };
   });
   ipcMain.handle("zli:app:version", () => app.getVersion());
-  ipcMain.handle("zli:app:quit", () => { app.quit(); });
+  ipcMain.handle("zli:app:quit", () => {
+    app.quit();
+  });
   ipcMain.handle("zli:test:restart-runtime", () => {
     if (process.env.ZLI_TEST_PROVIDER !== "mock") throw new Error("Test runtime controls are disabled.");
     environment?.stop();
+    return { accepted: true };
+  });
+  ipcMain.handle("zli:test:crash-main", async () => {
+    if (process.env.ZLI_TEST_PROVIDER !== "mock") throw new Error("Test runtime controls are disabled.");
+    await environment?.stopAndWait();
+    setTimeout(() => app.exit(86), 50);
     return { accepted: true };
   });
   ipcMain.handle("zli:dialog:open-project", async () => {
@@ -204,22 +224,38 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
     if (!browserManager) throw new Error("Browser is not ready.");
     return browserManager.create(input);
   });
-  ipcMain.handle("zli:browser:close", (_event, input: unknown) => browserManager?.close(BrowserTabIdInput.parse(input).browserTabId));
-  ipcMain.handle("zli:browser:activate", async (_event, input: unknown) => browserManager?.activate(BrowserTabIdInput.parse(input).browserTabId));
-  ipcMain.handle("zli:browser:navigate", async (_event, input: unknown) => browserManager?.navigate(BrowserNavigateInput.parse(input)));
+  ipcMain.handle("zli:browser:close", (_event, input: unknown) =>
+    browserManager?.close(BrowserTabIdInput.parse(input).browserTabId),
+  );
+  ipcMain.handle("zli:browser:activate", async (_event, input: unknown) =>
+    browserManager?.activate(BrowserTabIdInput.parse(input).browserTabId),
+  );
+  ipcMain.handle("zli:browser:navigate", async (_event, input: unknown) =>
+    browserManager?.navigate(BrowserNavigateInput.parse(input)),
+  );
   ipcMain.handle("zli:browser:set-bounds", async (_event, input: unknown) => {
     const parsed = BrowserSetBoundsInput.parse(input);
     return browserManager?.setBounds(parsed.browserTabId, parsed.bounds);
   });
-  ipcMain.handle("zli:browser:back", (_event, input: unknown) => browserManager?.back(BrowserTabIdInput.parse(input).browserTabId));
-  ipcMain.handle("zli:browser:forward", (_event, input: unknown) => browserManager?.forward(BrowserTabIdInput.parse(input).browserTabId));
+  ipcMain.handle("zli:browser:back", (_event, input: unknown) =>
+    browserManager?.back(BrowserTabIdInput.parse(input).browserTabId),
+  );
+  ipcMain.handle("zli:browser:forward", (_event, input: unknown) =>
+    browserManager?.forward(BrowserTabIdInput.parse(input).browserTabId),
+  );
   ipcMain.handle("zli:browser:reload", (_event, input: unknown) => {
     const parsed = BrowserReloadInput.parse(input);
     return browserManager?.reload(parsed.browserTabId, parsed.hard);
   });
-  ipcMain.handle("zli:browser:stop", (_event, input: unknown) => browserManager?.stop(BrowserTabIdInput.parse(input).browserTabId));
-  ipcMain.handle("zli:browser:devtools", (_event, input: unknown) => browserManager?.openDevTools(BrowserTabIdInput.parse(input).browserTabId));
-  ipcMain.handle("zli:browser:snapshot", (_event, input: unknown) => browserManager?.snapshot(BrowserTabIdInput.parse(input).browserTabId));
+  ipcMain.handle("zli:browser:stop", (_event, input: unknown) =>
+    browserManager?.stop(BrowserTabIdInput.parse(input).browserTabId),
+  );
+  ipcMain.handle("zli:browser:devtools", (_event, input: unknown) =>
+    browserManager?.openDevTools(BrowserTabIdInput.parse(input).browserTabId),
+  );
+  ipcMain.handle("zli:browser:snapshot", (_event, input: unknown) =>
+    browserManager?.snapshot(BrowserTabIdInput.parse(input).browserTabId),
+  );
   ipcMain.handle("zli:browser:click", (_event, input: unknown) => {
     const parsed = BrowserSelectorInput.parse(input);
     return browserManager?.click(parsed.browserTabId, { selector: parsed.selector });
@@ -241,7 +277,10 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
   });
   ipcMain.handle("zli:browser:screenshot", (_event, input: unknown) => {
     const parsed = BrowserScreenshotInput.parse(input);
-    return browserManager?.screenshot(parsed.browserTabId, parsed.format === undefined ? {} : { format: parsed.format });
+    return browserManager?.screenshot(
+      parsed.browserTabId,
+      parsed.format === undefined ? {} : { format: parsed.format },
+    );
   });
   ipcMain.handle("zli:browser:inspect", (_event, input: unknown) => {
     const parsed = BrowserSelectorInput.parse(input);
@@ -251,8 +290,12 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
     const parsed = BrowserSelectorInput.parse(input);
     return browserManager?.designInspect(parsed.browserTabId, { selector: parsed.selector });
   });
-  ipcMain.handle("zli:browser:console", (_event, input: unknown) => browserManager?.consoleEntries(BrowserTabIdInput.parse(input).browserTabId));
-  ipcMain.handle("zli:browser:network", (_event, input: unknown) => browserManager?.networkEntries(BrowserTabIdInput.parse(input).browserTabId));
+  ipcMain.handle("zli:browser:console", (_event, input: unknown) =>
+    browserManager?.consoleEntries(BrowserTabIdInput.parse(input).browserTabId),
+  );
+  ipcMain.handle("zli:browser:network", (_event, input: unknown) =>
+    browserManager?.networkEntries(BrowserTabIdInput.parse(input).browserTabId),
+  );
 }
 
 function connectWebSocket(url: string): Promise<RuntimeTransport> {
@@ -264,16 +307,28 @@ function connectWebSocket(url: string): Promise<RuntimeTransport> {
       resolve({
         send: (message) => socket.send(JSON.stringify(message)),
         close: () => socket.close(),
-        onMessage: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
-        onClose: (listener) => { closeListeners.add(listener); return () => closeListeners.delete(listener); },
+        onMessage: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+        onClose: (listener) => {
+          closeListeners.add(listener);
+          return () => closeListeners.delete(listener);
+        },
       });
     });
     socket.on("message", (value) => {
       let message: unknown;
-      try { message = JSON.parse(value.toString()) as unknown; } catch { return; }
+      try {
+        message = JSON.parse(value.toString()) as unknown;
+      } catch {
+        return;
+      }
       for (const listener of listeners) listener(message);
     });
-    socket.on("close", () => { for (const listener of closeListeners) listener(); });
+    socket.on("close", () => {
+      for (const listener of closeListeners) listener();
+    });
     socket.once("error", reject);
   });
 }

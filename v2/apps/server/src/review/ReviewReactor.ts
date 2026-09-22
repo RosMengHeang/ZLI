@@ -9,11 +9,16 @@ export class ReviewReactor {
   private readonly tasks = new Set<Promise<void>>();
   private readonly unsubscribe: () => void;
 
-  constructor(private readonly engine: Engine, private readonly service: ReviewService) {
+  constructor(
+    private readonly engine: Engine,
+    private readonly service: ReviewService,
+  ) {
     this.unsubscribe = engine.subscribe((envelope) => this.onEvent(envelope));
   }
 
-  stop(): void { this.unsubscribe(); }
+  stop(): void {
+    this.unsubscribe();
+  }
 
   async waitForIdle(): Promise<void> {
     while (this.tasks.size > 0) await Promise.all([...this.tasks]);
@@ -46,7 +51,10 @@ export class ReviewReactor {
   private start(worktreeId: string, taskFactory: () => Promise<void>): void {
     const task = taskFactory().catch((error) => this.dispatchError(worktreeId, error));
     this.tasks.add(task);
-    void task.then(() => this.tasks.delete(task), () => this.tasks.delete(task));
+    void task.then(
+      () => this.tasks.delete(task),
+      () => this.tasks.delete(task),
+    );
   }
 
   private async runRefresh(worktreeId: string, baseRef: string): Promise<void> {
@@ -76,9 +84,17 @@ export class ReviewReactor {
   private async input(worktreeId: string, baseRef: string): Promise<ReviewServiceInput> {
     const projection = await this.engine.projection();
     const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === worktreeId);
-    const project = worktree ? projection.projects.find((candidate) => candidate.projectId === worktree.projectId) : undefined;
+    const project = worktree
+      ? projection.projects.find((candidate) => candidate.projectId === worktree.projectId)
+      : undefined;
     if (!worktree || !project) throw new Error(`Cannot review missing worktree ${worktreeId}.`);
-    return { worktreeId: WorktreeId.parse(worktreeId), worktreePath: worktree.path, repositoryPath: project.path, branch: worktree.branch, baseRef };
+    return {
+      worktreeId: WorktreeId.parse(worktreeId),
+      worktreePath: worktree.path,
+      repositoryPath: project.path,
+      branch: worktree.branch,
+      baseRef,
+    };
   }
 
   private async baseRef(worktreeId: string): Promise<string> {
@@ -87,11 +103,13 @@ export class ReviewReactor {
   }
 
   private dispatchUpdated(review: unknown): Promise<void> {
-    return this.engine.dispatchPromise({
-      protocolVersion: 1,
-      commandId: CommandId.parse(randomUUID()),
-      command: { type: "review.updated", review: ReviewProjection.parse(review) },
-    }).then(() => undefined);
+    return this.engine
+      .dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        command: { type: "review.updated", review: ReviewProjection.parse(review) },
+      })
+      .then(() => undefined);
   }
 
   private async dispatchError(worktreeId: string, error: unknown): Promise<void> {

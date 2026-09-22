@@ -12,22 +12,38 @@ type RuntimeContextValue = {
 
 const RuntimeContext = createContext<RuntimeContextValue | undefined>(undefined);
 
-export function RuntimeProvider({ children, bridge = getBridge() }: PropsWithChildren<{ bridge?: ZliBridge | undefined }>) {
+export function RuntimeProvider({
+  children,
+  bridge = getBridge(),
+}: PropsWithChildren<{ bridge?: ZliBridge | undefined }>) {
   const [projection, setProjection] = useState<RuntimeProjection>();
   useEffect(() => {
     if (!bridge) return;
     let active = true;
-    void bridge.runtime.getProjection().then((next) => { if (active && next) setProjection(next); }).catch(() => undefined);
-    const unsubscribe = bridge.runtime.onProjection((next) => { if (active) setProjection(next); });
-    return () => { active = false; unsubscribe(); };
+    void bridge.runtime
+      .getProjection()
+      .then((next) => {
+        if (active && next) setProjection(next);
+      })
+      .catch(() => undefined);
+    const unsubscribe = bridge.runtime.onProjection((next) => {
+      if (active) setProjection(next);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, [bridge]);
 
-  const value = useMemo<RuntimeContextValue>(() => ({
-    bridge,
-    projection,
-    connected: bridge !== undefined && projection !== undefined,
-    dispatch: async (request) => bridge?.runtime.dispatch(request),
-  }), [bridge, projection]);
+  const value = useMemo<RuntimeContextValue>(
+    () => ({
+      bridge,
+      projection,
+      connected: bridge !== undefined && projection !== undefined,
+      dispatch: async (request) => bridge?.runtime.dispatch(request),
+    }),
+    [bridge, projection],
+  );
   return <RuntimeContext.Provider value={value}>{children}</RuntimeContext.Provider>;
 }
 

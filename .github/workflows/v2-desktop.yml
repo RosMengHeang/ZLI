@@ -56,5 +56,3 @@ jobs:
           if-no-files-found: ignore
           path: |
             v2/test-results/**
-            v2/apps/desktop/release/**
-            v2/apps/desktop/dist/**/*.map

@@ -1,12 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
-import {
-  JsonRpcId,
-  JsonRpcMessage,
-  JsonRpcResponse,
-  decodeJsonRpc,
-  encodeJsonRpc,
-} from "./protocol.js";
+import { JsonRpcId, JsonRpcMessage, JsonRpcResponse, decodeJsonRpc, encodeJsonRpc } from "./protocol.js";
 import { ThreadReadResponse, ThreadStartResponse, TurnStartResponse } from "./schema.js";
 
 export type CodexPeer = {
@@ -137,13 +131,21 @@ export class CodexAppServerClient {
   }
 
   async readThread(providerThreadId: string): Promise<{ providerThreadId: string; turns: unknown[] }> {
-    const result = ThreadReadResponse.parse(await this.request("thread/read", { threadId: providerThreadId, includeTurns: true }));
+    const result = ThreadReadResponse.parse(
+      await this.request("thread/read", { threadId: providerThreadId, includeTurns: true }),
+    );
     return { providerThreadId: result.thread.id, turns: result.thread.turns ?? [] };
   }
 
-  async rollbackThread(providerThreadId: string, numTurns: number): Promise<{ providerThreadId: string; turns: unknown[] }> {
-    if (!Number.isInteger(numTurns) || numTurns < 1) throw new CodexProviderError("request_failed", "Rollback requires at least one turn.");
-    const result = ThreadReadResponse.parse(await this.request("thread/rollback", { threadId: providerThreadId, numTurns }));
+  async rollbackThread(
+    providerThreadId: string,
+    numTurns: number,
+  ): Promise<{ providerThreadId: string; turns: unknown[] }> {
+    if (!Number.isInteger(numTurns) || numTurns < 1)
+      throw new CodexProviderError("request_failed", "Rollback requires at least one turn.");
+    const result = ThreadReadResponse.parse(
+      await this.request("thread/rollback", { threadId: providerThreadId, numTurns }),
+    );
     return { providerThreadId: result.thread.id, turns: result.thread.turns ?? [] };
   }
 
@@ -197,7 +199,8 @@ export class CodexAppServerClient {
     }
     const event = normalizeNotification(method, params);
     if (event) this.emit(event);
-    else if (isKnownNotificationMethod(method)) this.emit({ type: "protocol.error", message: "Malformed Codex server message." });
+    else if (isKnownNotificationMethod(method))
+      this.emit({ type: "protocol.error", message: "Malformed Codex server message." });
     else this.emit({ type: "protocol.notification", method, payload: parsed.data.params });
   }
 
@@ -237,7 +240,9 @@ class JsonlCodexPeer implements SpawnedPeer {
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => this.consume(chunk));
     child.once("error", (error) => this.fail(error));
-    child.once("close", (code, signal) => this.fail(new Error(`Codex process exited (${code ?? "unknown"}${signal ? `/${signal}` : ""}).`)));
+    child.once("close", (code, signal) =>
+      this.fail(new Error(`Codex process exited (${code ?? "unknown"}${signal ? `/${signal}` : ""}).`)),
+    );
   }
 
   request(method: string, params?: unknown): Promise<unknown> {
@@ -276,7 +281,8 @@ class JsonlCodexPeer implements SpawnedPeer {
   }
 
   private write(message: JsonRpcMessage): void {
-    if (this.isClosed || this.child.stdin.destroyed) throw new CodexProviderError("closed", "Codex app-server is closed.");
+    if (this.isClosed || this.child.stdin.destroyed)
+      throw new CodexProviderError("closed", "Codex app-server is closed.");
     this.child.stdin.write(encodeJsonRpc(message));
   }
 
@@ -289,7 +295,7 @@ class JsonlCodexPeer implements SpawnedPeer {
       const message = decodeJsonRpc(line);
       if (!message) {
         for (const listener of this.messageListeners) listener(undefined);
-      } else if ("id" in message && !('method' in message)) {
+      } else if ("id" in message && !("method" in message)) {
         const pending = this.pending.get(String(message.id));
         if (pending) {
           this.pending.delete(String(message.id));
@@ -313,7 +319,10 @@ class JsonlCodexPeer implements SpawnedPeer {
   }
 }
 
-function normalizeNotification(method: string, params: Record<string, unknown> | undefined): CodexProviderEvent | undefined {
+function normalizeNotification(
+  method: string,
+  params: Record<string, unknown> | undefined,
+): CodexProviderEvent | undefined {
   if (!params) return undefined;
   const threadId = params.threadId;
   const turnId = params.turnId;
@@ -325,17 +334,36 @@ function normalizeNotification(method: string, params: Record<string, unknown> |
   }
   if (typeof threadId !== "string" || typeof turnId !== "string") return undefined;
   if (method === "turn/started") return { type: "turn.started", providerThreadId: threadId, providerTurnId: turnId };
-  if (method === "item/agentMessage/delta") return { type: "assistant.delta", providerThreadId: threadId, providerTurnId: turnId, text: String(params.delta ?? params.text ?? "") };
-  if (method === "turn/completed") return { type: "turn.completed", providerThreadId: threadId, providerTurnId: turnId, status: String(params.status ?? "completed") };
+  if (method === "item/agentMessage/delta")
+    return {
+      type: "assistant.delta",
+      providerThreadId: threadId,
+      providerTurnId: turnId,
+      text: String(params.delta ?? params.text ?? ""),
+    };
+  if (method === "turn/completed")
+    return {
+      type: "turn.completed",
+      providerThreadId: threadId,
+      providerTurnId: turnId,
+      status: String(params.status ?? "completed"),
+    };
   return undefined;
 }
 
 function isKnownNotificationMethod(method: string): boolean {
-  return method === "thread/started" || method === "turn/started" || method === "item/agentMessage/delta" || method === "turn/completed";
+  return (
+    method === "thread/started" ||
+    method === "turn/started" ||
+    method === "item/agentMessage/delta" ||
+    method === "turn/completed"
+  );
 }
 
 function isApprovalMethod(method: string): boolean {
-  return method.includes("requestApproval") || method.includes("requestUserInput") || method.includes("request_user_input");
+  return (
+    method.includes("requestApproval") || method.includes("requestUserInput") || method.includes("request_user_input")
+  );
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

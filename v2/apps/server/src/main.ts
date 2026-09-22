@@ -53,9 +53,7 @@ export async function startRuntime(options: {
   await mkdir(dirname(databasePath), { recursive: true });
   const token = options.token ?? randomBytes(32).toString("hex");
   const environment = {
-    environmentId: EnvironmentId.parse(
-      options.environmentId ?? "00000000-0000-4000-8000-000000000001",
-    ),
+    environmentId: EnvironmentId.parse(options.environmentId ?? "00000000-0000-4000-8000-000000000001"),
     label: options.label ?? "ZLI local environment",
     protocolVersion: 1 as const,
     capabilities: {
@@ -74,11 +72,13 @@ export async function startRuntime(options: {
   const terminalService = new TerminalService(new RemotePtyFactory({ connect: () => daemonSupervisor.connect() }));
   const terminalReactor = new TerminalReactor(engine, terminalService);
   const reviewReactor = new ReviewReactor(engine, new ReviewService(new GitProcess()));
-  const providerService = new ProviderService(new ProviderRegistry([
-    process.env.ZLI_TEST_PROVIDER === "mock"
-      ? new MockProviderAdapter()
-      : new CodexProviderAdapter({ createClient: () => CodexAppServerClient.connect() }),
-  ]));
+  const providerService = new ProviderService(
+    new ProviderRegistry([
+      process.env.ZLI_TEST_PROVIDER === "mock"
+        ? new MockProviderAdapter()
+        : new CodexProviderAdapter({ createClient: () => CodexAppServerClient.connect() }),
+    ]),
+  );
   const providerReactor = new ProviderReactor(engine, providerService);
   const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
   const legacyImportReactor = new LegacyImportReactor(engine);
@@ -125,9 +125,7 @@ async function main(): Promise<void> {
     databasePath: process.env.ZLI_DATABASE_PATH ?? "./.zli/runtime.sqlite",
     ...(process.env.ZLI_RUNTIME_TOKEN ? { token: process.env.ZLI_RUNTIME_TOKEN } : {}),
   });
-  process.stdout.write(
-    `${JSON.stringify({ url: runtime.server.url(), token: runtime.token })}\n`,
-  );
+  process.stdout.write(`${JSON.stringify({ url: runtime.server.url(), token: runtime.token })}\n`);
   const shutdown = () => {
     void runtime.close().finally(() => process.exit(0));
   };

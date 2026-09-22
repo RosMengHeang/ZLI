@@ -62,11 +62,16 @@ export class ReviewService {
     if (file.kind === "untracked") {
       patch = await readUntrackedPatch(input.worktreePath, file);
     } else {
-      const workingTreeDiff = await this.git.run(["diff", "--no-ext-diff", "--unified=3", "HEAD", "--", file.path], { cwd: input.worktreePath });
+      const workingTreeDiff = await this.git.run(["diff", "--no-ext-diff", "--unified=3", "HEAD", "--", file.path], {
+        cwd: input.worktreePath,
+      });
       if (workingTreeDiff.stdout) {
         patch = workingTreeDiff.stdout;
       } else {
-        const committedDiff = await this.git.run(["diff", "--no-ext-diff", "--unified=3", `${input.baseRef}...HEAD`, "--", file.path], { cwd: input.worktreePath });
+        const committedDiff = await this.git.run(
+          ["diff", "--no-ext-diff", "--unified=3", `${input.baseRef}...HEAD`, "--", file.path],
+          { cwd: input.worktreePath },
+        );
         patch = committedDiff.stdout;
       }
     }
@@ -127,27 +132,39 @@ type StatusEntry = { xy: string; path: string; oldPath?: string };
 type NumstatEntry = { path: string; oldPath?: string; additions: number; deletions: number; binary: boolean };
 
 function parseStatus(stdout: string): StatusEntry[] {
-  return stdout.split(/\r?\n/u).map((line) => line.trimEnd()).filter(Boolean).flatMap((line) => {
-    if (line.length < 4) return [];
-    const xy = line.slice(0, 2);
-    const rename = parseRenamePath(line.slice(3).trim());
-    const entry: StatusEntry = { xy, path: rename.path };
-    if (rename.oldPath) entry.oldPath = rename.oldPath;
-    return [entry];
-  });
+  return stdout
+    .split(/\r?\n/u)
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .flatMap((line) => {
+      if (line.length < 4) return [];
+      const xy = line.slice(0, 2);
+      const rename = parseRenamePath(line.slice(3).trim());
+      const entry: StatusEntry = { xy, path: rename.path };
+      if (rename.oldPath) entry.oldPath = rename.oldPath;
+      return [entry];
+    });
 }
 
 function parseNumstat(stdout: string): NumstatEntry[] {
-  return stdout.split(/\r?\n/u).filter(Boolean).flatMap((line) => {
-    const match = /^(\d+|-)\s+(\d+|-)\s+(.+)$/u.exec(line);
-    if (!match) return [];
-    const additions = match[1] === "-" ? 0 : Number(match[1]);
-    const deletions = match[2] === "-" ? 0 : Number(match[2]);
-    const rename = parseRenamePath(match[3]!);
-    const entry: NumstatEntry = { path: rename.path, additions, deletions, binary: match[1] === "-" || match[2] === "-" };
-    if (rename.oldPath) entry.oldPath = rename.oldPath;
-    return [entry];
-  });
+  return stdout
+    .split(/\r?\n/u)
+    .filter(Boolean)
+    .flatMap((line) => {
+      const match = /^(\d+|-)\s+(\d+|-)\s+(.+)$/u.exec(line);
+      if (!match) return [];
+      const additions = match[1] === "-" ? 0 : Number(match[1]);
+      const deletions = match[2] === "-" ? 0 : Number(match[2]);
+      const rename = parseRenamePath(match[3]!);
+      const entry: NumstatEntry = {
+        path: rename.path,
+        additions,
+        deletions,
+        binary: match[1] === "-" || match[2] === "-",
+      };
+      if (rename.oldPath) entry.oldPath = rename.oldPath;
+      return [entry];
+    });
 }
 
 function mergeFiles(statuses: StatusEntry[], stats: NumstatEntry[]): ReviewFileProjection[] {
@@ -157,9 +174,16 @@ function mergeFiles(statuses: StatusEntry[], stats: NumstatEntry[]): ReviewFileP
     const status = statuses.find((entry) => entry.path === path);
     const stat = byPath.get(path);
     const xy = status?.xy ?? "  ";
-    const kind = stat?.oldPath || status?.oldPath || xy.includes("R") || xy.includes("C")
-      ? "renamed"
-      : xy.includes("?") ? "untracked" : xy.includes("D") ? "deleted" : xy.includes("A") ? "added" : "modified";
+    const kind =
+      stat?.oldPath || status?.oldPath || xy.includes("R") || xy.includes("C")
+        ? "renamed"
+        : xy.includes("?")
+          ? "untracked"
+          : xy.includes("D")
+            ? "deleted"
+            : xy.includes("A")
+              ? "added"
+              : "modified";
     const file: ReviewFileProjection = {
       path,
       kind,
@@ -186,13 +210,28 @@ function isConflict(xy: string): boolean {
 }
 
 function assertRef(value: string): void {
-  if (!value || value.startsWith("-") || value.includes("\0") || value.includes("\\") || /(^|\/)\.\.?($|\/)/u.test(value) || /[~^:?*\[]/u.test(value) || value.endsWith(".lock") || value.endsWith(".")) {
+  if (
+    !value ||
+    value.startsWith("-") ||
+    value.includes("\0") ||
+    value.includes("\\") ||
+    /(^|\/)\.\.?($|\/)/u.test(value) ||
+    /[~^:?*\[]/u.test(value) ||
+    value.endsWith(".lock") ||
+    value.endsWith(".")
+  ) {
     throw new Error(`Unsafe Git ref: ${value}`);
   }
 }
 
 function assertRelativePath(value: string): void {
-  if (!value || value.includes("\0") || value.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(value) || value.split(/[\\/]/u).some((part) => part === "..")) {
+  if (
+    !value ||
+    value.includes("\0") ||
+    value.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/u.test(value) ||
+    value.split(/[\\/]/u).some((part) => part === "..")
+  ) {
     throw new Error(`Unsafe review path: ${value}`);
   }
 }

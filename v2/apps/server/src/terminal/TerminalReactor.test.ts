@@ -90,10 +90,17 @@ describe("TerminalReactor", () => {
     const original = new FakePty();
     const { engine, reactor, worktreeId } = await setup({ spawn: async () => original });
     const id = TerminalId.parse("00000000-0000-4000-8000-000000000306");
-    await engine.dispatchPromise(command("terminal.create", {
-      terminalId: id, worktreeId, cwd: "C:/workspace/project-tree",
-      shell: "powershell.exe", title: "PowerShell", cols: 120, rows: 32,
-    }));
+    await engine.dispatchPromise(
+      command("terminal.create", {
+        terminalId: id,
+        worktreeId,
+        cwd: "C:/workspace/project-tree",
+        shell: "powershell.exe",
+        title: "PowerShell",
+        cols: 120,
+        rows: 32,
+      }),
+    );
     await reactor.waitForIdle();
     await engine.dispatchPromise(command("terminal.write", { terminalId: id, data: "deploy-production\r\n" }));
     await reactor.waitForIdle();
@@ -126,9 +133,7 @@ describe("TerminalReactor", () => {
       }),
     );
     await engine.waitForReactors();
-    expect((await engine.projection()).terminals).toMatchObject([
-      { terminalId: id, status: "running" },
-    ]);
+    expect((await engine.projection()).terminals).toMatchObject([{ terminalId: id, status: "running" }]);
 
     await engine.dispatchPromise(command("terminal.write", { terminalId: id, data: "git status\r\n" }));
     expect(pty.writes).toEqual(["git status\r\n"]);
@@ -136,7 +141,11 @@ describe("TerminalReactor", () => {
   });
 
   it("projects a failed terminal startup and does not leave it running", async () => {
-    const { engine } = await setup({ spawn: async () => { throw new Error("spawn denied"); } });
+    const { engine } = await setup({
+      spawn: async () => {
+        throw new Error("spawn denied");
+      },
+    });
     const id = TerminalId.parse("00000000-0000-4000-8000-000000000304");
     await engine.dispatchPromise(
       command("terminal.create", {
@@ -151,7 +160,11 @@ describe("TerminalReactor", () => {
     );
     await engine.waitForReactors();
     expect((await engine.projection()).terminals).toMatchObject([
-      { terminalId: id, status: "failed", errorMessage: "Unable to start terminal in C:/workspace/project-tree. (spawn denied)" },
+      {
+        terminalId: id,
+        status: "failed",
+        errorMessage: "Unable to start terminal in C:/workspace/project-tree. (spawn denied)",
+      },
     ]);
   });
 

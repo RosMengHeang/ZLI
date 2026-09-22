@@ -13,7 +13,11 @@ export function isAllowedMainNavigation(candidate: string, appOrigin: string): b
 
 export function isAllowedBrowserNavigation(candidate: string): boolean {
   const url = parse(candidate);
-  return url?.protocol === "http:" || url?.protocol === "https:" || (url?.protocol === "about:" && url.href === "about:blank");
+  return (
+    url?.protocol === "http:" ||
+    url?.protocol === "https:" ||
+    (url?.protocol === "about:" && url.href === "about:blank")
+  );
 }
 
 export function shouldOpenExternal(candidate: string): boolean {

@@ -4,6 +4,8 @@ export type BrowserWindowLike = {
   webContents: {
     setWindowOpenHandler(handler: (details: { url: string }) => { action: "deny" }): void;
     on(event: "will-navigate", listener: (event: { preventDefault(): void }, url: string) => void): void;
+    on(event: "render-process-gone", listener: () => void): void;
+    reload(): void;
     isDestroyed?(): boolean;
     send?(channel: string, value: unknown): void;
   };
@@ -44,5 +46,6 @@ export function createMainWindow(
   window.webContents.on("will-navigate", (event, url) => {
     if (!isAllowedMainNavigation(url, appOrigin)) event.preventDefault();
   });
+  window.webContents.on("render-process-gone", () => window.webContents.reload());
   return window;
 }

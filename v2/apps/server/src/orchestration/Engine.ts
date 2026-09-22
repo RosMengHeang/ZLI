@@ -16,12 +16,7 @@ import { Database } from "../db/Database.js";
 import { StructuredLogger, type LogCorrelation } from "../diagnostics/StructuredLogger.js";
 import { DomainError, decide } from "./decider.js";
 import { createEmptyProjection, projectEvent } from "./projector.js";
-import {
-  ReactorRunner,
-  type NamedReactor,
-  type Reactor,
-  type ReactorContext,
-} from "./ReactorRunner.js";
+import { ReactorRunner, type NamedReactor, type Reactor, type ReactorContext } from "./ReactorRunner.js";
 
 export type CommandReceipt = {
   commandId: string;
@@ -33,10 +28,7 @@ export type CommandReceipt = {
   error?: { code: string; message: string };
 };
 
-export type ProjectEvent = (
-  projection: RuntimeProjection,
-  event: RuntimeEventEnvelope,
-) => RuntimeProjection;
+export type ProjectEvent = (projection: RuntimeProjection, event: RuntimeEventEnvelope) => RuntimeProjection;
 
 export type EngineOptions = {
   database: Database;
@@ -171,9 +163,14 @@ export class Engine {
       const committed = this.commitAccepted(request, intentHash, projection, decisions);
       this.publish(committed.events);
       this.scheduleReactors(committed.events, committed.projection);
-      this.logger.record("info", "runtime command accepted", commandCorrelation(request, this.environment.environmentId), {
-        eventCount: committed.events.length,
-      });
+      this.logger.record(
+        "info",
+        "runtime command accepted",
+        commandCorrelation(request, this.environment.environmentId),
+        {
+          eventCount: committed.events.length,
+        },
+      );
       return committed.receipt;
     } catch (error) {
       if (!(error instanceof DomainError)) {
@@ -190,7 +187,12 @@ export class Engine {
       this.database.transaction(() => {
         this.insertReceipt(receipt, intentHash);
       });
-      this.logger.record("warn", "runtime command rejected", commandCorrelation(request, this.environment.environmentId), { code: error.code });
+      this.logger.record(
+        "warn",
+        "runtime command rejected",
+        commandCorrelation(request, this.environment.environmentId),
+        { code: error.code },
+      );
       return receipt;
     }
   }
@@ -337,36 +339,30 @@ export class Engine {
   }
 
   private readReceiptRow(commandId: string): CommandReceipt | undefined {
-    const row = this.database.raw
-      .prepare("SELECT receipt_json FROM commands WHERE command_id = ?")
-      .get(commandId) as { receipt_json?: string } | undefined;
+    const row = this.database.raw.prepare("SELECT receipt_json FROM commands WHERE command_id = ?").get(commandId) as
+      | { receipt_json?: string }
+      | undefined;
     return row?.receipt_json ? (JSON.parse(row.receipt_json) as CommandReceipt) : undefined;
   }
 
   private readIntentHash(commandId: string): string | undefined {
-    const row = this.database.raw
-      .prepare("SELECT intent_hash FROM commands WHERE command_id = ?")
-      .get(commandId) as { intent_hash?: string } | undefined;
+    const row = this.database.raw.prepare("SELECT intent_hash FROM commands WHERE command_id = ?").get(commandId) as
+      | { intent_hash?: string }
+      | undefined;
     return row?.intent_hash;
   }
 
   private insertReceipt(receipt: CommandReceipt, intentHash: string): void {
     this.database.execute(
       "INSERT INTO commands (command_id, intent_hash, status, receipt_json, created_at) VALUES (?, ?, ?, ?, ?)",
-      [
-        receipt.commandId,
-        intentHash,
-        receipt.status,
-        JSON.stringify(receipt),
-        new Date().toISOString(),
-      ],
+      [receipt.commandId, intentHash, receipt.status, JSON.stringify(receipt), new Date().toISOString()],
     );
   }
 
   private latestSequence(): number {
-    const row = this.database.raw
-      .prepare("SELECT COALESCE(MAX(sequence), 0) AS sequence FROM events")
-      .get() as { sequence?: number } | undefined;
+    const row = this.database.raw.prepare("SELECT COALESCE(MAX(sequence), 0) AS sequence FROM events").get() as
+      | { sequence?: number }
+      | undefined;
     return row?.sequence ?? 0;
   }
 
@@ -406,7 +402,12 @@ function commandCorrelation(request: RpcRequest, workspaceId: string): LogCorrel
     ...(command.type.startsWith("terminal.") && "terminalId" in command && typeof command.terminalId === "string"
       ? { terminalId: command.terminalId }
       : {}),
-    ...(command.type.startsWith("browser.") && "tab" in command && typeof command.tab === "object" && command.tab !== null && "browserTabId" in command.tab && typeof command.tab.browserTabId === "string"
+    ...(command.type.startsWith("browser.") &&
+    "tab" in command &&
+    typeof command.tab === "object" &&
+    command.tab !== null &&
+    "browserTabId" in command.tab &&
+    typeof command.tab.browserTabId === "string"
       ? { browserTabId: command.tab.browserTabId }
       : {}),
   };

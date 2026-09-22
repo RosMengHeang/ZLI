@@ -47,9 +47,7 @@ export class ProjectionStore {
         this.#projection = { ...current, lastSequence: envelope.sequence };
         break;
       case "project.registered": {
-        const projects = current.projects.filter(
-          (project) => project.projectId !== event.project.projectId,
-        );
+        const projects = current.projects.filter((project) => project.projectId !== event.project.projectId);
         this.#projection = {
           ...current,
           projects: [...projects, event.project],
@@ -60,48 +58,69 @@ export class ProjectionStore {
       case "worktree.create.requested":
         this.#projection = {
           ...current,
-          worktrees: [...current.worktrees.filter((worktree) => worktree.worktreeId !== event.worktree.worktreeId), event.worktree],
+          worktrees: [
+            ...current.worktrees.filter((worktree) => worktree.worktreeId !== event.worktree.worktreeId),
+            event.worktree,
+          ],
           lastSequence: envelope.sequence,
         };
         break;
       case "worktree.status.changed":
         this.#projection = {
           ...current,
-          worktrees: current.worktrees.map((worktree) => worktree.worktreeId === event.worktreeId ? {
-            ...worktree,
-            status: event.status,
-            ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
-          } : worktree),
+          worktrees: current.worktrees.map((worktree) =>
+            worktree.worktreeId === event.worktreeId
+              ? {
+                  ...worktree,
+                  status: event.status,
+                  ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+                }
+              : worktree,
+          ),
           lastSequence: envelope.sequence,
         };
         break;
       case "worktree.removed":
       case "worktree.archived":
-        this.#projection = { ...current, worktrees: current.worktrees.filter((worktree) => worktree.worktreeId !== event.worktreeId), lastSequence: envelope.sequence };
+        this.#projection = {
+          ...current,
+          worktrees: current.worktrees.filter((worktree) => worktree.worktreeId !== event.worktreeId),
+          lastSequence: envelope.sequence,
+        };
         break;
       case "terminal.create.requested":
         this.#projection = {
           ...current,
-          terminals: [...current.terminals.filter((terminal) => terminal.terminalId !== event.terminal.terminalId), event.terminal],
+          terminals: [
+            ...current.terminals.filter((terminal) => terminal.terminalId !== event.terminal.terminalId),
+            event.terminal,
+          ],
           lastSequence: envelope.sequence,
         };
         break;
       case "terminal.status.changed":
         this.#projection = {
           ...current,
-          terminals: current.terminals.map((terminal) => terminal.terminalId === event.terminalId ? {
-            ...terminal,
-            status: event.status,
-            ...(event.lastSequence === undefined ? {} : { lastSequence: event.lastSequence }),
-            ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
-          } : terminal),
+          terminals: current.terminals.map((terminal) =>
+            terminal.terminalId === event.terminalId
+              ? {
+                  ...terminal,
+                  status: event.status,
+                  ...(event.lastSequence === undefined ? {} : { lastSequence: event.lastSequence }),
+                  ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+                }
+              : terminal,
+          ),
           lastSequence: envelope.sequence,
         };
         break;
       case "review.updated":
         this.#projection = {
           ...current,
-          reviews: [...(current.reviews ?? []).filter((review) => review.worktreeId !== event.review.worktreeId), event.review],
+          reviews: [
+            ...(current.reviews ?? []).filter((review) => review.worktreeId !== event.review.worktreeId),
+            event.review,
+          ],
           lastSequence: envelope.sequence,
         };
         break;

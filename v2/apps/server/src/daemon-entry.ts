@@ -70,11 +70,7 @@ async function handle(client: Client, terminals: TerminalService, line: string):
     return;
   }
   if (!client.authenticated) {
-    if (
-      request.type !== "hello" ||
-      request.token !== token ||
-      request.protocolVersion !== protocolVersion
-    ) {
+    if (request.type !== "hello" || request.token !== token || request.protocolVersion !== protocolVersion) {
       send(client.socket, { type: "error", message: "unauthorized" });
       client.socket.end();
       return;
@@ -119,10 +115,7 @@ async function handle(client: Client, terminals: TerminalService, line: string):
         send(client.socket, { type: "result", accepted: true });
         return;
       case "terminal.attach": {
-        const attachment = terminals.attach(
-          TerminalId.parse(request.terminalId),
-          Number(request.afterSequence ?? 0),
-        );
+        const attachment = terminals.attach(TerminalId.parse(request.terminalId), Number(request.afterSequence ?? 0));
         client.subscriptions.push(attachment.subscription);
         send(client.socket, { type: "snapshot", snapshot: attachment.snapshot });
         void streamSubscription(client.socket, attachment.subscription);
@@ -156,7 +149,7 @@ function send(socket: Socket, message: unknown): void {
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
   void main().catch((error) => {
-    process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    process.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
     process.exitCode = 1;
   });
 }

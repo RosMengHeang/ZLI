@@ -31,7 +31,10 @@ export interface ProviderAdapter {
   listSessions(): ReadonlyArray<ProviderSession>;
   hasSession(input: { threadId: ThreadId }): boolean;
   readThread(input: { threadId: ThreadId }): Promise<{ threadId: ThreadId; turns: ReadonlyArray<unknown> }>;
-  rollbackThread(input: { threadId: ThreadId; numTurns: number }): Promise<{ threadId: ThreadId; turns: ReadonlyArray<unknown> }>;
+  rollbackThread(input: {
+    threadId: ThreadId;
+    numTurns: number;
+  }): Promise<{ threadId: ThreadId; turns: ReadonlyArray<unknown> }>;
   stopAll(): Promise<void>;
   subscribe(listener: (event: ProviderEvent) => void): () => void;
 }
@@ -79,7 +82,8 @@ export class ProviderService {
   }
 
   async startSession(input: { provider: ProviderKind; threadId: ThreadId; cwd: string }): Promise<ProviderSession> {
-    if (this.sessions.has(input.threadId)) throw new ProviderServiceError("session_exists", `Session already exists: ${input.threadId}`);
+    if (this.sessions.has(input.threadId))
+      throw new ProviderServiceError("session_exists", `Session already exists: ${input.threadId}`);
     const adapter = this.registry.get(input.provider);
     if (!adapter) throw new ProviderServiceError("provider_missing", `Provider is not available: ${input.provider}`);
     try {
@@ -103,7 +107,11 @@ export class ProviderService {
     await this.adapterFor(input.threadId).respondToRequest(input);
   }
 
-  async respondToUserInput(input: { threadId: ThreadId; requestId: string; answers: Record<string, string> }): Promise<void> {
+  async respondToUserInput(input: {
+    threadId: ThreadId;
+    requestId: string;
+    answers: Record<string, string>;
+  }): Promise<void> {
     await this.adapterFor(input.threadId).respondToUserInput(input);
   }
 
@@ -127,10 +135,16 @@ export class ProviderService {
     return this.adapterFor(input.threadId).readThread(input);
   }
 
-  async rollbackThread(input: { threadId: ThreadId; numTurns: number }): Promise<{ threadId: ThreadId; turns: ReadonlyArray<unknown> }> {
+  async rollbackThread(input: {
+    threadId: ThreadId;
+    numTurns: number;
+  }): Promise<{ threadId: ThreadId; turns: ReadonlyArray<unknown> }> {
     const adapter = this.adapterFor(input.threadId);
     if (!adapter.capabilities.conversationRollback) {
-      throw new ProviderServiceError("unsupported", `Provider ${adapter.provider} does not support conversation rollback.`);
+      throw new ProviderServiceError(
+        "unsupported",
+        `Provider ${adapter.provider} does not support conversation rollback.`,
+      );
     }
     return adapter.rollbackThread(input);
   }
@@ -151,7 +165,8 @@ export class ProviderService {
   }
 
   private adapterFor(threadId: ThreadId): ProviderAdapter {
-    const adapter = this.sessions.get(threadId) ?? this.registry.list().find((candidate) => candidate.hasSession({ threadId }));
+    const adapter =
+      this.sessions.get(threadId) ?? this.registry.list().find((candidate) => candidate.hasSession({ threadId }));
     if (!adapter) throw new ProviderServiceError("session_missing", `Provider session does not exist: ${threadId}`);
     return adapter;
   }

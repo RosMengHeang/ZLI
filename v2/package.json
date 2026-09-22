@@ -9,6 +9,8 @@
   },
   "scripts": {
     "boundaries": "node scripts/enforce-boundaries.mjs",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
     "desktop:pack": "pnpm --filter @zli-v2/desktop run pack",
     "desktop:dir": "pnpm --filter @zli-v2/desktop run pack:dir",
     "desktop:dev": "pnpm run build && pnpm exec electron apps/desktop/dist/main.js",
@@ -16,8 +18,9 @@
     "build": "node scripts/build.mjs && pnpm run web:build",
     "web:build": "pnpm --filter @zli-v2/web exec vite build",
     "test": "vitest run",
+    "lint": "biome lint .",
     "typecheck": "tsc -b --pretty false",
-    "verify": "pnpm run boundaries && pnpm run test && pnpm run typecheck"
+    "verify": "pnpm run boundaries && pnpm run format:check && pnpm run lint && pnpm run test && pnpm run typecheck"
   },
   "pnpm": {
     "overrides": {
@@ -25,10 +28,11 @@
     }
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.14",
     "@playwright/test": "1.60.0",
-    "esbuild": "0.28.1",
     "electron": "44.4.2",
     "electron-builder": "26.15.6",
+    "esbuild": "0.28.1",
     "playwright-core": "1.60.0",
     "typescript": "6.0.3",
     "vitest": "4.1.11"

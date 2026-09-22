@@ -36,16 +36,7 @@ export const WorktreeProjection = z.object({
   projectId: ProjectId,
   path: z.string().min(1),
   branch: z.string().min(1),
-  status: z.enum([
-    "queued",
-    "fetching",
-    "creating",
-    "bootstrapping",
-    "ready",
-    "failed",
-    "cancelling",
-    "cancelled",
-  ]),
+  status: z.enum(["queued", "fetching", "creating", "bootstrapping", "ready", "failed", "cancelling", "cancelled"]),
   errorMessage: z.string().min(1).optional(),
 });
 export type WorktreeProjection = z.infer<typeof WorktreeProjection>;

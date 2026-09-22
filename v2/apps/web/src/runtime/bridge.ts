@@ -1,4 +1,10 @@
-import type { BrowserTabProjection, RuntimeProjection, RpcResponse, TerminalAttachSnapshot, TerminalStreamMessage } from "@zli-v2/contracts";
+import type {
+  BrowserTabProjection,
+  RuntimeProjection,
+  RpcResponse,
+  TerminalAttachSnapshot,
+  TerminalStreamMessage,
+} from "@zli-v2/contracts";
 
 export type ZliBridge = {
   runtime: {
@@ -6,7 +12,13 @@ export type ZliBridge = {
     getProjection(): Promise<RuntimeProjection | undefined>;
     onProjection(listener: (projection: RuntimeProjection) => void): () => void;
     attachTerminal(terminalId: string, afterSequence?: number): Promise<unknown>;
-    onTerminal(listener: (message: { kind: "snapshot"; snapshot: TerminalAttachSnapshot } | { kind: "stream"; message: TerminalStreamMessage }) => void): () => void;
+    onTerminal(
+      listener: (
+        message:
+          | { kind: "snapshot"; snapshot: TerminalAttachSnapshot }
+          | { kind: "stream"; message: TerminalStreamMessage },
+      ) => void,
+    ): () => void;
   };
   browser: {
     create(input: unknown): Promise<BrowserTabProjection>;
@@ -37,11 +49,13 @@ export type ZliBridge = {
   };
   menu: { trigger(command: string): Promise<unknown> };
   app: { getVersion(): Promise<string>; quit(): Promise<void> };
-  test?: { restartRuntime(): Promise<unknown> };
+  test?: { restartRuntime(): Promise<unknown>; crashMain(): Promise<unknown> };
 };
 
 declare global {
-  interface Window { zli?: ZliBridge; }
+  interface Window {
+    zli?: ZliBridge;
+  }
 }
 
 export function getBridge(): ZliBridge | undefined {

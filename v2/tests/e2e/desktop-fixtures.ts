@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,23 +35,37 @@ export async function createGitFixture(): Promise<{ root: string; repo: string }
   return { root, repo };
 }
 
-export async function launchDesktop(repo: string, root: string, options: DesktopLaunchOptions = {}): Promise<DesktopFixture> {
+export async function launchDesktop(
+  repo: string,
+  root: string,
+  options: DesktopLaunchOptions = {},
+): Promise<DesktopFixture> {
   const databasePath = join(root, "runtime.sqlite");
   const externalExecutable = process.env.ZLI_ELECTRON_EXECUTABLE;
-  const packagedExecutable = externalExecutable ? undefined : process.env.ZLI_E2E_PACKAGED === "1" ? await findPackagedExecutable() : undefined;
+  const packagedExecutable = externalExecutable
+    ? undefined
+    : process.env.ZLI_E2E_PACKAGED === "1"
+      ? await findPackagedExecutable()
+      : undefined;
   const executablePath = externalExecutable ?? packagedExecutable;
   const app = await electron.launch({
-    args: executablePath ? (packagedExecutable ? [] : [join(V2_ROOT, "apps/desktop/dist/main.js")]) : [join(V2_ROOT, "apps/desktop/dist/main.js")],
+    args: executablePath
+      ? packagedExecutable
+        ? []
+        : [join(V2_ROOT, "apps/desktop/dist/main.js")]
+      : [join(V2_ROOT, "apps/desktop/dist/main.js")],
     ...(executablePath ? { executablePath } : {}),
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: undefined,
       ...(externalExecutable ? { ZLI_RUNTIME_NODE: process.execPath } : { ZLI_RUNTIME_NODE: undefined }),
       ZLI_DATABASE_PATH: databasePath,
-      ...(packagedExecutable ? {} : {
-        ZLI_RENDERER_ROOT: join(V2_ROOT, "apps/desktop/renderer"),
-        ZLI_SERVER_ENTRY: join(V2_ROOT, "apps/desktop/dist/server-entry.js"),
-      }),
+      ...(packagedExecutable
+        ? {}
+        : {
+            ZLI_RENDERER_ROOT: join(V2_ROOT, "apps/desktop/renderer"),
+            ZLI_SERVER_ENTRY: join(V2_ROOT, "apps/desktop/dist/server-entry.js"),
+          }),
       ZLI_TEST_PROJECT_PATH: repo,
       ZLI_TEST_PROVIDER: "mock",
       ZLI_TEST_LEGACY_SNAPSHOT_PATH: options.legacySnapshotPath,
@@ -66,15 +80,16 @@ export async function launchDesktop(repo: string, root: string, options: Desktop
 
 async function findPackagedExecutable(): Promise<string> {
   const releaseRoot = join(V2_ROOT, "apps/desktop/release");
-  const candidates = process.platform === "win32"
-    ? [join(releaseRoot, "win-unpacked", "ZLI.exe")]
-    : process.platform === "darwin"
-      ? [
-          join(releaseRoot, "mac", "ZLI.app", "Contents", "MacOS", "ZLI"),
-          join(releaseRoot, "mac-arm64", "ZLI.app", "Contents", "MacOS", "ZLI"),
-          join(releaseRoot, "mac-x64", "ZLI.app", "Contents", "MacOS", "ZLI"),
-        ]
-      : [join(releaseRoot, "linux-unpacked", "ZLI"), join(releaseRoot, "linux-unpacked", "zli")];
+  const candidates =
+    process.platform === "win32"
+      ? [join(releaseRoot, "win-unpacked", "ZLI.exe")]
+      : process.platform === "darwin"
+        ? [
+            join(releaseRoot, "mac", "ZLI.app", "Contents", "MacOS", "ZLI"),
+            join(releaseRoot, "mac-arm64", "ZLI.app", "Contents", "MacOS", "ZLI"),
+            join(releaseRoot, "mac-x64", "ZLI.app", "Contents", "MacOS", "ZLI"),
+          ]
+        : [join(releaseRoot, "linux-unpacked", "ZLI"), join(releaseRoot, "linux-unpacked", "zli")];
   for (const candidate of candidates) {
     try {
       await access(candidate);
@@ -88,16 +103,48 @@ async function findPackagedExecutable(): Promise<string> {
 
 export async function closeDesktop(fixture: DesktopFixture): Promise<void> {
   await closeApp(fixture);
+  await stopDesktopDaemon(fixture.root);
   for (let attempt = 0; attempt < 20; attempt += 1) {
     try {
       await rm(fixture.root, { recursive: true, force: true });
       return;
     } catch (error) {
-      if (!(error instanceof Error) || !["EBUSY", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+      if (!(error instanceof Error) || !["EBUSY", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? ""))
+        throw error;
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
     }
   }
   await rm(fixture.root, { recursive: true, force: true });
+}
+
+export async function stopDesktopDaemon(root: string): Promise<void> {
+  let endpoint: { pid?: unknown; host?: unknown; port?: unknown; token?: unknown };
+  try {
+    endpoint = JSON.parse(await readFile(join(root, "runtime.sqlite.daemon.json"), "utf8")) as typeof endpoint;
+  } catch {
+    return;
+  }
+  if (
+    !Number.isSafeInteger(endpoint.pid) ||
+    typeof endpoint.pid !== "number" ||
+    endpoint.pid <= 0 ||
+    endpoint.pid === process.pid ||
+    endpoint.host !== "127.0.0.1" ||
+    typeof endpoint.port !== "number" ||
+    typeof endpoint.token !== "string"
+  ) {
+    return;
+  }
+  await terminateProcessTree(endpoint.pid);
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      process.kill(endpoint.pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+      throw error;
+    }
+    await delay(100);
+  }
 }
 
 export async function closeApp(fixture: DesktopFixture, options: { stopTerminals?: boolean } = {}): Promise<void> {
@@ -118,7 +165,11 @@ async function terminateProcessTree(pid: number | undefined): Promise<void> {
     await execFileAsync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }).catch(() => undefined);
     return;
   }
-  try { process.kill(pid, "SIGTERM"); } catch { /* The process already exited. */ }
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    /* The process already exited. */
+  }
 }
 
 function delay(milliseconds: number): Promise<void> {
@@ -128,9 +179,11 @@ function delay(milliseconds: number): Promise<void> {
 async function stopTerminals(page: Page): Promise<void> {
   const terminalIds = await page.evaluate(async () => {
     const projection = await window.zli?.runtime.getProjection();
-    return projection?.terminals
-      .filter((terminal) => terminal.status === "running" || terminal.status === "starting")
-      .map((terminal) => terminal.terminalId) ?? [];
+    return (
+      projection?.terminals
+        .filter((terminal) => terminal.status === "running" || terminal.status === "starting")
+        .map((terminal) => terminal.terminalId) ?? []
+    );
   });
   if (terminalIds.length === 0) return;
   await page.evaluate(async (ids) => {
@@ -146,7 +199,12 @@ async function stopTerminals(page: Page): Promise<void> {
   while (Date.now() < deadline) {
     const stillRunning = await page.evaluate(async (ids) => {
       const projection = await window.zli?.runtime.getProjection();
-      return projection?.terminals.some((terminal) => ids.includes(terminal.terminalId) && (terminal.status === "running" || terminal.status === "starting")) ?? false;
+      return (
+        projection?.terminals.some(
+          (terminal) =>
+            ids.includes(terminal.terminalId) && (terminal.status === "running" || terminal.status === "starting"),
+        ) ?? false
+      );
     }, terminalIds);
     if (!stillRunning) return;
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));

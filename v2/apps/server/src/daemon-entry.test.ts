@@ -9,7 +9,11 @@ it("isolates a reset runtime socket without crashing the terminal daemon", () =>
     setEncoding: vi.fn(),
     destroy: vi.fn(),
   });
-  const service = new TerminalService({ spawn: async () => { throw new Error("unused"); } });
+  const service = new TerminalService({
+    spawn: async () => {
+      throw new Error("unused");
+    },
+  });
   accept(socket as unknown as Socket, service);
   expect(() => socket.emit("error", Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }))).not.toThrow();
   expect(socket.destroy).toHaveBeenCalledOnce();

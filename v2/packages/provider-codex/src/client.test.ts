@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  CodexAppServerClient,
-  type CodexPeer,
-  type CodexProviderEvent,
-} from "./client.js";
+import { CodexAppServerClient, type CodexPeer, type CodexProviderEvent } from "./client.js";
 
 class FakePeer implements CodexPeer {
   readonly requests: Array<{ method: string; params: unknown }> = [];
@@ -72,15 +68,37 @@ describe("CodexAppServerClient", () => {
     await expect(client.sendTurn({ providerThreadId: "provider-thread-1", text: "Fix the bug" })).resolves.toEqual({
       providerTurnId: "provider-turn-1",
     });
-    peer.emit({ jsonrpc: "2.0", method: "turn/started", params: { threadId: "provider-thread-1", turnId: "provider-turn-1" } });
-    peer.emit({ jsonrpc: "2.0", method: "item/agentMessage/delta", params: { threadId: "provider-thread-1", turnId: "provider-turn-1", delta: "hello" } });
-    peer.emit({ jsonrpc: "2.0", method: "turn/completed", params: { threadId: "provider-thread-1", turnId: "provider-turn-1", status: "completed" } });
+    peer.emit({
+      jsonrpc: "2.0",
+      method: "turn/started",
+      params: { threadId: "provider-thread-1", turnId: "provider-turn-1" },
+    });
+    peer.emit({
+      jsonrpc: "2.0",
+      method: "item/agentMessage/delta",
+      params: { threadId: "provider-thread-1", turnId: "provider-turn-1", delta: "hello" },
+    });
+    peer.emit({
+      jsonrpc: "2.0",
+      method: "turn/completed",
+      params: { threadId: "provider-thread-1", turnId: "provider-turn-1", status: "completed" },
+    });
 
     expect(peer.requests.map((request) => request.method)).toEqual(["initialize", "thread/start", "turn/start"]);
     expect(events).toEqual([
       { type: "turn.started", providerThreadId: "provider-thread-1", providerTurnId: "provider-turn-1" },
-      { type: "assistant.delta", providerThreadId: "provider-thread-1", providerTurnId: "provider-turn-1", text: "hello" },
-      { type: "turn.completed", providerThreadId: "provider-thread-1", providerTurnId: "provider-turn-1", status: "completed" },
+      {
+        type: "assistant.delta",
+        providerThreadId: "provider-thread-1",
+        providerTurnId: "provider-turn-1",
+        text: "hello",
+      },
+      {
+        type: "turn.completed",
+        providerThreadId: "provider-thread-1",
+        providerTurnId: "provider-turn-1",
+        status: "completed",
+      },
     ]);
   });
 
@@ -90,13 +108,24 @@ describe("CodexAppServerClient", () => {
     const events: CodexProviderEvent[] = [];
     client.subscribe((event) => events.push(event));
 
-    peer.emit({ jsonrpc: "2.0", id: 18, method: "item/commandExecution/requestApproval", params: { threadId: "provider-thread-1", turnId: "provider-turn-1", command: "git status" } });
+    peer.emit({
+      jsonrpc: "2.0",
+      id: 18,
+      method: "item/commandExecution/requestApproval",
+      params: { threadId: "provider-thread-1", turnId: "provider-turn-1", command: "git status" },
+    });
     await client.respondToRequest(18, { decision: "accept" });
     peer.die("Codex process lost");
 
     expect(peer.responses).toEqual([{ requestId: 18, result: { decision: "accept" } }]);
     expect(events).toEqual([
-      { type: "approval.requested", requestId: "18", providerThreadId: "provider-thread-1", providerTurnId: "provider-turn-1", payload: { threadId: "provider-thread-1", turnId: "provider-turn-1", command: "git status" } },
+      {
+        type: "approval.requested",
+        requestId: "18",
+        providerThreadId: "provider-thread-1",
+        providerTurnId: "provider-turn-1",
+        payload: { threadId: "provider-thread-1", turnId: "provider-turn-1", command: "git status" },
+      },
       { type: "session.closed", reason: "Codex process lost" },
     ]);
   });

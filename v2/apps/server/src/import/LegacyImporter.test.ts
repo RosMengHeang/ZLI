@@ -30,15 +30,23 @@ describe("LegacyImporter", () => {
     });
 
     try {
-      const preview = await new LegacyScanner().scanValue({
-        workspaces: [{
-          root: repository,
-          project: { name: "repo", path: repository },
-          agents: [{ name: "Codex", provider: "codex", worktreePath: worktree, branch: "feature/import" }],
-        }],
-      }, join(directory, "legacy.json"), "batch-1");
+      const preview = await new LegacyScanner().scanValue(
+        {
+          workspaces: [
+            {
+              root: repository,
+              project: { name: "repo", path: repository },
+              agents: [{ name: "Codex", provider: "codex", worktreePath: worktree, branch: "feature/import" }],
+            },
+          ],
+        },
+        join(directory, "legacy.json"),
+        "batch-1",
+      );
       const importer = new LegacyImporter(engine);
-      const selected = preview.projects.map((item) => item.recordId).concat(preview.worktrees.map((item) => item.recordId));
+      const selected = preview.projects
+        .map((item) => item.recordId)
+        .concat(preview.worktrees.map((item) => item.recordId));
       const first = await importer.import(preview, selected);
       expect(first.importedProjectIds).toHaveLength(1);
       expect(first.importedWorktreeIds).toHaveLength(1);
@@ -81,10 +89,30 @@ describe("LegacyImporter", () => {
       const preview = {
         batchId: "partial-batch",
         snapshotPath: join(directory, "legacy.json"),
-        projects: [{ recordId: "project:0", name: "repo", path: repository, repositoryRoot: repository, state: "ready" as const }],
+        projects: [
+          {
+            recordId: "project:0",
+            name: "repo",
+            path: repository,
+            repositoryRoot: repository,
+            state: "ready" as const,
+          },
+        ],
         worktrees: [
-          { recordId: "worktree:0:0", projectRecordId: "project:0", path: firstWorktree, branch: "feature/good", state: "ready" as const },
-          { recordId: "worktree:0:1", projectRecordId: "project:0", path: secondWorktree, branch: "-rejected", state: "ready" as const },
+          {
+            recordId: "worktree:0:0",
+            projectRecordId: "project:0",
+            path: firstWorktree,
+            branch: "feature/good",
+            state: "ready" as const,
+          },
+          {
+            recordId: "worktree:0:1",
+            projectRecordId: "project:0",
+            path: secondWorktree,
+            branch: "-rejected",
+            state: "ready" as const,
+          },
         ],
         sessions: [],
         skipped: [],

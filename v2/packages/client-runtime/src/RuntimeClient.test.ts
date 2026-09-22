@@ -172,9 +172,7 @@ describe("RuntimeClient", () => {
     first.disconnect();
     await vi.waitFor(() => expect(second.sent).toHaveLength(1));
     second.receive({ type: "hello", protocolVersion: 1, environment: projection().environment });
-    await vi.waitFor(() =>
-      expect(second.sent).toContainEqual({ type: "subscribe", afterSequence: 7 }),
-    );
+    await vi.waitFor(() => expect(second.sent).toContainEqual({ type: "subscribe", afterSequence: 7 }));
 
     expect(client.projection()?.lastSequence).toBe(7);
   });
@@ -215,8 +213,14 @@ describe("RuntimeClient", () => {
     const unsubscribe = client.subscribeTerminal((message) => messages.push(message));
     client.attachTerminal(terminalId, 4);
     expect(transport.sent.at(-1)).toEqual({ type: "terminal.attach", terminalId, afterSequence: 4 });
-    transport.receive({ type: "terminal.snapshot", snapshot: { terminalId, chunks: [], nextSequence: 4, truncated: false } });
-    transport.receive({ type: "terminal.stream", message: { kind: "chunk", chunk: { terminalId, sequence: 5, bytesBase64: "aGk=" } } });
+    transport.receive({
+      type: "terminal.snapshot",
+      snapshot: { terminalId, chunks: [], nextSequence: 4, truncated: false },
+    });
+    transport.receive({
+      type: "terminal.stream",
+      message: { kind: "chunk", chunk: { terminalId, sequence: 5, bytesBase64: "aGk=" } },
+    });
     expect(messages).toHaveLength(2);
     expect(messages[0]).toMatchObject({ kind: "snapshot", snapshot: { nextSequence: 4 } });
     expect(messages[1]).toMatchObject({ kind: "stream", message: { kind: "chunk" } });
