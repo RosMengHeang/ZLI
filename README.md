@@ -1,67 +1,49 @@
 # ZLI
 
-ZLI is a Windows desktop workspace for running multiple coding agents in isolated Git worktrees. It combines terminal panes, agent attention states, resumable project sessions, TaxChat, Git review, and an agent-controlled browser.
+ZLI is an Electron desktop workspace for coding agents. It provides isolated Git worktrees, persistent terminal sessions, structured Codex sessions, Git review, and a Chromium browser scoped to each worktree.
 
-## Run locally
+## Requirements
 
-Install Node.js, Rust, and the Tauri Windows prerequisites. Then run:
+- Node.js 24
+- Corepack with pnpm 10.14.0
+- Git
+
+Enable pnpm and install the V2 workspace dependencies:
 
 ```powershell
-npm install
-npm run tauri dev
+corepack enable
+pnpm --dir v2 install --frozen-lockfile
 ```
 
-Use `npm run tauri dev`, not `npm run dev`: the latter starts only the web frontend and cannot provide terminals, worktrees, the local API, or the WebView2 browser surface. The Tauri command also builds the development `zli.exe` and `zli-browser-use.exe` used by managed agents.
-
-## Verify and package
+## Run and verify
 
 ```powershell
-npm test
-npm run lint
+npm run dev
+npm run verify
 npm run build
-cargo test --manifest-path src-tauri/Cargo.toml
-npm run tauri build
+npm run desktop:dir
+npm run desktop:pack
 ```
 
-The release wrapper builds `zli` and `zli-browser-use` for the current Rust target, names both using Tauri's target-triple convention, and includes them with the desktop bundle. All ZLI-managed agent sessions receive the scoped CLI and Browser Use adapter paths through their environment, and the directory is prepended to their `PATH`.
+`npm run dev` starts the Electron desktop. `npm run desktop:dir` creates an unpacked application for local testing, and `npm run desktop:pack` creates a platform installer.
 
-## Local control API
-
-With ZLI running, the bundled `zli` command talks to the current desktop session through its authenticated local control pipe:
+For the packaged Electron journeys:
 
 ```powershell
-zli health
-zli health --project D:\path\to\repo
-zli status
-zli agents
-zli attention
-zli agent queue --project D:\path\to\repo
-zli agent send <agent-id> "Run the focused tests"
-zli session resume <session-id>
-zli browser status
-zli browser doctor --agent <agent-id>
-zli browser snapshot <surface-id>
-zli taxchat send "Review the release" --project D:\path\to\repo
+$env:ZLI_RUN_E2E = "1"
+pnpm --dir v2 run e2e
 ```
 
-Add `--json` for machine-readable output. `zli health` is read-only: it reports session counts, active and reserved agent capacity, event replay state, and whether durable event persistence is healthy. `zli doctor` and `zli session reconcile` remain the explicit recovery commands and may change runtime ownership state.
+## Legacy desktop
 
-## Built-in browser control
-
-The browser is a Tauri WebView2 pane owned by ZLI, not a connection to the user's Chrome profile. A new clean profile starts with `Enable built-in browser control` enabled in Preferences. `zli browser status` checks the authenticated desktop bridge; `zli browser doctor --agent <agent-id>` reports the scoped profile, CLI fallback, Browser Use adapter, and provider MCP configuration without exposing credentials.
-
-All ZLI-managed agents receive `ZLI_BROWSER_PROFILE`, `ZLI_BROWSER_SESSION`, and `ZLI_BROWSER_USE_COMMAND`. Providers with an accepted MCP launch configuration can use the provider-neutral `zli-browser-use` adapter; all managed sessions have the scoped `zli browser ...` fallback. ZLI reports unsupported or fallback providers honestly instead of assuming every CLI can discover MCP from a prompt.
-
-Support status is per capability, not per install. See [`docs/testing/zli-provider-feature-matrix.md`](docs/testing/zli-provider-feature-matrix.md) for verified, partial, unsupported, and not-tested cells from unit evidence. Live desktop and packaged Windows checks are recorded only when run; see [`docs/testing/zli-wp8-evidence.md`](docs/testing/zli-wp8-evidence.md). Local browser fixture pages live under [`docs/testing/fixtures/browser-site/`](docs/testing/fixtures/browser-site/).
-
-## V2 Electron preview
-
-The rebuilt Electron desktop is available as an opt-in V2 path while the cross-platform release gate is being completed. It requires Node 24 and pnpm:
+The previous Vite/Tauri application remains available for one transition cycle:
 
 ```powershell
-pnpm install --dir v2 --frozen-lockfile
-pnpm run v2:verify
-pnpm run v2:desktop
+npm run legacy:dev
+npm run legacy:build
+npm run legacy:tauri -- dev
 ```
 
-Use `npm run tauri ...` for the legacy desktop during the transition. V2 packaging commands are `npm run v2:desktop:dir` and `npm run v2:desktop:pack`; the default desktop command will change only after the documented CI evidence is complete.
+## Architecture and attribution
+
+The V2 workspace is under [`v2/`](v2/). It uses an Electron shell, a typed renderer/runtime boundary, a durable local server, and a detached workspace daemon for terminal ownership. Its worktree, provider, browser, and recovery boundaries are informed by the pinned T3 Code and Orca references listed in [`v2/UPSTREAM_SOURCES.md`](v2/UPSTREAM_SOURCES.md). Third-party license information is in [`v2/THIRD_PARTY_NOTICES.md`](v2/THIRD_PARTY_NOTICES.md).

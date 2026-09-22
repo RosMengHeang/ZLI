@@ -26,4 +26,4 @@ pnpm run e2e
 
 The integration workflow runs these journeys on Windows, macOS, and Linux before packaging. The mock provider and test-only runtime controls are enabled only by explicit `ZLI_TEST_*` environment variables and are never used by production startup.
 
-V2 remains isolated from the legacy default entrypoint until two consecutive three-OS CI runs pass and the packaged restart/fault evidence is reviewed.
+V2 is the default desktop entrypoint. The previous Vite/Tauri application remains available through the root `legacy:*` scripts for one transition cycle.
