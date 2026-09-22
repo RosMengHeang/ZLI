@@ -9,6 +9,8 @@ import { promisify } from "node:util";
 
 import { _electron as electron, test, type ElectronApplication, type Page } from "@playwright/test";
 
+import { closeChildProcess } from "../closeChildProcess.js";
+
 const execFileAsync = promisify(execFile);
 export const V2_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const activeAsyncResources = new Map<number, { type: string; triggerAsyncId: number; stack: string[] }>();
@@ -212,13 +214,7 @@ export async function stopDesktopDaemon(root: string): Promise<void> {
 export async function closeApp(fixture: DesktopFixture, options: { stopTerminals?: boolean } = {}): Promise<void> {
   if (options.stopTerminals !== false) await stopTerminals(fixture.page);
   const child = fixture.app.process();
-  const closeContext = fixture.app.close().catch(() => undefined);
-  await terminateProcessTree(child.pid);
-  await Promise.race([
-    closeContext,
-    new Promise<void>((resolveExit) => child.once("exit", () => resolveExit())),
-    delay(2_000),
-  ]);
+  await closeChildProcess(fixture.app.close.bind(fixture.app), child, () => terminateProcessTree(child.pid));
 }
 
 async function terminateProcessTree(pid: number | undefined): Promise<void> {
