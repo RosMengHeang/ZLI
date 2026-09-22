@@ -10,6 +10,7 @@ import { TerminalPane } from "../terminal/TerminalPane.js";
 import { WorktreeSidebar } from "../worktrees/WorktreeSidebar.js";
 import { PaneTree, type WorkspacePane } from "../workspace/PaneTree.js";
 import { getBridge, type ZliBridge } from "../runtime/bridge.js";
+import { makeCommandId } from "../runtime/commandId.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
 import { HelpDialog } from "./HelpDialog.js";
 import "./AppShell.css";
@@ -78,7 +79,7 @@ function WorkspaceApp() {
     if (!path) return;
     const response = await dispatch({
       protocolVersion: 1,
-      commandId: makeId(),
+      commandId: makeCommandId(),
       command: { type: "project.register", path },
     });
     if (response?.accepted === false) setNotice(response.error.message);
@@ -93,7 +94,7 @@ function WorkspaceApp() {
     if (!destinationPath) return;
     const response = await dispatch({
       protocolVersion: 1,
-      commandId: makeId(),
+      commandId: makeCommandId(),
       command: { type: "diagnostics.createSupportBundle", destinationPath },
     });
     if (response?.accepted === false) setNotice(response.error.message);
@@ -107,12 +108,12 @@ function WorkspaceApp() {
     }
     const snapshotPath = await bridge.dialog.openLegacySnapshot();
     if (!snapshotPath) return;
-    const batchId = makeId();
+    const batchId = makeCommandId();
     setLegacyImportBatchId(batchId);
     setPaletteOpen(false);
     const response = await dispatch({
       protocolVersion: 1,
-      commandId: makeId(),
+      commandId: makeCommandId(),
       command: { type: "legacy.scan", batchId, snapshotPath },
     });
     if (response?.accepted === false) setNotice(response.error.message);
@@ -122,7 +123,7 @@ function WorkspaceApp() {
     if (!legacyImportBatchId) return;
     const response = await dispatch({
       protocolVersion: 1,
-      commandId: makeId(),
+      commandId: makeCommandId(),
       command: { type: "legacy.import", batchId: legacyImportBatchId, selectedRecordIds },
     });
     if (response?.accepted === false) setNotice(response.error.message);
@@ -132,7 +133,7 @@ function WorkspaceApp() {
     if (!legacyImportBatchId) return;
     const response = await dispatch({
       protocolVersion: 1,
-      commandId: makeId(),
+      commandId: makeCommandId(),
       command: { type: "legacy.rollbackImport", batchId: legacyImportBatchId },
     });
     if (response?.accepted === false) setNotice(response.error.message);
@@ -167,12 +168,12 @@ function WorkspaceApp() {
       setNotice("Choose a branch name before creating a worktree.");
       return;
     }
-    const worktreeId = makeId();
+    const worktreeId = makeCommandId();
     const workspaceRoot = `${project.path.replace(/[\\/]+$/u, "")}-worktrees`;
     const worktreePath = `${workspaceRoot}/${safeBranch.replace(/[\\/]/gu, "-")}`;
     const response = await dispatch({
       protocolVersion: 1,
-      commandId: makeId(),
+      commandId: makeCommandId(),
       command: {
         type: "worktree.create",
         worktreeId,
@@ -411,10 +412,6 @@ function DisconnectedState() {
   );
 }
 type PaletteCommand = { label: string; action(): void };
-function makeId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? "00000000-0000-4000-8000-000000000999";
-}
-
 function WorktreeDialog({ onClose, onSubmit }: { onClose(): void; onSubmit(branch: string, baseRef: string): void }) {
   const [branch, setBranch] = useState("");
   const [baseRef, setBaseRef] = useState("main");

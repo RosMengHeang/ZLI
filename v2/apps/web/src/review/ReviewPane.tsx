@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 
 import type { WorktreeProjection } from "@zli-v2/contracts";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { makeCommandId } from "../runtime/commandId.js";
 
 export function ReviewPane({ worktree }: { worktree: WorktreeProjection | undefined }) {
   const { dispatch, projection } = useRuntime();
@@ -17,7 +18,7 @@ export function ReviewPane({ worktree }: { worktree: WorktreeProjection | undefi
     setBusy(true);
     setError(undefined);
     try {
-      const response = await dispatch({ protocolVersion: 1, commandId: makeId(), command });
+      const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
       if (response?.accepted === false) setError(response.error.message);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The review operation failed.");
@@ -168,8 +169,4 @@ export function ReviewPane({ worktree }: { worktree: WorktreeProjection | undefi
       )}
     </div>
   );
-}
-
-function makeId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? "00000000-0000-4000-8000-000000000998";
 }

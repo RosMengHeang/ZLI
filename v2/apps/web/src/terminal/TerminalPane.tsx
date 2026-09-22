@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { makeCommandId } from "../runtime/commandId.js";
 
 type Props = {
   projection: RuntimeProjection | undefined;
@@ -66,10 +67,10 @@ export function TerminalPane({ projection, worktree, onOpenBrowser }: Props) {
     try {
       const response = await dispatch({
         protocolVersion: 1,
-        commandId: makeId(),
+        commandId: makeCommandId(),
         command: {
           type: "terminal.create",
-          terminalId: makeId(),
+          terminalId: makeCommandId(),
           worktreeId: worktree.worktreeId,
           cwd: worktree.path,
           shell: shellForPlatform(),
@@ -92,7 +93,7 @@ export function TerminalPane({ projection, worktree, onOpenBrowser }: Props) {
     setError(undefined);
     const response = await dispatch({
       protocolVersion: 1,
-      commandId: makeId(),
+      commandId: makeCommandId(),
       command: { type: "terminal.write", terminalId: terminal.terminalId, data: `${draft}\r` },
     });
     if (response?.accepted === false) setError(response.error.message);
@@ -182,8 +183,4 @@ function decodeChunk(value: string): string {
 
 function shellForPlatform(): string {
   return navigator.userAgent.includes("Windows") ? "powershell.exe" : "/bin/bash";
-}
-
-function makeId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? "00000000-0000-4000-8000-000000000997";
 }

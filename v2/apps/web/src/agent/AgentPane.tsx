@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 
 import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { makeCommandId } from "../runtime/commandId.js";
 
 export function AgentPane({
   projection,
@@ -29,10 +30,10 @@ export function AgentPane({
     try {
       const response = await dispatch({
         protocolVersion: 1,
-        commandId: makeId(),
+        commandId: makeCommandId(),
         command: {
           type: "thread.start",
-          threadId: makeId(),
+          threadId: makeCommandId(),
           worktreeId: worktree.worktreeId,
           provider: "codex",
           cwd: worktree.path,
@@ -54,7 +55,7 @@ export function AgentPane({
     setError(undefined);
     const response = await dispatch({
       protocolVersion: 1,
-      commandId: makeId(),
+      commandId: makeCommandId(),
       command: { type: "thread.send", threadId: thread.threadId, text },
     });
     if (response?.accepted === false) {
@@ -68,7 +69,7 @@ export function AgentPane({
     setError(undefined);
     const response = await dispatch({
       protocolVersion: 1,
-      commandId: makeId(),
+      commandId: makeCommandId(),
       command: { type: "thread.respond", threadId: thread.threadId, requestId: request.requestId, decision },
     });
     if (response?.accepted === false) setError(response.error.message);
@@ -88,7 +89,7 @@ export function AgentPane({
       setError(undefined);
       const response = await dispatch({
         protocolVersion: 1,
-        commandId: makeId(),
+        commandId: makeCommandId(),
         command: {
           type: "thread.user-input",
           threadId: thread.threadId,
@@ -208,8 +209,4 @@ function EmptyAgent({ title, detail }: { title: string; detail: string }) {
       <p className="empty-detail">{detail}</p>
     </div>
   );
-}
-
-function makeId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? "00000000-0000-4000-8000-000000000996";
 }
