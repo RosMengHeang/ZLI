@@ -1,14 +1,16 @@
+import { createServer, type Server } from "node:http";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { closeApp, closeDesktop, createGitFixture, git, launchDesktop, type DesktopFixture } from "./desktop-fixtures.js";
+import { closeDesktop, createGitFixture, git, launchDesktop, type DesktopFixture } from "./desktop-fixtures.js";
 
 test("completes the workspace, provider, browser, review, and restoration journey", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
   const { root, repo } = await createGitFixture();
   let fixture: DesktopFixture | undefined;
+  let browserServer: Server | undefined;
   try {
     fixture = await launchDesktop(repo, root);
     const page = fixture.page;
@@ -22,14 +24,19 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await expect(worktree).toContainText("Ready", { timeout: 30_000 });
     await worktree.click();
 
-    const port = 43100 + Math.floor(Math.random() * 500);
+    const terminalPort = 43100 + Math.floor(Math.random() * 500);
     const worktreePath = join(repo + "-worktrees", "e2e");
+    browserServer = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("<!doctype html><title>ZLI fixture</title><main>browser fixture ready</main>");
+    });
+    const browserPort = await listen(browserServer);
     await writeFile(join(worktreePath, "dev-server.mjs"), [
       "import { createServer } from 'node:http';",
       "createServer((_request, response) => {",
       "  response.writeHead(200, { 'content-type': 'text/html' });",
       "  response.end('<!doctype html><title>ZLI fixture</title><main>browser fixture ready</main>');",
-      `}).listen(${port}, '127.0.0.1', () => console.log('ZLI_DEV_READY ${port}'));`,
+      `}).listen(${terminalPort}, '127.0.0.1', () => console.log('ZLI_DEV_READY ${terminalPort}'));`,
     ].join("\n"), "utf8");
     await page.getByRole("button", { name: "Terminal", exact: true }).click();
     await page.getByRole("button", { name: "Start terminal" }).click();
@@ -40,7 +47,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
       const terminal = projection?.terminals.at(-1);
       return terminal ? `${terminal.status}:${terminal.errorMessage ?? ""}` : "missing";
     }), { timeout: 10_000 }).toBe("running:");
-    await expect(page.getByRole("log", { name: "Terminal output" })).toContainText(`ZLI_DEV_READY ${port}`, { timeout: 20_000 });
+    await expect(page.getByRole("log", { name: "Terminal output" })).toContainText(`ZLI_DEV_READY ${terminalPort}`, { timeout: 20_000 });
 
     await page.getByRole("button", { name: "Agent", exact: true }).click();
     await page.getByRole("button", { name: "Start Codex" }).click();
@@ -51,7 +58,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await expect(page.getByText("Mock response: inspect workspace")).toBeVisible();
 
     await page.getByRole("button", { name: "Browser", exact: true }).click();
-    await page.getByRole("textbox", { name: "Browser URL" }).fill(`http://127.0.0.1:${port}`);
+    await page.getByRole("textbox", { name: "Browser URL" }).fill(`http://127.0.0.1:${browserPort}`);
     await page.getByRole("button", { name: "Open", exact: true }).click();
     await expect(page.getByRole("heading", { name: "ZLI fixture" })).toBeVisible({ timeout: 20_000 });
 
@@ -61,7 +68,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     });
     if (!browserTabId) throw new Error("The browser tab was not projected to the renderer.");
     const snapshot = await page.evaluate(async (tabId) => window.zli!.browser.snapshot(tabId), browserTabId);
-    expect(snapshot).toMatchObject({ url: `http://127.0.0.1:${port}/`, title: "ZLI fixture" });
+    expect(snapshot).toMatchObject({ url: `http://127.0.0.1:${browserPort}/`, title: "ZLI fixture" });
     const designInspection = await page.evaluate(async (tabId) => window.zli!.browser.designInspect({ browserTabId: tabId, selector: "main" }), browserTabId);
     expect(designInspection).toMatchObject({ tag: "main", text: "browser fixture ready", screenshot: { mimeType: "image/png" } });
 
@@ -78,7 +85,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await expect.poll(() => git(repo, ["show", "main:change.txt"]).catch(() => ""), { timeout: 20_000 }).toBe("integration change");
 
     await fixture.page.evaluate(() => window.zli?.test?.restartRuntime());
-    await closeApp(fixture, { stopTerminals: false });
+    await fixture.app.close();
     fixture = await launchDesktop(repo, root);
     await expect(fixture.page.getByRole("button", { name: /e2e/iu })).toContainText("Ready");
     await fixture.page.getByRole("button", { name: "Agent", exact: true }).click();
@@ -86,6 +93,26 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await fixture.page.getByRole("button", { name: "Browser", exact: true }).click();
     await expect(fixture.page.getByRole("heading", { name: "ZLI fixture" })).toBeVisible({ timeout: 20_000 });
   } finally {
+    await closeServer(browserServer);
     if (fixture) await closeDesktop(fixture);
   }
 });
+
+async function listen(server: Server): Promise<number> {
+  return new Promise((resolvePort, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        reject(new Error("The browser fixture server did not bind."));
+        return;
+      }
+      resolvePort(address.port);
+    });
+  });
+}
+
+async function closeServer(server: Server | undefined): Promise<void> {
+  if (!server?.listening) return;
+  await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+}

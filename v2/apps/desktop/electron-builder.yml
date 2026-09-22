@@ -2,6 +2,7 @@ appId: dev.zli.desktop
 productName: ZLI
 artifactName: ZLI-${version}-${os}-${arch}.${ext}
 asar: true
+npmRebuild: false
 directories:
   output: release
 files:
