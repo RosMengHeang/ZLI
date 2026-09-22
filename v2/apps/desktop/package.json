@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
-    "pack": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml"
+    "pack": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml",
+    "pack:dir": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml --dir"
   },
   "dependencies": {
     "@zli-v2/client-runtime": "workspace:*",

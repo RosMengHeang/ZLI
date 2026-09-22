@@ -34,10 +34,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run verify
       - run: pnpm run build
+      - run: pnpm run desktop:dir
       - name: Electron integration journey
         shell: bash
         env:
           ZLI_RUN_E2E: "1"
+          ZLI_E2E_PACKAGED: "1"
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
             xvfb-run -a pnpm run e2e
