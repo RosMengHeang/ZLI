@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -127,9 +127,81 @@ describe("ReviewService", () => {
       await fixture.git.run(["add", "conflict.txt"], { cwd: fixture.repositoryPath });
       await fixture.git.run(["commit", "-m", "main conflict"], { cwd: fixture.repositoryPath });
 
-      await expect(service.merge({ worktreeId: WORKTREE_ID, worktreePath: fixture.worktreePath, repositoryPath: fixture.repositoryPath, branch: "feature/ui", baseRef: "main", targetRef: "main" })).rejects.toThrow();
+      const conflicted = await service.merge({ worktreeId: WORKTREE_ID, worktreePath: fixture.worktreePath, repositoryPath: fixture.repositoryPath, branch: "feature/ui", baseRef: "main", targetRef: "main" });
+      expect(conflicted.state).toBe("conflicted");
+      expect(conflicted.conflictFiles).toContain("conflict.txt");
+      await expect(fixture.git.run(["status", "--porcelain=v1"], { cwd: fixture.worktreePath })).resolves.toMatchObject({ stdout: "" });
       await expect(service.abortMerge({ worktreeId: WORKTREE_ID, worktreePath: fixture.worktreePath, repositoryPath: fixture.repositoryPath, branch: "feature/ui", baseRef: "main" })).resolves.toBeDefined();
       await expect(fixture.git.run(["status", "--porcelain=v1"], { cwd: fixture.repositoryPath })).resolves.toMatchObject({ stdout: "" });
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps binary and rename metadata while mixing staged and unstaged changes", async () => {
+    const fixture = await createRepository();
+    try {
+      await writeFile(join(fixture.repositoryPath, "old-name.txt"), "rename me\n", "utf8");
+      await fixture.git.run(["add", "old-name.txt"], { cwd: fixture.repositoryPath });
+      await fixture.git.run(["commit", "-m", "add rename source"], { cwd: fixture.repositoryPath });
+      await fixture.git.run(["merge", "main"], { cwd: fixture.worktreePath });
+      await fixture.git.run(["mv", "old-name.txt", "new-name.txt"], { cwd: fixture.worktreePath });
+      await writeFile(join(fixture.worktreePath, "logo.bin"), Buffer.from([0, 1, 2, 255]));
+      await fixture.git.run(["add", "--all"], { cwd: fixture.worktreePath });
+      await fixture.git.run(["commit", "-m", "rename and binary"], { cwd: fixture.worktreePath });
+      await writeFile(join(fixture.worktreePath, "staged.txt"), "staged\n", "utf8");
+      await fixture.git.run(["add", "staged.txt"], { cwd: fixture.worktreePath });
+      await writeFile(join(fixture.worktreePath, "README.md"), "unstaged\n", "utf8");
+
+      const review = await new ReviewService(fixture.git).refresh({ worktreeId: WORKTREE_ID, worktreePath: fixture.worktreePath, repositoryPath: fixture.repositoryPath, branch: "feature/ui", baseRef: "main" });
+      expect(review.files).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: "new-name.txt", oldPath: "old-name.txt", kind: "renamed" }),
+        expect.objectContaining({ path: "logo.bin", binary: true }),
+        expect.objectContaining({ path: "staged.txt", staged: true }),
+        expect.objectContaining({ path: "README.md", staged: false }),
+      ]));
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an invalid commit message without changing the worktree", async () => {
+    const fixture = await createRepository();
+    try {
+      await writeFile(join(fixture.worktreePath, "pending.txt"), "pending\n", "utf8");
+      const service = new ReviewService(fixture.git);
+      await expect(service.commit({ worktreeId: WORKTREE_ID, worktreePath: fixture.worktreePath, repositoryPath: fixture.repositoryPath, branch: "feature/ui", baseRef: "main", message: "   " })).rejects.toThrow("Commit message must contain visible text");
+      await expect(fixture.git.run(["status", "--porcelain=v1"], { cwd: fixture.worktreePath })).resolves.toMatchObject({ stdout: "?? pending.txt\n" });
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves changes when a real pre-commit hook rejects the commit", async () => {
+    const fixture = await createRepository();
+    try {
+      const hooksPath = join(fixture.directory, "hooks");
+      await mkdir(hooksPath, { recursive: true });
+      await writeFile(join(hooksPath, "pre-commit"), "#!/bin/sh\nprintf '%s\\n' 'blocked by test hook' >&2\nexit 1\n", "utf8");
+      await chmod(join(hooksPath, "pre-commit"), 0o755);
+      await fixture.git.run(["config", "core.hooksPath", hooksPath], { cwd: fixture.repositoryPath });
+      await writeFile(join(fixture.worktreePath, "hooked.txt"), "keep me\n", "utf8");
+
+      await expect(new ReviewService(fixture.git).commit({ worktreeId: WORKTREE_ID, worktreePath: fixture.worktreePath, repositoryPath: fixture.repositoryPath, branch: "feature/ui", baseRef: "main", message: "blocked commit" })).rejects.toThrow();
+      await expect(fixture.git.run(["status", "--porcelain=v1"], { cwd: fixture.worktreePath })).resolves.toMatchObject({ stdout: "A  hooked.txt\n" });
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("refreshes a detached worktree base without inventing a branch", async () => {
+    const fixture = await createRepository();
+    try {
+      await fixture.git.run(["checkout", "--detach", "main"], { cwd: fixture.worktreePath });
+      await writeFile(join(fixture.worktreePath, "detached.txt"), "detached\n", "utf8");
+      const review = await new ReviewService(fixture.git).refresh({ worktreeId: WORKTREE_ID, worktreePath: fixture.worktreePath, repositoryPath: fixture.repositoryPath, branch: "feature/ui", baseRef: "main" });
+      expect(review.branch).toBe("HEAD");
+      expect(review.files).toEqual([expect.objectContaining({ path: "detached.txt", kind: "untracked" })]);
     } finally {
       await rm(fixture.directory, { recursive: true, force: true });
     }

@@ -105,7 +105,8 @@ kbd { padding: 2px 5px; border: 1px solid var(--zli-border-strong); border-radiu
 .review-summary { color: var(--zli-muted); font-size: 12px; }
 .review-file-list { min-height: 0; margin: 0 14px 10px; padding: 0 6px; overflow: auto; }
 .review-file { display: flex; align-items: center; gap: 9px; min-height: 31px; padding: 5px 8px; border-bottom: 1px solid var(--zli-border); color: var(--zli-text); font-family: var(--zli-mono); font-size: 11px; }
-.review-file > span:nth-child(2) { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-file-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rename-arrow { margin: 0 6px; color: var(--zli-dim); }
 .file-stat { color: var(--zli-dim); }
 .status-added, .status-untracked { background: var(--zli-green); }
 .status-modified, .status-renamed { background: var(--zli-amber); }

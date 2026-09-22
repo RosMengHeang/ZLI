@@ -5,7 +5,7 @@ import {
   type ReviewProjection as ReviewProjectionValue,
 } from "@zli-v2/contracts";
 
-import { GitProcess, type GitResult } from "../git/GitProcess.js";
+import { GitProcess } from "../git/GitProcess.js";
 
 export type ReviewServiceInput = {
   worktreeId: WorktreeId;
@@ -49,6 +49,7 @@ export class ReviewService {
   }
 
   async merge(input: ReviewServiceInput & { targetRef: string }): Promise<ReviewProjectionValue> {
+    assertRef(input.branch);
     assertRef(input.targetRef);
     const targetStatus = await this.git.run(["status", "--porcelain=v1"], { cwd: input.repositoryPath });
     if (targetStatus.stdout.trim().length > 0) throw new Error("Target repository has uncommitted changes.");
@@ -59,9 +60,9 @@ export class ReviewService {
     try {
       await this.git.run(["merge", "--no-edit", "--no-ff", "--", input.branch], { cwd: input.repositoryPath });
     } catch (error) {
-      const current = await this.refresh(input);
-      if (current.conflictFiles.length === 0) throw error;
-      return current;
+      const conflict = await this.targetConflictProjection(input);
+      if (!conflict) throw error;
+      return conflict;
     }
     return this.refresh(input);
   }
@@ -70,15 +71,35 @@ export class ReviewService {
     await this.git.run(["merge", "--abort"], { cwd: input.repositoryPath });
     return this.refresh(input);
   }
+
+  private async targetConflictProjection(input: ReviewServiceInput): Promise<ReviewProjectionValue | undefined> {
+    const result = await this.git.run(["status", "--porcelain=v1"], { cwd: input.repositoryPath });
+    const statuses = parseStatus(result.stdout);
+    const conflictFiles = statuses.filter((status) => isConflict(status.xy)).map((status) => status.path);
+    if (conflictFiles.length === 0) return undefined;
+    return ReviewProjection.parse({
+      worktreeId: input.worktreeId,
+      baseRef: input.baseRef,
+      branch: input.branch,
+      state: "conflicted",
+      files: mergeFiles(statuses, []),
+      conflictFiles,
+      updatedAt: new Date().toISOString(),
+    });
+  }
 }
 
-type StatusEntry = { xy: string; path: string };
-type NumstatEntry = { path: string; additions: number; deletions: number; binary: boolean };
+type StatusEntry = { xy: string; path: string; oldPath?: string };
+type NumstatEntry = { path: string; oldPath?: string; additions: number; deletions: number; binary: boolean };
 
 function parseStatus(stdout: string): StatusEntry[] {
   return stdout.split(/\r?\n/u).map((line) => line.trimEnd()).filter(Boolean).flatMap((line) => {
     if (line.length < 4) return [];
-    return [{ xy: line.slice(0, 2), path: line.slice(3).trim() }];
+    const xy = line.slice(0, 2);
+    const rename = parseRenamePath(line.slice(3).trim());
+    const entry: StatusEntry = { xy, path: rename.path };
+    if (rename.oldPath) entry.oldPath = rename.oldPath;
+    return [entry];
   });
 }
 
@@ -88,7 +109,10 @@ function parseNumstat(stdout: string): NumstatEntry[] {
     if (!match) return [];
     const additions = match[1] === "-" ? 0 : Number(match[1]);
     const deletions = match[2] === "-" ? 0 : Number(match[2]);
-    return [{ path: match[3]!, additions, deletions, binary: match[1] === "-" || match[2] === "-" }];
+    const rename = parseRenamePath(match[3]!);
+    const entry: NumstatEntry = { path: rename.path, additions, deletions, binary: match[1] === "-" || match[2] === "-" };
+    if (rename.oldPath) entry.oldPath = rename.oldPath;
+    return [entry];
   });
 }
 
@@ -99,8 +123,10 @@ function mergeFiles(statuses: StatusEntry[], stats: NumstatEntry[]): ReviewFileP
     const status = statuses.find((entry) => entry.path === path);
     const stat = byPath.get(path);
     const xy = status?.xy ?? "  ";
-    const kind = xy.includes("?") ? "untracked" : xy.includes("D") ? "deleted" : xy.includes("A") ? "added" : xy.includes("R") ? "renamed" : "modified";
-    return {
+    const kind = stat?.oldPath || status?.oldPath || xy.includes("R") || xy.includes("C")
+      ? "renamed"
+      : xy.includes("?") ? "untracked" : xy.includes("D") ? "deleted" : xy.includes("A") ? "added" : "modified";
+    const file: ReviewFileProjection = {
       path,
       kind,
       staged: xy[0] !== undefined && "AMDRCT".includes(xy[0]),
@@ -108,7 +134,17 @@ function mergeFiles(statuses: StatusEntry[], stats: NumstatEntry[]): ReviewFileP
       deletions: stat?.deletions ?? 0,
       binary: stat?.binary ?? false,
     };
+    const oldPath = stat?.oldPath ?? status?.oldPath;
+    if (oldPath) file.oldPath = oldPath;
+    return file;
   });
+}
+
+function parseRenamePath(value: string): { path: string; oldPath?: string } {
+  const separator = " => ";
+  const index = value.lastIndexOf(separator);
+  if (index <= 0 || index + separator.length >= value.length) return { path: value };
+  return { oldPath: value.slice(0, index), path: value.slice(index + separator.length) };
 }
 
 function isConflict(xy: string): boolean {
