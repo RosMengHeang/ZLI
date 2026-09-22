@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
 import { createHook } from "node:async_hooks";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { getActiveResourcesInfo } from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -12,6 +13,7 @@ import { _electron as electron, test, type ElectronApplication, type Page } from
 import { closeChildProcess } from "../closeChildProcess.js";
 
 const execFileAsync = promisify(execFile);
+const require = createRequire(import.meta.url);
 export const V2_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const activeAsyncResources = new Map<number, { type: string; triggerAsyncId: number; stack: string[] }>();
 const linuxCiDiagnostics = process.platform === "linux" && process.env.CI === "true";
@@ -53,11 +55,18 @@ export type DesktopLaunchOptions = {
 
 test.afterEach(() => {
   if (linuxCiDiagnostics) {
+    console.log(`[e2e-playwright-close-set] ${getPlaywrightCloseSetSize()}`);
     console.log(`[e2e-active-resources] ${JSON.stringify(getActiveResourcesInfo())}`);
     console.log(`[e2e-active-handles] ${JSON.stringify(getActiveHandleDiagnostics())}`);
     console.log(`[e2e-resource-origins] ${JSON.stringify([...activeAsyncResources.entries()].slice(-30))}`);
   }
 });
+
+function getPlaywrightCloseSetSize(): number {
+  const coreBundlePath = join(dirname(require.resolve("playwright-core")), "lib/coreBundle.js");
+  const coreBundle = require(coreBundlePath) as { utils?: { gracefullyCloseSet?: Set<unknown> } };
+  return coreBundle.utils?.gracefullyCloseSet?.size ?? -1;
+}
 
 function getActiveHandleDiagnostics(): Array<Record<string, unknown>> {
   const processWithHandleInspection = process as NodeJS.Process & { _getActiveHandles?: () => object[] };
