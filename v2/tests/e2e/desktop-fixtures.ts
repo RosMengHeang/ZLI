@@ -11,6 +11,7 @@ import { promisify } from "node:util";
 import { _electron as electron, test, type ElectronApplication, type Page } from "@playwright/test";
 
 import { closeChildProcess } from "../closeChildProcess.js";
+import { getProcessTreeTerminationOrder } from "../processTree.js";
 
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -220,10 +221,24 @@ export async function stopDesktopDaemon(root: string): Promise<void> {
   }
 }
 
-export async function closeApp(fixture: DesktopFixture, options: { stopTerminals?: boolean } = {}): Promise<void> {
+export async function closeApp(
+  fixture: DesktopFixture,
+  options: { stopTerminals?: boolean; processTree?: number[] } = {},
+): Promise<void> {
   if (options.stopTerminals !== false) await stopTerminals(fixture.page);
   const child = fixture.app.process();
-  await closeChildProcess(fixture.app.close.bind(fixture.app), child, () => terminateProcessTree(child.pid));
+  const processTree = options.processTree ?? (await captureProcessTree(child.pid));
+  await closeChildProcess(fixture.app.close.bind(fixture.app), child, async () => {
+    if (process.platform === "win32") {
+      await terminateProcessTree(child.pid);
+      return;
+    }
+    for (const pid of processTree) signalProcess(pid, "SIGTERM");
+    await delay(150);
+    for (const pid of processTree) {
+      if (isProcessAlive(pid)) signalProcess(pid, "SIGKILL");
+    }
+  });
 }
 
 async function terminateProcessTree(pid: number | undefined): Promise<void> {
@@ -232,10 +247,39 @@ async function terminateProcessTree(pid: number | undefined): Promise<void> {
     await execFileAsync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }).catch(() => undefined);
     return;
   }
+  const processTree = await captureProcessTree(pid);
+  for (const processPid of processTree) signalProcess(processPid, "SIGTERM");
+  await delay(150);
+  for (const processPid of processTree) {
+    if (isProcessAlive(processPid)) signalProcess(processPid, "SIGKILL");
+  }
+}
+
+export async function captureProcessTree(rootPid: number | undefined): Promise<number[]> {
+  if (!rootPid) return [];
+  if (process.platform === "win32") return [rootPid];
   try {
-    process.kill(pid, "SIGTERM");
+    const { stdout } = await execFileAsync("ps", ["-eo", "pid=,ppid="], { timeout: 5_000 });
+    return getProcessTreeTerminationOrder(rootPid, stdout);
   } catch {
-    /* The process already exited. */
+    return [rootPid];
+  }
+}
+
+function signalProcess(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(pid, signal);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
   }
 }
 

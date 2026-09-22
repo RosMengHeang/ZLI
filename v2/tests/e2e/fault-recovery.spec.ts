@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { rm } from "node:fs/promises";
 
 import {
+  captureProcessTree,
   closeApp,
   closeDesktop,
   createGitFixture,
@@ -76,6 +77,7 @@ test("restores the durable workspace after an abrupt Electron main-process exit"
     await expect(fixture.page.locator(".project-label")).toContainText("repo");
     const firstRun = fixture;
     const mainProcess = firstRun.app.process();
+    const processTree = await captureProcessTree(mainProcess.pid);
     const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveExit) => {
       mainProcess.once("exit", (code, signal) => resolveExit({ code, signal }));
     });
@@ -89,7 +91,7 @@ test("restores the durable workspace after an abrupt Electron main-process exit"
     ]);
     expect(exitResult).toBeDefined();
 
-    await closeApp(firstRun, { stopTerminals: false });
+    await closeApp(firstRun, { stopTerminals: false, processTree });
     await stopDesktopDaemon(root);
     fixture = undefined;
     fixture = await launchDesktop(repo, root);
