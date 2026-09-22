@@ -17,6 +17,7 @@ describe("NavigationPolicy", () => {
   it("allows Chromium browser pages but never script, file, or custom schemes", () => {
     expect(isAllowedBrowserNavigation("https://example.com/login")).toBe(true);
     expect(isAllowedBrowserNavigation("http://127.0.0.1:3000")).toBe(true);
+    expect(isAllowedBrowserNavigation("about:blank")).toBe(true);
     expect(isAllowedBrowserNavigation("javascript:alert(1)")).toBe(false);
     expect(isAllowedBrowserNavigation("file:///tmp/index.html")).toBe(false);
     expect(shouldOpenExternal("https://example.com")).toBe(true);

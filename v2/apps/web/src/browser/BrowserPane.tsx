@@ -112,9 +112,20 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
     finally { setBusy(false); }
   };
 
+  const newTab = async () => {
+    if (!bridge || !worktree) return;
+    setBusy(true); setError(undefined);
+    try {
+      const created = await bridge.browser.create({ worktreeId: worktree.worktreeId, profileId: tab?.profileId ?? DEFAULT_PROFILE_ID, url: "about:blank" });
+      const active = await bridge.browser.activate(created.browserTabId);
+      setTab(active); setUrl("");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "The new browser tab could not be opened."); }
+    finally { setBusy(false); }
+  };
+
   return (
     <div className="tool-pane browser-pane">
-      {worktreeTabs.length > 0 && <div className="browser-tabs" role="tablist" aria-label="Worktree browser tabs">{worktreeTabs.map((candidate) => <div className={`browser-tab${candidate.browserTabId === tab?.browserTabId ? " is-active" : ""}`} key={candidate.browserTabId}><button type="button" role="tab" aria-selected={candidate.browserTabId === tab?.browserTabId} onClick={() => void selectTab(candidate)}>{candidate.title || candidate.url}</button><button className="browser-tab-close" type="button" onClick={() => void closeTab(candidate)} aria-label={`Close ${candidate.title || candidate.url}`}>×</button></div>)}</div>}
+      {worktree && <div className="browser-tabs" role="tablist" aria-label="Worktree browser tabs">{worktreeTabs.map((candidate) => <div className={`browser-tab${candidate.browserTabId === tab?.browserTabId ? " is-active" : ""}`} key={candidate.browserTabId}><button type="button" role="tab" aria-selected={candidate.browserTabId === tab?.browserTabId} onClick={() => void selectTab(candidate)}>{candidate.title || candidate.url}</button><button className="browser-tab-close" type="button" onClick={() => void closeTab(candidate)} aria-label={`Close ${candidate.title || candidate.url}`}>×</button></div>)}<button className="browser-tab-new" type="button" onClick={() => void newTab()} disabled={busy} aria-label="New browser tab">+</button></div>}
       <div className="tool-pane-header browser-header">
         <div><span className="eyebrow">Browser</span><h2>{tab?.title || "Chromium workspace"}</h2></div>
         <div className="browser-controls" aria-label="Browser controls">

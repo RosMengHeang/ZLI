@@ -287,7 +287,7 @@ export class BrowserManager {
 }
 
 function assertBrowserUrl(url: string): void {
-  if (!isAllowedBrowserNavigation(url)) throw new Error("Invalid browser URL: only http(s) navigation is allowed.");
+  if (!isAllowedBrowserNavigation(url)) throw new Error("Invalid browser URL: only http(s) or about:blank navigation is allowed.");
 }
 
 function safeCurrentUrl(contents: BrowserWebContentsLike, fallback: string): string {
