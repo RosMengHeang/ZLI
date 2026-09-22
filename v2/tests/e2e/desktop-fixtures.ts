@@ -2,10 +2,11 @@ import { execFile } from "node:child_process";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { getActiveResourcesInfo } from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
+import { _electron as electron, test, type ElectronApplication, type Page } from "@playwright/test";
 
 const execFileAsync = promisify(execFile);
 export const V2_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -20,6 +21,12 @@ export type DesktopFixture = {
 export type DesktopLaunchOptions = {
   legacySnapshotPath?: string;
 };
+
+test.afterEach(() => {
+  if (process.platform === "linux" && process.env.CI === "true") {
+    console.log(`[e2e-active-resources] ${JSON.stringify(getActiveResourcesInfo())}`);
+  }
+});
 
 export async function createGitFixture(): Promise<{ root: string; repo: string }> {
   const root = await mkdtemp(join(tmpdir(), "zli-v2-e2e-"));
