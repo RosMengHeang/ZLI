@@ -33,7 +33,8 @@ export class RemotePtyFactory implements PtyFactory {
         rows: input.rows,
       });
       const pid = readPid(created);
-      if (pid === 0 && !isAlreadyExists(created) && !hasCreatedTerminal(created)) {
+      const reused = isAlreadyExists(created);
+      if (pid === 0 && !reused && !hasCreatedTerminal(created)) {
         throw new Error(readError(created) ?? "Terminal daemon did not create the PTY.");
       }
       const attachment = await connection.request({
@@ -42,7 +43,7 @@ export class RemotePtyFactory implements PtyFactory {
         afterSequence: 0,
       });
       const snapshot = readSnapshot(attachment, input.terminalId);
-      const process = new RemotePtyProcess(connection, input.terminalId, pid);
+      const process = new RemotePtyProcess(connection, input.terminalId, pid, reused);
       process.acceptSnapshot(snapshot);
       process.startListening();
       return process;
@@ -64,6 +65,7 @@ class RemotePtyProcess implements PtyProcess {
     private readonly connection: Connection,
     private readonly terminalId: TerminalId,
     readonly pid: number,
+    readonly reused: boolean,
   ) {}
 
   write(data: string): void {

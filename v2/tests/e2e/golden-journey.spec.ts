@@ -48,7 +48,6 @@ test("completes the workspace, provider, browser, review, and restoration journe
       return terminal ? `${terminal.status}:${terminal.errorMessage ?? ""}` : "missing";
     }), { timeout: 10_000 }).toBe("running:");
     await expect(page.getByRole("log", { name: "Terminal output" })).toContainText(`ZLI_DEV_READY ${terminalPort}`, { timeout: 20_000 });
-
     await page.getByRole("button", { name: "Agent", exact: true }).click();
     await page.getByRole("button", { name: "Start Codex" }).click();
     const composer = page.getByRole("textbox", { name: "Message Codex" });
@@ -85,6 +84,8 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await expect.poll(() => git(repo, ["show", "main:change.txt"]).catch(() => ""), { timeout: 20_000 }).toBe("integration change");
 
     await fixture.page.evaluate(() => window.zli?.test?.restartRuntime());
+    await fixture.page.getByRole("button", { name: "Terminal", exact: true }).click();
+    await expect(fixture.page.getByRole("log", { name: "Terminal output" })).toContainText(`ZLI_DEV_READY ${terminalPort}`, { timeout: 20_000 });
     await fixture.app.close();
     fixture = await launchDesktop(repo, root);
     await expect(fixture.page.getByRole("button", { name: /e2e/iu })).toContainText("Ready");

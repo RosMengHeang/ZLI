@@ -25,6 +25,7 @@ import { CdpSession, type ElectronDebuggerLike } from "./browser/CdpSession.js";
 import { DesignMode } from "./browser/DesignMode.js";
 import { DesktopDiagnostics } from "./diagnostics/DesktopDiagnostics.js";
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
+import { ensureDesktopDaemon } from "./runtime/DesktopDaemon.js";
 import { resolveAppAsset } from "./window/ElectronProtocol.js";
 import { createMainWindow, type BrowserWindowConstructor } from "./window/ElectronWindow.js";
 
@@ -49,9 +50,14 @@ async function main(): Promise<void> {
     if (!asset) return new Response("Not found", { status: 404 });
     return net.fetch(pathToFileURL(asset).toString());
   });
+  const databasePath = process.env.ZLI_DATABASE_PATH ?? join(app.getPath("userData"), "runtime.sqlite");
+  await ensureDesktopDaemon({
+    entryPath: join(DESKTOP_DIST, "daemon-entry.js"),
+    endpointPath: `${databasePath}.daemon.json`,
+  });
   environment = new EnvironmentProcess({
     serverEntryPath: process.env.ZLI_SERVER_ENTRY ?? join(DESKTOP_DIST, "server-entry.js"),
-    databasePath: process.env.ZLI_DATABASE_PATH ?? join(app.getPath("userData"), "runtime.sqlite"),
+    databasePath,
   });
   const descriptor = await environment.start();
   runtime = await RuntimeClient.connect({

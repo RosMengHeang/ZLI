@@ -18,6 +18,7 @@ export type PtySpawnInput = {
 
 export type PtyProcess = {
   readonly pid: number;
+  readonly reused?: boolean;
   write(data: string): void;
   resize(cols: number, rows: number): void;
   kill(): void;
@@ -80,6 +81,7 @@ type HistoryEntry = {
 type TerminalSession = {
   projection: TerminalProjection;
   pty: PtyProcess;
+  reused: boolean;
   history: HistoryEntry[];
   historyBytes: number;
   historyLines: number;
@@ -211,6 +213,7 @@ export class TerminalService {
           lastSequence: 0,
         },
         pty,
+        reused: pty.reused === true,
         history: [],
         historyBytes: 0,
         historyLines: 0,
@@ -240,6 +243,10 @@ export class TerminalService {
 
   get(terminalId: TerminalId): TerminalProjection {
     return { ...this.session(terminalId).projection };
+  }
+
+  wasReused(terminalId: TerminalId): boolean {
+    return this.session(terminalId).reused;
   }
 
   write(terminalId: TerminalId, data: string): void {

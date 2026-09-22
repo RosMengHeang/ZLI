@@ -46,7 +46,11 @@ export class DaemonSupervisor {
 
   async ensure(): Promise<DaemonEndpoint> {
     const existing = await this.readEndpoint();
-    if (existing && this.isCompatible(existing) && (await this.handshake(existing))) return existing;
+    const existingCompatible = existing ? this.isCompatible(existing) : false;
+    if (existing && existingCompatible) {
+      const handshake = await this.handshake(existing);
+      if (handshake) return existing;
+    }
 
     const token = randomBytes(32).toString("hex");
     const launched = await this.launchDaemon({
@@ -100,8 +104,7 @@ export class DaemonSupervisor {
       endpoint.daemonVersion === this.daemonVersion &&
       endpoint.host === "127.0.0.1" &&
       endpoint.port > 0 &&
-      endpoint.token.length > 0 &&
-      isProcessAlive(endpoint.pid)
+      endpoint.token.length > 0
     );
   }
 
@@ -207,18 +210,27 @@ async function connectDaemon(endpoint: DaemonEndpoint): Promise<DaemonConnection
 
 async function defaultLaunch(input: LaunchInput): Promise<{ pid: number }> {
   const entryPath = resolve(dirname(fileURLToPath(import.meta.url)), "daemon-entry.js");
-  const child = spawn(process.execPath, [entryPath], {
-    detached: true,
-    stdio: "ignore",
-    windowsHide: true,
-    env: {
-      ...process.env,
-      ZLI_DAEMON_ENDPOINT_PATH: input.endpointPath,
-      ZLI_DAEMON_PROTOCOL_VERSION: String(input.protocolVersion),
-      ZLI_DAEMON_VERSION: input.daemonVersion,
-      ZLI_DAEMON_TOKEN: input.token,
-    },
-  });
+  const environment = {
+    ...process.env,
+    ZLI_DAEMON_ENDPOINT_PATH: input.endpointPath,
+    ZLI_DAEMON_PROTOCOL_VERSION: String(input.protocolVersion),
+    ZLI_DAEMON_VERSION: input.daemonVersion,
+    ZLI_DAEMON_TOKEN: input.token,
+  };
+  const child = process.platform === "win32"
+    ? spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `start "" /b "${process.execPath}" "${entryPath}"`], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+      windowsVerbatimArguments: true,
+      env: environment,
+    })
+    : spawn(process.execPath, [entryPath], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+      env: environment,
+    });
   child.unref();
   if (!child.pid) throw new Error("Terminal daemon did not receive a process id.");
   return { pid: child.pid };

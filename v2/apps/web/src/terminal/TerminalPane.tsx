@@ -17,9 +17,11 @@ export function TerminalPane({ projection, worktree, onOpenBrowser }: Props) {
   useEffect(() => {
     if (!bridge || !terminal) return;
     let active = true;
+    let snapshotReceived = false;
     const unsubscribe = bridge.runtime.onTerminal((message) => {
       if (!active) return;
       if (message.kind === "snapshot" && message.snapshot.terminalId === terminal.terminalId) {
+        snapshotReceived = true;
         setOutput(message.snapshot.chunks.map((chunk) => decodeChunk(chunk.bytesBase64)).join(""));
         lastSequence.current = message.snapshot.nextSequence;
       } else if (message.kind === "stream") {
@@ -34,9 +36,20 @@ export function TerminalPane({ projection, worktree, onOpenBrowser }: Props) {
         }
       }
     });
-    try { void bridge.runtime.attachTerminal(terminal.terminalId, lastSequence.current); } catch { /* bridge reconnect will retry on the next projection */ }
+    const attach = async () => {
+      for (let attempt = 0; attempt < 30 && active && !snapshotReceived; attempt += 1) {
+        try {
+          await bridge.runtime.attachTerminal(terminal.terminalId, lastSequence.current);
+        } catch {
+          // The terminal can still be starting or the runtime can be reconnecting.
+        }
+        if (snapshotReceived) return;
+        await new Promise<void>((resolve) => setTimeout(resolve, Math.min(1_000, 100 * 2 ** attempt)));
+      }
+    };
+    void attach();
     return () => { active = false; unsubscribe(); };
-  }, [bridge, terminal?.terminalId, terminal?.status]);
+  }, [bridge, terminal?.terminalId]);
 
   const createTerminal = async () => {
     if (!worktree) return;

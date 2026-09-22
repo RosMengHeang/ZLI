@@ -36,13 +36,21 @@ export class TerminalReactor {
   async restore(): Promise<void> {
     const projection = await this.engine.projection();
     const events = await this.engine.eventsAfter(0);
+    const writes = new Map<string, string[]>();
+    for (const envelope of events) {
+      if (envelope.event.type === "terminal.write.requested") {
+        const existing = writes.get(envelope.event.terminalId) ?? [];
+        existing.push(envelope.event.data);
+        writes.set(envelope.event.terminalId, existing);
+      }
+    }
     for (const envelope of events) {
       if (envelope.event.type !== "terminal.create.requested") continue;
       const intent = envelope.event;
       const terminal = projection.terminals.find((candidate) => candidate.terminalId === intent.terminal.terminalId);
       if (!terminal || (terminal.status !== "running" && terminal.status !== "starting") || this.intents.has(terminal.terminalId)) continue;
       this.intents.set(terminal.terminalId, intent);
-      this.startCreate(intent);
+      this.startCreate(intent, writes.get(terminal.terminalId) ?? []);
     }
     await this.waitForIdle();
   }
@@ -67,12 +75,12 @@ export class TerminalReactor {
     }
   }
 
-  private startCreate(intent: CreateIntent): void {
-    const task = this.runCreate(intent);
+  private startCreate(intent: CreateIntent, writes: readonly string[] = []): void {
+    const task = this.runCreate(intent, writes);
     this.track(task);
   }
 
-  private async runCreate(intent: CreateIntent): Promise<void> {
+  private async runCreate(intent: CreateIntent, writes: readonly string[]): Promise<void> {
     try {
       await this.service.create({
         terminalId: intent.terminal.terminalId,
@@ -83,6 +91,9 @@ export class TerminalReactor {
         rows: intent.rows,
         title: intent.terminal.title,
       });
+      if (!this.service.wasReused(intent.terminal.terminalId)) {
+        for (const data of writes) this.service.write(TerminalId.parse(intent.terminal.terminalId), data);
+      }
       await this.dispatchStatus(intent.terminal.terminalId, "running");
     } catch (error) {
       await this.dispatchStatus(
