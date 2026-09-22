@@ -33,7 +33,7 @@ export class RemotePtyFactory implements PtyFactory {
         rows: input.rows,
       });
       const pid = readPid(created);
-      if (pid === 0 && !isAlreadyExists(created)) {
+      if (pid === 0 && !isAlreadyExists(created) && !hasCreatedTerminal(created)) {
         throw new Error(readError(created) ?? "Terminal daemon did not create the PTY.");
       }
       const attachment = await connection.request({
@@ -133,6 +133,12 @@ function readPid(value: unknown): number {
 
 function isAlreadyExists(value: unknown): boolean {
   return readError(value)?.toLowerCase().includes("already exists") ?? false;
+}
+
+function hasCreatedTerminal(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const terminal = (value as { terminal?: unknown }).terminal;
+  return Boolean(terminal && typeof terminal === "object");
 }
 
 function readError(value: unknown): string | undefined {

@@ -85,13 +85,16 @@ export class EnvironmentProcess {
 }
 
 function defaultLauncher(input: { serverEntryPath: string; databasePath: string; token: string }): EnvironmentChild {
-  return spawn(process.execPath, [input.serverEntryPath], {
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: "1",
-      ZLI_DATABASE_PATH: input.databasePath,
-      ZLI_RUNTIME_TOKEN: input.token,
-    },
+  const runtimeNode = process.env.ZLI_TEST_PROVIDER === "mock" ? process.env.ZLI_RUNTIME_NODE : undefined;
+  const environment: NodeJS.ProcessEnv = {
+    ...process.env,
+    ZLI_DATABASE_PATH: input.databasePath,
+    ZLI_RUNTIME_TOKEN: input.token,
+  };
+  if (runtimeNode) delete environment.ELECTRON_RUN_AS_NODE;
+  else environment.ELECTRON_RUN_AS_NODE = "1";
+  return spawn(runtimeNode ?? process.execPath, [input.serverEntryPath], {
+    env: environment,
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
     shell: false,

@@ -1,6 +1,6 @@
 import { createServer, type Socket } from "node:net";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { TerminalId, WorktreeId } from "@zli-v2/contracts";
@@ -153,7 +153,7 @@ function send(socket: Socket, message: unknown): void {
   if (!socket.destroyed) socket.write(`${JSON.stringify(message)}\n`);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
   void main().catch((error) => {
     process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
     process.exitCode = 1;

@@ -37,13 +37,16 @@ export async function createGitFixture(): Promise<{ root: string; repo: string }
 
 export async function launchDesktop(repo: string, root: string, options: DesktopLaunchOptions = {}): Promise<DesktopFixture> {
   const databasePath = join(root, "runtime.sqlite");
-  const packagedExecutable = process.env.ZLI_E2E_PACKAGED === "1" ? await findPackagedExecutable() : undefined;
+  const externalExecutable = process.env.ZLI_ELECTRON_EXECUTABLE;
+  const packagedExecutable = externalExecutable ? undefined : process.env.ZLI_E2E_PACKAGED === "1" ? await findPackagedExecutable() : undefined;
+  const executablePath = externalExecutable ?? packagedExecutable;
   const app = await electron.launch({
-    args: packagedExecutable ? [] : [join(V2_ROOT, "apps/desktop/dist/main.js")],
-    ...(packagedExecutable ? { executablePath: packagedExecutable } : {}),
+    args: executablePath ? (packagedExecutable ? [] : [join(V2_ROOT, "apps/desktop/dist/main.js")]) : [join(V2_ROOT, "apps/desktop/dist/main.js")],
+    ...(executablePath ? { executablePath } : {}),
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: undefined,
+      ...(externalExecutable ? { ZLI_RUNTIME_NODE: process.execPath } : { ZLI_RUNTIME_NODE: undefined }),
       ZLI_DATABASE_PATH: databasePath,
       ...(packagedExecutable ? {} : {
         ZLI_RENDERER_ROOT: join(V2_ROOT, "apps/desktop/renderer"),
@@ -84,8 +87,68 @@ async function findPackagedExecutable(): Promise<string> {
 }
 
 export async function closeDesktop(fixture: DesktopFixture): Promise<void> {
-  await fixture.app.close();
+  await closeApp(fixture);
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      await rm(fixture.root, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!(error instanceof Error) || !["EBUSY", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+    }
+  }
   await rm(fixture.root, { recursive: true, force: true });
+}
+
+export async function closeApp(fixture: DesktopFixture, options: { stopTerminals?: boolean } = {}): Promise<void> {
+  if (options.stopTerminals !== false) await stopTerminals(fixture.page);
+  const child = fixture.app.process();
+  await terminateProcessTree(child.pid);
+  await Promise.race([
+    new Promise<void>((resolveExit) => child.once("exit", () => resolveExit())),
+    delay(2_000),
+  ]);
+}
+
+async function terminateProcessTree(pid: number | undefined): Promise<void> {
+  if (!pid) return;
+  if (process.platform === "win32") {
+    await execFileAsync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }).catch(() => undefined);
+    return;
+  }
+  try { process.kill(pid, "SIGTERM"); } catch { /* The process already exited. */ }
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}
+
+async function stopTerminals(page: Page): Promise<void> {
+  const terminalIds = await page.evaluate(async () => {
+    const projection = await window.zli?.runtime.getProjection();
+    return projection?.terminals
+      .filter((terminal) => terminal.status === "running" || terminal.status === "starting")
+      .map((terminal) => terminal.terminalId) ?? [];
+  });
+  if (terminalIds.length === 0) return;
+  await page.evaluate(async (ids) => {
+    for (const terminalId of ids) {
+      await window.zli!.runtime.dispatch({
+        protocolVersion: 1,
+        commandId: crypto.randomUUID(),
+        command: { type: "terminal.stop", terminalId },
+      });
+    }
+  }, terminalIds);
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const stillRunning = await page.evaluate(async (ids) => {
+      const projection = await window.zli?.runtime.getProjection();
+      return projection?.terminals.some((terminal) => ids.includes(terminal.terminalId) && (terminal.status === "running" || terminal.status === "starting")) ?? false;
+    }, terminalIds);
+    if (!stillRunning) return;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
 }
 
 export async function git(cwd: string, args: string[]): Promise<string> {

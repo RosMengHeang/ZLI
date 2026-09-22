@@ -165,19 +165,21 @@ export class DaemonConnection {
     while (newline >= 0) {
       const line = this.buffer.slice(0, newline);
       this.buffer = this.buffer.slice(newline + 1);
-      const pending = this.pending.shift();
-      if (pending) {
-        try {
-          pending.resolve(JSON.parse(line) as unknown);
-        } catch (error) {
-          pending.reject(error instanceof Error ? error : new Error("Invalid daemon response."));
-        }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line) as unknown;
+      } catch (error) {
+        const pending = this.pending.shift();
+        pending?.reject(error instanceof Error ? error : new Error("Invalid daemon response."));
+        newline = this.buffer.indexOf("\n");
+        continue;
+      }
+      if (isUnsolicitedDaemonMessage(parsed)) {
+        for (const listener of this.messageListeners) listener(parsed);
       } else {
-        try {
-          for (const listener of this.messageListeners) listener(JSON.parse(line) as unknown);
-        } catch {
-          // Ignore unsolicited malformed daemon frames; the next valid frame can still be consumed.
-        }
+        const pending = this.pending.shift();
+        if (pending) pending.resolve(parsed);
+        else for (const listener of this.messageListeners) listener(parsed);
       }
       newline = this.buffer.indexOf("\n");
     }
@@ -188,6 +190,10 @@ export class DaemonConnection {
     this.closed = true;
     for (const pending of this.pending.splice(0)) pending.reject(error);
   }
+}
+
+function isUnsolicitedDaemonMessage(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && (value as { type?: unknown }).type === "terminal");
 }
 
 async function connectDaemon(endpoint: DaemonEndpoint): Promise<DaemonConnection> {

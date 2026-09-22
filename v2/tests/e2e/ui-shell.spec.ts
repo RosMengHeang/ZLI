@@ -16,7 +16,7 @@ test("provides a focused, keyboard-driven workbench shell", async () => {
     await expect(palette.getByRole("button", { name: "Focus browser" })).toBeVisible();
     await expect(palette.getByRole("button", { name: "Focus agent" })).toHaveCount(0);
     await search.press("Enter");
-    await expect(fixture.page.getByRole("button", { name: "Browser" })).toHaveClass(/is-active/iu);
+    await expect(fixture.page.getByRole("button", { name: "Browser", exact: true })).toHaveClass(/is-active/iu);
 
     await fixture.page.keyboard.press(shortcut);
     await fixture.page.getByRole("textbox", { name: "Search commands" }).fill("help");

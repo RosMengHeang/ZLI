@@ -88,7 +88,7 @@ export class TerminalReactor {
       await this.dispatchStatus(
         intent.terminal.terminalId,
         "failed",
-        error instanceof Error ? error.message : "Terminal startup failed.",
+        describeTerminalError(error, "Terminal startup failed."),
       );
     }
   }
@@ -157,4 +157,10 @@ export class TerminalReactor {
       () => this.tasks.delete(task),
     );
   }
+}
+
+function describeTerminalError(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) return fallback;
+  const cause = error.cause instanceof Error ? error.cause.message : typeof error.cause === "string" ? error.cause : undefined;
+  return cause ? `${error.message} (${cause})` : error.message;
 }

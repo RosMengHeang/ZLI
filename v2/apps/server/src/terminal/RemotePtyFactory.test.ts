@@ -11,14 +11,14 @@ class FakeConnection {
   readonly requests: unknown[] = [];
   private readonly listeners = new Set<(message: unknown) => void>();
 
-  constructor(private readonly existing = false) {}
+  constructor(private readonly existing = false, private readonly includePid = true) {}
 
   async request(message: unknown): Promise<unknown> {
     this.requests.push(message);
     const request = message as { type: string };
     if (request.type === "terminal.create") return this.existing
       ? { type: "error", message: "Terminal already exists: shell" }
-      : { type: "result", terminal: { pid: 8080 } };
+      : { type: "result", terminal: this.includePid ? { pid: 8080 } : { terminalId, status: "running" } };
     if (request.type === "terminal.attach") return { type: "snapshot", snapshot: { terminalId, chunks: [{ terminalId, sequence: 1, bytesBase64: Buffer.from("before\n").toString("base64") }], nextSequence: 1, truncated: false } };
     return { type: "result", accepted: true };
   }
@@ -36,6 +36,23 @@ class FakeConnection {
 }
 
 describe("RemotePtyFactory", () => {
+  it("accepts a successful terminal projection when the daemon omits its internal PID", async () => {
+    const connection = new FakeConnection(false, false);
+    const factory = new RemotePtyFactory({ connect: async () => connection });
+
+    const pty = await factory.spawn({
+      terminalId,
+      worktreeId,
+      title: "shell",
+      cwd: "C:\\workspace\\tree",
+      shell: "powershell.exe",
+      cols: 120,
+      rows: 32,
+    });
+
+    expect(pty.pid).toBe(0);
+  });
+
   it("adopts an existing daemon session and buffers output until the PTY listener is ready", async () => {
     const connection = new FakeConnection();
     const factory = new RemotePtyFactory({ connect: async () => connection });

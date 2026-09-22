@@ -127,7 +127,7 @@ describe("TerminalReactor", () => {
     );
     await engine.waitForReactors();
     expect((await engine.projection()).terminals).toMatchObject([
-      { terminalId: id, status: "failed", errorMessage: "Unable to start terminal in C:/workspace/project-tree." },
+      { terminalId: id, status: "failed", errorMessage: "Unable to start terminal in C:/workspace/project-tree. (spawn denied)" },
     ]);
   });
 

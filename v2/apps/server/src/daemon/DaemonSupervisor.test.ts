@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createServer, type Server } from "node:net";
+import { createConnection, createServer, type Server } from "node:net";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { DaemonSupervisor, type DaemonEndpoint } from "./DaemonSupervisor.js";
+import { DaemonConnection, DaemonSupervisor, type DaemonEndpoint } from "./DaemonSupervisor.js";
 
 const servers: Server[] = [];
 const directories: string[] = [];
@@ -46,6 +46,32 @@ afterEach(async () => {
 });
 
 describe("DaemonSupervisor", () => {
+  it("routes terminal stream frames without consuming a pending request response", async () => {
+    const server = createServer((socket) => {
+      socket.setEncoding("utf8");
+      socket.on("data", () => {
+        socket.write(`${JSON.stringify({ type: "terminal", message: { kind: "chunk" } })}\n`);
+        socket.write(`${JSON.stringify({ type: "result", accepted: true })}\n`);
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    servers.push(server);
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("server did not bind");
+    const socket = createConnection({ host: "127.0.0.1", port: address.port });
+    await new Promise<void>((resolve, reject) => {
+      socket.once("connect", resolve);
+      socket.once("error", reject);
+    });
+    const connection = new DaemonConnection(socket);
+    const messages: unknown[] = [];
+    connection.onMessage((message) => messages.push(message));
+
+    await expect(connection.request({ type: "terminal.write" })).resolves.toEqual({ type: "result", accepted: true });
+    expect(messages).toEqual([{ type: "terminal", message: { kind: "chunk" } }]);
+    connection.close();
+  });
+
   it("adopts a compatible daemon endpoint and authenticates it", async () => {
     const directory = await mkdtemp(join(tmpdir(), "zli-daemon-test-"));
     directories.push(directory);
