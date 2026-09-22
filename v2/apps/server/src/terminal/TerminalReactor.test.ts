@@ -86,6 +86,30 @@ afterEach(() => {
 });
 
 describe("TerminalReactor", () => {
+  it("does not execute historical terminal input when recovering a lost PTY", async () => {
+    const original = new FakePty();
+    const { engine, reactor, worktreeId } = await setup({ spawn: async () => original });
+    const id = TerminalId.parse("00000000-0000-4000-8000-000000000306");
+    await engine.dispatch(command("terminal.create", {
+      terminalId: id, worktreeId, cwd: "C:/workspace/project-tree",
+      shell: "powershell.exe", title: "PowerShell", cols: 120, rows: 32,
+    }));
+    await reactor.waitForIdle();
+    await engine.dispatch(command("terminal.write", { terminalId: id, data: "deploy-production\r\n" }));
+    await reactor.waitForIdle();
+    expect(original.writes).toEqual(["deploy-production\r\n"]);
+    reactor.stop();
+
+    const replacement = new FakePty();
+    const restored = new TerminalReactor(engine, new TerminalService({ spawn: async () => replacement }));
+    try {
+      await restored.restore();
+      expect(replacement.writes).toEqual([]);
+    } finally {
+      restored.stop();
+    }
+  });
+
   it("materializes a terminal intent and forwards runtime commands to the PTY", async () => {
     const pty = new FakePty();
     const { engine, reactor, worktreeId } = await setup({ spawn: async () => pty });
