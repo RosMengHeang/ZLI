@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHook } from "node:async_hooks";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -10,6 +11,32 @@ import { _electron as electron, test, type ElectronApplication, type Page } from
 
 const execFileAsync = promisify(execFile);
 export const V2_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
+const activeAsyncResources = new Map<number, { type: string; triggerAsyncId: number; stack: string[] }>();
+const linuxCiDiagnostics = process.platform === "linux" && process.env.CI === "true";
+if (linuxCiDiagnostics) {
+  createHook({
+    init(asyncId, type, triggerAsyncId) {
+      if (!/^(?:FSREQCALLBACK|PIPEWRAP|TCPWRAP|TCPCONNECTWRAP|Timeout)$/u.test(type)) return;
+      activeAsyncResources.set(asyncId, {
+        type,
+        triggerAsyncId,
+        stack:
+          new Error().stack
+            ?.split("\n")
+            .slice(2, 7)
+            .map((line) => line.trim()) ?? [],
+      });
+      while (activeAsyncResources.size > 250) {
+        const oldest = activeAsyncResources.keys().next().value as number | undefined;
+        if (oldest === undefined) break;
+        activeAsyncResources.delete(oldest);
+      }
+    },
+    destroy(asyncId) {
+      activeAsyncResources.delete(asyncId);
+    },
+  }).enable();
+}
 
 export type DesktopFixture = {
   app: ElectronApplication;
@@ -23,8 +50,9 @@ export type DesktopLaunchOptions = {
 };
 
 test.afterEach(() => {
-  if (process.platform === "linux" && process.env.CI === "true") {
+  if (linuxCiDiagnostics) {
     console.log(`[e2e-active-resources] ${JSON.stringify(getActiveResourcesInfo())}`);
+    console.log(`[e2e-resource-origins] ${JSON.stringify([...activeAsyncResources.entries()].slice(-30))}`);
   }
 });
 
