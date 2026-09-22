@@ -114,24 +114,33 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await expect(page.getByText("change.txt")).toBeVisible({ timeout: 20_000 });
     await page.getByRole("button", { name: /change\.txt/iu }).click();
     await expect(page.getByRole("region", { name: "Diff for change.txt" })).toContainText("integration change");
+    const previousReviewUpdate = await page.evaluate(async (id) => {
+      const projection = await window.zli?.runtime.getProjection();
+      return projection?.reviews?.find((candidate) => candidate.worktreeId === id)?.updatedAt ?? "";
+    }, worktreeId);
+    expect(previousReviewUpdate).not.toBe("");
     await page.getByLabel("Commit message").fill("exercise review flow");
     await page.getByRole("button", { name: "Commit changes" }).click();
     await expect
       .poll(
-        async () => {
-          const [status, reviewError] = await Promise.all([
-            git(worktreePath, ["status", "--porcelain"]),
-            page.evaluate(async (id) => {
-              const projection = await window.zli?.runtime.getProjection();
-              const review = projection?.reviews?.find((candidate) => candidate.worktreeId === id);
-              return review?.errorMessage ?? document.querySelector(".review-pane .inline-error")?.textContent ?? "";
-            }, worktreeId),
-          ]);
-          return reviewError ? `review error: ${reviewError}` : status;
-        },
+        () =>
+          page.evaluate(async (id) => {
+            const projection = await window.zli?.runtime.getProjection();
+            const review = projection?.reviews?.find((candidate) => candidate.worktreeId === id);
+            return review?.errorMessage
+              ? `error: ${review.errorMessage}`
+              : (review?.updatedAt ?? document.querySelector(".review-pane .inline-error")?.textContent ?? "");
+          }, worktreeId),
         { timeout: 20_000 },
       )
-      .toBe("");
+      .not.toBe(previousReviewUpdate);
+    const reviewError = await page.evaluate(async (id) => {
+      const projection = await window.zli?.runtime.getProjection();
+      return projection?.reviews?.find((candidate) => candidate.worktreeId === id)?.errorMessage;
+    }, worktreeId);
+    expect(reviewError).toBeUndefined();
+    await expect(page.locator(".review-pane .inline-error")).toHaveCount(0);
+    expect(await git(worktreePath, ["status", "--porcelain"])).toBe("");
     await page.getByRole("button", { name: "Merge into target" }).click();
     await expect
       .poll(() => git(repo, ["show", "main:change.txt"]).catch(() => ""), { timeout: 20_000 })
