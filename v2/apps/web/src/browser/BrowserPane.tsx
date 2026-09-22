@@ -15,6 +15,20 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
   const worktreeTabs = useMemo(() => projection?.browserTabs.filter((candidate) => candidate.worktreeId === worktree?.worktreeId) ?? [], [projection?.browserTabs, worktree?.worktreeId]);
   const restoredTab = worktreeTabs.find((candidate) => candidate.active) ?? worktreeTabs[0];
 
+  const activateInSurface = async (browserTabId: string) => {
+    if (!bridge) throw new Error("The desktop bridge is unavailable.");
+    const rect = surfaceRef.current?.getBoundingClientRect();
+    if (rect) {
+      await bridge.browser.setBounds(browserTabId, {
+        x: Math.max(0, Math.round(rect.left)),
+        y: Math.max(0, Math.round(rect.top)),
+        width: Math.max(1, Math.round(rect.width)),
+        height: Math.max(1, Math.round(rect.height)),
+      });
+    }
+    return bridge.browser.activate(browserTabId);
+  };
+
   useEffect(() => {
     setTab(undefined);
     setUrl("");
@@ -31,7 +45,7 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
       worktreeId: restoredTab.worktreeId,
       profileId: restoredTab.profileId,
       url: restoredTab.url,
-    }).then((next) => bridge.browser.activate(next.browserTabId)).then((next) => {
+    }).then((next) => activateInSurface(next.browserTabId)).then((next) => {
       if (disposed) return;
       setTab(next);
       setUrl(next.url);
@@ -68,7 +82,7 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
     try {
       const next = tab
         ? await bridge.browser.navigate(tab.browserTabId, normalizeUrl(url))
-        : await bridge.browser.create({ worktreeId: worktree.worktreeId, profileId: DEFAULT_PROFILE_ID, url: normalizeUrl(url) }).then((created) => bridge.browser.activate(created.browserTabId));
+        : await bridge.browser.create({ worktreeId: worktree.worktreeId, profileId: DEFAULT_PROFILE_ID, url: normalizeUrl(url) }).then((created) => activateInSurface(created.browserTabId));
       setTab(next); setUrl(next.url);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "The browser could not open this URL."); }
     finally { setBusy(false); }
@@ -93,7 +107,7 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
     setBusy(true); setError(undefined);
     try {
       const restored = await bridge.browser.create({ browserTabId: candidate.browserTabId, worktreeId: candidate.worktreeId, profileId: candidate.profileId, url: candidate.url });
-      const active = await bridge.browser.activate(restored.browserTabId);
+      const active = await activateInSurface(restored.browserTabId);
       setTab(active); setUrl(active.url);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "The browser tab could not be activated."); }
     finally { setBusy(false); }
@@ -118,7 +132,7 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
     setBusy(true); setError(undefined);
     try {
       const created = await bridge.browser.create({ worktreeId: worktree.worktreeId, profileId: tab?.profileId ?? DEFAULT_PROFILE_ID, url: "about:blank" });
-      const active = await bridge.browser.activate(created.browserTabId);
+      const active = await activateInSurface(created.browserTabId);
       setTab(active); setUrl("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "The new browser tab could not be opened."); }
     finally { setBusy(false); }

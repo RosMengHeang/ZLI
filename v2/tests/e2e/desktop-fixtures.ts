@@ -103,8 +103,10 @@ export async function closeDesktop(fixture: DesktopFixture): Promise<void> {
 export async function closeApp(fixture: DesktopFixture, options: { stopTerminals?: boolean } = {}): Promise<void> {
   if (options.stopTerminals !== false) await stopTerminals(fixture.page);
   const child = fixture.app.process();
+  const closeContext = fixture.app.close().catch(() => undefined);
   await terminateProcessTree(child.pid);
   await Promise.race([
+    closeContext,
     new Promise<void>((resolveExit) => child.once("exit", () => resolveExit())),
     delay(2_000),
   ]);

@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, git, launchDesktop, type DesktopFixture } from "./desktop-fixtures.js";
+import { closeApp, closeDesktop, createGitFixture, git, launchDesktop, type DesktopFixture } from "./desktop-fixtures.js";
 
 test("completes the workspace, provider, browser, review, and restoration journey", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
@@ -23,6 +23,11 @@ test("completes the workspace, provider, browser, review, and restoration journe
     const worktree = page.getByRole("button", { name: /e2e/iu });
     await expect(worktree).toContainText("Ready", { timeout: 30_000 });
     await worktree.click();
+    const worktreeId = await page.evaluate(async () => {
+      const projection = await window.zli?.runtime.getProjection();
+      return projection?.worktrees.find((candidate) => candidate.path.replaceAll("\\", "/").endsWith("/e2e"))?.worktreeId;
+    });
+    if (!worktreeId) throw new Error("The created worktree was not present in the runtime projection.");
 
     const terminalPort = 43100 + Math.floor(Math.random() * 500);
     const worktreePath = join(repo + "-worktrees", "e2e");
@@ -86,9 +91,13 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await fixture.page.evaluate(() => window.zli?.test?.restartRuntime());
     await fixture.page.getByRole("button", { name: "Terminal", exact: true }).click();
     await expect(fixture.page.getByRole("log", { name: "Terminal output" })).toContainText(`ZLI_DEV_READY ${terminalPort}`, { timeout: 20_000 });
-    await fixture.app.close();
+    await closeApp(fixture, { stopTerminals: false });
     fixture = await launchDesktop(repo, root);
-    await expect(fixture.page.getByRole("button", { name: /e2e/iu })).toContainText("Ready");
+    await expect.poll(async () => fixture!.page.evaluate(async (id) => {
+      const projection = await window.zli?.runtime.getProjection();
+      return projection?.worktrees.find((candidate) => candidate.worktreeId === id)?.status;
+    }, worktreeId), { timeout: 30_000 }).toBe("ready");
+    await expect(fixture.page.getByRole("button", { name: /e2e/iu })).toContainText("Ready", { timeout: 30_000 });
     await fixture.page.getByRole("button", { name: "Agent", exact: true }).click();
     await expect(fixture.page.getByText("Mock response: inspect workspace")).toBeVisible();
     await fixture.page.getByRole("button", { name: "Browser", exact: true }).click();
