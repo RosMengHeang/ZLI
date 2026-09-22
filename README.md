@@ -53,3 +53,15 @@ The browser is a Tauri WebView2 pane owned by ZLI, not a connection to the user'
 All ZLI-managed agents receive `ZLI_BROWSER_PROFILE`, `ZLI_BROWSER_SESSION`, and `ZLI_BROWSER_USE_COMMAND`. Providers with an accepted MCP launch configuration can use the provider-neutral `zli-browser-use` adapter; all managed sessions have the scoped `zli browser ...` fallback. ZLI reports unsupported or fallback providers honestly instead of assuming every CLI can discover MCP from a prompt.
 
 Support status is per capability, not per install. See [`docs/testing/zli-provider-feature-matrix.md`](docs/testing/zli-provider-feature-matrix.md) for verified, partial, unsupported, and not-tested cells from unit evidence. Live desktop and packaged Windows checks are recorded only when run; see [`docs/testing/zli-wp8-evidence.md`](docs/testing/zli-wp8-evidence.md). Local browser fixture pages live under [`docs/testing/fixtures/browser-site/`](docs/testing/fixtures/browser-site/).
+
+## V2 Electron preview
+
+The rebuilt Electron desktop is available as an opt-in V2 path while the cross-platform release gate is being completed. It requires Node 24 and pnpm:
+
+```powershell
+pnpm install --dir v2 --frozen-lockfile
+pnpm run v2:verify
+pnpm run v2:desktop
+```
+
+Use `npm run tauri ...` for the legacy desktop during the transition. V2 packaging commands are `npm run v2:desktop:dir` and `npm run v2:desktop:pack`; the default desktop command will change only after the documented CI evidence is complete.

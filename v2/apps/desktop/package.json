@@ -2,6 +2,8 @@
   "name": "@zli-v2/desktop",
   "private": true,
   "version": "0.0.0",
+  "description": "Secure Electron desktop shell for ZLI V2.",
+  "author": "ZLI contributors",
   "type": "module",
   "main": "dist/main.js",
   "scripts": {

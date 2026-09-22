@@ -11,6 +11,7 @@
     "boundaries": "node scripts/enforce-boundaries.mjs",
     "desktop:pack": "pnpm --filter @zli-v2/desktop pack",
     "desktop:dir": "pnpm --filter @zli-v2/desktop pack:dir",
+    "desktop:dev": "pnpm run build && pnpm exec electron apps/desktop/dist/main.js",
     "e2e": "playwright test",
     "build": "node scripts/build.mjs && pnpm run web:build",
     "web:build": "pnpm --filter @zli-v2/web exec vite build",
