@@ -7,6 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@zli-v2/contracts": "workspace:*"
+    "@zli-v2/contracts": "workspace:*",
+    "zod": "4.1.11"
   }
 }

@@ -134,6 +134,9 @@ importers:
       '@zli-v2/contracts':
         specifier: workspace:*
         version: link:../contracts
+      zod:
+        specifier: 4.1.11
+        version: 4.1.11
 
   packages/shared: {}
 
