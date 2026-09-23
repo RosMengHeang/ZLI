@@ -281,10 +281,11 @@ export class BrowserManager {
     contents.on("did-navigate", (_event, url) => {
       if (typeof url === "string" && isAllowedBrowserNavigation(url)) this.#replace(browserTabId, { url });
     });
-    contents.on("did-fail-load", (_event, _code, _description, url) => {
+    contents.on("did-fail-load", (_event, _code, _description, url, isMainFrame) => {
+      if (isMainFrame !== true) return;
       this.#replace(browserTabId, {
         status: "crashed",
-        ...(typeof url === "string" ? { url } : {}),
+        ...(typeof url === "string" && isAllowedBrowserNavigation(url) ? { url } : {}),
       });
     });
     contents.on("render-process-gone", () => {
@@ -303,6 +304,7 @@ export class BrowserManager {
     const previousView = tab.view;
     try {
       const { worktreeId, profileId, url } = tab.projection;
+      assertBrowserUrl(url);
       const partition = this.#sessionManager.partitionFor(worktreeId, profileId);
       const browserSession = this.#sessionModule
         ? this.#sessionManager.getSession(this.#sessionModule, worktreeId, profileId)
