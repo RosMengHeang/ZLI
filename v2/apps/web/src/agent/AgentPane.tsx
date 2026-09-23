@@ -1,22 +1,28 @@
-import type {
-  ListedProviderKind,
-  ProviderDiscovery,
-  RuntimeProjection,
-  ThreadId,
-  WorktreeProjection,
+import {
+  type ListedProviderKind,
+  type ProviderDiscovery,
+  type RuntimeProjection,
+  type ThreadId,
+  threadOccupiesWorktree,
+  type WorktreeProjection,
 } from "@zli-v2/contracts";
 import type { FormEvent } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { listedDiscoveries, preferredProvider, providerDisplayName } from "./providers.js";
+import { defaultWorktreeForNewAgent } from "./worktreeChoice.js";
 
 export function AgentPane({
   projection,
   worktree,
+  onSelectWorktree,
+  onCreateWorktree,
 }: {
   projection: RuntimeProjection;
   worktree: WorktreeProjection | undefined;
+  onSelectWorktree?(worktree: WorktreeProjection): void;
+  onCreateWorktree?(): void;
 }) {
   const { dispatch } = useRuntime();
   const [draft, setDraft] = useState("");
@@ -26,6 +32,8 @@ export function AgentPane({
   const [error, setError] = useState<string>();
   const [answers, setAnswers] = useState("{}");
   const [providerChoice, setProviderChoice] = useState<ListedProviderKind>();
+  const [sharePrompt, setSharePrompt] = useState<{ worktreeId: string; provider: ListedProviderKind } | null>(null);
+  const shareConfirmRef = useRef<HTMLButtonElement>(null);
   const listed = useMemo(() => listedDiscoveries(projection.providers), [projection.providers]);
   const selectedKind =
     providerChoice && listed.some((entry) => entry.provider === providerChoice)
@@ -51,29 +59,60 @@ export function AgentPane({
   }, [projection.threads, projection.worktrees, thread, worktree]);
   const selectedPeerId = peers.some((peer) => peer.threadId === peerTargetId) ? peerTargetId : peers[0]?.threadId;
   const displayName = selected?.displayName ?? (selectedKind ? providerDisplayName(selectedKind, listed) : "Agent");
+  const placement = defaultWorktreeForNewAgent(projection, worktree);
+  const occupants = useMemo(() => {
+    if (!worktree) return [];
+    return projection.threads.filter(
+      (candidate) => candidate.worktreeId === worktree.worktreeId && threadOccupiesWorktree(candidate.status),
+    );
+  }, [projection.threads, worktree]);
+  const occupantLabel = occupants
+    .map((candidate) => providerDisplayName(candidate.provider, projection.providers))
+    .filter((name, index, names) => names.indexOf(name) === index)
+    .join(", ");
+  const confirmShare =
+    sharePrompt !== null && sharePrompt.worktreeId === worktree?.worktreeId && sharePrompt.provider === selectedKind;
 
-  const start = async () => {
-    if (!worktree || !selected || selected.status !== "found") return;
+  useEffect(() => {
+    if (!confirmShare) return;
+    shareConfirmRef.current?.focus();
+  }, [confirmShare]);
+
+  const startOn = async (target: WorktreeProjection, share: boolean) => {
+    if (selected?.status !== "found") return;
     setBusy(true);
     setError(undefined);
     try {
+      if (worktree && target.worktreeId !== worktree.worktreeId) onSelectWorktree?.(target);
       const response = await dispatch({
         protocolVersion: 1,
         commandId: makeCommandId(),
         command: {
           type: "thread.start",
           threadId: makeCommandId(),
-          worktreeId: worktree.worktreeId,
+          worktreeId: target.worktreeId,
           provider: selected.provider,
-          cwd: worktree.path,
+          cwd: target.path,
+          ...(share ? { shareWorktree: true } : {}),
         },
       });
       if (response?.accepted === false) setError(response.error.message);
+      else setSharePrompt(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The agent could not start.");
     } finally {
       setBusy(false);
     }
+  };
+
+  const start = async () => {
+    if (!worktree || !selected || placement.mode === "missing") return;
+    if (placement.mode === "create") {
+      onCreateWorktree?.();
+      return;
+    }
+    const target = placement.mode === "free" ? placement.worktree : worktree;
+    await startOn(target, false);
   };
 
   const send = async (event: FormEvent) => {
@@ -177,7 +216,9 @@ export function AgentPane({
         onSelect={setProviderChoice}
       />
       <p className="provider-picker-note">
-        Changing the agent starts a new thread in this worktree. It does not continue the other agent's session.
+        {placement.mode === "current" || placement.mode === "missing"
+          ? "Changing the agent starts a new thread in this worktree. It does not continue the other agent's session."
+          : `${occupantSentence(occupantLabel, occupants.length)} already using this worktree. A new agent gets its own worktree. It does not continue the session already here.`}
       </p>
       {!worktree ? (
         <EmptyAgent title="Select a worktree" detail="Agent sessions are isolated to the selected worktree." />
@@ -199,16 +240,62 @@ export function AgentPane({
             <>
               <p className="empty-title">No {displayName} session</p>
               <p className="empty-detail">
-                Start a new thread in this worktree. The session uses this worktree as its working directory.
+                {startDetail(displayName, worktree.branch, occupantLabel, occupants.length, placement)}
               </p>
-              <button
-                className="primary-button"
-                type="button"
-                onClick={() => void start()}
-                disabled={busy || selected.status !== "found"}
-              >
-                {busy ? "Starting" : `Start ${displayName}`}
-              </button>
+              {confirmShare ? (
+                <fieldset
+                  className="agent-request agent-share"
+                  aria-label="Confirm shared worktree"
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.stopPropagation();
+                      setSharePrompt(null);
+                    }
+                  }}
+                >
+                  <p className="empty-detail">
+                    Share {worktree.branch} with {displayName}? The agent already here keeps running in this worktree
+                    too.
+                  </p>
+                  <div className="agent-share-actions">
+                    <button
+                      className="primary-button"
+                      type="button"
+                      ref={shareConfirmRef}
+                      onClick={() => void startOn(worktree, true)}
+                      disabled={busy || selected.status !== "found"}
+                    >
+                      {busy ? "Starting" : "Share worktree"}
+                    </button>
+                    <button className="secondary-button" type="button" onClick={() => setSharePrompt(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </fieldset>
+              ) : (
+                <div className="agent-share-actions">
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={() => void start()}
+                    disabled={primaryDisabled(placement.mode, busy, selected.status !== "found", onCreateWorktree)}
+                  >
+                    {primaryLabel(busy, displayName, placement)}
+                  </button>
+                  {placement.mode !== "current" ? (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => {
+                        if (selectedKind) setSharePrompt({ worktreeId: worktree.worktreeId, provider: selectedKind });
+                      }}
+                      disabled={selected.status !== "found"}
+                    >
+                      Share this worktree
+                    </button>
+                  ) : null}
+                </div>
+              )}
             </>
           )}
           {visibleError && (
@@ -333,6 +420,50 @@ export function AgentPane({
       )}
     </div>
   );
+}
+
+function occupantSentence(label: string, count: number): string {
+  if (!label) return "Another agent is";
+  return count > 1 ? `${label} are` : `${label} is`;
+}
+
+function startDetail(
+  displayName: string,
+  branch: string,
+  occupantLabel: string,
+  occupantCount: number,
+  placement: ReturnType<typeof defaultWorktreeForNewAgent>,
+): string {
+  const who = occupantSentence(occupantLabel, occupantCount);
+  if (placement.mode === "free") {
+    return `${who} already using ${branch}. Start ${displayName} in ${placement.worktree.branch} instead.`;
+  }
+  if (placement.mode === "create") {
+    return `${who} already using ${branch}. Create a worktree, then start ${displayName} there.`;
+  }
+  return "Start a new thread in this worktree. The session uses this worktree as its working directory.";
+}
+
+function primaryLabel(
+  busy: boolean,
+  displayName: string,
+  placement: ReturnType<typeof defaultWorktreeForNewAgent>,
+): string {
+  if (placement.mode === "create") return "Create worktree";
+  if (busy) return "Starting";
+  if (placement.mode === "free") return `Start ${displayName} in ${placement.worktree.branch}`;
+  return `Start ${displayName}`;
+}
+
+function primaryDisabled(
+  mode: ReturnType<typeof defaultWorktreeForNewAgent>["mode"],
+  busy: boolean,
+  providerMissing: boolean,
+  onCreateWorktree: (() => void) | undefined,
+): boolean {
+  if (providerMissing) return true;
+  if (mode === "create") return !onCreateWorktree;
+  return busy;
 }
 
 function sourceLabel(projection: RuntimeProjection, sourceThreadId: ThreadId | undefined): string {

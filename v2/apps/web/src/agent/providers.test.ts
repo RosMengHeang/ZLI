@@ -46,10 +46,11 @@ describe("listedDiscoveries", () => {
     expect(
       worktreeProviderLabel(
         [
-          { worktreeId: "tree-1", provider: "codex" },
-          { worktreeId: "tree-1", provider: "claude-code" },
-          { worktreeId: "tree-1", provider: "opencode" },
-          { worktreeId: "tree-2", provider: "cursor-agent" },
+          { worktreeId: "tree-1", provider: "codex", status: "idle" },
+          { worktreeId: "tree-1", provider: "claude-code", status: "working" },
+          { worktreeId: "tree-1", provider: "cursor-agent", status: "stopped" },
+          { worktreeId: "tree-1", provider: "opencode", status: "idle" },
+          { worktreeId: "tree-2", provider: "cursor-agent", status: "idle" },
         ],
         "tree-1",
         [codex, claude, cursor],

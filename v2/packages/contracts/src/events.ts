@@ -1,18 +1,17 @@
 import { z } from "zod";
-
-import { BrowserTabId, EventId, ProjectId, TerminalId, ThreadId, TurnId, WorktreeId, WorkspaceId } from "./ids.js";
 import { BrowserTabProjection } from "./browser.js";
-import { ProjectProjection, WorktreeProjection, SupportBundleProjection } from "./projections.js";
+import { DiagnosticLog } from "./diagnostics.js";
+import { BrowserTabId, EventId, ProjectId, TerminalId, ThreadId, TurnId, WorkspaceId, WorktreeId } from "./ids.js";
+import { LegacyImportPreview } from "./import.js";
+import { ProjectProjection, SupportBundleProjection, WorktreeProjection } from "./projections.js";
 import {
   ProviderCapabilities,
   ThreadMessageProjection,
   ThreadProjection,
   ThreadRequestProjection,
 } from "./provider.js";
-import { TerminalProjection, TerminalStatus } from "./terminal.js";
 import { ReviewProjection } from "./review.js";
-import { LegacyImportPreview } from "./import.js";
-import { DiagnosticLog } from "./diagnostics.js";
+import { TerminalProjection, TerminalStatus } from "./terminal.js";
 
 export const RuntimeEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("runtime.ready") }),
@@ -63,7 +62,13 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     rows: z.number().int().positive(),
   }),
   z.object({ type: z.literal("terminal.stop.requested"), terminalId: TerminalId }),
-  z.object({ type: z.literal("thread.start.requested"), thread: ThreadProjection, cwd: z.string().min(1) }),
+  z.object({
+    type: z.literal("thread.start.requested"),
+    thread: ThreadProjection,
+    cwd: z.string().min(1),
+    /** Present only when the caller confirmed sharing a worktree that already has a live agent. */
+    shareWorktree: z.literal(true).optional(),
+  }),
   z.object({
     type: z.literal("thread.send.requested"),
     threadId: ThreadId,

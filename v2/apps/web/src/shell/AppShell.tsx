@@ -1,17 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-
-import type { WorktreeProjection } from "@zli-v2/contracts";
 import { AgentPane } from "../agent/AgentPane.js";
 import { AttentionPanel } from "../attention/AttentionPanel.js";
 import { BrowserPane } from "../browser/BrowserPane.js";
-import { RuntimeProvider, useRuntime } from "../runtime/RuntimeProvider.js";
 import { ReviewPane } from "../review/ReviewPane.js";
-import { TerminalPane } from "../terminal/TerminalPane.js";
-import { WorktreeSidebar } from "../worktrees/WorktreeSidebar.js";
-import { PaneTree, type WorkspacePane } from "../workspace/PaneTree.js";
 import { getBridge, type ZliBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
+import { RuntimeProvider, useRuntime } from "../runtime/RuntimeProvider.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
+import { TerminalPane } from "../terminal/TerminalPane.js";
+import { PaneTree, type WorkspacePane } from "../workspace/PaneTree.js";
+import { WorktreeSidebar } from "../worktrees/WorktreeSidebar.js";
 import { HelpDialog } from "./HelpDialog.js";
 import "./AppShell.css";
 
@@ -292,7 +290,12 @@ function WorkspaceApp() {
           ) : (
             <PaneTree pane={pane} onChange={setPane}>
               {pane === "agent" ? (
-                <AgentPane projection={projection} worktree={activeWorktree} />
+                <AgentPane
+                  projection={projection}
+                  worktree={activeWorktree}
+                  onSelectWorktree={(next) => setActiveWorktreeId(next.worktreeId)}
+                  onCreateWorktree={() => setWorktreeDialogOpen(true)}
+                />
               ) : pane === "terminal" ? (
                 <TerminalPane
                   projection={projection}

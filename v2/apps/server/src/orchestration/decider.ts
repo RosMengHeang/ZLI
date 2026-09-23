@@ -7,6 +7,7 @@ import {
   type RuntimeCommand,
   type RuntimeEvent,
   type RuntimeProjection,
+  threadOccupiesWorktree,
 } from "@zli-v2/contracts";
 
 import { resolveTerminalCwd, TerminalCwdError } from "../terminal/terminalCwd.js";
@@ -21,6 +22,7 @@ export type DomainErrorCode =
   | "terminal_cwd_rejected"
   | "thread_exists"
   | "thread_missing"
+  | "worktree_occupied"
   | "a2a_cross_project"
   | "a2a_invalid_target"
   | "unsupported_command";
@@ -243,11 +245,22 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       if (projection.threads.some((thread) => thread.threadId === command.threadId)) {
         throw new DomainError("thread_exists", "Thread already exists: " + command.threadId);
       }
+      // Existing threads that already share a worktree are left alone. Only this new bind is checked.
+      const occupied = projection.threads.some(
+        (thread) => thread.worktreeId === command.worktreeId && threadOccupiesWorktree(thread.status),
+      );
+      if (occupied && command.shareWorktree !== true) {
+        throw new DomainError(
+          "worktree_occupied",
+          "This worktree already has a live agent. Start on a free worktree, or confirm sharing it.",
+        );
+      }
       return [
         {
           type: "thread.start.requested",
           // Bind the session to the worktree projection. A client cwd cannot move it.
           cwd: worktree.path,
+          ...(command.shareWorktree === true ? { shareWorktree: true as const } : {}),
           thread: {
             threadId: command.threadId,
             worktreeId: command.worktreeId,

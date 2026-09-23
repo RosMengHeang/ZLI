@@ -8,6 +8,7 @@ import {
   type RuntimeProjection,
   ThreadId,
   WorktreeId,
+  type WorktreeProjection,
 } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -66,6 +67,10 @@ function renderPane(
     commandId,
     accepted: true as const,
   }),
+  hooks: {
+    onSelectWorktree?: (worktreeId: string) => void;
+    onCreateWorktree?: () => void;
+  } = {},
 ) {
   const bridge = {
     runtime: {
@@ -82,7 +87,14 @@ function renderPane(
   act(() => {
     createRoot(container).render(
       <RuntimeProvider bridge={bridge}>
-        <AgentPane projection={next} worktree={worktree} />
+        <AgentPane
+          projection={next}
+          worktree={worktree}
+          {...(hooks.onSelectWorktree
+            ? { onSelectWorktree: (selected: WorktreeProjection) => hooks.onSelectWorktree?.(selected.worktreeId) }
+            : {})}
+          {...(hooks.onCreateWorktree ? { onCreateWorktree: hooks.onCreateWorktree } : {})}
+        />
       </RuntimeProvider>,
     );
   });
@@ -146,11 +158,17 @@ describe("AgentPane", () => {
     expect(calls).toEqual([]);
   });
 
-  it("opens a new thread when the provider changes instead of reusing another session", async () => {
+  it("starts a changed provider on a free worktree instead of the live one", async () => {
     const codexThread = ThreadId.parse("00000000-0000-4000-8000-000000000021");
+    const freeWorktree = WorktreeId.parse("00000000-0000-4000-8000-000000000012");
     const calls: unknown[] = [];
+    const selected: string[] = [];
     const container = renderPane(
       projection({
+        worktrees: [
+          { worktreeId, projectId, path: "/repo/feature", branch: "feature", status: "ready" },
+          { worktreeId: freeWorktree, projectId, path: "/repo/other", branch: "other", status: "ready" },
+        ],
         threads: [
           {
             threadId: codexThread,
@@ -173,6 +191,7 @@ describe("AgentPane", () => {
         calls.push(request);
         return { commandId, accepted: true as const };
       },
+      { onSelectWorktree: (id) => selected.push(id) },
     );
 
     expect(container.textContent).toContain("codex only reply");
@@ -182,19 +201,154 @@ describe("AgentPane", () => {
     });
     expect(container.textContent).not.toContain("codex only reply");
     expect(container.textContent).toContain("No Claude Code session");
-    expect(container.textContent).toContain("does not continue the other agent's session");
+    expect(container.textContent).toContain("gets its own worktree");
+    expect(container.textContent).toContain("does not continue the session already here");
     await act(async () => {
-      [...container.querySelectorAll("button")].find((button) => button.textContent === "Start Claude Code")?.click();
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Start Claude Code in other")
+        ?.click();
     });
     const command = (calls[0] as { command: { type: string; threadId: string; provider: string; cwd: string } })
       .command;
     expect(command).toMatchObject({
       type: "thread.start",
       provider: "claude-code",
-      cwd: "/repo/feature",
-      worktreeId,
+      cwd: "/repo/other",
+      worktreeId: freeWorktree,
     });
+    expect(command).not.toHaveProperty("shareWorktree");
     expect(command.threadId).not.toBe(codexThread);
+    expect(selected).toEqual([freeWorktree]);
+  });
+
+  it("asks for a new worktree when every ready checkout already has a live agent", async () => {
+    const calls: unknown[] = [];
+    let created = 0;
+    const container = renderPane(
+      projection({
+        threads: [
+          {
+            threadId: ThreadId.parse("00000000-0000-4000-8000-000000000021"),
+            worktreeId,
+            provider: "codex",
+            status: "working",
+            capabilities: {},
+          },
+        ],
+      }),
+      async (request) => {
+        calls.push(request);
+        return { commandId, accepted: true as const };
+      },
+      { onCreateWorktree: () => (created += 1) },
+    );
+    await act(async () => {
+      container.querySelector<HTMLInputElement>('input[value="claude-code"]')?.click();
+    });
+    expect(container.textContent).toContain("Create a worktree, then start Claude Code there.");
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "Create worktree")?.click();
+    });
+    expect(created).toBe(1);
+    expect(calls).toEqual([]);
+  });
+
+  it("shares the current worktree only after confirm", async () => {
+    const calls: unknown[] = [];
+    const container = renderPane(
+      projection({
+        threads: [
+          {
+            threadId: ThreadId.parse("00000000-0000-4000-8000-000000000021"),
+            worktreeId,
+            provider: "codex",
+            status: "idle",
+            capabilities: {},
+          },
+        ],
+      }),
+      async (request) => {
+        calls.push(request);
+        return { commandId, accepted: true as const };
+      },
+    );
+    await act(async () => {
+      container.querySelector<HTMLInputElement>('input[value="cursor-agent"]')?.click();
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "Share this worktree")?.click();
+    });
+    expect(calls).toEqual([]);
+    const confirm = container.querySelector('[aria-label="Confirm shared worktree"]');
+    expect(confirm).not.toBeNull();
+    await act(async () => {
+      confirm?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(container.querySelector('[aria-label="Confirm shared worktree"]')).toBeNull();
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "Share this worktree")?.click();
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "Cancel")?.click();
+    });
+    expect(container.querySelector('[aria-label="Confirm shared worktree"]')).toBeNull();
+    expect(calls).toEqual([]);
+
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "Share this worktree")?.click();
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "Share worktree")?.click();
+    });
+    expect(calls).toEqual([
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "thread.start",
+          provider: "cursor-agent",
+          worktreeId,
+          cwd: "/repo/feature",
+          shareWorktree: true,
+        }),
+      }),
+    ]);
+  });
+
+  it("treats a stopped thread as free so a single-agent restart stays on that worktree", async () => {
+    const calls: unknown[] = [];
+    const container = renderPane(
+      projection({
+        threads: [
+          {
+            threadId: ThreadId.parse("00000000-0000-4000-8000-000000000021"),
+            worktreeId,
+            provider: "codex",
+            status: "stopped",
+            capabilities: {},
+          },
+        ],
+      }),
+      async (request) => {
+        calls.push(request);
+        return { commandId, accepted: true as const };
+      },
+    );
+    await act(async () => {
+      container.querySelector<HTMLInputElement>('input[value="claude-code"]')?.click();
+    });
+    expect(container.textContent).toContain("Start a new thread in this worktree.");
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "Start Claude Code")?.click();
+    });
+    expect(calls).toEqual([
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "thread.start",
+          provider: "claude-code",
+          worktreeId,
+        }),
+      }),
+    ]);
+    expect((calls[0] as { command: object }).command).not.toHaveProperty("shareWorktree");
   });
 
   it("shows inbound agent text as text and sends only inside the project", async () => {

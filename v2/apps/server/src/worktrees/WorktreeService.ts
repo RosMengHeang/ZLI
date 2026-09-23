@@ -1,7 +1,7 @@
 import { lstat, mkdir } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
-import { GitProcess } from "../git/GitProcess.js";
+import { type GitProcess, GitProcessError } from "../git/GitProcess.js";
 import { applyWorktreeInclude, type WorktreeIncludeReport } from "./WorktreeInclude.js";
 
 export type WorktreeState =
@@ -58,7 +58,9 @@ export class WorktreeError extends Error {
       | "target_exists"
       | "not_found"
       | "cancelled"
-      | "cleanup_failed",
+      | "cleanup_failed"
+      | "git_locked"
+      | "git_checkout_blocked",
     message: string,
     options?: ErrorOptions,
   ) {
@@ -185,7 +187,7 @@ export class WorktreeService {
       if (cancelled && !isWorktreeError(error)) {
         throw new WorktreeError("cancelled", "Worktree creation was cancelled.", { cause: error });
       }
-      throw error;
+      throw explainWorktreeGitFailure(error);
     }
   }
 }
@@ -226,7 +228,7 @@ function assertSafeRef(ref: string): void {
     ref.includes("\0") ||
     ref.includes("\\") ||
     /(^|\/)\.\.?($|\/)/u.test(ref) ||
-    /[~^:?*\[]/u.test(ref) ||
+    /[~^:?*[]/u.test(ref) ||
     ref.endsWith(".lock") ||
     ref.endsWith(".")
   ) {
@@ -244,4 +246,60 @@ function isAbortError(error: unknown): boolean {
 
 function isWorktreeError(error: unknown): error is WorktreeError {
   return error instanceof WorktreeError;
+}
+
+/** Turn a raw git worktree failure into a message a person can act on. Other errors pass through. */
+export function explainWorktreeGitFailure(error: unknown): unknown {
+  if (!(error instanceof GitProcessError)) return error;
+  const detail = `${error.stderr}\n${error.message}`;
+  const normalized = detail.toLowerCase();
+  const gitLine = firstGitLine(error.stderr);
+  if (isGitLockFailure(normalized)) {
+    return new WorktreeError(
+      "git_locked",
+      gitLine
+        ? `Git could not create the worktree because a lock is held. Wait for the other Git process to finish, then retry. Git said: ${gitLine}`
+        : "Git could not create the worktree because a lock is held. Wait for the other Git process to finish, then retry.",
+      { cause: error },
+    );
+  }
+  if (isGitCheckoutBlocked(normalized)) {
+    return new WorktreeError(
+      "git_checkout_blocked",
+      gitLine
+        ? `Git could not create the worktree. The branch is already checked out, or local changes would be overwritten. Commit, stash, or pick another branch, then retry. Git said: ${gitLine}`
+        : "Git could not create the worktree. The branch is already checked out, or local changes would be overwritten. Commit, stash, or pick another branch, then retry.",
+      { cause: error },
+    );
+  }
+  return error;
+}
+
+function isGitLockFailure(detail: string): boolean {
+  return (
+    detail.includes(".lock") ||
+    detail.includes("could not lock") ||
+    detail.includes("unable to lock") ||
+    detail.includes("another git process")
+  );
+}
+
+function isGitCheckoutBlocked(detail: string): boolean {
+  return (
+    detail.includes("already checked out") ||
+    detail.includes("already used by worktree") ||
+    detail.includes("local changes") ||
+    detail.includes("would be overwritten") ||
+    detail.includes("contains modified or untracked") ||
+    detail.includes("please commit or stash")
+  );
+}
+
+function firstGitLine(stderr: string): string | undefined {
+  const line = stderr
+    .split(/\r?\n/u)
+    .map((entry) => entry.trim())
+    .find((entry) => entry.length > 0);
+  if (!line) return undefined;
+  return line.length > 240 ? `${line.slice(0, 237)}...` : line;
 }

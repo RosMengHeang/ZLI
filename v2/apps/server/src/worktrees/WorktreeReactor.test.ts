@@ -1,15 +1,13 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-
+import { CommandId, type EnvironmentDescriptor, EnvironmentId, ProjectId, WorktreeId } from "@zli-v2/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { CommandId, EnvironmentId, ProjectId, WorktreeId, type EnvironmentDescriptor } from "@zli-v2/contracts";
-
 import { Database } from "../db/Database.js";
-import { GitProcess } from "../git/GitProcess.js";
+import { GitProcess, GitProcessError } from "../git/GitProcess.js";
 import { Engine } from "../orchestration/Engine.js";
 import { WorktreeReactor } from "./WorktreeReactor.js";
 import { WorktreeService } from "./WorktreeService.js";
@@ -127,5 +125,48 @@ describe("durable worktree reactor", () => {
 
     expect((await engine.projection()).worktrees[0]?.status).toBe("failed");
     expect((await engine.projection()).worktrees[0]?.errorMessage).toContain("bootstrap failed");
+  });
+
+  it("records a clear lock message when git cannot create the worktree", async () => {
+    const root = await createRepository();
+    const engine = makeEngine();
+    const reactor = new WorktreeReactor(
+      engine,
+      new WorktreeService({
+        async run() {
+          throw new GitProcessError(
+            "git worktree add exited with code 128.",
+            128,
+            ["worktree", "add"],
+            "",
+            "fatal: Unable to create '/repo/.git/index.lock': File exists.\n",
+          );
+        },
+      }),
+    );
+    reactors.push(reactor);
+    const projectReceipt = await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000208", {
+        type: "project.register",
+        path: root.repoPath,
+      }),
+    );
+    const projectId = ProjectId.parse(projectReceipt.result?.projectId ?? "");
+    await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000209", {
+        type: "worktree.create",
+        worktreeId: WorktreeId.parse("00000000-0000-4000-8000-000000000210"),
+        projectId,
+        path: join(root.workspaceRoot, "locked"),
+        workspaceRoot: root.workspaceRoot,
+        branch: "feature/locked",
+      }),
+    );
+    await reactor.waitForIdle();
+
+    const worktree = (await engine.projection()).worktrees[0];
+    expect(worktree?.status).toBe("failed");
+    expect(worktree?.errorMessage).toContain("lock is held");
+    expect(worktree?.errorMessage).toContain("index.lock");
   });
 });

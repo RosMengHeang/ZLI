@@ -28,6 +28,7 @@ const environment = {
 const projectA = ProjectId.parse("00000000-0000-4000-8000-000000000711");
 const projectB = ProjectId.parse("00000000-0000-4000-8000-000000000712");
 const worktreeA = WorktreeId.parse("00000000-0000-4000-8000-000000000721");
+const worktreeA2 = WorktreeId.parse("00000000-0000-4000-8000-000000000723");
 const worktreeB = WorktreeId.parse("00000000-0000-4000-8000-000000000722");
 const threadA = ThreadId.parse("00000000-0000-4000-8000-000000000731");
 const threadB = ThreadId.parse("00000000-0000-4000-8000-000000000732");
@@ -178,13 +179,25 @@ describe("agent-to-agent project messages", () => {
     });
     await engine.dispatchPromise({
       protocolVersion: 1,
+      commandId: CommandId.parse("00000000-0000-4000-8000-000000000760"),
+      command: {
+        type: "worktree.create",
+        worktreeId: worktreeA2,
+        projectId,
+        path: "C:\\work\\alpha\\a2",
+        workspaceRoot: "C:\\work",
+        branch: "feature-a2",
+      },
+    });
+    await engine.dispatchPromise({
+      protocolVersion: 1,
       commandId: CommandId.parse("00000000-0000-4000-8000-000000000754"),
       command: {
         type: "thread.start",
         threadId: threadB,
-        worktreeId: worktreeA,
+        worktreeId: worktreeA2,
         provider: "claude-code",
-        cwd: "C:\\work\\alpha\\a",
+        cwd: "C:\\work\\alpha\\a2",
       },
     });
     await providerReactor.waitForIdle();

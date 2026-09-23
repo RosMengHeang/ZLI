@@ -114,6 +114,24 @@ const retiredWorktreeStatuses = new Set<WorktreeProjection["status"]>(["cancelle
 const closedThreadStatuses = new Set<ThreadProjection["status"]>(["stopped"]);
 
 /**
+ * Statuses that still hold a worktree for a new bind.
+ * Stopped and failed threads leave the worktree free.
+ * Threads already sharing a worktree stay where they are; only a new start is checked.
+ */
+const occupyingThreadStatuses = new Set<ThreadProjection["status"]>(["starting", "idle", "working", "waiting"]);
+
+export function threadOccupiesWorktree(status: ThreadProjection["status"]): boolean {
+  return occupyingThreadStatuses.has(status);
+}
+
+export function worktreeHasLiveThread(
+  threads: readonly { worktreeId: string; status: ThreadProjection["status"] }[],
+  worktreeId: string,
+): boolean {
+  return threads.some((thread) => thread.worktreeId === worktreeId && threadOccupiesWorktree(thread.status));
+}
+
+/**
  * Project the live card from projects, worktrees, and threads already in the runtime.
  * Cancelled checkouts and stopped threads drop off. Transcripts are never copied.
  */
