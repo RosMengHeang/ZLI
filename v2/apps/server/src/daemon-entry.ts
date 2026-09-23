@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,7 @@ import { NodePtyFactory } from "./terminal/NodePtyFactory.js";
 import { TerminalCwdError } from "./terminal/terminalCwd.js";
 import { TerminalService } from "./terminal/TerminalService.js";
 
+const daemonEndpointFileMode = 0o600;
 const protocolVersion = Number.parseInt(process.env.ZLI_DAEMON_PROTOCOL_VERSION ?? "1", 10);
 const daemonVersion = process.env.ZLI_DAEMON_VERSION ?? "zli-v2-daemon/1";
 const token = process.env.ZLI_DAEMON_TOKEN;
@@ -40,8 +41,18 @@ async function main(): Promise<void> {
     port: address.port,
     token,
   };
+  await writeDaemonEndpointFile(endpointPath, JSON.stringify(endpoint));
+}
+
+export async function writeDaemonEndpointFile(endpointPath: string, contents: string): Promise<void> {
   await mkdir(dirname(endpointPath), { recursive: true });
-  await writeFile(endpointPath, JSON.stringify(endpoint), "utf8");
+  try {
+    await chmod(endpointPath, daemonEndpointFileMode);
+  } catch (error) {
+    if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "ENOENT") throw error;
+  }
+  await writeFile(endpointPath, contents, { encoding: "utf8", mode: daemonEndpointFileMode });
+  await chmod(endpointPath, daemonEndpointFileMode);
 }
 
 export function accept(socket: Socket, terminals: TerminalService): void {

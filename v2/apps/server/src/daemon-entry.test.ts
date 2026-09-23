@@ -1,8 +1,57 @@
 import { EventEmitter } from "node:events";
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import type { Socket } from "node:net";
-import { expect, it, vi } from "vitest";
-import { accept } from "./daemon-entry.js";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, expect, it, vi } from "vitest";
+import { accept, writeDaemonEndpointFile } from "./daemon-entry.js";
 import { TerminalService } from "./terminal/TerminalService.js";
+
+const directories: string[] = [];
+
+afterEach(async () => {
+  for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true });
+});
+
+it("writes the daemon endpoint file as owner read/write only", async () => {
+  const endpointPath = join(await tempDirectory(), "runtime", "daemon.json");
+  const contents = JSON.stringify({ token: "secret-token" });
+
+  await writeDaemonEndpointFile(endpointPath, contents);
+
+  expect(await readFile(endpointPath, "utf8")).toBe(contents);
+  await expectOwnerReadWriteOnly(endpointPath);
+});
+
+it("tightens an existing daemon endpoint file when replacing it", async () => {
+  const endpointPath = join(await tempDirectory(), "daemon.json");
+  await writeFile(endpointPath, "old-token", "utf8");
+  if (process.platform !== "win32") {
+    await chmod(endpointPath, 0o666);
+    expect((await stat(endpointPath)).mode & 0o777).toBe(0o666);
+  }
+  const contents = JSON.stringify({ token: "replacement-token" });
+
+  await writeDaemonEndpointFile(endpointPath, contents);
+
+  expect(await readFile(endpointPath, "utf8")).toBe(contents);
+  await expectOwnerReadWriteOnly(endpointPath);
+});
+
+async function tempDirectory(): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), "zli-daemon-endpoint-"));
+  directories.push(directory);
+  return directory;
+}
+
+async function expectOwnerReadWriteOnly(endpointPath: string): Promise<void> {
+  const mode = (await stat(endpointPath)).mode & 0o777;
+  if (process.platform === "win32") {
+    expect(mode & 0o200).not.toBe(0);
+    return;
+  }
+  expect(mode).toBe(0o600);
+}
 
 it("drops daemon credential env after reading it and still accepts that token", async () => {
   const previous = {
