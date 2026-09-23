@@ -65,7 +65,8 @@ describe("NodePtyFactory", () => {
       platform: "linux",
       load: async () => ({
         spawn: (_shell: string, _args: string[], options: Record<string, unknown>) => {
-          spawned.push({ env: options.env as NodeJS.ProcessEnv | undefined });
+          const env = options.env as NodeJS.ProcessEnv | undefined;
+          spawned.push({ ...(env === undefined ? {} : { env }) });
           return {
             pid: 7,
             write: () => undefined,
