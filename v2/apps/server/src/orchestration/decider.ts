@@ -21,6 +21,8 @@ export type DomainErrorCode =
   | "terminal_cwd_rejected"
   | "thread_exists"
   | "thread_missing"
+  | "a2a_cross_project"
+  | "a2a_invalid_target"
   | "unsupported_command";
 
 export class DomainError extends Error {
@@ -77,6 +79,7 @@ export type DomainDecision = Extract<
       | "terminal.status.changed"
       | "thread.start.requested"
       | "thread.send.requested"
+      | "thread.a2a.delivered"
       | "thread.interrupt.requested"
       | "thread.stop.requested"
       | "thread.status.changed"
@@ -265,6 +268,8 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           ...(command.model ? { model: command.model } : {}),
         },
       ];
+    case "thread.a2a":
+      return [deliverAgentMessage(projection, command)];
     case "thread.interrupt":
       assertThread(projection, command.threadId);
       return [
@@ -419,6 +424,48 @@ function assertTerminal(projection: RuntimeProjection, terminalId: string): void
   if (!projection.terminals.some((terminal) => terminal.terminalId === terminalId)) {
     throw new DomainError("terminal_missing", `Terminal does not exist: ${terminalId}`);
   }
+}
+
+function deliverAgentMessage(
+  projection: RuntimeProjection,
+  command: Extract<RuntimeCommand, { type: "thread.a2a" }>,
+): Extract<DomainDecision, { type: "thread.a2a.delivered" }> {
+  if (command.sourceThreadId === command.targetThreadId) {
+    throw new DomainError("a2a_invalid_target", "Agent messages must target a different thread in the same project.");
+  }
+  const text = command.text.trim();
+  if (text.length === 0) {
+    throw new DomainError("a2a_invalid_target", "Agent messages need text.");
+  }
+  if ((projection.messages ?? []).some((message) => message.messageId === command.messageId)) {
+    throw new DomainError("a2a_invalid_target", "Agent message id is already in use: " + command.messageId);
+  }
+  const sourceProjectId = threadProjectId(projection, command.sourceThreadId);
+  const targetProjectId = threadProjectId(projection, command.targetThreadId);
+  if (sourceProjectId !== targetProjectId) {
+    throw new DomainError("a2a_cross_project", "Agent messages can only be sent between threads in the same project.");
+  }
+  return {
+    type: "thread.a2a.delivered",
+    projectId: sourceProjectId,
+    message: {
+      messageId: command.messageId,
+      threadId: command.targetThreadId,
+      role: "agent",
+      text,
+      sourceThreadId: command.sourceThreadId,
+    },
+  };
+}
+
+function threadProjectId(projection: RuntimeProjection, threadId: string): ProjectId {
+  const thread = projection.threads.find((candidate) => candidate.threadId === threadId);
+  if (!thread) throw new DomainError("thread_missing", "Thread does not exist: " + threadId);
+  const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread.worktreeId);
+  if (!worktree) {
+    throw new DomainError("worktree_missing", "Thread is not attached to a worktree: " + threadId);
+  }
+  return worktree.projectId;
 }
 
 function assertThread(projection: RuntimeProjection, threadId: string): void {

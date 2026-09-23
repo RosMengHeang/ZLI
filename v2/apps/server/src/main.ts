@@ -10,6 +10,7 @@ import { DiagnosticsReactor } from "./diagnostics/DiagnosticsReactor.js";
 import { StructuredLogger } from "./diagnostics/StructuredLogger.js";
 import { GitProcess } from "./git/GitProcess.js";
 import { LegacyImportReactor } from "./import/LegacyImportReactor.js";
+import { AgentMessageReactor } from "./orchestration/AgentMessageReactor.js";
 import { Engine } from "./orchestration/Engine.js";
 import { ProviderReactor } from "./providers/ProviderReactor.js";
 import { ProviderService } from "./providers/ProviderService.js";
@@ -33,6 +34,7 @@ export type RuntimeProcess = {
   daemonSupervisor: DaemonSupervisor;
   providerService: ProviderService;
   providerReactor: ProviderReactor;
+  agentMessageReactor: AgentMessageReactor;
   reviewReactor: ReviewReactor;
   diagnosticsReactor: DiagnosticsReactor;
   legacyImportReactor: LegacyImportReactor;
@@ -71,6 +73,7 @@ export async function startRuntime(options: {
   const reviewReactor = new ReviewReactor(engine, new ReviewService(new GitProcess()));
   const providerService = new ProviderService(createProviderRegistry());
   const providerReactor = new ProviderReactor(engine, providerService);
+  const agentMessageReactor = new AgentMessageReactor(engine);
   const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
   const legacyImportReactor = new LegacyImportReactor(engine);
   const server = new RpcServer({
@@ -92,6 +95,7 @@ export async function startRuntime(options: {
     daemonSupervisor,
     providerService,
     providerReactor,
+    agentMessageReactor,
     reviewReactor,
     diagnosticsReactor,
     legacyImportReactor,
@@ -102,12 +106,14 @@ export async function startRuntime(options: {
       await terminalReactor.waitForIdle();
       await reviewReactor.waitForIdle();
       await providerReactor.waitForIdle();
+      await agentMessageReactor.waitForIdle();
       await diagnosticsReactor.waitForIdle();
       await legacyImportReactor.waitForIdle();
       worktreeReactor.stop();
       terminalReactor.stop();
       reviewReactor.stop();
       providerReactor.stop();
+      agentMessageReactor.stop();
       diagnosticsReactor.stop();
       legacyImportReactor.stop();
       await providerService.stopAll();

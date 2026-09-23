@@ -197,6 +197,83 @@ describe("AgentPane", () => {
     expect(command.threadId).not.toBe(codexThread);
   });
 
+  it("shows inbound agent text as text and sends only inside the project", async () => {
+    const source = ThreadId.parse("00000000-0000-4000-8000-000000000021");
+    const target = ThreadId.parse("00000000-0000-4000-8000-000000000022");
+    const otherWorktree = WorktreeId.parse("00000000-0000-4000-8000-000000000012");
+    const otherProject = ProjectId.parse("00000000-0000-4000-8000-000000000013");
+    const outside = ThreadId.parse("00000000-0000-4000-8000-000000000023");
+    const payload = '<img src="x" onerror="alert(1)"><script>alert(1)</script>';
+    const calls: unknown[] = [];
+    const container = renderPane(
+      projection({
+        worktrees: [
+          { worktreeId, projectId, path: "/repo/feature", branch: "feature", status: "ready" },
+          {
+            worktreeId: otherWorktree,
+            projectId: otherProject,
+            path: "/other",
+            branch: "outside-project",
+            status: "ready",
+          },
+        ],
+        projects: [
+          { projectId, path: "/repo", name: "repo" },
+          { projectId: otherProject, path: "/other", name: "other" },
+        ],
+        threads: [
+          { threadId: source, worktreeId, provider: "codex", status: "idle", capabilities: {} },
+          { threadId: target, worktreeId, provider: "claude-code", status: "idle", capabilities: {} },
+          { threadId: outside, worktreeId: otherWorktree, provider: "cursor-agent", status: "idle", capabilities: {} },
+        ],
+        messages: [
+          {
+            messageId: "inbound-agent",
+            threadId: source,
+            role: "agent",
+            sourceThreadId: target,
+            text: payload,
+          },
+        ],
+      }),
+      async (request) => {
+        calls.push(request);
+        return { commandId, accepted: true as const };
+      },
+    );
+
+    const inbound = container.querySelector('[data-trust="untrusted"]');
+    expect(inbound?.querySelector("script")).toBeNull();
+    expect(inbound?.querySelector("img")).toBeNull();
+    expect(inbound?.querySelector("p")?.innerHTML).toContain("&lt;script&gt;");
+    expect(inbound?.textContent).toContain(payload);
+    expect(inbound?.textContent).toContain("From another agent, feature");
+    const options = [...container.querySelectorAll("#agent-peer-target option")].map((option) => option.textContent);
+    expect(options).toEqual(["feature (claude-code)"]);
+    expect(container.textContent).not.toContain("outside-project");
+
+    const peerText = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message for the other agent"]');
+    expect(peerText).not.toBeNull();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(peerText, "check the migration");
+      peerText?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "Send to thread")?.click();
+    });
+    expect(calls).toEqual([
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "thread.a2a",
+          sourceThreadId: source,
+          targetThreadId: target,
+          text: "check the migration",
+        }),
+      }),
+    ]);
+  });
+
   it("does not offer OpenCode even when a stored discovery row includes it", () => {
     const container = renderPane(
       projection({

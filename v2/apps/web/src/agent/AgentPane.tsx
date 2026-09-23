@@ -1,4 +1,10 @@
-import type { ListedProviderKind, ProviderDiscovery, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
+import type {
+  ListedProviderKind,
+  ProviderDiscovery,
+  RuntimeProjection,
+  ThreadId,
+  WorktreeProjection,
+} from "@zli-v2/contracts";
 import type { FormEvent } from "react";
 import { useMemo, useState } from "react";
 import { makeCommandId } from "../runtime/commandId.js";
@@ -14,6 +20,8 @@ export function AgentPane({
 }) {
   const { dispatch } = useRuntime();
   const [draft, setDraft] = useState("");
+  const [peerDraft, setPeerDraft] = useState("");
+  const [peerTargetId, setPeerTargetId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [answers, setAnswers] = useState("{}");
@@ -33,6 +41,15 @@ export function AgentPane({
     () => (projection.messages ?? []).filter((message) => message.threadId === thread?.threadId),
     [projection.messages, thread?.threadId],
   );
+  const peers = useMemo(() => {
+    if (!worktree || !thread) return [];
+    return projection.threads.filter((candidate) => {
+      if (candidate.threadId === thread.threadId) return false;
+      const peerWorktree = projection.worktrees.find((item) => item.worktreeId === candidate.worktreeId);
+      return peerWorktree?.projectId === worktree.projectId;
+    });
+  }, [projection.threads, projection.worktrees, thread, worktree]);
+  const selectedPeerId = peers.some((peer) => peer.threadId === peerTargetId) ? peerTargetId : peers[0]?.threadId;
   const displayName = selected?.displayName ?? (selectedKind ? providerDisplayName(selectedKind, listed) : "Agent");
 
   const start = async () => {
@@ -72,6 +89,29 @@ export function AgentPane({
     });
     if (response?.accepted === false) {
       setDraft(text);
+      setError(response.error.message);
+    }
+  };
+
+  const sendToThread = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!thread || !selectedPeerId || !peerDraft.trim()) return;
+    const text = peerDraft.trim();
+    setPeerDraft("");
+    setError(undefined);
+    const response = await dispatch({
+      protocolVersion: 1,
+      commandId: makeCommandId(),
+      command: {
+        type: "thread.a2a",
+        messageId: makeCommandId(),
+        sourceThreadId: thread.threadId,
+        targetThreadId: selectedPeerId,
+        text,
+      },
+    });
+    if (response?.accepted === false) {
+      setPeerDraft(text);
       setError(response.error.message);
     }
   };
@@ -183,12 +223,19 @@ export function AgentPane({
             {messages.length === 0 ? (
               <p className="agent-empty">Send a task to begin.</p>
             ) : (
-              messages.map((message) => (
-                <article className={"agent-message agent-message-" + message.role} key={message.messageId}>
-                  <span className="agent-message-role">{message.role}</span>
-                  <p>{message.text}</p>
-                </article>
-              ))
+              messages.map((message) =>
+                message.role === "agent" ? (
+                  <article className="agent-message" data-trust="untrusted" key={message.messageId}>
+                    <span className="pane-meta">{sourceLabel(projection, message.sourceThreadId)}</span>
+                    <p>{message.text}</p>
+                  </article>
+                ) : (
+                  <article className={"agent-message agent-message-" + message.role} key={message.messageId}>
+                    <span className="agent-message-role">{message.role}</span>
+                    <p>{message.text}</p>
+                  </article>
+                ),
+              )
             )}
           </div>
           {request && (
@@ -241,6 +288,42 @@ export function AgentPane({
               </button>
             </div>
           </form>
+          {peers.length > 0 && selectedPeerId && (
+            <form
+              className="agent-peer"
+              aria-label="Send to another agent"
+              onSubmit={(event) => void sendToThread(event)}
+            >
+              <label className="pane-meta agent-peer-label" htmlFor="agent-peer-target">
+                Another thread in this project
+              </label>
+              <select
+                id="agent-peer-target"
+                className="agent-peer-target"
+                value={selectedPeerId}
+                onChange={(event) => setPeerTargetId(event.target.value)}
+              >
+                {peers.map((peer) => (
+                  <option key={peer.threadId} value={peer.threadId}>
+                    {peerOptionLabel(projection, peer.threadId)}
+                  </option>
+                ))}
+              </select>
+              <textarea
+                value={peerDraft}
+                onChange={(event) => setPeerDraft(event.target.value)}
+                placeholder="Message for that thread"
+                aria-label="Message for the other agent"
+                rows={2}
+              />
+              <div className="agent-composer-footer">
+                <span className="pane-meta">Stays in this project</span>
+                <button className="secondary-button" type="submit" disabled={!peerDraft.trim()}>
+                  Send to thread
+                </button>
+              </div>
+            </form>
+          )}
           {visibleError && (
             <p className="inline-error" role="alert">
               {visibleError}
@@ -250,6 +333,21 @@ export function AgentPane({
       )}
     </div>
   );
+}
+
+function sourceLabel(projection: RuntimeProjection, sourceThreadId: ThreadId | undefined): string {
+  const thread = projection.threads.find((candidate) => candidate.threadId === sourceThreadId);
+  const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread?.worktreeId);
+  if (!worktree) return "From another agent";
+  return `From another agent, ${worktree.branch}`;
+}
+
+function peerOptionLabel(projection: RuntimeProjection, threadId: string): string {
+  const thread = projection.threads.find((candidate) => candidate.threadId === threadId);
+  const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread?.worktreeId);
+  const branch = worktree?.branch ?? "thread";
+  const provider = thread?.provider ?? "agent";
+  return `${branch} (${provider})`;
 }
 
 function ProviderPicker({
