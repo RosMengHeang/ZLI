@@ -1,20 +1,26 @@
 import { describe, expect, it } from "vitest";
 
 import type { CliProbe } from "./discoverCliProviders.js";
-import { createProviderRegistry, resolveClaudeCommand } from "./registerProviders.js";
+import { createProviderRegistry, resolveClaudeCommand, resolveCursorCommand } from "./registerProviders.js";
 
 describe("createProviderRegistry", () => {
-  it("registers Codex and Claude Code, and leaves OpenCode unregistered", () => {
+  it("registers Codex, Claude Code, and Cursor, and leaves OpenCode unregistered", () => {
     const registry = createProviderRegistry({});
-    expect(registry.list().map((adapter) => adapter.provider)).toEqual(["codex", "claude-code"]);
+    expect(registry.list().map((adapter) => adapter.provider)).toEqual(["codex", "claude-code", "cursor-agent"]);
     expect(registry.get("opencode")).toBeUndefined();
-    expect(registry.get("cursor-agent")).toBeUndefined();
     expect(registry.get("codex")?.capabilities).toMatchObject({
       exactResume: true,
       structuredApproval: true,
       conversationRollback: true,
     });
     expect(registry.get("claude-code")?.capabilities).toEqual({
+      exactResume: false,
+      structuredApproval: false,
+      structuredUserInput: false,
+      conversationRollback: false,
+      modelSwitch: "unsupported",
+    });
+    expect(registry.get("cursor-agent")?.capabilities).toEqual({
       exactResume: false,
       structuredApproval: false,
       structuredUserInput: false,
@@ -46,6 +52,27 @@ describe("resolveClaudeCommand", () => {
     await expect(resolveClaudeCommand(missing)).rejects.toMatchObject({
       code: "cli_missing",
       message: "Claude Code CLI was not found on PATH or in known install locations.",
+    });
+  });
+});
+
+describe("resolveCursorCommand", () => {
+  it("returns the discovered Cursor path and a typed error when discovery misses it", async () => {
+    const found: CliProbe = {
+      pathEntries: ["/tools"],
+      platform: "linux",
+      fileExists: (filePath) => filePath === "/tools/cursor-agent",
+    };
+    const missing: CliProbe = {
+      pathEntries: [],
+      platform: "linux",
+      fileExists: () => false,
+    };
+
+    await expect(resolveCursorCommand(found)).resolves.toBe("/tools/cursor-agent");
+    await expect(resolveCursorCommand(missing)).rejects.toMatchObject({
+      code: "cli_missing",
+      message: "Cursor CLI was not found on PATH or in known install locations.",
     });
   });
 });

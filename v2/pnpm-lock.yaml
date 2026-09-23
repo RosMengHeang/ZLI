@@ -72,6 +72,9 @@ importers:
       '@zli-v2/provider-codex':
         specifier: workspace:*
         version: link:../../packages/provider-codex
+      '@zli-v2/provider-cursor-agent':
+        specifier: workspace:*
+        version: link:../../packages/provider-cursor-agent
       effect:
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115
@@ -146,6 +149,12 @@ importers:
       zod:
         specifier: 4.1.11
         version: 4.1.11
+
+  packages/provider-cursor-agent:
+    devDependencies:
+      '@types/node':
+        specifier: 24.10.1
+        version: 24.10.1
 
   packages/shared: {}
 
