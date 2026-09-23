@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { ZodError } from "zod";
 
-import { EnvironmentDescriptor, RpcRequest, RuntimeEventEnvelope, RuntimeProjection } from "./index.js";
+import {
+  EnvironmentDescriptor,
+  ProjectId,
+  RpcRequest,
+  RuntimeEventEnvelope,
+  RuntimeProjection,
+  SharedProjectContext,
+  ThreadId,
+  WorktreeId,
+  deriveSharedProjectContexts,
+} from "./index.js";
 
 const commandId = "10000000-0000-4000-8000-000000000001";
 const eventId = "20000000-0000-4000-8000-000000000001";
@@ -136,5 +146,79 @@ describe("runtime contracts", () => {
         lastSequence: 0,
       }),
     ).toThrowError(ZodError);
+  });
+
+  it("parses a shared project context card without transcript fields", () => {
+    const threadId = "50000000-0000-4000-8000-000000000001";
+    const worktreeId = "60000000-0000-4000-8000-000000000001";
+    expect(
+      SharedProjectContext.parse({
+        projectId,
+        repoRoot: "C:/work/example",
+        worktrees: [{ worktreeId, path: "C:/work/example/feature", branch: "feature", status: "ready" }],
+        threads: [{ threadId, worktreeId, provider: "codex", status: "idle" }],
+      }),
+    ).toEqual({
+      projectId,
+      repoRoot: "C:/work/example",
+      worktrees: [{ worktreeId, path: "C:/work/example/feature", branch: "feature", status: "ready" }],
+      threads: [{ threadId, worktreeId, provider: "codex", status: "idle" }],
+    });
+    expect(() =>
+      SharedProjectContext.parse({
+        projectId,
+        repoRoot: "",
+        worktrees: [],
+        threads: [],
+      }),
+    ).toThrowError(ZodError);
+  });
+
+  it("keeps each project's card inside that project", () => {
+    const ownerId = ProjectId.parse(projectId);
+    const otherProjectId = ProjectId.parse("40000000-0000-4000-8000-000000000002");
+    const worktreeId = WorktreeId.parse("60000000-0000-4000-8000-000000000001");
+    const otherWorktreeId = WorktreeId.parse("60000000-0000-4000-8000-000000000002");
+    const threadId = ThreadId.parse("50000000-0000-4000-8000-000000000001");
+    const otherThreadId = ThreadId.parse("50000000-0000-4000-8000-000000000002");
+    const contexts = deriveSharedProjectContexts({
+      projects: [
+        { projectId: ownerId, path: "C:/work/example", name: "example" },
+        { projectId: otherProjectId, path: "C:/work/other", name: "other" },
+      ],
+      worktrees: [
+        { worktreeId, projectId: ownerId, path: "C:/work/example/feature", branch: "feature", status: "ready" },
+        {
+          worktreeId: otherWorktreeId,
+          projectId: otherProjectId,
+          path: "C:/work/other/topic",
+          branch: "topic",
+          status: "cancelled",
+        },
+      ],
+      threads: [
+        { threadId, worktreeId, provider: "codex", status: "idle", capabilities: {} },
+        {
+          threadId: otherThreadId,
+          worktreeId: otherWorktreeId,
+          provider: "cursor-agent",
+          status: "stopped",
+          capabilities: {},
+        },
+      ],
+    });
+    expect(contexts[0]).toEqual({
+      projectId,
+      repoRoot: "C:/work/example",
+      worktrees: [{ worktreeId, path: "C:/work/example/feature", branch: "feature", status: "ready" }],
+      threads: [{ threadId, worktreeId, provider: "codex", status: "idle" }],
+    });
+    expect(contexts[1]).toEqual({
+      projectId: otherProjectId,
+      repoRoot: "C:/work/other",
+      worktrees: [],
+      threads: [],
+    });
+    expect(JSON.stringify(contexts)).not.toContain("transcript");
   });
 });

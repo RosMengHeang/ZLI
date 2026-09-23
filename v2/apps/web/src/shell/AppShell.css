@@ -37,8 +37,21 @@ kbd { padding: 2px 5px; border: 1px solid var(--zli-border-strong); border-radiu
 .worktree-row:hover .worktree-status, .worktree-row.is-active .worktree-status { display: inline; }
 .status-dot, .connection-dot, .attention-mark { display: inline-block; width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--zli-dim); }
 .status-ready, .is-connected, .status-dot.status-ready { background: var(--zli-green); }
-.status-fetching, .status-creating, .status-bootstrapping, .status-queued, .status-cancelling { background: var(--zli-amber); }
+.status-fetching, .status-creating, .status-bootstrapping, .status-queued, .status-cancelling, .status-starting, .status-working, .status-waiting { background: var(--zli-amber); }
+.status-idle { background: var(--zli-green); }
 .status-failed, .status-cancelled { background: var(--zli-red); }
+.status-stopped { background: var(--zli-dim); }
+.project-context { min-height: 0; max-height: 40%; overflow: auto; padding: 10px 14px 12px; border-top: 1px solid var(--zli-border); }
+.project-context .eyebrow { margin: 10px 0 4px; }
+.project-context .eyebrow:first-child { margin-top: 0; }
+.project-context-root { margin: 0; overflow: hidden; color: var(--zli-muted); font-family: var(--zli-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.project-context-list { margin: 0; padding: 0; list-style: none; }
+.project-context-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 0; }
+.project-context-copy { min-width: 0; flex: 1; }
+.project-context-title { display: block; overflow: hidden; color: var(--zli-text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.project-context-id { display: block; overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.project-context-status { flex: 0 0 auto; color: var(--zli-dim); font-size: 10px; }
+.project-context .tree-note { margin: 0 0 2px; }
 .sidebar-footer { display: flex; align-items: center; gap: 7px; padding: 12px 14px; border-top: 1px solid var(--zli-border); color: var(--zli-dim); font-size: 11px; }
 .main-workspace { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; padding: 12px; background: var(--zli-canvas); }
 .notice-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 auto 10px; width: min(1180px, 100%); padding: 8px 10px; border: 1px solid rgba(228, 126, 126, .4); border-radius: var(--zli-radius-md); background: rgba(228, 126, 126, .08); color: var(--zli-red); font-size: 12px; }

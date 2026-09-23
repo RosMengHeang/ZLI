@@ -88,5 +88,105 @@ describe("ProjectionStore", () => {
     expect(store.current()?.messages).toEqual([
       expect.objectContaining({ threadId: threadB, role: "agent", text: "hello from A", sourceThreadId: threadA }),
     ]);
+    expect(JSON.stringify(store.current()?.projectContexts)).not.toContain("hello from A");
+  });
+
+  it("refreshes shared project context when worktrees and threads in that project change", () => {
+    const store = new ProjectionStore();
+    const projectA = id("12");
+    const projectB = id("13");
+    const worktreeA = id("11");
+    const worktreeB = id("14");
+    const threadA = id("31");
+    const threadB = id("32");
+    store.replace({
+      ...projection(),
+      projects: [
+        { projectId: projectA, path: "C:/alpha", name: "alpha" },
+        { projectId: projectB, path: "C:/beta", name: "beta" },
+      ],
+    });
+    expect(
+      store.apply(
+        envelope(1, {
+          type: "worktree.create.requested",
+          worktree: {
+            worktreeId: worktreeA,
+            projectId: projectA,
+            path: "C:/alpha/a",
+            branch: "feature-a",
+            status: "queued",
+          },
+          workspaceRoot: "C:/work",
+        }),
+      ),
+    ).toBe("applied");
+    expect(store.current()?.projectContexts?.[0]?.worktrees).toEqual([
+      { worktreeId: worktreeA, path: "C:/alpha/a", branch: "feature-a", status: "queued" },
+    ]);
+    expect(store.current()?.projectContexts?.[1]?.worktrees).toEqual([]);
+
+    store.apply(envelope(2, { type: "worktree.status.changed", worktreeId: worktreeA, status: "ready" }));
+    expect(store.current()?.projectContexts?.[0]?.worktrees[0]?.status).toBe("ready");
+
+    store.apply(
+      envelope(3, {
+        type: "thread.start.requested",
+        thread: { threadId: threadA, worktreeId: worktreeA, provider: "codex", status: "idle", capabilities: {} },
+        cwd: "C:/alpha/a",
+      }),
+    );
+    store.apply(
+      envelope(4, {
+        type: "worktree.imported",
+        worktree: {
+          worktreeId: worktreeB,
+          projectId: projectB,
+          path: "C:/beta/b",
+          branch: "feature-b",
+          status: "ready",
+        },
+      }),
+    );
+    store.apply(
+      envelope(5, {
+        type: "thread.start.requested",
+        thread: {
+          threadId: threadB,
+          worktreeId: worktreeB,
+          provider: "cursor-agent",
+          status: "idle",
+          capabilities: {},
+        },
+        cwd: "C:/beta/b",
+      }),
+    );
+    expect(store.current()?.projectContexts?.[0]?.threads).toEqual([
+      { threadId: threadA, worktreeId: worktreeA, provider: "codex", status: "idle" },
+    ]);
+    expect(store.current()?.projectContexts?.[1]?.threads).toEqual([
+      { threadId: threadB, worktreeId: worktreeB, provider: "cursor-agent", status: "idle" },
+    ]);
+
+    store.apply(envelope(6, { type: "thread.status.changed", threadId: threadA, status: "working" }));
+    expect(store.current()?.projectContexts?.[0]?.threads[0]?.status).toBe("working");
+    expect(store.current()?.projectContexts?.[1]?.threads[0]?.status).toBe("idle");
+
+    store.apply(
+      envelope(7, {
+        type: "thread.a2a.delivered",
+        projectId: projectA,
+        message: {
+          messageId: "agent-1",
+          threadId: threadB,
+          role: "agent",
+          text: "SECRET_TRANSCRIPT_TEXT",
+          sourceThreadId: threadA,
+        },
+      }),
+    );
+    expect(store.current()?.messages?.[0]?.text).toBe("SECRET_TRANSCRIPT_TEXT");
+    expect(JSON.stringify(store.current()?.projectContexts)).not.toContain("SECRET_TRANSCRIPT_TEXT");
+    expect(store.current()?.projectContexts?.[0]?.threads.map((thread) => thread.threadId)).toEqual([threadA]);
   });
 });

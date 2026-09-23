@@ -1,6 +1,7 @@
 import {
   RuntimeEventEnvelope,
   RuntimeProjection,
+  deriveSharedProjectContexts,
   type RuntimeEventEnvelope as RuntimeEventEnvelopeValue,
   type RuntimeProjection as RuntimeProjectionValue,
 } from "@zli-v2/contracts";
@@ -17,7 +18,8 @@ export class ProjectionStore {
   }
 
   replace(input: unknown): RuntimeProjectionValue {
-    this.#projection = RuntimeProjection.parse(input);
+    const parsed = RuntimeProjection.parse(input);
+    this.#projection = { ...parsed, projectContexts: deriveSharedProjectContexts(parsed) };
     this.#publish();
     return this.#projection;
   }
@@ -55,7 +57,15 @@ export class ProjectionStore {
         };
         break;
       }
+      case "project.archived":
+        this.#projection = {
+          ...current,
+          projects: current.projects.filter((project) => project.projectId !== event.projectId),
+          lastSequence: envelope.sequence,
+        };
+        break;
       case "worktree.create.requested":
+      case "worktree.imported":
         this.#projection = {
           ...current,
           worktrees: [
@@ -141,6 +151,37 @@ export class ProjectionStore {
           lastSequence: envelope.sequence,
         };
         break;
+      case "thread.start.requested":
+        this.#projection = {
+          ...current,
+          threads: [...current.threads.filter((thread) => thread.threadId !== event.thread.threadId), event.thread],
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "thread.status.changed":
+        this.#projection = {
+          ...current,
+          threads: current.threads.map((thread) =>
+            thread.threadId === event.threadId
+              ? {
+                  ...thread,
+                  status: event.status,
+                  ...(event.turnId ? { activeTurnId: event.turnId } : {}),
+                  ...(event.capabilities ? { capabilities: event.capabilities } : {}),
+                  ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+                }
+              : thread,
+          ),
+          lastSequence: envelope.sequence,
+        };
+        break;
+    }
+
+    if (this.#projection && this.#projection !== current) {
+      this.#projection = {
+        ...this.#projection,
+        projectContexts: deriveSharedProjectContexts(this.#projection),
+      };
     }
 
     this.#publish();
