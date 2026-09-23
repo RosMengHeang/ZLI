@@ -1,5 +1,5 @@
-import { createServer, type Socket } from "node:net";
 import { mkdir, writeFile } from "node:fs/promises";
+import { createServer, type Socket } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,6 +12,8 @@ const protocolVersion = Number.parseInt(process.env.ZLI_DAEMON_PROTOCOL_VERSION 
 const daemonVersion = process.env.ZLI_DAEMON_VERSION ?? "zli-v2-daemon/1";
 const token = process.env.ZLI_DAEMON_TOKEN;
 const endpointPath = process.env.ZLI_DAEMON_ENDPOINT_PATH;
+delete process.env.ZLI_DAEMON_TOKEN;
+delete process.env.ZLI_DAEMON_ENDPOINT_PATH;
 
 type Client = {
   socket: Socket;

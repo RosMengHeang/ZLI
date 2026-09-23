@@ -4,6 +4,74 @@ import { expect, it, vi } from "vitest";
 import { accept } from "./daemon-entry.js";
 import { TerminalService } from "./terminal/TerminalService.js";
 
+it("drops daemon credential env after reading it and still accepts that token", async () => {
+  const previous = {
+    token: process.env.ZLI_DAEMON_TOKEN,
+    endpointPath: process.env.ZLI_DAEMON_ENDPOINT_PATH,
+    protocolVersion: process.env.ZLI_DAEMON_PROTOCOL_VERSION,
+    version: process.env.ZLI_DAEMON_VERSION,
+  };
+  process.env.ZLI_DAEMON_TOKEN = "reconnect-token";
+  process.env.ZLI_DAEMON_ENDPOINT_PATH = "/tmp/zli-daemon-endpoint.json";
+  process.env.ZLI_DAEMON_PROTOCOL_VERSION = "1";
+  process.env.ZLI_DAEMON_VERSION = "zli-v2-daemon/1";
+  vi.resetModules();
+  try {
+    const { accept: acceptFresh } = await import("./daemon-entry.js");
+    expect(process.env.ZLI_DAEMON_TOKEN).toBeUndefined();
+    expect(process.env.ZLI_DAEMON_ENDPOINT_PATH).toBeUndefined();
+    expect(process.env.ZLI_DAEMON_PROTOCOL_VERSION).toBe("1");
+    expect(process.env.ZLI_DAEMON_VERSION).toBe("zli-v2-daemon/1");
+
+    const writes: string[] = [];
+    const socket = Object.assign(new EventEmitter(), {
+      setEncoding: vi.fn(),
+      destroy: vi.fn(),
+      end: vi.fn(),
+      destroyed: false,
+      write: (data: string) => {
+        writes.push(data);
+        return true;
+      },
+    });
+    const service = new TerminalService({
+      spawn: async () => {
+        throw new Error("unused");
+      },
+    });
+    acceptFresh(socket as unknown as Socket, service);
+    socket.emit("data", `${JSON.stringify({ type: "hello", token: "reconnect-token", protocolVersion: 1 })}\n`);
+    expect(writes).toEqual([`${JSON.stringify({ type: "hello", protocolVersion: 1 })}\n`]);
+
+    const deniedWrites: string[] = [];
+    const end = vi.fn();
+    const denied = Object.assign(new EventEmitter(), {
+      setEncoding: vi.fn(),
+      destroy: vi.fn(),
+      end,
+      destroyed: false,
+      write: (data: string) => {
+        deniedWrites.push(data);
+        return true;
+      },
+    });
+    acceptFresh(denied as unknown as Socket, service);
+    denied.emit("data", `${JSON.stringify({ type: "hello", token: "other-token", protocolVersion: 1 })}\n`);
+    expect(deniedWrites).toEqual([`${JSON.stringify({ type: "error", message: "unauthorized" })}\n`]);
+    expect(end).toHaveBeenCalledOnce();
+  } finally {
+    restoreEnv("ZLI_DAEMON_TOKEN", previous.token);
+    restoreEnv("ZLI_DAEMON_ENDPOINT_PATH", previous.endpointPath);
+    restoreEnv("ZLI_DAEMON_PROTOCOL_VERSION", previous.protocolVersion);
+    restoreEnv("ZLI_DAEMON_VERSION", previous.version);
+  }
+});
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
+}
+
 it("isolates a reset runtime socket without crashing the terminal daemon", () => {
   const socket = Object.assign(new EventEmitter(), {
     setEncoding: vi.fn(),
