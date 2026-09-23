@@ -95,4 +95,152 @@ describe("BrowserAutomation", () => {
     ).not.toThrow();
     expect(JSON.stringify(automation.networkEntries()).length).toBeLessThan(16_384);
   });
+
+  it("redacts sensitive network headers and keeps non-secret diagnostic fields", async () => {
+    const { cdp, emit } = fakeCdp();
+    const automation = new BrowserAutomation(cdp);
+    await automation.start();
+
+    const secrets = {
+      cookie: "session=super-secret-cookie",
+      authorization: "Bearer super-secret-token",
+      proxyAuthorization: "Basic cHJveHk6c2VjcmV0",
+      apiKey: "sk-live-do-not-persist",
+      apiKeyAlias: "api-key-secret-value",
+      authToken: "x-auth-token-secret",
+      accessToken: "x-access-token-secret",
+      csrf: "csrf-secret-value",
+      xsrf: "xsrf-secret-value",
+      setCookie: "sid=another-secret-cookie",
+      redirectCookie: "redirect-secret-cookie",
+      redirectAuthorization: "Bearer redirect-secret-token",
+      oversizedCookie: `session=oversized-secret-cookie-${"z".repeat(20_000)}`,
+    };
+
+    emit("Network.requestWillBeSent", {
+      requestId: "req-auth",
+      loaderId: "loader-1",
+      documentURL: "https://example.com/dashboard",
+      timestamp: 1.25,
+      wallTime: 1_700_000_000,
+      initiator: { type: "script" },
+      request: {
+        url: "https://api.example.com/v1/items?q=widget",
+        method: "GET",
+        type: "Fetch",
+        headers: {
+          Cookie: secrets.cookie,
+          Authorization: secrets.authorization,
+          "Proxy-Authorization": secrets.proxyAuthorization,
+          "X-Api-Key": secrets.apiKey,
+          "Api-Key": secrets.apiKeyAlias,
+          "X-Auth-Token": secrets.authToken,
+          "X-Access-Token": secrets.accessToken,
+          "X-CSRF-Token": secrets.csrf,
+          "X-XSRF-Token": secrets.xsrf,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "User-Agent": "ZLI-Diagnostic",
+          "X-Request-Id": "req-visible-42",
+          "WWW-Authenticate": "Bearer realm=example",
+        },
+        initialPriority: "High",
+        referrerPolicy: "strict-origin-when-cross-origin",
+      },
+      redirectResponse: {
+        url: "https://example.com/login",
+        status: 302,
+        statusText: "Found",
+        mimeType: "text/html",
+        headers: [
+          { name: "Set-Cookie", value: secrets.setCookie },
+          { name: "Location", value: "/dashboard" },
+          { name: "Cache-Control", value: "no-store" },
+        ],
+        requestHeaders: {
+          cookie: secrets.redirectCookie,
+          Authorization: secrets.redirectAuthorization,
+          accept: "text/html",
+        },
+      },
+    });
+    emit("Network.requestWillBeSent", {
+      requestId: "req-oversized-cookie",
+      documentURL: "https://example.com/page",
+      request: {
+        url: "https://example.com/api/items?q=widget",
+        method: "POST",
+        headers: {
+          Cookie: secrets.oversizedCookie,
+          "Content-Type": "application/json",
+        },
+      },
+    });
+
+    const persisted = JSON.stringify(automation.networkEntries());
+    for (const secret of Object.values(secrets)) expect(persisted).not.toContain(secret);
+    expect(persisted).not.toContain("oversized-secret-cookie");
+
+    expect(automation.networkEntries()).toEqual([
+      {
+        requestId: "req-auth",
+        loaderId: "loader-1",
+        documentURL: "https://example.com/dashboard",
+        timestamp: 1.25,
+        wallTime: 1_700_000_000,
+        initiator: { type: "script" },
+        request: {
+          url: "https://api.example.com/v1/items?q=widget",
+          method: "GET",
+          type: "Fetch",
+          headers: {
+            Cookie: "[REDACTED]",
+            Authorization: "[REDACTED]",
+            "Proxy-Authorization": "[REDACTED]",
+            "X-Api-Key": "[REDACTED]",
+            "Api-Key": "[REDACTED]",
+            "X-Auth-Token": "[REDACTED]",
+            "X-Access-Token": "[REDACTED]",
+            "X-CSRF-Token": "[REDACTED]",
+            "X-XSRF-Token": "[REDACTED]",
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            "User-Agent": "ZLI-Diagnostic",
+            "X-Request-Id": "req-visible-42",
+            "WWW-Authenticate": "Bearer realm=example",
+          },
+          initialPriority: "High",
+          referrerPolicy: "strict-origin-when-cross-origin",
+        },
+        redirectResponse: {
+          url: "https://example.com/login",
+          status: 302,
+          statusText: "Found",
+          mimeType: "text/html",
+          headers: [
+            { name: "Set-Cookie", value: "[REDACTED]" },
+            { name: "Location", value: "/dashboard" },
+            { name: "Cache-Control", value: "no-store" },
+          ],
+          requestHeaders: {
+            cookie: "[REDACTED]",
+            Authorization: "[REDACTED]",
+            accept: "text/html",
+          },
+        },
+      },
+      {
+        requestId: "req-oversized-cookie",
+        documentURL: "https://example.com/page",
+        request: {
+          url: "https://example.com/api/items?q=widget",
+          method: "POST",
+          headers: {
+            Cookie: "[REDACTED]",
+            "Content-Type": "application/json",
+          },
+        },
+      },
+    ]);
+  });
 });

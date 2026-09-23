@@ -211,7 +211,7 @@ export class BrowserAutomation {
       const type = request && typeof request.type === "string" ? request.type : "";
       if (typeof params.requestId === "string" && type !== "WebSocket" && type !== "EventSource")
         this.#pendingRequests.add(params.requestId);
-      this.#networkEntries.push(trimRecord(params));
+      this.#networkEntries.push(trimRecord(redactSensitiveHeaders(params)));
       this.#trim(this.#networkEntries);
       if (this.#pendingRequests.size > 0 && this.#idleTimer) clearTimeout(this.#idleTimer);
       return;
@@ -267,6 +267,66 @@ function extractData(response: unknown): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const REDACTED_HEADER_VALUE = "[REDACTED]";
+
+const HEADER_CONTAINER_KEYS = new Set(["headers", "requestheaders", "responseheaders"]);
+
+const SENSITIVE_HEADER_NAMES = new Set([
+  "authorization",
+  "proxy-authorization",
+  "cookie",
+  "set-cookie",
+  "x-api-key",
+  "api-key",
+  "x-auth-token",
+  "x-access-token",
+  "x-csrf-token",
+  "x-xsrf-token",
+]);
+
+function redactSensitiveHeaders(value: Record<string, unknown>): Record<string, unknown> {
+  return redactDiagnosticValue(value) as Record<string, unknown>;
+}
+
+function redactDiagnosticValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((entry) => redactDiagnosticValue(entry));
+  if (!isRecord(value)) return value;
+  const result: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    result[key] = isHeaderContainer(key) ? redactHeaderContainer(child) : redactDiagnosticValue(child);
+  }
+  return result;
+}
+
+function redactHeaderContainer(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((entry) => redactHeaderEntry(entry));
+  if (!isRecord(value)) return value;
+  const result: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    result[key] = isSensitiveHeaderName(key) ? REDACTED_HEADER_VALUE : child;
+  }
+  return result;
+}
+
+function redactHeaderEntry(entry: unknown): unknown {
+  if (!isRecord(entry) || typeof entry.name !== "string" || !isSensitiveHeaderName(entry.name)) {
+    return redactDiagnosticValue(entry);
+  }
+  const result: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(entry)) {
+    result[key] = key === "value" ? REDACTED_HEADER_VALUE : redactDiagnosticValue(child);
+  }
+  return result;
+}
+
+function isHeaderContainer(key: string): boolean {
+  return HEADER_CONTAINER_KEYS.has(key.toLowerCase());
+}
+
+function isSensitiveHeaderName(name: string): boolean {
+  return SENSITIVE_HEADER_NAMES.has(name.trim().toLowerCase());
 }
 
 function trimRecord(value: Record<string, unknown>): Record<string, unknown> {
