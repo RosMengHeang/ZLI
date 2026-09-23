@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ZodError } from "zod";
 
 import {
+  deriveSharedProjectContexts,
   EnvironmentDescriptor,
   ProjectId,
   RpcRequest,
@@ -9,8 +10,8 @@ import {
   RuntimeProjection,
   SharedProjectContext,
   ThreadId,
+  threadOccupiesWorktree,
   WorktreeId,
-  deriveSharedProjectContexts,
 } from "./index.js";
 
 const commandId = "10000000-0000-4000-8000-000000000001";
@@ -41,6 +42,48 @@ describe("runtime contracts", () => {
         command: { type: "project.register" },
       }),
     ).toThrowError(ZodError);
+  });
+
+  it("parses an explicit worktree share on thread start", () => {
+    const threadId = "50000000-0000-4000-8000-000000000001";
+    const worktreeId = "60000000-0000-4000-8000-000000000099";
+    expect(
+      RpcRequest.parse({
+        protocolVersion: 1,
+        commandId,
+        command: {
+          type: "thread.start",
+          threadId,
+          worktreeId,
+          provider: "claude-code",
+          cwd: "/repo/feature",
+          shareWorktree: true,
+        },
+      }).command,
+    ).toMatchObject({ type: "thread.start", shareWorktree: true });
+    expect(
+      RuntimeEventEnvelope.parse({
+        protocolVersion: 1,
+        sequence: 4,
+        eventId,
+        occurredAt: "2026-09-23T12:00:00.000Z",
+        event: {
+          type: "thread.start.requested",
+          cwd: "/repo/feature",
+          shareWorktree: true,
+          thread: {
+            threadId,
+            worktreeId,
+            provider: "claude-code",
+            status: "starting",
+            capabilities: {},
+          },
+        },
+      }).event,
+    ).toMatchObject({ type: "thread.start.requested", shareWorktree: true });
+    expect(threadOccupiesWorktree("idle")).toBe(true);
+    expect(threadOccupiesWorktree("stopped")).toBe(false);
+    expect(threadOccupiesWorktree("failed")).toBe(false);
   });
 
   it("rejects unknown event variants instead of casting them", () => {

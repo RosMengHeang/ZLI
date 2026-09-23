@@ -1,4 +1,9 @@
-import { deriveSharedProjectContexts, type RuntimeProjection, type WorktreeProjection } from "@zli-v2/contracts";
+import {
+  deriveSharedProjectContexts,
+  type RuntimeProjection,
+  threadOccupiesWorktree,
+  type WorktreeProjection,
+} from "@zli-v2/contracts";
 
 import { worktreeProviderLabel } from "../agent/providers.js";
 import { ProjectContextCard } from "./ProjectContextCard.js";
@@ -74,19 +79,36 @@ export function WorktreeSidebar({ projection, activeWorktreeId, onSelect, onOpen
                       worktree.worktreeId,
                       projection?.providers,
                     );
+                    const live = (projection?.threads ?? []).some(
+                      (thread) => thread.worktreeId === worktree.worktreeId && threadOccupiesWorktree(thread.status),
+                    );
+                    const title = [
+                      worktree.path,
+                      providerLabel,
+                      worktree.status === "failed" ? worktree.errorMessage : undefined,
+                    ]
+                      .filter((part) => part)
+                      .join(" · ");
                     return (
-                      <button
-                        className={`worktree-row${activeWorktreeId === worktree.worktreeId ? " is-active" : ""}`}
-                        key={worktree.worktreeId}
-                        type="button"
-                        onClick={() => onSelect(worktree)}
-                        title={providerLabel ? `${worktree.path} · ${providerLabel}` : worktree.path}
-                      >
-                        <span className={`status-dot status-${worktree.status}`} aria-hidden="true" />
-                        <span className="worktree-name">{worktree.branch}</span>
-                        {providerLabel ? <span className="worktree-provider">{providerLabel}</span> : null}
-                        <span className="worktree-status">{statusLabel[worktree.status]}</span>
-                      </button>
+                      <div className="worktree-entry" key={worktree.worktreeId}>
+                        <button
+                          className={`worktree-row${activeWorktreeId === worktree.worktreeId ? " is-active" : ""}`}
+                          type="button"
+                          onClick={() => onSelect(worktree)}
+                          title={title}
+                          data-live-agent={live ? "true" : "false"}
+                        >
+                          <span className={`status-dot status-${worktree.status}`} aria-hidden="true" />
+                          <span className="worktree-name">{worktree.branch}</span>
+                          {providerLabel ? <span className="worktree-provider">{providerLabel}</span> : null}
+                          <span className="worktree-status">{statusLabel[worktree.status]}</span>
+                        </button>
+                        {worktree.status === "failed" && worktree.errorMessage ? (
+                          <p className="tree-note" role="status">
+                            {worktree.errorMessage}
+                          </p>
+                        ) : null}
+                      </div>
                     );
                   })
                 )}

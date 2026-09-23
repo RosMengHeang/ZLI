@@ -76,11 +76,39 @@ describe("WorktreeSidebar", () => {
       );
     });
     const row = container.querySelector(".worktree-row");
+    expect(row?.getAttribute("data-live-agent")).toBe("true");
     expect(row?.textContent).toContain("Claude Code");
     expect(row?.getAttribute("title")).toBe("/repo/feature · Claude Code");
     expect(row?.textContent).not.toContain("OpenCode");
     expect(row?.textContent).not.toContain("opencode");
     expect(container.textContent).not.toContain("OpenCode");
+  });
+
+  it("shows a git failure on the worktree row and leaves a stopped agent unmarked", () => {
+    const stopped = structuredClone(projection);
+    const worktree = stopped.worktrees[0];
+    if (!worktree) throw new Error("Fixture is incomplete.");
+    worktree.status = "failed";
+    worktree.errorMessage =
+      "Git could not create the worktree because a lock is held. Git said: fatal: Unable to create index.lock: File exists.";
+    for (const entry of stopped.threads) entry.status = "stopped";
+    const container = document.createElement("div");
+    document.body.append(container);
+    act(() => {
+      createRoot(container).render(
+        <WorktreeSidebar
+          projection={stopped}
+          activeWorktreeId={worktreeId}
+          onSelect={() => undefined}
+          onOpenProject={() => undefined}
+          onCreateWorktree={() => undefined}
+        />,
+      );
+    });
+    const row = container.querySelector(".worktree-row");
+    expect(row?.getAttribute("data-live-agent")).toBe("false");
+    expect(row?.textContent).not.toContain("Claude Code");
+    expect(container.querySelector(".tree-note")?.textContent).toContain("index.lock");
   });
 
   it("shows a read-only context card for the active project only", () => {

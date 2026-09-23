@@ -1,12 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { GitProcess } from "../git/GitProcess.js";
+import { GitProcess, GitProcessError } from "../git/GitProcess.js";
 import { WorktreeService } from "./WorktreeService.js";
 
 const execFileAsync = promisify(execFile);
@@ -163,5 +163,56 @@ describe("Orca-style worktree lifecycle", () => {
     await expect(job.promise).rejects.toMatchObject({ code: "cancelled" });
     expect(states).toContain("cancelling");
     expect(states).toContain("cancelled");
+  });
+
+  it("surfaces a lock and a blocked checkout as distinct worktree errors", async () => {
+    const { repoPath, worktreesPath } = await createRepository();
+    const lock = new WorktreeService({
+      run: async () => {
+        throw new GitProcessError(
+          "git worktree add exited with code 128.",
+          128,
+          ["worktree", "add"],
+          "",
+          "fatal: Unable to create '/repo/.git/index.lock': File exists.\n",
+        );
+      },
+    });
+    await expect(
+      lock.create({
+        jobId: "job-lock",
+        repoPath,
+        workspaceRoot: worktreesPath,
+        worktreePath: join(worktreesPath, "locked"),
+        branch: "feature/locked",
+      }).promise,
+    ).rejects.toMatchObject({
+      code: "git_locked",
+      message: expect.stringContaining("index.lock"),
+    });
+
+    const blocked = new WorktreeService({
+      run: async () => {
+        throw new GitProcessError(
+          "git worktree add exited with code 128.",
+          128,
+          ["worktree", "add"],
+          "",
+          "fatal: 'feature/dirty' is already checked out at '/repo'\n",
+        );
+      },
+    });
+    await expect(
+      blocked.create({
+        jobId: "job-dirty",
+        repoPath,
+        workspaceRoot: worktreesPath,
+        worktreePath: join(worktreesPath, "dirty"),
+        branch: "feature/dirty",
+      }).promise,
+    ).rejects.toMatchObject({
+      code: "git_checkout_blocked",
+      message: expect.stringContaining("already checked out"),
+    });
   });
 });

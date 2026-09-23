@@ -1,4 +1,9 @@
-import type { ListedProviderKind, ProviderDiscovery } from "@zli-v2/contracts";
+import {
+  type ListedProviderKind,
+  type ProviderDiscovery,
+  type ThreadProjection,
+  threadOccupiesWorktree,
+} from "@zli-v2/contracts";
 
 /** Picker order. OpenCode stays out: it is not a listed provider. */
 export const SELECTABLE_PROVIDERS = [
@@ -34,13 +39,14 @@ export function preferredProvider(providers: readonly ProviderDiscovery[]): List
 }
 
 export function worktreeProviderLabel(
-  threads: readonly { worktreeId: string; provider: string }[],
+  threads: readonly { worktreeId: string; provider: string; status?: ThreadProjection["status"] }[],
   worktreeId: string,
   providers: readonly ProviderDiscovery[] | undefined,
 ): string | undefined {
   const names: string[] = [];
   for (const thread of threads) {
     if (thread.worktreeId !== worktreeId || !isSelectableProvider(thread.provider)) continue;
+    if (thread.status && !threadOccupiesWorktree(thread.status)) continue;
     const name = providerDisplayName(thread.provider, providers);
     if (!names.includes(name)) names.push(name);
   }

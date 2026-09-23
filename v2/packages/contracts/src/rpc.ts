@@ -1,16 +1,15 @@
 import { z } from "zod";
-
-import { BrowserTabId, CommandId, EnvironmentId, ProjectId, TerminalId, ThreadId, TurnId, WorktreeId } from "./ids.js";
+import { BrowserTabProjection } from "./browser.js";
+import { DiagnosticLog } from "./diagnostics.js";
 import { RuntimeEventEnvelope } from "./events.js";
+import { BrowserTabId, CommandId, EnvironmentId, ProjectId, TerminalId, ThreadId, TurnId, WorktreeId } from "./ids.js";
+import { LegacyImportPreview } from "./import.js";
 import {
   EnvironmentDescriptor,
   RuntimeProjection,
-  WorktreeProjection,
   SupportBundleProjection,
+  WorktreeProjection,
 } from "./projections.js";
-import { TerminalAttachSnapshot, TerminalProjection, TerminalStreamMessage } from "./terminal.js";
-import { ReviewProjection } from "./review.js";
-import { BrowserTabProjection } from "./browser.js";
 import {
   ProviderCapabilities,
   ProviderKind,
@@ -18,8 +17,8 @@ import {
   ThreadProjection,
   ThreadRequestProjection,
 } from "./provider.js";
-import { LegacyImportPreview } from "./import.js";
-import { DiagnosticLog } from "./diagnostics.js";
+import { ReviewProjection } from "./review.js";
+import { TerminalAttachSnapshot, TerminalProjection, TerminalStreamMessage } from "./terminal.js";
 
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 
@@ -87,6 +86,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     worktreeId: WorktreeId,
     provider: ProviderKind,
     cwd: z.string().min(1),
+    /** Explicit confirm to bind another live agent onto a worktree that already has one. */
+    shareWorktree: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("thread.send"),
