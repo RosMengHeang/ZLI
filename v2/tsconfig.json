@@ -5,6 +5,7 @@
     { "path": "apps/server" },
     { "path": "apps/web" },
     { "path": "packages/client-runtime" },
+    { "path": "packages/provider-claude-code" },
     { "path": "packages/contracts" },
     { "path": "packages/shared" },
     { "path": "packages/ui" }

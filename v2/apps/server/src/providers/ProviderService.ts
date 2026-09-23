@@ -42,7 +42,13 @@ export interface ProviderAdapter {
 
 export class ProviderServiceError extends Error {
   constructor(
-    readonly code: "provider_missing" | "session_missing" | "session_exists" | "unsupported" | "request_failed",
+    readonly code:
+      | "provider_missing"
+      | "session_missing"
+      | "session_exists"
+      | "unsupported"
+      | "request_failed"
+      | "cli_missing",
     message: string,
     options?: ErrorOptions,
   ) {
@@ -106,6 +112,8 @@ export class ProviderService {
       this.sessions.set(input.threadId, adapter);
       return session;
     } catch (error) {
+      const missing = missingCliError(error);
+      if (missing) throw new ProviderServiceError("cli_missing", missing.message, { cause: error });
       throw new ProviderServiceError("request_failed", "Provider session failed to start.", { cause: error });
     }
   }
@@ -189,4 +197,10 @@ export class ProviderService {
   private emit(event: ProviderEvent): void {
     for (const listener of this.listeners) listener(event);
   }
+}
+
+function missingCliError(error: unknown): Error | undefined {
+  if (!(error instanceof Error)) return undefined;
+  if (!("code" in error) || error.code !== "cli_missing") return undefined;
+  return error;
 }

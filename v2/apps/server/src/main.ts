@@ -4,7 +4,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { EnvironmentId } from "@zli-v2/contracts";
-import { CodexAppServerClient } from "@zli-v2/provider-codex";
 import { DaemonSupervisor } from "./daemon/DaemonSupervisor.js";
 import { Database } from "./db/Database.js";
 import { DiagnosticsReactor } from "./diagnostics/DiagnosticsReactor.js";
@@ -12,10 +11,9 @@ import { StructuredLogger } from "./diagnostics/StructuredLogger.js";
 import { GitProcess } from "./git/GitProcess.js";
 import { LegacyImportReactor } from "./import/LegacyImportReactor.js";
 import { Engine } from "./orchestration/Engine.js";
-import { CodexProviderAdapter } from "./providers/CodexProviderAdapter.js";
-import { MockProviderAdapter } from "./providers/MockProviderAdapter.js";
 import { ProviderReactor } from "./providers/ProviderReactor.js";
-import { ProviderRegistry, ProviderService } from "./providers/ProviderService.js";
+import { ProviderService } from "./providers/ProviderService.js";
+import { createProviderRegistry } from "./providers/registerProviders.js";
 import { ReviewReactor } from "./review/ReviewReactor.js";
 import { ReviewService } from "./review/ReviewService.js";
 import { RpcServer } from "./rpc/Server.js";
@@ -71,13 +69,7 @@ export async function startRuntime(options: {
   const terminalService = new TerminalService(new RemotePtyFactory({ connect: () => daemonSupervisor.connect() }));
   const terminalReactor = new TerminalReactor(engine, terminalService);
   const reviewReactor = new ReviewReactor(engine, new ReviewService(new GitProcess()));
-  const providerService = new ProviderService(
-    new ProviderRegistry([
-      process.env.ZLI_TEST_PROVIDER === "mock"
-        ? new MockProviderAdapter()
-        : new CodexProviderAdapter({ createClient: () => CodexAppServerClient.connect() }),
-    ]),
-  );
+  const providerService = new ProviderService(createProviderRegistry());
   const providerReactor = new ProviderReactor(engine, providerService);
   const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
   const legacyImportReactor = new LegacyImportReactor(engine);

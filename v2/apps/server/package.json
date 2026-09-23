@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@zli-v2/contracts": "workspace:*",
+    "@zli-v2/provider-claude-code": "workspace:*",
     "@zli-v2/provider-codex": "workspace:*",
     "effect": "4.0.0-rc.115",
     "node-pty": "1.1.0",
