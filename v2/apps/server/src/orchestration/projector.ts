@@ -1,7 +1,8 @@
 import {
   RuntimeEvent,
-  RuntimeEventEnvelope,
+  deriveSharedProjectContexts,
   type EnvironmentDescriptor,
+  type RuntimeEventEnvelope,
   type RuntimeProjection,
 } from "@zli-v2/contracts";
 
@@ -9,6 +10,7 @@ export function createEmptyProjection(environment: EnvironmentDescriptor): Runti
   return {
     environment,
     projects: [],
+    projectContexts: [],
     worktrees: [],
     threads: [],
     terminals: [],
@@ -20,6 +22,11 @@ export function createEmptyProjection(environment: EnvironmentDescriptor): Runti
 }
 
 export function projectEvent(projection: RuntimeProjection, envelope: RuntimeEventEnvelope): RuntimeProjection {
+  const next = applyProjectionEvent(projection, envelope);
+  return { ...next, projectContexts: deriveSharedProjectContexts(next) };
+}
+
+function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEventEnvelope): RuntimeProjection {
   const event = RuntimeEvent.parse(envelope.event);
   if (envelope.sequence !== projection.lastSequence + 1) {
     throw new Error(

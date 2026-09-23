@@ -1,6 +1,7 @@
-import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
+import { deriveSharedProjectContexts, type RuntimeProjection, type WorktreeProjection } from "@zli-v2/contracts";
 
 import { worktreeProviderLabel } from "../agent/providers.js";
+import { ProjectContextCard } from "./ProjectContextCard.js";
 
 type Props = {
   projection: RuntimeProjection | undefined;
@@ -24,6 +25,10 @@ const statusLabel: Record<WorktreeProjection["status"], string> = {
 export function WorktreeSidebar({ projection, activeWorktreeId, onSelect, onOpenProject, onCreateWorktree }: Props) {
   const projects = projection?.projects ?? [];
   const worktrees = projection?.worktrees ?? [];
+  const activeProjectId =
+    worktrees.find((worktree) => worktree.worktreeId === activeWorktreeId)?.projectId ?? projects[0]?.projectId;
+  const contexts = projection ? (projection.projectContexts ?? deriveSharedProjectContexts(projection)) : [];
+  const activeContext = contexts.find((context) => context.projectId === activeProjectId);
   return (
     <aside className="worktree-sidebar" aria-label="Projects and worktrees">
       <div className="sidebar-heading">
@@ -90,6 +95,7 @@ export function WorktreeSidebar({ projection, activeWorktreeId, onSelect, onOpen
           })
         )}
       </div>
+      {activeContext ? <ProjectContextCard context={activeContext} providers={projection?.providers} /> : null}
       <div className="sidebar-footer">
         <span className={`connection-dot${projection ? " is-connected" : ""}`} aria-hidden="true" />
         <span>{projection ? "Local runtime" : "Waiting for runtime"}</span>
