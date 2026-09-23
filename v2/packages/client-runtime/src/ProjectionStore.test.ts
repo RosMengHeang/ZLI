@@ -64,4 +64,29 @@ describe("ProjectionStore", () => {
     expect(store.current()?.reviews?.[0]?.state).toBe("changes");
     expect(store.current()?.lastSequence).toBe(3);
   });
+
+  it("projects an agent-to-agent message onto the target thread", () => {
+    const store = new ProjectionStore();
+    store.replace(projection());
+    const threadA = id("31");
+    const threadB = id("32");
+    expect(
+      store.apply(
+        envelope(1, {
+          type: "thread.a2a.delivered",
+          projectId: id("12"),
+          message: {
+            messageId: "agent-1",
+            threadId: threadB,
+            role: "agent",
+            text: "hello from A",
+            sourceThreadId: threadA,
+          },
+        }),
+      ),
+    ).toBe("applied");
+    expect(store.current()?.messages).toEqual([
+      expect.objectContaining({ threadId: threadB, role: "agent", text: "hello from A", sourceThreadId: threadA }),
+    ]);
+  });
 });

@@ -94,6 +94,13 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     text: z.string(),
     model: z.string().min(1).optional(),
   }),
+  z.object({
+    type: z.literal("thread.a2a"),
+    messageId: z.string().min(1).max(200),
+    sourceThreadId: ThreadId,
+    targetThreadId: ThreadId,
+    text: z.string().min(1).max(8_000),
+  }),
   z.object({ type: z.literal("thread.interrupt"), threadId: ThreadId, turnId: TurnId.optional() }),
   z.object({ type: z.literal("thread.stop"), threadId: ThreadId }),
   z.object({

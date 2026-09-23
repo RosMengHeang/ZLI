@@ -50,8 +50,10 @@ export const ThreadMessageProjection = z.object({
   messageId: z.string().min(1),
   threadId: ThreadId,
   turnId: z.string().min(1).optional(),
-  role: z.enum(["user", "assistant", "system"]),
+  role: z.enum(["user", "assistant", "system", "agent"]),
   text: z.string(),
+  /** Sending thread when role is "agent". The text is untrusted. */
+  sourceThreadId: ThreadId.optional(),
 });
 export type ThreadMessageProjection = z.infer<typeof ThreadMessageProjection>;
 

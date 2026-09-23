@@ -131,6 +131,16 @@ export class ProjectionStore {
           lastSequence: envelope.sequence,
         };
         break;
+      case "thread.a2a.delivered":
+        this.#projection = {
+          ...current,
+          messages: [
+            ...(current.messages ?? []).filter((message) => message.messageId !== event.message.messageId),
+            event.message,
+          ].slice(-2_000),
+          lastSequence: envelope.sequence,
+        };
+        break;
     }
 
     this.#publish();

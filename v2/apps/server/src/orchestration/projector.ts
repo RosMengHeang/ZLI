@@ -131,6 +131,15 @@ export function projectEvent(projection: RuntimeProjection, envelope: RuntimeEve
         messages: [...(projection.messages ?? []), event.message].slice(-2_000),
         lastSequence: envelope.sequence,
       };
+    case "thread.a2a.delivered":
+      return {
+        ...projection,
+        messages: [
+          ...(projection.messages ?? []).filter((message) => message.messageId !== event.message.messageId),
+          event.message,
+        ].slice(-2_000),
+        lastSequence: envelope.sequence,
+      };
     case "thread.request.requested":
       return {
         ...projection,

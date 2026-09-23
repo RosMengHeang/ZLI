@@ -76,7 +76,14 @@ kbd { padding: 2px 5px; border: 1px solid var(--zli-border-strong); border-radiu
 .agent-message { max-width: min(760px, 92%); margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-canvas); }
 .agent-message-user { margin-left: auto; background: var(--zli-raised); }
 .agent-message-role { color: var(--zli-dim); font-size: 10px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
-.agent-message p { margin: 6px 0 0; color: var(--zli-text); font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
+.agent-message p { margin: 6px 0 0; color: var(--zli-text); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-peer { margin: 0 14px 14px; padding: 8px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-canvas); }
+.agent-peer-label { display: block; margin-bottom: 6px; }
+.agent-peer-target { display: block; width: 100%; height: 30px; margin-bottom: 8px; padding: 0 8px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); background: var(--zli-surface); color: var(--zli-text); font-size: 12px; }
+.agent-peer-target:focus-visible { outline: 2px solid var(--zli-accent); outline-offset: 1px; }
+.agent-peer textarea { display: block; width: 100%; box-sizing: border-box; min-height: 52px; resize: vertical; border: 0; background: transparent; color: var(--zli-text); font-family: inherit; font-size: 12px; line-height: 1.5; }
+.agent-peer textarea:focus-visible { outline: 2px solid var(--zli-accent); outline-offset: 1px; }
+.agent-peer .secondary-button { margin-top: 0; }
 .agent-composer { margin: 0 14px 14px; padding: 8px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: #151515; }
 .agent-composer textarea { display: block; width: 100%; box-sizing: border-box; min-height: 64px; resize: vertical; border: 0; outline: none; background: transparent; color: var(--zli-text); font-family: inherit; font-size: 12px; line-height: 1.5; }
 .agent-composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 6px; }

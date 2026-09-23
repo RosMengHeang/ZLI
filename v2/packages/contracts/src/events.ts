@@ -70,6 +70,11 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     text: z.string(),
     model: z.string().min(1).optional(),
   }),
+  z.object({
+    type: z.literal("thread.a2a.delivered"),
+    projectId: ProjectId,
+    message: ThreadMessageProjection,
+  }),
   z.object({ type: z.literal("thread.interrupt.requested"), threadId: ThreadId, turnId: TurnId.optional() }),
   z.object({ type: z.literal("thread.stop.requested"), threadId: ThreadId }),
   z.object({

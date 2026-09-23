@@ -396,9 +396,11 @@ function commandCorrelation(request: RpcRequest, workspaceId: string): LogCorrel
   return {
     commandId: request.commandId,
     workspaceId,
-    ...(command.type.startsWith("thread.") && "threadId" in command && typeof command.threadId === "string"
-      ? { threadId: command.threadId }
-      : {}),
+    ...(command.type === "thread.a2a"
+      ? { threadId: command.targetThreadId }
+      : command.type.startsWith("thread.") && "threadId" in command && typeof command.threadId === "string"
+        ? { threadId: command.threadId }
+        : {}),
     ...(command.type.startsWith("terminal.") && "terminalId" in command && typeof command.terminalId === "string"
       ? { terminalId: command.terminalId }
       : {}),
