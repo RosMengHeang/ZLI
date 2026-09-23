@@ -22,6 +22,13 @@ type NodePtyFactoryOptions = {
 
 const requireForNodePty = createRequire(import.meta.url);
 
+function childPtyEnv(source: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
+  const env = { ...(source ?? process.env) };
+  delete env.ZLI_DAEMON_TOKEN;
+  delete env.ZLI_DAEMON_ENDPOINT_PATH;
+  return env;
+}
+
 export class NodePtyFactory implements PtyFactory {
   private readonly load: () => Promise<NodePtyModule>;
   private readonly platform: NodeJS.Platform;
@@ -33,7 +40,7 @@ export class NodePtyFactory implements PtyFactory {
 
   async spawn(input: PtySpawnInput): Promise<PtyProcess> {
     const nodePty = await this.load();
-    const env = { ...(input.env ?? process.env) };
+    const env = childPtyEnv(input.env);
     if (this.platform === "win32" && env.TERM === undefined) env.TERM = "xterm-256color";
     const ptyProcess = nodePty.spawn(input.shell, [], {
       cwd: input.cwd,
