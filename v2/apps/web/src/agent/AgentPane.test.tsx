@@ -129,13 +129,10 @@ describe("AgentPane", () => {
     const codex = discovered[0];
     const claude = discovered[1];
     if (!codex || !claude) throw new Error("Discovery fixture is incomplete.");
-    const container = renderPane(
-      projection({ providers: [codex, claude, missingCursor] }),
-      async (request) => {
-        calls.push(request);
-        return { commandId, accepted: true as const };
-      },
-    );
+    const container = renderPane(projection({ providers: [codex, claude, missingCursor] }), async (request) => {
+      calls.push(request);
+      return { commandId, accepted: true as const };
+    });
     await act(async () => {
       container.querySelector<HTMLInputElement>('input[value="cursor-agent"]')?.click();
     });
