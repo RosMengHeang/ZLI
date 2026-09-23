@@ -1,22 +1,21 @@
-import { afterEach, describe, expect, it } from "vitest";
-
 import {
   CommandId,
   EnvironmentId,
   ProjectId,
   ThreadId,
-  WorktreeId,
   type ThreadId as ThreadIdValue,
+  WorktreeId,
 } from "@zli-v2/contracts";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
 import { ProviderReactor } from "./ProviderReactor.js";
 import {
-  ProviderRegistry,
-  ProviderService,
   type ProviderAdapter,
   type ProviderEvent,
+  ProviderRegistry,
+  ProviderService,
   type ProviderSession,
 } from "./ProviderService.js";
 
@@ -155,6 +154,20 @@ describe("ProviderReactor", () => {
     await reactor.waitForIdle();
     expect(adapter.responded).toBe(true);
     expect((await engine.projection()).requests).toEqual([]);
+
+    adapter.emit({
+      type: "turn.started",
+      threadId,
+      turnId: "00000000-0000-4000-8000-0000000009a1",
+    });
+    await reactor.waitForIdle();
+    expect((await engine.projection()).threads[0]).toMatchObject({ status: "working" });
+    adapter.emit({
+      type: "provider.error",
+      message: "Cursor CLI denied a tool call, which this adapter does not approve.",
+    });
+    await reactor.waitForIdle();
+    expect((await engine.projection()).threads[0]).toMatchObject({ status: "working" });
 
     adapter.emit({ type: "session.closed", threadId, reason: "provider process exited" });
     await reactor.waitForIdle();

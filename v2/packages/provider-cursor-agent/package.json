@@ -1,0 +1,12 @@
+{
+  "name": "@zli-v2/provider-cursor-agent",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1"
+  }
+}
