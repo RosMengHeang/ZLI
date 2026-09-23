@@ -1,12 +1,13 @@
-// Headless Claude Code session: NDJSON stdin/stdout, token deltas, no one-shot prompt.
-// Resume and permission-prompt-tool are omitted; this adapter does not implement them.
+// Print mode is required for stream-json input and output. No one-shot prompt:
+// user turns arrive as NDJSON on stdin. Resume and permission-prompt-tool are omitted.
 export const CLAUDE_SESSION_ARGS = [
+  "-p",
   "--output-format",
+  "stream-json",
+  "--input-format",
   "stream-json",
   "--verbose",
   "--include-partial-messages",
-  "--input-format",
-  "stream-json",
 ] as const;
 
 export const MAX_CLAUDE_LINE_CHARS = 1_000_000;

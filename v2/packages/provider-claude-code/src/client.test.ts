@@ -129,12 +129,13 @@ describe("ClaudeCodeClient", () => {
     });
     expect(user).toMatchObject({
       type: "user",
-      session_id: "",
+      session_id: "sess-1",
       parent_tool_use_id: null,
       message: { role: "user", content: "Fix the bug" },
     });
     expect(turn.providerTurnId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u);
     expect(events).toEqual([
+      { type: "turn.started", providerTurnId: turn.providerTurnId },
       { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "hello" },
       { type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" },
     ]);
@@ -150,6 +151,7 @@ describe("ClaudeCodeClient", () => {
     });
     peer.emit({ type: "result", subtype: "success", result: "Hello from Claude" });
     expect(events).toEqual([
+      { type: "turn.started", providerTurnId: turn.providerTurnId },
       { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "Hello from Claude" },
       { type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" },
     ]);
@@ -159,21 +161,35 @@ describe("ClaudeCodeClient", () => {
     const { client, peer, events } = await startedClient();
     const turn = await client.sendTurn({ text: "Hi" });
     peer.emit({ type: "result", subtype: "error_during_execution", is_error: true, result: "Not logged in" });
-    expect(events).toEqual([{ type: "turn.failed", providerTurnId: turn.providerTurnId, message: "Not logged in" }]);
+    expect(events).toEqual([
+      { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "turn.failed", providerTurnId: turn.providerTurnId, message: "Not logged in" },
+    ]);
   });
 
-  it("asks the CLI to interrupt the active turn and denies tool approvals it does not implement", async () => {
+  it("clears the active turn on interrupt so the next send can start", async () => {
     const { client, peer, events } = await startedClient();
     const turn = await client.sendTurn({ text: "Run tests" });
     await client.interruptTurn(turn.providerTurnId);
+    const next = await client.sendTurn({ text: "Continue" });
+    expect(JSON.parse(peer.written.at(-2) ?? "{}")).toMatchObject({
+      type: "control_request",
+      request: { subtype: "interrupt" },
+    });
+    expect(events).toEqual([
+      { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "turn.completed", providerTurnId: turn.providerTurnId, status: "interrupted" },
+      { type: "turn.started", providerTurnId: next.providerTurnId },
+    ]);
+  });
+
+  it("denies tool approval without a thread-fatal session error", async () => {
+    const { client, peer, events } = await startedClient();
+    await client.sendTurn({ text: "Run tests" });
     peer.emit({
       type: "control_request",
       request_id: "req-tool",
       request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" } },
-    });
-    expect(JSON.parse(peer.written.at(-2) ?? "{}")).toMatchObject({
-      type: "control_request",
-      request: { subtype: "interrupt" },
     });
     expect(JSON.parse(peer.written.at(-1) ?? "{}")).toEqual({
       type: "control_response",
@@ -187,10 +203,23 @@ describe("ClaudeCodeClient", () => {
       },
     });
     expect(events).toEqual([
+      { type: "turn.started", providerTurnId: expect.any(String) },
       {
-        type: "session.error",
+        type: "protocol.error",
         message: "Claude Code requested tool approval, which this adapter does not support.",
       },
+    ]);
+    expect(events.some((event) => event.type === "turn.failed")).toBe(false);
+  });
+
+  it("fails the active turn when the CLI process closes", async () => {
+    const { client, peer, events } = await startedClient();
+    const turn = await client.sendTurn({ text: "Run tests" });
+    peer.die(new Error("Claude Code CLI exited (1)."));
+    expect(events).toEqual([
+      { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "turn.failed", providerTurnId: turn.providerTurnId, message: "Claude Code CLI exited (1)." },
+      { type: "session.closed", reason: "Claude Code CLI exited (1)." },
     ]);
   });
 
@@ -268,12 +297,15 @@ describe("ClaudeCodeClient", () => {
     child.stdout.emit("data", line({ type: "result", subtype: "success", result: "Hi" }));
 
     expect(command).toBe("/usr/bin/claude");
+    expect(args[0]).toBe("-p");
+    expect(args).toContain("-p");
     expect(args).toEqual(CLAUDE_SESSION_ARGS);
     expect(calls[0]).toMatchObject({ cwd: "/work/tree", shell: false, windowsHide: true });
     expect(calls[0]?.env.PWD).toBe("/work/tree");
     expect(calls[0]?.env.CLAUDECODE).toBeUndefined();
     expect(calls[0]?.env.PATH).toBe("/usr/bin");
     expect(events).toEqual([
+      { type: "turn.started", providerTurnId: turn.providerTurnId },
       { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "Hi" },
       { type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" },
     ]);

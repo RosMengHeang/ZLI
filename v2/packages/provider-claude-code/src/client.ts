@@ -15,10 +15,10 @@ import {
 const SESSION_INIT_TIMEOUT_MS = 20_000;
 
 export type ClaudeProviderEvent =
+  | { type: "turn.started"; providerTurnId: string }
   | { type: "assistant.delta"; providerTurnId: string; text: string }
   | { type: "turn.completed"; providerTurnId: string; status: string }
   | { type: "turn.failed"; providerTurnId: string; message: string }
-  | { type: "session.error"; message: string }
   | { type: "protocol.error"; message: string }
   | { type: "session.closed"; reason: string };
 
@@ -130,16 +130,18 @@ export class ClaudeCodeClient {
       throw new ClaudeProviderError("unsupported", "Claude Code adapter does not switch models in a session.");
     }
     this.assertOpen();
-    if (!this.sessionId) throw new ClaudeProviderError("request_failed", "Claude Code session is not started.");
+    const sessionId = this.sessionId;
+    if (!sessionId) throw new ClaudeProviderError("request_failed", "Claude Code session is not started.");
     if (this.active) throw new ClaudeProviderError("request_failed", "Claude Code already has a turn in progress.");
     const providerTurnId = randomUUID();
     this.active = { id: providerTurnId, text: "", sawPartial: false, sawText: false };
     try {
-      this.write(userTurnMessage(input.text));
+      this.write(userTurnMessage(input.text, sessionId));
     } catch (error) {
       this.active = undefined;
       throw error;
     }
+    this.emit({ type: "turn.started", providerTurnId });
     return { providerTurnId };
   }
 
@@ -150,6 +152,7 @@ export class ClaudeCodeClient {
       throw new ClaudeProviderError("request_failed", "Claude Code turn does not match the active turn.");
     }
     this.write(interruptRequest(`interrupt_${randomUUID()}`));
+    this.finishTurn("interrupted");
   }
 
   async close(): Promise<void> {
@@ -276,7 +279,7 @@ export class ClaudeCodeClient {
       if (subtype === "can_use_tool") {
         this.write(denyToolRequest(requestId));
         this.emit({
-          type: "session.error",
+          type: "protocol.error",
           message: "Claude Code requested tool approval, which this adapter does not support.",
         });
         return;
@@ -296,9 +299,12 @@ export class ClaudeCodeClient {
       return;
     }
     if (this.closed) return;
+    const reason = error?.message ?? "Claude Code process closed.";
+    if (this.active) this.finishTurn("error", reason);
     this.closed = true;
-    this.active = undefined;
-    this.emit({ type: "session.closed", reason: error?.message ?? "Claude Code process closed." });
+    this.unsubscribeMessage();
+    this.unsubscribeClose();
+    this.emit({ type: "session.closed", reason });
   }
 
   private startupError(error: Error | undefined): ClaudeProviderError {

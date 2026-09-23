@@ -63,6 +63,7 @@ describe("ClaudeCodeProviderAdapter", () => {
     await expect(adapter.sendTurn({ threadId, text: "hello" })).resolves.toEqual({
       turnId: "00000000-0000-4000-8000-000000000812",
     });
+    client.emit({ type: "turn.started", providerTurnId: "00000000-0000-4000-8000-000000000812" });
     client.emit({
       type: "assistant.delta",
       providerTurnId: "00000000-0000-4000-8000-000000000812",
@@ -82,6 +83,7 @@ describe("ClaudeCodeProviderAdapter", () => {
     ];
 
     expect(events).toEqual([
+      { type: "turn.started", threadId, turnId: "00000000-0000-4000-8000-000000000812" },
       { type: "assistant.delta", threadId, turnId: "00000000-0000-4000-8000-000000000812", text: "world" },
       {
         type: "turn.completed",
@@ -107,7 +109,30 @@ describe("ClaudeCodeProviderAdapter", () => {
     await adapter.startSession({ threadId, cwd: "/work/tree" });
     await adapter.stopSession({ threadId });
     expect(client.calls.map((call) => call.method)).toEqual(["close"]);
+    expect(adapter.hasSession({ threadId })).toBe(false);
     expect(adapter.listSessions()).toEqual([]);
+
+    const dropped = new FakeClient();
+    const live = new ClaudeCodeProviderAdapter({ createClient: async () => dropped });
+    const liveEvents: ProviderEvent[] = [];
+    live.subscribe((event) => liveEvents.push(event));
+    await live.startSession({ threadId, cwd: "/work/tree" });
+    dropped.emit({
+      type: "protocol.error",
+      message: "Claude Code requested tool approval, which this adapter does not support.",
+    });
+    dropped.emit({ type: "session.closed", reason: "Claude Code process closed." });
+    expect(liveEvents).toEqual([
+      {
+        type: "provider.error",
+        message: "Claude Code requested tool approval, which this adapter does not support.",
+      },
+      { type: "session.closed", threadId, reason: "Claude Code process closed." },
+    ]);
+    expect(liveEvents.some((event) => event.type === "provider.error" && event.threadId === threadId)).toBe(false);
+    expect(live.hasSession({ threadId })).toBe(false);
+    expect(live.listSessions()).toEqual([]);
+    expect(dropped.calls.map((call) => call.method)).toEqual(["close"]);
 
     const missing = new ClaudeCodeProviderAdapter({
       createClient: async () => {

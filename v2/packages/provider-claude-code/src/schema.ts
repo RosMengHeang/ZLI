@@ -7,15 +7,18 @@ export type ClaudeInbound =
   | { kind: "ignore" }
   | { kind: "invalid"; reason: "init" | "message" };
 
-export function userTurnMessage(text: string): {
+export function userTurnMessage(
+  text: string,
+  sessionId: string,
+): {
   type: "user";
-  session_id: "";
+  session_id: string;
   parent_tool_use_id: null;
   message: { role: "user"; content: string };
 } {
   return {
     type: "user",
-    session_id: "",
+    session_id: sessionId,
     parent_tool_use_id: null,
     message: { role: "user", content: text },
   };

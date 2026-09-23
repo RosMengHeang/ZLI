@@ -121,6 +121,9 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
 
   private onClaudeEvent(threadId: ThreadId, event: ClaudeProviderEvent): void {
     switch (event.type) {
+      case "turn.started":
+        this.emit({ type: "turn.started", threadId, turnId: event.providerTurnId });
+        return;
       case "assistant.delta":
         this.emit({ type: "assistant.delta", threadId, turnId: event.providerTurnId, text: event.text });
         return;
@@ -130,10 +133,8 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
       case "turn.failed":
         this.emit({ type: "provider.error", threadId, message: event.message });
         return;
-      case "session.error":
-        this.emit({ type: "provider.error", threadId, message: event.message });
-        return;
       case "session.closed":
+        this.dropSession(threadId);
         this.emit({ type: "session.closed", threadId, reason: event.reason });
         return;
       case "protocol.error":
@@ -142,6 +143,14 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
       default:
         return;
     }
+  }
+
+  private dropSession(threadId: ThreadId): void {
+    const context = this.sessions.get(threadId);
+    if (!context) return;
+    this.sessions.delete(threadId);
+    context.unsubscribe();
+    void context.client.close();
   }
 
   private emit(event: ProviderEvent): void {
