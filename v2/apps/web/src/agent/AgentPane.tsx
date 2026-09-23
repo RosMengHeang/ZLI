@@ -1,8 +1,7 @@
+import type { ProviderDiscovery, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { useMemo, useState } from "react";
-
-import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
-import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { makeCommandId } from "../runtime/commandId.js";
+import { useRuntime } from "../runtime/RuntimeProvider.js";
 
 export function AgentPane({
   projection,
@@ -17,6 +16,8 @@ export function AgentPane({
   const [error, setError] = useState<string>();
   const [answers, setAnswers] = useState("{}");
   const thread = projection.threads.find((candidate) => candidate.worktreeId === worktree?.worktreeId);
+  const codexDiscovery = projection.providers?.find((provider) => provider.provider === "codex");
+  const codexUnavailable = codexDiscovery?.status === "missing";
   const request = projection.requests?.find((candidate) => candidate.threadId === thread?.threadId);
   const messages = useMemo(
     () => (projection.messages ?? []).filter((message) => message.threadId === thread?.threadId),
@@ -112,13 +113,19 @@ export function AgentPane({
         </div>
         <span className="pane-meta">{thread?.status ?? "Idle"}</span>
       </div>
+      <ProviderAvailability providers={projection.providers} />
       {!worktree ? (
         <EmptyAgent title="Select a worktree" detail="Agent sessions are isolated to the selected worktree." />
       ) : !thread ? (
         <div className="empty-pane">
           <p className="empty-title">No Codex session</p>
           <p className="empty-detail">Start the structured Codex app-server session for this worktree.</p>
-          <button className="primary-button" type="button" onClick={() => void start()} disabled={busy}>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() => void start()}
+            disabled={busy || codexUnavailable}
+          >
             {busy ? "Starting" : "Start Codex"}
           </button>
           {error && (
@@ -199,6 +206,28 @@ export function AgentPane({
         </>
       )}
     </div>
+  );
+}
+
+function ProviderAvailability({ providers }: { providers: readonly ProviderDiscovery[] | undefined }) {
+  if (!providers || providers.length === 0) return null;
+  return (
+    <ul className="provider-availability" aria-label="Installed agent CLIs">
+      {providers.map((provider) => (
+        <li key={provider.provider}>
+          <span className="pane-meta">
+            {provider.displayName}: {provider.status === "found" ? "found" : "not found"}
+          </span>
+          <span className="provider-availability-detail">
+            {provider.status === "found"
+              ? provider.version
+                ? `${provider.path} (${provider.version})`
+                : provider.path
+              : provider.reason}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

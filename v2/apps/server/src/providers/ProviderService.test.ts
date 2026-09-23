@@ -1,13 +1,12 @@
+import { ThreadId } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
-import { ThreadId } from "@zli-v2/contracts";
-
 import {
+  type ProviderAdapter,
+  type ProviderEvent,
   ProviderRegistry,
   ProviderService,
   ProviderServiceError,
-  type ProviderAdapter,
-  type ProviderEvent,
   type ProviderSession,
 } from "./ProviderService.js";
 
@@ -102,6 +101,33 @@ describe("ProviderService", () => {
 
     await expect(service.rollbackThread({ threadId, numTurns: 1 })).rejects.toMatchObject({ code: "unsupported" });
     expect(adapter.calls).toEqual(["start:C:/workspace/tree"]);
+  });
+
+  it("discovers injected CLIs without starting a provider session", async () => {
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]), {
+      pathEntries: ["/tools"],
+      platform: "linux",
+      fileExists: (filePath) => filePath === "/tools/claude",
+    });
+
+    await expect(service.discoverProviders()).resolves.toEqual([
+      {
+        provider: "codex",
+        displayName: "Codex",
+        status: "missing",
+        reason: "Codex CLI was not found on PATH or in known install locations.",
+      },
+      { provider: "claude-code", displayName: "Claude Code", status: "found", path: "/tools/claude" },
+      {
+        provider: "cursor-agent",
+        displayName: "Cursor",
+        status: "missing",
+        reason: "Cursor CLI was not found on PATH or in known install locations.",
+      },
+    ]);
+    expect(adapter.calls).toEqual([]);
+    expect(service.listSessions()).toEqual([]);
   });
 
   it("fails closed for unknown providers and sessions", async () => {

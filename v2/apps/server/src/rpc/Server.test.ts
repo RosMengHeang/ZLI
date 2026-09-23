@@ -1,7 +1,6 @@
+import { type EnvironmentDescriptor, EnvironmentId } from "@zli-v2/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-
-import { EnvironmentId, type EnvironmentDescriptor } from "@zli-v2/contracts";
 
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
@@ -123,6 +122,75 @@ describe("authenticated local RPC server", () => {
         accepted: true,
       },
     });
+    socket.close();
+  });
+
+  it("attaches Codex, Claude Code, and Cursor discovery to projection snapshots", async () => {
+    const database = new Database({ path: ":memory:" });
+    const engine = new Engine({ database, environment });
+    const server = new RpcServer({
+      engine,
+      environment,
+      token: "test-token",
+      discoverProviders: async () => [
+        { provider: "codex", displayName: "Codex", status: "found", path: "/bin/codex", version: "codex 0.1.0" },
+        {
+          provider: "claude-code",
+          displayName: "Claude Code",
+          status: "missing",
+          reason: "Claude Code CLI was not found on PATH or in known install locations.",
+        },
+        {
+          provider: "cursor-agent",
+          displayName: "Cursor",
+          status: "missing",
+          reason: "Cursor CLI was not found on PATH or in known install locations.",
+        },
+      ],
+    });
+    await server.start();
+    resources.push({ database, server });
+    const socket = await connected(server);
+
+    socket.send(JSON.stringify({ type: "projection.get" }));
+    await expect(nextMessage(socket)).resolves.toMatchObject({
+      type: "projection",
+      projection: {
+        providers: [
+          { provider: "codex", status: "found", path: "/bin/codex", version: "codex 0.1.0" },
+          { provider: "claude-code", status: "missing" },
+          { provider: "cursor-agent", status: "missing" },
+        ],
+      },
+    });
+    socket.close();
+  });
+
+  it("reports all three CLIs missing when discovery fails", async () => {
+    const database = new Database({ path: ":memory:" });
+    const engine = new Engine({ database, environment });
+    const server = new RpcServer({
+      engine,
+      environment,
+      token: "test-token",
+      discoverProviders: async () => {
+        throw new Error("probe failed");
+      },
+    });
+    await server.start();
+    resources.push({ database, server });
+    const socket = await connected(server);
+
+    socket.send(JSON.stringify({ type: "subscribe", afterSequence: 0 }));
+    const message = await nextMessage(socket);
+    expect(message).toMatchObject({ type: "projection" });
+    const providers = (message.projection as { providers: Array<{ provider: string; status: string; reason: string }> })
+      .providers;
+    expect(providers.map((provider) => provider.provider)).toEqual(["codex", "claude-code", "cursor-agent"]);
+    expect(
+      providers.every((provider) => provider.status === "missing" && provider.reason === "Provider discovery failed."),
+    ).toBe(true);
+    expect(providers.map((provider) => provider.provider)).not.toContain("opencode");
     socket.close();
   });
 });

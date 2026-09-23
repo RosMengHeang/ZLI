@@ -75,4 +75,66 @@ describe("runtime contracts", () => {
       }).projects,
     ).toHaveLength(1);
   });
+
+  it("reports listed CLI discovery and rejects OpenCode in that list", () => {
+    expect(
+      RuntimeProjection.parse({
+        environment: {
+          environmentId,
+          label: "Local",
+          protocolVersion: 1,
+          capabilities: {},
+        },
+        projects: [],
+        worktrees: [],
+        threads: [],
+        providers: [
+          {
+            provider: "codex",
+            displayName: "Codex",
+            status: "found",
+            path: "/usr/local/bin/codex",
+            version: "codex 0.1.0",
+          },
+          {
+            provider: "claude-code",
+            displayName: "Claude Code",
+            status: "missing",
+            reason: "Claude Code CLI was not found on PATH or in known install locations.",
+          },
+          {
+            provider: "cursor-agent",
+            displayName: "Cursor",
+            status: "missing",
+            reason: "Cursor CLI was not found on PATH or in known install locations.",
+          },
+        ],
+        terminals: [],
+        browserTabs: [],
+        attention: [],
+        lastSequence: 0,
+      }).providers?.map((provider) => provider.provider),
+    ).toEqual(["codex", "claude-code", "cursor-agent"]);
+
+    expect(() =>
+      RuntimeProjection.parse({
+        environment: {
+          environmentId,
+          label: "Local",
+          protocolVersion: 1,
+          capabilities: {},
+        },
+        projects: [],
+        worktrees: [],
+        threads: [],
+        providers: [
+          { provider: "opencode", displayName: "OpenCode", status: "found", path: "/usr/local/bin/opencode" },
+        ],
+        terminals: [],
+        browserTabs: [],
+        attention: [],
+        lastSequence: 0,
+      }),
+    ).toThrowError(ZodError);
+  });
 });

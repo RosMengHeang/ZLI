@@ -4,27 +4,26 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { EnvironmentId } from "@zli-v2/contracts";
-
-import { Database } from "./db/Database.js";
-import { GitProcess } from "./git/GitProcess.js";
-import { Engine } from "./orchestration/Engine.js";
-import { RpcServer } from "./rpc/Server.js";
-import { WorktreeReactor } from "./worktrees/WorktreeReactor.js";
-import { WorktreeService } from "./worktrees/WorktreeService.js";
-import { TerminalReactor } from "./terminal/TerminalReactor.js";
-import { TerminalService } from "./terminal/TerminalService.js";
-import { ReviewReactor } from "./review/ReviewReactor.js";
-import { ReviewService } from "./review/ReviewService.js";
-import { DaemonSupervisor } from "./daemon/DaemonSupervisor.js";
-import { RemotePtyFactory } from "./terminal/RemotePtyFactory.js";
 import { CodexAppServerClient } from "@zli-v2/provider-codex";
+import { DaemonSupervisor } from "./daemon/DaemonSupervisor.js";
+import { Database } from "./db/Database.js";
+import { DiagnosticsReactor } from "./diagnostics/DiagnosticsReactor.js";
+import { StructuredLogger } from "./diagnostics/StructuredLogger.js";
+import { GitProcess } from "./git/GitProcess.js";
+import { LegacyImportReactor } from "./import/LegacyImportReactor.js";
+import { Engine } from "./orchestration/Engine.js";
 import { CodexProviderAdapter } from "./providers/CodexProviderAdapter.js";
+import { MockProviderAdapter } from "./providers/MockProviderAdapter.js";
 import { ProviderReactor } from "./providers/ProviderReactor.js";
 import { ProviderRegistry, ProviderService } from "./providers/ProviderService.js";
-import { DiagnosticsReactor } from "./diagnostics/DiagnosticsReactor.js";
-import { LegacyImportReactor } from "./import/LegacyImportReactor.js";
-import { StructuredLogger } from "./diagnostics/StructuredLogger.js";
-import { MockProviderAdapter } from "./providers/MockProviderAdapter.js";
+import { ReviewReactor } from "./review/ReviewReactor.js";
+import { ReviewService } from "./review/ReviewService.js";
+import { RpcServer } from "./rpc/Server.js";
+import { RemotePtyFactory } from "./terminal/RemotePtyFactory.js";
+import { TerminalReactor } from "./terminal/TerminalReactor.js";
+import { TerminalService } from "./terminal/TerminalService.js";
+import { WorktreeReactor } from "./worktrees/WorktreeReactor.js";
+import { WorktreeService } from "./worktrees/WorktreeService.js";
 
 export type RuntimeProcess = {
   database: Database;
@@ -82,7 +81,13 @@ export async function startRuntime(options: {
   const providerReactor = new ProviderReactor(engine, providerService);
   const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
   const legacyImportReactor = new LegacyImportReactor(engine);
-  const server = new RpcServer({ engine, environment, token, terminalService });
+  const server = new RpcServer({
+    engine,
+    environment,
+    token,
+    terminalService,
+    discoverProviders: () => providerService.discoverProviders(),
+  });
   await server.start();
   await terminalReactor.restore();
   return {

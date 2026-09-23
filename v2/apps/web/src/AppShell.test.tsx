@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
+
+import { CommandId, EnvironmentId, ProjectId, type RuntimeProjection, WorktreeId } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
-
-import { CommandId, EnvironmentId, ProjectId, WorktreeId, type RuntimeProjection } from "@zli-v2/contracts";
-import { AppShell } from "./shell/AppShell.js";
 import type { ZliBridge } from "./runtime/bridge.js";
+import { AppShell } from "./shell/AppShell.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -159,5 +159,56 @@ describe("AppShell", () => {
     });
 
     expect(container.querySelector('[aria-label="Help and diagnostics"]')).toBeNull();
+  });
+
+  it("reads CLI discovery on the agent pane and keeps OpenCode out of the list", async () => {
+    const discovered: RuntimeProjection = {
+      ...projection,
+      providers: [
+        {
+          provider: "codex",
+          displayName: "Codex",
+          status: "missing",
+          reason: "Codex CLI was not found on PATH or in known install locations.",
+        },
+        {
+          provider: "claude-code",
+          displayName: "Claude Code",
+          status: "found",
+          path: "/home/dev/.local/bin/claude",
+          version: "claude 2.1.0",
+        },
+        {
+          provider: "cursor-agent",
+          displayName: "Cursor",
+          status: "missing",
+          reason: "Cursor CLI was not found on PATH or in known install locations.",
+        },
+      ],
+    };
+    const container = document.createElement("div");
+    document.body.append(container);
+    await act(async () => {
+      createRoot(container).render(
+        <AppShell
+          bridge={{
+            ...bridge,
+            runtime: { ...bridge.runtime, getProjection: async () => discovered },
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "Agent")?.click();
+    });
+
+    const list = container.querySelector('[aria-label="Installed agent CLIs"]');
+    expect(list?.textContent).toContain("Codex: not found");
+    expect(list?.textContent).toContain("Claude Code: found");
+    expect(list?.textContent).toContain("/home/dev/.local/bin/claude (claude 2.1.0)");
+    expect(list?.textContent).toContain("Cursor: not found");
+    expect(container.textContent).not.toContain("OpenCode");
+    const start = [...container.querySelectorAll("button")].find((button) => button.textContent === "Start Codex");
+    expect(start?.disabled).toBe(true);
   });
 });
