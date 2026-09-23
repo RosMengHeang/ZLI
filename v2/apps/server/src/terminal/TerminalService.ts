@@ -1,10 +1,13 @@
-import { TerminalChunk, TerminalId, WorktreeId, type TerminalProjection } from "@zli-v2/contracts";
+import { TerminalChunk, type TerminalId, type TerminalProjection, type WorktreeId } from "@zli-v2/contracts";
+
+import { resolveTerminalCwd, TerminalCwdError } from "./terminalCwd.js";
 
 export type PtySpawnInput = {
   terminalId?: TerminalId;
   worktreeId?: WorktreeId;
   title?: string;
   cwd: string;
+  worktreePath?: string;
   shell: string;
   cols: number;
   rows: number;
@@ -28,6 +31,7 @@ export type PtyFactory = {
 export type TerminalCreateRequest = {
   terminalId: TerminalId;
   worktreeId: WorktreeId;
+  worktreePath: string;
   cwd: string;
   shell: string;
   cols: number;
@@ -149,7 +153,13 @@ class Subscriber {
 
 export class TerminalError extends Error {
   constructor(
-    readonly code: "already_exists" | "not_found" | "invalid_size" | "input_too_large" | "spawn_failed",
+    readonly code:
+      | "already_exists"
+      | "not_found"
+      | "invalid_size"
+      | "input_too_large"
+      | "spawn_failed"
+      | "cwd_rejected",
     message: string,
     options?: ErrorOptions,
   ) {
@@ -188,12 +198,14 @@ export class TerminalService {
       throw new TerminalError("already_exists", `Terminal already exists: ${request.terminalId}`);
     }
     validateSize(request.cols, request.rows);
+    const cwd = cwdInsideWorktree(request.worktreePath, request.cwd);
     try {
       const pty = await this.ptyFactory.spawn({
         terminalId: request.terminalId,
         worktreeId: request.worktreeId,
         title: request.title,
-        cwd: request.cwd,
+        cwd,
+        worktreePath: request.worktreePath,
         shell: request.shell,
         cols: request.cols,
         rows: request.rows,
@@ -222,7 +234,7 @@ export class TerminalService {
       return session.projection;
     } catch (error) {
       const reason = error instanceof Error ? error.message : typeof error === "string" ? error : "unknown error";
-      throw new TerminalError("spawn_failed", `Unable to start terminal in ${request.cwd}. (${reason})`, {
+      throw new TerminalError("spawn_failed", `Unable to start terminal in ${cwd}. (${reason})`, {
         cause: error,
       });
     }
@@ -353,6 +365,15 @@ export class TerminalService {
     };
     for (const subscriber of session.subscribers) subscriber.push(message);
     for (const listener of this.exitListeners) listener(session.projection.terminalId, event);
+  }
+}
+
+function cwdInsideWorktree(worktreePath: string, cwd: string): string {
+  try {
+    return resolveTerminalCwd(worktreePath, cwd);
+  } catch (error) {
+    if (error instanceof TerminalCwdError) throw new TerminalError("cwd_rejected", error.message, { cause: error });
+    throw error;
   }
 }
 

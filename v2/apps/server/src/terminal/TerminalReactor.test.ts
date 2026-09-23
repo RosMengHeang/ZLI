@@ -1,19 +1,18 @@
-import { afterEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-
 import {
   CommandId,
+  type EnvironmentDescriptor,
   EnvironmentId,
   ProjectId,
   TerminalId,
   WorktreeId,
-  type EnvironmentDescriptor,
 } from "@zli-v2/contracts";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
 import { TerminalReactor } from "./TerminalReactor.js";
-import { TerminalService, type PtyFactory, type PtyProcess } from "./TerminalService.js";
+import { type PtyFactory, type PtyProcess, TerminalService } from "./TerminalService.js";
 
 const environment: EnvironmentDescriptor = {
   environmentId: EnvironmentId.parse("00000000-0000-4000-8000-000000000301"),
@@ -163,7 +162,7 @@ describe("TerminalReactor", () => {
       {
         terminalId: id,
         status: "failed",
-        errorMessage: "Unable to start terminal in C:/workspace/project-tree. (spawn denied)",
+        errorMessage: "Unable to start terminal in C:\\workspace\\project-tree. (spawn denied)",
       },
     ]);
   });

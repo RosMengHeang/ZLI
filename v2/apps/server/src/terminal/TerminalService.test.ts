@@ -1,12 +1,11 @@
+import { TerminalId, WorktreeId } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
-import { TerminalId, WorktreeId } from "@zli-v2/contracts";
-
 import {
-  TerminalError,
-  TerminalService,
   type PtyFactory,
   type PtyProcess,
+  TerminalError,
+  TerminalService,
   type TerminalStreamMessage,
 } from "./TerminalService.js";
 
@@ -64,6 +63,7 @@ async function createService(
   await service.create({
     terminalId,
     worktreeId,
+    worktreePath: "C:\\workspace\\tree",
     cwd: "C:\\workspace\\tree",
     shell: "powershell.exe",
     cols: 120,
@@ -201,6 +201,7 @@ describe("TerminalService", () => {
       service.create({
         terminalId,
         worktreeId,
+        worktreePath: "C:\\workspace\\tree",
         cwd: "C:\\workspace\\tree",
         shell: "powershell.exe",
         cols: 120,
@@ -212,5 +213,64 @@ describe("TerminalService", () => {
       message: "Unable to start terminal in C:\\workspace\\tree. (node-pty unavailable)",
     });
     expect(service.list()).toEqual([]);
+  });
+
+  it("spawns in a worktree subdirectory and rejects paths outside the worktree", async () => {
+    const spawned: string[] = [];
+    const service = new TerminalService({
+      spawn: async (input) => {
+        spawned.push(input.cwd);
+        return new FakePty();
+      },
+    });
+    const nestedId = TerminalId.parse("00000000-0000-4000-8000-000000000102");
+    await service.create({
+      terminalId: nestedId,
+      worktreeId,
+      worktreePath: "C:\\workspace\\tree",
+      cwd: "src\\pkg",
+      shell: "powershell.exe",
+      cols: 80,
+      rows: 24,
+      title: "nested",
+    });
+    await expect(
+      service.create({
+        terminalId,
+        worktreeId,
+        worktreePath: "C:\\workspace\\tree",
+        cwd: "C:\\Windows\\System32",
+        shell: "powershell.exe",
+        cols: 80,
+        rows: 24,
+        title: "escape",
+      }),
+    ).rejects.toMatchObject({ code: "cwd_rejected" });
+    await expect(
+      service.create({
+        terminalId,
+        worktreeId,
+        worktreePath: "C:\\workspace\\tree",
+        cwd: "..\\outside",
+        shell: "powershell.exe",
+        cols: 80,
+        rows: 24,
+        title: "escape",
+      }),
+    ).rejects.toMatchObject({ code: "cwd_rejected" });
+    await expect(
+      service.create({
+        terminalId,
+        worktreeId,
+        worktreePath: "C:\\workspace\\tree",
+        cwd: "C:\\workspace\\tree-evil",
+        shell: "powershell.exe",
+        cols: 80,
+        rows: 24,
+        title: "sibling",
+      }),
+    ).rejects.toMatchObject({ code: "cwd_rejected" });
+    expect(spawned).toEqual(["C:\\workspace\\tree\\src\\pkg"]);
+    expect(service.list().map((terminal) => terminal.terminalId)).toEqual([nestedId]);
   });
 });

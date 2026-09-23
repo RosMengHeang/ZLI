@@ -72,6 +72,89 @@ function restoreEnv(key: string, value: string | undefined): void {
   else process.env[key] = value;
 }
 
+it("rejects terminal cwd escapes and argv, and accepts a worktree subdirectory", async () => {
+  const previous = {
+    token: process.env.ZLI_DAEMON_TOKEN,
+    endpointPath: process.env.ZLI_DAEMON_ENDPOINT_PATH,
+    protocolVersion: process.env.ZLI_DAEMON_PROTOCOL_VERSION,
+  };
+  process.env.ZLI_DAEMON_TOKEN = "cwd-token";
+  process.env.ZLI_DAEMON_ENDPOINT_PATH = "/tmp/zli-daemon-endpoint.json";
+  process.env.ZLI_DAEMON_PROTOCOL_VERSION = "1";
+  vi.resetModules();
+  try {
+    const { accept: acceptFresh } = await import("./daemon-entry.js");
+    const { TerminalService: FreshTerminalService } = await import("./terminal/TerminalService.js");
+    const spawned: string[] = [];
+    const service = new FreshTerminalService({
+      spawn: async (input: { cwd: string }) => {
+        spawned.push(input.cwd);
+        return {
+          pid: 9,
+          write() {},
+          resize() {},
+          kill() {},
+          onData() {
+            return () => undefined;
+          },
+          onExit() {
+            return () => undefined;
+          },
+        };
+      },
+    });
+    const writes: string[] = [];
+    const socket = Object.assign(new EventEmitter(), {
+      setEncoding: vi.fn(),
+      destroy: vi.fn(),
+      end: vi.fn(),
+      destroyed: false,
+      write: (data: string) => {
+        writes.push(data);
+        return true;
+      },
+    });
+    acceptFresh(socket as unknown as Socket, service);
+    const request = async (payload: unknown) => {
+      const before = writes.length;
+      socket.emit("data", `${JSON.stringify(payload)}\n`);
+      await vi.waitFor(() => {
+        expect(writes.length).toBeGreaterThan(before);
+      });
+      return JSON.parse(writes[writes.length - 1] ?? "") as { type: string; message?: string };
+    };
+    expect(await request({ type: "hello", token: "cwd-token", protocolVersion: 1 })).toEqual({
+      type: "hello",
+      protocolVersion: 1,
+    });
+    const outside = {
+      type: "terminal.create",
+      terminalId: "00000000-0000-4000-8000-000000000111",
+      worktreeId: "00000000-0000-4000-8000-000000000112",
+      worktreePath: "/repo/tree",
+      cwd: "/etc/passwd",
+      shell: "/bin/bash",
+      cols: 80,
+      rows: 24,
+      title: "escape",
+    };
+    expect(await request(outside)).toMatchObject({
+      type: "error",
+      message: "Terminal cwd must stay inside the worktree.",
+    });
+    expect(await request({ ...outside, cwd: "src", argv: ["-c", "id"] })).toMatchObject({
+      type: "error",
+      message: "Terminal launch does not accept arguments.",
+    });
+    expect(await request({ ...outside, cwd: "src/pkg", title: "nested" })).toMatchObject({ type: "result" });
+    expect(spawned).toEqual(["/repo/tree/src/pkg"]);
+  } finally {
+    restoreEnv("ZLI_DAEMON_TOKEN", previous.token);
+    restoreEnv("ZLI_DAEMON_ENDPOINT_PATH", previous.endpointPath);
+    restoreEnv("ZLI_DAEMON_PROTOCOL_VERSION", previous.protocolVersion);
+  }
+});
+
 it("isolates a reset runtime socket without crashing the terminal daemon", () => {
   const socket = Object.assign(new EventEmitter(), {
     setEncoding: vi.fn(),

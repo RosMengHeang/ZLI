@@ -9,6 +9,8 @@ import {
   type RuntimeProjection,
 } from "@zli-v2/contracts";
 
+import { resolveTerminalCwd, TerminalCwdError } from "../terminal/terminalCwd.js";
+
 export type DomainErrorCode =
   | "project_exists"
   | "project_missing"
@@ -16,6 +18,7 @@ export type DomainErrorCode =
   | "worktree_missing"
   | "terminal_exists"
   | "terminal_missing"
+  | "terminal_cwd_rejected"
   | "thread_exists"
   | "thread_missing"
   | "unsupported_command";
@@ -183,11 +186,19 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       assertWorktree(projection, command.worktreeId);
       return [{ type: "worktree.archived", worktreeId: command.worktreeId }];
     case "terminal.create": {
-      if (!projection.worktrees.some((worktree) => worktree.worktreeId === command.worktreeId)) {
+      const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === command.worktreeId);
+      if (!worktree) {
         throw new DomainError("worktree_missing", `Worktree does not exist: ${command.worktreeId}`);
       }
       if (projection.terminals.some((terminal) => terminal.terminalId === command.terminalId)) {
         throw new DomainError("terminal_exists", `Terminal already exists: ${command.terminalId}`);
+      }
+      let cwd: string;
+      try {
+        cwd = resolveTerminalCwd(worktree.path, command.cwd);
+      } catch (error) {
+        if (error instanceof TerminalCwdError) throw new DomainError("terminal_cwd_rejected", error.message);
+        throw error;
       }
       return [
         {
@@ -199,7 +210,8 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             status: "starting",
             lastSequence: 0,
           },
-          cwd: command.cwd,
+          cwd,
+          worktreePath: worktree.path,
           shell: command.shell,
           cols: command.cols,
           rows: command.rows,
