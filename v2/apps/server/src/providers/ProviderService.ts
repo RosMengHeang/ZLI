@@ -1,5 +1,6 @@
-import type { ProviderCapabilities } from "@zli-v2/contracts";
-import { ThreadId } from "@zli-v2/contracts";
+import type { ProviderCapabilities, ProviderDiscovery, ThreadId } from "@zli-v2/contracts";
+
+import { type CliProbe, createDefaultCliProbe, discoverCliProviders } from "./discoverCliProviders.js";
 
 export type ProviderKind = "codex" | "claude-code" | "cursor-agent" | "opencode";
 
@@ -70,15 +71,29 @@ export class ProviderRegistry {
   }
 }
 
+const DISCOVERY_TTL_MS = 20_000;
+
 export class ProviderService {
   private readonly sessions = new Map<string, ProviderAdapter>();
   private readonly listeners = new Set<(event: ProviderEvent) => void>();
   private readonly unsubscribers: Array<() => void> = [];
+  private discoveryCache: { at: number; value: readonly ProviderDiscovery[] } | undefined;
 
-  constructor(private readonly registry: ProviderRegistry) {
+  constructor(
+    private readonly registry: ProviderRegistry,
+    private readonly cliProbe: CliProbe = createDefaultCliProbe(),
+  ) {
     for (const adapter of registry.list()) {
       this.unsubscribers.push(adapter.subscribe((event) => this.emit(event)));
     }
+  }
+
+  async discoverProviders(): Promise<readonly ProviderDiscovery[]> {
+    const cached = this.discoveryCache;
+    if (cached && Date.now() - cached.at < DISCOVERY_TTL_MS) return cached.value;
+    const value = await discoverCliProviders(this.cliProbe);
+    this.discoveryCache = { at: Date.now(), value };
+    return value;
   }
 
   async startSession(input: { provider: ProviderKind; threadId: ThreadId; cwd: string }): Promise<ProviderSession> {

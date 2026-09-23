@@ -1,17 +1,20 @@
-import { createServer, type IncomingMessage, type Server as HttpServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
+import { createServer, type Server as HttpServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import {
   ClientWireMessage,
+  type EnvironmentDescriptor,
+  type ProviderDiscovery,
+  type RuntimeError,
+  type RuntimeProjection,
   ServerWireMessage,
   TerminalId,
-  type EnvironmentDescriptor,
-  type RuntimeError,
 } from "@zli-v2/contracts";
-import { WebSocket, WebSocketServer, type RawData } from "ws";
+import { type RawData, WebSocket, WebSocketServer } from "ws";
 
-import { Engine } from "../orchestration/Engine.js";
+import type { Engine } from "../orchestration/Engine.js";
+import { unavailableProviderDiscovery } from "../providers/discoverCliProviders.js";
 import type { TerminalService, TerminalSubscription } from "../terminal/TerminalService.js";
 
 const MAX_FRAME_BYTES = 1024 * 1024;
@@ -22,6 +25,7 @@ type RpcServerOptions = {
   environment: EnvironmentDescriptor;
   token: string;
   terminalService?: TerminalService;
+  discoverProviders?: () => Promise<readonly ProviderDiscovery[]>;
   host?: string;
   port?: number;
 };
@@ -31,6 +35,7 @@ export class RpcServer {
   private readonly environment: EnvironmentDescriptor;
   private readonly token: string;
   private readonly terminalService: TerminalService | undefined;
+  private readonly discoverProviders: RpcServerOptions["discoverProviders"];
   private readonly host: string;
   private readonly port: number;
   private httpServer: HttpServer | undefined;
@@ -47,6 +52,7 @@ export class RpcServer {
     this.environment = options.environment;
     this.token = options.token;
     this.terminalService = options.terminalService;
+    this.discoverProviders = options.discoverProviders;
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
   }
@@ -92,6 +98,16 @@ export class RpcServer {
       httpServer.once("listening", onListening);
       httpServer.listen(this.port, this.host);
     });
+  }
+
+  private async projectionSnapshot(): Promise<RuntimeProjection> {
+    const projection = await this.engine.projection();
+    if (!this.discoverProviders) return projection;
+    try {
+      return { ...projection, providers: [...(await this.discoverProviders())] };
+    } catch {
+      return { ...projection, providers: unavailableProviderDiscovery() };
+    }
   }
 
   url(): string {
@@ -252,7 +268,7 @@ export class RpcServer {
         const unsubscribe = this.engine.subscribe((event) => send(client, { type: "event", envelope: event }));
         setUnsubscribe(unsubscribe);
         try {
-          send(client, { type: "projection", projection: await this.engine.projection() });
+          send(client, { type: "projection", projection: await this.projectionSnapshot() });
           for (const event of await this.engine.eventsAfter(message.data.afterSequence)) {
             send(client, { type: "event", envelope: event });
           }
@@ -266,7 +282,7 @@ export class RpcServer {
         return;
       }
       case "projection.get":
-        send(client, { type: "projection", projection: await this.engine.projection() });
+        send(client, { type: "projection", projection: await this.projectionSnapshot() });
         return;
       case "terminal.attach": {
         if (!this.terminalService) {

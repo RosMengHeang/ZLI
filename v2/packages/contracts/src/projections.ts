@@ -1,11 +1,10 @@
 import { z } from "zod";
-
-import { EnvironmentId, ProjectId, WorktreeId } from "./ids.js";
 import { BrowserTabProjection } from "./browser.js";
-import { ThreadMessageProjection, ThreadProjection, ThreadRequestProjection } from "./provider.js";
-import { TerminalProjection } from "./terminal.js";
-import { ReviewProjection } from "./review.js";
+import { EnvironmentId, ProjectId, WorktreeId } from "./ids.js";
 import { LegacyImportProjection } from "./import.js";
+import { ProviderDiscovery, ThreadMessageProjection, ThreadProjection, ThreadRequestProjection } from "./provider.js";
+import { ReviewProjection } from "./review.js";
+import { TerminalProjection } from "./terminal.js";
 
 export const EnvironmentCapabilities = z.object({
   worktrees: z.boolean().optional(),
@@ -67,6 +66,7 @@ export const RuntimeProjection = z.object({
   projects: z.array(ProjectProjection),
   worktrees: z.array(WorktreeProjection),
   threads: z.array(ThreadProjection),
+  providers: z.array(ProviderDiscovery).optional(),
   messages: z.array(ThreadMessageProjection).optional(),
   requests: z.array(ThreadRequestProjection).optional(),
   terminals: z.array(TerminalProjection),
