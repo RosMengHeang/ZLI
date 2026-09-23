@@ -169,7 +169,45 @@ describe("CLI probe helpers", () => {
     expect(cli.homeDir).toBe("C:\\Users\\dev");
   });
 
-  it("requires the executable bit for unix files", () => {
+  it("reports a synthetic Codex CLI when the mock provider is selected", async () => {
+    const linux = await discoverCliProviders(createDefaultCliProbe({ ZLI_TEST_PROVIDER: "mock" }, "linux"));
+    expect(linux).toEqual([
+      {
+        provider: "codex",
+        displayName: "Codex",
+        status: "found",
+        path: "/zli/mock-provider/codex",
+        version: "codex mock",
+      },
+      {
+        provider: "claude-code",
+        displayName: "Claude Code",
+        status: "missing",
+        reason: "Claude Code CLI was not found on PATH or in known install locations.",
+      },
+      {
+        provider: "cursor-agent",
+        displayName: "Cursor",
+        status: "missing",
+        reason: "Cursor CLI was not found on PATH or in known install locations.",
+      },
+    ]);
+
+    const windows = await discoverCliProviders(createDefaultCliProbe({ ZLI_TEST_PROVIDER: "mock" }, "win32"));
+    expect(windows[0]).toEqual({
+      provider: "codex",
+      displayName: "Codex",
+      status: "found",
+      path: "C:\\zli\\mock-provider\\codex.exe",
+      version: "codex mock",
+    });
+    expect(windows.filter((entry) => entry.provider !== "codex").map((entry) => entry.status)).toEqual([
+      "missing",
+      "missing",
+    ]);
+  });
+
+  it.skipIf(process.platform === "win32")("requires the executable bit for unix files", () => {
     const dir = mkdtempSync(join(tmpdir(), "zli-cli-"));
     const bin = join(dir, "codex");
     writeFileSync(bin, "");

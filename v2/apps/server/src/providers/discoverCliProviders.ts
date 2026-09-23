@@ -28,6 +28,7 @@ export function createDefaultCliProbe(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
 ): CliProbe {
+  if (env.ZLI_TEST_PROVIDER === "mock") return mockCodexProbe(platform);
   const api = platform === "win32" ? win32 : posix;
   const homeDir = platform === "win32" ? env.USERPROFILE : env.HOME;
   const localAppData = env.LOCALAPPDATA;
@@ -38,6 +39,19 @@ export function createDefaultCliProbe(
     platform,
     fileExists: (filePath) => fileLooksExecutable(filePath, platform),
     readVersion: (command) => readCliVersion(command),
+  };
+}
+
+/** The mock provider has no Codex binary. E2E still needs Start Codex enabled. */
+function mockCodexProbe(platform: NodeJS.Platform): CliProbe {
+  const api = platform === "win32" ? win32 : posix;
+  const directory = platform === "win32" ? "C:\\zli\\mock-provider" : "/zli/mock-provider";
+  const codexPath = api.join(directory, platform === "win32" ? "codex.exe" : "codex");
+  return {
+    pathEntries: [directory],
+    platform,
+    fileExists: (filePath) => filePath === codexPath,
+    readVersion: async (command) => (command === codexPath ? "codex mock" : undefined),
   };
 }
 
