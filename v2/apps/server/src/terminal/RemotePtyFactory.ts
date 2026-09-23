@@ -1,4 +1,4 @@
-import { TerminalAttachSnapshot, TerminalId, TerminalStreamMessage } from "@zli-v2/contracts";
+import { TerminalAttachSnapshot, type TerminalId, TerminalStreamMessage } from "@zli-v2/contracts";
 
 import type { DaemonConnection } from "../daemon/DaemonSupervisor.js";
 import type { PtyFactory, PtyProcess, PtySpawnInput } from "./TerminalService.js";
@@ -24,6 +24,7 @@ export class RemotePtyFactory implements PtyFactory {
         worktreeId: input.worktreeId,
         title: input.title,
         cwd: input.cwd,
+        ...(input.worktreePath ? { worktreePath: input.worktreePath } : {}),
         shell: input.shell,
         cols: input.cols,
         rows: input.rows,

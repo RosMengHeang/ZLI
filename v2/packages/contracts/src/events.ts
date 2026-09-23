@@ -50,6 +50,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     type: z.literal("terminal.create.requested"),
     terminal: TerminalProjection,
     cwd: z.string().min(1),
+    worktreePath: z.string().min(1).optional(),
     shell: z.string().min(1),
     cols: z.number().int().positive(),
     rows: z.number().int().positive(),

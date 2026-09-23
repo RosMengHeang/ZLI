@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { TerminalId, WorktreeId } from "@zli-v2/contracts";
 
 import { NodePtyFactory } from "./terminal/NodePtyFactory.js";
+import { TerminalCwdError } from "./terminal/terminalCwd.js";
 import { TerminalService } from "./terminal/TerminalService.js";
 
 const protocolVersion = Number.parseInt(process.env.ZLI_DAEMON_PROTOCOL_VERSION ?? "1", 10);
@@ -90,20 +91,31 @@ async function handle(client: Client, terminals: TerminalService, line: string):
       case "terminal.list":
         send(client.socket, { type: "result", terminals: terminals.list() });
         return;
-      case "terminal.create":
+      case "terminal.create": {
+        if (hasLaunchArgs(request.argv) || hasLaunchArgs(request.args)) {
+          throw new Error("Terminal launch does not accept arguments.");
+        }
+        const worktreePath = request.worktreePath;
+        const cwd = request.cwd;
+        const shell = request.shell;
+        if (typeof worktreePath !== "string" || typeof cwd !== "string" || typeof shell !== "string") {
+          throw new TerminalCwdError();
+        }
         send(client.socket, {
           type: "result",
           terminal: await terminals.create({
             terminalId: TerminalId.parse(request.terminalId),
             worktreeId: WorktreeId.parse(request.worktreeId),
-            cwd: String(request.cwd),
-            shell: String(request.shell),
+            worktreePath,
+            cwd,
+            shell,
             cols: Number(request.cols),
             rows: Number(request.rows),
             title: String(request.title),
           }),
         });
         return;
+      }
       case "terminal.write":
         terminals.write(TerminalId.parse(request.terminalId), String(request.data));
         send(client.socket, { type: "result", accepted: true });
@@ -143,6 +155,10 @@ async function streamSubscription(
     if (!message) return;
     send(socket, { type: "terminal", message });
   }
+}
+
+function hasLaunchArgs(value: unknown): boolean {
+  return Array.isArray(value) && value.length > 0;
 }
 
 function send(socket: Socket, message: unknown): void {

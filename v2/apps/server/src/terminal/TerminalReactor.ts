@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-import { CommandId, TerminalId, type RuntimeEventEnvelope } from "@zli-v2/contracts";
+import { CommandId, type RuntimeEventEnvelope, TerminalId } from "@zli-v2/contracts";
 
-import { Engine } from "../orchestration/Engine.js";
-import { TerminalService } from "./TerminalService.js";
+import type { Engine } from "../orchestration/Engine.js";
+import type { TerminalService } from "./TerminalService.js";
 
 type CreateIntent = Extract<RuntimeEventEnvelope["event"], { type: "terminal.create.requested" }>;
 
@@ -79,9 +79,12 @@ export class TerminalReactor {
 
   private async runCreate(intent: CreateIntent): Promise<void> {
     try {
+      const worktreePath = intent.worktreePath ?? (await this.worktreePath(intent.terminal.worktreeId));
+      if (!worktreePath) throw new Error(`Worktree does not exist: ${intent.terminal.worktreeId}`);
       await this.service.create({
         terminalId: intent.terminal.terminalId,
         worktreeId: intent.terminal.worktreeId,
+        worktreePath,
         cwd: intent.cwd,
         shell: intent.shell,
         cols: intent.cols,
@@ -128,6 +131,11 @@ export class TerminalReactor {
     } catch (error) {
       await this.dispatchStatus(terminalId, "failed", error instanceof Error ? error.message : "Terminal stop failed.");
     }
+  }
+
+  private async worktreePath(worktreeId: string): Promise<string | undefined> {
+    const projection = await this.engine.projection();
+    return projection.worktrees.find((candidate) => candidate.worktreeId === worktreeId)?.path;
   }
 
   private dispatchStatus(
