@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -46,6 +46,43 @@ describe("DiagnosticsReactor", () => {
     } finally {
       reactor.stop();
       database.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("fails the bundle when destinationPath leaves the allowed root", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "zli-diagnostics-reactor-"));
+    const database = new Database({ path: join(directory, "runtime.sqlite") });
+    const engine = new Engine({
+      database,
+      environment: {
+        environmentId: EnvironmentId.parse("00000000-0000-4000-8000-000000000001"),
+        label: "test",
+        protocolVersion: 1,
+        capabilities: { eventReplay: true },
+      },
+    });
+    const reactor = new DiagnosticsReactor(engine);
+    const destination = join(tmpdir(), "zli-reactor-outside.zip");
+
+    try {
+      await engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse("00000000-0000-4000-8000-000000000011"),
+        command: { type: "diagnostics.createSupportBundle", destinationPath: destination, allowedRoot: directory },
+      });
+      await reactor.waitForIdle();
+
+      const projection = await engine.projection();
+      expect(projection.diagnostics?.lastBundle).toBeUndefined();
+      expect(projection.diagnostics?.lastError).toBe(
+        "Support bundle destination must stay inside the export directory.",
+      );
+      await expect(access(destination)).rejects.toThrow();
+    } finally {
+      reactor.stop();
+      database.close();
+      await rm(destination, { force: true });
       await rm(directory, { recursive: true, force: true });
     }
   });

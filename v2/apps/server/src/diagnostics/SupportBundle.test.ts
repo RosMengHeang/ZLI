@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, sep } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -144,17 +144,78 @@ describe("SupportBundle", () => {
     const directory = await mkdtemp(join(tmpdir(), "zli-support-bundle-"));
     const destination = join(directory, "diagnostics.zip");
     try {
-      const result = await createSupportBundle({ destinationPath: destination, projection, events });
+      const result = await createSupportBundle({
+        destinationPath: destination,
+        allowedRoot: directory,
+        projection,
+        events,
+      });
       const archive = await readFile(destination);
       expect(archive.subarray(0, 4).toString("hex")).toBe("504b0304");
       expect(archive.toString("utf8")).toContain("manifest.json");
       expect(archive.toString("utf8")).toContain("runtime.json");
       expect(result.entries).toEqual(["manifest.json", "runtime.json", "logs.jsonl", "events.jsonl"]);
 
-      await expect(createSupportBundle({ destinationPath: destination, projection })).rejects.toMatchObject({
+      await expect(
+        createSupportBundle({ destinationPath: destination, allowedRoot: directory, projection }),
+      ).rejects.toMatchObject({
         code: "already_exists",
       });
+      await expect(
+        createSupportBundle({ destinationPath: join(directory, "notes.txt"), allowedRoot: directory, projection }),
+      ).rejects.toMatchObject({
+        code: "invalid_destination",
+        message: "Support bundles must use a .zip destination.",
+      });
     } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects destination paths that escape the allowed directory with ..", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "zli-support-bundle-"));
+    const escaped = join(dirname(directory), "zli-support-traversal.zip");
+    try {
+      const attempt = createSupportBundle({
+        destinationPath: `${directory}${sep}..${sep}zli-support-traversal.zip`,
+        allowedRoot: directory,
+        projection,
+      });
+      await expect(attempt).rejects.toMatchObject({
+        code: "invalid_destination",
+        message: "Support bundle destination must stay inside the export directory.",
+      });
+      await expect(
+        createSupportBundle({
+          destinationPath: `..${sep}zli-support-traversal.zip`,
+          allowedRoot: directory,
+          projection,
+        }),
+      ).rejects.toMatchObject({ code: "invalid_destination" });
+      await expect(access(escaped)).rejects.toThrow();
+    } finally {
+      await rm(escaped, { force: true });
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects absolute destinations outside the allowed directory", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "zli-support-bundle-"));
+    const outside = join(dirname(directory), "zli-support-absolute.zip");
+    const sibling = `${directory}-evil${sep}bundle.zip`;
+    try {
+      await expect(
+        createSupportBundle({ destinationPath: outside, allowedRoot: directory, projection }),
+      ).rejects.toMatchObject({
+        code: "invalid_destination",
+        message: "Support bundle destination must stay inside the export directory.",
+      });
+      await expect(
+        createSupportBundle({ destinationPath: sibling, allowedRoot: directory, projection }),
+      ).rejects.toMatchObject({ code: "invalid_destination" });
+      await expect(access(outside)).rejects.toThrow();
+    } finally {
+      await rm(outside, { force: true });
       await rm(directory, { recursive: true, force: true });
     }
   });

@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, extname, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
 
 import type { RuntimeEventEnvelope, RuntimeProjection } from "@zli-v2/contracts";
 
@@ -16,6 +17,7 @@ export type SupportLog = {
 
 export type SupportBundleInput = {
   destinationPath: string;
+  allowedRoot?: string;
   projection: RuntimeProjection;
   events?: readonly RuntimeEventEnvelope[];
   logs?: readonly SupportLog[];
@@ -145,7 +147,7 @@ export function buildSupportEntries(
 export async function createSupportBundle(
   input: SupportBundleInput,
 ): Promise<{ path: string; bytes: number; entries: string[] }> {
-  const destinationPath = resolve(input.destinationPath);
+  const destinationPath = resolveSupportBundleDestination(input.destinationPath, input.allowedRoot ?? tmpdir());
   if (extname(destinationPath).toLowerCase() !== ".zip") {
     throw new SupportBundleError("invalid_destination", "Support bundles must use a .zip destination.");
   }
@@ -167,6 +169,31 @@ export async function createSupportBundle(
   }
 
   return { path: destinationPath, bytes: archive.byteLength, entries: Object.keys(entries) };
+}
+
+const DESTINATION_OUTSIDE = "Support bundle destination must stay inside the export directory.";
+
+function resolveSupportBundleDestination(destinationPath: string, allowedRoot: string): string {
+  if (
+    destinationPath.length === 0 ||
+    allowedRoot.length === 0 ||
+    destinationPath.includes("\0") ||
+    allowedRoot.includes("\0")
+  ) {
+    throw new SupportBundleError("invalid_destination", DESTINATION_OUTSIDE);
+  }
+  const root = resolve(allowedRoot);
+  const target = resolve(root, destinationPath);
+  if (!isInsideDirectory(root, target)) {
+    throw new SupportBundleError("invalid_destination", DESTINATION_OUTSIDE);
+  }
+  return target;
+}
+
+function isInsideDirectory(root: string, target: string): boolean {
+  const fold = (value: string) => (process.platform === "win32" ? value.toLowerCase() : value);
+  const child = relative(fold(root), fold(target));
+  return child !== "" && child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
 }
 
 function safeLogContext(context: Record<string, unknown> | undefined): Record<string, unknown> | undefined {

@@ -138,6 +138,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("diagnostics.createSupportBundle"),
     destinationPath: z.string().min(1),
+    allowedRoot: z.string().min(1).optional(),
     desktopLogs: z.array(DiagnosticLog).optional(),
   }),
   z.object({ type: z.literal("diagnostics.bundle.created"), bundle: SupportBundleProjection }),
