@@ -365,6 +365,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
         {
           type: "diagnostics.bundle.requested",
           destinationPath: command.destinationPath,
+          ...(command.allowedRoot ? { allowedRoot: command.allowedRoot } : {}),
           ...(command.desktopLogs ? { desktopLogs: command.desktopLogs } : {}),
         },
       ];

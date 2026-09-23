@@ -28,7 +28,7 @@ export class DiagnosticsReactor {
 
   private onEvent(envelope: RuntimeEventEnvelope): void {
     if (envelope.event.type !== "diagnostics.bundle.requested") return;
-    const task = this.createBundle(envelope.event.destinationPath);
+    const task = this.createBundle(envelope.event.destinationPath, envelope.event.allowedRoot);
     this.tasks.add(task);
     void task.then(
       () => this.tasks.delete(task),
@@ -36,7 +36,7 @@ export class DiagnosticsReactor {
     );
   }
 
-  private async createBundle(destinationPath: string): Promise<void> {
+  private async createBundle(destinationPath: string, allowedRoot?: string): Promise<void> {
     try {
       const projection = await this.engine.projection();
       const events = await this.engine.eventsAfter(Math.max(0, projection.lastSequence - 200));
@@ -44,6 +44,7 @@ export class DiagnosticsReactor {
       const desktopLogs = request?.type === "diagnostics.bundle.requested" ? (request.desktopLogs ?? []) : [];
       const result = await createSupportBundle({
         destinationPath,
+        ...(allowedRoot ? { allowedRoot } : {}),
         projection,
         events,
         logs: [...this.logger.snapshot(), ...desktopLogs],

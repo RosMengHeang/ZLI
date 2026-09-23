@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, WebContentsView } from "electron";
 import { randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
 
@@ -43,6 +43,7 @@ protocol.registerSchemesAsPrivileged([
 let environment: EnvironmentProcess | undefined;
 let runtime: RuntimeClient | undefined;
 let browserManager: BrowserManager | undefined;
+let approvedSupportBundleRoot: string | undefined;
 
 async function main(): Promise<void> {
   await app.whenReady();
@@ -156,10 +157,17 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
       commandId: parsed.data.commandId,
     });
     if (parsed.data.command.type === "diagnostics.createSupportBundle") {
+      const allowedRoot = approvedSupportBundleRoot;
+      approvedSupportBundleRoot = undefined;
+      if (!allowedRoot) {
+        throw new Error("Support bundle destination must stay inside the export directory.");
+      }
       return runtime.command({
         ...parsed.data,
         command: {
-          ...parsed.data.command,
+          type: "diagnostics.createSupportBundle",
+          destinationPath: parsed.data.command.destinationPath,
+          allowedRoot,
           desktopLogs: desktopDiagnostics.snapshot(),
         },
       });
@@ -202,7 +210,10 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
       defaultPath: "zli-support-bundle.zip",
       filters: [{ name: "ZLI support bundle", extensions: ["zip"] }],
     });
-    return result.canceled ? undefined : result.filePath;
+    if (result.canceled || !result.filePath) return undefined;
+    const destination = resolve(result.filePath);
+    approvedSupportBundleRoot = dirname(destination);
+    return destination;
   });
   ipcMain.handle("zli:dialog:open-legacy-snapshot", async () => {
     if (process.env.ZLI_TEST_PROVIDER === "mock" && process.env.ZLI_TEST_LEGACY_SNAPSHOT_PATH) {
