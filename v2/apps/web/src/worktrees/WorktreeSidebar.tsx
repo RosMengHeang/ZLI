@@ -1,5 +1,7 @@
 import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 
+import { worktreeProviderLabel } from "../agent/providers.js";
+
 type Props = {
   projection: RuntimeProjection | undefined;
   activeWorktreeId: string | undefined;
@@ -61,19 +63,27 @@ export function WorktreeSidebar({ projection, activeWorktreeId, onSelect, onOpen
                 {projectWorktrees.length === 0 ? (
                   <p className="tree-note">No worktrees yet.</p>
                 ) : (
-                  projectWorktrees.map((worktree) => (
-                    <button
-                      className={`worktree-row${activeWorktreeId === worktree.worktreeId ? " is-active" : ""}`}
-                      key={worktree.worktreeId}
-                      type="button"
-                      onClick={() => onSelect(worktree)}
-                      title={worktree.path}
-                    >
-                      <span className={`status-dot status-${worktree.status}`} aria-hidden="true" />
-                      <span className="worktree-name">{worktree.branch}</span>
-                      <span className="worktree-status">{statusLabel[worktree.status]}</span>
-                    </button>
-                  ))
+                  projectWorktrees.map((worktree) => {
+                    const providerLabel = worktreeProviderLabel(
+                      projection?.threads ?? [],
+                      worktree.worktreeId,
+                      projection?.providers,
+                    );
+                    return (
+                      <button
+                        className={`worktree-row${activeWorktreeId === worktree.worktreeId ? " is-active" : ""}`}
+                        key={worktree.worktreeId}
+                        type="button"
+                        onClick={() => onSelect(worktree)}
+                        title={providerLabel ? `${worktree.path} · ${providerLabel}` : worktree.path}
+                      >
+                        <span className={`status-dot status-${worktree.status}`} aria-hidden="true" />
+                        <span className="worktree-name">{worktree.branch}</span>
+                        {providerLabel ? <span className="worktree-provider">{providerLabel}</span> : null}
+                        <span className="worktree-status">{statusLabel[worktree.status]}</span>
+                      </button>
+                    );
+                  })
                 )}
               </section>
             );

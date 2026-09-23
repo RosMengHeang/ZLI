@@ -208,7 +208,20 @@ describe("AppShell", () => {
     expect(list?.textContent).toContain("/home/dev/.local/bin/claude (claude 2.1.0)");
     expect(list?.textContent).toContain("Cursor: not found");
     expect(container.textContent).not.toContain("OpenCode");
-    const start = [...container.querySelectorAll("button")].find((button) => button.textContent === "Start Codex");
-    expect(start?.disabled).toBe(true);
+    expect(container.textContent).toContain("Changing the agent starts a new thread");
+    const claude = container.querySelector<HTMLInputElement>('input[value="claude-code"]');
+    expect(claude?.checked).toBe(true);
+    const startClaude = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Start Claude Code",
+    );
+    expect(startClaude?.disabled).toBe(false);
+
+    await act(async () => {
+      container.querySelector<HTMLInputElement>('input[value="codex"]')?.click();
+    });
+    expect(container.textContent).toContain("Codex CLI was not found on PATH or in known install locations.");
+    const startCodex = [...container.querySelectorAll("button")].find((button) => button.textContent === "Start Codex");
+    expect(startCodex?.disabled).toBe(true);
+    expect(startCodex?.textContent).not.toBe("Starting");
   });
 });

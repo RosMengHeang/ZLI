@@ -1,7 +1,9 @@
-import type { ProviderDiscovery, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
+import type { ListedProviderKind, ProviderDiscovery, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
+import type { FormEvent } from "react";
 import { useMemo, useState } from "react";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { listedDiscoveries, preferredProvider, providerDisplayName } from "./providers.js";
 
 export function AgentPane({
   projection,
@@ -15,17 +17,26 @@ export function AgentPane({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [answers, setAnswers] = useState("{}");
-  const thread = projection.threads.find((candidate) => candidate.worktreeId === worktree?.worktreeId);
-  const codexDiscovery = projection.providers?.find((provider) => provider.provider === "codex");
-  const codexUnavailable = codexDiscovery?.status === "missing";
+  const [providerChoice, setProviderChoice] = useState<ListedProviderKind>();
+  const listed = useMemo(() => listedDiscoveries(projection.providers), [projection.providers]);
+  const selectedKind =
+    providerChoice && listed.some((entry) => entry.provider === providerChoice)
+      ? providerChoice
+      : preferredProvider(listed);
+  const selected = listed.find((entry) => entry.provider === selectedKind);
+  const thread = projection.threads.find(
+    (candidate) => candidate.worktreeId === worktree?.worktreeId && candidate.provider === selectedKind,
+  );
+  const discoveryError = selected?.status === "missing" ? selected.reason : undefined;
   const request = projection.requests?.find((candidate) => candidate.threadId === thread?.threadId);
   const messages = useMemo(
     () => (projection.messages ?? []).filter((message) => message.threadId === thread?.threadId),
     [projection.messages, thread?.threadId],
   );
+  const displayName = selected?.displayName ?? (selectedKind ? providerDisplayName(selectedKind, listed) : "Agent");
 
   const start = async () => {
-    if (!worktree) return;
+    if (!worktree || !selected || selected.status !== "found") return;
     setBusy(true);
     setError(undefined);
     try {
@@ -36,7 +47,7 @@ export function AgentPane({
           type: "thread.start",
           threadId: makeCommandId(),
           worktreeId: worktree.worktreeId,
-          provider: "codex",
+          provider: selected.provider,
           cwd: worktree.path,
         },
       });
@@ -48,7 +59,7 @@ export function AgentPane({
     }
   };
 
-  const send = async (event: React.FormEvent) => {
+  const send = async (event: FormEvent) => {
     event.preventDefault();
     if (!thread || !draft.trim() || thread.status === "starting") return;
     const text = draft.trim();
@@ -104,6 +115,12 @@ export function AgentPane({
     }
   };
 
+  const visibleError = error ?? discoveryError ?? (thread?.status === "failed" ? thread.errorMessage : undefined);
+  const statusLabel =
+    thread && discoveryError && (thread.status === "starting" || thread.status === "failed")
+      ? "CLI missing"
+      : (thread?.status ?? "Idle");
+
   return (
     <div className="tool-pane agent-pane">
       <div className="tool-pane-header">
@@ -111,26 +128,52 @@ export function AgentPane({
           <span className="eyebrow">Agent</span>
           <h2>{worktree?.branch ?? "No worktree selected"}</h2>
         </div>
-        <span className="pane-meta">{thread?.status ?? "Idle"}</span>
+        <span className="pane-meta">{statusLabel}</span>
       </div>
-      <ProviderAvailability providers={projection.providers} />
+      <ProviderPicker
+        discoveries={projection.providers}
+        listed={listed}
+        selected={selectedKind}
+        onSelect={setProviderChoice}
+      />
+      <p className="provider-picker-note">
+        Changing the agent starts a new thread in this worktree. It does not continue the other agent's session.
+      </p>
       {!worktree ? (
         <EmptyAgent title="Select a worktree" detail="Agent sessions are isolated to the selected worktree." />
       ) : !thread ? (
         <div className="empty-pane">
-          <p className="empty-title">No Codex session</p>
-          <p className="empty-detail">Start the structured Codex app-server session for this worktree.</p>
-          <button
-            className="primary-button"
-            type="button"
-            onClick={() => void start()}
-            disabled={busy || codexUnavailable}
-          >
-            {busy ? "Starting" : "Start Codex"}
-          </button>
-          {error && (
+          {projection.providers === undefined ? (
+            <>
+              <p className="empty-title">Checking agent CLIs</p>
+              <p className="empty-detail">
+                Installed agents show up here when discovery finishes. Nothing is starting.
+              </p>
+            </>
+          ) : !selected ? (
+            <>
+              <p className="empty-title">No agent CLIs listed</p>
+              <p className="empty-detail">Codex, Claude Code, and Cursor could not be listed.</p>
+            </>
+          ) : (
+            <>
+              <p className="empty-title">No {displayName} session</p>
+              <p className="empty-detail">
+                Start a new thread in this worktree. The session uses this worktree as its working directory.
+              </p>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => void start()}
+                disabled={busy || selected.status !== "found"}
+              >
+                {busy ? "Starting" : `Start ${displayName}`}
+              </button>
+            </>
+          )}
+          {visibleError && (
             <p className="inline-error" role="alert">
-              {error}
+              {visibleError}
             </p>
           )}
         </div>
@@ -185,22 +228,22 @@ export function AgentPane({
             <textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder="Ask Codex to change this workspace…"
-              aria-label="Message Codex"
+              placeholder={`Ask ${displayName} to change this worktree…`}
+              aria-label={`Message ${displayName}`}
               rows={3}
             />
             <div className="agent-composer-footer">
               <span className="pane-meta">
-                {thread.provider} · {thread.status}
+                {displayName} · {thread.status}
               </span>
               <button className="primary-button" type="submit" disabled={!draft.trim() || thread.status === "starting"}>
                 Send
               </button>
             </div>
           </form>
-          {error && (
+          {visibleError && (
             <p className="inline-error" role="alert">
-              {error}
+              {visibleError}
             </p>
           )}
         </>
@@ -209,25 +252,50 @@ export function AgentPane({
   );
 }
 
-function ProviderAvailability({ providers }: { providers: readonly ProviderDiscovery[] | undefined }) {
-  if (!providers || providers.length === 0) return null;
+function ProviderPicker({
+  discoveries,
+  listed,
+  selected,
+  onSelect,
+}: {
+  discoveries: readonly ProviderDiscovery[] | undefined;
+  listed: readonly ProviderDiscovery[];
+  selected: ListedProviderKind | undefined;
+  onSelect(provider: ListedProviderKind): void;
+}) {
+  if (discoveries === undefined) return null;
+  if (listed.length === 0) return null;
   return (
-    <ul className="provider-availability" aria-label="Installed agent CLIs">
-      {providers.map((provider) => (
-        <li key={provider.provider}>
-          <span className="pane-meta">
-            {provider.displayName}: {provider.status === "found" ? "found" : "not found"}
-          </span>
-          <span className="provider-availability-detail">
-            {provider.status === "found"
+    <fieldset className="provider-picker">
+      <legend className="pane-meta">Which agent</legend>
+      <div className="provider-options" role="radiogroup" aria-label="Installed agent CLIs">
+        {listed.map((provider) => {
+          const detail =
+            provider.status === "found"
               ? provider.version
                 ? `${provider.path} (${provider.version})`
                 : provider.path
-              : provider.reason}
-          </span>
-        </li>
-      ))}
-    </ul>
+              : provider.reason;
+          return (
+            <label className="provider-option" key={provider.provider}>
+              <input
+                type="radio"
+                name="worktree-agent"
+                value={provider.provider}
+                checked={selected === provider.provider}
+                onChange={() => onSelect(provider.provider)}
+              />
+              <span className="provider-option-copy">
+                <span className="pane-meta">
+                  {provider.displayName}: {provider.status === "found" ? "found" : "not found"}
+                </span>
+                <span className="provider-availability-detail">{detail}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
   );
 }
 
