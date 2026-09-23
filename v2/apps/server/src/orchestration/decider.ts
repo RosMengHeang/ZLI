@@ -235,14 +235,16 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       assertTerminal(projection, command.terminalId);
       return [{ type: "terminal.stop.requested", terminalId: command.terminalId }];
     case "thread.start": {
-      assertWorktree(projection, command.worktreeId);
+      const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === command.worktreeId);
+      if (!worktree) throw new DomainError("worktree_missing", `Worktree does not exist: ${command.worktreeId}`);
       if (projection.threads.some((thread) => thread.threadId === command.threadId)) {
         throw new DomainError("thread_exists", "Thread already exists: " + command.threadId);
       }
       return [
         {
           type: "thread.start.requested",
-          cwd: command.cwd,
+          // Bind the session to the worktree projection. A client cwd cannot move it.
+          cwd: worktree.path,
           thread: {
             threadId: command.threadId,
             worktreeId: command.worktreeId,
@@ -438,7 +440,7 @@ function assertSafeRef(ref: string): void {
     ref.includes("\0") ||
     ref.includes("\\") ||
     /(^|\/)\.\.?($|\/)/u.test(ref) ||
-    /[~^:?*\[]/u.test(ref) ||
+    /[~^:?*[]/u.test(ref) ||
     ref.endsWith(".lock") ||
     ref.endsWith(".")
   ) {

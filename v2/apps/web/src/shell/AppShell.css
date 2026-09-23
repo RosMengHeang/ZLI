@@ -32,6 +32,7 @@ kbd { padding: 2px 5px; border: 1px solid var(--zli-border-strong); border-radiu
 .worktree-row:hover { background: var(--zli-surface); color: var(--zli-text); }
 .worktree-row.is-active { background: var(--zli-raised); color: var(--zli-text); }
 .worktree-name { min-width: 0; flex: 1; overflow: hidden; font-family: var(--zli-mono); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.worktree-provider { max-width: 88px; overflow: hidden; color: var(--zli-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .worktree-status { display: none; color: var(--zli-dim); font-size: 10px; }
 .worktree-row:hover .worktree-status, .worktree-row.is-active .worktree-status { display: inline; }
 .status-dot, .connection-dot, .attention-mark { display: inline-block; width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--zli-dim); }
@@ -59,8 +60,13 @@ kbd { padding: 2px 5px; border: 1px solid var(--zli-border-strong); border-radiu
 .tool-pane-header h2 { margin: 4px 0 0; font-size: 14px; font-weight: 550; }
 .eyebrow { color: var(--zli-dim); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
 .pane-meta { color: var(--zli-muted); font-family: var(--zli-mono); font-size: 11px; }
-.provider-availability { display: flex; flex-direction: column; gap: 2px; margin: 0 20px 8px; padding: 0; list-style: none; }
-.provider-availability li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; min-width: 0; }
+.provider-picker { min-width: 0; margin: 0 20px 4px; padding: 0; border: 0; }
+.provider-picker legend { padding: 0 0 4px; }
+.provider-options { display: flex; flex-direction: column; }
+.provider-option { display: flex; align-items: flex-start; gap: 8px; min-height: 44px; margin: 0; padding: 4px 0; cursor: pointer; }
+.provider-option input { flex: 0 0 auto; margin: 4px 0 0; accent-color: var(--zli-text); }
+.provider-option-copy { display: flex; min-width: 0; flex: 1; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; }
+.provider-picker-note { max-width: 460px; margin: 6px 20px 10px; color: var(--zli-muted); font-size: 12px; line-height: 1.5; }
 .provider-availability-detail { margin: 0; min-width: 0; color: var(--zli-muted); font-family: var(--zli-mono); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
 .empty-pane, .center-state { display: flex; align-items: center; justify-content: center; min-height: 220px; flex: 1; flex-direction: column; padding: 30px; text-align: center; }
 .empty-title, .center-state h1 { margin: 0; color: var(--zli-text); font-size: 14px; font-weight: 550; }

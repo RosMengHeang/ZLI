@@ -4,6 +4,7 @@ import {
   type RuntimeCommand,
   type RuntimeProjection,
   TerminalId,
+  ThreadId,
   WorktreeId,
 } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
@@ -51,6 +52,37 @@ function terminalCreate(cwd: string): RuntimeCommand {
     rows: 24,
   };
 }
+
+describe("thread cwd", () => {
+  const threadId = ThreadId.parse("00000000-0000-4000-8000-000000000405");
+
+  it("binds the session to the selected worktree path", () => {
+    expect(
+      decide(projection("/repo/tree"), {
+        type: "thread.start",
+        threadId,
+        worktreeId,
+        provider: "claude-code",
+        cwd: "/tmp/elsewhere",
+      }),
+    ).toMatchObject([
+      {
+        type: "thread.start.requested",
+        cwd: "/repo/tree",
+        thread: { threadId, worktreeId, provider: "claude-code", status: "starting" },
+      },
+    ]);
+    expect(
+      decide(projection("C:/Work/Tree"), {
+        type: "thread.start",
+        threadId,
+        worktreeId,
+        provider: "cursor-agent",
+        cwd: "C:/Work/Tree",
+      }),
+    ).toMatchObject([{ type: "thread.start.requested", cwd: "C:/Work/Tree", thread: { provider: "cursor-agent" } }]);
+  });
+});
 
 describe("terminal cwd", () => {
   it("pins a terminal to the worktree root and its subdirectories", () => {
