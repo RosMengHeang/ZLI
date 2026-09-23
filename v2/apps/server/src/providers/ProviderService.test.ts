@@ -24,8 +24,10 @@ class FakeAdapter implements ProviderAdapter {
   readonly calls: string[] = [];
   private readonly listeners = new Set<(event: ProviderEvent) => void>();
   private readonly sessions = new Map<string, ProviderSession>();
+  failStart?: Error;
 
   async startSession(input: { threadId: ThreadId; cwd: string }): Promise<ProviderSession> {
+    if (this.failStart) throw this.failStart;
     this.calls.push(`start:${input.cwd}`);
     const session = { threadId: input.threadId, provider: this.provider, cwd: input.cwd, status: "idle" as const };
     this.sessions.set(input.threadId, session);
@@ -127,6 +129,22 @@ describe("ProviderService", () => {
       },
     ]);
     expect(adapter.calls).toEqual([]);
+    expect(service.listSessions()).toEqual([]);
+  });
+
+  it("preserves a missing CLI error instead of hiding it", async () => {
+    const adapter = new FakeAdapter();
+    const failure = new Error("Claude Code CLI was not found on PATH or in known install locations.");
+    Object.assign(failure, { code: "cli_missing" });
+    adapter.failStart = failure;
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+
+    await expect(service.startSession({ provider: "codex", threadId, cwd: "C:/workspace/tree" })).rejects.toMatchObject(
+      {
+        code: "cli_missing",
+        message: "Claude Code CLI was not found on PATH or in known install locations.",
+      },
+    );
     expect(service.listSessions()).toEqual([]);
   });
 

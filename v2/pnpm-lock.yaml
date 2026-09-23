@@ -66,6 +66,9 @@ importers:
       '@zli-v2/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@zli-v2/provider-claude-code':
+        specifier: workspace:*
+        version: link:../../packages/provider-claude-code
       '@zli-v2/provider-codex':
         specifier: workspace:*
         version: link:../../packages/provider-codex
@@ -128,6 +131,12 @@ importers:
       zod:
         specifier: 4.1.11
         version: 4.1.11
+
+  packages/provider-claude-code:
+    devDependencies:
+      '@types/node':
+        specifier: 24.10.1
+        version: 24.10.1
 
   packages/provider-codex:
     dependencies:
