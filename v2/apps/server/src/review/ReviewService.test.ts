@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -115,6 +115,28 @@ describe("ReviewService", () => {
         path: "new-file.txt",
       });
       expect(review.diff?.patch).toContain("new file content");
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("does not read an untracked symlink target outside the worktree", async () => {
+    const fixture = await createRepository();
+    try {
+      const privateFile = join(fixture.directory, "private.txt");
+      await writeFile(privateFile, "outside worktree secret\n", "utf8");
+      await symlink(privateFile, join(fixture.worktreePath, "linked-secret.txt"), "file");
+
+      const review = await new ReviewService(fixture.git).diff({
+        worktreeId: WORKTREE_ID,
+        worktreePath: fixture.worktreePath,
+        repositoryPath: fixture.repositoryPath,
+        branch: "feature/ui",
+        baseRef: "main",
+        path: "linked-secret.txt",
+      });
+
+      expect(review.diff?.patch).not.toContain("outside worktree secret");
     } finally {
       await rm(fixture.directory, { recursive: true, force: true });
     }

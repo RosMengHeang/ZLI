@@ -1,9 +1,4 @@
-const SAFE_BROWSER_PERMISSIONS = new Set([
-  "clipboard-read",
-  "clipboard-sanitized-write",
-  "notifications",
-  "geolocation",
-]);
+const SAFE_BROWSER_PERMISSIONS = new Set(["clipboard-sanitized-write"]);
 
 export function isAllowedMainNavigation(candidate: string, appOrigin: string): boolean {
   const url = parse(candidate);

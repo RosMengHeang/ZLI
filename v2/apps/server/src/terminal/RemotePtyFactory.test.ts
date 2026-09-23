@@ -15,6 +15,7 @@ class FakeConnection {
   constructor(
     private readonly existing = false,
     private readonly includePid = true,
+    private readonly emitDuringAttach = false,
   ) {}
 
   async request(message: unknown): Promise<unknown> {
@@ -24,7 +25,16 @@ class FakeConnection {
       return this.existing
         ? { type: "error", message: "Terminal already exists: shell" }
         : { type: "result", terminal: this.includePid ? { pid: 8080 } : { terminalId, status: "running" } };
-    if (request.type === "terminal.attach")
+    if (request.type === "terminal.attach") {
+      if (this.emitDuringAttach) {
+        this.emit({
+          type: "terminal",
+          message: {
+            kind: "chunk",
+            chunk: { terminalId, sequence: 2, bytesBase64: Buffer.from("during attach\n").toString("base64") },
+          },
+        });
+      }
       return {
         type: "snapshot",
         snapshot: {
@@ -34,6 +44,7 @@ class FakeConnection {
           truncated: false,
         },
       };
+    }
     return { type: "result", accepted: true };
   }
 
@@ -107,6 +118,24 @@ describe("RemotePtyFactory", () => {
       expect.objectContaining({ type: "terminal.create", terminalId, worktreeId }),
       expect.objectContaining({ type: "terminal.attach", terminalId, afterSequence: 0 }),
     ]);
+  });
+
+  it("preserves output emitted while the initial daemon snapshot is attaching", async () => {
+    const connection = new FakeConnection(false, true, true);
+    const factory = new RemotePtyFactory({ connect: async () => connection });
+    const pty = await factory.spawn({
+      terminalId,
+      worktreeId,
+      title: "shell",
+      cwd: "C:\\workspace\\tree",
+      shell: "powershell.exe",
+      cols: 120,
+      rows: 32,
+    });
+    const data: string[] = [];
+    pty.onData((value) => data.push(value));
+
+    expect(data).toEqual(["before\n", "during attach\n"]);
   });
 
   it("attaches to a daemon-owned terminal after the environment server restarts", async () => {

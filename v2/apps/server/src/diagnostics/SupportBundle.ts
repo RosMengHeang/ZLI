@@ -200,7 +200,7 @@ function redactSensitiveText(value: string): string {
     .replace(/(cookie|set-cookie|authorization)\s*:\s*[^\r\n]+/giu, "$1: " + REDACTED)
     .replace(/(bearer\s+)[^\s"']+/giu, "$1" + REDACTED)
     .replace(
-      /(["']?(?:password|passwd|secret|token|cookie|authorization|api[_-]?key|access[_-]?token|prompt|input|content)["']?\s*[:=]\s*)([^,\s}]+)/giu,
+      /(["']?(?:password|passwd|secret|token|cookie|authorization|api[_-]?key|access[_-]?token|prompt|input|content)["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^,\r\n}]*)/giu,
       "$1" + REDACTED,
     )
     .replace(/(?:[a-z]:\\|\\\\)[^\s"']+/giu, REDACTED)

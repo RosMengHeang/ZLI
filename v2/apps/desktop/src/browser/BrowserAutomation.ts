@@ -1,5 +1,6 @@
 const MAX_RESULT_BYTES = 8 * 1024 * 1024;
 const MAX_DIAGNOSTIC_ENTRIES = 500;
+const MAX_DIAGNOSTIC_ENTRY_BYTES = 16 * 1024;
 
 export type CdpClientLike = {
   send(method: string, params?: unknown): Promise<unknown>;
@@ -269,7 +270,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function trimRecord(value: Record<string, unknown>): Record<string, unknown> {
-  return JSON.parse(JSON.stringify(value).slice(0, MAX_RESULT_BYTES)) as Record<string, unknown>;
+  try {
+    const serialized = JSON.stringify(value);
+    if (Buffer.byteLength(serialized, "utf8") <= MAX_DIAGNOSTIC_ENTRY_BYTES) {
+      return JSON.parse(serialized) as Record<string, unknown>;
+    }
+  } catch {
+    // A malformed diagnostic must not interrupt browser control.
+  }
+  return { truncated: true };
 }
 
 function printableKey(key: string): string | undefined {

@@ -24,10 +24,14 @@ describe("NavigationPolicy", () => {
     expect(shouldOpenExternal("mailto:test@example.com")).toBe(false);
   });
 
-  it("defaults permissions to deny and allows only the explicit safe browser set", () => {
-    expect(isPermissionAllowed("clipboard-read")).toBe(true);
+  it("denies sensitive permissions while allowing sanitized clipboard writes", () => {
     expect(isPermissionAllowed("clipboard-sanitized-write")).toBe(true);
+    expect(isPermissionAllowed("clipboard-read")).toBe(false);
+    expect(isPermissionAllowed("clipboard-write")).toBe(false);
+    expect(isPermissionAllowed("notifications")).toBe(false);
+    expect(isPermissionAllowed("geolocation")).toBe(false);
     expect(isPermissionAllowed("camera")).toBe(false);
+    expect(isPermissionAllowed("microphone")).toBe(false);
     expect(isPermissionAllowed("midi")).toBe(false);
   });
 });

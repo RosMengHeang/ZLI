@@ -33,15 +33,15 @@ export class RemotePtyFactory implements PtyFactory {
       if (pid === 0 && !reused && !hasCreatedTerminal(created)) {
         throw new Error(readError(created) ?? "Terminal daemon did not create the PTY.");
       }
+      const process = new RemotePtyProcess(connection, input.terminalId, pid, reused);
+      process.startListening();
       const attachment = await connection.request({
         type: "terminal.attach",
         terminalId: input.terminalId,
         afterSequence: 0,
       });
       const snapshot = readSnapshot(attachment, input.terminalId);
-      const process = new RemotePtyProcess(connection, input.terminalId, pid, reused);
       process.acceptSnapshot(snapshot);
-      process.startListening();
       return process;
     } catch (error) {
       connection.close();
@@ -54,9 +54,12 @@ class RemotePtyProcess implements PtyProcess {
   private readonly dataListeners = new Set<(data: string) => void>();
   private readonly exitListeners = new Set<(event: { code: number; signal: number | null }) => void>();
   private readonly bufferedData: string[] = [];
+  private readonly pendingLiveMessages: TerminalStreamMessage[] = [];
   private exitEvent: { code: number; signal: number | null } | undefined;
   private unsubscribe: (() => void) | undefined;
   private unsubscribeClose: (() => void) | undefined;
+  private snapshotReady = false;
+  private lastSequence = 0;
 
   constructor(
     private readonly connection: Connection,
@@ -91,6 +94,9 @@ class RemotePtyProcess implements PtyProcess {
 
   acceptSnapshot(snapshot: TerminalAttachSnapshot): void {
     for (const chunk of snapshot.chunks) this.acceptData(Buffer.from(chunk.bytesBase64, "base64").toString("utf8"));
+    this.lastSequence = snapshot.nextSequence;
+    this.snapshotReady = true;
+    for (const message of this.pendingLiveMessages.splice(0)) this.acceptMessage(message);
   }
 
   startListening(): void {
@@ -100,15 +106,21 @@ class RemotePtyProcess implements PtyProcess {
       if (message.type !== "terminal") return;
       const parsed = TerminalStreamMessage.safeParse(message.message);
       if (!parsed.success) return;
-      if (parsed.data.kind === "chunk") {
-        if (parsed.data.chunk.terminalId !== this.terminalId) return;
-        this.acceptData(Buffer.from(parsed.data.chunk.bytesBase64, "base64").toString("utf8"));
-      } else if (parsed.data.kind === "exit") {
-        if (parsed.data.terminalId !== this.terminalId) return;
-        this.acceptExit({ code: parsed.data.code, signal: parsed.data.signal });
-      }
+      if (!this.snapshotReady) this.pendingLiveMessages.push(parsed.data);
+      else this.acceptMessage(parsed.data);
     });
     this.unsubscribeClose = this.connection.onClose(() => this.acceptExit({ code: 1, signal: null }));
+  }
+
+  private acceptMessage(message: TerminalStreamMessage): void {
+    if (message.kind === "chunk") {
+      if (message.chunk.terminalId !== this.terminalId || message.chunk.sequence <= this.lastSequence) return;
+      this.lastSequence = message.chunk.sequence;
+      this.acceptData(Buffer.from(message.chunk.bytesBase64, "base64").toString("utf8"));
+    } else if (message.kind === "exit") {
+      if (message.terminalId !== this.terminalId) return;
+      this.acceptExit({ code: message.code, signal: message.signal });
+    }
   }
 
   private acceptData(data: string): void {

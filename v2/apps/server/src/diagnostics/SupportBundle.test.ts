@@ -125,6 +125,21 @@ describe("SupportBundle", () => {
     expect(combined).toContain("REDACTED");
   });
 
+  it("redacts quoted and unquoted multiword prompt values in logs", () => {
+    const entries = buildSupportEntries({
+      projection,
+      logs: [
+        { level: "error", message: 'prompt="private multiword customer text"' },
+        { level: "error", message: "prompt=another private customer request" },
+      ],
+    });
+    const combined = Object.values(entries).join("\n");
+
+    expect(combined).not.toContain("multiword customer text");
+    expect(combined).not.toContain("private customer request");
+    expect(combined).toContain("REDACTED");
+  });
+
   it("writes a real non-overwriting zip bundle", async () => {
     const directory = await mkdtemp(join(tmpdir(), "zli-support-bundle-"));
     const destination = join(directory, "diagnostics.zip");

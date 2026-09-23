@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { lstat, readFile, realpath } from "node:fs/promises";
+import { isAbsolute, join, relative, sep } from "node:path";
 
 import {
   ReviewProjection,
@@ -246,7 +246,14 @@ function boundPatch(value: string): { patch: string; truncated: boolean } {
 async function readUntrackedPatch(worktreePath: string, file: ReviewFileProjection): Promise<string> {
   if (file.binary) return `Untracked binary file: ${file.path}`;
   try {
-    const content = await readFile(join(worktreePath, file.path), "utf8");
+    const candidate = join(worktreePath, file.path);
+    if ((await lstat(candidate)).isSymbolicLink()) return `Untracked symlink: ${file.path}`;
+    const [root, target] = await Promise.all([realpath(worktreePath), realpath(candidate)]);
+    const inside = relative(root, target);
+    if (inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside)) {
+      return `Untracked file outside worktree: ${file.path}`;
+    }
+    const content = await readFile(target, "utf8");
     return `Untracked file: ${file.path}\n\n${content}`;
   } catch {
     return `Untracked file: ${file.path}`;

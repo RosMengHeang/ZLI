@@ -81,4 +81,18 @@ describe("BrowserAutomation", () => {
     });
     await expect(waiting).resolves.toEqual({ idle: true });
   });
+
+  it("keeps oversized CDP diagnostics bounded without crashing the message handler", async () => {
+    const { cdp, emit } = fakeCdp();
+    const automation = new BrowserAutomation(cdp);
+    await automation.start();
+
+    expect(() =>
+      emit("Network.requestWillBeSent", {
+        requestId: "large-request",
+        request: { url: `https://example.com/${"x".repeat(8 * 1024 * 1024 + 32)}`, type: "Fetch" },
+      }),
+    ).not.toThrow();
+    expect(JSON.stringify(automation.networkEntries()).length).toBeLessThan(16_384);
+  });
 });
