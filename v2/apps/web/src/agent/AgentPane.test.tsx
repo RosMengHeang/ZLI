@@ -441,4 +441,15 @@ describe("AgentPane", () => {
     expect(values).toEqual(["codex", "claude-code", "cursor-agent"]);
     expect(container.textContent).not.toContain("OpenCode");
   });
+
+  it("selects the agent already running in the worktree instead of the first found CLI", () => {
+    const claudeThread = ThreadId.parse("00000000-0000-4000-8000-000000000031");
+    const container = renderPane(
+      projection({
+        threads: [{ threadId: claudeThread, worktreeId, provider: "claude-code", status: "working", capabilities: {} }],
+      }),
+    );
+    expect(container.querySelector<HTMLInputElement>('input[value="claude-code"]')?.checked).toBe(true);
+    expect(container.querySelector("textarea")?.getAttribute("aria-label")).toBe("Message Claude Code");
+  });
 });

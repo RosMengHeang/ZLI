@@ -10,7 +10,7 @@ import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
-import { listedDiscoveries, preferredProvider, providerDisplayName } from "./providers.js";
+import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "./providers.js";
 import { defaultWorktreeForNewAgent } from "./worktreeChoice.js";
 
 export function AgentPane({
@@ -35,10 +35,17 @@ export function AgentPane({
   const [sharePrompt, setSharePrompt] = useState<{ worktreeId: string; provider: ListedProviderKind } | null>(null);
   const shareConfirmRef = useRef<HTMLButtonElement>(null);
   const listed = useMemo(() => listedDiscoveries(projection.providers), [projection.providers]);
+  const runningHere = projection.threads
+    .filter((candidate) => candidate.worktreeId === worktree?.worktreeId && threadOccupiesWorktree(candidate.status))
+    .map((candidate) => candidate.provider)
+    .find(
+      (provider): provider is ListedProviderKind =>
+        isSelectableProvider(provider) && listed.some((entry) => entry.provider === provider),
+    );
   const selectedKind =
     providerChoice && listed.some((entry) => entry.provider === providerChoice)
       ? providerChoice
-      : preferredProvider(listed);
+      : (runningHere ?? preferredProvider(listed));
   const selected = listed.find((entry) => entry.provider === selectedKind);
   const thread = projection.threads.find(
     (candidate) => candidate.worktreeId === worktree?.worktreeId && candidate.provider === selectedKind,
@@ -202,19 +209,15 @@ export function AgentPane({
 
   return (
     <div className="tool-pane agent-pane">
-      <div className="tool-pane-header">
-        <div>
-          <span className="eyebrow">Agent</span>
-          <h2>{worktree?.branch ?? "No worktree selected"}</h2>
-        </div>
-        <span className="pane-meta">{statusLabel}</span>
+      <div className="agent-toolbar">
+        <ProviderPicker
+          discoveries={projection.providers}
+          listed={listed}
+          selected={selectedKind}
+          onSelect={setProviderChoice}
+        />
+        <span className={`agent-state status-text-${thread?.status ?? "none"}`}>{statusLabel}</span>
       </div>
-      <ProviderPicker
-        discoveries={projection.providers}
-        listed={listed}
-        selected={selectedKind}
-        onSelect={setProviderChoice}
-      />
       <p className="provider-picker-note">
         {placement.mode === "current" || placement.mode === "missing"
           ? "Changing the agent starts a new thread in this worktree. It does not continue the other agent's session."
@@ -358,17 +361,29 @@ export function AgentPane({
               )}
             </section>
           )}
+          {visibleError && (
+            <p className="inline-error" role="alert">
+              {visibleError}
+            </p>
+          )}
           <form className="agent-composer" onSubmit={(event) => void send(event)}>
             <textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder={`Ask ${displayName} to change this worktree…`}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+              placeholder={`Ask ${displayName} to change this worktree`}
               aria-label={`Message ${displayName}`}
               rows={3}
             />
             <div className="agent-composer-footer">
               <span className="pane-meta">
                 {displayName} · {thread.status}
+                <span className="composer-hint"> · Enter to send, Shift+Enter for a new line</span>
               </span>
               <button className="primary-button" type="submit" disabled={!draft.trim() || thread.status === "starting"}>
                 Send
@@ -376,45 +391,43 @@ export function AgentPane({
             </div>
           </form>
           {peers.length > 0 && selectedPeerId && (
-            <form
-              className="agent-peer"
-              aria-label="Send to another agent"
-              onSubmit={(event) => void sendToThread(event)}
-            >
-              <label className="pane-meta agent-peer-label" htmlFor="agent-peer-target">
-                Another thread in this project
-              </label>
-              <select
-                id="agent-peer-target"
-                className="agent-peer-target"
-                value={selectedPeerId}
-                onChange={(event) => setPeerTargetId(event.target.value)}
+            <details className="agent-peer-wrap">
+              <summary>Message another agent in this project</summary>
+              <form
+                className="agent-peer"
+                aria-label="Send to another agent"
+                onSubmit={(event) => void sendToThread(event)}
               >
-                {peers.map((peer) => (
-                  <option key={peer.threadId} value={peer.threadId}>
-                    {peerOptionLabel(projection, peer.threadId)}
-                  </option>
-                ))}
-              </select>
-              <textarea
-                value={peerDraft}
-                onChange={(event) => setPeerDraft(event.target.value)}
-                placeholder="Message for that thread"
-                aria-label="Message for the other agent"
-                rows={2}
-              />
-              <div className="agent-composer-footer">
-                <span className="pane-meta">Stays in this project</span>
-                <button className="secondary-button" type="submit" disabled={!peerDraft.trim()}>
-                  Send to thread
-                </button>
-              </div>
-            </form>
-          )}
-          {visibleError && (
-            <p className="inline-error" role="alert">
-              {visibleError}
-            </p>
+                <label className="pane-meta agent-peer-label" htmlFor="agent-peer-target">
+                  Another thread in this project
+                </label>
+                <select
+                  id="agent-peer-target"
+                  className="agent-peer-target"
+                  value={selectedPeerId}
+                  onChange={(event) => setPeerTargetId(event.target.value)}
+                >
+                  {peers.map((peer) => (
+                    <option key={peer.threadId} value={peer.threadId}>
+                      {peerOptionLabel(projection, peer.threadId)}
+                    </option>
+                  ))}
+                </select>
+                <textarea
+                  value={peerDraft}
+                  onChange={(event) => setPeerDraft(event.target.value)}
+                  placeholder="Message for that thread"
+                  aria-label="Message for the other agent"
+                  rows={2}
+                />
+                <div className="agent-composer-footer">
+                  <span className="pane-meta">Stays in this project</span>
+                  <button className="secondary-button" type="submit" disabled={!peerDraft.trim()}>
+                    Send to thread
+                  </button>
+                </div>
+              </form>
+            </details>
           )}
         </>
       )}
@@ -506,7 +519,7 @@ function ProviderPicker({
                 : provider.path
               : provider.reason;
           return (
-            <label className="provider-option" key={provider.provider}>
+            <label className={`provider-option is-${provider.status}`} key={provider.provider} title={detail}>
               <input
                 type="radio"
                 name="worktree-agent"

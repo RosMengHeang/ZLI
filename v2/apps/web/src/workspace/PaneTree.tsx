@@ -1,29 +1,36 @@
-import type { ReactNode } from "react";
-
 export type WorkspacePane = "agent" | "terminal" | "browser" | "review";
+
+export const paneLabel: Record<WorkspacePane, string> = {
+  agent: "Agent",
+  terminal: "Terminal",
+  browser: "Browser",
+  review: "Review",
+};
+
+const toolPanes = ["terminal", "browser", "review"] as const;
 
 type Props = {
   pane: WorkspacePane;
   onChange(pane: WorkspacePane): void;
-  children: ReactNode;
 };
 
-export function PaneTree({ pane, onChange, children }: Props) {
+export function PaneTree({ pane, onChange }: Props) {
+  const tab = (candidate: WorkspacePane) => (
+    <button
+      className={`pane-tab${pane === candidate ? " is-active" : ""}`}
+      key={candidate}
+      type="button"
+      aria-pressed={pane === candidate}
+      onClick={() => onChange(candidate)}
+    >
+      {paneLabel[candidate]}
+    </button>
+  );
   return (
-    <section className="workspace-surface" aria-label="Workspace">
-      <nav className="pane-tabs" aria-label="Workspace tools">
-        {(["agent", "terminal", "browser", "review"] as const).map((candidate) => (
-          <button
-            className={`pane-tab${pane === candidate ? " is-active" : ""}`}
-            key={candidate}
-            type="button"
-            onClick={() => onChange(candidate)}
-          >
-            {candidate.charAt(0).toUpperCase() + candidate.slice(1)}
-          </button>
-        ))}
-      </nav>
-      <div className="pane-content">{children}</div>
-    </section>
+    <nav className="pane-tabs" aria-label="Workspace tools">
+      {tab("agent")}
+      <span className="pane-tabs-divider" aria-hidden="true" />
+      {toolPanes.map(tab)}
+    </nav>
   );
 }

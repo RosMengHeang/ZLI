@@ -8,7 +8,8 @@ import { makeCommandId } from "../runtime/commandId.js";
 import { RuntimeProvider, useRuntime } from "../runtime/RuntimeProvider.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
 import { TerminalPane } from "../terminal/TerminalPane.js";
-import { PaneTree, type WorkspacePane } from "../workspace/PaneTree.js";
+import { PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
+import { PaneTree, paneLabel, type WorkspacePane } from "../workspace/PaneTree.js";
 import { WorktreeSidebar } from "../worktrees/WorktreeSidebar.js";
 import { HelpDialog } from "./HelpDialog.js";
 import "./AppShell.css";
@@ -22,9 +23,10 @@ export function AppShell({ bridge = getBridge() }: { bridge?: ZliBridge } = {}) 
 }
 
 function WorkspaceApp() {
-  const { bridge, projection, connected, dispatch } = useRuntime();
+  const { bridge, projection, dispatch } = useRuntime();
   const [activeWorktreeId, setActiveWorktreeId] = useState<string>();
-  const [pane, setPane] = useState<WorkspacePane>("terminal");
+  const [pane, setPane] = useState<WorkspacePane>("agent");
+  const [panelWidth, setPanelWidth] = usePanelWidth();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
   const [activeCommandIndex, setActiveCommandIndex] = useState(0);
@@ -238,79 +240,85 @@ function WorkspaceApp() {
       if (command) runPaletteCommand(command);
     }
   };
-  const worktreeLabel = activeWorktree?.branch ?? "No worktree selected";
+  const hasProjects = (projection?.projects.length ?? 0) > 0;
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div className="topbar-brand">
-          <span className="brand-mark">Z</span>
-          <span className="brand-name">ZLI</span>
-          <span className="brand-divider" aria-hidden="true" /> <span className="context-name">{worktreeLabel}</span>
-        </div>
-        <button className="command-trigger" type="button" onClick={() => setPaletteOpen(true)}>
-          <span>Jump to anything</span>
-          <kbd>Ctrl K</kbd>
-        </button>
-        <div className="topbar-actions">
-          <span className={`runtime-state${connected ? " is-connected" : ""}`}>
-            <span className="status-dot" aria-hidden="true" />
-            {connected ? "Connected" : bridge ? "Connecting" : "Desktop only"}
-          </span>
-          <button className="icon-button" type="button" onClick={() => void bridge?.app.quit()} aria-label="Quit ZLI">
-            ×
+      <WorktreeSidebar
+        projection={projection}
+        activeWorktreeId={activeWorktreeId}
+        onSelect={(worktree) => {
+          setActiveWorktreeId(worktree.worktreeId);
+          setNotice(undefined);
+        }}
+        onOpenProject={() => void openProject()}
+        onCreateWorktree={() => setWorktreeDialogOpen(true)}
+        onOpenHelp={() => setHelpOpen(true)}
+      />
+      <main className="main-workspace">
+        <header className="workspace-header">
+          <div className="workspace-title">
+            {activeWorktree ? (
+              <>
+                <span className="workspace-branch">{activeWorktree.branch}</span>
+                <span className="workspace-path" title={activeWorktree.path}>
+                  {activeWorktree.path}
+                </span>
+              </>
+            ) : (
+              <span className="workspace-branch is-empty">{hasProjects ? "Select a worktree" : "No project open"}</span>
+            )}
+          </div>
+          <PaneTree pane={pane} onChange={setPane} />
+          <button className="command-trigger" type="button" onClick={() => setPaletteOpen(true)}>
+            <span>Search</span>
+            <kbd>Ctrl K</kbd>
           </button>
-        </div>
-      </header>
-      <div className="app-body">
-        <WorktreeSidebar
-          projection={projection}
-          activeWorktreeId={activeWorktreeId}
-          onSelect={(worktree) => {
-            setActiveWorktreeId(worktree.worktreeId);
-            setNotice(undefined);
-          }}
-          onOpenProject={() => void openProject()}
-          onCreateWorktree={() => setWorktreeDialogOpen(true)}
-        />
-        <main className="main-workspace">
-          {notice && (
-            <div className="notice-bar" role="alert">
-              {notice}
-              <button type="button" onClick={() => setNotice(undefined)} aria-label="Dismiss message">
-                Dismiss
-              </button>
-            </div>
-          )}
-          <AttentionPanel items={projection?.attention ?? []} />
-          {!bridge ? (
-            <DisconnectedState />
-          ) : !projection ? (
-            <LoadingState />
-          ) : (
-            <PaneTree pane={pane} onChange={setPane}>
-              {pane === "agent" ? (
-                <AgentPane
-                  projection={projection}
-                  worktree={activeWorktree}
-                  onSelectWorktree={(next) => setActiveWorktreeId(next.worktreeId)}
-                  onCreateWorktree={() => setWorktreeDialogOpen(true)}
-                />
-              ) : pane === "terminal" ? (
-                <TerminalPane
-                  projection={projection}
-                  worktree={activeWorktree}
-                  onOpenBrowser={() => choosePane("browser")}
-                />
-              ) : pane === "browser" ? (
-                <BrowserPane worktree={activeWorktree} />
-              ) : (
-                <ReviewPane worktree={activeWorktree} />
-              )}
-            </PaneTree>
-          )}
-        </main>
-      </div>
+        </header>
+        {notice && (
+          <div className="notice-bar" role="alert">
+            <span>{notice}</span>
+            <button type="button" onClick={() => setNotice(undefined)} aria-label="Dismiss message">
+              Dismiss
+            </button>
+          </div>
+        )}
+        <AttentionPanel items={projection?.attention ?? []} />
+        {!bridge ? (
+          <DisconnectedState />
+        ) : !projection ? (
+          <LoadingState />
+        ) : (
+          <div className="workspace-body">
+            <section className="conversation-column" aria-label="Conversation">
+              <AgentPane
+                projection={projection}
+                worktree={activeWorktree}
+                onSelectWorktree={(next) => setActiveWorktreeId(next.worktreeId)}
+                onCreateWorktree={() => setWorktreeDialogOpen(true)}
+              />
+            </section>
+            {pane !== "agent" && (
+              <>
+                <PanelResizer width={panelWidth} onChange={setPanelWidth} />
+                <aside className="tool-panel" aria-label={`${paneLabel[pane]} panel`} style={{ width: panelWidth }}>
+                  {pane === "terminal" ? (
+                    <TerminalPane
+                      projection={projection}
+                      worktree={activeWorktree}
+                      onOpenBrowser={() => choosePane("browser")}
+                    />
+                  ) : pane === "browser" ? (
+                    <BrowserPane worktree={activeWorktree} />
+                  ) : (
+                    <ReviewPane worktree={activeWorktree} />
+                  )}
+                </aside>
+              </>
+            )}
+          </div>
+        )}
+      </main>
       {paletteOpen && (
         <div className="palette-backdrop">
           <button
@@ -396,20 +404,17 @@ function WorkspaceApp() {
 function LoadingState() {
   return (
     <div className="center-state">
-      <span className="eyebrow">Runtime</span>
-      <h1>Connecting to your workspace</h1>
-      <p>The local environment is restoring projects, worktrees, and sessions.</p>
+      <h1>Connecting to the local runtime</h1>
+      <p>Projects, worktrees, and sessions appear once the runtime responds.</p>
     </div>
   );
 }
 function DisconnectedState() {
   return (
     <div className="center-state">
-      <span className="eyebrow">Desktop shell</span>
-      <h1>Start ZLI from Electron</h1>
+      <h1>Start ZLI from the desktop app</h1>
       <p>
-        This renderer is intentionally isolated from Node and the filesystem. The desktop shell provides the local
-        runtime bridge.
+        This window has no runtime bridge. Run <code>npm run dev</code> from the repository root.
       </p>
     </div>
   );

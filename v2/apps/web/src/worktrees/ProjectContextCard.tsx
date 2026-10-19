@@ -30,8 +30,8 @@ export function ProjectContextCard({
   providers: readonly ProviderDiscovery[] | undefined;
 }) {
   return (
-    <section className="project-context" aria-label="Project context" aria-live="polite">
-      <p className="eyebrow">Project context</p>
+    <details className="project-context" aria-label="Project context">
+      <summary className="eyebrow">Project context</summary>
       <p className="project-context-root" title={context.repoRoot}>
         {context.repoRoot}
       </p>
@@ -73,6 +73,6 @@ export function ProjectContextCard({
           ))}
         </ul>
       )}
-    </section>
+    </details>
   );
 }

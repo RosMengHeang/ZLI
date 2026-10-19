@@ -1,11 +1,12 @@
 import {
   deriveSharedProjectContexts,
   type RuntimeProjection,
+  type ThreadProjection,
   threadOccupiesWorktree,
   type WorktreeProjection,
 } from "@zli-v2/contracts";
 
-import { worktreeProviderLabel } from "../agent/providers.js";
+import { isSelectableProvider, worktreeProviderLabel } from "../agent/providers.js";
 import { ProjectContextCard } from "./ProjectContextCard.js";
 
 type Props = {
@@ -14,6 +15,7 @@ type Props = {
   onSelect(worktree: WorktreeProjection): void;
   onOpenProject(): void;
   onCreateWorktree(): void;
+  onOpenHelp?(): void;
 };
 
 const statusLabel: Record<WorktreeProjection["status"], string> = {
@@ -27,9 +29,33 @@ const statusLabel: Record<WorktreeProjection["status"], string> = {
   cancelled: "Cancelled",
 };
 
-export function WorktreeSidebar({ projection, activeWorktreeId, onSelect, onOpenProject, onCreateWorktree }: Props) {
+type Activity = { label: string; tone: "busy" | "attention" | "failed" };
+
+/** The most urgent live agent state in a worktree, so the row answers "does this need me?". */
+function worktreeActivity(threads: readonly ThreadProjection[], worktreeId: string): Activity | undefined {
+  const states = new Set(
+    threads
+      .filter((thread) => thread.worktreeId === worktreeId && isSelectableProvider(thread.provider))
+      .map((thread) => thread.status),
+  );
+  if (states.has("waiting")) return { label: "Needs input", tone: "attention" };
+  if (states.has("failed")) return { label: "Agent failed", tone: "failed" };
+  if (states.has("working")) return { label: "Working", tone: "busy" };
+  if (states.has("starting")) return { label: "Starting", tone: "busy" };
+  return undefined;
+}
+
+export function WorktreeSidebar({
+  projection,
+  activeWorktreeId,
+  onSelect,
+  onOpenProject,
+  onCreateWorktree,
+  onOpenHelp,
+}: Props) {
   const projects = projection?.projects ?? [];
   const worktrees = projection?.worktrees ?? [];
+  const threads = projection?.threads ?? [];
   const activeProjectId =
     worktrees.find((worktree) => worktree.worktreeId === activeWorktreeId)?.projectId ?? projects[0]?.projectId;
   const contexts = projection ? (projection.projectContexts ?? deriveSharedProjectContexts(projection)) : [];
@@ -38,25 +64,24 @@ export function WorktreeSidebar({ projection, activeWorktreeId, onSelect, onOpen
     <aside className="worktree-sidebar" aria-label="Projects and worktrees">
       <div className="sidebar-heading">
         <span className="wordmark">ZLI</span>
-        <div className="sidebar-actions">
-          <button className="quiet-button" type="button" onClick={onOpenProject} aria-label="Open project">
-            Open
-          </button>
-          <button
-            className="quiet-button"
-            type="button"
-            onClick={onCreateWorktree}
-            disabled={projects.length === 0}
-            aria-label="Create worktree"
-          >
-            New
-          </button>
-        </div>
+        <button className="quiet-button" type="button" onClick={onOpenProject} aria-label="Open project">
+          Open
+        </button>
       </div>
+      <button
+        className="sidebar-new"
+        type="button"
+        onClick={onCreateWorktree}
+        disabled={projects.length === 0}
+        aria-label="Create worktree"
+      >
+        <span aria-hidden="true">+</span>
+        New worktree
+      </button>
       <div className="sidebar-scroll">
         {projects.length === 0 ? (
           <div className="sidebar-empty">
-            <p>No project connected.</p>
+            <p>Open a Git repository to give agents their own worktrees.</p>
             <button className="text-button" type="button" onClick={onOpenProject}>
               Open a folder
             </button>
@@ -67,21 +92,22 @@ export function WorktreeSidebar({ projection, activeWorktreeId, onSelect, onOpen
             return (
               <section className="project-tree" key={project.projectId}>
                 <div className="project-label" title={project.path}>
-                  <span aria-hidden="true">▾</span>
-                  <span>{project.name}</span>
+                  <span className="project-name">{project.name}</span>
+                  {projectWorktrees.length > 0 ? (
+                    <span className="project-count">{projectWorktrees.length}</span>
+                  ) : null}
                 </div>
                 {projectWorktrees.length === 0 ? (
                   <p className="tree-note">No worktrees yet.</p>
                 ) : (
                   projectWorktrees.map((worktree) => {
-                    const providerLabel = worktreeProviderLabel(
-                      projection?.threads ?? [],
-                      worktree.worktreeId,
-                      projection?.providers,
-                    );
-                    const live = (projection?.threads ?? []).some(
+                    const providerLabel = worktreeProviderLabel(threads, worktree.worktreeId, projection?.providers);
+                    const live = threads.some(
                       (thread) => thread.worktreeId === worktree.worktreeId && threadOccupiesWorktree(thread.status),
                     );
+                    const activity = worktreeActivity(threads, worktree.worktreeId);
+                    const changed = projection?.reviews?.find((review) => review.worktreeId === worktree.worktreeId)
+                      ?.files.length;
                     const title = [
                       worktree.path,
                       providerLabel,
@@ -97,14 +123,26 @@ export function WorktreeSidebar({ projection, activeWorktreeId, onSelect, onOpen
                           onClick={() => onSelect(worktree)}
                           title={title}
                           data-live-agent={live ? "true" : "false"}
+                          aria-current={activeWorktreeId === worktree.worktreeId ? "true" : undefined}
                         >
                           <span className={`status-dot status-${worktree.status}`} aria-hidden="true" />
-                          <span className="worktree-name">{worktree.branch}</span>
-                          {providerLabel ? <span className="worktree-provider">{providerLabel}</span> : null}
-                          <span className="worktree-status">{statusLabel[worktree.status]}</span>
+                          <span className="worktree-copy">
+                            <span className="worktree-name">{worktree.branch}</span>
+                            <span className="worktree-meta">
+                              {providerLabel ? <span className="worktree-provider">{providerLabel}</span> : null}
+                              <span className="worktree-status">{statusLabel[worktree.status]}</span>
+                            </span>
+                          </span>
+                          {activity ? (
+                            <span className={`worktree-activity is-${activity.tone}`}>{activity.label}</span>
+                          ) : changed ? (
+                            <span className="worktree-changes" title={`${changed} changed files`}>
+                              {changed}
+                            </span>
+                          ) : null}
                         </button>
                         {worktree.status === "failed" && worktree.errorMessage ? (
-                          <p className="tree-note" role="status">
+                          <p className="tree-note is-error" role="status">
                             {worktree.errorMessage}
                           </p>
                         ) : null}
@@ -121,6 +159,11 @@ export function WorktreeSidebar({ projection, activeWorktreeId, onSelect, onOpen
       <div className="sidebar-footer">
         <span className={`connection-dot${projection ? " is-connected" : ""}`} aria-hidden="true" />
         <span>{projection ? "Local runtime" : "Waiting for runtime"}</span>
+        {onOpenHelp ? (
+          <button className="quiet-button sidebar-help" type="button" onClick={onOpenHelp}>
+            Help
+          </button>
+        ) : null}
       </div>
     </aside>
   );

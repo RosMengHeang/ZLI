@@ -247,4 +247,41 @@ describe("WorktreeSidebar", () => {
     expect(card?.textContent).toContain("No threads in this project.");
     expect(card?.querySelector("button, input, textarea, a")).toBeNull();
   });
+
+  it("flags a worktree whose agent is waiting for input and shows loaded change counts elsewhere", () => {
+    const waiting = structuredClone(projection);
+    const second = WorktreeId.parse("00000000-0000-4000-8000-000000000014");
+    const projectId = waiting.projects[0]?.projectId;
+    if (!projectId) throw new Error("Fixture is incomplete.");
+    waiting.worktrees.push({ worktreeId: second, projectId, path: "/repo/other", branch: "other", status: "ready" });
+    for (const entry of waiting.threads) entry.status = "waiting";
+    waiting.reviews = [
+      {
+        worktreeId: second,
+        state: "ready",
+        files: [
+          { path: "a.ts", kind: "modified", additions: 1, deletions: 0, binary: false },
+          { path: "b.ts", kind: "added", additions: 3, deletions: 0, binary: false },
+        ],
+        conflictFiles: [],
+      },
+    ] as unknown as RuntimeProjection["reviews"];
+    const container = document.createElement("div");
+    document.body.append(container);
+    act(() => {
+      createRoot(container).render(
+        <WorktreeSidebar
+          projection={waiting}
+          activeWorktreeId={worktreeId}
+          onSelect={() => undefined}
+          onOpenProject={() => undefined}
+          onCreateWorktree={() => undefined}
+        />,
+      );
+    });
+    const [first, other] = [...container.querySelectorAll(".worktree-row")];
+    expect(first?.querySelector(".worktree-activity")?.textContent).toBe("Needs input");
+    expect(other?.querySelector(".worktree-activity")).toBeNull();
+    expect(other?.querySelector(".worktree-changes")?.textContent).toBe("2");
+  });
 });

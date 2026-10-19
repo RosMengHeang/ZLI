@@ -84,7 +84,7 @@ const bridge: ZliBridge = {
 afterEach(() => document.body.replaceChildren());
 
 describe("AppShell", () => {
-  it("renders real project/worktree context and the honest empty terminal state", async () => {
+  it("opens on the agent conversation and shows the empty terminal in the side panel", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     await act(async () => {
@@ -92,6 +92,13 @@ describe("AppShell", () => {
     });
     expect(container.textContent).toContain("repo");
     expect(container.textContent).toContain("main");
+    expect(container.textContent).toContain("Checking agent CLIs");
+    expect(container.querySelector('[aria-label="Terminal panel"]')).toBeNull();
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "Terminal")?.click();
+    });
+    expect(container.querySelector('[aria-label="Terminal panel"]')).not.toBeNull();
+    expect(container.textContent).toContain("Checking agent CLIs");
     expect(container.textContent).toContain("No terminal session");
     expect(container.textContent).not.toContain("12,483");
   });

@@ -39,7 +39,7 @@ export function createMainWindow(
     minWidth: 960,
     minHeight: 640,
     show: false,
-    backgroundColor: "#0f1115",
+    backgroundColor: "#181818",
     webPreferences: secureWebPreferences(preloadPath),
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
