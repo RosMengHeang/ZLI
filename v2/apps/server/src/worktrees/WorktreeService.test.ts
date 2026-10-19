@@ -140,7 +140,7 @@ describe("Orca-style worktree lifecycle", () => {
     const { repoPath, worktreesPath } = await createRepository();
     const states: string[] = [];
     const run = vi.fn(async (_args: readonly string[], options: { signal?: AbortSignal }) => {
-      await new Promise<void>((resolve, reject) => {
+      await new Promise<void>((_resolve, reject) => {
         options.signal?.addEventListener("abort", () => reject(new DOMException("cancelled", "AbortError")), {
           once: true,
         });

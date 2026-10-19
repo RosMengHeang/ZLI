@@ -10,16 +10,16 @@ import {
   type BrowserBounds as BrowserBoundsValue,
 } from "@zli-v2/contracts";
 
-import {
+import type {
   BrowserAutomation,
-  type BrowserInspection,
-  type BrowserScreenshot,
-  type BrowserScreenshotOptions,
-  type BrowserSnapshot,
-  type CdpClientLike,
+  BrowserInspection,
+  BrowserScreenshot,
+  BrowserScreenshotOptions,
+  BrowserSnapshot,
+  CdpClientLike,
 } from "./BrowserAutomation.js";
 import { BrowserSessionManager, type BrowserSessionModule } from "./BrowserSession.js";
-import { DesignMode, type DesignInspection } from "./DesignMode.js";
+import type { DesignMode, DesignInspection } from "./DesignMode.js";
 import { isAllowedBrowserNavigation } from "../security/NavigationPolicy.js";
 
 export type BrowserWebContentsLike = {

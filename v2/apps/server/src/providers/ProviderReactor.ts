@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import { CommandId, ProviderKind, ThreadId, TurnId, type RuntimeEventEnvelope } from "@zli-v2/contracts";
 
-import { Engine } from "../orchestration/Engine.js";
-import { ProviderService, type ProviderEvent } from "./ProviderService.js";
+import type { Engine } from "../orchestration/Engine.js";
+import type { ProviderService, ProviderEvent } from "./ProviderService.js";
 
 type StartIntent = Extract<RuntimeEventEnvelope["event"], { type: "thread.start.requested" }>;
 

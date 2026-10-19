@@ -1,7 +1,7 @@
 import type { ThreadId, ProviderCapabilities } from "@zli-v2/contracts";
 import type { CodexAppServerClient, CodexProviderEvent } from "@zli-v2/provider-codex";
 
-import { type ProviderAdapter, type ProviderEvent, type ProviderSession } from "./ProviderService.js";
+import type { ProviderAdapter, ProviderEvent, ProviderSession } from "./ProviderService.js";
 
 type CodexClient = Pick<
   CodexAppServerClient,

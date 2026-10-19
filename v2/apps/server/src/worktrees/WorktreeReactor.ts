@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-import { CommandId, WorktreeId, type RuntimeEventEnvelope, type WorktreeProjection } from "@zli-v2/contracts";
+import { CommandId, WorktreeId, type RuntimeEventEnvelope } from "@zli-v2/contracts";
 
-import { Engine } from "../orchestration/Engine.js";
-import { WorktreeService, type WorktreeState } from "./WorktreeService.js";
+import type { Engine } from "../orchestration/Engine.js";
+import type { WorktreeService, WorktreeState } from "./WorktreeService.js";
 
 type WorktreeReactorOptions = {
   bootstrap?: (context: { worktreePath: string; signal: AbortSignal }) => Promise<void>;

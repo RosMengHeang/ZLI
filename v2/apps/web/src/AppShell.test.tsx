@@ -33,6 +33,12 @@ const projection: RuntimeProjection = {
   lastSequence: 1,
 };
 
+function firstBrowserTab() {
+  const browserTab = projection.browserTabs[0];
+  if (!browserTab) throw new Error("The test projection has no browser tab.");
+  return browserTab;
+}
+
 const bridge: ZliBridge = {
   runtime: {
     dispatch: async () => ({
@@ -45,10 +51,10 @@ const bridge: ZliBridge = {
     onTerminal: () => () => undefined,
   },
   browser: {
-    create: async () => projection.browserTabs[0]!,
+    create: async () => firstBrowserTab(),
     close: async () => undefined,
-    activate: async () => projection.browserTabs[0]!,
-    navigate: async () => projection.browserTabs[0]!,
+    activate: async () => firstBrowserTab(),
+    navigate: async () => firstBrowserTab(),
     setBounds: async () => undefined,
     back: async () => undefined,
     forward: async () => undefined,

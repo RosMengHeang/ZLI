@@ -19,7 +19,7 @@ export function PaneTree({ pane, onChange, children }: Props) {
             type="button"
             onClick={() => onChange(candidate)}
           >
-            {candidate[0]!.toUpperCase() + candidate.slice(1)}
+            {candidate.charAt(0).toUpperCase() + candidate.slice(1)}
           </button>
         ))}
       </nav>

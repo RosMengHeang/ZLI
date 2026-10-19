@@ -227,8 +227,10 @@ async function stopTerminals(page: Page): Promise<void> {
   });
   if (terminalIds.length === 0) return;
   await page.evaluate(async (ids) => {
+    const bridge = window.zli;
+    if (!bridge) throw new Error("The ZLI bridge is unavailable in the renderer.");
     for (const terminalId of ids) {
-      await window.zli!.runtime.dispatch({
+      await bridge.runtime.dispatch({
         protocolVersion: 1,
         commandId: crypto.randomUUID(),
         command: { type: "terminal.stop", terminalId },

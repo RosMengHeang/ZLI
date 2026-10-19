@@ -126,19 +126,18 @@ export function buildSupportEntries(
       .join("\n") + ((input.events ?? []).length > 0 ? "\n" : "");
 
   return {
-    "manifest.json":
-      JSON.stringify(
-        {
-          schemaVersion: 1,
-          generatedAt: new Date().toISOString(),
-          entries: ["runtime.json", "logs.jsonl", "events.jsonl"],
-          redaction: "allowlist-v1",
-          note: "Runtime identifiers and operational metadata only; paths, URLs, prompts, cookies, credentials, and file contents are excluded.",
-        },
-        null,
-        2,
-      ) + "\n",
-    "runtime.json": JSON.stringify(runtime, null, 2) + "\n",
+    "manifest.json": `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        generatedAt: new Date().toISOString(),
+        entries: ["runtime.json", "logs.jsonl", "events.jsonl"],
+        redaction: "allowlist-v1",
+        note: "Runtime identifiers and operational metadata only; paths, URLs, prompts, cookies, credentials, and file contents are excluded.",
+      },
+      null,
+      2,
+    )}\n`,
+    "runtime.json": `${JSON.stringify(runtime, null, 2)}\n`,
     "logs.jsonl": logs,
     "events.jsonl": events,
   };
@@ -224,14 +223,14 @@ function safeLogContext(context: Record<string, unknown> | undefined): Record<st
 function redactSensitiveText(value: string): string {
   return value
     .replace(/https?:\/\/[^\s"']+/giu, REDACTED_URL)
-    .replace(/(cookie|set-cookie|authorization)\s*:\s*[^\r\n]+/giu, "$1: " + REDACTED)
-    .replace(/(bearer\s+)[^\s"']+/giu, "$1" + REDACTED)
+    .replace(/(cookie|set-cookie|authorization)\s*:\s*[^\r\n]+/giu, `$1: ${REDACTED}`)
+    .replace(/(bearer\s+)[^\s"']+/giu, `$1${REDACTED}`)
     .replace(
       /(["']?(?:password|passwd|secret|token|cookie|authorization|api[_-]?key|access[_-]?token|prompt|input|content)["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^,\r\n}]*)/giu,
-      "$1" + REDACTED,
+      `$1${REDACTED}`,
     )
     .replace(/(?:[a-z]:\\|\\\\)[^\s"']+/giu, REDACTED)
-    .replace(/(?:^|\s)\/(?:Users|home|tmp|var|private|workspace)\/[^\s"']+/giu, " " + REDACTED);
+    .replace(/(?:^|\s)\/(?:Users|home|tmp|var|private|workspace)\/[^\s"']+/giu, ` ${REDACTED}`);
 }
 
 function createZip(entries: Readonly<Record<string, string>>): Buffer {

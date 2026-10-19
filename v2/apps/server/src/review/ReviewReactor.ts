@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import { CommandId, ReviewProjection, WorktreeId, type RuntimeEventEnvelope } from "@zli-v2/contracts";
 
-import { Engine } from "../orchestration/Engine.js";
-import { ReviewService, type ReviewServiceInput } from "./ReviewService.js";
+import type { Engine } from "../orchestration/Engine.js";
+import type { ReviewService, ReviewServiceInput } from "./ReviewService.js";
 
 export class ReviewReactor {
   private readonly tasks = new Set<Promise<void>>();

@@ -3,13 +3,13 @@ import { isAbsolute, join, relative, sep } from "node:path";
 
 import {
   ReviewProjection,
-  WorktreeId,
+  type WorktreeId,
   type ReviewFileProjection,
   type ReviewDiffProjection,
   type ReviewProjection as ReviewProjectionValue,
 } from "@zli-v2/contracts";
 
-import { GitProcess } from "../git/GitProcess.js";
+import type { GitProcess } from "../git/GitProcess.js";
 
 export type ReviewServiceInput = {
   worktreeId: WorktreeId;
@@ -155,7 +155,9 @@ function parseNumstat(stdout: string): NumstatEntry[] {
       if (!match) return [];
       const additions = match[1] === "-" ? 0 : Number(match[1]);
       const deletions = match[2] === "-" ? 0 : Number(match[2]);
-      const rename = parseRenamePath(match[3]!);
+      const renamePath = match[3];
+      if (renamePath === undefined) return [];
+      const rename = parseRenamePath(renamePath);
       const entry: NumstatEntry = {
         path: rename.path,
         additions,
@@ -216,7 +218,7 @@ function assertRef(value: string): void {
     value.includes("\0") ||
     value.includes("\\") ||
     /(^|\/)\.\.?($|\/)/u.test(value) ||
-    /[~^:?*\[]/u.test(value) ||
+    /[~^:?*[]/u.test(value) ||
     value.endsWith(".lock") ||
     value.endsWith(".")
   ) {

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { CommandId, type RuntimeEventEnvelope } from "@zli-v2/contracts";
 
-import { Engine } from "../orchestration/Engine.js";
+import type { Engine } from "../orchestration/Engine.js";
 import { createSupportBundle, SupportBundleError } from "./SupportBundle.js";
 import { StructuredLogger } from "./StructuredLogger.js";
 

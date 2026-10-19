@@ -48,7 +48,6 @@ describe("ElectronWindow", () => {
     };
     class FakeBrowserWindow {
       webContents = webContents;
-      constructor(_options: Record<string, unknown>) {}
     }
 
     createMainWindow(FakeBrowserWindow, "/tmp/preload.js", "zli-v2://app");

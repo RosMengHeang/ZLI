@@ -126,13 +126,13 @@ describe("agent-to-agent project messages", () => {
     expect(() => decide(baseProjection(), command(missing))).toThrowError(
       expect.objectContaining({
         code: "thread_missing",
-        message: "Thread does not exist: " + missing,
+        message: `Thread does not exist: ${missing}`,
       }),
     );
     expect(() => decide(baseProjection(), command(threadB, missing))).toThrowError(
       expect.objectContaining({
         code: "thread_missing",
-        message: "Thread does not exist: " + missing,
+        message: `Thread does not exist: ${missing}`,
       }),
     );
   });

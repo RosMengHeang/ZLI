@@ -155,9 +155,9 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
           event.request,
         ],
         attention: [
-          ...projection.attention.filter((item) => item.id !== "thread-request:" + event.request.requestId),
+          ...projection.attention.filter((item) => item.id !== `thread-request:${event.request.requestId}`),
           {
-            id: "thread-request:" + event.request.requestId,
+            id: `thread-request:${event.request.requestId}`,
             kind: event.request.kind,
             title: event.request.kind === "approval" ? "Agent approval required" : "Agent input required",
           },
@@ -168,7 +168,7 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
       return {
         ...projection,
         requests: (projection.requests ?? []).filter((request) => request.requestId !== event.requestId),
-        attention: projection.attention.filter((item) => item.id !== "thread-request:" + event.requestId),
+        attention: projection.attention.filter((item) => item.id !== `thread-request:${event.requestId}`),
         lastSequence: envelope.sequence,
       };
     case "thread.respond.requested":

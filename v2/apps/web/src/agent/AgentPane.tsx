@@ -317,7 +317,7 @@ export function AgentPane({
                     <p>{message.text}</p>
                   </article>
                 ) : (
-                  <article className={"agent-message agent-message-" + message.role} key={message.messageId}>
+                  <article className={`agent-message agent-message-${message.role}`} key={message.messageId}>
                     <span className="agent-message-role">{message.role}</span>
                     <p>{message.text}</p>
                   </article>

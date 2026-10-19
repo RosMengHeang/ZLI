@@ -6,7 +6,6 @@ import {
   type ProviderEvent,
   ProviderRegistry,
   ProviderService,
-  ProviderServiceError,
   type ProviderSession,
 } from "./ProviderService.js";
 

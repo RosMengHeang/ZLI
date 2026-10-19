@@ -76,7 +76,7 @@ export class EnvironmentProcess {
           this.child = undefined;
           this.startPromise = undefined;
         }
-        finish(new Error("ZLI server exited before ready (" + String(args[0] ?? "unknown") + ")."));
+        finish(new Error(`ZLI server exited before ready (${String(args[0] ?? "unknown")}).`));
       });
     });
     return this.startPromise;

@@ -17,13 +17,14 @@ test("reconnects the Electron client after the local runtime process is restarte
   let fixture: DesktopFixture | undefined;
   try {
     fixture = await launchDesktop(repo, root);
+    const { page } = fixture;
     const restart = fixture.page.evaluate(() => window.zli?.test?.restartRuntime());
     await restart;
     const result = await expect
       .poll(
         async () => {
           try {
-            const response = await fixture!.page.evaluate(
+            const response = await page.evaluate(
               async (path) =>
                 window.zli?.runtime.dispatch({
                   protocolVersion: 1,

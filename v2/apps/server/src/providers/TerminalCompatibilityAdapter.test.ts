@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { ThreadId } from "@zli-v2/contracts";
 
+import type { ProviderEvent } from "./ProviderService.js";
 import { TerminalCompatibilityAdapter, discoverTerminalProvider } from "./TerminalCompatibilityAdapter.js";
 
 const threadId = ThreadId.parse("00000000-0000-4000-8000-000000000801");
@@ -48,7 +49,7 @@ describe("TerminalCompatibilityAdapter", () => {
       command: "opencode",
       spawn: () => child as never,
     });
-    const events: any[] = [];
+    const events: ProviderEvent[] = [];
     adapter.subscribe((event) => events.push(event));
     await adapter.startSession({ threadId, cwd: "C:/workspace/tree" });
     await expect(adapter.sendTurn({ threadId, text: "hello" })).resolves.toMatchObject({ turnId: expect.any(String) });

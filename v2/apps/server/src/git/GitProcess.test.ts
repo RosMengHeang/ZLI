@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { GitProcess, GitProcessError } from "./GitProcess.js";
+import { GitProcess } from "./GitProcess.js";
 
 describe("GitProcess", () => {
   it("passes git arguments as an array and captures bounded output", async () => {

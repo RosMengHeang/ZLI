@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import { ThreadId } from "@zli-v2/contracts";
 
+import type { CodexProviderEvent } from "@zli-v2/provider-codex";
+
 import { CodexProviderAdapter } from "./CodexProviderAdapter.js";
+import type { ProviderEvent } from "./ProviderService.js";
 
 const threadId = ThreadId.parse("00000000-0000-4000-8000-000000000701");
 
 class FakeClient {
   readonly calls: Array<{ method: string; value: unknown }> = [];
-  private readonly listeners = new Set<(event: any) => void>();
+  private readonly listeners = new Set<(event: CodexProviderEvent) => void>();
 
   async startSession(input: { cwd: string }) {
     this.calls.push({ method: "start", value: input });
@@ -35,11 +38,11 @@ class FakeClient {
   async close() {
     this.calls.push({ method: "close", value: undefined });
   }
-  subscribe(listener: (event: any) => void) {
+  subscribe(listener: (event: CodexProviderEvent) => void) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
-  emit(event: any) {
+  emit(event: CodexProviderEvent) {
     for (const listener of this.listeners) listener(event);
   }
 }
@@ -48,7 +51,7 @@ describe("CodexProviderAdapter", () => {
   it("maps provider-native identifiers and structured events into the neutral adapter", async () => {
     const client = new FakeClient();
     const adapter = new CodexProviderAdapter({ createClient: async () => client });
-    const events: any[] = [];
+    const events: ProviderEvent[] = [];
     adapter.subscribe((event) => events.push(event));
 
     await expect(adapter.startSession({ threadId, cwd: "C:/workspace/tree" })).resolves.toMatchObject({

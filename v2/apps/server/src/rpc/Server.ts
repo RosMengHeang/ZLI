@@ -8,7 +8,6 @@ import {
   type ProviderDiscovery,
   type RuntimeError,
   type RuntimeProjection,
-  ServerWireMessage,
   TerminalId,
 } from "@zli-v2/contracts";
 import { type RawData, WebSocket, WebSocketServer } from "ws";

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import type { RuntimeEventEnvelope, RuntimeProjection } from "@zli-v2/contracts";
 
-import { buildSupportEntries, createSupportBundle, SupportBundleError } from "./SupportBundle.js";
+import { buildSupportEntries, createSupportBundle } from "./SupportBundle.js";
 
 const ids = {
   environment: "00000000-0000-4000-8000-000000000001",

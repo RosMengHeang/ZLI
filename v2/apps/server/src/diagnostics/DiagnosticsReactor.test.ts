@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { CommandId, EnvironmentId, ProjectId } from "@zli-v2/contracts";
+import { CommandId, EnvironmentId } from "@zli-v2/contracts";
 
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";

@@ -98,7 +98,9 @@ describe("ProviderReactor", () => {
       commandId: CommandId.parse("10000000-0000-4000-8000-000000000901"),
       command: { type: "project.register", path: "C:\\workspace\\provider" },
     });
-    const projectId = ProjectId.parse((await engine.projection()).projects[0]!.projectId);
+    const registeredProject = (await engine.projection()).projects[0];
+    if (!registeredProject) throw new Error("Expected the registered project in the projection.");
+    const projectId = ProjectId.parse(registeredProject.projectId);
     await engine.dispatchPromise({
       protocolVersion: 1,
       commandId: CommandId.parse("10000000-0000-4000-8000-000000000902"),

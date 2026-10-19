@@ -128,11 +128,14 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
     setTab(next);
   }, [projection?.browserTabs, tab]);
 
-  const run = async (operation: () => Promise<unknown>) => {
+  const run = async (
+    operation: (activeBridge: NonNullable<typeof bridge>, activeTab: BrowserTabProjection) => Promise<unknown>,
+  ) => {
     if (!tab) return;
     setError(undefined);
     try {
-      await operation();
+      if (!bridge) throw new Error("The desktop bridge is unavailable.");
+      await operation(bridge, tab);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The browser operation failed.");
     }
@@ -249,7 +252,7 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
             className="icon-button"
             type="button"
             disabled={!tab}
-            onClick={() => void run(() => bridge!.browser.back(tab!.browserTabId))}
+            onClick={() => void run((activeBridge, activeTab) => activeBridge.browser.back(activeTab.browserTabId))}
             aria-label="Back"
           >
             ←
@@ -258,7 +261,7 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
             className="icon-button"
             type="button"
             disabled={!tab}
-            onClick={() => void run(() => bridge!.browser.forward(tab!.browserTabId))}
+            onClick={() => void run((activeBridge, activeTab) => activeBridge.browser.forward(activeTab.browserTabId))}
             aria-label="Forward"
           >
             →
@@ -267,7 +270,7 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
             className="icon-button"
             type="button"
             disabled={!tab}
-            onClick={() => void run(() => bridge!.browser.reload(tab!.browserTabId))}
+            onClick={() => void run((activeBridge, activeTab) => activeBridge.browser.reload(activeTab.browserTabId))}
             aria-label="Reload"
           >
             ↻
@@ -276,7 +279,9 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
             className="icon-button"
             type="button"
             disabled={!tab}
-            onClick={() => void run(() => bridge!.browser.openDevTools(tab!.browserTabId))}
+            onClick={() =>
+              void run((activeBridge, activeTab) => activeBridge.browser.openDevTools(activeTab.browserTabId))
+            }
             aria-label="Open browser developer tools"
           >
             ⌘

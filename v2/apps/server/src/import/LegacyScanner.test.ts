@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { LegacyScanError, LegacyScanner } from "./LegacyScanner.js";
+import { LegacyScanner } from "./LegacyScanner.js";
 
 describe("LegacyScanner", () => {
   it("creates a preview without reading session contents or changing source data", async () => {

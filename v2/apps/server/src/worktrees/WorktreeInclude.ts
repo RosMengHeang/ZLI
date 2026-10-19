@@ -72,7 +72,7 @@ export async function applyWorktreeInclude(options: {
 
 function validateEntry(entry: string): WorktreeIncludeSkipReason | undefined {
   if (entry.startsWith("!")) return "negation";
-  if (/[?*\[]/u.test(entry)) return "glob";
+  if (/[?*[]/u.test(entry)) return "glob";
   if (isAbsolute(entry) || entry.split(/[\\/]/u).some((part) => part === "..")) return "traversal";
   return undefined;
 }

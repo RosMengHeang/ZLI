@@ -274,16 +274,6 @@ function isHelloResponse(value: unknown, protocolVersion: number): boolean {
   return input.type === "hello" && input.protocolVersion === protocolVersion;
 }
 
-function isProcessAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }

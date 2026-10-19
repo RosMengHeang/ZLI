@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { CommandId, ProjectId, WorktreeId, type LegacyImportPreview, type RuntimeCommand } from "@zli-v2/contracts";
 
-import { Engine } from "../orchestration/Engine.js";
+import type { Engine } from "../orchestration/Engine.js";
 
 export type LegacyImportResult = {
   importedProjectIds: string[];
@@ -97,16 +97,14 @@ export class LegacyImporter {
 
 function stableWorktreeId(batchId: string, recordId: string): string {
   const bytes = createHash("sha256")
-    .update("zli-legacy-worktree:" + batchId + ":" + recordId)
+    .update(`zli-legacy-worktree:${batchId}:${recordId}`)
     .digest("hex")
     .slice(0, 32)
     .split("");
   bytes[12] = "4";
   bytes[16] = ((Number.parseInt(bytes[16] ?? "8", 16) & 0x3) | 0x8).toString(16);
   const hex = bytes.join("");
-  return (
-    hex.slice(0, 8) + "-" + hex.slice(8, 12) + "-" + hex.slice(12, 16) + "-" + hex.slice(16, 20) + "-" + hex.slice(20)
-  );
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function canonicalPath(path: string): string {

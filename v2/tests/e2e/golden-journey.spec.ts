@@ -39,7 +39,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     if (!worktreeId) throw new Error("The created worktree was not present in the runtime projection.");
 
     const terminalPort = 43100 + Math.floor(Math.random() * 500);
-    const worktreePath = join(repo + "-worktrees", "e2e");
+    const worktreePath = join(`${repo}-worktrees`, "e2e");
     browserServer = createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html" });
       response.end("<!doctype html><title>ZLI fixture</title><main>browser fixture ready</main>");
@@ -92,12 +92,15 @@ test("completes the workspace, provider, browser, review, and restoration journe
       return projection?.browserTabs.at(-1)?.browserTabId;
     });
     if (!browserTabId) throw new Error("The browser tab was not projected to the renderer.");
-    const snapshot = await page.evaluate(async (tabId) => window.zli!.browser.snapshot(tabId), browserTabId);
+    const snapshot = await page.evaluate(async (tabId) => {
+      if (!window.zli) throw new Error("The ZLI bridge is unavailable in the renderer.");
+      return window.zli.browser.snapshot(tabId);
+    }, browserTabId);
     expect(snapshot).toMatchObject({ url: `http://127.0.0.1:${browserPort}/`, title: "ZLI fixture" });
-    const designInspection = await page.evaluate(
-      async (tabId) => window.zli!.browser.designInspect({ browserTabId: tabId, selector: "main" }),
-      browserTabId,
-    );
+    const designInspection = await page.evaluate(async (tabId) => {
+      if (!window.zli) throw new Error("The ZLI bridge is unavailable in the renderer.");
+      return window.zli.browser.designInspect({ browserTabId: tabId, selector: "main" });
+    }, browserTabId);
     expect(designInspection).toMatchObject({
       tag: "main",
       text: "browser fixture ready",
@@ -155,11 +158,12 @@ test("completes the workspace, provider, browser, review, and restoration journe
       { timeout: 20_000 },
     );
     await closeApp(fixture, { stopTerminals: false });
-    fixture = await launchDesktop(repo, root);
+    const relaunched = await launchDesktop(repo, root);
+    fixture = relaunched;
     await expect
       .poll(
         async () =>
-          fixture!.page.evaluate(async (id) => {
+          relaunched.page.evaluate(async (id) => {
             const projection = await window.zli?.runtime.getProjection();
             return projection?.worktrees.find((candidate) => candidate.worktreeId === id)?.status;
           }, worktreeId),

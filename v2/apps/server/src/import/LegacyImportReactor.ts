@@ -8,7 +8,7 @@ import {
   type RuntimeEventEnvelope,
 } from "@zli-v2/contracts";
 
-import { Engine } from "../orchestration/Engine.js";
+import type { Engine } from "../orchestration/Engine.js";
 import { LegacyImporter } from "./LegacyImporter.js";
 import { LegacyScanner } from "./LegacyScanner.js";
 

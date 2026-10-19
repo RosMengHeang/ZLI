@@ -8,6 +8,10 @@ const environmentId = "30000000-0000-4000-8000-000000000001";
 const projectId = "40000000-0000-4000-8000-000000000001";
 const commandId = "10000000-0000-4000-8000-000000000001";
 
+function isCommandMessage(message: unknown): boolean {
+  return typeof message === "object" && message !== null && "type" in message && message.type === "command";
+}
+
 class FakeTransport implements RuntimeTransport {
   readonly sent: unknown[] = [];
   #messageListeners = new Set<(message: unknown) => void>();
@@ -94,7 +98,7 @@ describe("RuntimeClient", () => {
     });
 
     await expect(pending).resolves.toEqual({ commandId, accepted: true, result: { projectId } });
-    expect(transport.sent.filter((message: any) => message.type === "command")).toHaveLength(1);
+    expect(transport.sent.filter(isCommandMessage)).toHaveLength(1);
   });
 
   it("requests a fresh projection when an event sequence has a gap", async () => {
@@ -161,7 +165,11 @@ describe("RuntimeClient", () => {
     const clientPromise = RuntimeClient.connect({
       token: "test-token",
       environmentId,
-      connectTransport: async () => transports.shift()!,
+      connectTransport: async () => {
+        const next = transports.shift();
+        if (!next) throw new Error("No fake transport left for reconnect.");
+        return next;
+      },
       sleep: async () => {},
     });
     await vi.waitFor(() => expect(first.sent).toHaveLength(1));
@@ -202,7 +210,7 @@ describe("RuntimeClient", () => {
     transport.disconnect();
 
     await expect(pending).rejects.toThrow("connection closed before command completed");
-    expect(transport.sent.filter((message: any) => message.type === "command")).toHaveLength(1);
+    expect(transport.sent.filter(isCommandMessage)).toHaveLength(1);
     client.close();
   });
 

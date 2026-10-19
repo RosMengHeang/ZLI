@@ -6,13 +6,13 @@ import {
   RpcRequest,
   RuntimeEvent,
   RuntimeEventEnvelope,
-  RuntimeProjection,
+  type RuntimeProjection,
   EventId,
   type EnvironmentDescriptor,
   type RuntimeCommand,
 } from "@zli-v2/contracts";
 
-import { Database } from "../db/Database.js";
+import type { Database } from "../db/Database.js";
 import { StructuredLogger, type LogCorrelation } from "../diagnostics/StructuredLogger.js";
 import { DomainError, decide } from "./decider.js";
 import { createEmptyProjection, projectEvent } from "./projector.js";

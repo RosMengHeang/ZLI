@@ -6,9 +6,7 @@ import {
   type EnvironmentDescriptor,
   type RpcResponse,
   type RuntimeProjection,
-  TerminalAttachSnapshot,
   TerminalId,
-  TerminalStreamMessage,
 } from "@zli-v2/contracts";
 import type {
   TerminalAttachSnapshot as TerminalAttachSnapshotValue,

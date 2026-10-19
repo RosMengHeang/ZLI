@@ -49,7 +49,7 @@ export class LegacyScanner {
     let raw: string;
     try {
       raw = await this.dependencies.readText(resolvedPath);
-    } catch (error) {
+    } catch {
       throw new LegacyScanError("unreadable_snapshot", "Unable to read legacy snapshot.");
     }
 
@@ -77,20 +77,19 @@ export class LegacyScanner {
     const seenProjects = new Map<string, string>();
     const seenWorktrees = new Map<string, string>();
 
-    for (let workspaceIndex = 0; workspaceIndex < workspaces.length; workspaceIndex += 1) {
-      const workspace = workspaces[workspaceIndex]!;
+    for (const [workspaceIndex, workspace] of workspaces.entries()) {
       const project = isRecord(workspace.project) ? workspace.project : workspace;
       const projectPath = firstString(project.path, project.repositoryRoot, workspace.root);
       if (!projectPath || !isAbsolute(projectPath)) {
         skipped.push({
-          recordId: "project:" + workspaceIndex,
+          recordId: `project:${workspaceIndex}`,
           kind: "project",
           reason: "Project path is missing or not absolute.",
         });
         continue;
       }
 
-      const projectRecordId = "project:" + workspaceIndex;
+      const projectRecordId = `project:${workspaceIndex}`;
       const repositoryRoot = firstString(project.repositoryRoot, workspace.root, projectPath) ?? projectPath;
       const projectState = await this.recordState(projectPath, repositoryRoot);
       const projectEntry: LegacyProjectImport = {
@@ -108,7 +107,7 @@ export class LegacyScanner {
         conflicts.push({
           recordId: projectRecordId,
           kind: "project",
-          reason: "Multiple legacy records resolve to the same repository root as " + previousProject + ".",
+          reason: `Multiple legacy records resolve to the same repository root as ${previousProject}.`,
         });
       } else {
         seenProjects.set(projectKey, projectRecordId);
@@ -119,21 +118,20 @@ export class LegacyScanner {
         ...arrayOfRecords(workspace.sessions),
         ...arrayOfRecords(workspace.worktrees),
       ];
-      for (let agentIndex = 0; agentIndex < agents.length; agentIndex += 1) {
-        const agent = agents[agentIndex]!;
-        const recordBase = "legacy:" + workspaceIndex + ":" + agentIndex;
+      for (const [agentIndex, agent] of agents.entries()) {
+        const recordBase = `legacy:${workspaceIndex}:${agentIndex}`;
         const provider = firstString(agent.provider, agent.providerId);
         const name = firstString(agent.name, provider);
         if (!provider || !name) {
           skipped.push({
-            recordId: "session:" + recordBase,
+            recordId: `session:${recordBase}`,
             kind: "session",
             reason: "Provider or session name is missing.",
           });
           continue;
         }
         sessions.push({
-          recordId: "session:" + recordBase,
+          recordId: `session:${recordBase}`,
           projectRecordId,
           name,
           provider,
@@ -145,7 +143,7 @@ export class LegacyScanner {
         const branch = firstString(agent.branch, name.replace(/[^a-zA-Z0-9._/-]/gu, "-")) ?? "legacy-import";
         if (!isAbsolute(worktreePath)) {
           skipped.push({
-            recordId: "worktree:" + recordBase,
+            recordId: `worktree:${recordBase}`,
             kind: "worktree",
             reason: "Worktree path is not absolute.",
           });
@@ -155,7 +153,7 @@ export class LegacyScanner {
         const state =
           cwd && isAbsolute(cwd) ? await this.recordState(worktreePath, cwd) : await this.recordState(worktreePath, "");
         const worktreeEntry: LegacyWorktreeImport = {
-          recordId: "worktree:" + recordBase,
+          recordId: `worktree:${recordBase}`,
           projectRecordId,
           path: worktreePath,
           branch,
@@ -169,7 +167,7 @@ export class LegacyScanner {
           conflicts.push({
             recordId: worktreeEntry.recordId,
             kind: "worktree",
-            reason: "Multiple legacy records resolve to the same worktree path as " + previousWorktree + ".",
+            reason: `Multiple legacy records resolve to the same worktree path as ${previousWorktree}.`,
           });
         } else {
           seenWorktrees.set(worktreeKey, worktreeEntry.recordId);

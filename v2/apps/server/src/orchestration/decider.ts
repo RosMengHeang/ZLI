@@ -147,7 +147,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       }
       assertSafeRef(command.branch);
       if (projection.worktrees.some((worktree) => worktree.worktreeId === command.worktreeId)) {
-        throw new DomainError("worktree_exists", "Worktree already exists: " + command.worktreeId);
+        throw new DomainError("worktree_exists", `Worktree already exists: ${command.worktreeId}`);
       }
       return [
         {
@@ -243,7 +243,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === command.worktreeId);
       if (!worktree) throw new DomainError("worktree_missing", `Worktree does not exist: ${command.worktreeId}`);
       if (projection.threads.some((thread) => thread.threadId === command.threadId)) {
-        throw new DomainError("thread_exists", "Thread already exists: " + command.threadId);
+        throw new DomainError("thread_exists", `Thread already exists: ${command.threadId}`);
       }
       // Existing threads that already share a worktree are left alone. Only this new bind is checked.
       const occupied = projection.threads.some(
@@ -429,7 +429,7 @@ function assertWorktree(projection: RuntimeProjection, worktreeId: string): void
 
 function assertProject(projection: RuntimeProjection, projectId: string): void {
   if (!projection.projects.some((project) => project.projectId === projectId)) {
-    throw new DomainError("project_missing", "Project does not exist: " + projectId);
+    throw new DomainError("project_missing", `Project does not exist: ${projectId}`);
   }
 }
 
@@ -451,7 +451,7 @@ function deliverAgentMessage(
     throw new DomainError("a2a_invalid_target", "Agent messages need text.");
   }
   if ((projection.messages ?? []).some((message) => message.messageId === command.messageId)) {
-    throw new DomainError("a2a_invalid_target", "Agent message id is already in use: " + command.messageId);
+    throw new DomainError("a2a_invalid_target", `Agent message id is already in use: ${command.messageId}`);
   }
   const sourceProjectId = threadProjectId(projection, command.sourceThreadId);
   const targetProjectId = threadProjectId(projection, command.targetThreadId);
@@ -473,23 +473,23 @@ function deliverAgentMessage(
 
 function threadProjectId(projection: RuntimeProjection, threadId: string): ProjectId {
   const thread = projection.threads.find((candidate) => candidate.threadId === threadId);
-  if (!thread) throw new DomainError("thread_missing", "Thread does not exist: " + threadId);
+  if (!thread) throw new DomainError("thread_missing", `Thread does not exist: ${threadId}`);
   const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread.worktreeId);
   if (!worktree) {
-    throw new DomainError("worktree_missing", "Thread is not attached to a worktree: " + threadId);
+    throw new DomainError("worktree_missing", `Thread is not attached to a worktree: ${threadId}`);
   }
   return worktree.projectId;
 }
 
 function assertThread(projection: RuntimeProjection, threadId: string): void {
   if (!projection.threads.some((thread) => thread.threadId === threadId)) {
-    throw new DomainError("thread_missing", "Thread does not exist: " + threadId);
+    throw new DomainError("thread_missing", `Thread does not exist: ${threadId}`);
   }
 }
 
 function assertRequest(projection: RuntimeProjection, requestId: string): void {
   if (!(projection.requests ?? []).some((request) => request.requestId === requestId)) {
-    throw new DomainError("thread_missing", "Thread request does not exist: " + requestId);
+    throw new DomainError("thread_missing", `Thread request does not exist: ${requestId}`);
   }
 }
 

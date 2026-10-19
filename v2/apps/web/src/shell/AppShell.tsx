@@ -144,7 +144,7 @@ function WorkspaceApp() {
 
   useEffect(() => {
     const message = projection?.diagnostics?.lastError;
-    if (message) setNotice("Support bundle failed: " + message);
+    if (message) setNotice(`Support bundle failed: ${message}`);
   }, [projection?.diagnostics?.lastError]);
 
   useEffect(() => {
