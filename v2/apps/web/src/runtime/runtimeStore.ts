@@ -116,6 +116,32 @@ export function shallowArrayEqual<T>(left: readonly T[] | undefined, right: read
   return true;
 }
 
+const byThreadCache = new WeakMap<readonly { threadId: string }[], ReadonlyMap<string, readonly unknown[]>>();
+const EMPTY: readonly never[] = [];
+
+/**
+ * The entries of one thread, from a list indexed once per projection update and shared by every chat.
+ * The same array comes back while that thread's entries are unchanged.
+ */
+export function entriesForThread<T extends { threadId: string }>(
+  entries: readonly T[] | undefined,
+  threadId: string,
+): readonly T[] {
+  if (!entries || entries.length === 0) return EMPTY;
+  let index = byThreadCache.get(entries) as ReadonlyMap<string, readonly T[]> | undefined;
+  if (!index) {
+    const grouped = new Map<string, T[]>();
+    for (const entry of entries) {
+      const list = grouped.get(entry.threadId);
+      if (list) list.push(entry);
+      else grouped.set(entry.threadId, [entry]);
+    }
+    index = grouped;
+    byThreadCache.set(entries, grouped);
+  }
+  return index.get(threadId) ?? EMPTY;
+}
+
 const SHELL_IGNORED = new Set<keyof RuntimeProjection>(["messages", "activities", "requests", "lastSequence"]);
 
 /**

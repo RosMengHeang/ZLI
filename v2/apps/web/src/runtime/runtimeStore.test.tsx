@@ -10,6 +10,7 @@ import { RuntimeProvider, useRuntimeSelector, useShellProjection } from "./Runti
 import {
   createRuntimeStore,
   createSelection,
+  entriesForThread,
   sameShellProjection,
   shallowArrayEqual,
   shareUnchanged,
@@ -120,6 +121,17 @@ describe("createSelection", () => {
     const first = select(selectTerminals);
     current = projection(2, { terminals: [] });
     expect(select(selectTerminals)).toBe(first);
+  });
+});
+
+describe("entriesForThread", () => {
+  it("returns one thread's entries and the same array for repeated reads", () => {
+    const other = { ...message("Elsewhere"), threadId: "other" };
+    const entries = [message("One"), other, message("Two")];
+    const mine = entriesForThread(entries, threadId);
+    expect(mine.map((entry) => entry.text)).toEqual(["One", "Two"]);
+    expect(entriesForThread(entries, threadId)).toBe(mine);
+    expect(entriesForThread(entries, "missing")).toEqual([]);
   });
 });
 

@@ -1,11 +1,18 @@
-import type { RuntimeProjection, ThreadId, ThreadProjection, WorktreeProjection } from "@zli-v2/contracts";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type {
+  RuntimeProjection,
+  ThreadId,
+  ThreadMessageProjection,
+  ThreadProjection,
+  WorktreeProjection,
+} from "@zli-v2/contracts";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
-import { useFileLinks } from "../files/FileIndex.js";
+import { type FileLinks, useFileLinks } from "../files/FileIndex.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
-import { buildTimeline } from "../sessions/sessions.js";
+import { entriesForThread, shallowArrayEqual } from "../runtime/runtimeStore.js";
+import { buildTimeline, type TimelineItem } from "../sessions/sessions.js";
 import { Button } from "../ui/Button.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
@@ -15,10 +22,6 @@ import { Composer, type ComposerAttachment } from "./Composer.js";
 import { Markdown } from "./Markdown.js";
 import { ChangedFiles, WorkLog } from "./WorkLog.js";
 import "./chat.css";
-
-const selectMessages = (projection: RuntimeProjection | undefined) => projection?.messages;
-const selectActivities = (projection: RuntimeProjection | undefined) => projection?.activities;
-const selectRequests = (projection: RuntimeProjection | undefined) => projection?.requests;
 
 export function ChatView({
   projection,
@@ -44,21 +47,35 @@ export function ChatView({
   const displayName = providerDisplayName(thread.provider, projection.providers);
   const discovery = projection.providers?.find((entry) => entry.provider === thread.provider);
   const models = discovery?.status === "found" ? discovery.models : undefined;
-  // The projection passed in skips chat-only updates, so this thread's chat state is read from the store.
-  const allMessages = useRuntimeSelector(selectMessages);
-  const allActivities = useRuntimeSelector(selectActivities);
-  const allRequests = useRuntimeSelector(selectRequests);
-  const messages = useMemo(
-    () => (allMessages ?? []).filter((message) => message.threadId === thread.threadId),
-    [allMessages, thread.threadId],
+  // The projection passed in skips chat-only updates, so this thread's chat state is read from the
+  // store. Each selector returns the same value while this thread is unchanged, even when another
+  // thread is streaming.
+  const threadId = thread.threadId;
+  const messages = useRuntimeSelector(
+    useCallback((value: RuntimeProjection | undefined) => entriesForThread(value?.messages, threadId), [threadId]),
+    shallowArrayEqual,
   );
-  const activities = useMemo(
-    () => (allActivities ?? []).filter((activity) => activity.threadId === thread.threadId),
-    [allActivities, thread.threadId],
+  const activities = useRuntimeSelector(
+    useCallback((value: RuntimeProjection | undefined) => entriesForThread(value?.activities, threadId), [threadId]),
+    shallowArrayEqual,
   );
-  const timeline = useMemo(() => buildTimeline(messages, activities), [messages, activities]);
+  const request = useRuntimeSelector(
+    useCallback(
+      (value: RuntimeProjection | undefined) => value?.requests?.find((candidate) => candidate.threadId === threadId),
+      [threadId],
+    ),
+  );
+  const previousTimeline = useRef<readonly TimelineItem[]>([]);
+  const timeline = useMemo(() => buildTimeline(messages, activities, previousTimeline.current), [messages, activities]);
+  useEffect(() => {
+    previousTimeline.current = timeline;
+  }, [timeline]);
   const fileLinks = useFileLinks(worktree?.worktreeId, messages.length);
-  const request = allRequests?.find((candidate) => candidate.threadId === thread.threadId);
+  const latestOpenDiff = useRef(onOpenDiff);
+  useLayoutEffect(() => {
+    latestOpenDiff.current = onOpenDiff;
+  });
+  const openDiff = useCallback((...args: [path?: string]) => latestOpenDiff.current(...args), []);
   const ended = thread.status === "stopped" || thread.status === "failed";
   const working = thread.status === "working" || thread.status === "waiting";
   const peers = useMemo(() => {
@@ -184,59 +201,23 @@ export function ChatView({
               detail={`Describe a task. ${displayName} works in ${worktree?.branch ?? "this worktree"}.`}
             />
           ) : (
-            timeline.map((item) => {
-              if (item.kind === "work") {
-                return (
-                  <div className="chat-work" key={`work-${item.turnId}`}>
-                    <WorkLog activities={item.activities} running={item.turnId === lastTurnRunning} />
-                    {item.changedFiles.length > 0 ? (
-                      <ChangedFiles files={item.changedFiles} onOpenDiff={onOpenDiff} />
-                    ) : null}
-                  </div>
-                );
-              }
-              const message = item.message;
-              if (message.role === "user") {
-                return (
-                  <article className="chat-message chat-message-user" key={message.messageId}>
-                    {message.attachments && message.attachments.length > 0 ? (
-                      <ul className="chat-attachments">
-                        {message.attachments.map((attachment) => (
-                          <li key={attachment.path} title={attachment.path}>
-                            <Icon name="image" size={12} />
-                            {attachment.name}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                    <p>{message.text}</p>
-                  </article>
-                );
-              }
-              if (message.role === "agent") {
-                return (
-                  <article className="chat-message chat-message-peer" data-trust="untrusted" key={message.messageId}>
-                    <span className="chat-message-label">
-                      <Icon name="message" size={12} />
-                      {sourceLabel(projection, message.sourceThreadId)}
-                    </span>
-                    <p>{message.text}</p>
-                  </article>
-                );
-              }
-              if (message.role === "system") {
-                return (
-                  <p className="chat-system" key={message.messageId}>
-                    {message.text}
-                  </p>
-                );
-              }
-              return (
-                <article className="chat-message chat-message-assistant" key={message.messageId}>
-                  <Markdown text={message.text} links={fileLinks} />
-                </article>
-              );
-            })
+            timeline.map((item) =>
+              item.kind === "work" ? (
+                <ChatWork
+                  key={`work-${item.turnId}`}
+                  item={item}
+                  running={item.turnId === lastTurnRunning}
+                  onOpenDiff={openDiff}
+                />
+              ) : (
+                <ChatMessage
+                  key={item.message.messageId}
+                  message={item.message}
+                  links={fileLinks}
+                  source={item.message.role === "agent" ? sourceLabel(projection, item.message.sourceThreadId) : ""}
+                />
+              ),
+            )
           )}
           {thread.status === "working" ? (
             <p className="chat-working" role="status">
@@ -385,6 +366,67 @@ export function ChatView({
   );
 }
 
+const ChatWork = memo(function ChatWork({
+  item,
+  running,
+  onOpenDiff,
+}: {
+  item: Extract<TimelineItem, { kind: "work" }>;
+  running: boolean;
+  onOpenDiff(path?: string): void;
+}) {
+  return (
+    <div className="chat-work">
+      <WorkLog activities={item.activities} running={running} />
+      {item.changedFiles.length > 0 ? <ChangedFiles files={item.changedFiles} onOpenDiff={onOpenDiff} /> : null}
+    </div>
+  );
+});
+
+const ChatMessage = memo(function ChatMessage({
+  message,
+  links,
+  source,
+}: {
+  message: ThreadMessageProjection;
+  links: FileLinks | undefined;
+  source: string;
+}) {
+  if (message.role === "user") {
+    return (
+      <article className="chat-message chat-message-user">
+        {message.attachments && message.attachments.length > 0 ? (
+          <ul className="chat-attachments">
+            {message.attachments.map((attachment) => (
+              <li key={attachment.path} title={attachment.path}>
+                <Icon name="image" size={12} />
+                {attachment.name}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <p>{message.text}</p>
+      </article>
+    );
+  }
+  if (message.role === "agent") {
+    return (
+      <article className="chat-message chat-message-peer" data-trust="untrusted">
+        <span className="chat-message-label">
+          <Icon name="message" size={12} />
+          {source}
+        </span>
+        <p>{message.text}</p>
+      </article>
+    );
+  }
+  if (message.role === "system") return <p className="chat-system">{message.text}</p>;
+  return (
+    <article className="chat-message chat-message-assistant">
+      <Markdown text={message.text} links={links} />
+    </article>
+  );
+});
 function sourceLabel(projection: RuntimeProjection, sourceThreadId: ThreadId | undefined): string {
   const thread = projection.threads.find((candidate) => candidate.threadId === sourceThreadId);
   const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread?.worktreeId);

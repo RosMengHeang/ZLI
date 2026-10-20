@@ -8,6 +8,7 @@ import type {
 } from "@zli-v2/contracts";
 
 import { providerDisplayName } from "../agent/providers.js";
+import { shallowArrayEqual } from "../runtime/runtimeStore.js";
 
 export type SessionMode = "terminal" | "chat";
 
@@ -189,10 +190,21 @@ export type TimelineItem =
  * just before that turn's reply. Turns still running have no reply yet, so their
  * work groups go at the end.
  */
+/**
+ * Orders a thread's messages and work logs. Items equal to ones in `previous` are returned as the
+ * same objects, so memoized rows skip re-rendering while one message streams in.
+ */
 export function buildTimeline(
   messages: readonly ThreadMessageProjection[],
   activities: readonly ThreadActivityProjection[],
+  previous: readonly TimelineItem[] = [],
 ): TimelineItem[] {
+  const previousWork = new Map<string, Extract<TimelineItem, { kind: "work" }>>();
+  const previousMessages = new Map<ThreadMessageProjection, TimelineItem>();
+  for (const item of previous) {
+    if (item.kind === "work") previousWork.set(item.turnId, item);
+    else previousMessages.set(item.message, item);
+  }
   const byTurn = new Map<string, ThreadActivityProjection[]>();
   for (const activity of activities) {
     const key = activity.turnId ?? "";
@@ -206,11 +218,13 @@ export function buildTimeline(
     const list = byTurn.get(turnId);
     if (!list || placed.has(turnId)) return;
     placed.add(turnId);
-    items.push({ kind: "work", turnId, activities: list, changedFiles: changedFiles(list) });
+    const earlier = previousWork.get(turnId);
+    if (earlier && shallowArrayEqual(earlier.activities, list)) items.push(earlier);
+    else items.push({ kind: "work", turnId, activities: list, changedFiles: changedFiles(list) });
   };
   for (const message of messages) {
     if (message.role === "assistant" && message.turnId) pushWork(message.turnId);
-    items.push({ kind: "message", message });
+    items.push(previousMessages.get(message) ?? { kind: "message", message });
   }
   for (const turnId of byTurn.keys()) pushWork(turnId);
   return items;
