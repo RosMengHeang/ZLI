@@ -31,7 +31,7 @@
 .btn-ghost:hover:not(:disabled) { background: var(--zli-hover); color: var(--zli-text); }
 .btn-ghost:active:not(:disabled), .btn-ghost[aria-pressed="true"], .btn-ghost.is-active { background: var(--zli-active); color: var(--zli-text); }
 
-.btn-danger { background: var(--zli-danger); color: #fff; }
+.btn-danger { background: var(--zli-danger); color: var(--zli-accent-ink); }
 .btn-danger:hover:not(:disabled) { background: var(--zli-danger-hover); }
 .btn-ghost.is-danger { color: var(--zli-red); }
 .btn-ghost.is-danger:hover:not(:disabled) { background: var(--zli-red-soft); color: var(--zli-red); }
@@ -168,9 +168,9 @@ kbd {
 .banner > svg { flex: 0 0 auto; }
 .banner-message { min-width: 160px; flex: 1; overflow-wrap: anywhere; }
 .banner-actions { display: flex; flex-wrap: wrap; gap: var(--zli-space-1); }
-.banner-warning { background: var(--zli-amber-soft); color: #efd6a6; }
+.banner-warning { background: var(--zli-amber-soft); color: var(--zli-amber-ink); }
 .banner-warning > svg { color: var(--zli-amber); }
-.banner-danger { background: var(--zli-red-soft); color: #f5c0c0; }
+.banner-danger { background: var(--zli-red-soft); color: var(--zli-red-ink); }
 .banner-danger > svg { color: var(--zli-red); }
 .banner-info { background: var(--zli-surface); color: var(--zli-text); }
 .banner-info > svg { color: var(--zli-muted); }

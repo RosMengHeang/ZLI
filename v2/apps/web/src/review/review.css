@@ -23,8 +23,8 @@
 .review-diff-path { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-muted); font-family: var(--zli-mono); text-overflow: ellipsis; white-space: nowrap; }
 .review-diff { min-height: 0; flex: 1; margin: 0; padding: var(--zli-space-1-5) 0; overflow: auto; color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: 1.6; }
 .diff-line { display: block; padding: 0 var(--zli-space-3); white-space: pre; }
-.diff-line.is-add { background: var(--zli-green-soft); color: #a3e0bb; }
-.diff-line.is-del { background: var(--zli-red-soft); color: #f0b0b0; }
+.diff-line.is-add { background: var(--zli-green-soft); color: var(--zli-green-ink); }
+.diff-line.is-del { background: var(--zli-red-soft); color: var(--zli-red-ink); }
 .diff-line.is-hunk { margin-top: var(--zli-space-1); background: var(--zli-blue-soft); color: var(--zli-blue); }
 .diff-line.is-meta { color: var(--zli-dim); }
 .review-actions { display: flex; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-2); padding: var(--zli-space-3) var(--zli-space-3) var(--zli-space-3) var(--zli-space-4); border-top: 1px solid var(--zli-border); background: var(--zli-sidebar); }

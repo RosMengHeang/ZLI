@@ -29,7 +29,7 @@
    */
   --zli-text: #ededed;
   --zli-muted: #a3a3a3;
-  --zli-dim: #858585;
+  --zli-dim: #949494;
   --zli-disabled: #5c5c5c;
 
   /* The one accent: primary actions, focus, and the selected agent. */
@@ -51,6 +51,10 @@
   --zli-amber-soft: rgba(227, 180, 95, .13);
   --zli-red-soft: rgba(239, 123, 123, .13);
   --zli-red-line: rgba(239, 123, 123, .32);
+  /* Text on the soft fills above. */
+  --zli-green-ink: #a3e0bb;
+  --zli-amber-ink: #efd6a6;
+  --zli-red-ink: #f5c0c0;
   --zli-amber-line: rgba(227, 180, 95, .32);
   --zli-danger: #c2413f;
   --zli-danger-hover: #d14d4b;
