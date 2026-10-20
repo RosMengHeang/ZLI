@@ -150,6 +150,7 @@ export async function startRuntime(options: {
       legacyImportReactor.stop();
       await providerService.stopAll();
       providerService.dispose();
+      await engine.flushProjection();
       database.close();
     },
   };

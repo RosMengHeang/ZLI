@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import * as Effect from "effect/Effect";
 
 import { CommandId, EnvironmentId, type EnvironmentDescriptor } from "@zli-v2/contracts";
@@ -157,6 +157,43 @@ describe("durable environment engine", () => {
     const projection = await engine.projection();
     expect(projection.projects).toHaveLength(1);
     expect(projection.lastSequence).toBe(1);
+  });
+
+  it("stores the projection periodically and replays newer events when it is loaded", async () => {
+    const engine = makeEngine();
+    const storedRevision = () =>
+      (
+        engine.database.raw.prepare("SELECT revision FROM projection_state WHERE projection_id = 1").get() as
+          | { revision: number }
+          | undefined
+      )?.revision;
+    await engine.dispatchPromise(registerRequest("00000000-0000-4000-8000-000000000021", "C:\\workspace\\one"));
+    await engine.dispatchPromise(registerRequest("00000000-0000-4000-8000-000000000022", "C:\\workspace\\two"));
+
+    expect(storedRevision()).toBeUndefined();
+    const reopened = new Engine({ database: engine.database, environment });
+    const replayed = await reopened.projection();
+    expect(replayed.lastSequence).toBe(2);
+    expect(replayed.projects.map((project) => project.path)).toEqual(["C:\\workspace\\one", "C:\\workspace\\two"]);
+
+    await engine.flushProjection();
+    expect(storedRevision()).toBe(2);
+    expect(await new Engine({ database: engine.database, environment }).projection()).toEqual(replayed);
+  });
+
+  it("stores the projection again once enough events accumulate", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    onTestFinished(() => now.mockRestore());
+    const engine = makeEngine();
+    for (let index = 0; index < 100; index += 1) {
+      const suffix = String(100 + index).padStart(12, "0");
+      await engine.dispatchPromise(registerRequest(`00000000-0000-4000-8000-${suffix}`, `C:\\workspace\\p${index}`));
+    }
+
+    const row = engine.database.raw.prepare("SELECT revision FROM projection_state WHERE projection_id = 1").get() as
+      | { revision: number }
+      | undefined;
+    expect(row?.revision).toBe(100);
   });
 
   it("reports incompatible stored events instead of silently dropping them", async () => {

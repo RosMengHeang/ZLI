@@ -30,6 +30,13 @@ export type CommandReceipt = {
 
 export type ProjectEvent = (projection: RuntimeProjection, event: RuntimeEventEnvelope) => RuntimeProjection;
 
+/**
+ * The stored projection can be megabytes of JSON, so it is rewritten after this many events or this
+ * much time rather than on every commit. Events committed since then are replayed when it is loaded.
+ */
+const SNAPSHOT_EVERY_EVENTS = 100;
+const SNAPSHOT_EVERY_MS = 2_000;
+
 export type EngineOptions = {
   database: Database;
   environment: EnvironmentDescriptor;
@@ -59,6 +66,10 @@ export class Engine {
   private readonly listeners = new Set<(event: RuntimeEventEnvelope) => void>();
   private commandQueue: Promise<void> = Promise.resolve();
   private reactorTasks = new Set<Promise<void>>();
+  /** The engine is the only writer of the projection, so the latest one is kept in memory. */
+  private current: RuntimeProjection | undefined;
+  private snapshotSequence = 0;
+  private snapshotAt = 0;
 
   constructor(options: EngineOptions) {
     this.database = options.database;
@@ -115,12 +126,26 @@ export class Engine {
         projection = this.applyEvent(projection, event);
       }
       this.database.transaction(() => {
-        this.database.execute(
-          "INSERT INTO projection_state (projection_id, revision, projection_json) VALUES (1, ?, ?) ON CONFLICT(projection_id) DO UPDATE SET revision = excluded.revision, projection_json = excluded.projection_json",
-          [projection.lastSequence, JSON.stringify(projection)],
-        );
+        this.saveProjection(projection);
       });
+      this.current = projection;
       return undefined;
+    });
+    this.commandQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    await operation;
+  }
+
+  /** Writes the in-memory projection if events were committed since it was last stored. */
+  async flushProjection(): Promise<void> {
+    const operation = this.commandQueue.then(() => {
+      const projection = this.current;
+      if (!projection || projection.lastSequence === this.snapshotSequence) return;
+      this.database.transaction(() => {
+        this.saveProjection(projection);
+      });
     });
     this.commandQueue = operation.then(
       () => undefined,
@@ -253,8 +278,9 @@ export class Engine {
           ],
         );
       }
-      this.saveProjection(nextProjection);
+      if (this.snapshotDue(nextProjection)) this.saveProjection(nextProjection);
     });
+    this.current = nextProjection;
 
     return { receipt, events, projection: nextProjection };
   }
@@ -292,8 +318,9 @@ export class Engine {
           "INSERT INTO events (sequence, event_id, command_id, event_type, event_version, event_json, occurred_at) VALUES (?, ?, NULL, ?, ?, ?, ?)",
           [sequence, event.eventId, event.event.type, 1, JSON.stringify(event), event.occurredAt],
         );
-        this.saveProjection(nextProjection);
+        if (this.snapshotDue(nextProjection)) this.saveProjection(nextProjection);
       });
+      this.current = nextProjection;
       this.publish([event]);
     });
     this.commandQueue = operation.then(
@@ -304,20 +331,36 @@ export class Engine {
   }
 
   private readProjection(): RuntimeProjection {
+    if (this.current) return this.current;
     const row = this.database.raw
       .prepare("SELECT projection_json FROM projection_state WHERE projection_id = 1")
       .get() as { projection_json?: string } | undefined;
-    if (!row?.projection_json) {
-      return createEmptyProjection(this.environment);
-    }
-    return JSON.parse(row.projection_json) as RuntimeProjection;
+    const stored = row?.projection_json
+      ? (JSON.parse(row.projection_json) as RuntimeProjection)
+      : createEmptyProjection(this.environment);
+    let projection = stored;
+    for (const event of this.readEventsAfter(stored.lastSequence)) projection = this.applyEvent(projection, event);
+    this.current = projection;
+    this.snapshotSequence = stored.lastSequence;
+    this.snapshotAt = Date.now();
+    return projection;
   }
 
+  private snapshotDue(projection: RuntimeProjection): boolean {
+    return (
+      projection.lastSequence - this.snapshotSequence >= SNAPSHOT_EVERY_EVENTS ||
+      Date.now() - this.snapshotAt >= SNAPSHOT_EVERY_MS
+    );
+  }
+
+  /** Callers run this inside a transaction and keep `current` in step once it commits. */
   private saveProjection(projection: RuntimeProjection): void {
     this.database.execute(
       "INSERT INTO projection_state (projection_id, revision, projection_json) VALUES (1, ?, ?) ON CONFLICT(projection_id) DO UPDATE SET revision = excluded.revision, projection_json = excluded.projection_json",
       [projection.lastSequence, JSON.stringify(projection)],
     );
+    this.snapshotSequence = projection.lastSequence;
+    this.snapshotAt = Date.now();
   }
 
   private readEventsAfter(sequence: number): RuntimeEventEnvelope[] {
