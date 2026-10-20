@@ -35,7 +35,10 @@ export type OpenFileRequest = FileLocation & { worktreeId: string };
 
 type FileIndexContextValue = {
   indexes: ReadonlyMap<string, FileIndex>;
-  /** Reloads the list unless the cached one is younger than `maxAgeMs`. */
+  /**
+   * Reloads the list unless the cached one is younger than `maxAgeMs`. With `maxAgeMs` 0 the result
+   * always reflects disk as of the call, even when an earlier load is still running.
+   */
   refresh(worktreeId: string, maxAgeMs?: number): Promise<FileIndex | undefined>;
   openFile(request: OpenFileRequest): void;
   /** Open tabs and unsaved text for a worktree; the same object every call. */
@@ -59,6 +62,7 @@ export function FileIndexProvider({
   const indexesRef = useRef(indexes);
   indexesRef.current = indexes;
   const inFlight = useRef(new Map<string, Promise<FileIndex | undefined>>());
+  const queued = useRef(new Map<string, Promise<FileIndex | undefined>>());
   const rootsRef = useRef(new Map<string, string>());
   rootsRef.current = new Map((worktrees ?? []).map((worktree) => [worktree.worktreeId, worktree.path]));
   const onOpenFileRef = useRef(onOpenFile);
@@ -69,7 +73,21 @@ export function FileIndexProvider({
       const cached = indexesRef.current.get(worktreeId);
       if (cached && Date.now() - cached.loadedAt < maxAgeMs) return Promise.resolve(cached);
       const pending = inFlight.current.get(worktreeId);
-      if (pending) return pending;
+      if (pending && maxAgeMs > 0) return pending;
+      if (pending) {
+        // The running load may have listed the folder before a save, so a forced refresh waits for
+        // it and loads again. Callers that arrive meanwhile share that one follow-up load.
+        const existing = queued.current.get(worktreeId);
+        if (existing) return existing;
+        const followUp = pending
+          .catch(() => undefined)
+          .then(() => {
+            queued.current.delete(worktreeId);
+            return refresh(worktreeId, 0);
+          });
+        queued.current.set(worktreeId, followUp);
+        return followUp;
+      }
       const root = rootsRef.current.get(worktreeId);
       if (root === undefined) return Promise.resolve(undefined);
       const request = listFiles(dispatch, worktreeId)

@@ -59,7 +59,7 @@ function WorkspaceApp() {
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string>();
   const [sidePane, setSidePane] = useState<SidePane>();
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
-  const [panelWidth, setPanelWidth] = usePanelWidth();
+  const [panelWidth, setPanelWidth] = usePanelWidth(sidePane ?? "files");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [worktreeDialogProject, setWorktreeDialogProject] = useState<ProjectProjection>();
   const [newAgentProject, setNewAgentProject] = useState<ProjectProjection | "default">();

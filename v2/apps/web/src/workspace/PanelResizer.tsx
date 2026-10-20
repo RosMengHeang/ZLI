@@ -1,10 +1,14 @@
 import type { KeyboardEvent, PointerEvent } from "react";
 import { useState } from "react";
 
-const STORAGE_KEY = "zli.toolPanelWidth";
+export type PanelId = "files" | "review" | "browser";
+
+const STORAGE_PREFIX = "zli.toolPanelWidth.";
 const MIN_WIDTH = 320;
-const DEFAULT_WIDTH = 460;
 const STEP = 24;
+/** Files needs room for the tree beside the editor; the others read fine narrower. */
+const DEFAULT_WIDTHS: Record<PanelId, number> = { files: 640, browser: 560, review: 520 };
+const DEFAULT_SHARE = 0.45;
 
 function maxWidth(): number {
   return typeof window === "undefined" ? 1200 : Math.max(MIN_WIDTH, Math.round(window.innerWidth * 0.65));
@@ -14,27 +18,36 @@ export function clampPanelWidth(width: number): number {
   return Math.min(maxWidth(), Math.max(MIN_WIDTH, Math.round(width)));
 }
 
-export function usePanelWidth(): [number, (width: number) => void] {
-  const [width, setWidth] = useState(() => {
-    try {
-      const stored = Number(window.localStorage.getItem(STORAGE_KEY));
-      return stored > 0 ? clampPanelWidth(stored) : DEFAULT_WIDTH;
-    } catch {
-      return DEFAULT_WIDTH;
-    }
-  });
+/** The width a panel opens at before anyone resizes it, leaving most of a small window to the agents. */
+export function defaultPanelWidth(panel: PanelId): number {
+  const share = typeof window === "undefined" ? Number.POSITIVE_INFINITY : window.innerWidth * DEFAULT_SHARE;
+  return clampPanelWidth(Math.min(DEFAULT_WIDTHS[panel], share));
+}
+
+function storedWidth(panel: PanelId): number {
+  try {
+    const stored = Number(window.localStorage.getItem(STORAGE_PREFIX + panel));
+    return stored > 0 ? clampPanelWidth(stored) : defaultPanelWidth(panel);
+  } catch {
+    return defaultPanelWidth(panel);
+  }
+}
+
+/** Each side panel keeps its own width. */
+export function usePanelWidth(panel: PanelId): [number, (width: number) => void] {
+  const [widths, setWidths] = useState<Partial<Record<PanelId, number>>>({});
+  const width = widths[panel] ?? storedWidth(panel);
   const update = (next: number) => {
     const clamped = clampPanelWidth(next);
-    setWidth(clamped);
+    setWidths((current) => ({ ...current, [panel]: clamped }));
     try {
-      window.localStorage.setItem(STORAGE_KEY, String(clamped));
+      window.localStorage.setItem(STORAGE_PREFIX + panel, String(clamped));
     } catch {
       // Storage can be unavailable; the width still applies for this session.
     }
   };
   return [width, update];
 }
-
 export function PanelResizer({ width, onChange }: { width: number; onChange(width: number): void }) {
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
