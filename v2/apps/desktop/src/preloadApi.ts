@@ -1,3 +1,4 @@
+import { ProjectionStore } from "@zli-v2/client-runtime";
 import {
   BrowserBounds,
   BrowserFillInput,
@@ -27,7 +28,87 @@ type IpcBridge = {
   on(channel: string, listener: (event: unknown, value: unknown) => void): () => void;
 };
 
+/**
+ * Keeps a copy of the main process projection by folding the events main forwards, so a streaming
+ * agent costs one small IPC message per event instead of a structured clone and full validation of
+ * the whole projection. Main sends the whole projection only when its own copy was replaced.
+ */
+function createProjectionMirror(ipc: IpcBridge) {
+  const store = new ProjectionStore();
+  const listeners = new Set<(projection: RuntimeProjection) => void>();
+  let detach: (() => void) | undefined;
+  let newestSequence = 0;
+  let refreshing = false;
+
+  const refresh = async () => {
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      // Events that arrive while the request is in flight can be newer than its answer.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const value = await ipc.invoke("zli:runtime:projection");
+        if (value === null || value === undefined) return;
+        const current = store.current();
+        const parsed = RuntimeProjection.safeParse(value);
+        if (!parsed.success) return;
+        if (!current || parsed.data.lastSequence > current.lastSequence) store.replace(parsed.data);
+        if ((store.current()?.lastSequence ?? 0) >= newestSequence) return;
+      }
+    } catch {
+      // The next event that does not fold asks again.
+    } finally {
+      refreshing = false;
+    }
+  };
+
+  const attach = () => {
+    const unsubscribeStore = store.subscribe((projection) => {
+      for (const listener of listeners) listener(projection);
+    });
+    const offProjection = ipc.on("zli:runtime:projection", (_event, value) => {
+      try {
+        store.replace(value);
+      } catch {
+        // Invalid projections from main are ignored.
+      }
+    });
+    const offEvent = ipc.on("zli:runtime:projection-event", (_event, value) => {
+      const parsed = RuntimeEventEnvelope.safeParse(value);
+      if (!parsed.success) return;
+      newestSequence = Math.max(newestSequence, parsed.data.sequence);
+      if (store.apply(parsed.data) === "gap") void refresh();
+    });
+    return () => {
+      unsubscribeStore();
+      offProjection();
+      offEvent();
+    };
+  };
+
+  return {
+    /** Keeps a fetched projection when it is newer, so the next event folds instead of refetching. */
+    offer(projection: RuntimeProjection): RuntimeProjection {
+      if (!detach) return projection;
+      const current = store.current();
+      if (current && current.lastSequence >= projection.lastSequence) return current;
+      return store.replace(projection);
+    },
+    subscribe(listener: (projection: RuntimeProjection) => void): () => void {
+      listeners.add(listener);
+      detach ??= attach();
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0) {
+          detach?.();
+          detach = undefined;
+        }
+      };
+    },
+  };
+}
+
 export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean } = {}) {
+  const projections = createProjectionMirror(ipc);
   const bridge = {
     runtime: {
       dispatch: async (request: unknown) => {
@@ -36,13 +117,9 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
       },
       getProjection: async () => {
         const projection = await ipc.invoke("zli:runtime:projection");
-        return projection === null ? undefined : RuntimeProjection.parse(projection);
+        return projection === null ? undefined : projections.offer(RuntimeProjection.parse(projection));
       },
-      onProjection: (listener: (projection: RuntimeProjection) => void) =>
-        ipc.on("zli:runtime:projection", (_event, value) => {
-          const parsed = RuntimeProjection.safeParse(value);
-          if (parsed.success) listener(parsed.data);
-        }),
+      onProjection: (listener: (projection: RuntimeProjection) => void) => projections.subscribe(listener),
       attachTerminal: (terminalId: string, afterSequence = 0) =>
         ipc.invoke("zli:runtime:terminal:attach", { terminalId, afterSequence }),
       onTerminal: (

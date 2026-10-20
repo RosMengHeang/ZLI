@@ -17,7 +17,9 @@ function touchThread(
   return threads.map((thread) => (thread.threadId === threadId ? { ...thread, updatedAt: occurredAt } : thread));
 }
 
-export type ProjectionListener = (projection: RuntimeProjectionValue) => void;
+/** Why the projection changed, so a listener can forward the event instead of the whole projection. */
+export type ProjectionChange = { kind: "replace" } | { kind: "event"; envelope: RuntimeEventEnvelopeValue };
+export type ProjectionListener = (projection: RuntimeProjectionValue, change: ProjectionChange) => void;
 export type EventApplication = "applied" | "duplicate" | "gap";
 
 export class ProjectionStore {
@@ -31,7 +33,7 @@ export class ProjectionStore {
   replace(input: unknown): RuntimeProjectionValue {
     const parsed = RuntimeProjection.parse(input);
     this.#projection = { ...parsed, projectContexts: deriveSharedProjectContexts(parsed) };
-    this.#publish();
+    this.#publish({ kind: "replace" });
     return this.#projection;
   }
 
@@ -241,7 +243,7 @@ export class ProjectionStore {
       };
     }
 
-    this.#publish();
+    this.#publish({ kind: "event", envelope });
     return "applied";
   }
 
@@ -250,8 +252,8 @@ export class ProjectionStore {
     return () => this.#listeners.delete(listener);
   }
 
-  #publish(): void {
+  #publish(change: ProjectionChange): void {
     if (this.#projection === undefined) return;
-    for (const listener of this.#listeners) listener(this.#projection);
+    for (const listener of this.#listeners) listener(this.#projection, change);
   }
 }
