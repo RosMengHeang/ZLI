@@ -9,7 +9,7 @@ import { MIN_DRAWER_HEIGHT } from "../sessions/workbench.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState } from "../ui/Pane.js";
-import { TerminalView } from "./TerminalView.js";
+import { LazyTerminalView } from "./LazyTerminalView.js";
 import "./terminal.css";
 
 const MAX_SPLITS = 4;
@@ -198,7 +198,7 @@ export function TerminalDrawer({
                 />
               </div>
               {bridge ? (
-                <TerminalView
+                <LazyTerminalView
                   bridge={bridge}
                   terminalId={terminal.terminalId}
                   running={terminal.status === "running"}

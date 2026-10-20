@@ -6,7 +6,7 @@ import { ChatView } from "../chat/ChatView.js";
 import { useFileLinks } from "../files/FileIndex.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
-import { TerminalView } from "../terminal/TerminalView.js";
+import { LazyTerminalView } from "../terminal/LazyTerminalView.js";
 import { Badge, type BadgeTone } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
@@ -210,7 +210,7 @@ export function AgentTile({
         ) : mode === "terminal" ? (
           terminal && bridge ? (
             <div className="tile-terminal">
-              <TerminalView
+              <LazyTerminalView
                 key={terminal.terminalId}
                 bridge={bridge}
                 terminalId={terminal.terminalId}
