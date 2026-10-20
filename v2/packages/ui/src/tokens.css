@@ -135,6 +135,8 @@ svg { flex: 0 0 auto; }
 input::placeholder, textarea::placeholder { color: var(--zli-dim); opacity: 1; }
 select { color-scheme: dark; }
 code { padding: 1px 5px; border-radius: var(--zli-radius-xs); background: var(--zli-raised); color: var(--zli-text); font-family: var(--zli-mono); font-size: .9em; }
+/* Ligatures would draw operators such as != and => as single glyphs, which misreads code. */
+code, kbd, pre, samp { font-variant-ligatures: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* One focus ring for everything that takes keyboard focus. Fields replace it with their own border ring. */

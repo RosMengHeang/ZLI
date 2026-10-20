@@ -220,7 +220,7 @@ const zliTheme = EditorView.theme(
       fontSize: "12.5px",
     },
     "&.cm-focused": { outline: "none" },
-    ".cm-scroller": { fontFamily: "var(--zli-mono)", lineHeight: "1.55" },
+    ".cm-scroller": { fontFamily: "var(--zli-mono)", fontVariantLigatures: "none", lineHeight: "1.55" },
     ".cm-content": { padding: "6px 0", caretColor: "var(--zli-text)" },
     ".cm-line": { padding: "0 12px 0 6px" },
     ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--zli-text)", borderLeftWidth: "1.5px" },

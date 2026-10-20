@@ -1,6 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
+import "@fontsource-variable/inter";
+import "@fontsource-variable/jetbrains-mono";
 import "@zli-v2/ui/tokens.css";
 import { AppShell } from "./shell/AppShell.js";
 

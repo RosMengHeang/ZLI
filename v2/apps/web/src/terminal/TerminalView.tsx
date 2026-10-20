@@ -21,6 +21,8 @@ type Props = {
 };
 
 const RESIZE_DEBOUNCE_MS = 80;
+const TERMINAL_FONT = '"JetBrains Mono Variable", "JetBrains Mono", "SFMono-Regular", Consolas, monospace';
+const TERMINAL_FONT_SIZE = 12;
 const ATTACH_ATTEMPTS = 30;
 
 export const terminalTheme: ITheme = {
@@ -74,8 +76,8 @@ export function TerminalView({
     const host = hostRef.current;
     if (!host) return;
     const terminal = new Terminal({
-      fontFamily: '"JetBrains Mono", "SFMono-Regular", Consolas, monospace',
-      fontSize: 12,
+      fontFamily: TERMINAL_FONT,
+      fontSize: TERMINAL_FONT_SIZE,
       lineHeight: 1.15,
       scrollback: 5_000,
       cursorBlink: false,
@@ -209,6 +211,7 @@ export function TerminalView({
     } catch {
       // Sizing is retried by the resize observer once the host has layout.
     }
+    remeasureWhenFontLoads(terminal, () => active, scheduleResize);
     if (autoFocusRef.current) terminal.focus();
     const focusSubscription = terminal.textarea
       ? (() => {
@@ -249,6 +252,26 @@ export function TerminalView({
       onMouseDown={() => terminalRef.current?.focus()}
     />
   );
+}
+
+/**
+ * xterm measures its cell size once, when it opens. If the bundled font is still loading at that point
+ * the grid is sized for the fallback font, so the cells are measured again after the font arrives.
+ */
+function remeasureWhenFontLoads(terminal: Terminal, isActive: () => boolean, onMeasured: () => void): void {
+  const fonts = typeof document === "undefined" ? undefined : document.fonts;
+  const spec = `${TERMINAL_FONT_SIZE}px ${TERMINAL_FONT}`;
+  if (!fonts || fonts.check(spec)) return;
+  void fonts
+    .load(spec)
+    .then(() => {
+      if (!isActive()) return;
+      // xterm only re-measures when the option value changes, so it is set away and back.
+      terminal.options.fontFamily = "monospace";
+      terminal.options.fontFamily = TERMINAL_FONT;
+      onMeasured();
+    })
+    .catch(() => undefined);
 }
 
 function decodeBase64(value: string): Uint8Array {
