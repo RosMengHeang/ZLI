@@ -1,7 +1,7 @@
-import type { WorktreeProjection } from "@zli-v2/contracts";
+import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { useEffect, useMemo, useState } from "react";
 import { makeCommandId } from "../runtime/commandId.js";
-import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, PaneHeader } from "../ui/Pane.js";
@@ -18,6 +18,8 @@ export function worktreeRelativePath(root: string, path: string): string {
   return target.replace(/^\.\//u, "");
 }
 
+const selectReviews = (projection: RuntimeProjection | undefined) => projection?.reviews;
+
 export function ReviewPane({
   worktree,
   focus,
@@ -26,13 +28,14 @@ export function ReviewPane({
   /** A file to open, for example from a changed-files card. The nonce reopens the same path. */
   focus?: ReviewFocus | undefined;
 }) {
-  const { dispatch, projection } = useRuntime();
+  const { dispatch } = useRuntime();
+  const reviews = useRuntimeSelector(selectReviews);
   const [baseRef, setBaseRef] = useState("main");
   const [targetRef, setTargetRef] = useState("main");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const review = projection?.reviews?.find((candidate) => candidate.worktreeId === worktree?.worktreeId);
+  const review = reviews?.find((candidate) => candidate.worktreeId === worktree?.worktreeId);
   const totals = useMemo(
     () =>
       (review?.files ?? []).reduce(

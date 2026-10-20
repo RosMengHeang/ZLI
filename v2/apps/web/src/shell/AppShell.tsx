@@ -10,7 +10,7 @@ import { QuickOpen } from "../files/QuickOpen.js";
 import { type ReviewFocus, ReviewPane } from "../review/ReviewPane.js";
 import { getBridge, type ZliBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
-import { RuntimeProvider, useRuntime } from "../runtime/RuntimeProvider.js";
+import { RuntimeProvider, useRuntime, useShellProjection } from "../runtime/RuntimeProvider.js";
 import { AgentTile } from "../sessions/AgentTile.js";
 import { createWorktree, ensureCheckout, startSessionAgent } from "../sessions/launch.js";
 import { NewAgentDialog, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
@@ -53,7 +53,8 @@ export function AppShell({ bridge = getBridge() }: { bridge?: ZliBridge } = {}) 
 }
 
 function WorkspaceApp() {
-  const { bridge, projection, dispatch } = useRuntime();
+  const { bridge, dispatch } = useRuntime();
+  const projection = useShellProjection();
   const [workbench, updateWorkbench] = useWorkbenchState();
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string>();
   const [sidePane, setSidePane] = useState<SidePane>();

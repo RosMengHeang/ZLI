@@ -2,10 +2,11 @@ import {
   BROWSER_DEVICE_PRESETS,
   type BrowserTabProjection,
   type BrowserViewport,
+  type RuntimeProjection,
   type WorktreeProjection,
 } from "@zli-v2/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, PaneHeader } from "../ui/Pane.js";
@@ -27,8 +28,11 @@ type Props = {
   reveal?: BrowserReveal | undefined;
 };
 
+const selectBrowserTabs = (projection: RuntimeProjection | undefined) => projection?.browserTabs;
+
 export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
-  const { bridge, projection } = useRuntime();
+  const { bridge } = useRuntime();
+  const browserTabs = useRuntimeSelector(selectBrowserTabs);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const urlEditedRef = useRef(false);
@@ -47,8 +51,8 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
     obscuredRef.current = obscured;
   }, [obscured]);
   const worktreeTabs = useMemo(
-    () => projection?.browserTabs.filter((candidate) => candidate.worktreeId === worktreeId) ?? [],
-    [projection?.browserTabs, worktreeId],
+    () => browserTabs?.filter((candidate) => candidate.worktreeId === worktreeId) ?? [],
+    [browserTabs, worktreeId],
   );
   const restoredTab = worktreeTabs.find((candidate) => candidate.active) ?? worktreeTabs[0];
   const [handledRevealKey, setHandledRevealKey] = useState<number>();
@@ -165,7 +169,7 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
 
   useEffect(() => {
     if (!tab) return;
-    const next = projection?.browserTabs.find((candidate) => candidate.browserTabId === tab.browserTabId);
+    const next = browserTabs?.find((candidate) => candidate.browserTabId === tab.browserTabId);
     if (!next) {
       setTab(undefined);
       showUrl("");
@@ -183,7 +187,7 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
     const editing = urlEditedRef.current && document.activeElement === urlInputRef.current;
     if (next.url !== tab.url && !editing) showUrl(next.url);
     setTab(next);
-  }, [projection?.browserTabs, showUrl, tab]);
+  }, [browserTabs, showUrl, tab]);
 
   const run = async (
     operation: (activeBridge: NonNullable<typeof bridge>, activeTab: BrowserTabProjection) => Promise<unknown>,

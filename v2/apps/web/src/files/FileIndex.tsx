@@ -1,4 +1,4 @@
-import type { FileListEntry } from "@zli-v2/contracts";
+import type { FileListEntry, RuntimeProjection } from "@zli-v2/contracts";
 import {
   createContext,
   type PropsWithChildren,
@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 
-import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { listFiles } from "./fileClient.js";
 import {
   type FileLocation,
@@ -46,18 +46,21 @@ type FileIndexContextValue = {
 
 const FileIndexContext = createContext<FileIndexContextValue | undefined>(undefined);
 
+const selectWorktrees = (projection: RuntimeProjection | undefined) => projection?.worktrees;
+
 /** Shares one file list per worktree between the Files panel, quick open, and path links. */
 export function FileIndexProvider({
   children,
   onOpenFile,
 }: PropsWithChildren<{ onOpenFile(request: OpenFileRequest): void }>) {
-  const { dispatch, projection } = useRuntime();
+  const { dispatch } = useRuntime();
+  const worktrees = useRuntimeSelector(selectWorktrees);
   const [indexes, setIndexes] = useState<ReadonlyMap<string, FileIndex>>(new Map());
   const indexesRef = useRef(indexes);
   indexesRef.current = indexes;
   const inFlight = useRef(new Map<string, Promise<FileIndex | undefined>>());
   const rootsRef = useRef(new Map<string, string>());
-  rootsRef.current = new Map((projection?.worktrees ?? []).map((worktree) => [worktree.worktreeId, worktree.path]));
+  rootsRef.current = new Map((worktrees ?? []).map((worktree) => [worktree.worktreeId, worktree.path]));
   const onOpenFileRef = useRef(onOpenFile);
   onOpenFileRef.current = onOpenFile;
 

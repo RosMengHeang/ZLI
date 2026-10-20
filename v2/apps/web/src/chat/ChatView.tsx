@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { providerDisplayName } from "../agent/providers.js";
 import { useFileLinks } from "../files/FileIndex.js";
 import { makeCommandId } from "../runtime/commandId.js";
-import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { buildTimeline } from "../sessions/sessions.js";
 import { Button } from "../ui/Button.js";
 import { Select } from "../ui/Field.js";
@@ -15,6 +15,10 @@ import { Composer, type ComposerAttachment } from "./Composer.js";
 import { Markdown } from "./Markdown.js";
 import { ChangedFiles, WorkLog } from "./WorkLog.js";
 import "./chat.css";
+
+const selectMessages = (projection: RuntimeProjection | undefined) => projection?.messages;
+const selectActivities = (projection: RuntimeProjection | undefined) => projection?.activities;
+const selectRequests = (projection: RuntimeProjection | undefined) => projection?.requests;
 
 export function ChatView({
   projection,
@@ -40,17 +44,21 @@ export function ChatView({
   const displayName = providerDisplayName(thread.provider, projection.providers);
   const discovery = projection.providers?.find((entry) => entry.provider === thread.provider);
   const models = discovery?.status === "found" ? discovery.models : undefined;
+  // The projection passed in skips chat-only updates, so this thread's chat state is read from the store.
+  const allMessages = useRuntimeSelector(selectMessages);
+  const allActivities = useRuntimeSelector(selectActivities);
+  const allRequests = useRuntimeSelector(selectRequests);
   const messages = useMemo(
-    () => (projection.messages ?? []).filter((message) => message.threadId === thread.threadId),
-    [projection.messages, thread.threadId],
+    () => (allMessages ?? []).filter((message) => message.threadId === thread.threadId),
+    [allMessages, thread.threadId],
   );
   const activities = useMemo(
-    () => (projection.activities ?? []).filter((activity) => activity.threadId === thread.threadId),
-    [projection.activities, thread.threadId],
+    () => (allActivities ?? []).filter((activity) => activity.threadId === thread.threadId),
+    [allActivities, thread.threadId],
   );
   const timeline = useMemo(() => buildTimeline(messages, activities), [messages, activities]);
   const fileLinks = useFileLinks(worktree?.worktreeId, messages.length);
-  const request = projection.requests?.find((candidate) => candidate.threadId === thread.threadId);
+  const request = allRequests?.find((candidate) => candidate.threadId === thread.threadId);
   const ended = thread.status === "stopped" || thread.status === "failed";
   const working = thread.status === "working" || thread.status === "waiting";
   const peers = useMemo(() => {
