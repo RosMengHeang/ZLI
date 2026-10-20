@@ -254,6 +254,37 @@ describe("authenticated local RPC server", () => {
     socket.close();
   });
 
+  it("sends the projection without waiting for slow discovery, then again with providers", async () => {
+    const database = new Database({ path: ":memory:" });
+    const engine = new Engine({ database, environment });
+    let finishDiscovery: (() => void) | undefined;
+    const server = new RpcServer({
+      engine,
+      environment,
+      token: "test-token",
+      discoverProviders: () =>
+        new Promise((resolve) => {
+          finishDiscovery = () =>
+            resolve([{ provider: "codex", displayName: "Codex", status: "found", path: "/bin/codex" }]);
+        }),
+    });
+    await server.start();
+    resources.push({ database, server });
+    const socket = await connected(server);
+
+    socket.send(JSON.stringify({ type: "subscribe", afterSequence: 0 }));
+    const first = await nextMessage(socket);
+    expect(first).toMatchObject({ type: "projection" });
+    expect(first.projection).not.toHaveProperty("providers");
+
+    finishDiscovery?.();
+    await expect(nextMessage(socket)).resolves.toMatchObject({
+      type: "projection",
+      projection: { providers: [{ provider: "codex", status: "found" }] },
+    });
+    socket.close();
+  });
+
   it("stores uploaded images on disk and records only their paths", async () => {
     const attachmentsDir = await mkdtemp(join(tmpdir(), "zli-rpc-attachments-"));
     try {

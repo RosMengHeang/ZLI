@@ -30,6 +30,12 @@ const MAX_FRAME_BYTES = 128 * 1024 * 1024;
 /** Before hello only a small handshake is expected, so large frames are dropped without parsing them. */
 const MAX_UNAUTHENTICATED_FRAME_BYTES = 64 * 1024;
 const HELLO_TIMEOUT_MS = 5_000;
+/**
+ * Provider discovery spawns each installed CLI and can take seconds (model listing has a 10 s budget).
+ * A projection waits this long for it, then goes out with the last known providers, or none, and the
+ * client gets a fresh projection once discovery finishes.
+ */
+const PROVIDER_DISCOVERY_WAIT_MS = 250;
 
 type RpcServerOptions = {
   engine: Engine;
@@ -57,6 +63,7 @@ export class RpcServer {
   private httpServer: HttpServer | undefined;
   private webSocketServer: WebSocketServer | undefined;
   private boundPort: number | undefined;
+  private lastProviders: ProviderDiscovery[] | undefined;
   private readonly clients = new Set<WebSocket>();
   private readonly clientCleanup = new Map<WebSocket, () => void>();
 
@@ -118,13 +125,47 @@ export class RpcServer {
     });
   }
 
-  private async projectionSnapshot(): Promise<RuntimeProjection> {
+  /** `onLateProviders` runs when discovery outlasts the wait, once fresh providers are available. */
+  private async projectionSnapshot(
+    onLateProviders?: (providers: ProviderDiscovery[]) => void,
+  ): Promise<RuntimeProjection> {
+    const providers = await this.providersWithinWait(onLateProviders);
+    // Read after discovery so the snapshot is not older than the events sent while it ran.
     const projection = await this.engine.projection();
-    if (!this.discoverProviders) return projection;
+    return providers ? { ...projection, providers } : projection;
+  }
+
+  private async providersWithinWait(
+    onLate?: (providers: ProviderDiscovery[]) => void,
+  ): Promise<ProviderDiscovery[] | undefined> {
+    if (!this.discoverProviders) return undefined;
+    const discovery = this.discoverProviders().then(
+      (providers) => [...providers],
+      () => unavailableProviderDiscovery(),
+    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<undefined>((resolve) => {
+      timer = setTimeout(resolve, PROVIDER_DISCOVERY_WAIT_MS, undefined);
+    });
+    const providers = await Promise.race([discovery, timeout]);
+    clearTimeout(timer);
+    if (providers) {
+      this.lastProviders = providers;
+      return providers;
+    }
+    void discovery.then((late) => {
+      this.lastProviders = late;
+      onLate?.(late);
+    });
+    return this.lastProviders;
+  }
+
+  private async sendWithProviders(client: WebSocket, providers: ProviderDiscovery[]): Promise<void> {
+    if (client.readyState !== WebSocket.OPEN) return;
     try {
-      return { ...projection, providers: [...(await this.discoverProviders())] };
+      send(client, { type: "projection", projection: { ...(await this.engine.projection()), providers } });
     } catch {
-      return { ...projection, providers: unavailableProviderDiscovery() };
+      // The client asks for a projection again when it notices a gap.
     }
   }
 
@@ -402,7 +443,9 @@ export class RpcServer {
         const unsubscribe = this.engine.subscribe((event) => send(client, { type: "event", envelope: event }));
         setUnsubscribe(unsubscribe);
         try {
-          const projection = await this.projectionSnapshot();
+          const projection = await this.projectionSnapshot(
+            (providers) => void this.sendWithProviders(client, providers),
+          );
           send(client, { type: "projection", projection });
           // The snapshot already folds in every event up to its lastSequence; replaying those would make
           // a first subscribe send the whole event log for the client to discard as duplicates.
@@ -420,7 +463,10 @@ export class RpcServer {
         return;
       }
       case "projection.get":
-        send(client, { type: "projection", projection: await this.projectionSnapshot() });
+        send(client, {
+          type: "projection",
+          projection: await this.projectionSnapshot((providers) => void this.sendWithProviders(client, providers)),
+        });
         return;
       case "terminal.attach": {
         if (!this.terminalService) {

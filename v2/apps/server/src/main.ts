@@ -83,6 +83,9 @@ export async function startRuntime(options: {
   const reviewReactor = new ReviewReactor(engine, new ReviewService(new GitProcess()));
   const browserTool = options.browserTool;
   const providerService = new ProviderService(createProviderRegistry(process.env, browserTool ? { browserTool } : {}));
+  // Started now so it overlaps server start and terminal restore; the first projection and the
+  // browser tool registration below share this run.
+  void providerService.discoverProviders().catch(() => undefined);
   const resolveAgentCli = async (provider: string) => {
     const discovery = (await providerService.discoverProviders()).find((entry) => entry.provider === provider);
     return discovery?.status === "found" ? discovery.path : undefined;
