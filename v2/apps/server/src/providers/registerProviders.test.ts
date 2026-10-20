@@ -1,12 +1,22 @@
 import { describe, expect, it } from "vitest";
 
 import type { CliProbe } from "./discoverCliProviders.js";
-import { createProviderRegistry, resolveClaudeCommand, resolveCursorCommand } from "./registerProviders.js";
+import {
+  createProviderRegistry,
+  resolveClaudeCommand,
+  resolveCursorCommand,
+  resolveDroidCommand,
+} from "./registerProviders.js";
 
 describe("createProviderRegistry", () => {
-  it("registers Codex, Claude Code, and Cursor, and leaves OpenCode unregistered", () => {
+  it("registers Codex, Claude Code, Cursor, and Droid, and leaves OpenCode unregistered", () => {
     const registry = createProviderRegistry({});
-    expect(registry.list().map((adapter) => adapter.provider)).toEqual(["codex", "claude-code", "cursor-agent"]);
+    expect(registry.list().map((adapter) => adapter.provider)).toEqual([
+      "codex",
+      "claude-code",
+      "cursor-agent",
+      "droid",
+    ]);
     expect(registry.get("opencode")).toBeUndefined();
     expect(registry.get("codex")?.capabilities).toMatchObject({
       exactResume: true,
@@ -14,6 +24,13 @@ describe("createProviderRegistry", () => {
       conversationRollback: true,
     });
     expect(registry.get("claude-code")?.capabilities).toEqual({
+      exactResume: false,
+      structuredApproval: false,
+      structuredUserInput: false,
+      conversationRollback: false,
+      modelSwitch: "unsupported",
+    });
+    expect(registry.get("droid")?.capabilities).toEqual({
       exactResume: false,
       structuredApproval: false,
       structuredUserInput: false,
@@ -73,6 +90,28 @@ describe("resolveCursorCommand", () => {
     await expect(resolveCursorCommand(missing)).rejects.toMatchObject({
       code: "cli_missing",
       message: "Cursor CLI was not found on PATH or in known install locations.",
+    });
+  });
+});
+
+describe("resolveDroidCommand", () => {
+  it("returns the discovered Droid path from ~/bin and a typed error when discovery misses it", async () => {
+    const found: CliProbe = {
+      pathEntries: [],
+      homeDir: "C:\\Users\\dev",
+      platform: "win32",
+      fileExists: (filePath) => filePath === "C:\\Users\\dev\\bin\\droid.exe",
+    };
+    const missing: CliProbe = {
+      pathEntries: [],
+      platform: "linux",
+      fileExists: () => false,
+    };
+
+    await expect(resolveDroidCommand(found)).resolves.toBe("C:\\Users\\dev\\bin\\droid.exe");
+    await expect(resolveDroidCommand(missing)).rejects.toMatchObject({
+      code: "cli_missing",
+      message: "Droid CLI was not found on PATH or in known install locations.",
     });
   });
 });

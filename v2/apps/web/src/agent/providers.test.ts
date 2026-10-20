@@ -22,17 +22,29 @@ const cursor: ProviderDiscovery = {
   status: "missing",
   reason: "Cursor CLI was not found on PATH or in known install locations.",
 };
+const droid: ProviderDiscovery = {
+  provider: "droid",
+  displayName: "Droid",
+  status: "found",
+  path: "C:\\Users\\dev\\bin\\droid.exe",
+};
 
 describe("listedDiscoveries", () => {
-  it("keeps Codex, Claude Code, and Cursor, and drops OpenCode", () => {
+  it("keeps Codex, Claude Code, Cursor, and Droid, and drops OpenCode", () => {
     const mixed = [
       codex,
       claude,
       cursor,
+      droid,
       { provider: "opencode", displayName: "OpenCode", status: "found", path: "/usr/local/bin/opencode" },
     ] as ProviderDiscovery[];
 
-    expect(listedDiscoveries(mixed).map((entry) => entry.provider)).toEqual(["codex", "claude-code", "cursor-agent"]);
+    expect(listedDiscoveries(mixed).map((entry) => entry.provider)).toEqual([
+      "codex",
+      "claude-code",
+      "cursor-agent",
+      "droid",
+    ]);
     expect(listedDiscoveries(mixed).some((entry) => entry.displayName === "OpenCode")).toBe(false);
     expect(listedDiscoveries(undefined)).toEqual([]);
   });
@@ -40,6 +52,7 @@ describe("listedDiscoveries", () => {
   it("prefers the first CLI discovery already found", () => {
     expect(preferredProvider([codex, claude, cursor])).toBe("claude-code");
     expect(preferredProvider([codex, cursor])).toBe("codex");
+    expect(preferredProvider([codex, cursor, droid])).toBe("droid");
   });
 
   it("labels a worktree with the agents that have a thread there", () => {

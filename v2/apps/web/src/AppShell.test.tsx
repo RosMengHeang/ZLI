@@ -55,6 +55,7 @@ const bridge: ZliBridge = {
     close: async () => undefined,
     activate: async () => firstBrowserTab(),
     navigate: async () => firstBrowserTab(),
+    hide: async () => undefined,
     setBounds: async () => undefined,
     back: async () => undefined,
     forward: async () => undefined,

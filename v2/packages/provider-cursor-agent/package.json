@@ -6,6 +6,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "dependencies": {
+    "@zli-v2/shared": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "24.10.1"
   }

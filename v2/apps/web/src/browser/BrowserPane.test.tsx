@@ -1,0 +1,209 @@
+// @vitest-environment jsdom
+
+import {
+  BrowserProfileId,
+  BrowserTabId,
+  CommandId,
+  EnvironmentId,
+  ProjectId,
+  type BrowserTabProjection,
+  type RuntimeProjection,
+  WorktreeId,
+} from "@zli-v2/contracts";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { ZliBridge } from "../runtime/bridge.js";
+import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
+import { BrowserPane } from "./BrowserPane.js";
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+const worktree = {
+  worktreeId: WorktreeId.parse("00000000-0000-4000-8000-000000000011"),
+  projectId: ProjectId.parse("00000000-0000-4000-8000-000000000010"),
+  path: "C:/repo",
+  branch: "main",
+  status: "ready" as const,
+};
+
+const baseTab: BrowserTabProjection = {
+  browserTabId: BrowserTabId.parse("00000000-0000-4000-8000-000000000021"),
+  profileId: BrowserProfileId.parse("00000000-0000-4000-8000-000000000002"),
+  worktreeId: worktree.worktreeId,
+  url: "http://127.0.0.1:5173/",
+  title: "Dev server",
+  active: true,
+  status: "idle",
+};
+
+function projectionWith(tab: BrowserTabProjection): RuntimeProjection {
+  return {
+    environment: {
+      environmentId: EnvironmentId.parse("00000000-0000-4000-8000-000000000001"),
+      label: "Local",
+      protocolVersion: 1,
+      capabilities: { worktrees: true, terminals: true, browser: true, eventReplay: true },
+    },
+    projects: [{ projectId: worktree.projectId, path: "C:/repo", name: "repo" }],
+    worktrees: [worktree],
+    threads: [],
+    terminals: [],
+    browserTabs: [tab],
+    attention: [],
+    lastSequence: 1,
+  };
+}
+
+function createBridge(initial: BrowserTabProjection) {
+  let current = initial;
+  let projectionListener: ((projection: RuntimeProjection) => void) | undefined;
+  const calls: string[] = [];
+  const bridge: ZliBridge = {
+    runtime: {
+      dispatch: async () => ({ commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"), accepted: true }),
+      getProjection: async () => projectionWith(current),
+      onProjection: (listener) => {
+        projectionListener = listener;
+        return () => undefined;
+      },
+      attachTerminal: async () => ({ accepted: true }),
+      onTerminal: () => () => undefined,
+    },
+    browser: {
+      create: async () => current,
+      close: async () => undefined,
+      activate: vi.fn(async () => {
+        calls.push("activate");
+        return current;
+      }),
+      navigate: async () => current,
+      hide: vi.fn(async () => {
+        calls.push("hide");
+      }),
+      setBounds: vi.fn(async () => {
+        calls.push("bounds");
+      }),
+      back: async () => undefined,
+      forward: async () => undefined,
+      reload: async () => undefined,
+      stop: async () => undefined,
+      openDevTools: async () => undefined,
+      snapshot: async () => undefined,
+      click: async () => undefined,
+      fill: async () => undefined,
+      press: async () => undefined,
+      waitForNetworkIdle: async () => ({ idle: true }),
+      screenshot: async () => undefined,
+      inspectElement: async () => undefined,
+      designInspect: async () => undefined,
+      consoleEntries: async () => [],
+      networkEntries: async () => [],
+    },
+    dialog: {
+      openProject: async () => undefined,
+      saveSupportBundle: async () => undefined,
+      openLegacySnapshot: async () => undefined,
+    },
+    menu: { trigger: async () => undefined },
+    app: { getVersion: async () => "0.0.0", quit: async () => undefined },
+  };
+  return {
+    bridge,
+    calls,
+    publish(next: BrowserTabProjection) {
+      current = next;
+      projectionListener?.(projectionWith(next));
+    },
+  };
+}
+
+let root: Root | undefined;
+
+afterEach(() => {
+  act(() => root?.unmount());
+  root = undefined;
+  document.body.replaceChildren();
+});
+
+async function renderPane(bridge: ZliBridge, obscured: boolean) {
+  const container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  await act(async () => {
+    root?.render(
+      <RuntimeProvider bridge={bridge}>
+        <BrowserPane worktree={worktree} obscured={obscured} />
+      </RuntimeProvider>,
+    );
+  });
+  return {
+    container,
+    rerender: async (nextObscured: boolean) => {
+      await act(async () => {
+        root?.render(
+          <RuntimeProvider bridge={bridge}>
+            <BrowserPane worktree={worktree} obscured={nextObscured} />
+          </RuntimeProvider>,
+        );
+      });
+    },
+  };
+}
+
+describe("BrowserPane", () => {
+  it("hides the native view while obscured and on unmount, and shows it again with fresh bounds", async () => {
+    const fake = createBridge(baseTab);
+    const view = await renderPane(fake.bridge, false);
+    expect(fake.bridge.browser.activate).toHaveBeenCalled();
+    expect(fake.calls.at(-1)).toBe("activate");
+
+    fake.calls.length = 0;
+    await view.rerender(true);
+    expect(fake.calls).toContain("hide");
+    expect(fake.calls).not.toContain("activate");
+
+    fake.calls.length = 0;
+    await view.rerender(false);
+    expect(fake.calls).toEqual(["bounds", "activate"]);
+
+    fake.calls.length = 0;
+    act(() => root?.unmount());
+    root = undefined;
+    expect(fake.calls).toEqual(["hide"]);
+  });
+
+  it("keeps the address bar in sync with in-page navigation unless the user is typing", async () => {
+    const fake = createBridge(baseTab);
+    const { container } = await renderPane(fake.bridge, false);
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="Browser URL"]');
+    expect(input?.value).toBe("http://127.0.0.1:5173/");
+
+    await act(async () => {
+      fake.publish({ ...baseTab, url: "http://127.0.0.1:5173/settings" });
+    });
+    expect(input?.value).toBe("http://127.0.0.1:5173/settings");
+
+    await act(async () => {
+      input?.focus();
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, "example.com");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      fake.publish({ ...baseTab, url: "http://127.0.0.1:5173/profile" });
+    });
+    expect(input?.value).toBe("example.com");
+  });
+
+  it("shows a page load failure reported by the tab", async () => {
+    const fake = createBridge({
+      ...baseTab,
+      status: "crashed",
+      loadError: "Could not load http://127.0.0.1:5173/: ERR_CONNECTION_REFUSED",
+    });
+    const { container } = await renderPane(fake.bridge, false);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("ERR_CONNECTION_REFUSED");
+  });
+});

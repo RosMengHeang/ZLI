@@ -1,6 +1,8 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { accessSync, constants, statSync } from "node:fs";
+
+import { spawnCli } from "@zli-v2/shared";
 
 import { cursorTurnArgs, decodeCursorLine, MAX_CURSOR_LINE_CHARS } from "./protocol.js";
 import { classifyCursorMessage } from "./schema.js";
@@ -326,18 +328,17 @@ export class CursorAgentClient {
 }
 
 function defaultSpawn(command: string, args: readonly string[], options: CursorSpawnOptions): CursorChild {
-  const child = spawn(command, [...args], {
+  const child = spawnCli(command, args, {
     cwd: options.cwd,
     env: options.env,
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
-    shell: false,
   });
   if (!child.stdin || !child.stdout || !child.stderr) {
     child.kill();
     throw new CursorProviderError("request_failed", "Cursor CLI did not provide stdio pipes.");
   }
-  return child;
+  return child as CursorChild;
 }
 
 function sessionEnv(base: NodeJS.ProcessEnv | undefined, cwd: string): NodeJS.ProcessEnv {
@@ -386,7 +387,7 @@ function assertBareCommand(command: string): Promise<void> {
   return new Promise((resolve, reject) => {
     let child: ChildProcess;
     try {
-      child = spawn(command, ["--version"], { shell: false, windowsHide: true, stdio: "ignore" });
+      child = spawnCli(command, ["--version"], { windowsHide: true, stdio: "ignore" });
     } catch (error) {
       if (errnoOf(error) === "ENOENT") {
         reject(

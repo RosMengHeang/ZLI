@@ -179,4 +179,79 @@ describe("ProviderReactor", () => {
     await service.stopAll();
     service.dispose();
   });
+  it("merges streamed fragments, records the prompt first, and reports real failure text", async () => {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service);
+
+    await engine.dispatchPromise({
+      protocolVersion: 1,
+      commandId: CommandId.parse("10000000-0000-4000-8000-000000000911"),
+      command: { type: "project.register", path: "C:\\workspace\\stream" },
+    });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    await engine.dispatchPromise({
+      protocolVersion: 1,
+      commandId: CommandId.parse("10000000-0000-4000-8000-000000000912"),
+      command: {
+        type: "worktree.create",
+        worktreeId,
+        projectId: ProjectId.parse(project.projectId),
+        path: "C:\\workspace\\stream-tree",
+        workspaceRoot: "C:\\workspace",
+        branch: "feature/stream",
+      },
+    });
+    await engine.dispatchPromise({
+      protocolVersion: 1,
+      commandId: CommandId.parse("10000000-0000-4000-8000-000000000913"),
+      command: { type: "thread.start", threadId, worktreeId, provider: "codex", cwd: "C:\\workspace\\stream-tree" },
+    });
+    await reactor.waitForIdle();
+    await engine.dispatchPromise({
+      protocolVersion: 1,
+      commandId: CommandId.parse("10000000-0000-4000-8000-000000000914"),
+      command: { type: "thread.send", threadId, text: "say pong" },
+    });
+    await reactor.waitForIdle();
+    for (const text of ["P", "ON", "G"]) adapter.emit({ type: "assistant.delta", threadId, turnId: "turn-a", text });
+    await reactor.waitForIdle();
+    adapter.emit({ type: "assistant.delta", threadId, turnId: "turn-a", text: "!" });
+    adapter.emit({ type: "turn.completed", threadId, turnId: "turn-a", status: "completed" });
+    await reactor.waitForIdle();
+
+    const messages = ((await engine.projection()).messages ?? []).filter((message) => message.threadId === threadId);
+    expect(messages.map((message) => [message.role, message.text])).toEqual([
+      ["user", "say pong"],
+      ["assistant", "PONG!"],
+    ]);
+
+    adapter.emit({ type: "provider.error", threadId, message: "Cursor CLI exited (1): not logged in" });
+    await reactor.waitForIdle();
+    expect((await engine.projection()).threads[0]).toMatchObject({
+      status: "failed",
+      errorMessage: "Cursor CLI exited (1): not logged in",
+    });
+
+    await engine.dispatchPromise({
+      protocolVersion: 1,
+      commandId: CommandId.parse("10000000-0000-4000-8000-000000000915"),
+      command: { type: "thread.status", threadId, status: "idle" },
+    });
+    expect((await engine.projection()).threads[0]?.errorMessage).toBeUndefined();
+    reactor.stop();
+    service.dispose();
+
+    const restartedService = new ProviderService(new ProviderRegistry([new FakeAdapter()]));
+    const restartedReactor = new ProviderReactor(engine, restartedService);
+    await restartedReactor.reconcileOrphanedThreads();
+    expect((await engine.projection()).threads[0]).toMatchObject({ status: "stopped" });
+    expect((await engine.projection()).threads[0]?.errorMessage).toContain("restarted");
+    restartedReactor.stop();
+    restartedService.dispose();
+  });
 });

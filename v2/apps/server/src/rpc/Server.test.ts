@@ -4,6 +4,7 @@ import { WebSocket } from "ws";
 
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
+import type { TerminalService } from "../terminal/TerminalService.js";
 import { RpcServer } from "./Server.js";
 
 const environment: EnvironmentDescriptor = {
@@ -125,6 +126,51 @@ describe("authenticated local RPC server", () => {
     socket.close();
   });
 
+  it("sends terminal keystrokes and resizes to the PTY without recording them as events", async () => {
+    const database = new Database({ path: ":memory:" });
+    const engine = new Engine({ database, environment });
+    const writes: Array<[string, string]> = [];
+    const resizes: Array<[string, number, number]> = [];
+    const terminalService = {
+      write: (terminalId: string, data: string) => writes.push([terminalId, data]),
+      resize: (terminalId: string, cols: number, rows: number) => resizes.push([terminalId, cols, rows]),
+    } as unknown as TerminalService;
+    const server = new RpcServer({ engine, environment, token: "test-token", terminalService });
+    await server.start();
+    resources.push({ database, server });
+    const socket = await connected(server);
+    const terminalId = "00000000-0000-4000-8000-000000000150";
+
+    socket.send(
+      JSON.stringify({
+        type: "command",
+        request: {
+          protocolVersion: 1,
+          commandId: "00000000-0000-4000-8000-000000000151",
+          command: { type: "terminal.write", terminalId, data: "hunter2\r" },
+        },
+      }),
+    );
+    await expect(nextMessage(socket)).resolves.toMatchObject({ type: "response", response: { accepted: true } });
+    socket.send(
+      JSON.stringify({
+        type: "command",
+        request: {
+          protocolVersion: 1,
+          commandId: "00000000-0000-4000-8000-000000000152",
+          command: { type: "terminal.resize", terminalId, cols: 90, rows: 20 },
+        },
+      }),
+    );
+    await expect(nextMessage(socket)).resolves.toMatchObject({ type: "response", response: { accepted: true } });
+
+    expect(writes).toEqual([[terminalId, "hunter2\r"]]);
+    expect(resizes).toEqual([[terminalId, 90, 20]]);
+    expect(await engine.eventsAfter(0)).toEqual([]);
+    expect(JSON.stringify(database.raw.prepare("SELECT * FROM commands").all())).not.toContain("hunter2");
+    socket.close();
+  });
+
   it("attaches Codex, Claude Code, and Cursor discovery to projection snapshots", async () => {
     const database = new Database({ path: ":memory:" });
     const engine = new Engine({ database, environment });
@@ -146,6 +192,12 @@ describe("authenticated local RPC server", () => {
           status: "missing",
           reason: "Cursor CLI was not found on PATH or in known install locations.",
         },
+        {
+          provider: "droid",
+          displayName: "Droid",
+          status: "found",
+          path: "C:\\Users\\dev\\bin\\droid.exe",
+        },
       ],
     });
     await server.start();
@@ -160,13 +212,14 @@ describe("authenticated local RPC server", () => {
           { provider: "codex", status: "found", path: "/bin/codex", version: "codex 0.1.0" },
           { provider: "claude-code", status: "missing" },
           { provider: "cursor-agent", status: "missing" },
+          { provider: "droid", status: "found", path: "C:\\Users\\dev\\bin\\droid.exe" },
         ],
       },
     });
     socket.close();
   });
 
-  it("reports all three CLIs missing when discovery fails", async () => {
+  it("reports every listed CLI missing when discovery fails", async () => {
     const database = new Database({ path: ":memory:" });
     const engine = new Engine({ database, environment });
     const server = new RpcServer({
@@ -186,7 +239,7 @@ describe("authenticated local RPC server", () => {
     expect(message).toMatchObject({ type: "projection" });
     const providers = (message.projection as { providers: Array<{ provider: string; status: string; reason: string }> })
       .providers;
-    expect(providers.map((provider) => provider.provider)).toEqual(["codex", "claude-code", "cursor-agent"]);
+    expect(providers.map((provider) => provider.provider)).toEqual(["codex", "claude-code", "cursor-agent", "droid"]);
     expect(
       providers.every((provider) => provider.status === "missing" && provider.reason === "Provider discovery failed."),
     ).toBe(true);

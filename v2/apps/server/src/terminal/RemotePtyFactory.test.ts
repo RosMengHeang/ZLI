@@ -138,6 +138,36 @@ describe("RemotePtyFactory", () => {
     expect(data).toEqual(["before\n", "during attach\n"]);
   });
 
+  it("decodes a multi-byte character split across two chunks", async () => {
+    const connection = new FakeConnection();
+    const factory = new RemotePtyFactory({ connect: async () => connection });
+    const pty = await factory.spawn({
+      terminalId,
+      worktreeId,
+      title: "shell",
+      cwd: "C:\\workspace\\tree",
+      shell: "powershell.exe",
+      cols: 120,
+      rows: 32,
+    });
+    const data: string[] = [];
+    pty.onData((value) => data.push(value));
+    const bytes = Buffer.from("€", "utf8");
+    connection.emit({
+      type: "terminal",
+      message: {
+        kind: "chunk",
+        chunk: { terminalId, sequence: 2, bytesBase64: bytes.subarray(0, 1).toString("base64") },
+      },
+    });
+    connection.emit({
+      type: "terminal",
+      message: { kind: "chunk", chunk: { terminalId, sequence: 3, bytesBase64: bytes.subarray(1).toString("base64") } },
+    });
+
+    expect(data.join("")).toBe("before\n€");
+  });
+
   it("attaches to a daemon-owned terminal after the environment server restarts", async () => {
     const connection = new FakeConnection(true);
     const factory = new RemotePtyFactory({ connect: async () => connection });

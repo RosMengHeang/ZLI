@@ -69,8 +69,9 @@ test("completes the workspace, provider, browser, review, and restoration journe
         { timeout: 10_000 },
       )
       .toBe("running:");
-    await page.getByRole("textbox", { name: "Terminal command" }).fill("node dev-server.mjs");
-    await page.getByRole("button", { name: "Send" }).click();
+    await page.locator(".terminal-output .xterm-helper-textarea").focus();
+    await page.keyboard.type("node dev-server.mjs");
+    await page.keyboard.press("Enter");
     await expect(page.getByRole("log", { name: "Terminal output" })).toContainText(`ZLI_DEV_READY ${terminalPort}`, {
       timeout: 20_000,
     });

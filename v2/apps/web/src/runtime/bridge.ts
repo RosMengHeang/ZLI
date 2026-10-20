@@ -25,6 +25,7 @@ export type ZliBridge = {
     close(browserTabId: string): Promise<void>;
     activate(browserTabId: string): Promise<BrowserTabProjection>;
     navigate(browserTabId: string, url: string): Promise<BrowserTabProjection>;
+    hide(): Promise<void>;
     setBounds(browserTabId: string, bounds: unknown): Promise<void>;
     back(browserTabId: string): Promise<void>;
     forward(browserTabId: string): Promise<void>;

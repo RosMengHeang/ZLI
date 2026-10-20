@@ -161,13 +161,19 @@ describe("runtime contracts", () => {
             status: "missing",
             reason: "Cursor CLI was not found on PATH or in known install locations.",
           },
+          {
+            provider: "droid",
+            displayName: "Droid",
+            status: "missing",
+            reason: "Droid CLI was not found on PATH or in known install locations.",
+          },
         ],
         terminals: [],
         browserTabs: [],
         attention: [],
         lastSequence: 0,
       }).providers?.map((provider) => provider.provider),
-    ).toEqual(["codex", "claude-code", "cursor-agent"]);
+    ).toEqual(["codex", "claude-code", "cursor-agent", "droid"]);
 
     expect(() =>
       RuntimeProjection.parse({

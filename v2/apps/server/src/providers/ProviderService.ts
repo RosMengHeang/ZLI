@@ -2,7 +2,7 @@ import type { ProviderCapabilities, ProviderDiscovery, ThreadId } from "@zli-v2/
 
 import { type CliProbe, createDefaultCliProbe, discoverCliProviders } from "./discoverCliProviders.js";
 
-export type ProviderKind = "codex" | "claude-code" | "cursor-agent" | "opencode";
+export type ProviderKind = "codex" | "claude-code" | "cursor-agent" | "droid" | "opencode";
 
 export type ProviderSession = {
   threadId: ThreadId;
@@ -114,7 +114,8 @@ export class ProviderService {
     } catch (error) {
       const missing = missingCliError(error);
       if (missing) throw new ProviderServiceError("cli_missing", missing.message, { cause: error });
-      throw new ProviderServiceError("request_failed", "Provider session failed to start.", { cause: error });
+      const detail = error instanceof Error && error.message.trim() ? ` ${error.message.trim()}` : "";
+      throw new ProviderServiceError("request_failed", `Provider session failed to start.${detail}`, { cause: error });
     }
   }
 
@@ -146,6 +147,10 @@ export class ProviderService {
 
   listSessions(): ReadonlyArray<ProviderSession> {
     return this.registry.list().flatMap((adapter) => adapter.listSessions());
+  }
+
+  hasSession(threadId: ThreadId): boolean {
+    return this.sessions.has(threadId) || this.registry.list().some((adapter) => adapter.hasSession({ threadId }));
   }
 
   getCapabilities(provider: ProviderKind): ProviderCapabilities {

@@ -55,4 +55,19 @@ describe("preload API", () => {
     expect(calls).toEqual(["zli:test:crash-main"]);
     expect("test" in productionApi).toBe(false);
   });
+
+  it("hides native browser views through a dedicated channel", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        return undefined;
+      },
+      on: () => () => undefined,
+    });
+
+    await api.browser.hide();
+
+    expect(calls).toEqual([{ channel: "zli:browser:hide", payload: undefined }]);
+  });
 });

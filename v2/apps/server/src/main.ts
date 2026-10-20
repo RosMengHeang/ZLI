@@ -85,6 +85,7 @@ export async function startRuntime(options: {
   });
   await server.start();
   await terminalReactor.restore();
+  await providerReactor.reconcileOrphanedThreads();
   return {
     database,
     engine,

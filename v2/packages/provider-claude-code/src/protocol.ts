@@ -1,5 +1,7 @@
 // Print mode is required for stream-json input and output. No one-shot prompt:
 // user turns arrive as NDJSON on stdin. Resume and permission-prompt-tool are omitted.
+// Each agent runs in its own git worktree, so tool calls are allowed without prompts;
+// without this, print mode denies every Edit/Write/Bash call the user has not pre-allowed.
 export const CLAUDE_SESSION_ARGS = [
   "-p",
   "--output-format",
@@ -8,6 +10,8 @@ export const CLAUDE_SESSION_ARGS = [
   "stream-json",
   "--verbose",
   "--include-partial-messages",
+  "--permission-mode",
+  "bypassPermissions",
 ] as const;
 
 export const MAX_CLAUDE_LINE_CHARS = 1_000_000;

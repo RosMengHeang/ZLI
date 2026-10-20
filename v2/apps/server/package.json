@@ -8,6 +8,8 @@
     "@zli-v2/provider-claude-code": "workspace:*",
     "@zli-v2/provider-codex": "workspace:*",
     "@zli-v2/provider-cursor-agent": "workspace:*",
+    "@zli-v2/provider-droid": "workspace:*",
+    "@zli-v2/shared": "workspace:*",
     "effect": "4.0.0-rc.115",
     "node-pty": "1.1.0",
     "ws": "8.21.3"

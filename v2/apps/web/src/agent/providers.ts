@@ -10,12 +10,14 @@ export const SELECTABLE_PROVIDERS = [
   "codex",
   "claude-code",
   "cursor-agent",
+  "droid",
 ] as const satisfies readonly ListedProviderKind[];
 
 const FALLBACK_NAMES: Record<(typeof SELECTABLE_PROVIDERS)[number], string> = {
   codex: "Codex",
   "claude-code": "Claude Code",
   "cursor-agent": "Cursor",
+  droid: "Droid",
 };
 
 export function isSelectableProvider(provider: string): provider is ListedProviderKind {

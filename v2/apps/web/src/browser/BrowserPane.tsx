@@ -5,14 +5,31 @@ import { useRuntime } from "../runtime/RuntimeProvider.js";
 
 const DEFAULT_PROFILE_ID = "00000000-0000-4000-8000-000000000002";
 
-export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undefined }) {
+type Props = {
+  worktree: WorktreeProjection | undefined;
+  /** True while app UI (dialogs, palette) must sit above the pane; the native view cannot be layered under DOM. */
+  obscured?: boolean;
+};
+
+export function BrowserPane({ worktree, obscured = false }: Props) {
   const { bridge, projection } = useRuntime();
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const urlInputRef = useRef<HTMLInputElement>(null);
+  const urlEditedRef = useRef(false);
+  const obscuredRef = useRef(obscured);
   const [tab, setTab] = useState<BrowserTabProjection>();
-  const [url, setUrl] = useState("");
+  const [url, setUrlState] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const worktreeId = worktree?.worktreeId;
+  const showUrl = useCallback((value: string) => {
+    urlEditedRef.current = false;
+    setUrlState(value === "about:blank" ? "" : value);
+  }, []);
+
+  useEffect(() => {
+    obscuredRef.current = obscured;
+  }, [obscured]);
   const worktreeTabs = useMemo(
     () => projection?.browserTabs.filter((candidate) => candidate.worktreeId === worktreeId) ?? [],
     [projection?.browserTabs, worktreeId],
@@ -22,16 +39,10 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
   const activateInSurface = useCallback(
     async (browserTabId: string) => {
       if (!bridge) throw new Error("The desktop bridge is unavailable.");
-      const rect = surfaceRef.current?.getBoundingClientRect();
-      if (rect) {
-        await bridge.browser.setBounds(browserTabId, {
-          x: Math.max(0, Math.round(rect.left)),
-          y: Math.max(0, Math.round(rect.top)),
-          width: Math.max(1, Math.round(rect.width)),
-          height: Math.max(1, Math.round(rect.height)),
-        });
-      }
-      return bridge.browser.activate(browserTabId);
+      if (surfaceRef.current) await bridge.browser.setBounds(browserTabId, measureBounds(surfaceRef.current));
+      const active = await bridge.browser.activate(browserTabId);
+      if (obscuredRef.current) await bridge.browser.hide();
+      return active;
     },
     [bridge],
   );
@@ -41,9 +52,9 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
     if (previousWorktreeId.current === worktreeId) return;
     previousWorktreeId.current = worktreeId;
     setTab(undefined);
-    setUrl("");
+    showUrl("");
     setError(undefined);
-  }, [worktreeId]);
+  }, [showUrl, worktreeId]);
 
   useEffect(() => {
     if (!bridge || !worktreeId || !restoredTab || tab) return;
@@ -61,7 +72,7 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
       .then((next) => {
         if (disposed) return;
         setTab(next);
-        setUrl(next.url);
+        showUrl(next.url);
       })
       .catch((cause) => {
         if (!disposed)
@@ -73,27 +84,45 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
     return () => {
       disposed = true;
     };
-  }, [activateInSurface, bridge, restoredTab, tab, worktreeId]);
+  }, [activateInSurface, bridge, restoredTab, showUrl, tab, worktreeId]);
 
+  const visibleTabId = tab && !obscured ? tab.browserTabId : undefined;
   useEffect(() => {
-    if (!tab || !surfaceRef.current || !bridge) return;
+    if (!bridge) return;
+    const hide = () => void bridge.browser.hide().catch(() => undefined);
     const surface = surfaceRef.current;
-    const syncBounds = () => {
-      const rect = surface.getBoundingClientRect();
-      void bridge.browser
-        .setBounds(tab.browserTabId, {
-          x: Math.max(0, Math.round(rect.left)),
-          y: Math.max(0, Math.round(rect.top)),
-          width: Math.max(1, Math.round(rect.width)),
-          height: Math.max(1, Math.round(rect.height)),
-        })
-        .catch(() => undefined);
+    if (!visibleTabId || !surface) {
+      hide();
+      return;
+    }
+    let lastKey: string | undefined;
+    // Layout shifts (notice bar, attention panel, sidebar collapse) move the surface without
+    // resizing it, so ResizeObserver alone misses them; a per-frame check catches every move.
+    const sync = () => {
+      const bounds = measureBounds(surface);
+      const key = `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
+      if (key === lastKey) return;
+      lastKey = key;
+      void bridge.browser.setBounds(visibleTabId, bounds).catch(() => undefined);
     };
-    const observer = new ResizeObserver(syncBounds);
-    observer.observe(surface);
-    syncBounds();
-    return () => observer.disconnect();
-  }, [bridge, tab]);
+    sync();
+    void bridge.browser.activate(visibleTabId).catch(() => undefined);
+    let frame: number | undefined;
+    const tick = () => {
+      sync();
+      frame = window.requestAnimationFrame(tick);
+    };
+    if (typeof window.requestAnimationFrame === "function") frame = window.requestAnimationFrame(tick);
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(sync) : undefined;
+    observer?.observe(surface);
+    window.addEventListener("resize", sync);
+    return () => {
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener("resize", sync);
+      hide();
+    };
+  }, [bridge, visibleTabId]);
 
   const openUrl = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -107,7 +136,7 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
             .create({ worktreeId: worktree.worktreeId, profileId: DEFAULT_PROFILE_ID, url: normalizeUrl(url) })
             .then((created) => activateInSurface(created.browserTabId));
       setTab(next);
-      setUrl(next.url);
+      showUrl(next.url);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The browser could not open this URL.");
     } finally {
@@ -120,13 +149,21 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
     const next = projection?.browserTabs.find((candidate) => candidate.browserTabId === tab.browserTabId);
     if (!next) {
       setTab(undefined);
-      setUrl("");
+      showUrl("");
       return;
     }
-    if (next.title === tab.title && next.url === tab.url && next.status === tab.status && next.active === tab.active)
+    if (
+      next.title === tab.title &&
+      next.url === tab.url &&
+      next.status === tab.status &&
+      next.active === tab.active &&
+      next.loadError === tab.loadError
+    )
       return;
+    const editing = urlEditedRef.current && document.activeElement === urlInputRef.current;
+    if (next.url !== tab.url && !editing) showUrl(next.url);
     setTab(next);
-  }, [projection?.browserTabs, tab]);
+  }, [projection?.browserTabs, showUrl, tab]);
 
   const run = async (
     operation: (activeBridge: NonNullable<typeof bridge>, activeTab: BrowserTabProjection) => Promise<unknown>,
@@ -154,7 +191,7 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
       });
       const active = await activateInSurface(restored.browserTabId);
       setTab(active);
-      setUrl(active.url);
+      showUrl(active.url);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The browser tab could not be activated.");
     } finally {
@@ -174,7 +211,7 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
         if (next) await selectTab(next);
         else {
           setTab(undefined);
-          setUrl("");
+          showUrl("");
         }
       }
     } catch (cause) {
@@ -196,7 +233,7 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
       });
       const active = await activateInSurface(created.browserTabId);
       setTab(active);
-      setUrl("");
+      showUrl("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The new browser tab could not be opened.");
     } finally {
@@ -290,18 +327,22 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
       </div>
       <form className="browser-address" onSubmit={(event) => void openUrl(event)}>
         <input
+          ref={urlInputRef}
           aria-label="Browser URL"
           placeholder="Enter an http(s) URL"
           value={url}
-          onChange={(event) => setUrl(event.target.value)}
+          onChange={(event) => {
+            urlEditedRef.current = true;
+            setUrlState(event.target.value);
+          }}
         />
         <button className="primary-button" type="submit" disabled={!worktree || !url.trim() || busy}>
           {busy ? "Opening" : tab ? "Go" : "Open"}
         </button>
       </form>
-      {error && (
+      {(error ?? tab?.loadError) && (
         <p className="inline-error" role="alert">
-          {error}
+          {error ?? tab?.loadError}
         </p>
       )}
       <div className={`browser-surface${tab ? " has-tab" : ""}`} ref={surfaceRef}>
@@ -325,6 +366,16 @@ export function BrowserPane({ worktree }: { worktree: WorktreeProjection | undef
       </div>
     </div>
   );
+}
+
+function measureBounds(surface: HTMLElement) {
+  const rect = surface.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.round(rect.left)),
+    y: Math.max(0, Math.round(rect.top)),
+    width: Math.max(1, Math.round(rect.width)),
+    height: Math.max(1, Math.round(rect.height)),
+  };
 }
 
 function normalizeUrl(value: string): string {

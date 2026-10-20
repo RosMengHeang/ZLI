@@ -56,6 +56,7 @@ class RemotePtyProcess implements PtyProcess {
   private readonly exitListeners = new Set<(event: { code: number; signal: number | null }) => void>();
   private readonly bufferedData: string[] = [];
   private readonly pendingLiveMessages: TerminalStreamMessage[] = [];
+  private readonly decoder = new TextDecoder("utf-8");
   private exitEvent: { code: number; signal: number | null } | undefined;
   private unsubscribe: (() => void) | undefined;
   private unsubscribeClose: (() => void) | undefined;
@@ -94,7 +95,7 @@ class RemotePtyProcess implements PtyProcess {
   }
 
   acceptSnapshot(snapshot: TerminalAttachSnapshot): void {
-    for (const chunk of snapshot.chunks) this.acceptData(Buffer.from(chunk.bytesBase64, "base64").toString("utf8"));
+    for (const chunk of snapshot.chunks) this.acceptBytes(chunk.bytesBase64);
     this.lastSequence = snapshot.nextSequence;
     this.snapshotReady = true;
     for (const message of this.pendingLiveMessages.splice(0)) this.acceptMessage(message);
@@ -117,11 +118,17 @@ class RemotePtyProcess implements PtyProcess {
     if (message.kind === "chunk") {
       if (message.chunk.terminalId !== this.terminalId || message.chunk.sequence <= this.lastSequence) return;
       this.lastSequence = message.chunk.sequence;
-      this.acceptData(Buffer.from(message.chunk.bytesBase64, "base64").toString("utf8"));
+      this.acceptBytes(message.chunk.bytesBase64);
     } else if (message.kind === "exit") {
       if (message.terminalId !== this.terminalId) return;
       this.acceptExit({ code: message.code, signal: message.signal });
     }
+  }
+
+  // A multi-byte character can straddle two chunks, so decoding keeps state across them.
+  private acceptBytes(bytesBase64: string): void {
+    const data = this.decoder.decode(Buffer.from(bytesBase64, "base64"), { stream: true });
+    if (data.length > 0) this.acceptData(data);
   }
 
   private acceptData(data: string): void {

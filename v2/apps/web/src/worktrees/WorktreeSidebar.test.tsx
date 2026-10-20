@@ -284,4 +284,35 @@ describe("WorktreeSidebar", () => {
     expect(other?.querySelector(".worktree-activity")).toBeNull();
     expect(other?.querySelector(".worktree-changes")?.textContent).toBe("2");
   });
+  it("retries a failed worktree and removes one only after confirmation", async () => {
+    const actions: string[] = [];
+    const failed = {
+      ...projection,
+      threads: [],
+      worktrees: [
+        { ...projection.worktrees[0], status: "failed" as const, errorMessage: "fatal: invalid reference: main" },
+      ],
+    } as RuntimeProjection;
+    const container = document.createElement("div");
+    document.body.append(container);
+    act(() => {
+      createRoot(container).render(
+        <WorktreeSidebar
+          projection={failed}
+          activeWorktreeId={worktreeId}
+          onSelect={() => undefined}
+          onOpenProject={() => undefined}
+          onCreateWorktree={() => undefined}
+          onWorktreeAction={(_worktree, action) => actions.push(action)}
+        />,
+      );
+    });
+    const button = (label: string) =>
+      [...container.querySelectorAll("button")].find((candidate) => candidate.textContent === label);
+    await act(async () => button("Retry")?.click());
+    await act(async () => button("Remove")?.click());
+    expect(actions).toEqual(["retry"]);
+    await act(async () => button("Delete checkout")?.click());
+    expect(actions).toEqual(["retry", "remove"]);
+  });
 });

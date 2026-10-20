@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { dirname } from "node:path";
 
 import { CommandId, WorktreeId, type RuntimeEventEnvelope } from "@zli-v2/contracts";
 
@@ -46,8 +47,12 @@ export class WorktreeReactor {
         if (envelope.event.status === "cancelling") {
           this.service.cancel(envelope.event.worktreeId);
         } else if (envelope.event.status === "queued") {
-          const intent = this.intents.get(envelope.event.worktreeId);
-          if (intent) this.startCreate(intent);
+          const worktreeId = envelope.event.worktreeId;
+          this.track(
+            this.intentFor(worktreeId).then((intent) => {
+              if (intent) this.startCreate(intent);
+            }),
+          );
         }
         return;
       case "worktree.remove.requested":
@@ -119,6 +124,28 @@ export class WorktreeReactor {
     }
   }
 
+  /** Intents are cached in memory; after a restart they are recovered from the durable event log. */
+  private async intentFor(worktreeId: string): Promise<CreateIntent | undefined> {
+    const cached = this.intents.get(worktreeId);
+    if (cached) return cached;
+    for (const envelope of await this.engine.eventsAfter(0)) {
+      const event = envelope.event;
+      if (event.type === "worktree.create.requested" && event.worktree.worktreeId === worktreeId) {
+        this.intents.set(worktreeId, event);
+        return event;
+      }
+    }
+    return undefined;
+  }
+
+  private track(task: Promise<void>): void {
+    this.tasks.add(task);
+    void task.then(
+      () => this.tasks.delete(task),
+      () => this.tasks.delete(task),
+    );
+  }
+
   private startRemove(worktreeId: string, force: boolean): void {
     const task = this.runRemove(worktreeId, force);
     this.tasks.add(task);
@@ -132,12 +159,13 @@ export class WorktreeReactor {
     const projection = await this.engine.projection();
     const worktree = projection.worktrees.find((entry) => entry.worktreeId === worktreeId);
     const project = worktree ? projection.projects.find((entry) => entry.projectId === worktree.projectId) : undefined;
-    const intent = this.intents.get(worktreeId);
-    if (!worktree || !project || !intent) return;
+    if (!worktree || !project) return;
+    const intent = await this.intentFor(worktreeId);
     try {
       await this.service.remove({
         repoPath: project.path,
-        workspaceRoot: intent.workspaceRoot,
+        // Imported checkouts have no create intent; their parent folder is the narrowest safe root.
+        workspaceRoot: intent?.workspaceRoot ?? dirname(worktree.path),
         worktreePath: worktree.path,
         branch: worktree.branch,
         force,

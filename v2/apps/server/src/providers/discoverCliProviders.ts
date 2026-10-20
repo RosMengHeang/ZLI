@@ -1,14 +1,16 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { statSync } from "node:fs";
 import { posix, win32 } from "node:path";
 
 import type { ProviderDiscovery } from "@zli-v2/contracts";
+import { spawnCli } from "@zli-v2/shared";
 
-/** Codex, Claude Code, and Cursor only. OpenCode is not a selectable provider. */
+/** Codex, Claude Code, Cursor, and Droid only. OpenCode is not a selectable provider. */
 const LISTED = [
   { provider: "codex", displayName: "Codex", binary: "codex" },
   { provider: "claude-code", displayName: "Claude Code", binary: "claude" },
   { provider: "cursor-agent", displayName: "Cursor", binary: "cursor-agent" },
+  { provider: "droid", displayName: "Droid", binary: "droid" },
 ] as const;
 
 type ListedSpec = (typeof LISTED)[number];
@@ -88,8 +90,7 @@ export function readCliVersion(
   return new Promise((resolve) => {
     let child: ChildProcess;
     try {
-      child = spawn(command, [...args], {
-        shell: false,
+      child = spawnCli(command, args, {
         windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -183,6 +184,7 @@ function installDirs(spec: ListedSpec, probe: CliProbe, api: typeof posix | type
       dirs.push(api.join(probe.homeDir, ".cursor", "bin"));
       dirs.push(api.join(probe.homeDir, ".local", "share", "cursor-agent"));
     }
+    if (spec.provider === "droid") dirs.push(api.join(probe.homeDir, "bin"));
   }
   if (probe.platform === "win32" && probe.localAppData && spec.provider === "cursor-agent") {
     dirs.push(api.join(probe.localAppData, "cursor-agent"));

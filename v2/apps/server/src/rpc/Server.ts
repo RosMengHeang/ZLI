@@ -7,6 +7,7 @@ import {
   type EnvironmentDescriptor,
   type ProviderDiscovery,
   type RuntimeError,
+  type RpcRequest,
   type RuntimeProjection,
   TerminalId,
 } from "@zli-v2/contracts";
@@ -175,6 +176,36 @@ export class RpcServer {
     });
   }
 
+  /**
+   * Keystrokes and resizes go straight to the live PTY. They are never committed to the event log,
+   * which keeps typed secrets out of durable storage and keeps the log from growing per keypress.
+   */
+  private handleTerminalInput(client: WebSocket, request: RpcRequest): boolean {
+    const command = request.command;
+    if (command.type !== "terminal.write" && command.type !== "terminal.resize") return false;
+    const terminalService = this.terminalService;
+    if (!terminalService) return false;
+    try {
+      if (command.type === "terminal.write") terminalService.write(command.terminalId, command.data);
+      else terminalService.resize(command.terminalId, command.cols, command.rows);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true } });
+    } catch (error) {
+      send(client, {
+        type: "response",
+        response: {
+          commandId: request.commandId,
+          accepted: false,
+          error: {
+            code: "invalid_request",
+            message: error instanceof Error ? error.message : "Terminal input failed.",
+            retryable: false,
+          },
+        },
+      });
+    }
+    return true;
+  }
+
   private async receive(
     client: WebSocket,
     raw: RawData,
@@ -230,6 +261,7 @@ export class RpcServer {
 
     switch (message.data.type) {
       case "command":
+        if (this.terminalService && this.handleTerminalInput(client, message.data.request)) return;
         try {
           const receipt = await this.engine.dispatchPromise(message.data.request);
           if (receipt.status === "accepted") {

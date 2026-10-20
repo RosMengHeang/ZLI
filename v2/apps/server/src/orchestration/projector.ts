@@ -119,23 +119,28 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
     case "thread.status.changed":
       return {
         ...projection,
-        threads: projection.threads.map((thread) =>
-          thread.threadId === event.threadId
-            ? {
-                ...thread,
-                status: event.status,
-                ...(event.turnId ? { activeTurnId: event.turnId } : {}),
-                ...(event.capabilities ? { capabilities: event.capabilities } : {}),
-                ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
-              }
-            : thread,
-        ),
+        threads: projection.threads.map((thread) => {
+          if (thread.threadId !== event.threadId) return thread;
+          const { errorMessage: _previousError, ...rest } = thread;
+          const keepPreviousError = !event.errorMessage && (event.status === "failed" || event.status === "stopped");
+          return {
+            ...rest,
+            status: event.status,
+            ...(event.turnId ? { activeTurnId: event.turnId } : {}),
+            ...(event.capabilities ? { capabilities: event.capabilities } : {}),
+            ...(event.errorMessage
+              ? { errorMessage: event.errorMessage }
+              : keepPreviousError && thread.errorMessage
+                ? { errorMessage: thread.errorMessage }
+                : {}),
+          };
+        }),
         lastSequence: envelope.sequence,
       };
     case "thread.message.appended":
       return {
         ...projection,
-        messages: [...(projection.messages ?? []), event.message].slice(-2_000),
+        messages: appendThreadMessage(projection.messages ?? [], event.message),
         lastSequence: envelope.sequence,
       };
     case "thread.a2a.delivered":
@@ -311,4 +316,22 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
     case "runtime.reactor.failed":
       return { ...projection, lastSequence: envelope.sequence };
   }
+}
+
+type ProjectedMessage = NonNullable<RuntimeProjection["messages"]>[number];
+
+/** Streamed assistant text for one turn extends that turn's bubble instead of adding a new one. */
+function appendThreadMessage(messages: readonly ProjectedMessage[], message: ProjectedMessage): ProjectedMessage[] {
+  if (message.role === "assistant" && message.turnId) {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const candidate = messages[index];
+      if (!candidate || candidate.threadId !== message.threadId) continue;
+      if (candidate.role === "assistant" && candidate.turnId === message.turnId) {
+        const merged = { ...candidate, text: candidate.text + message.text };
+        return [...messages.slice(0, index), merged, ...messages.slice(index + 1)];
+      }
+      break;
+    }
+  }
+  return [...messages, message].slice(-2_000);
 }

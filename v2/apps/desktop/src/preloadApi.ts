@@ -72,6 +72,9 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
         BrowserTabProjection.parse(
           await ipc.invoke("zli:browser:navigate", BrowserNavigateInput.parse({ browserTabId, url })),
         ),
+      hide: async () => {
+        await ipc.invoke("zli:browser:hide");
+      },
       setBounds: (browserTabId: string, bounds: unknown) =>
         ipc.invoke(
           "zli:browser:set-bounds",

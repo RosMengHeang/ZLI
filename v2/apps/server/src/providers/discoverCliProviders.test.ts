@@ -53,6 +53,12 @@ describe("discoverCliProviders", () => {
         status: "missing",
         reason: "Cursor CLI was not found on PATH or in known install locations.",
       },
+      {
+        provider: "droid",
+        displayName: "Droid",
+        status: "missing",
+        reason: "Droid CLI was not found on PATH or in known install locations.",
+      },
     ]);
     expect(versionCalls).toEqual(["/later/codex", "/tools/claude"]);
     expect(discovery.map((entry) => entry.provider)).not.toContain("opencode");
@@ -72,11 +78,12 @@ describe("discoverCliProviders", () => {
       }),
     );
 
-    expect(discovery.map((entry) => entry.status)).toEqual(["missing", "missing", "missing"]);
+    expect(discovery.map((entry) => entry.status)).toEqual(["missing", "missing", "missing", "missing"]);
     expect(discovery.map((entry) => ("reason" in entry ? entry.reason : ""))).toEqual([
       "Codex CLI was not found on PATH or in known install locations.",
       "Claude Code CLI was not found on PATH or in known install locations.",
       "Cursor CLI was not found on PATH or in known install locations.",
+      "Droid CLI was not found on PATH or in known install locations.",
     ]);
     expect(versionCalls).toEqual([]);
   });
@@ -90,7 +97,8 @@ describe("discoverCliProviders", () => {
           filePath === "/usr/bin/codex" ||
           filePath === "/home/dev/.local/bin/codex" ||
           filePath === "/home/dev/.claude/local/claude" ||
-          filePath === "/opt/homebrew/bin/cursor-agent",
+          filePath === "/opt/homebrew/bin/cursor-agent" ||
+          filePath === "/home/dev/bin/droid",
       }),
     );
 
@@ -98,6 +106,7 @@ describe("discoverCliProviders", () => {
       { provider: "codex", displayName: "Codex", status: "found", path: "/usr/bin/codex" },
       { provider: "claude-code", displayName: "Claude Code", status: "found", path: "/home/dev/.claude/local/claude" },
       { provider: "cursor-agent", displayName: "Cursor", status: "found", path: "/opt/homebrew/bin/cursor-agent" },
+      { provider: "droid", displayName: "Droid", status: "found", path: "/home/dev/bin/droid" },
     ]);
   });
 
@@ -130,9 +139,12 @@ describe("discoverCliProviders", () => {
       probe({
         platform: "win32",
         pathEntries: ["C:\\Tools"],
+        homeDir: "C:\\Users\\dev",
         localAppData: "C:\\Users\\dev\\AppData\\Local",
         fileExists: (filePath) =>
-          filePath === claudeCmd || filePath === "C:\\Users\\dev\\AppData\\Local\\cursor-agent\\agent.exe",
+          filePath === claudeCmd ||
+          filePath === "C:\\Users\\dev\\AppData\\Local\\cursor-agent\\agent.exe" ||
+          filePath === "C:\\Users\\dev\\bin\\droid.exe",
       }),
     );
 
@@ -145,6 +157,10 @@ describe("discoverCliProviders", () => {
     expect(discovery.find((entry) => entry.provider === "cursor-agent")).toMatchObject({
       status: "found",
       path: "C:\\Users\\dev\\AppData\\Local\\cursor-agent\\agent.exe",
+    });
+    expect(discovery.find((entry) => entry.provider === "droid")).toMatchObject({
+      status: "found",
+      path: "C:\\Users\\dev\\bin\\droid.exe",
     });
   });
 
@@ -191,6 +207,12 @@ describe("CLI probe helpers", () => {
         status: "missing",
         reason: "Cursor CLI was not found on PATH or in known install locations.",
       },
+      {
+        provider: "droid",
+        displayName: "Droid",
+        status: "missing",
+        reason: "Droid CLI was not found on PATH or in known install locations.",
+      },
     ]);
 
     const windows = await discoverCliProviders(createDefaultCliProbe({ ZLI_TEST_PROVIDER: "mock" }, "win32"));
@@ -202,6 +224,7 @@ describe("CLI probe helpers", () => {
       version: "codex mock",
     });
     expect(windows.filter((entry) => entry.provider !== "codex").map((entry) => entry.status)).toEqual([
+      "missing",
       "missing",
       "missing",
     ]);

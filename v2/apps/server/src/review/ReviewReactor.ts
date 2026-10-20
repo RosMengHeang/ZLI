@@ -43,13 +43,28 @@ export class ReviewReactor {
       case "review.abortMerge.requested":
         this.start(event.worktreeId, () => this.runAbortMerge(event.worktreeId));
         return;
+      case "thread.status.changed":
+        // A completed turn reports idle with its turn id; that is when an agent's edits land on disk.
+        if (event.status === "idle" && event.turnId) this.track(this.refreshAfterTurn(event.threadId));
+        return;
       default:
         return;
     }
   }
 
+  private async refreshAfterTurn(threadId: string): Promise<void> {
+    const projection = await this.engine.projection();
+    const worktreeId = projection.threads.find((thread) => thread.threadId === threadId)?.worktreeId;
+    const review = projection.reviews?.find((candidate) => candidate.worktreeId === worktreeId);
+    if (!worktreeId || !review) return;
+    this.start(worktreeId, () => this.runRefresh(worktreeId, review.baseRef));
+  }
+
   private start(worktreeId: string, taskFactory: () => Promise<void>): void {
-    const task = taskFactory().catch((error) => this.dispatchError(worktreeId, error));
+    this.track(taskFactory().catch((error) => this.dispatchError(worktreeId, error)));
+  }
+
+  private track(task: Promise<void>): void {
     this.tasks.add(task);
     void task.then(
       () => this.tasks.delete(task),

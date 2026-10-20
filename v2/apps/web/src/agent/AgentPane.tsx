@@ -47,9 +47,11 @@ export function AgentPane({
       ? providerChoice
       : (runningHere ?? preferredProvider(listed));
   const selected = listed.find((entry) => entry.provider === selectedKind);
-  const thread = projection.threads.find(
+  const thread = projection.threads.findLast(
     (candidate) => candidate.worktreeId === worktree?.worktreeId && candidate.provider === selectedKind,
   );
+  const threadEnded = thread?.status === "stopped" || thread?.status === "failed";
+  const threadLive = thread !== undefined && !threadEnded && thread.status !== "starting";
   const discoveryError = selected?.status === "missing" ? selected.reason : undefined;
   const request = projection.requests?.find((candidate) => candidate.threadId === thread?.threadId);
   const messages = useMemo(
@@ -124,7 +126,7 @@ export function AgentPane({
 
   const send = async (event: FormEvent) => {
     event.preventDefault();
-    if (!thread || !draft.trim() || thread.status === "starting") return;
+    if (!thread || !draft.trim() || thread.status === "starting" || thread.status === "stopped") return;
     const text = draft.trim();
     setDraft("");
     setError(undefined);
@@ -201,7 +203,25 @@ export function AgentPane({
     }
   };
 
-  const visibleError = error ?? discoveryError ?? (thread?.status === "failed" ? thread.errorMessage : undefined);
+  const control = async (command: "thread.interrupt" | "thread.stop") => {
+    if (!thread) return;
+    setError(undefined);
+    const response = await dispatch({
+      protocolVersion: 1,
+      commandId: makeCommandId(),
+      command:
+        command === "thread.interrupt"
+          ? {
+              type: "thread.interrupt",
+              threadId: thread.threadId,
+              ...(thread.activeTurnId ? { turnId: thread.activeTurnId } : {}),
+            }
+          : { type: "thread.stop", threadId: thread.threadId },
+    });
+    if (response?.accepted === false) setError(response.error.message);
+  };
+
+  const visibleError = error ?? discoveryError ?? (threadEnded ? thread?.errorMessage : undefined);
   const statusLabel =
     thread && discoveryError && (thread.status === "starting" || thread.status === "failed")
       ? "CLI missing"
@@ -217,6 +237,18 @@ export function AgentPane({
           onSelect={setProviderChoice}
         />
         <span className={`agent-state status-text-${thread?.status ?? "none"}`}>{statusLabel}</span>
+        {thread && threadLive ? (
+          <span className="agent-controls">
+            {thread.status === "working" || thread.status === "waiting" ? (
+              <button className="secondary-button" type="button" onClick={() => void control("thread.interrupt")}>
+                Interrupt
+              </button>
+            ) : null}
+            <button className="secondary-button" type="button" onClick={() => void control("thread.stop")}>
+              Stop
+            </button>
+          </span>
+        ) : null}
       </div>
       <p className="provider-picker-note">
         {placement.mode === "current" || placement.mode === "missing"
@@ -237,7 +269,7 @@ export function AgentPane({
           ) : !selected ? (
             <>
               <p className="empty-title">No agent CLIs listed</p>
-              <p className="empty-detail">Codex, Claude Code, and Cursor could not be listed.</p>
+              <p className="empty-detail">Codex, Claude Code, Cursor, and Droid could not be listed.</p>
             </>
           ) : (
             <>
@@ -366,6 +398,22 @@ export function AgentPane({
               {visibleError}
             </p>
           )}
+          {threadEnded ? (
+            <div className="agent-ended">
+              <span className="pane-meta">
+                {thread.status === "failed" ? `${displayName} failed.` : `${displayName} session ended.`} Starting again
+                opens a new thread in this worktree.
+              </span>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => void start()}
+                disabled={busy || selected?.status !== "found" || placement.mode === "missing"}
+              >
+                {busy ? "Starting" : "New thread"}
+              </button>
+            </div>
+          ) : null}
           <form className="agent-composer" onSubmit={(event) => void send(event)}>
             <textarea
               value={draft}
@@ -385,7 +433,11 @@ export function AgentPane({
                 {displayName} · {thread.status}
                 <span className="composer-hint"> · Enter to send, Shift+Enter for a new line</span>
               </span>
-              <button className="primary-button" type="submit" disabled={!draft.trim() || thread.status === "starting"}>
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={!draft.trim() || thread.status === "starting" || thread.status === "stopped"}
+              >
                 Send
               </button>
             </div>

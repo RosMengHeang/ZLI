@@ -5,6 +5,7 @@ import {
   threadOccupiesWorktree,
   type WorktreeProjection,
 } from "@zli-v2/contracts";
+import { useState } from "react";
 
 import { isSelectableProvider, worktreeProviderLabel } from "../agent/providers.js";
 import { ProjectContextCard } from "./ProjectContextCard.js";
@@ -16,7 +17,12 @@ type Props = {
   onOpenProject(): void;
   onCreateWorktree(): void;
   onOpenHelp?(): void;
+  onWorktreeAction?(worktree: WorktreeProjection, action: WorktreeAction): void;
 };
+
+export type WorktreeAction = "retry" | "cancel" | "remove";
+
+const inProgress = new Set<WorktreeProjection["status"]>(["queued", "fetching", "creating", "bootstrapping"]);
 
 const statusLabel: Record<WorktreeProjection["status"], string> = {
   queued: "Queued",
@@ -52,7 +58,9 @@ export function WorktreeSidebar({
   onOpenProject,
   onCreateWorktree,
   onOpenHelp,
+  onWorktreeAction,
 }: Props) {
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string>();
   const projects = projection?.projects ?? [];
   const worktrees = projection?.worktrees ?? [];
   const threads = projection?.threads ?? [];
@@ -145,6 +153,63 @@ export function WorktreeSidebar({
                           <p className="tree-note is-error" role="status">
                             {worktree.errorMessage}
                           </p>
+                        ) : null}
+                        {onWorktreeAction &&
+                        (activeWorktreeId === worktree.worktreeId || worktree.status === "failed") ? (
+                          <div className="worktree-actions">
+                            {worktree.status === "failed" ? (
+                              <button
+                                className="quiet-button"
+                                type="button"
+                                onClick={() => onWorktreeAction(worktree, "retry")}
+                              >
+                                Retry
+                              </button>
+                            ) : null}
+                            {inProgress.has(worktree.status) ? (
+                              <button
+                                className="quiet-button"
+                                type="button"
+                                onClick={() => onWorktreeAction(worktree, "cancel")}
+                              >
+                                Cancel
+                              </button>
+                            ) : confirmRemoveId === worktree.worktreeId ? (
+                              <>
+                                <button
+                                  className="quiet-button is-danger"
+                                  type="button"
+                                  onClick={() => {
+                                    setConfirmRemoveId(undefined);
+                                    onWorktreeAction(worktree, "remove");
+                                  }}
+                                >
+                                  Delete checkout
+                                </button>
+                                <button
+                                  className="quiet-button"
+                                  type="button"
+                                  onClick={() => setConfirmRemoveId(undefined)}
+                                >
+                                  Keep
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                className="quiet-button"
+                                type="button"
+                                disabled={live}
+                                title={
+                                  live
+                                    ? "Stop the agent in this worktree first."
+                                    : "Delete this checkout and its branch"
+                                }
+                                onClick={() => setConfirmRemoveId(worktree.worktreeId)}
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
                         ) : null}
                       </div>
                     );

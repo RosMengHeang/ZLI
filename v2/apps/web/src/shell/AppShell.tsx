@@ -1,3 +1,4 @@
+import { WorktreeId } from "@zli-v2/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AgentPane } from "../agent/AgentPane.js";
 import { AttentionPanel } from "../attention/AttentionPanel.js";
@@ -10,7 +11,7 @@ import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
 import { TerminalPane } from "../terminal/TerminalPane.js";
 import { PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
 import { PaneTree, paneLabel, type WorkspacePane } from "../workspace/PaneTree.js";
-import { WorktreeSidebar } from "../worktrees/WorktreeSidebar.js";
+import { type WorktreeAction, WorktreeSidebar } from "../worktrees/WorktreeSidebar.js";
 import { HelpDialog } from "./HelpDialog.js";
 import "./AppShell.css";
 
@@ -157,8 +158,27 @@ function WorkspaceApp() {
       .catch(() => setVersion("development"));
   }, [bridge, helpOpen]);
 
+  const worktreeAction = async (worktreeId: string, action: WorktreeAction) => {
+    setNotice(undefined);
+    const response = await dispatch({
+      protocolVersion: 1,
+      commandId: makeCommandId(),
+      command:
+        action === "remove"
+          ? { type: "worktree.remove", worktreeId: WorktreeId.parse(worktreeId) }
+          : {
+              type: action === "retry" ? "worktree.retry" : "worktree.cancel",
+              worktreeId: WorktreeId.parse(worktreeId),
+            },
+    });
+    if (response?.accepted === false) setNotice(response.error.message);
+    else if (action === "remove" && worktreeId === activeWorktreeId) setActiveWorktreeId(undefined);
+  };
+
   const createWorktree = async (branch: string, baseRef: string) => {
-    const project = projection?.projects[0];
+    const project =
+      projection?.projects.find((candidate) => candidate.projectId === activeWorktree?.projectId) ??
+      projection?.projects[0];
     if (!project) return;
     const safeBranch = branch
       .trim()
@@ -241,6 +261,8 @@ function WorkspaceApp() {
     }
   };
   const hasProjects = (projection?.projects.length ?? 0) > 0;
+  const overlayOpen =
+    paletteOpen || worktreeDialogOpen || helpOpen || (legacyImportBatchId !== undefined && projection !== undefined);
 
   return (
     <div className="app-shell">
@@ -254,6 +276,7 @@ function WorkspaceApp() {
         onOpenProject={() => void openProject()}
         onCreateWorktree={() => setWorktreeDialogOpen(true)}
         onOpenHelp={() => setHelpOpen(true)}
+        onWorktreeAction={(worktree, action) => void worktreeAction(worktree.worktreeId, action)}
       />
       <main className="main-workspace">
         <header className="workspace-header">
@@ -309,7 +332,7 @@ function WorkspaceApp() {
                       onOpenBrowser={() => choosePane("browser")}
                     />
                   ) : pane === "browser" ? (
-                    <BrowserPane worktree={activeWorktree} />
+                    <BrowserPane worktree={activeWorktree} obscured={overlayOpen} />
                   ) : (
                     <ReviewPane worktree={activeWorktree} />
                   )}
@@ -414,7 +437,7 @@ function DisconnectedState() {
     <div className="center-state">
       <h1>Start ZLI from the desktop app</h1>
       <p>
-        This window has no runtime bridge. Run <code>npm run dev</code> from the repository root.
+        This window has no runtime bridge. Run <code>pnpm --dir v2 desktop:dev</code> from the repository root.
       </p>
     </div>
   );
@@ -422,7 +445,7 @@ function DisconnectedState() {
 type PaletteCommand = { label: string; action(): void };
 function WorktreeDialog({ onClose, onSubmit }: { onClose(): void; onSubmit(branch: string, baseRef: string): void }) {
   const [branch, setBranch] = useState("");
-  const [baseRef, setBaseRef] = useState("main");
+  const [baseRef, setBaseRef] = useState("");
   const branchInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     branchInputRef.current?.focus();
@@ -463,7 +486,11 @@ function WorktreeDialog({ onClose, onSubmit }: { onClose(): void; onSubmit(branc
           </label>
           <label>
             Base ref
-            <input value={baseRef} onChange={(event) => setBaseRef(event.target.value)} placeholder="main" />
+            <input
+              value={baseRef}
+              onChange={(event) => setBaseRef(event.target.value)}
+              placeholder="Current branch (leave empty)"
+            />
           </label>
           <div className="dialog-actions">
             <button className="secondary-button" type="button" onClick={onClose}>

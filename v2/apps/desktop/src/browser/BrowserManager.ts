@@ -68,6 +68,8 @@ export type BrowserManagerOptions = {
   readonly onClose?: (tab: BrowserTabProjectionValue) => void;
 };
 
+type ProjectionPatch = { [Key in keyof BrowserTabProjectionValue]?: BrowserTabProjectionValue[Key] | undefined };
+
 type ManagedTab = {
   view: BrowserViewLike;
   projection: BrowserTabProjectionValue;
@@ -88,6 +90,7 @@ export class BrowserManager {
   readonly #automationFactory: BrowserManagerOptions["automationFactory"];
   readonly #onProjection: BrowserManagerOptions["onProjection"];
   readonly #onClose: BrowserManagerOptions["onClose"];
+  #hidden = false;
 
   constructor(
     private readonly factory: BrowserViewFactory,
@@ -117,29 +120,41 @@ export class BrowserManager {
       : undefined;
     const view = this.factory.create({ partition, ...(browserSession ? { session: browserSession } : {}) });
     const bounds = parsed.bounds ?? this.#defaultBounds;
-    view.setBounds(bounds);
-    view.setVisible(false);
-    this.host.addChildView(view);
-    const projection = BrowserTabProjection.parse({
-      browserTabId,
-      profileId: parsed.profileId,
-      worktreeId: parsed.worktreeId,
-      url: parsed.url,
-      title: "",
-      active: false,
-      status: "loading",
-    });
-    const automation = this.#automationFactory?.(view);
-    const tab: ManagedTab = {
-      view,
-      projection,
-      bounds,
-      ...(automation ? { automation: automation.automation, designMode: automation.designMode } : {}),
-    };
-    this.#tabs.set(browserTabId, tab);
-    this.#installObservers(browserTabId, tab);
-    await view.webContents.loadURL(parsed.url);
-    this.#publish(tab.projection);
+    let attached = false;
+    let tab: ManagedTab;
+    try {
+      view.setBounds(bounds);
+      view.setVisible(false);
+      this.host.addChildView(view);
+      attached = true;
+      const projection = BrowserTabProjection.parse({
+        browserTabId,
+        profileId: parsed.profileId,
+        worktreeId: parsed.worktreeId,
+        url: parsed.url,
+        title: "",
+        active: false,
+        status: "loading",
+      });
+      const automation = this.#automationFactory?.(view);
+      tab = {
+        view,
+        projection,
+        bounds,
+        ...(automation ? { automation: automation.automation, designMode: automation.designMode } : {}),
+      };
+      this.#tabs.set(browserTabId, tab);
+      this.#installObservers(browserTabId, tab);
+    } catch (cause) {
+      this.#tabs.delete(browserTabId);
+      if (attached) this.host.removeChildView(view);
+      view.webContents.destroy?.();
+      throw cause;
+    }
+    // A failed page load (for example a dev server that is not running yet) must not orphan the
+    // view: the tab stays registered and reports the failure through its projection.
+    await this.#load(browserTabId, tab, parsed.url);
+    if (this.#tabs.get(browserTabId) === tab) this.#publish(tab.projection);
     return tab.projection;
   }
 
@@ -155,11 +170,27 @@ export class BrowserManager {
   }
 
   async activate(browserTabId: string): Promise<BrowserTabProjectionValue> {
+    this.#require(browserTabId);
+    this.#hidden = false;
+    return this.#select(browserTabId);
+  }
+
+  /** Hides every native view, for example while the renderer shows a dialog or another tool pane. */
+  hide(): void {
+    this.#hidden = true;
+    for (const tab of this.#tabs.values()) tab.view.setVisible(false);
+  }
+
+  get hidden(): boolean {
+    return this.#hidden;
+  }
+
+  #select(browserTabId: string): BrowserTabProjectionValue {
     const target = this.#require(browserTabId);
     for (const [tabId, tab] of this.#tabs) {
       const active = tabId === browserTabId;
-      tab.view.setVisible(active);
-      this.#replace(tabId, { active });
+      tab.view.setVisible(active && !this.#hidden);
+      if (tab.projection.active !== active) this.#replace(tabId, { active });
     }
     return target.projection;
   }
@@ -175,8 +206,8 @@ export class BrowserManager {
     const parsed = BrowserNavigateInput.parse(input);
     assertBrowserUrl(parsed.url);
     const tab = this.#require(parsed.browserTabId);
-    this.#replace(parsed.browserTabId, { url: parsed.url, status: "loading" });
-    await tab.view.webContents.loadURL(parsed.url);
+    this.#replace(parsed.browserTabId, { url: parsed.url, status: "loading", loadError: undefined });
+    await this.#load(parsed.browserTabId, tab, parsed.url);
     return tab.projection;
   }
 
@@ -257,7 +288,7 @@ export class BrowserManager {
           url,
           bounds: tab.bounds,
         })
-          .then((created) => this.activate(created.browserTabId))
+          .then((created) => this.#select(created.browserTabId))
           .catch(() => undefined);
       }
       return { action: "deny" };
@@ -266,7 +297,10 @@ export class BrowserManager {
       if (isRecordWithPreventDefault(event) && typeof url === "string" && !isAllowedBrowserNavigation(url))
         event.preventDefault();
     });
-    contents.on("did-start-loading", () => this.#replace(browserTabId, { status: "loading" }));
+    contents.on("did-start-loading", () => {
+      if (this.#tabs.get(browserTabId) === tab)
+        this.#replace(browserTabId, { status: "loading", loadError: undefined });
+    });
     contents.on("did-stop-loading", () => {
       if (contents.isDestroyed()) return;
       this.#replace(browserTabId, {
@@ -281,10 +315,11 @@ export class BrowserManager {
     contents.on("did-navigate", (_event, url) => {
       if (typeof url === "string" && isAllowedBrowserNavigation(url)) this.#replace(browserTabId, { url });
     });
-    contents.on("did-fail-load", (_event, _code, _description, url, isMainFrame) => {
-      if (isMainFrame !== true) return;
+    contents.on("did-fail-load", (_event, code, description, url, isMainFrame) => {
+      if (isMainFrame !== true || code === ABORTED_ERROR_CODE) return;
       this.#replace(browserTabId, {
         status: "crashed",
+        loadError: describeLoadFailure(description, url),
         ...(typeof url === "string" && isAllowedBrowserNavigation(url) ? { url } : {}),
       });
     });
@@ -311,7 +346,7 @@ export class BrowserManager {
         : undefined;
       const replacement = this.factory.create({ partition, ...(browserSession ? { session: browserSession } : {}) });
       replacement.setBounds(tab.bounds);
-      replacement.setVisible(tab.projection.active);
+      replacement.setVisible(tab.projection.active && !this.#hidden);
       this.host.removeChildView(previousView);
       this.host.addChildView(replacement);
       tab.automation?.dispose();
@@ -321,16 +356,30 @@ export class BrowserManager {
       tab.designMode = automation?.designMode;
       previousView.webContents.destroy?.();
       this.#installObservers(browserTabId, tab);
-      this.#replace(browserTabId, { status: "loading" });
-      await replacement.webContents.loadURL(url);
+      this.#replace(browserTabId, { status: "loading", loadError: undefined });
+      await this.#load(browserTabId, tab, url);
     } catch {
       if (this.#tabs.get(browserTabId) === tab) this.#replace(browserTabId, { status: "crashed" });
     }
   }
 
-  #replace(browserTabId: string, patch: Partial<BrowserTabProjectionValue>): void {
+  async #load(browserTabId: string, tab: ManagedTab, url: string): Promise<void> {
+    try {
+      await tab.view.webContents.loadURL(url);
+    } catch (cause) {
+      if (this.#tabs.get(browserTabId) !== tab || isAbortedLoad(cause)) return;
+      this.#replace(browserTabId, {
+        status: "crashed",
+        loadError: describeLoadFailure(cause instanceof Error ? cause.message : undefined, url),
+      });
+    }
+  }
+
+  #replace(browserTabId: string, patch: ProjectionPatch): void {
     const current = this.#require(browserTabId);
-    current.projection = BrowserTabProjection.parse({ ...current.projection, ...patch });
+    const merged: Record<string, unknown> = { ...current.projection, ...patch };
+    for (const key of Object.keys(merged)) if (merged[key] === undefined) delete merged[key];
+    current.projection = BrowserTabProjection.parse(merged);
     this.#publish(current.projection);
   }
 
@@ -354,6 +403,22 @@ export class BrowserManager {
     if (!automation) throw new Error("Browser automation is not available for this tab.");
     return automation;
   }
+}
+
+const ABORTED_ERROR_CODE = -3;
+
+// Electron rejects loadURL with ERR_ABORTED when a navigation is superseded (redirects, a newer
+// loadURL); that is not a failure the user needs to see.
+function isAbortedLoad(cause: unknown): boolean {
+  if (typeof cause !== "object" || cause === null) return false;
+  const { code, errno } = cause as { code?: unknown; errno?: unknown };
+  return code === "ERR_ABORTED" || errno === ABORTED_ERROR_CODE;
+}
+
+function describeLoadFailure(detail: unknown, url: unknown): string {
+  const target = typeof url === "string" && isAllowedBrowserNavigation(url) ? url : "the page";
+  const reason = typeof detail === "string" && detail.trim() ? detail.trim() : "the page did not respond";
+  return `Could not load ${target}: ${reason}`.slice(0, 512);
 }
 
 function assertBrowserUrl(url: string): void {

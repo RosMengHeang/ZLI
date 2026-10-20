@@ -235,4 +235,42 @@ describe("RuntimeClient", () => {
     unsubscribe();
     client.close();
   });
+
+  it("re-attaches terminal streams from the last seen sequence after a reconnect", async () => {
+    const first = new FakeTransport();
+    const second = new FakeTransport();
+    const transports = [first, second];
+    const connecting = RuntimeClient.connect({
+      token: "test-token",
+      environmentId,
+      connectTransport: async () => {
+        const next = transports.shift();
+        if (!next) throw new Error("no transport");
+        return next;
+      },
+      sleep: async () => {},
+    });
+    await vi.waitFor(() => expect(first.sent).toHaveLength(1));
+    first.receive({ type: "hello", protocolVersion: 1, environment: projection().environment });
+    const client = await connecting;
+    const terminalId = "50000000-0000-4000-8000-000000000002";
+    client.attachTerminal(terminalId, 0);
+    first.receive({
+      type: "terminal.snapshot",
+      snapshot: { terminalId, chunks: [], nextSequence: 3, truncated: false },
+    });
+    first.receive({
+      type: "terminal.stream",
+      message: { kind: "chunk", chunk: { terminalId, sequence: 4, bytesBase64: "aGk=" } },
+    });
+
+    first.disconnect();
+    await vi.waitFor(() => expect(second.sent).toHaveLength(1));
+    second.receive({ type: "hello", protocolVersion: 1, environment: projection().environment });
+
+    await vi.waitFor(() =>
+      expect(second.sent).toContainEqual({ type: "terminal.attach", terminalId, afterSequence: 4 }),
+    );
+    client.close();
+  });
 });

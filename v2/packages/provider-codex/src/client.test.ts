@@ -102,6 +102,34 @@ describe("CodexAppServerClient", () => {
     ]);
   });
 
+  it("reads the nested app-server v2 turn shape", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    const events: CodexProviderEvent[] = [];
+    client.subscribe((event) => events.push(event));
+
+    peer.emit({
+      jsonrpc: "2.0",
+      method: "turn/started",
+      params: { threadId: "provider-thread-1", turn: { id: "provider-turn-2", status: "inProgress" } },
+    });
+    peer.emit({
+      jsonrpc: "2.0",
+      method: "turn/completed",
+      params: { threadId: "provider-thread-1", turn: { id: "provider-turn-2", status: "completed" } },
+    });
+
+    expect(events).toEqual([
+      { type: "turn.started", providerThreadId: "provider-thread-1", providerTurnId: "provider-turn-2" },
+      {
+        type: "turn.completed",
+        providerThreadId: "provider-thread-1",
+        providerTurnId: "provider-turn-2",
+        status: "completed",
+      },
+    ]);
+  });
+
   it("responds to structured approval requests and reports process death", async () => {
     const peer = new FakePeer();
     const client = await CodexAppServerClient.connect({ peer });

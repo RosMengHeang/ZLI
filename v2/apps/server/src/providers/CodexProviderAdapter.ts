@@ -63,7 +63,7 @@ export class CodexProviderAdapter implements ProviderAdapter {
 
   async respondToRequest(input: { threadId: ThreadId; requestId: string; decision: unknown }): Promise<void> {
     this.context(input.threadId);
-    await (await this.ensureClient()).respondToRequest(input.requestId, input.decision);
+    await (await this.ensureClient()).respondToRequest(input.requestId, codexApprovalDecision(input.decision));
   }
 
   async respondToUserInput(input: {
@@ -131,7 +131,13 @@ export class CodexProviderAdapter implements ProviderAdapter {
 
   private onCodexEvent(event: CodexProviderEvent): void {
     if (event.type === "session.closed") {
-      for (const context of this.sessions.values()) {
+      const closed = [...this.sessions.values()];
+      // The app server is gone; the next session must spawn a fresh process instead of reusing a dead client.
+      this.sessions.clear();
+      this.unsubscribeClient?.();
+      this.unsubscribeClient = undefined;
+      this.client = undefined;
+      for (const context of closed) {
         this.emit({ type: "session.closed", threadId: context.session.threadId, reason: event.reason });
       }
       return;
@@ -189,4 +195,13 @@ export class CodexProviderAdapter implements ProviderAdapter {
   private emit(event: ProviderEvent): void {
     for (const listener of this.listeners) listener(event);
   }
+}
+
+/** The UI answers approvals with { approved }; Codex app-server expects { decision }. */
+export function codexApprovalDecision(decision: unknown): unknown {
+  if (!decision || typeof decision !== "object" || Array.isArray(decision)) return decision;
+  const record = decision as Record<string, unknown>;
+  if (typeof record.decision === "string") return { decision: record.decision };
+  if (typeof record.approved === "boolean") return { decision: record.approved ? "accept" : "decline" };
+  return decision;
 }

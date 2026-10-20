@@ -57,5 +57,6 @@ export const BrowserTabProjection = z.object({
   title: z.string(),
   active: z.boolean(),
   status: z.enum(["idle", "loading", "crashed"]),
+  loadError: z.string().max(512).optional(),
 });
 export type BrowserTabProjection = z.infer<typeof BrowserTabProjection>;

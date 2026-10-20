@@ -126,6 +126,12 @@ describe("ProviderService", () => {
         status: "missing",
         reason: "Cursor CLI was not found on PATH or in known install locations.",
       },
+      {
+        provider: "droid",
+        displayName: "Droid",
+        status: "missing",
+        reason: "Droid CLI was not found on PATH or in known install locations.",
+      },
     ]);
     expect(adapter.calls).toEqual([]);
     expect(service.listSessions()).toEqual([]);

@@ -1,6 +1,7 @@
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { accessSync, constants, statSync } from "node:fs";
+
+import { spawnCli } from "@zli-v2/shared";
 
 import { CLAUDE_SESSION_ARGS, decodeClaudeLine, encodeClaudeMessage, MAX_CLAUDE_LINE_CHARS } from "./protocol.js";
 import {
@@ -376,18 +377,17 @@ function spawnClaudePeer(options: ClaudeCodeClientOptions, command: string): Cla
 }
 
 function defaultSpawn(command: string, args: readonly string[], options: ClaudeSpawnOptions): ClaudeChild {
-  const child = spawn(command, [...args], {
+  const child = spawnCli(command, args, {
     cwd: options.cwd,
     env: options.env,
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
-    shell: false,
   });
   if (!child.stdin || !child.stdout || !child.stderr) {
     child.kill();
     throw new ClaudeProviderError("request_failed", "Claude Code CLI did not provide stdio pipes.");
   }
-  return child;
+  return child as ClaudeChild;
 }
 
 function sessionEnv(options: ClaudeCodeClientOptions): NodeJS.ProcessEnv {

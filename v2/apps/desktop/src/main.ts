@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, WebContentsView } from "electron";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
@@ -47,7 +48,7 @@ let approvedSupportBundleRoot: string | undefined;
 
 async function main(): Promise<void> {
   await app.whenReady();
-  const rendererRoot = process.env.ZLI_RENDERER_ROOT ?? join(app.getAppPath(), "renderer");
+  const rendererRoot = process.env.ZLI_RENDERER_ROOT ?? defaultRendererRoot();
   protocol.handle("zli-v2", (request) => {
     const asset = resolveAppAsset(rendererRoot, request.url);
     if (!asset) return new Response("Not found", { status: 404 });
@@ -244,6 +245,7 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
   ipcMain.handle("zli:browser:navigate", async (_event, input: unknown) =>
     browserManager?.navigate(BrowserNavigateInput.parse(input)),
   );
+  ipcMain.handle("zli:browser:hide", () => browserManager?.hide());
   ipcMain.handle("zli:browser:set-bounds", async (_event, input: unknown) => {
     const parsed = BrowserSetBoundsInput.parse(input);
     return browserManager?.setBounds(parsed.browserTabId, parsed.bounds);
@@ -355,3 +357,12 @@ app.on("window-all-closed", () => {
   environment?.stop();
   if (process.platform !== "darwin") app.quit();
 });
+
+/**
+ * Packaged builds keep renderer/ beside the app root. `electron apps/desktop/dist/main.js`
+ * makes the app path dist/, while Vite writes the renderer one level up.
+ */
+function defaultRendererRoot(): string {
+  const candidates = [join(app.getAppPath(), "renderer"), resolve(DESKTOP_DIST, "..", "renderer")];
+  return candidates.find((candidate) => existsSync(join(candidate, "index.html"))) ?? candidates[0] ?? "renderer";
+}

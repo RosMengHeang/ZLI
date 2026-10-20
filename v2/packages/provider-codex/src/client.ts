@@ -1,4 +1,6 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+
+import { spawnCli } from "@zli-v2/shared";
 
 import { JsonRpcId, JsonRpcMessage, JsonRpcResponse, decodeJsonRpc, encodeJsonRpc } from "./protocol.js";
 import { ThreadReadResponse, ThreadStartResponse, TurnStartResponse } from "./schema.js";
@@ -218,14 +220,19 @@ export class CodexAppServerClient {
 type SpawnedPeer = CodexPeer & { notify(method: string, params?: unknown): Promise<void> };
 
 async function spawnCodexPeer(options: CodexAppServerClientOptions): Promise<SpawnedPeer> {
-  const child = spawn(options.command ?? "codex", ["app-server", ...(options.args ?? [])], {
-    cwd: options.cwd,
+  const child = spawnCli(options.command ?? "codex", ["app-server", ...(options.args ?? [])], {
+    ...(options.cwd ? { cwd: options.cwd } : {}),
     env: { ...process.env, ...(options.env ?? {}) },
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
-    shell: false,
   });
-  return new JsonlCodexPeer(child);
+  if (!child.stdin || !child.stdout || !child.stderr) {
+    child.kill();
+    throw new CodexProviderError("request_failed", "Codex did not provide stdio pipes.");
+  }
+  // Unread stderr would eventually fill the pipe and stall the app server.
+  child.stderr.resume();
+  return new JsonlCodexPeer(child as ChildProcessWithoutNullStreams);
 }
 
 class JsonlCodexPeer implements SpawnedPeer {
@@ -325,7 +332,9 @@ function normalizeNotification(
 ): CodexProviderEvent | undefined {
   if (!params) return undefined;
   const threadId = params.threadId;
-  const turnId = params.turnId;
+  // app-server v2 nests the turn ({ threadId, turn: { id, status } }); older builds sent turnId at the top level.
+  const turn = asRecord(params.turn);
+  const turnId = params.turnId ?? turn?.id;
   if (method === "thread/started") {
     const providerThreadId = typeof threadId === "string" ? threadId : asRecord(params.thread)?.id;
     return typeof providerThreadId === "string" && providerThreadId.length > 0
@@ -346,7 +355,7 @@ function normalizeNotification(
       type: "turn.completed",
       providerThreadId: threadId,
       providerTurnId: turnId,
-      status: String(params.status ?? "completed"),
+      status: String(params.status ?? turn?.status ?? "completed"),
     };
   return undefined;
 }

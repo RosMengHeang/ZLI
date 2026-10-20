@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
-import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
+import type { RpcResponse, RuntimeProjection, TerminalProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { makeCommandId } from "../runtime/commandId.js";
+import { TerminalView } from "./TerminalView.js";
 
 type Props = {
   projection: RuntimeProjection | undefined;
@@ -12,93 +13,51 @@ type Props = {
 
 export function TerminalPane({ projection, worktree, onOpenBrowser }: Props) {
   const { bridge, dispatch } = useRuntime();
-  const terminal = projection?.terminals.find((candidate) => candidate.worktreeId === worktree?.worktreeId);
-  const terminalId = terminal?.terminalId;
-  const [output, setOutput] = useState("");
-  const [draft, setDraft] = useState("");
+  const terminals = (projection?.terminals ?? []).filter((candidate) => candidate.worktreeId === worktree?.worktreeId);
+  const [selectedId, setSelectedId] = useState<string>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const lastSequence = useRef(0);
+  const terminal = terminals.find((candidate) => candidate.terminalId === selectedId) ?? preferredTerminal(terminals);
 
-  useEffect(() => {
-    if (!bridge || !terminalId) return;
-    let active = true;
-    let snapshotReceived = false;
-    const unsubscribe = bridge.runtime.onTerminal((message) => {
-      if (!active) return;
-      if (message.kind === "snapshot" && message.snapshot.terminalId === terminalId) {
-        snapshotReceived = true;
-        setOutput(message.snapshot.chunks.map((chunk) => decodeChunk(chunk.bytesBase64)).join(""));
-        lastSequence.current = message.snapshot.nextSequence;
-      } else if (message.kind === "stream") {
-        const stream = message.message;
-        const streamTerminalId = stream.kind === "chunk" ? stream.chunk.terminalId : stream.terminalId;
-        if (streamTerminalId !== terminalId) return;
-        if (stream.kind === "chunk") {
-          setOutput((current) => `${current}${decodeChunk(stream.chunk.bytesBase64)}`.slice(-200_000));
-          lastSequence.current = stream.chunk.sequence;
-        } else if (stream.kind === "exit") {
-          setOutput((current) => `${current}\n[process exited: ${stream.code}]\n`);
-        }
+  const send = useCallback(
+    async (command: Record<string, unknown>): Promise<RpcResponse | undefined> => {
+      try {
+        const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
+        if (response?.accepted === false) setError(response.error.message);
+        return response;
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "The terminal command failed.");
+        return undefined;
       }
-    });
-    const attach = async () => {
-      for (let attempt = 0; attempt < 30 && active && !snapshotReceived; attempt += 1) {
-        try {
-          await bridge.runtime.attachTerminal(terminalId, lastSequence.current);
-        } catch {
-          // The terminal can still be starting or the runtime can be reconnecting.
-        }
-        if (snapshotReceived) return;
-        await new Promise<void>((resolve) => setTimeout(resolve, Math.min(1_000, 100 * 2 ** attempt)));
-      }
-    };
-    void attach();
-    return () => {
-      active = false;
-      unsubscribe();
-    };
-  }, [bridge, terminalId]);
+    },
+    [dispatch],
+  );
 
   const createTerminal = async () => {
     if (!worktree) return;
     setBusy(true);
     setError(undefined);
-    try {
-      const response = await dispatch({
-        protocolVersion: 1,
-        commandId: makeCommandId(),
-        command: {
-          type: "terminal.create",
-          terminalId: makeCommandId(),
-          worktreeId: worktree.worktreeId,
-          cwd: worktree.path,
-          shell: shellForPlatform(),
-          title: `${worktree.branch} terminal`,
-          cols: 120,
-          rows: 32,
-        },
-      });
-      if (response?.accepted === false) setError(response.error.message);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The terminal could not start.");
-    } finally {
-      setBusy(false);
-    }
+    const terminalId = makeCommandId();
+    const response = await send({
+      type: "terminal.create",
+      terminalId,
+      worktreeId: worktree.worktreeId,
+      cwd: worktree.path,
+      shell: shellForPlatform(),
+      title: `Terminal ${terminals.length + 1}`,
+      cols: 120,
+      rows: 32,
+    });
+    if (response?.accepted) setSelectedId(terminalId);
+    setBusy(false);
   };
 
-  const write = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!terminal || !draft) return;
+  const stopTerminal = async (terminalId: string) => {
     setError(undefined);
-    const response = await dispatch({
-      protocolVersion: 1,
-      commandId: makeCommandId(),
-      command: { type: "terminal.write", terminalId: terminal.terminalId, data: `${draft}\r` },
-    });
-    if (response?.accepted === false) setError(response.error.message);
-    else setDraft("");
+    await send({ type: "terminal.stop", terminalId });
   };
+
+  const live = terminal?.status === "running" || terminal?.status === "starting";
 
   return (
     <div className="tool-pane terminal-pane">
@@ -116,23 +75,58 @@ export function TerminalPane({ projection, worktree, onOpenBrowser }: Props) {
         />
       ) : terminal ? (
         <>
-          <pre className="terminal-output" role="log" aria-label="Terminal output">
-            {output || <span className="terminal-muted">Terminal session connected. Type a command below.</span>}
-          </pre>
-          <form className="terminal-input-row" onSubmit={(event) => void write(event)}>
-            <span className="terminal-prompt" aria-hidden="true">
-              ›
-            </span>
-            <input
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder="Type a command"
-              aria-label="Terminal command"
+          <div className="terminal-tabs">
+            <div className="terminal-tab-list" role="tablist" aria-label="Terminal sessions">
+              {terminals.map((candidate) => (
+                <button
+                  key={candidate.terminalId}
+                  type="button"
+                  role="tab"
+                  className="terminal-tab"
+                  aria-selected={candidate.terminalId === terminal.terminalId}
+                  title={`${candidate.title} (${candidate.status})`}
+                  onClick={() => setSelectedId(candidate.terminalId)}
+                >
+                  <span className={`terminal-tab-dot terminal-tab-dot-${candidate.status}`} aria-hidden="true" />
+                  <span className="terminal-tab-title">{candidate.title}</span>
+                </button>
+              ))}
+            </div>
+            <div className="terminal-tab-actions">
+              {live && (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => void stopTerminal(terminal.terminalId)}
+                  disabled={terminal.status !== "running"}
+                >
+                  Stop
+                </button>
+              )}
+              <button className="secondary-button" type="button" onClick={() => void createTerminal()} disabled={busy}>
+                {busy ? "Starting" : "New terminal"}
+              </button>
+            </div>
+          </div>
+          {bridge && (
+            <TerminalView
+              key={terminal.terminalId}
+              bridge={bridge}
+              terminalId={terminal.terminalId}
+              running={terminal.status === "running"}
+              send={send}
             />
-            <button className="secondary-button" type="submit" disabled={!draft || terminal.status !== "running"}>
-              Send
-            </button>
-          </form>
+          )}
+          {!live && (
+            <div className="terminal-exited" role="status">
+              <span>
+                {terminal.status === "failed" ? "This terminal failed to start." : "This terminal session has ended."}
+              </span>
+              <button className="primary-button" type="button" onClick={() => void createTerminal()} disabled={busy}>
+                {busy ? "Starting" : "Start new terminal"}
+              </button>
+            </div>
+          )}
           {terminal.errorMessage && (
             <p className="inline-error" role="alert">
               {terminal.errorMessage}
@@ -167,6 +161,13 @@ export function TerminalPane({ projection, worktree, onOpenBrowser }: Props) {
   );
 }
 
+function preferredTerminal(terminals: TerminalProjection[]): TerminalProjection | undefined {
+  return (
+    terminals.findLast((candidate) => candidate.status === "running" || candidate.status === "starting") ??
+    terminals.at(-1)
+  );
+}
+
 function EmptyPane({ title, detail }: { title: string; detail: string }) {
   return (
     <div className="empty-pane">
@@ -174,11 +175,6 @@ function EmptyPane({ title, detail }: { title: string; detail: string }) {
       <p className="empty-detail">{detail}</p>
     </div>
   );
-}
-
-function decodeChunk(value: string): string {
-  const bytes = Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
 }
 
 function shellForPlatform(): string {

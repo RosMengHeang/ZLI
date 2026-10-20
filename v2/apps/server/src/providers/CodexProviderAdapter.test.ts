@@ -4,7 +4,7 @@ import { ThreadId } from "@zli-v2/contracts";
 
 import type { CodexProviderEvent } from "@zli-v2/provider-codex";
 
-import { CodexProviderAdapter } from "./CodexProviderAdapter.js";
+import { CodexProviderAdapter, codexApprovalDecision } from "./CodexProviderAdapter.js";
 import type { ProviderEvent } from "./ProviderService.js";
 
 const threadId = ThreadId.parse("00000000-0000-4000-8000-000000000701");
@@ -91,5 +91,13 @@ describe("CodexProviderAdapter", () => {
     await expect(adapter.readThread({ threadId })).resolves.toEqual({ threadId, turns: ["turn"] });
     await adapter.stopAll();
     expect(client.calls.map((call) => call.method)).toEqual(["start", "read", "close"]);
+  });
+});
+
+describe("codexApprovalDecision", () => {
+  it("maps UI approvals onto Codex decisions", () => {
+    expect(codexApprovalDecision({ approved: true })).toEqual({ decision: "accept" });
+    expect(codexApprovalDecision({ approved: false })).toEqual({ decision: "decline" });
+    expect(codexApprovalDecision({ decision: "cancel" })).toEqual({ decision: "cancel" });
   });
 });

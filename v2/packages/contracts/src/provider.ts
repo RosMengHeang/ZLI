@@ -2,11 +2,11 @@ import { z } from "zod";
 
 import { ThreadId, TurnId, WorktreeId } from "./ids.js";
 
-export const ProviderKind = z.enum(["codex", "claude-code", "cursor-agent", "opencode"]);
+export const ProviderKind = z.enum(["codex", "claude-code", "cursor-agent", "droid", "opencode"]);
 export type ProviderKind = z.infer<typeof ProviderKind>;
 
 /** Providers a person can see in discovery. OpenCode stays in ProviderKind for stored sessions, and is not listed. */
-export const ListedProviderKind = z.enum(["codex", "claude-code", "cursor-agent"]);
+export const ListedProviderKind = z.enum(["codex", "claude-code", "cursor-agent", "droid"]);
 export type ListedProviderKind = z.infer<typeof ListedProviderKind>;
 
 export const ProviderDiscovery = z.discriminatedUnion("status", [

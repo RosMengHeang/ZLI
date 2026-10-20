@@ -39,6 +39,7 @@ const discovered: ProviderDiscovery[] = [
     status: "found",
     path: "/home/dev/.local/bin/cursor-agent",
   },
+  { provider: "droid", displayName: "Droid", status: "found", path: "/home/dev/bin/droid" },
 ];
 
 function projection(overrides: Partial<RuntimeProjection> = {}): RuntimeProjection {
@@ -438,7 +439,7 @@ describe("AgentPane", () => {
       }),
     );
     const values = [...container.querySelectorAll("input[type='radio']")].map((input) => input.getAttribute("value"));
-    expect(values).toEqual(["codex", "claude-code", "cursor-agent"]);
+    expect(values).toEqual(["codex", "claude-code", "cursor-agent", "droid"]);
     expect(container.textContent).not.toContain("OpenCode");
   });
 
@@ -451,5 +452,72 @@ describe("AgentPane", () => {
     );
     expect(container.querySelector<HTMLInputElement>('input[value="claude-code"]')?.checked).toBe(true);
     expect(container.querySelector("textarea")?.getAttribute("aria-label")).toBe("Message Claude Code");
+  });
+  it("shows why the newest thread ended and starts a new one", async () => {
+    const oldThread = ThreadId.parse("00000000-0000-4000-8000-000000000031");
+    const newThread = ThreadId.parse("00000000-0000-4000-8000-000000000032");
+    const calls: unknown[] = [];
+    const container = renderPane(
+      projection({
+        threads: [
+          { threadId: oldThread, worktreeId, provider: "codex", status: "stopped", capabilities: {} },
+          {
+            threadId: newThread,
+            worktreeId,
+            provider: "codex",
+            status: "failed",
+            capabilities: {},
+            errorMessage: "Codex process exited (1).",
+          },
+        ],
+      }),
+      async (request) => {
+        calls.push(request);
+        return { commandId, accepted: true as const };
+      },
+    );
+    expect(container.textContent).toContain("Codex process exited (1).");
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "New thread")?.click();
+    });
+    expect(calls).toEqual([
+      expect.objectContaining({ command: expect.objectContaining({ type: "thread.start", provider: "codex" }) }),
+    ]);
+  });
+
+  it("interrupts and stops a working thread", async () => {
+    const working = ThreadId.parse("00000000-0000-4000-8000-000000000033");
+    const turnId = "00000000-0000-4000-8000-000000000034";
+    const calls: unknown[] = [];
+    const container = renderPane(
+      projection({
+        threads: [
+          {
+            threadId: working,
+            worktreeId,
+            provider: "codex",
+            status: "working",
+            activeTurnId: turnId as never,
+            capabilities: {},
+          },
+        ],
+      }),
+      async (request) => {
+        calls.push(request);
+        return { commandId, accepted: true as const };
+      },
+    );
+    const button = (label: string) =>
+      [...container.querySelectorAll("button")].find((candidate) => candidate.textContent === label);
+    await act(async () => {
+      button("Interrupt")?.click();
+    });
+    await act(async () => {
+      button("Stop")?.click();
+    });
+    expect(calls).toEqual([
+      expect.objectContaining({ command: { type: "thread.interrupt", threadId: working, turnId } }),
+      expect.objectContaining({ command: { type: "thread.stop", threadId: working } }),
+    ]);
   });
 });

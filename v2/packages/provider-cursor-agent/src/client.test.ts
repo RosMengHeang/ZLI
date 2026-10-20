@@ -81,6 +81,7 @@ const printArgs = [
   "stream-json",
   "--stream-partial-output",
   "--trust",
+  "--force",
   "--workspace",
   "/work/tree",
 ];
@@ -134,7 +135,6 @@ describe("CursorAgentClient", () => {
 
     expect(calls[0]?.command).toBe("/usr/bin/cursor-agent");
     expect(calls[0]?.args).toEqual(printArgs);
-    expect(calls[0]?.args).not.toContain("--force");
     expect(calls[0]?.args).not.toContain("--worktree");
     expect(calls[0]?.options).toMatchObject({ cwd: "/work/tree", shell: false, windowsHide: true });
     expect(calls[0]?.options.env.PWD).toBe("/work/tree");

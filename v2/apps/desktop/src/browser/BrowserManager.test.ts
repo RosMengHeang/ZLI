@@ -232,4 +232,123 @@ describe("BrowserManager", () => {
       url: "http://127.0.0.1:3000/app",
     });
   });
+
+  it("keeps a tab whose first load fails registered and reports the failure", async () => {
+    const views: Array<ReturnType<typeof createFakeView>> = [];
+    const removed: unknown[] = [];
+    const manager = new BrowserManager(
+      {
+        create: () => {
+          const view = createFakeView("about:blank");
+          view.webContents.loadURL = async () => {
+            throw Object.assign(new Error("ERR_CONNECTION_REFUSED (-102) loading 'http://127.0.0.1:5173/'"), {
+              code: "ERR_CONNECTION_REFUSED",
+              errno: -102,
+            });
+          };
+          views.push(view);
+          return view;
+        },
+      },
+      { addChildView: () => undefined, removeChildView: (view) => removed.push(view) },
+    );
+
+    const tab = await manager.create({ worktreeId, profileId, url: "http://127.0.0.1:5173/" });
+
+    expect(tab).toMatchObject({ status: "crashed", url: "http://127.0.0.1:5173/" });
+    expect(tab.loadError).toContain("ERR_CONNECTION_REFUSED");
+    expect(manager.list(worktreeId)).toHaveLength(1);
+    await manager.activate(tab.browserTabId);
+    expect(views[0]?.visible).toBe(true);
+    manager.close(tab.browserTabId);
+    expect(removed).toEqual([views[0]]);
+    expect(manager.list(worktreeId)).toHaveLength(0);
+  });
+
+  it("ignores superseded loads and clears a load error once navigation succeeds", async () => {
+    let failNext: "abort" | "refuse" | undefined = "abort";
+    const manager = new BrowserManager(
+      {
+        create: () => {
+          const view = createFakeView("about:blank");
+          view.webContents.loadURL = async () => {
+            const mode = failNext;
+            failNext = undefined;
+            if (mode === "abort")
+              throw Object.assign(new Error("ERR_ABORTED (-3)"), { code: "ERR_ABORTED", errno: -3 });
+            if (mode === "refuse") throw new Error("ERR_CONNECTION_REFUSED (-102)");
+          };
+          return view;
+        },
+      },
+      { addChildView: () => undefined, removeChildView: () => undefined },
+    );
+    const tab = await manager.create({ worktreeId, profileId, url: "https://example.com" });
+    expect(tab.status).toBe("loading");
+    expect(tab.loadError).toBeUndefined();
+
+    failNext = "refuse";
+    const failed = await manager.navigate({ browserTabId: tab.browserTabId, url: "http://127.0.0.1:9/" });
+    expect(failed).toMatchObject({ status: "crashed" });
+    expect(failed.loadError).toContain("ERR_CONNECTION_REFUSED");
+
+    const recovered = await manager.navigate({ browserTabId: tab.browserTabId, url: "https://example.org" });
+    expect(recovered.loadError).toBeUndefined();
+    expect("loadError" in recovered).toBe(false);
+  });
+
+  it("removes the native view when tab setup fails before registration", async () => {
+    const view = createFakeView("https://example.com");
+    let destroyed = false;
+    view.webContents.destroy = () => {
+      destroyed = true;
+    };
+    const removed: unknown[] = [];
+    const manager = new BrowserManager(
+      { create: () => view },
+      { addChildView: () => undefined, removeChildView: (child) => removed.push(child) },
+      {
+        automationFactory: () => {
+          throw new Error("debugger unavailable");
+        },
+      },
+    );
+
+    await expect(manager.create({ worktreeId, profileId, url: "https://example.com" })).rejects.toThrow(
+      "debugger unavailable",
+    );
+    expect(removed).toEqual([view]);
+    expect(destroyed).toBe(true);
+    expect(manager.list()).toHaveLength(0);
+  });
+
+  it("hides every view on request and keeps them hidden until the renderer activates again", async () => {
+    const views: Array<ReturnType<typeof createFakeView>> = [];
+    const manager = new BrowserManager(
+      {
+        create: () => {
+          const view = createFakeView("https://example.com");
+          views.push(view);
+          return view;
+        },
+      },
+      { addChildView: () => undefined, removeChildView: () => undefined },
+    );
+    const tab = await manager.create({ worktreeId, profileId, url: "https://example.com" });
+    await manager.activate(tab.browserTabId);
+    expect(views[0]?.visible).toBe(true);
+
+    manager.hide();
+    expect(manager.hidden).toBe(true);
+    expect(views[0]?.visible).toBe(false);
+    expect(manager.list(worktreeId)[0]?.active).toBe(true);
+
+    views[0]?.emit("render-process-gone");
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 0));
+    expect(views[1]?.visible).toBe(false);
+
+    await manager.activate(tab.browserTabId);
+    expect(manager.hidden).toBe(false);
+    expect(views[1]?.visible).toBe(true);
+  });
 });

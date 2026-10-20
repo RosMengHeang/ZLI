@@ -75,6 +75,12 @@ importers:
       '@zli-v2/provider-cursor-agent':
         specifier: workspace:*
         version: link:../../packages/provider-cursor-agent
+      '@zli-v2/provider-droid':
+        specifier: workspace:*
+        version: link:../../packages/provider-droid
+      '@zli-v2/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       effect:
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115
@@ -94,6 +100,12 @@ importers:
 
   apps/web:
     dependencies:
+      '@xterm/addon-fit':
+        specifier: 0.10.0
+        version: 0.10.0(@xterm/xterm@5.5.0)
+      '@xterm/xterm':
+        specifier: 5.5.0
+        version: 5.5.0
       '@zli-v2/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -136,6 +148,10 @@ importers:
         version: 4.1.11
 
   packages/provider-claude-code:
+    dependencies:
+      '@zli-v2/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       '@types/node':
         specifier: 24.10.1
@@ -146,17 +162,38 @@ importers:
       '@zli-v2/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@zli-v2/shared':
+        specifier: workspace:*
+        version: link:../shared
       zod:
         specifier: 4.1.11
         version: 4.1.11
 
   packages/provider-cursor-agent:
+    dependencies:
+      '@zli-v2/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       '@types/node':
         specifier: 24.10.1
         version: 24.10.1
 
-  packages/shared: {}
+  packages/provider-droid:
+    dependencies:
+      '@zli-v2/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      '@types/node':
+        specifier: 24.10.1
+        version: 24.10.1
+
+  packages/shared:
+    devDependencies:
+      '@types/node':
+        specifier: 24.10.1
+        version: 24.10.1
 
   packages/ui: {}
 
@@ -926,6 +963,14 @@ packages:
   '@xmldom/xmldom@0.8.15':
     resolution: {integrity: sha512-/5NV/vDALVFDXgLmfsy9TRCBlKwO2LNBFzpzvb9iIj+jR+eSc6DLYYvVOdivT/jm7MtU6TebYuRmzEOI7w40UA==}
     engines: {node: '>=10.0.0'}
+
+  '@xterm/addon-fit@0.10.0':
+    resolution: {integrity: sha512-UFYkDm4HUahf2lnEyHvio51TNGiLK66mqP2JoATy7hRZeXaGMRDr00JiSF7m63vR5WKATF605yEggJKsw0JpMQ==}
+    peerDependencies:
+      '@xterm/xterm': ^5.0.0
+
+  '@xterm/xterm@5.5.0':
+    resolution: {integrity: sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A==}
 
   abbrev@4.0.0:
     resolution: {integrity: sha512-a1wflyaL0tHtJSmLSOVybYhy22vRih4eduhhrkcjgrWGnRfrZtovJ2FRjxuTtkkj47O/baf0R86QU5OuYpz8fA==}
@@ -3023,6 +3068,12 @@ snapshots:
       tinyrainbow: 3.1.1
 
   '@xmldom/xmldom@0.8.15': {}
+
+  '@xterm/addon-fit@0.10.0(@xterm/xterm@5.5.0)':
+    dependencies:
+      '@xterm/xterm': 5.5.0
+
+  '@xterm/xterm@5.5.0': {}
 
   abbrev@4.0.0: {}
 

@@ -68,6 +68,9 @@ export class RuntimeClient {
   readonly #store = new ProjectionStore();
   readonly #terminalListeners = new Set<(message: TerminalClientMessage) => void>();
   readonly #pending = new Map<string, PendingCommand>();
+  /** Last sequence seen per attached terminal, so streams can resume after a reconnect. */
+  readonly #terminalAttachments = new Map<string, number>();
+  readonly #awaitingTerminalSnapshot = new Set<string>();
   #transport: RuntimeTransport | undefined;
   #removeMessageListener: (() => void) | undefined;
   #removeCloseListener: (() => void) | undefined;
@@ -111,6 +114,7 @@ export class RuntimeClient {
   attachTerminal(terminalId: string, afterSequence = 0): void {
     const transport = this.#transport;
     if (!transport || this.#handshake !== undefined) throw new Error("runtime is not connected");
+    this.#terminalAttachments.set(terminalId, afterSequence);
     transport.send(
       ClientWireMessage.parse({ type: "terminal.attach", terminalId: TerminalId.parse(terminalId), afterSequence }),
     );
@@ -174,6 +178,27 @@ export class RuntimeClient {
         afterSequence: this.#store.current()?.lastSequence ?? 0,
       }),
     );
+    if (this.#terminalAttachments.size > 0) void this.#reattachTerminals(transport);
+  }
+
+  async #reattachTerminals(transport: RuntimeTransport): Promise<void> {
+    for (const terminalId of this.#terminalAttachments.keys()) this.#awaitingTerminalSnapshot.add(terminalId);
+    // A restarted environment restores its terminals after it starts accepting connections,
+    // so an attach can fail briefly. Retry until each terminal answers with a snapshot.
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (this.#transport !== transport || this.#closed || this.#awaitingTerminalSnapshot.size === 0) return;
+      for (const terminalId of this.#awaitingTerminalSnapshot) {
+        transport.send(
+          ClientWireMessage.parse({
+            type: "terminal.attach",
+            terminalId: TerminalId.parse(terminalId),
+            afterSequence: this.#terminalAttachments.get(terminalId) ?? 0,
+          }),
+        );
+      }
+      await this.#sleep(Math.min(1_000, 100 * 2 ** attempt));
+    }
+    this.#awaitingTerminalSnapshot.clear();
   }
 
   #receive(transport: RuntimeTransport, input: unknown): void {
@@ -209,11 +234,23 @@ export class RuntimeClient {
         this.#store.replace(message.projection);
         return;
       case "terminal.snapshot":
+        this.#awaitingTerminalSnapshot.delete(message.snapshot.terminalId);
+        if (this.#terminalAttachments.has(message.snapshot.terminalId)) {
+          this.#terminalAttachments.set(message.snapshot.terminalId, message.snapshot.nextSequence);
+        }
         for (const listener of this.#terminalListeners) listener({ kind: "snapshot", snapshot: message.snapshot });
         return;
-      case "terminal.stream":
-        for (const listener of this.#terminalListeners) listener({ kind: "stream", message: message.message });
+      case "terminal.stream": {
+        const stream = message.message;
+        if (stream.kind === "chunk" && this.#terminalAttachments.has(stream.chunk.terminalId)) {
+          this.#terminalAttachments.set(stream.chunk.terminalId, stream.chunk.sequence);
+        } else if (stream.kind === "exit") {
+          this.#terminalAttachments.delete(stream.terminalId);
+          this.#awaitingTerminalSnapshot.delete(stream.terminalId);
+        }
+        for (const listener of this.#terminalListeners) listener({ kind: "stream", message: stream });
         return;
+      }
       case "event":
         if (this.#store.apply(message.envelope) === "gap") {
           transport.send(ClientWireMessage.parse({ type: "projection.get" }));
