@@ -1,3 +1,0 @@
-OpenCode session ready
-Waiting for input
-Task completed
