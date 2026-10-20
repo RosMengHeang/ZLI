@@ -150,6 +150,20 @@ describe("TerminalService", () => {
     attached.subscription.close();
   });
 
+  it("gives a subscriber room again once it reads queued chunks", async () => {
+    const pty = new FakePty();
+    const service = await createService(pty, { maxPendingChunks: 2, maxPendingBytes: 100 });
+    const attached = service.attach(terminalId, 0);
+    pty.emit("one");
+    pty.emit("two");
+    expect(await nextMessage(attached.subscription)).toMatchObject({ kind: "chunk", chunk: { sequence: 1 } });
+    pty.emit("three");
+
+    expect(await nextMessage(attached.subscription)).toMatchObject({ kind: "chunk", chunk: { sequence: 2 } });
+    expect(await nextMessage(attached.subscription)).toMatchObject({ kind: "chunk", chunk: { sequence: 3 } });
+    attached.subscription.close();
+  });
+
   it("supports multiple subscribers and delivers exit exactly once", async () => {
     const pty = new FakePty();
     const service = await createService(pty);
