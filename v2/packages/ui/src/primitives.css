@@ -15,6 +15,7 @@
 .btn > span:not(.kbd-group) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .btn:disabled, .btn[aria-disabled="true"] { cursor: not-allowed; opacity: .45; }
 .btn-sm { height: var(--zli-control-sm); padding: 0 var(--zli-space-2); gap: var(--zli-space-1); border-radius: var(--zli-radius-sm); font-size: var(--zli-text-sm); }
+.btn-xs { height: var(--zli-control-xs); padding: 0 var(--zli-space-1-5); gap: var(--zli-space-1); border-radius: var(--zli-radius-xs); font-size: var(--zli-text-xs); }
 .btn-lg { height: var(--zli-control-lg); padding: 0 var(--zli-space-4); }
 
 .btn-primary { background: var(--zli-accent); color: var(--zli-accent-ink); }
@@ -51,6 +52,7 @@ kbd {
 
 /* ---------- Fields ---------- */
 .field { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-1-5); margin: 0; padding: 0; border: 0; }
+.field-control { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-1-5); }
 .field-label { padding: 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
 .field-hint { color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
 .field-hint.is-warning { color: var(--zli-amber); }

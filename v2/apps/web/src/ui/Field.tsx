@@ -1,8 +1,18 @@
-import type { ReactNode, SelectHTMLAttributes } from "react";
+import {
+  cloneElement,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+  type SelectHTMLAttributes,
+  useId,
+} from "react";
 
 import { Icon } from "./Icon.js";
 
-/** A labelled form control with an optional hint underneath. */
+/**
+ * A labelled form control with an optional hint underneath. The hint sits outside the label so it
+ * describes the control without becoming part of its accessible name.
+ */
 export function Field({
   label,
   hint,
@@ -16,13 +26,24 @@ export function Field({
   className?: string;
   children: ReactNode;
 }) {
+  const hintId = useId();
+  const control =
+    hint && isValidElement(children)
+      ? cloneElement(children as ReactElement<{ "aria-describedby"?: string }>, { "aria-describedby": hintId })
+      : children;
   return (
-    // biome-ignore lint/a11y/noLabelWithoutControl: the control is passed in as a child.
-    <label className={`field${className ? ` ${className}` : ""}`}>
-      <span className="field-label">{label}</span>
-      {children}
-      {hint ? <span className={`field-hint${hintTone ? ` is-${hintTone}` : ""}`}>{hint}</span> : null}
-    </label>
+    <div className={`field${className ? ` ${className}` : ""}`}>
+      {/* biome-ignore lint/a11y/noLabelWithoutControl: the control is passed in as a child. */}
+      <label className="field-control">
+        <span className="field-label">{label}</span>
+        {control}
+      </label>
+      {hint ? (
+        <span className={`field-hint${hintTone ? ` is-${hintTone}` : ""}`} id={hintId}>
+          {hint}
+        </span>
+      ) : null}
+    </div>
   );
 }
 

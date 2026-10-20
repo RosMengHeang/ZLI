@@ -88,9 +88,8 @@
 .search-match mark, .quick-open mark { border-radius: 2px; background: var(--zli-accent-soft); color: var(--zli-text); }
 
 /* ---------- Go to file ---------- */
-.quick-open-row .quick-open-name { flex: 0 0 auto; }
+.quick-open-row .quick-open-name { flex: 0 0 auto; font-size: var(--zli-text-base); }
 .quick-open-row .quick-open-dir { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
-.quick-open .palette-section { max-height: min(420px, 60vh); }
 .quick-open mark { background: transparent; color: var(--zli-blue); }
 
 /* ---------- File links in chat ---------- */
