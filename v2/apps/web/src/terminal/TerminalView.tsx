@@ -11,17 +11,21 @@ type Props = {
   terminalId: string;
   running: boolean;
   send(command: Record<string, unknown>): Promise<RpcResponse | undefined>;
+  label?: string;
+  className?: string;
+  autoFocus?: boolean;
+  onFocus?(): void;
 };
 
 const RESIZE_DEBOUNCE_MS = 80;
 const ATTACH_ATTEMPTS = 30;
 
 export const terminalTheme: ITheme = {
-  background: "#161616",
-  foreground: "#d7d7d7",
-  cursor: "#f1f1f1",
-  cursorAccent: "#161616",
-  selectionBackground: "rgba(199, 215, 255, 0.28)",
+  background: "#0c0c0c",
+  foreground: "#dcdcdc",
+  cursor: "rgb(180, 203, 255)",
+  cursorAccent: "#0c0c0c",
+  selectionBackground: "rgba(180, 203, 255, 0.25)",
   black: "#1f1f1f",
   red: "#d77c7c",
   green: "#69c58b",
@@ -40,7 +44,19 @@ export const terminalTheme: ITheme = {
   brightWhite: "#f1f1f1",
 };
 
-export function TerminalView({ bridge, terminalId, running, send }: Props) {
+export function TerminalView({
+  bridge,
+  terminalId,
+  running,
+  send,
+  label = "Terminal output",
+  className = "terminal-output",
+  autoFocus = true,
+  onFocus,
+}: Props) {
+  const autoFocusRef = useRef(autoFocus);
+  const onFocusRef = useRef(onFocus);
+  onFocusRef.current = onFocus;
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | undefined>(undefined);
   const sendRef = useRef(send);
@@ -156,7 +172,15 @@ export function TerminalView({ bridge, terminalId, running, send }: Props) {
     } catch {
       // Sizing is retried by the resize observer once the host has layout.
     }
-    terminal.focus();
+    if (autoFocusRef.current) terminal.focus();
+    const focusSubscription = terminal.textarea
+      ? (() => {
+          const textarea = terminal.textarea;
+          const listener = () => onFocusRef.current?.();
+          textarea.addEventListener("focus", listener);
+          return () => textarea.removeEventListener("focus", listener);
+        })()
+      : undefined;
 
     attach();
 
@@ -165,6 +189,7 @@ export function TerminalView({ bridge, terminalId, running, send }: Props) {
       if (resizeTimer !== undefined) clearTimeout(resizeTimer);
       observer?.disconnect();
       dataSubscription.dispose();
+      focusSubscription?.();
       unsubscribe();
       terminalRef.current = undefined;
       terminal.dispose();
@@ -179,9 +204,9 @@ export function TerminalView({ bridge, terminalId, running, send }: Props) {
 
   return (
     <div
-      className="terminal-output"
+      className={className}
       role="log"
-      aria-label="Terminal output"
+      aria-label={label}
       ref={hostRef}
       onMouseDown={() => terminalRef.current?.focus()}
     />

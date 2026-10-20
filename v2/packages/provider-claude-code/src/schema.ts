@@ -2,7 +2,14 @@ export type ClaudeInbound =
   | { kind: "init"; sessionId: string }
   | { kind: "text"; text: string; partial: boolean; subagent: boolean }
   | { kind: "result"; isError: boolean; text?: string; subtype?: string }
-  | { kind: "control_request"; requestId: string; subtype: string }
+  | {
+      kind: "control_request";
+      requestId: string;
+      subtype: string;
+      toolName?: string;
+      input?: Record<string, unknown>;
+      toolUseId?: string;
+    }
   | { kind: "control_response"; requestId: string; ok: boolean; error?: string }
   | { kind: "ignore" }
   | { kind: "invalid"; reason: "init" | "message" };
@@ -48,7 +55,10 @@ export function interruptRequest(requestId: string): {
   };
 }
 
-export function denyToolRequest(requestId: string): {
+export function denyToolRequest(
+  requestId: string,
+  message = "Claude Code adapter does not support tool approvals.",
+): {
   type: "control_response";
   response: {
     subtype: "success";
@@ -61,12 +71,82 @@ export function denyToolRequest(requestId: string): {
     response: {
       subtype: "success",
       request_id: requestId,
-      response: {
-        behavior: "deny",
-        message: "Claude Code adapter does not support tool approvals.",
-      },
+      response: { behavior: "deny", message },
     },
   };
+}
+
+export function allowToolRequest(
+  requestId: string,
+  input: Record<string, unknown>,
+): {
+  type: "control_response";
+  response: {
+    subtype: "success";
+    request_id: string;
+    response: { behavior: "allow"; updatedInput: Record<string, unknown> };
+  };
+} {
+  return {
+    type: "control_response",
+    response: {
+      subtype: "success",
+      request_id: requestId,
+      response: { behavior: "allow", updatedInput: input },
+    },
+  };
+}
+
+export function setModelRequest(
+  requestId: string,
+  model: string,
+): { type: "control_request"; request_id: string; request: { subtype: "set_model"; model: string } } {
+  return { type: "control_request", request_id: requestId, request: { subtype: "set_model", model } };
+}
+
+export type ClaudeToolBlock =
+  | { kind: "use"; id: string; name: string; input?: Record<string, unknown> }
+  | { kind: "result"; toolUseId: string; isError: boolean; output?: string };
+
+/**
+ * Tool calls arrive as assistant content blocks { type: "tool_use", id, name, input }
+ * and their results as user content blocks { type: "tool_result", tool_use_id, content, is_error }.
+ * Subagent traffic carries parent_tool_use_id and stays out of the parent's work log.
+ */
+export function claudeToolBlocks(value: unknown): ClaudeToolBlock[] {
+  const record = asRecord(value);
+  if (!record || (record.type !== "assistant" && record.type !== "user") || isSubagent(record)) return [];
+  const content = asRecord(record.message)?.content;
+  if (!Array.isArray(content)) return [];
+  const blocks: ClaudeToolBlock[] = [];
+  for (const raw of content) {
+    const block = asRecord(raw);
+    if (!block) continue;
+    if (record.type === "assistant" && block.type === "tool_use") {
+      const id = typeof block.id === "string" && block.id ? block.id : undefined;
+      const name = typeof block.name === "string" && block.name ? block.name : undefined;
+      if (!id || !name) continue;
+      const input = asRecord(block.input);
+      blocks.push({ kind: "use", id, name, ...(input ? { input } : {}) });
+    } else if (record.type === "user" && block.type === "tool_result") {
+      const toolUseId = typeof block.tool_use_id === "string" && block.tool_use_id ? block.tool_use_id : undefined;
+      if (!toolUseId) continue;
+      const output = resultText(block.content);
+      blocks.push({ kind: "result", toolUseId, isError: block.is_error === true, ...(output ? { output } : {}) });
+    }
+  }
+  return blocks;
+}
+
+function resultText(content: unknown): string | undefined {
+  if (typeof content === "string") return content.length > 0 ? content : undefined;
+  if (!Array.isArray(content)) return undefined;
+  const parts: string[] = [];
+  for (const raw of content) {
+    const block = asRecord(raw);
+    if (block?.type === "text" && typeof block.text === "string") parts.push(block.text);
+  }
+  return parts.length > 0 ? parts.join("\n") : undefined;
 }
 
 export function unsupportedControlResponse(requestId: string): {
@@ -123,7 +203,17 @@ function classifyControlRequest(record: Record<string, unknown>): ClaudeInbound 
   const requestId = typeof record.request_id === "string" ? record.request_id : "";
   const subtype = typeof request?.subtype === "string" ? request.subtype : "";
   if (!requestId || !subtype) return { kind: "invalid", reason: "message" };
-  return { kind: "control_request", requestId, subtype };
+  const toolName = typeof request?.tool_name === "string" && request.tool_name ? request.tool_name : undefined;
+  const input = asRecord(request?.input);
+  const toolUseId = typeof request?.tool_use_id === "string" && request.tool_use_id ? request.tool_use_id : undefined;
+  return {
+    kind: "control_request",
+    requestId,
+    subtype,
+    ...(toolName ? { toolName } : {}),
+    ...(input ? { input } : {}),
+    ...(toolUseId ? { toolUseId } : {}),
+  };
 }
 
 function classifyControlResponse(record: Record<string, unknown>): ClaudeInbound {

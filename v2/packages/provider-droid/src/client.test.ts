@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { DroidClient, type DroidChild, type DroidProviderEvent, type DroidSpawnOptions } from "./client.js";
+import { type DroidChild, DroidClient, type DroidProviderEvent, type DroidSpawnOptions } from "./client.js";
 
 class FakeStream extends EventEmitter {
   setEncoding(): void {}
@@ -132,6 +132,22 @@ describe("DroidClient", () => {
     expect(events).toEqual([
       { type: "turn.started", providerTurnId: turn.providerTurnId },
       { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "Creating the file." },
+      {
+        type: "tool.updated",
+        providerTurnId: turn.providerTurnId,
+        tool: { callId: "call-1", name: "Create", input: { file_path: "/work/tree/hello.txt" }, status: "running" },
+      },
+      {
+        type: "tool.updated",
+        providerTurnId: turn.providerTurnId,
+        tool: {
+          callId: "call-1",
+          name: "Create",
+          input: { file_path: "/work/tree/hello.txt" },
+          status: "completed",
+          output: "ok",
+        },
+      },
       { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "\n\nDONE" },
       { type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" },
     ]);
@@ -224,13 +240,10 @@ describe("DroidClient", () => {
     expect(client.transcript()[0]).toMatchObject({ providerTurnId: turn.providerTurnId, sessionId: "sess-9" });
   });
 
-  it("rejects in-session model switches and a second turn while one is still running", async () => {
+  it("passes a turn-level model to that run and rejects a second turn while one is still running", async () => {
     const { client, calls } = await harness();
-    await expect(client.sendTurn({ text: "Hi", model: "gpt-5" })).rejects.toMatchObject({
-      code: "unsupported",
-      message: "Droid CLI adapter does not switch models in a session.",
-    });
-    await client.sendTurn({ text: "Hi" });
+    await client.sendTurn({ text: "Hi", model: "gpt-5" });
+    expect(calls[0]?.args).toEqual([...execArgs, "-m", "gpt-5"]);
     await expect(client.sendTurn({ text: "Again" })).rejects.toMatchObject({
       code: "request_failed",
       message: "Droid CLI already has a turn in progress.",
@@ -307,5 +320,157 @@ describe("DroidClient", () => {
       code: "request_failed",
       message: `Droid CLI working directory does not exist: ${cwd}.`,
     });
+  });
+});
+
+describe("DroidClient tool activity", () => {
+  it("pairs captured tool_call and tool_result records by id", async () => {
+    const { client, children, events } = await harness();
+    const turn = await client.sendTurn({ text: "Inspect the folder" });
+    const emit = (value: unknown) => children[0]?.stdout.emit("data", line(value));
+    const meta = { messageId: "8ac9a63f", timestamp: 1792476710544, session_id: "sess-t" };
+    emit({ type: "system", subtype: "init", cwd: "/work/tree", session_id: "sess-t", model: "gpt-6-sol" });
+    emit({
+      type: "tool_call",
+      id: "call_read",
+      toolId: "Read",
+      toolName: "Read",
+      parameters: { file_path: "/work/tree/hello.txt" },
+      ...meta,
+    });
+    emit({
+      type: "tool_call",
+      id: "call_exec",
+      toolId: "Execute",
+      toolName: "Execute",
+      parameters: { command: "echo zli-check", summary: "Print the requested shell check", riskLevel: "low" },
+      ...meta,
+    });
+    emit({
+      type: "tool_result",
+      id: "call_read",
+      toolId: "Read",
+      isError: false,
+      value: "hello world\nsecond line\n",
+      ...meta,
+    });
+    emit({
+      type: "tool_result",
+      id: "call_exec",
+      toolId: "Execute",
+      isError: false,
+      value: "zli-check\r\n\n\n[Process exited with code 0]",
+      ...meta,
+    });
+    emit({
+      type: "tool_call",
+      id: "call_fail",
+      toolId: "Execute",
+      toolName: "Execute",
+      parameters: { command: "npm test" },
+      ...meta,
+    });
+    emit({
+      type: "tool_result",
+      id: "call_fail",
+      toolId: "Execute",
+      isError: false,
+      value: "1 failing\n\n[Process exited with code 1]",
+      ...meta,
+    });
+    emit({
+      type: "tool_call",
+      id: "call_patch",
+      toolId: "ApplyPatch",
+      toolName: "ApplyPatch",
+      parameters: { input: "*** Begin Patch\n*** Add File: /work/tree/note.txt\n+done\n*** End Patch\n" },
+      ...meta,
+    });
+    emit({
+      type: "tool_result",
+      id: "call_patch",
+      toolId: "ApplyPatch",
+      isError: false,
+      value: { success: true, files: [{ file_path: "/work/tree/note.txt", display_operation: "create" }] },
+      ...meta,
+    });
+    emit({ type: "tool_result", id: "call_unknown", toolId: "Grep", isError: true, value: "boom", ...meta });
+    emit({ type: "tool_call", toolName: "Read", ...meta });
+    emit({ type: "completion", finalText: "Done.", session_id: "sess-t" });
+
+    const tools = events.flatMap((event) => (event.type === "tool.updated" ? [event] : []));
+    expect(tools.every((event) => event.providerTurnId === turn.providerTurnId)).toBe(true);
+    expect(tools.map((event) => event.tool)).toEqual([
+      { callId: "call_read", name: "Read", input: { file_path: "/work/tree/hello.txt" }, status: "running" },
+      {
+        callId: "call_exec",
+        name: "Execute",
+        input: { command: "echo zli-check", summary: "Print the requested shell check", riskLevel: "low" },
+        status: "running",
+      },
+      {
+        callId: "call_read",
+        name: "Read",
+        input: { file_path: "/work/tree/hello.txt" },
+        status: "completed",
+        output: "hello world\nsecond line\n",
+      },
+      {
+        callId: "call_exec",
+        name: "Execute",
+        input: { command: "echo zli-check", summary: "Print the requested shell check", riskLevel: "low" },
+        status: "completed",
+        output: "zli-check\r\n\n\n[Process exited with code 0]",
+      },
+      { callId: "call_fail", name: "Execute", input: { command: "npm test" }, status: "running" },
+      {
+        callId: "call_fail",
+        name: "Execute",
+        input: { command: "npm test" },
+        status: "failed",
+        output: "1 failing\n\n[Process exited with code 1]",
+      },
+      {
+        callId: "call_patch",
+        name: "ApplyPatch",
+        input: { input: "*** Begin Patch\n*** Add File: /work/tree/note.txt\n+done\n*** End Patch\n" },
+        status: "running",
+      },
+      {
+        callId: "call_patch",
+        name: "ApplyPatch",
+        input: { input: "*** Begin Patch\n*** Add File: /work/tree/note.txt\n+done\n*** End Patch\n" },
+        status: "completed",
+        output: '{"success":true,"files":[{"file_path":"/work/tree/note.txt","display_operation":"create"}]}',
+      },
+      { callId: "call_unknown", name: "Grep", status: "failed", output: "boom" },
+    ]);
+    expect(events.at(-1)).toEqual({ type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" });
+  });
+
+  it("runs supervised turns with --auto low and the session model", async () => {
+    const calls: Array<readonly string[]> = [];
+    const client = await DroidClient.start({
+      command: "/usr/bin/droid",
+      cwd: "/work/tree",
+      permissionMode: "supervised",
+      model: "claude-opus-5-5",
+      spawnProcess: (_command, args) => {
+        calls.push(args);
+        return new FakeProcess();
+      },
+    });
+    await client.sendTurn({ text: "Hi" });
+    expect(calls[0]).toEqual([
+      "exec",
+      "-o",
+      "stream-json",
+      "--cwd",
+      "/work/tree",
+      "--auto",
+      "low",
+      "-m",
+      "claude-opus-5-5",
+    ]);
   });
 });

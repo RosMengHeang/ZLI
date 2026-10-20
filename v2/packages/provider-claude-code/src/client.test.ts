@@ -223,18 +223,19 @@ describe("ClaudeCodeClient", () => {
     ]);
   });
 
-  it("rejects in-session model switches and a second turn while one is still running", async () => {
+  it("switches models with set_model before the turn and rejects a second turn while one is still running", async () => {
     const { client, peer } = await startedClient();
-    await expect(client.sendTurn({ text: "Hi", model: "opus" })).rejects.toMatchObject({
-      code: "unsupported",
-      message: "Claude Code adapter does not switch models in a session.",
+    await client.sendTurn({ text: "Hi", model: "opus" });
+    expect(JSON.parse(peer.written[1] ?? "{}")).toMatchObject({
+      type: "control_request",
+      request: { subtype: "set_model", model: "opus" },
     });
-    await client.sendTurn({ text: "Hi" });
-    await expect(client.sendTurn({ text: "Again" })).rejects.toMatchObject({
+    expect(JSON.parse(peer.written[2] ?? "{}")).toMatchObject({ type: "user", message: { content: "Hi" } });
+    await expect(client.sendTurn({ text: "Again", model: "opus" })).rejects.toMatchObject({
       code: "request_failed",
       message: "Claude Code already has a turn in progress.",
     });
-    expect(peer.written).toHaveLength(2);
+    expect(peer.written).toHaveLength(3);
   });
 
   it("does not hang when session init never arrives", async () => {
@@ -353,5 +354,179 @@ describe("ClaudeCodeClient", () => {
       code: "request_failed",
       message: `Claude Code working directory does not exist: ${cwd}.`,
     });
+  });
+});
+
+describe("ClaudeCodeClient tool activity and supervised approvals", () => {
+  it("reports tool_use blocks as running and tool_result blocks as completed or failed", async () => {
+    const { client, peer, events } = await startedClient();
+    const turn = await client.sendTurn({ text: "Run the tests" });
+    peer.emit({
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Running tests." },
+          { type: "tool_use", id: "toolu_1", name: "Bash", input: { command: "npm test", description: "Run tests" } },
+        ],
+      },
+    });
+    peer.emit({
+      type: "user",
+      parent_tool_use_id: null,
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "1 failed", is_error: true }],
+      },
+    });
+    peer.emit({
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "toolu_2", name: "Read", input: { file_path: "/work/tree/src/app.ts" } }],
+      },
+    });
+    peer.emit({
+      type: "user",
+      parent_tool_use_id: null,
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "toolu_2", content: [{ type: "text", text: "export {}" }] }],
+      },
+    });
+    peer.emit({
+      type: "assistant",
+      parent_tool_use_id: "toolu_task",
+      message: { role: "assistant", content: [{ type: "tool_use", id: "toolu_sub", name: "Grep", input: {} }] },
+    });
+    peer.emit({ type: "user", message: { role: "user", content: [{ type: "tool_result" }] } });
+
+    expect(events.filter((event) => event.type === "tool.updated")).toEqual([
+      {
+        type: "tool.updated",
+        providerTurnId: turn.providerTurnId,
+        tool: {
+          callId: "toolu_1",
+          name: "Bash",
+          input: { command: "npm test", description: "Run tests" },
+          status: "running",
+        },
+      },
+      {
+        type: "tool.updated",
+        providerTurnId: turn.providerTurnId,
+        tool: {
+          callId: "toolu_1",
+          name: "Bash",
+          input: { command: "npm test", description: "Run tests" },
+          status: "failed",
+          output: "1 failed",
+        },
+      },
+      {
+        type: "tool.updated",
+        providerTurnId: turn.providerTurnId,
+        tool: { callId: "toolu_2", name: "Read", input: { file_path: "/work/tree/src/app.ts" }, status: "running" },
+      },
+      {
+        type: "tool.updated",
+        providerTurnId: turn.providerTurnId,
+        tool: {
+          callId: "toolu_2",
+          name: "Read",
+          input: { file_path: "/work/tree/src/app.ts" },
+          status: "completed",
+          output: "export {}",
+        },
+      },
+    ]);
+  });
+
+  it("starts supervised sessions in default mode with stdio prompts and the chosen model", async () => {
+    const child = new FakeProcess();
+    let args: readonly string[] = [];
+    const pending = ClaudeCodeClient.start({
+      command: "/usr/bin/claude",
+      cwd: "/work/tree",
+      permissionMode: "supervised",
+      model: "sonnet",
+      spawnProcess: (_command, spawnedArgs) => {
+        args = spawnedArgs;
+        return child;
+      },
+    });
+    child.stdout.emit("data", line({ type: "system", subtype: "init", session_id: "sess-s" }));
+    await pending;
+    expect(args).toEqual([
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--input-format",
+      "stream-json",
+      "--verbose",
+      "--include-partial-messages",
+      "--permission-mode",
+      "default",
+      "--permission-prompt-tool",
+      "stdio",
+      "--model",
+      "sonnet",
+    ]);
+  });
+
+  it("surfaces can_use_tool as an approval and answers allow or deny", async () => {
+    const peer = new FakePeer();
+    const pending = ClaudeCodeClient.start({ peer, cwd: "/work/tree", permissionMode: "supervised" });
+    peer.emit({ type: "system", subtype: "init", session_id: "sess-a" });
+    const client = await pending;
+    const events: ClaudeProviderEvent[] = [];
+    client.subscribe((event) => events.push(event));
+    await client.sendTurn({ text: "Clean up" });
+    peer.emit({
+      type: "control_request",
+      request_id: "req-1",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "Bash",
+        input: { command: "rm -rf dist" },
+        tool_use_id: "toolu_9",
+      },
+    });
+    peer.emit({
+      type: "control_request",
+      request_id: "req-2",
+      request: { subtype: "can_use_tool", tool_name: "Write", input: { file_path: "a.txt" } },
+    });
+    expect(events.filter((event) => event.type === "approval.requested")).toEqual([
+      {
+        type: "approval.requested",
+        requestId: "req-1",
+        payload: { toolName: "Bash", input: { command: "rm -rf dist" }, toolUseId: "toolu_9" },
+      },
+      { type: "approval.requested", requestId: "req-2", payload: { toolName: "Write", input: { file_path: "a.txt" } } },
+    ]);
+    await client.respondToApproval("req-1", true);
+    await client.respondToApproval("req-2", false);
+    expect(peer.written.slice(-2).map((entry) => JSON.parse(entry))).toEqual([
+      {
+        type: "control_response",
+        response: {
+          subtype: "success",
+          request_id: "req-1",
+          response: { behavior: "allow", updatedInput: { command: "rm -rf dist" } },
+        },
+      },
+      {
+        type: "control_response",
+        response: {
+          subtype: "success",
+          request_id: "req-2",
+          response: { behavior: "deny", message: "The user declined this tool call." },
+        },
+      },
+    ]);
+    await expect(client.respondToApproval("req-1", true)).rejects.toMatchObject({ code: "request_failed" });
   });
 });

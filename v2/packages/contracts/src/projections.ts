@@ -2,7 +2,13 @@ import { z } from "zod";
 import { BrowserTabProjection } from "./browser.js";
 import { EnvironmentId, ProjectId, ThreadId, WorktreeId } from "./ids.js";
 import { LegacyImportProjection } from "./import.js";
-import { ProviderDiscovery, ThreadMessageProjection, ThreadProjection, ThreadRequestProjection } from "./provider.js";
+import {
+  ProviderDiscovery,
+  ThreadActivityProjection,
+  ThreadMessageProjection,
+  ThreadProjection,
+  ThreadRequestProjection,
+} from "./provider.js";
 import { ReviewProjection } from "./review.js";
 import { TerminalProjection } from "./terminal.js";
 
@@ -37,6 +43,8 @@ export const WorktreeProjection = z.object({
   branch: z.string().min(1),
   status: z.enum(["queued", "fetching", "creating", "bootstrapping", "ready", "failed", "cancelling", "cancelled"]),
   errorMessage: z.string().min(1).optional(),
+  /** "checkout" is the project's own working copy. Removing it only forgets it; files stay on disk. */
+  kind: z.enum(["worktree", "checkout"]).optional(),
 });
 export type WorktreeProjection = z.infer<typeof WorktreeProjection>;
 
@@ -100,6 +108,7 @@ export const RuntimeProjection = z.object({
   providers: z.array(ProviderDiscovery).optional(),
   messages: z.array(ThreadMessageProjection).optional(),
   requests: z.array(ThreadRequestProjection).optional(),
+  activities: z.array(ThreadActivityProjection).optional(),
   terminals: z.array(TerminalProjection),
   browserTabs: z.array(BrowserTabProjection),
   reviews: z.array(ReviewProjection).optional(),
@@ -109,6 +118,46 @@ export const RuntimeProjection = z.object({
   lastSequence: z.number().int().nonnegative(),
 });
 export type RuntimeProjection = z.infer<typeof RuntimeProjection>;
+
+const MAX_PROJECTED_MESSAGES = 2_000;
+const MAX_PROJECTED_ACTIVITIES = 4_000;
+
+/** Streamed assistant text for one turn extends that turn's bubble instead of adding a new one. */
+export function appendThreadMessage(
+  messages: readonly ThreadMessageProjection[],
+  message: ThreadMessageProjection,
+): ThreadMessageProjection[] {
+  if (message.role === "assistant" && message.turnId) {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const candidate = messages[index];
+      if (!candidate || candidate.threadId !== message.threadId) continue;
+      if (candidate.role === "assistant" && candidate.turnId === message.turnId) {
+        const merged = { ...candidate, text: candidate.text + message.text };
+        return [...messages.slice(0, index), merged, ...messages.slice(index + 1)];
+      }
+      break;
+    }
+  }
+  return [...messages.filter((candidate) => candidate.messageId !== message.messageId), message].slice(
+    -MAX_PROJECTED_MESSAGES,
+  );
+}
+
+/** A later update for the same tool call replaces it in place so the work log keeps its order. */
+export function upsertThreadActivity(
+  activities: readonly ThreadActivityProjection[],
+  activity: ThreadActivityProjection,
+): ThreadActivityProjection[] {
+  const index = activities.findIndex((candidate) => candidate.activityId === activity.activityId);
+  if (index === -1) return [...activities, activity].slice(-MAX_PROJECTED_ACTIVITIES);
+  const previous = activities[index];
+  const merged: ThreadActivityProjection = {
+    ...previous,
+    ...activity,
+    ...(activity.files || previous?.files ? { files: activity.files ?? previous?.files } : {}),
+  };
+  return [...activities.slice(0, index), merged, ...activities.slice(index + 1)];
+}
 
 const retiredWorktreeStatuses = new Set<WorktreeProjection["status"]>(["cancelled"]);
 const closedThreadStatuses = new Set<ThreadProjection["status"]>(["stopped"]);

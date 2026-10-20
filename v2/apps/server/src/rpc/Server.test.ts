@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { type EnvironmentDescriptor, EnvironmentId } from "@zli-v2/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
@@ -215,6 +219,114 @@ describe("authenticated local RPC server", () => {
           { provider: "droid", status: "found", path: "C:\\Users\\dev\\bin\\droid.exe" },
         ],
       },
+    });
+    socket.close();
+  });
+
+  it("stores uploaded images on disk and records only their paths", async () => {
+    const attachmentsDir = await mkdtemp(join(tmpdir(), "zli-rpc-attachments-"));
+    try {
+      const database = new Database({ path: ":memory:" });
+      const engine = new Engine({ database, environment });
+      const server = new RpcServer({ engine, environment, token: "test-token", attachmentsDir });
+      await server.start();
+      resources.push({ database, server });
+      const threadId = "00000000-0000-4000-8000-000000000163";
+      const project = await engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: "00000000-0000-4000-8000-000000000160",
+        command: { type: "project.register", path: attachmentsDir },
+      } as never);
+      await engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: "00000000-0000-4000-8000-000000000161",
+        command: {
+          type: "worktree.import",
+          worktreeId: "00000000-0000-4000-8000-000000000162",
+          projectId: project.result?.projectId,
+          path: attachmentsDir,
+          branch: "main",
+        },
+      } as never);
+      await engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: "00000000-0000-4000-8000-000000000164",
+        command: {
+          type: "thread.start",
+          threadId,
+          worktreeId: "00000000-0000-4000-8000-000000000162",
+          provider: "codex",
+          cwd: attachmentsDir,
+        },
+      } as never);
+      const socket = await connected(server);
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+      const send = (commandId: string, attachment: Record<string, unknown>) =>
+        socket.send(
+          JSON.stringify({
+            type: "command",
+            request: {
+              protocolVersion: 1,
+              commandId,
+              command: { type: "thread.send", threadId, text: "look", attachments: [attachment] },
+            },
+          }),
+        );
+
+      send("00000000-0000-4000-8000-000000000165", {
+        name: "shot.png",
+        mimeType: "image/png",
+        dataBase64: png.toString("base64"),
+      });
+      await expect(nextMessage(socket)).resolves.toMatchObject({ type: "response", response: { accepted: true } });
+      const sent = (await engine.eventsAfter(0)).find((entry) => entry.event.type === "thread.send.requested");
+      const event = sent?.event as { attachments?: Array<{ name: string; path: string }> } | undefined;
+      const attachments = event?.attachments ?? [];
+      expect(attachments).toHaveLength(1);
+      expect(attachments[0]?.path.startsWith(join(attachmentsDir, threadId))).toBe(true);
+      expect(await readFile(attachments[0]?.path ?? "")).toEqual(png);
+      expect(JSON.stringify(await engine.eventsAfter(0))).not.toContain(png.toString("base64"));
+
+      send("00000000-0000-4000-8000-000000000166", {
+        name: "fake.gif",
+        mimeType: "image/gif",
+        dataBase64: png.toString("base64"),
+      });
+      await expect(nextMessage(socket)).resolves.toMatchObject({
+        type: "response",
+        response: {
+          commandId: "00000000-0000-4000-8000-000000000166",
+          accepted: false,
+          error: { code: "invalid_request", message: "Attachment fake.gif is not a image/gif image." },
+        },
+      });
+
+      send("00000000-0000-4000-8000-000000000167", {
+        name: "hosts",
+        mimeType: "image/png",
+        path: join(attachmentsDir, "..", "elsewhere.png"),
+      });
+      await expect(nextMessage(socket)).resolves.toMatchObject({
+        type: "response",
+        response: { accepted: false, error: { code: "invalid_request" } },
+      });
+      socket.close();
+    } finally {
+      await rm(attachmentsDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an oversized frame before the hello handshake", async () => {
+    const server = await makeServer();
+    const socket = new WebSocket(server.url());
+    await new Promise<void>((resolve, reject) => {
+      socket.once("open", () => resolve());
+      socket.once("error", reject);
+    });
+    socket.send("x".repeat(128 * 1024));
+    await expect(nextMessage(socket)).resolves.toMatchObject({
+      type: "error",
+      error: { code: "invalid_request", message: "RPC frame is too large." },
     });
     socket.close();
   });

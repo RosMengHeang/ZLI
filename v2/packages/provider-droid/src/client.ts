@@ -4,7 +4,7 @@ import { accessSync, constants, statSync } from "node:fs";
 
 import { spawnCli } from "@zli-v2/shared";
 
-import { decodeDroidLine, droidTurnArgs, MAX_DROID_LINE_CHARS } from "./protocol.js";
+import { type DroidPermissionMode, decodeDroidLine, droidTurnArgs, MAX_DROID_LINE_CHARS } from "./protocol.js";
 import { classifyDroidMessage } from "./schema.js";
 
 const VERSION_PROBE_MS = 1_000;
@@ -15,8 +15,17 @@ export type DroidProviderEvent =
   | { type: "assistant.delta"; providerTurnId: string; text: string }
   | { type: "turn.completed"; providerTurnId: string; status: string }
   | { type: "turn.failed"; providerTurnId: string; message: string }
+  | { type: "tool.updated"; providerTurnId: string; tool: DroidToolUpdate }
   | { type: "protocol.error"; message: string }
   | { type: "session.closed"; reason: string };
+
+export type DroidToolUpdate = {
+  callId: string;
+  name: string;
+  input?: Record<string, unknown>;
+  status: "running" | "completed" | "failed";
+  output?: string;
+};
 
 export type DroidTurnResult = { providerTurnId: string };
 export type DroidTranscriptTurn = { providerTurnId: string; text: string; status: string; sessionId?: string };
@@ -61,6 +70,9 @@ export type DroidClientOptions = {
   cwd: string;
   command?: string;
   env?: NodeJS.ProcessEnv;
+  permissionMode?: DroidPermissionMode;
+  /** Default model for every turn that does not name one. */
+  model?: string;
   spawnProcess?: (command: string, args: readonly string[], options: DroidSpawnOptions) => DroidChild;
 };
 
@@ -75,7 +87,12 @@ export class DroidProviderError extends Error {
   }
 }
 
-type ActiveTurn = { id: string; text: string; sawText: boolean };
+type ActiveTurn = {
+  id: string;
+  text: string;
+  sawText: boolean;
+  tools: Map<string, { name: string; input?: Record<string, unknown> }>;
+};
 
 export class DroidClient {
   private readonly listeners = new Set<(event: DroidProviderEvent) => void>();
@@ -92,6 +109,8 @@ export class DroidClient {
     private readonly command: string,
     private readonly spawnProcess: DroidClientOptions["spawnProcess"],
     private readonly baseEnv: NodeJS.ProcessEnv | undefined,
+    private readonly permissionMode: DroidPermissionMode,
+    private readonly model: string | undefined,
   ) {}
 
   static async start(options: DroidClientOptions): Promise<DroidClient> {
@@ -101,7 +120,14 @@ export class DroidClient {
       assertWorktree(options.cwd);
       await assertCommand(command);
     }
-    return new DroidClient(options.cwd, command, options.spawnProcess, options.env);
+    return new DroidClient(
+      options.cwd,
+      command,
+      options.spawnProcess,
+      options.env,
+      options.permissionMode ?? "full-access",
+      options.model?.trim() || undefined,
+    );
   }
 
   subscribe(listener: (event: DroidProviderEvent) => void): () => void {
@@ -113,15 +139,13 @@ export class DroidClient {
     return this.completed;
   }
 
+  /** Each turn is its own process, so a turn-level model simply replaces -m for that run. */
   async sendTurn(input: { text: string; model?: string }): Promise<DroidTurnResult> {
-    if (input.model) {
-      throw new DroidProviderError("unsupported", "Droid CLI adapter does not switch models in a session.");
-    }
     this.assertOpen();
     if (this.active) throw new DroidProviderError("request_failed", "Droid CLI already has a turn in progress.");
     const providerTurnId = randomUUID();
-    const peer = this.spawnTurn();
-    this.active = { id: providerTurnId, text: "", sawText: false };
+    const peer = this.spawnTurn(input.model?.trim() || this.model);
+    this.active = { id: providerTurnId, text: "", sawText: false, tools: new Map() };
     try {
       peer.write(input.text);
       peer.endInput();
@@ -152,9 +176,14 @@ export class DroidClient {
     await this.stopPeer();
   }
 
-  private spawnTurn(): DroidPeer {
+  private spawnTurn(model: string | undefined): DroidPeer {
     const spawnProcess = this.spawnProcess ?? defaultSpawn;
-    const args = droidTurnArgs({ cwd: this.cwd, ...(this.sessionId ? { sessionId: this.sessionId } : {}) });
+    const args = droidTurnArgs({
+      cwd: this.cwd,
+      permissionMode: this.permissionMode,
+      ...(model ? { model } : {}),
+      ...(this.sessionId ? { sessionId: this.sessionId } : {}),
+    });
     let child: DroidChild;
     try {
       child = spawnProcess(this.command, args, {
@@ -228,9 +257,46 @@ export class DroidClient {
       case "error":
         this.onError(message.message);
         return;
+      case "tool_call":
+        this.onToolCall(message);
+        return;
+      case "tool_result":
+        this.onToolResult(message);
+        return;
       default:
         return;
     }
+  }
+
+  private onToolCall(message: { callId: string; name: string; input?: Record<string, unknown> }): void {
+    const active = this.active;
+    if (!active) return;
+    const tool = { name: message.name, ...(message.input ? { input: message.input } : {}) };
+    active.tools.set(message.callId, tool);
+    this.emit({
+      type: "tool.updated",
+      providerTurnId: active.id,
+      tool: { callId: message.callId, ...tool, status: "running" },
+    });
+  }
+
+  private onToolResult(message: { callId: string; name?: string; isError: boolean; output?: string }): void {
+    const active = this.active;
+    if (!active) return;
+    const started = active.tools.get(message.callId);
+    active.tools.delete(message.callId);
+    const name = started?.name ?? message.name ?? "Tool";
+    this.emit({
+      type: "tool.updated",
+      providerTurnId: active.id,
+      tool: {
+        callId: message.callId,
+        name,
+        ...(started?.input ? { input: started.input } : {}),
+        status: message.isError ? "failed" : "completed",
+        ...(message.output ? { output: message.output } : {}),
+      },
+    });
   }
 
   private onCompletion(message: { isError: boolean; text?: string }): void {

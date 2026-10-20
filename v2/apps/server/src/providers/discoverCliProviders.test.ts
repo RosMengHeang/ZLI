@@ -4,10 +4,15 @@ import { join, win32 } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  CLAUDE_CODE_MODELS,
   type CliProbe,
   createDefaultCliProbe,
   discoverCliProviders,
   fileLooksExecutable,
+  parseCursorModels,
+  parseDroidModels,
+  readCachedCliModels,
+  readCliModels,
   readCliVersion,
 } from "./discoverCliProviders.js";
 
@@ -246,5 +251,103 @@ describe("CLI probe helpers", () => {
       "claude 2.0.1",
     );
     await expect(readCliVersion(process.execPath, ["-e", "setInterval(() => {}, 1000)"], 100)).resolves.toBeUndefined();
+  });
+});
+describe("model discovery", () => {
+  it("parses cursor-agent models output, skipping the header, tip, and invisible characters", () => {
+    const output = [
+      "\u001b[1mAvailable models\u001b[0m",
+      "",
+      "auto - Auto",
+      "gpt-5\u200b - GPT-5   (current)",
+      "sonnet-4.5-thinking - Claude 4.5 Sonnet Thinking",
+      "gpt-5 - Duplicate",
+      "not a model row",
+      "Tip: use --model <id> to switch",
+    ].join("\r\n");
+    expect(parseCursorModels(output)).toEqual([
+      { id: "auto", label: "Auto" },
+      { id: "gpt-5", label: "GPT-5 (current)" },
+      { id: "sonnet-4.5-thinking", label: "Claude 4.5 Sonnet Thinking" },
+    ]);
+    expect(parseCursorModels("Available models\nTip: none")).toBeUndefined();
+    expect(parseCursorModels(undefined)).toBeUndefined();
+  });
+
+  it("parses the Available Models section of droid exec --help", () => {
+    const output = [
+      "Usage: droid exec [options] [prompt]",
+      "",
+      "Options:",
+      "  -m, --model <id>   Model ID to use",
+      "",
+      "Available Models:",
+      "",
+      "  gpt-6-sol                  GPT-6 Sol (default)",
+      "  claude-opus-4-1            Claude Opus 4.1",
+      "",
+      "Examples:",
+      '  droid exec --auto low  "fix tests"',
+    ].join("\n");
+    expect(parseDroidModels(output)).toEqual([
+      { id: "gpt-6-sol", label: "GPT-6 Sol (default)" },
+      { id: "claude-opus-4-1", label: "Claude Opus 4.1" },
+    ]);
+    expect(parseDroidModels("Usage: droid exec\n\nOptions:\n  -m  Model")).toBeUndefined();
+    expect(parseDroidModels(undefined)).toBeUndefined();
+  });
+
+  it("returns the static Claude Code aliases and nothing for Codex", async () => {
+    await expect(readCliModels("claude-code", "/missing/claude")).resolves.toEqual(CLAUDE_CODE_MODELS);
+    await expect(readCliModels("codex", "/missing/codex")).resolves.toBeUndefined();
+  });
+
+  it("attaches models to found providers and skips them when asked", async () => {
+    const modelCalls: string[] = [];
+    const cli = probe({
+      pathEntries: ["/tools"],
+      fileExists: (filePath) => filePath === "/tools/cursor-agent" || filePath === "/tools/droid",
+      readModels: async (provider, command) => {
+        modelCalls.push(`${provider}:${command}`);
+        if (provider === "droid") throw new Error("help failed");
+        return [{ id: "auto", label: "Auto" }];
+      },
+    });
+
+    const discovery = await discoverCliProviders(cli);
+    expect(discovery.find((entry) => entry.provider === "cursor-agent")).toEqual({
+      provider: "cursor-agent",
+      displayName: "Cursor",
+      status: "found",
+      path: "/tools/cursor-agent",
+      models: [{ id: "auto", label: "Auto" }],
+    });
+    expect(discovery.find((entry) => entry.provider === "droid")).toEqual({
+      provider: "droid",
+      displayName: "Droid",
+      status: "found",
+      path: "/tools/droid",
+    });
+    expect(modelCalls.sort()).toEqual(["cursor-agent:/tools/cursor-agent", "droid:/tools/droid"]);
+
+    modelCalls.length = 0;
+    const pathsOnly = await discoverCliProviders(cli, { models: false });
+    expect(pathsOnly.find((entry) => entry.provider === "cursor-agent")).not.toHaveProperty("models");
+    expect(modelCalls).toEqual([]);
+  });
+
+  it("reuses a cached listing and retries a failed one sooner", async () => {
+    let now = 1_000;
+    const clock = () => now;
+    const first = readCachedCliModels("claude-code", "/cache-test/claude", clock);
+    expect(readCachedCliModels("claude-code", "/cache-test/claude", clock)).toBe(first);
+    await first;
+
+    const failed = readCachedCliModels("codex", "/cache-test/codex", clock);
+    await failed;
+    await Promise.resolve();
+    now += 61_000;
+    expect(readCachedCliModels("codex", "/cache-test/codex", clock)).not.toBe(failed);
+    expect(readCachedCliModels("claude-code", "/cache-test/claude", clock)).toBe(first);
   });
 });

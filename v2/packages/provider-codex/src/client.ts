@@ -2,8 +2,14 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 
 import { spawnCli } from "@zli-v2/shared";
 
-import { JsonRpcId, JsonRpcMessage, JsonRpcResponse, decodeJsonRpc, encodeJsonRpc } from "./protocol.js";
-import { ThreadReadResponse, ThreadStartResponse, TurnStartResponse } from "./schema.js";
+import { decodeJsonRpc, encodeJsonRpc, JsonRpcId, JsonRpcMessage, JsonRpcResponse } from "./protocol.js";
+import {
+  type CodexToolUpdate,
+  codexItemTool,
+  ThreadReadResponse,
+  ThreadStartResponse,
+  TurnStartResponse,
+} from "./schema.js";
 
 export type CodexPeer = {
   request(method: string, params?: unknown): Promise<unknown>;
@@ -19,6 +25,7 @@ export type CodexProviderEvent =
   | { type: "turn.started"; providerThreadId: string; providerTurnId: string }
   | { type: "assistant.delta"; providerThreadId: string; providerTurnId: string; text: string }
   | { type: "turn.completed"; providerThreadId: string; providerTurnId: string; status: string }
+  | { type: "tool.updated"; providerThreadId: string; providerTurnId: string; tool: CodexToolUpdate }
   | {
       type: "approval.requested";
       requestId: string;
@@ -46,7 +53,14 @@ export type CodexAppServerClientOptions = {
 };
 
 export type CodexSessionStartInput = { cwd: string; model?: string; approvalPolicy?: unknown; sandboxPolicy?: unknown };
-export type CodexTurnInput = { providerThreadId: string; text: string; model?: string; effort?: string };
+export type CodexTurnInput = {
+  providerThreadId: string;
+  text: string;
+  model?: string;
+  effort?: string;
+  /** Local image files sent as localImage inputs next to the text. */
+  imagePaths?: readonly string[];
+};
 export type CodexTurnResult = { providerTurnId: string };
 
 export class CodexProviderError extends Error {
@@ -113,7 +127,10 @@ export class CodexAppServerClient {
     const result = TurnStartResponse.parse(
       await this.request("turn/start", {
         threadId: input.providerThreadId,
-        input: [{ type: "text", text: input.text }],
+        input: [
+          { type: "text", text: input.text },
+          ...(input.imagePaths ?? []).map((path) => ({ type: "localImage", path })),
+        ],
         ...(input.model ? { model: input.model } : {}),
         ...(input.effort ? { effort: input.effort } : {}),
       }),
@@ -331,6 +348,10 @@ function normalizeNotification(
   params: Record<string, unknown> | undefined,
 ): CodexProviderEvent | undefined {
   if (!params) return undefined;
+  if (method === "item/started" || method === "item/completed") {
+    const tool = codexItemTool(params, method === "item/completed");
+    return tool ? { type: "tool.updated", ...tool } : undefined;
+  }
   const threadId = params.threadId;
   // app-server v2 nests the turn ({ threadId, turn: { id, status } }); older builds sent turnId at the top level.
   const turn = asRecord(params.turn);

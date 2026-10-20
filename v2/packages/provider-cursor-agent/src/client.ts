@@ -4,8 +4,8 @@ import { accessSync, constants, statSync } from "node:fs";
 
 import { spawnCli } from "@zli-v2/shared";
 
-import { cursorTurnArgs, decodeCursorLine, MAX_CURSOR_LINE_CHARS } from "./protocol.js";
-import { classifyCursorMessage } from "./schema.js";
+import { type CursorPermissionMode, cursorTurnArgs, decodeCursorLine, MAX_CURSOR_LINE_CHARS } from "./protocol.js";
+import { CURSOR_TOOL_DENY_MESSAGE, type CursorToolUpdate, classifyCursorMessage } from "./schema.js";
 
 const VERSION_PROBE_MS = 1_000;
 
@@ -14,6 +14,7 @@ export type CursorProviderEvent =
   | { type: "assistant.delta"; providerTurnId: string; text: string }
   | { type: "turn.completed"; providerTurnId: string; status: string }
   | { type: "turn.failed"; providerTurnId: string; message: string }
+  | { type: "tool.updated"; providerTurnId: string; tool: CursorToolUpdate }
   | { type: "protocol.error"; message: string }
   | { type: "session.closed"; reason: string };
 
@@ -60,6 +61,9 @@ export type CursorAgentClientOptions = {
   cwd: string;
   command?: string;
   env?: NodeJS.ProcessEnv;
+  permissionMode?: CursorPermissionMode;
+  /** Default model for every turn that does not name one. */
+  model?: string;
   spawnProcess?: (command: string, args: readonly string[], options: CursorSpawnOptions) => CursorChild;
 };
 
@@ -92,6 +96,8 @@ export class CursorAgentClient {
     private readonly command: string,
     private readonly spawnProcess: CursorAgentClientOptions["spawnProcess"],
     private readonly baseEnv: NodeJS.ProcessEnv | undefined,
+    private readonly permissionMode: CursorPermissionMode,
+    private readonly model: string | undefined,
   ) {}
 
   static async start(options: CursorAgentClientOptions): Promise<CursorAgentClient> {
@@ -101,7 +107,14 @@ export class CursorAgentClient {
       assertWorktree(options.cwd);
       await assertCommand(command);
     }
-    return new CursorAgentClient(options.cwd, command, options.spawnProcess, options.env);
+    return new CursorAgentClient(
+      options.cwd,
+      command,
+      options.spawnProcess,
+      options.env,
+      options.permissionMode ?? "full-access",
+      options.model?.trim() || undefined,
+    );
   }
 
   subscribe(listener: (event: CursorProviderEvent) => void): () => void {
@@ -113,14 +126,12 @@ export class CursorAgentClient {
     return this.completed;
   }
 
+  /** Each turn is its own process, so a turn-level model simply replaces --model for that run. */
   async sendTurn(input: { text: string; model?: string }): Promise<CursorTurnResult> {
-    if (input.model) {
-      throw new CursorProviderError("unsupported", "Cursor CLI adapter does not switch models in a session.");
-    }
     this.assertOpen();
     if (this.active) throw new CursorProviderError("request_failed", "Cursor CLI already has a turn in progress.");
     const providerTurnId = randomUUID();
-    const peer = this.spawnTurn();
+    const peer = this.spawnTurn(input.model?.trim() || this.model);
     this.active = { id: providerTurnId, text: "", sawPartial: false, sawText: false };
     this.toolDenied = false;
     try {
@@ -153,9 +164,14 @@ export class CursorAgentClient {
     await this.stopPeer();
   }
 
-  private spawnTurn(): CursorPeer {
+  private spawnTurn(model: string | undefined): CursorPeer {
     const spawnProcess = this.spawnProcess ?? defaultSpawn;
-    const args = cursorTurnArgs({ cwd: this.cwd, ...(this.sessionId ? { sessionId: this.sessionId } : {}) });
+    const args = cursorTurnArgs({
+      cwd: this.cwd,
+      permissionMode: this.permissionMode,
+      ...(model ? { model } : {}),
+      ...(this.sessionId ? { sessionId: this.sessionId } : {}),
+    });
     let child: CursorChild;
     try {
       child = spawnProcess(this.command, args, {
@@ -229,6 +245,15 @@ export class CursorAgentClient {
       case "tool_denied":
         this.toolDenied = true;
         this.emit({ type: "protocol.error", message: message.message });
+        return;
+      case "tool":
+        if (message.tool && this.active) {
+          this.emit({ type: "tool.updated", providerTurnId: this.active.id, tool: message.tool });
+        }
+        if (message.denied) {
+          this.toolDenied = true;
+          this.emit({ type: "protocol.error", message: CURSOR_TOOL_DENY_MESSAGE });
+        }
         return;
       default:
         return;

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -53,6 +53,122 @@ afterEach(async () => {
   for (const reactor of reactors.splice(0)) reactor.stop();
   for (const database of databases.splice(0)) database.close();
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+function recordingGit() {
+  const git = new GitProcess();
+  const calls: string[][] = [];
+  return {
+    calls,
+    run: (args: readonly string[], options: Parameters<GitProcess["run"]>[1]) => {
+      calls.push([...args]);
+      return git.run(args, options);
+    },
+  };
+}
+
+async function importCheckout(engine: Engine, repoPath: string, worktreeId: WorktreeId, suffix: string) {
+  const projectReceipt = await engine.dispatchPromise(
+    command(`00000000-0000-4000-8000-0000000003${suffix}`, { type: "project.register", path: repoPath }),
+  );
+  const projectId = ProjectId.parse(projectReceipt.result?.projectId ?? "");
+  const imported = await engine.dispatchPromise(
+    command(`00000000-0000-4000-8000-0000000004${suffix}`, {
+      type: "worktree.import",
+      worktreeId,
+      projectId,
+      path: repoPath,
+      branch: "HEAD",
+      kind: "checkout",
+    }),
+  );
+  expect(imported.status).toBe("accepted");
+}
+
+describe("project checkout placement", () => {
+  it("replaces the placeholder branch with the checkout's real branch", async () => {
+    const root = await createRepository();
+    const engine = makeEngine();
+    const reactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()));
+    reactors.push(reactor);
+    const worktreeId = WorktreeId.parse("00000000-0000-4000-8000-000000000301");
+
+    await importCheckout(engine, root.repoPath, worktreeId, "01");
+    await reactor.waitForIdle();
+
+    expect((await engine.projection()).worktrees).toMatchObject([
+      { worktreeId, kind: "checkout", status: "ready", branch: "main", path: root.repoPath },
+    ]);
+  });
+
+  it("marks the checkout failed when git cannot read its branch", async () => {
+    const root = await mkdtemp(join(tmpdir(), "zli-not-a-repo-"));
+    roots.push(root);
+    const engine = makeEngine();
+    const reactor = new WorktreeReactor(
+      engine,
+      new WorktreeService({
+        async run(args) {
+          throw new GitProcessError(
+            `git ${args.join(" ")} exited with code 128.`,
+            128,
+            args,
+            "",
+            "fatal: not a git repository",
+          );
+        },
+      }),
+    );
+    reactors.push(reactor);
+    const worktreeId = WorktreeId.parse("00000000-0000-4000-8000-000000000302");
+
+    await importCheckout(engine, root, worktreeId, "02");
+    await reactor.waitForIdle();
+
+    const worktree = (await engine.projection()).worktrees[0];
+    expect(worktree?.status).toBe("failed");
+    expect(worktree?.errorMessage).toContain("rev-parse");
+  });
+
+  it("forgets a removed checkout without running git worktree remove or deleting files", async () => {
+    const root = await createRepository();
+    const engine = makeEngine();
+    const git = recordingGit();
+    const reactor = new WorktreeReactor(engine, new WorktreeService(git));
+    reactors.push(reactor);
+    const worktreeId = WorktreeId.parse("00000000-0000-4000-8000-000000000303");
+    await importCheckout(engine, root.repoPath, worktreeId, "03");
+    await reactor.waitForIdle();
+
+    await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000503", { type: "worktree.remove", worktreeId, force: true }),
+    );
+    await reactor.waitForIdle();
+
+    expect((await engine.projection()).worktrees).toEqual([]);
+    expect(git.calls.some((args) => args[0] === "worktree")).toBe(false);
+    await expect(readFile(join(root.repoPath, "README.md"), "utf8")).resolves.toBe("initial\n");
+  });
+
+  it("archives a checkout without touching disk", async () => {
+    const root = await createRepository();
+    const engine = makeEngine();
+    const git = recordingGit();
+    const reactor = new WorktreeReactor(engine, new WorktreeService(git));
+    reactors.push(reactor);
+    const worktreeId = WorktreeId.parse("00000000-0000-4000-8000-000000000304");
+    await importCheckout(engine, root.repoPath, worktreeId, "04");
+    await reactor.waitForIdle();
+
+    await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000504", { type: "worktree.archive", worktreeId }),
+    );
+    await reactor.waitForIdle();
+
+    expect((await engine.projection()).worktrees).toEqual([]);
+    expect(git.calls.every((args) => args[0] === "rev-parse")).toBe(true);
+    await expect(readFile(join(root.repoPath, "README.md"), "utf8")).resolves.toBe("initial\n");
+  });
 });
 
 describe("durable worktree reactor", () => {

@@ -230,6 +230,11 @@ describe("CursorAgentClient", () => {
     expect(children[0]?.written.join("")).toBe("Run tests");
     expect(events).toEqual([
       { type: "turn.started", providerTurnId: turn.providerTurnId },
+      {
+        type: "tool.updated",
+        providerTurnId: turn.providerTurnId,
+        tool: { callId: "call-1", name: "shell", status: "failed", output: "not allowed" },
+      },
       { type: "protocol.error", message: CURSOR_TOOL_DENY_MESSAGE },
       { type: "protocol.error", message: CURSOR_TOOL_DENY_MESSAGE },
       { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "Stopped before the command." },
@@ -286,13 +291,10 @@ describe("CursorAgentClient", () => {
     expect(client.transcript()[0]).toMatchObject({ providerTurnId: turn.providerTurnId, sessionId: "sess-9" });
   });
 
-  it("rejects in-session model switches and a second turn while one is still running", async () => {
+  it("passes a turn-level model to that run and rejects a second turn while one is still running", async () => {
     const { client, calls } = await harness();
-    await expect(client.sendTurn({ text: "Hi", model: "gpt-5" })).rejects.toMatchObject({
-      code: "unsupported",
-      message: "Cursor CLI adapter does not switch models in a session.",
-    });
-    await client.sendTurn({ text: "Hi" });
+    await client.sendTurn({ text: "Hi", model: "gpt-5" });
+    expect(calls[0]?.args).toEqual([...printArgs, "--model", "gpt-5"]);
     await expect(client.sendTurn({ text: "Again" })).rejects.toMatchObject({
       code: "request_failed",
       message: "Cursor CLI already has a turn in progress.",
@@ -369,5 +371,191 @@ describe("CursorAgentClient", () => {
       code: "request_failed",
       message: `Cursor CLI working directory does not exist: ${cwd}.`,
     });
+  });
+});
+
+describe("CursorAgentClient tool activity", () => {
+  const callId = (n: number) =>
+    `call-48ad3baf-334e-4318-ac75-3b1d0cedbbab-${n}\nfc_7aa138f8-7499-9a65-a906-5ed0c230005b_${n}`;
+  const meta = { model_call_id: "1dc1b358-0-6r1m", session_id: "sess-t", timestamp_ms: 1792476739533 };
+
+  it("maps captured started/completed tool_call records onto one update per call id", async () => {
+    const { client, children, events } = await harness();
+    const turn = await client.sendTurn({ text: "Inspect the folder" });
+    const child = children[0];
+    const emit = (value: unknown) => child?.stdout.emit("data", line(value));
+    emit({ type: "system", subtype: "init", session_id: "sess-t", permissionMode: "default" });
+    emit({
+      type: "tool_call",
+      subtype: "started",
+      call_id: callId(0),
+      tool_call: {
+        readToolCall: { args: { path: "/work/tree/hello.txt" } },
+        hookAdditionalContexts: [],
+        toolCallId: callId(0),
+        startedAtMs: "1792476740514",
+      },
+      ...meta,
+    });
+    emit({
+      type: "tool_call",
+      subtype: "started",
+      call_id: callId(1),
+      tool_call: {
+        shellToolCall: {
+          args: { command: "echo zli-check", workingDirectory: "", timeout: 30000, description: "Echo zli-check" },
+          description: "Echo zli-check",
+        },
+        toolCallId: callId(1),
+      },
+      ...meta,
+    });
+    emit({
+      type: "tool_call",
+      subtype: "completed",
+      call_id: callId(2),
+      tool_call: {
+        grepToolCall: {
+          args: { pattern: "second", path: "/work/tree", outputMode: "content" },
+          result: {
+            success: {
+              pattern: "second",
+              path: "/work/tree",
+              workspaceResults: {
+                "/work/tree": {
+                  content: {
+                    matches: [{ file: "./hello.txt", matches: [{ lineNumber: 2, content: "second line" }] }],
+                    totalLines: 1,
+                  },
+                },
+              },
+            },
+          },
+        },
+        toolCallId: callId(2),
+      },
+      ...meta,
+    });
+    emit({
+      type: "tool_call",
+      subtype: "completed",
+      call_id: callId(0),
+      tool_call: {
+        readToolCall: {
+          args: { path: "/work/tree/hello.txt" },
+          result: { success: { content: "hello world\nsecond line\n", totalLines: 2 } },
+        },
+        toolCallId: callId(0),
+      },
+      ...meta,
+    });
+    emit({
+      type: "tool_call",
+      subtype: "completed",
+      call_id: callId(1),
+      tool_call: {
+        shellToolCall: {
+          args: { command: "echo zli-check" },
+          result: {
+            success: {
+              command: "echo zli-check",
+              exitCode: 0,
+              stdout: "zli-check\r\n",
+              interleavedOutput: "zli-check\r\n",
+            },
+          },
+        },
+        toolCallId: callId(1),
+      },
+      ...meta,
+    });
+    emit({
+      type: "tool_call",
+      subtype: "completed",
+      call_id: callId(3),
+      tool_call: {
+        shellToolCall: {
+          args: { command: "npm test" },
+          result: { success: { command: "npm test", exitCode: 1, stdout: "", stderr: "1 failing" } },
+        },
+      },
+      ...meta,
+    });
+    emit({
+      type: "tool_call",
+      subtype: "completed",
+      call_id: callId(4),
+      tool_call: {
+        editToolCall: {
+          args: { path: "/work/tree/note.txt", streamContent: "done" },
+          result: { success: { path: "/work/tree/note.txt", linesAdded: 1, message: "Wrote contents" } },
+        },
+      },
+      ...meta,
+    });
+    emit({ type: "tool_call", subtype: "started", call_id: "call-x", tool_call: "not an object", ...meta });
+    emit({ type: "result", subtype: "success", is_error: false, result: "Done." });
+
+    const tools = events.flatMap((event) => (event.type === "tool.updated" ? [event] : []));
+    expect(tools.every((event) => event.providerTurnId === turn.providerTurnId)).toBe(true);
+    expect(tools.map((event) => event.tool)).toEqual([
+      { callId: callId(0), name: "read", input: { path: "/work/tree/hello.txt" }, status: "running" },
+      {
+        callId: callId(1),
+        name: "shell",
+        input: { command: "echo zli-check", workingDirectory: "", timeout: 30000, description: "Echo zli-check" },
+        status: "running",
+      },
+      {
+        callId: callId(2),
+        name: "grep",
+        input: { pattern: "second", path: "/work/tree", outputMode: "content" },
+        status: "completed",
+        output: "./hello.txt:2: second line",
+      },
+      { callId: callId(0), name: "read", input: { path: "/work/tree/hello.txt" }, status: "completed" },
+      {
+        callId: callId(1),
+        name: "shell",
+        input: { command: "echo zli-check" },
+        status: "completed",
+        output: "zli-check\r\n",
+      },
+      { callId: callId(3), name: "shell", input: { command: "npm test" }, status: "failed", output: "1 failing" },
+      {
+        callId: callId(4),
+        name: "edit",
+        input: { path: "/work/tree/note.txt", streamContent: "done" },
+        status: "completed",
+        output: "Wrote contents",
+      },
+    ]);
+    expect(events.at(-1)).toEqual({ type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" });
+  });
+
+  it("omits --force when supervised and passes the session model on every turn", async () => {
+    const calls: Array<readonly string[]> = [];
+    const client = await CursorAgentClient.start({
+      command: "/usr/bin/cursor-agent",
+      cwd: "/work/tree",
+      permissionMode: "supervised",
+      model: "gpt-5.2",
+      spawnProcess: (_command, args) => {
+        calls.push(args);
+        return new FakeProcess();
+      },
+    });
+    await client.sendTurn({ text: "Hi" });
+    expect(calls[0]).toEqual([
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--stream-partial-output",
+      "--trust",
+      "--workspace",
+      "/work/tree",
+      "--model",
+      "gpt-5.2",
+    ]);
   });
 });

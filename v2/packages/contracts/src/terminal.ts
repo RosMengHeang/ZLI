@@ -1,9 +1,18 @@
 import { z } from "zod";
 
-import { TerminalId, WorktreeId } from "./ids.js";
+import { SessionId, TerminalId, WorktreeId } from "./ids.js";
+import { ListedProviderKind, PermissionMode } from "./provider.js";
 
 export const TerminalStatus = z.enum(["starting", "running", "exited", "failed"]);
 export type TerminalStatus = z.infer<typeof TerminalStatus>;
+
+/** An agent CLI started inside the terminal instead of a plain shell. */
+export const TerminalAgentLaunch = z.object({
+  provider: ListedProviderKind,
+  model: z.string().min(1).max(200).optional(),
+  permissionMode: PermissionMode.optional(),
+});
+export type TerminalAgentLaunch = z.infer<typeof TerminalAgentLaunch>;
 
 export const TerminalProjection = z.object({
   terminalId: TerminalId,
@@ -12,6 +21,11 @@ export const TerminalProjection = z.object({
   status: TerminalStatus,
   lastSequence: z.number().int().nonnegative(),
   errorMessage: z.string().min(1).optional(),
+  kind: z.enum(["shell", "agent"]).optional(),
+  agent: TerminalAgentLaunch.optional(),
+  sessionId: SessionId.optional(),
+  createdAt: z.string().datetime({ offset: true }).optional(),
+  updatedAt: z.string().datetime({ offset: true }).optional(),
 });
 export type TerminalProjection = z.infer<typeof TerminalProjection>;
 

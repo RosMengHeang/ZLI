@@ -1,11 +1,29 @@
 import type { WorktreeProjection } from "@zli-v2/contracts";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, PaneHeader } from "../ui/Pane.js";
 
-export function ReviewPane({ worktree }: { worktree: WorktreeProjection | undefined }) {
+export type ReviewFocus = { path: string; nonce: number };
+
+/** Paths from agent tool calls can be absolute; review paths are relative to the worktree. */
+export function worktreeRelativePath(root: string, path: string): string {
+  const normalize = (value: string) => value.replaceAll("\\", "/").replace(/\/+$/u, "");
+  const base = normalize(root);
+  const target = normalize(path);
+  if (target.toLowerCase().startsWith(`${base.toLowerCase()}/`)) return target.slice(base.length + 1);
+  return target.replace(/^\.\//u, "");
+}
+
+export function ReviewPane({
+  worktree,
+  focus,
+}: {
+  worktree: WorktreeProjection | undefined;
+  /** A file to open, for example from a changed-files card. The nonce reopens the same path. */
+  focus?: ReviewFocus | undefined;
+}) {
   const { dispatch, projection } = useRuntime();
   const [baseRef, setBaseRef] = useState("main");
   const [targetRef, setTargetRef] = useState("main");
@@ -37,6 +55,18 @@ export function ReviewPane({ worktree }: { worktree: WorktreeProjection | undefi
   };
 
   const loadDiff = (path: string) => run({ type: "review.diff", worktreeId: worktree?.worktreeId, path });
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only a new focus request should load a diff.
+  useEffect(() => {
+    if (!focus || !worktree) return;
+    const path = worktreeRelativePath(worktree.path, focus.path);
+    void (async () => {
+      if (!review?.files.some((file) => file.path === path)) {
+        await run({ type: "review.refresh", worktreeId: worktree.worktreeId, baseRef: baseRef.trim() || "HEAD" });
+      }
+      await run({ type: "review.diff", worktreeId: worktree.worktreeId, path });
+    })();
+  }, [focus?.nonce, worktree?.worktreeId]);
   const refresh = () => {
     if (!worktree || !baseRef.trim()) return;
     void run({ type: "review.refresh", worktreeId: worktree.worktreeId, baseRef: baseRef.trim() });

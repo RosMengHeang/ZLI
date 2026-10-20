@@ -5,36 +5,40 @@
   font-feature-settings: "cv11", "ss01", "ss03";
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
-  --zli-canvas: #161616;
-  --zli-sidebar: #1c1c1c;
-  --zli-surface: #1f1f1f;
-  --zli-raised: #262626;
-  --zli-overlay: #2a2a2a;
-  --zli-hover: rgba(255, 255, 255, .055);
-  --zli-active: rgba(255, 255, 255, .09);
-  --zli-border: rgba(255, 255, 255, .075);
-  --zli-border-strong: rgba(255, 255, 255, .13);
-  --zli-text: #ededed;
-  --zli-muted: #a1a1a1;
-  --zli-dim: #6e6e6e;
-  --zli-accent: #f2f2f2;
-  --zli-accent-hover: #ffffff;
-  --zli-accent-ink: #111111;
-  --zli-blue: #7aa7ff;
-  --zli-green: #5fc98b;
-  --zli-amber: #e3b660;
-  --zli-red: #ef7b7b;
-  --zli-green-soft: rgba(95, 201, 139, .12);
-  --zli-amber-soft: rgba(227, 182, 96, .12);
-  --zli-red-soft: rgba(239, 123, 123, .12);
-  --zli-blue-soft: rgba(122, 167, 255, .12);
-  --zli-focus: rgba(122, 167, 255, .7);
+  --zli-canvas: #0a0a0a;
+  --zli-sidebar: #0d0d0d;
+  --zli-surface: #111111;
+  --zli-raised: #171717;
+  --zli-overlay: #1c1c1c;
+  --zli-terminal: #0c0c0c;
+  --zli-hover: rgba(255, 255, 255, .045);
+  --zli-active: rgba(255, 255, 255, .075);
+  --zli-border: rgba(255, 255, 255, .065);
+  --zli-border-strong: rgba(255, 255, 255, .11);
+  --zli-text: #f5f5f5;
+  --zli-muted: #8a8a8a;
+  --zli-dim: #5e5e5e;
+  --zli-accent: oklch(.571 .21 264);
+  --zli-accent-hover: oklch(.62 .2 264);
+  --zli-accent-ink: #ffffff;
+  --zli-accent-soft: oklch(.571 .21 264 / .14);
+  --zli-accent-line: oklch(.571 .21 264 / .55);
+  --zli-blue: oklch(.74 .13 264);
+  --zli-green: #4fbf7f;
+  --zli-amber: #e0b05a;
+  --zli-red: #ec7272;
+  --zli-green-soft: rgba(79, 191, 127, .12);
+  --zli-amber-soft: rgba(224, 176, 90, .12);
+  --zli-red-soft: rgba(236, 114, 114, .12);
+  --zli-blue-soft: oklch(.74 .13 264 / .12);
+  --zli-focus: oklch(.62 .2 264 / .75);
   --zli-radius-xs: 4px;
   --zli-radius-sm: 6px;
   --zli-radius-md: 8px;
-  --zli-radius-lg: 12px;
+  --zli-radius-lg: 10px;
   --zli-radius-xl: 16px;
-  --zli-shadow-pop: 0 0 0 1px rgba(0, 0, 0, .3), 0 12px 32px rgba(0, 0, 0, .45), 0 2px 6px rgba(0, 0, 0, .3);
+  --zli-radius-composer: 22px;
+  --zli-shadow-pop: 0 0 0 1px rgba(0, 0, 0, .5), 0 16px 40px rgba(0, 0, 0, .6), 0 2px 8px rgba(0, 0, 0, .4);
   --zli-mono: "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
   --zli-ease: cubic-bezier(.2, 0, 0, 1);
 }
@@ -43,8 +47,8 @@
 html, body, #root { width: 100%; height: 100%; margin: 0; }
 body { overflow: hidden; background: var(--zli-canvas); color: var(--zli-text); line-height: 1.45; }
 button, input, textarea, select { font: inherit; letter-spacing: inherit; }
-::selection { background: rgba(122, 167, 255, .3); }
-* { scrollbar-color: rgba(255, 255, 255, .14) transparent; scrollbar-width: thin; }
+::selection { background: oklch(.571 .21 264 / .35); }
+* { scrollbar-color: rgba(255, 255, 255, .12) transparent; scrollbar-width: thin; }
 button { color: inherit; }
 svg { flex: 0 0 auto; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex]:focus-visible, summary:focus-visible {

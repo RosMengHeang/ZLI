@@ -25,24 +25,24 @@ describe("createProviderRegistry", () => {
     });
     expect(registry.get("claude-code")?.capabilities).toEqual({
       exactResume: false,
-      structuredApproval: false,
+      structuredApproval: true,
       structuredUserInput: false,
       conversationRollback: false,
-      modelSwitch: "unsupported",
+      modelSwitch: "in-session",
     });
     expect(registry.get("droid")?.capabilities).toEqual({
       exactResume: false,
       structuredApproval: false,
       structuredUserInput: false,
       conversationRollback: false,
-      modelSwitch: "unsupported",
+      modelSwitch: "in-session",
     });
     expect(registry.get("cursor-agent")?.capabilities).toEqual({
       exactResume: false,
       structuredApproval: false,
       structuredUserInput: false,
       conversationRollback: false,
-      modelSwitch: "unsupported",
+      modelSwitch: "in-session",
     });
   });
 

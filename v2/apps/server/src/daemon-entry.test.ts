@@ -135,9 +135,14 @@ it("rejects terminal cwd escapes and argv, and accepts a worktree subdirectory",
     const { accept: acceptFresh } = await import("./daemon-entry.js");
     const { TerminalService: FreshTerminalService } = await import("./terminal/TerminalService.js");
     const spawned: string[] = [];
+    const launches: Array<{ args?: string[]; envOverrides?: Record<string, string> }> = [];
     const service = new FreshTerminalService({
-      spawn: async (input: { cwd: string }) => {
+      spawn: async (input: { cwd: string; args?: string[]; envOverrides?: Record<string, string> }) => {
         spawned.push(input.cwd);
+        launches.push({
+          ...(input.args ? { args: input.args } : {}),
+          ...(input.envOverrides ? { envOverrides: input.envOverrides } : {}),
+        });
         return {
           pid: 9,
           write() {},
@@ -193,10 +198,32 @@ it("rejects terminal cwd escapes and argv, and accepts a worktree subdirectory",
     });
     expect(await request({ ...outside, cwd: "src", argv: ["-c", "id"] })).toMatchObject({
       type: "error",
-      message: "Terminal launch does not accept arguments.",
+      message: "Terminal launch does not accept argv.",
+    });
+    expect(await request({ ...outside, cwd: "src", args: "--force" })).toMatchObject({
+      type: "error",
+      message: "Terminal launch arguments are invalid.",
+    });
+    expect(await request({ ...outside, cwd: "src", args: [], envOverrides: { PATH: "/tmp/evil" } })).toMatchObject({
+      type: "error",
+      message: "Terminal environment override is not allowed: PATH",
     });
     expect(await request({ ...outside, cwd: "src/pkg", title: "nested" })).toMatchObject({ type: "result" });
-    expect(spawned).toEqual(["/repo/tree/src/pkg"]);
+    expect(
+      await request({
+        ...outside,
+        terminalId: "00000000-0000-4000-8000-000000000113",
+        cwd: "src",
+        shell: "/usr/local/bin/droid",
+        args: ["--auto", "high"],
+        envOverrides: { TERM: "xterm-256color", COLORTERM: "truecolor" },
+      }),
+    ).toMatchObject({ type: "result" });
+    expect(spawned).toEqual(["/repo/tree/src/pkg", "/repo/tree/src"]);
+    expect(launches).toEqual([
+      {},
+      { args: ["--auto", "high"], envOverrides: { TERM: "xterm-256color", COLORTERM: "truecolor" } },
+    ]);
   } finally {
     restoreEnv("ZLI_DAEMON_TOKEN", previous.token);
     restoreEnv("ZLI_DAEMON_ENDPOINT_PATH", previous.endpointPath);

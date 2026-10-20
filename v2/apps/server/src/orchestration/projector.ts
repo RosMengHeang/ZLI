@@ -1,6 +1,8 @@
 import {
   RuntimeEvent,
+  appendThreadMessage,
   deriveSharedProjectContexts,
+  upsertThreadActivity,
   type EnvironmentDescriptor,
   type RuntimeEventEnvelope,
   type RuntimeProjection,
@@ -70,6 +72,7 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
                 ...worktree,
                 status: event.status,
                 ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+                ...(event.branch ? { branch: event.branch } : {}),
               }
             : worktree,
         ),
@@ -88,7 +91,10 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
     case "terminal.create.requested":
       return {
         ...projection,
-        terminals: [...projection.terminals, event.terminal],
+        terminals: [
+          ...projection.terminals,
+          { ...event.terminal, createdAt: envelope.occurredAt, updatedAt: envelope.occurredAt },
+        ],
         lastSequence: envelope.sequence,
       };
     case "terminal.status.changed":
@@ -99,6 +105,7 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
             ? {
                 ...terminal,
                 status: event.status,
+                updatedAt: envelope.occurredAt,
                 ...(event.lastSequence === undefined ? {} : { lastSequence: event.lastSequence }),
                 ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
               }
@@ -113,7 +120,10 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
     case "thread.start.requested":
       return {
         ...projection,
-        threads: [...projection.threads, event.thread],
+        threads: [
+          ...projection.threads,
+          { ...event.thread, createdAt: envelope.occurredAt, updatedAt: envelope.occurredAt },
+        ],
         lastSequence: envelope.sequence,
       };
     case "thread.status.changed":
@@ -126,6 +136,7 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
           return {
             ...rest,
             status: event.status,
+            updatedAt: envelope.occurredAt,
             ...(event.turnId ? { activeTurnId: event.turnId } : {}),
             ...(event.capabilities ? { capabilities: event.capabilities } : {}),
             ...(event.errorMessage
@@ -141,6 +152,14 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
       return {
         ...projection,
         messages: appendThreadMessage(projection.messages ?? [], event.message),
+        threads: touchThread(projection.threads, event.message.threadId, envelope.occurredAt),
+        lastSequence: envelope.sequence,
+      };
+    case "thread.activity.updated":
+      return {
+        ...projection,
+        activities: upsertThreadActivity(projection.activities ?? [], event.activity),
+        threads: touchThread(projection.threads, event.activity.threadId, envelope.occurredAt),
         lastSequence: envelope.sequence,
       };
     case "thread.a2a.delivered":
@@ -318,20 +337,10 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
   }
 }
 
-type ProjectedMessage = NonNullable<RuntimeProjection["messages"]>[number];
-
-/** Streamed assistant text for one turn extends that turn's bubble instead of adding a new one. */
-function appendThreadMessage(messages: readonly ProjectedMessage[], message: ProjectedMessage): ProjectedMessage[] {
-  if (message.role === "assistant" && message.turnId) {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const candidate = messages[index];
-      if (!candidate || candidate.threadId !== message.threadId) continue;
-      if (candidate.role === "assistant" && candidate.turnId === message.turnId) {
-        const merged = { ...candidate, text: candidate.text + message.text };
-        return [...messages.slice(0, index), merged, ...messages.slice(index + 1)];
-      }
-      break;
-    }
-  }
-  return [...messages, message].slice(-2_000);
+function touchThread(
+  threads: RuntimeProjection["threads"],
+  threadId: string,
+  occurredAt: string,
+): RuntimeProjection["threads"] {
+  return threads.map((thread) => (thread.threadId === threadId ? { ...thread, updatedAt: occurredAt } : thread));
 }

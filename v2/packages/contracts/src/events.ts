@@ -6,6 +6,8 @@ import { LegacyImportPreview } from "./import.js";
 import { ProjectProjection, SupportBundleProjection, WorktreeProjection } from "./projections.js";
 import {
   ProviderCapabilities,
+  ThreadActivityProjection,
+  ThreadAttachment,
   ThreadMessageProjection,
   ThreadProjection,
   ThreadRequestProjection,
@@ -36,6 +38,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     worktreeId: WorktreeId,
     status: WorktreeProjection.shape.status,
     errorMessage: z.string().min(1).optional(),
+    branch: z.string().min(1).optional(),
   }),
   z.object({ type: z.literal("worktree.removed"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("worktree.archived"), worktreeId: WorktreeId }),
@@ -74,6 +77,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     threadId: ThreadId,
     text: z.string(),
     model: z.string().min(1).optional(),
+    attachments: z.array(ThreadAttachment).max(8).optional(),
   }),
   z.object({
     type: z.literal("thread.a2a.delivered"),
@@ -92,6 +96,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("thread.message.appended"), message: ThreadMessageProjection }),
   z.object({ type: z.literal("thread.request.requested"), request: ThreadRequestProjection }),
+  z.object({ type: z.literal("thread.activity.updated"), activity: ThreadActivityProjection }),
   z.object({ type: z.literal("thread.request.resolved"), threadId: ThreadId, requestId: z.string().min(1) }),
   z.object({
     type: z.literal("thread.respond.requested"),

@@ -2,7 +2,17 @@ import { z } from "zod";
 import { BrowserTabProjection } from "./browser.js";
 import { DiagnosticLog } from "./diagnostics.js";
 import { RuntimeEventEnvelope } from "./events.js";
-import { BrowserTabId, CommandId, EnvironmentId, ProjectId, TerminalId, ThreadId, TurnId, WorktreeId } from "./ids.js";
+import {
+  BrowserTabId,
+  CommandId,
+  EnvironmentId,
+  ProjectId,
+  SessionId,
+  TerminalId,
+  ThreadId,
+  TurnId,
+  WorktreeId,
+} from "./ids.js";
 import { LegacyImportPreview } from "./import.js";
 import {
   EnvironmentDescriptor,
@@ -11,14 +21,17 @@ import {
   WorktreeProjection,
 } from "./projections.js";
 import {
+  PermissionMode,
   ProviderCapabilities,
   ProviderKind,
+  ThreadActivityProjection,
+  ThreadAttachmentUpload,
   ThreadMessageProjection,
   ThreadProjection,
   ThreadRequestProjection,
 } from "./provider.js";
 import { ReviewProjection } from "./review.js";
-import { TerminalAttachSnapshot, TerminalProjection, TerminalStreamMessage } from "./terminal.js";
+import { TerminalAgentLaunch, TerminalAttachSnapshot, TerminalProjection, TerminalStreamMessage } from "./terminal.js";
 
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 
@@ -41,6 +54,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     projectId: ProjectId,
     path: z.string().min(1),
     branch: z.string().min(1),
+    kind: WorktreeProjection.shape.kind,
   }),
   z.object({ type: z.literal("worktree.cancel"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("worktree.retry"), worktreeId: WorktreeId }),
@@ -53,6 +67,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     worktreeId: WorktreeId,
     status: WorktreeProjection.shape.status,
     errorMessage: z.string().min(1).optional(),
+    branch: z.string().min(1).optional(),
   }),
   z.object({
     type: z.literal("terminal.create"),
@@ -63,6 +78,9 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     title: z.string().min(1),
     cols: z.number().int().positive(),
     rows: z.number().int().positive(),
+    /** Start this agent CLI instead of an interactive shell. The runtime resolves the executable. */
+    agent: TerminalAgentLaunch.optional(),
+    sessionId: SessionId.optional(),
   }),
   z.object({ type: z.literal("terminal.write"), terminalId: TerminalId, data: z.string() }),
   z.object({
@@ -88,12 +106,16 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     cwd: z.string().min(1),
     /** Explicit confirm to bind another live agent onto a worktree that already has one. */
     shareWorktree: z.boolean().optional(),
+    permissionMode: PermissionMode.optional(),
+    model: z.string().min(1).max(200).optional(),
+    sessionId: SessionId.optional(),
   }),
   z.object({
     type: z.literal("thread.send"),
     threadId: ThreadId,
     text: z.string(),
     model: z.string().min(1).optional(),
+    attachments: z.array(ThreadAttachmentUpload).max(8).optional(),
   }),
   z.object({
     type: z.literal("thread.a2a"),
@@ -114,6 +136,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("thread.message"), message: ThreadMessageProjection }),
   z.object({ type: z.literal("thread.request"), request: ThreadRequestProjection }),
+  z.object({ type: z.literal("thread.activity"), activity: ThreadActivityProjection }),
   z.object({ type: z.literal("thread.request.resolved"), threadId: ThreadId, requestId: z.string().min(1) }),
   z.object({
     type: z.literal("thread.respond"),

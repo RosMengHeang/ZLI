@@ -9,6 +9,10 @@ export type PtySpawnInput = {
   cwd: string;
   worktreePath?: string;
   shell: string;
+  /** Arguments for `shell`. Agent terminals use this to launch a CLI; plain shells get none. */
+  args?: string[];
+  /** Applied on top of the inherited environment after daemon secrets are removed. */
+  envOverrides?: Record<string, string>;
   cols: number;
   rows: number;
   env?: NodeJS.ProcessEnv;
@@ -34,6 +38,8 @@ export type TerminalCreateRequest = {
   worktreePath: string;
   cwd: string;
   shell: string;
+  args?: string[];
+  envOverrides?: Record<string, string>;
   cols: number;
   rows: number;
   title: string;
@@ -207,6 +213,8 @@ export class TerminalService {
         cwd,
         worktreePath: request.worktreePath,
         shell: request.shell,
+        ...(request.args ? { args: request.args } : {}),
+        ...(request.envOverrides ? { envOverrides: request.envOverrides } : {}),
         cols: request.cols,
         rows: request.rows,
         ...(request.env ? { env: request.env } : {}),

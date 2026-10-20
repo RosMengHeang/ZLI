@@ -19,3 +19,116 @@ export const ApprovalDecision = z.object({
   decision: z.enum(["accept", "decline", "cancel"]),
 });
 export type ApprovalDecision = z.infer<typeof ApprovalDecision>;
+
+export type CodexToolUpdate = {
+  callId: string;
+  name: string;
+  input?: Record<string, unknown>;
+  status: "running" | "completed" | "failed";
+  output?: string;
+};
+
+const ItemNotification = z.object({
+  threadId: z.string().min(1),
+  turnId: z.string().min(1),
+  item: z.object({ id: z.string().min(1), type: z.string().min(1) }).passthrough(),
+});
+
+/**
+ * item/started and item/completed carry the whole item. Tool-like items are
+ * commandExecution { command, aggregatedOutput, exitCode }, fileChange
+ * { changes: [{ path }] }, mcpToolCall { server, tool, arguments, result, error },
+ * webSearch { query }, and imageView { path }. Message and reasoning items are not tools.
+ */
+export function codexItemTool(
+  params: unknown,
+  completed: boolean,
+): { providerThreadId: string; providerTurnId: string; tool: CodexToolUpdate } | undefined {
+  const parsed = ItemNotification.safeParse(params);
+  if (!parsed.success) return undefined;
+  const { item } = parsed.data;
+  const shape = itemShape(item);
+  if (!shape) return undefined;
+  const status = completed ? completedStatus(item) : "running";
+  const output = completed ? itemOutput(item) : undefined;
+  return {
+    providerThreadId: parsed.data.threadId,
+    providerTurnId: parsed.data.turnId,
+    tool: {
+      callId: item.id,
+      name: shape.name,
+      ...(shape.input ? { input: shape.input } : {}),
+      status,
+      ...(output ? { output } : {}),
+    },
+  };
+}
+
+function itemShape(item: Record<string, unknown>): { name: string; input?: Record<string, unknown> } | undefined {
+  switch (
+    String(item.type)
+      .toLowerCase()
+      .replace(/[^a-z]/gu, "")
+  ) {
+    case "commandexecution": {
+      const command = Array.isArray(item.command)
+        ? item.command.filter((part): part is string => typeof part === "string").join(" ")
+        : item.command;
+      return {
+        name: "commandExecution",
+        input: {
+          ...(typeof command === "string" ? { command } : {}),
+          ...(typeof item.cwd === "string" ? { cwd: item.cwd } : {}),
+        },
+      };
+    }
+    case "filechange": {
+      const changes = Array.isArray(item.changes) ? item.changes : [];
+      const paths = changes
+        .map((change) => asRecord(change)?.path)
+        .filter((path): path is string => typeof path === "string" && path.length > 0);
+      return { name: "fileChange", input: { paths } };
+    }
+    case "mcptoolcall": {
+      const tool = typeof item.tool === "string" && item.tool ? item.tool : "mcp";
+      const server = typeof item.server === "string" && item.server ? `${item.server}.` : "";
+      const input = asRecord(item.arguments);
+      return { name: `${server}${tool}`, ...(input ? { input } : {}) };
+    }
+    case "websearch":
+      return { name: "webSearch", input: typeof item.query === "string" ? { query: item.query } : {} };
+    case "imageview":
+      return { name: "view", input: typeof item.path === "string" ? { path: item.path } : {} };
+    default:
+      return undefined;
+  }
+}
+
+function completedStatus(item: Record<string, unknown>): "completed" | "failed" {
+  const status = typeof item.status === "string" ? item.status.toLowerCase() : "";
+  if (status === "failed" || status === "declined" || status === "error") return "failed";
+  if (typeof item.exitCode === "number" && item.exitCode !== 0) return "failed";
+  if (item.error !== undefined && item.error !== null) return "failed";
+  return "completed";
+}
+
+function itemOutput(item: Record<string, unknown>): string | undefined {
+  if (typeof item.aggregatedOutput === "string" && item.aggregatedOutput) return item.aggregatedOutput;
+  const error = asRecord(item.error);
+  if (typeof error?.message === "string" && error.message) return error.message;
+  if (typeof item.error === "string" && item.error) return item.error;
+  const content = asRecord(item.result)?.content;
+  if (Array.isArray(content)) {
+    const text = content
+      .map((block) => asRecord(block))
+      .filter((block) => block?.type === "text" && typeof block.text === "string")
+      .map((block) => String(block?.text))
+      .join("\n");
+    return text || undefined;
+  }
+  return undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}

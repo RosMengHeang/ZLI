@@ -11,8 +11,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
-import { TerminalReactor } from "./TerminalReactor.js";
-import { type PtyFactory, type PtyProcess, TerminalService } from "./TerminalService.js";
+import { TerminalReactor, type TerminalReactorOptions } from "./TerminalReactor.js";
+import { type PtyFactory, type PtyProcess, type PtySpawnInput, TerminalService } from "./TerminalService.js";
 
 const environment: EnvironmentDescriptor = {
   environmentId: EnvironmentId.parse("00000000-0000-4000-8000-000000000301"),
@@ -58,10 +58,10 @@ function command(type: string, value: Record<string, unknown>) {
 
 const resources: Array<{ database: Database; reactor: TerminalReactor }> = [];
 
-async function setup(factory: PtyFactory) {
+async function setup(factory: PtyFactory, options: TerminalReactorOptions = {}) {
   const database = new Database({ path: ":memory:" });
   const engine = new Engine({ database, environment });
-  const reactor = new TerminalReactor(engine, new TerminalService(factory));
+  const reactor = new TerminalReactor(engine, new TerminalService(factory), options);
   resources.push({ database, reactor });
   const project = await engine.dispatchPromise(command("project.register", { path: "C:/workspace/project" }));
   const projectId = ProjectId.parse(project.result?.projectId);
@@ -165,6 +165,124 @@ describe("TerminalReactor", () => {
         errorMessage: "Unable to start terminal in C:\\workspace\\project-tree. (spawn denied)",
       },
     ]);
+  });
+
+  it("launches the resolved agent CLI with its permission and model flags", async () => {
+    const pty = new FakePty();
+    const spawned: PtySpawnInput[] = [];
+    const resolved: string[] = [];
+    const { engine, worktreeId } = await setup(
+      {
+        spawn: async (input) => {
+          spawned.push(input);
+          return pty;
+        },
+      },
+      {
+        resolveAgentCli: async (provider) => {
+          resolved.push(provider);
+          return "C:\\Users\\dev\\AppData\\Roaming\\npm\\claude.cmd";
+        },
+      },
+    );
+    const id = TerminalId.parse("00000000-0000-4000-8000-000000000307");
+    await engine.dispatchPromise(
+      command("terminal.create", {
+        terminalId: id,
+        worktreeId,
+        cwd: "C:/workspace/project-tree",
+        shell: "powershell.exe",
+        title: "Claude Code",
+        cols: 120,
+        rows: 32,
+        agent: { provider: "claude-code", model: "claude-sonnet-4-5" },
+      }),
+    );
+    await engine.waitForReactors();
+
+    expect(resolved).toEqual(["claude-code"]);
+    expect(spawned).toMatchObject([
+      {
+        shell: "C:\\Users\\dev\\AppData\\Roaming\\npm\\claude.cmd",
+        args: ["--dangerously-skip-permissions", "--model", "claude-sonnet-4-5"],
+        envOverrides: { TERM: "xterm-256color", COLORTERM: "truecolor" },
+      },
+    ]);
+    expect((await engine.projection()).terminals).toMatchObject([
+      { terminalId: id, status: "running", kind: "agent", agent: { provider: "claude-code" } },
+    ]);
+  });
+
+  it("fails an agent terminal with a clear message when its CLI is missing", async () => {
+    const spawned: PtySpawnInput[] = [];
+    const { engine, worktreeId } = await setup(
+      {
+        spawn: async (input) => {
+          spawned.push(input);
+          return new FakePty();
+        },
+      },
+      { resolveAgentCli: async () => undefined },
+    );
+    const id = TerminalId.parse("00000000-0000-4000-8000-000000000308");
+    await engine.dispatchPromise(
+      command("terminal.create", {
+        terminalId: id,
+        worktreeId,
+        cwd: "C:/workspace/project-tree",
+        shell: "powershell.exe",
+        title: "Cursor",
+        cols: 120,
+        rows: 32,
+        agent: { provider: "cursor-agent" },
+      }),
+    );
+    await engine.waitForReactors();
+
+    expect(spawned).toEqual([]);
+    expect((await engine.projection()).terminals).toMatchObject([
+      { terminalId: id, status: "failed", errorMessage: "Cursor CLI was not found. Install it or check PATH." },
+    ]);
+  });
+
+  it("relaunches an agent CLI fresh when restoring after a restart", async () => {
+    const { engine, reactor, worktreeId } = await setup(
+      { spawn: async () => new FakePty() },
+      { resolveAgentCli: async () => "/usr/local/bin/droid" },
+    );
+    const id = TerminalId.parse("00000000-0000-4000-8000-000000000309");
+    await engine.dispatchPromise(
+      command("terminal.create", {
+        terminalId: id,
+        worktreeId,
+        cwd: "C:/workspace/project-tree",
+        shell: "powershell.exe",
+        title: "Droid",
+        cols: 120,
+        rows: 32,
+        agent: { provider: "droid", permissionMode: "supervised" },
+      }),
+    );
+    await reactor.waitForIdle();
+    reactor.stop();
+
+    const spawned: PtySpawnInput[] = [];
+    const restored = new TerminalReactor(
+      engine,
+      new TerminalService({
+        spawn: async (input) => {
+          spawned.push(input);
+          return new FakePty();
+        },
+      }),
+      { resolveAgentCli: async () => "/usr/local/bin/droid" },
+    );
+    try {
+      await restored.restore();
+      expect(spawned).toMatchObject([{ shell: "/usr/local/bin/droid", args: [] }]);
+    } finally {
+      restored.stop();
+    }
   });
 
   it("projects a PTY exit once", async () => {

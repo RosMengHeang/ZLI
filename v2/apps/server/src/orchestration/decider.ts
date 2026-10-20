@@ -87,6 +87,7 @@ export type DomainDecision = Extract<
       | "thread.status.changed"
       | "thread.message.appended"
       | "thread.request.requested"
+      | "thread.activity.updated"
       | "thread.request.resolved"
       | "thread.respond.requested"
       | "thread.user-input.requested";
@@ -149,6 +150,15 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       if (projection.worktrees.some((worktree) => worktree.worktreeId === command.worktreeId)) {
         throw new DomainError("worktree_exists", `Worktree already exists: ${command.worktreeId}`);
       }
+      if (
+        command.kind === "checkout" &&
+        projection.worktrees.some(
+          (worktree) =>
+            worktree.projectId === command.projectId && worktree.kind === "checkout" && worktree.status !== "cancelled",
+        )
+      ) {
+        throw new DomainError("worktree_exists", "This project's checkout is already in the workspace.");
+      }
       return [
         {
           type: "worktree.imported",
@@ -158,6 +168,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             path: command.path,
             branch: command.branch,
             status: "ready",
+            ...(command.kind ? { kind: command.kind } : {}),
           },
         },
       ];
@@ -170,6 +181,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           worktreeId: command.worktreeId,
           status: command.status,
           ...(command.errorMessage ? { errorMessage: command.errorMessage } : {}),
+          ...(command.branch ? { branch: command.branch } : {}),
         },
       ];
     case "worktree.cancel":
@@ -214,6 +226,9 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             title: command.title,
             status: "starting",
             lastSequence: 0,
+            kind: command.agent ? "agent" : "shell",
+            ...(command.agent ? { agent: command.agent } : {}),
+            ...(command.sessionId ? { sessionId: command.sessionId } : {}),
           },
           cwd,
           worktreePath: worktree.path,
@@ -267,20 +282,31 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             provider: command.provider,
             status: "starting",
             capabilities: {},
+            ...(command.permissionMode ? { permissionMode: command.permissionMode } : {}),
+            ...(command.model ? { model: command.model } : {}),
+            ...(command.sessionId ? { sessionId: command.sessionId } : {}),
           },
         },
       ];
     }
-    case "thread.send":
+    case "thread.send": {
       assertThread(projection, command.threadId);
+      const attachments = (command.attachments ?? []).map((attachment) => {
+        // The RPC layer writes uploaded bytes to disk first, so the event log never stores image data.
+        if (!attachment.path)
+          throw new DomainError("unsupported_command", "Attachments must be stored before sending.");
+        return { name: attachment.name, mimeType: attachment.mimeType, path: attachment.path };
+      });
       return [
         {
           type: "thread.send.requested",
           threadId: command.threadId,
           text: command.text,
           ...(command.model ? { model: command.model } : {}),
+          ...(attachments.length > 0 ? { attachments } : {}),
         },
       ];
+    }
     case "thread.a2a":
       return [deliverAgentMessage(projection, command)];
     case "thread.interrupt":
@@ -313,6 +339,9 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     case "thread.request":
       assertThread(projection, command.request.threadId);
       return [{ type: "thread.request.requested", request: command.request }];
+    case "thread.activity":
+      assertThread(projection, command.activity.threadId);
+      return [{ type: "thread.activity.updated", activity: command.activity }];
     case "thread.request.resolved":
       assertThread(projection, command.threadId);
       assertRequest(projection, command.requestId);

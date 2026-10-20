@@ -49,10 +49,10 @@ describe("ClaudeCodeProviderAdapter", () => {
 
     expect(adapter.capabilities).toEqual({
       exactResume: false,
-      structuredApproval: false,
+      structuredApproval: true,
       structuredUserInput: false,
       conversationRollback: false,
-      modelSwitch: "unsupported",
+      modelSwitch: "in-session",
     });
     await expect(adapter.startSession({ threadId, cwd: "/work/tree" })).resolves.toMatchObject({
       threadId,

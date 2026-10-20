@@ -1,11 +1,25 @@
 import { randomUUID } from "node:crypto";
 
-import { CommandId, type RuntimeEventEnvelope, TerminalId } from "@zli-v2/contracts";
+import {
+  CommandId,
+  type ListedProviderKind,
+  type RuntimeEventEnvelope,
+  type TerminalAgentLaunch,
+  TerminalId,
+} from "@zli-v2/contracts";
 
 import type { Engine } from "../orchestration/Engine.js";
+import { AGENT_PTY_ENV, AgentLaunchError, agentCliMissingMessage, buildAgentArgs } from "./agentLaunch.js";
 import type { TerminalService } from "./TerminalService.js";
 
 type CreateIntent = Extract<RuntimeEventEnvelope["event"], { type: "terminal.create.requested" }>;
+
+/** Returns the absolute path of an installed agent CLI, or undefined when it is not installed. */
+export type AgentCliResolver = (provider: ListedProviderKind) => Promise<string | undefined>;
+
+export type TerminalReactorOptions = {
+  resolveAgentCli?: AgentCliResolver;
+};
 
 export class TerminalReactor {
   private readonly intents = new Map<string, CreateIntent>();
@@ -16,6 +30,7 @@ export class TerminalReactor {
   constructor(
     private readonly engine: Engine,
     private readonly service: TerminalService,
+    private readonly options: TerminalReactorOptions = {},
   ) {
     this.unsubscribe = engine.subscribe((envelope) => this.onEvent(envelope));
     this.unsubscribeExit = service.subscribeExit((terminalId, event) => {
@@ -81,12 +96,14 @@ export class TerminalReactor {
     try {
       const worktreePath = intent.worktreePath ?? (await this.worktreePath(intent.terminal.worktreeId));
       if (!worktreePath) throw new Error(`Worktree does not exist: ${intent.terminal.worktreeId}`);
+      const agent = intent.terminal.agent ? await this.agentCommand(intent.terminal.agent) : undefined;
       await this.service.create({
         terminalId: intent.terminal.terminalId,
         worktreeId: intent.terminal.worktreeId,
         worktreePath,
         cwd: intent.cwd,
-        shell: intent.shell,
+        shell: agent?.file ?? intent.shell,
+        ...(agent ? { args: agent.args, envOverrides: { ...AGENT_PTY_ENV } } : {}),
         cols: intent.cols,
         rows: intent.rows,
         title: intent.terminal.title,
@@ -131,6 +148,18 @@ export class TerminalReactor {
     } catch (error) {
       await this.dispatchStatus(terminalId, "failed", error instanceof Error ? error.message : "Terminal stop failed.");
     }
+  }
+
+  private async agentCommand(agent: TerminalAgentLaunch): Promise<{ file: string; args: string[] }> {
+    const args = buildAgentArgs(agent);
+    let file: string | undefined;
+    try {
+      file = await this.options.resolveAgentCli?.(agent.provider);
+    } catch {
+      file = undefined;
+    }
+    if (!file) throw new AgentLaunchError(agentCliMissingMessage(agent.provider));
+    return { file, args };
   }
 
   private async worktreePath(worktreeId: string): Promise<string | undefined> {

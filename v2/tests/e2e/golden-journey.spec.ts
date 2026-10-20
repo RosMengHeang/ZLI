@@ -56,7 +56,9 @@ test("completes the workspace, provider, browser, review, and restoration journe
       ].join("\n"),
       "utf8",
     );
-    await page.getByRole("button", { name: "Terminal", exact: true }).click();
+    // The drawer's open state is remembered between launches, so only open it when it is closed.
+    const terminalToggle = page.getByRole("button", { name: "Terminal", exact: true });
+    if ((await terminalToggle.getAttribute("aria-pressed")) !== "true") await terminalToggle.click();
     await page.getByRole("button", { name: "Start terminal" }).click();
     await expect
       .poll(
@@ -75,12 +77,20 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await expect(page.getByRole("log", { name: "Terminal output" })).toContainText(`ZLI_DEV_READY ${terminalPort}`, {
       timeout: 20_000,
     });
-    await page.getByRole("button", { name: "Agent", exact: true }).click();
-    await page.getByRole("button", { name: "Start Codex" }).click();
+    await page.locator(".sidebar-new-agent").click();
+    const newAgent = page.getByRole("dialog", { name: "New agent" });
+    await newAgent.getByText("Codex", { exact: true }).click();
+    await expect(newAgent.getByRole("radio", { name: /Codex/u })).toBeChecked();
+    await newAgent.getByText("Chat", { exact: true }).click();
+    await expect(newAgent.getByRole("radio", { name: /^Chat/u })).toBeChecked();
+    await expect(newAgent.getByRole("radio", { name: /Existing worktree/u })).toBeChecked();
+    await expect(newAgent.getByRole("combobox", { name: /^Worktree/u })).toHaveValue(worktreeId);
+    await newAgent.getByRole("button", { name: "Start agent" }).click();
     const composer = page.getByRole("textbox", { name: "Message Codex" });
-    await expect(composer).toBeVisible();
+    await expect(composer).toBeVisible({ timeout: 20_000 });
+    await expect(composer).toBeEnabled({ timeout: 20_000 });
     await composer.fill("inspect workspace");
-    await page.getByRole("button", { name: "Send" }).click();
+    await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByText("Mock response: inspect workspace")).toBeVisible();
 
     await page.getByRole("button", { name: "Browser", exact: true }).click();
@@ -153,7 +163,6 @@ test("completes the workspace, provider, browser, review, and restoration journe
     rendererRandomUUIDDisabled = false;
 
     await fixture.page.evaluate(() => window.zli?.test?.restartRuntime());
-    await fixture.page.getByRole("button", { name: "Terminal", exact: true }).click();
     await expect(fixture.page.getByRole("log", { name: "Terminal output" })).toContainText(
       `ZLI_DEV_READY ${terminalPort}`,
       { timeout: 20_000 },
@@ -172,8 +181,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
       )
       .toBe("ready");
     await expect(fixture.page.getByRole("button", { name: /e2e/iu })).toContainText("Ready", { timeout: 30_000 });
-    await fixture.page.getByRole("button", { name: "Agent", exact: true }).click();
-    await expect(fixture.page.getByText("Mock response: inspect workspace")).toBeVisible();
+    await expect(fixture.page.getByText("Mock response: inspect workspace")).toBeVisible({ timeout: 20_000 });
     await fixture.page.getByRole("button", { name: "Browser", exact: true }).click();
     await expect(fixture.page.getByRole("heading", { name: "ZLI fixture" })).toBeVisible({ timeout: 20_000 });
   } finally {

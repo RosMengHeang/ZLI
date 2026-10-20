@@ -1,6 +1,5 @@
-import { describe, expect, it } from "vitest";
-
 import { TerminalId, WorktreeId } from "@zli-v2/contracts";
+import { describe, expect, it } from "vitest";
 
 import { RemotePtyFactory } from "./RemotePtyFactory.js";
 
@@ -187,6 +186,33 @@ describe("RemotePtyFactory", () => {
       "terminal.create",
       "terminal.attach",
     ]);
+  });
+
+  it("forwards agent launch arguments and environment hints to the daemon", async () => {
+    const connection = new FakeConnection();
+    const factory = new RemotePtyFactory({ connect: async () => connection });
+
+    await factory.spawn({
+      terminalId,
+      worktreeId,
+      title: "Codex",
+      cwd: "C:\\workspace\\tree",
+      shell: "C:\\Tools\\codex.exe",
+      args: ["--dangerously-bypass-approvals-and-sandbox"],
+      envOverrides: { TERM: "xterm-256color", COLORTERM: "truecolor" },
+      env: { SECRET: "not forwarded" },
+      cols: 120,
+      rows: 32,
+    });
+
+    const create = connection.requests[0] as Record<string, unknown>;
+    expect(create).toMatchObject({
+      type: "terminal.create",
+      shell: "C:\\Tools\\codex.exe",
+      args: ["--dangerously-bypass-approvals-and-sandbox"],
+      envOverrides: { TERM: "xterm-256color", COLORTERM: "truecolor" },
+    });
+    expect(create).not.toHaveProperty("env");
   });
 
   it("reports a terminal exit when its daemon connection is lost", async () => {

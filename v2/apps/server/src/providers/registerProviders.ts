@@ -12,7 +12,7 @@ import { MockProviderAdapter } from "./MockProviderAdapter.js";
 import { ProviderRegistry } from "./ProviderService.js";
 
 export async function resolveClaudeCommand(probe: CliProbe = createDefaultCliProbe()): Promise<string> {
-  const discovered = await discoverCliProviders(probe);
+  const discovered = await discoverCliProviders(probe, { models: false });
   const claude = discovered.find((entry) => entry.provider === "claude-code");
   if (claude?.status === "found") return claude.path;
   throw new ClaudeProviderError(
@@ -24,7 +24,7 @@ export async function resolveClaudeCommand(probe: CliProbe = createDefaultCliPro
 }
 
 export async function resolveCodexCommand(probe: CliProbe = createDefaultCliProbe()): Promise<string> {
-  const discovered = await discoverCliProviders(probe);
+  const discovered = await discoverCliProviders(probe, { models: false });
   const codex = discovered.find((entry) => entry.provider === "codex");
   if (codex?.status === "found") return codex.path;
   throw new CodexProviderError(
@@ -34,7 +34,7 @@ export async function resolveCodexCommand(probe: CliProbe = createDefaultCliProb
 }
 
 export async function resolveCursorCommand(probe: CliProbe = createDefaultCliProbe()): Promise<string> {
-  const discovered = await discoverCliProviders(probe);
+  const discovered = await discoverCliProviders(probe, { models: false });
   const cursor = discovered.find((entry) => entry.provider === "cursor-agent");
   if (cursor?.status === "found") return cursor.path;
   throw new CursorProviderError(
@@ -44,7 +44,7 @@ export async function resolveCursorCommand(probe: CliProbe = createDefaultCliPro
 }
 
 export async function resolveDroidCommand(probe: CliProbe = createDefaultCliProbe()): Promise<string> {
-  const discovered = await discoverCliProviders(probe);
+  const discovered = await discoverCliProviders(probe, { models: false });
   const droid = discovered.find((entry) => entry.provider === "droid");
   if (droid?.status === "found") return droid.path;
   throw new DroidProviderError(
@@ -60,13 +60,13 @@ export function createProviderRegistry(env: NodeJS.ProcessEnv = process.env): Pr
       createClient: async () => CodexAppServerClient.connect({ command: await resolveCodexCommand() }),
     }),
     new ClaudeCodeProviderAdapter({
-      createClient: async ({ cwd }) => ClaudeCodeClient.start({ cwd, command: await resolveClaudeCommand() }),
+      createClient: async (input) => ClaudeCodeClient.start({ ...input, command: await resolveClaudeCommand() }),
     }),
     new CursorAgentProviderAdapter({
-      createClient: async ({ cwd }) => CursorAgentClient.start({ cwd, command: await resolveCursorCommand() }),
+      createClient: async (input) => CursorAgentClient.start({ ...input, command: await resolveCursorCommand() }),
     }),
     new DroidProviderAdapter({
-      createClient: async ({ cwd }) => DroidClient.start({ cwd, command: await resolveDroidCommand() }),
+      createClient: async (input) => DroidClient.start({ ...input, command: await resolveDroidCommand() }),
     }),
   ]);
 }

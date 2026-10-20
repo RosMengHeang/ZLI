@@ -1,5 +1,7 @@
 import { createRequire } from "node:module";
 
+import { planSpawn } from "@zli-v2/shared";
+
 import type { PtyFactory, PtyProcess, PtySpawnInput } from "./TerminalService.js";
 
 type NodePtyProcess = {
@@ -12,7 +14,8 @@ type NodePtyProcess = {
 };
 
 type NodePtyModule = {
-  spawn(shell: string, args: string[], options: Record<string, unknown>): NodePtyProcess;
+  /** On Windows a string is appended verbatim to the command line instead of being re-quoted. */
+  spawn(shell: string, args: string[] | string, options: Record<string, unknown>): NodePtyProcess;
 };
 
 type NodePtyFactoryOptions = {
@@ -22,8 +25,11 @@ type NodePtyFactoryOptions = {
 
 const requireForNodePty = createRequire(import.meta.url);
 
-function childPtyEnv(source: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
-  const env = { ...(source ?? process.env) };
+function childPtyEnv(
+  source: NodeJS.ProcessEnv | undefined,
+  overrides: Record<string, string> | undefined,
+): NodeJS.ProcessEnv {
+  const env = { ...(source ?? process.env), ...overrides };
   delete env.ZLI_DAEMON_TOKEN;
   delete env.ZLI_DAEMON_ENDPOINT_PATH;
   return env;
@@ -40,9 +46,13 @@ export class NodePtyFactory implements PtyFactory {
 
   async spawn(input: PtySpawnInput): Promise<PtyProcess> {
     const nodePty = await this.load();
-    const env = childPtyEnv(input.env);
+    const env = childPtyEnv(input.env, input.envOverrides);
     if (this.platform === "win32" && env.TERM === undefined) env.TERM = "xterm-256color";
-    const ptyProcess = nodePty.spawn(input.shell, [], {
+    // npm and Cursor install .cmd/.ps1 shims on Windows; planSpawn routes them through cmd.exe or
+    // PowerShell with cmd-safe quoting. Its cmd.exe line is pre-quoted, so node-pty must not quote it again.
+    const plan = planSpawn(input.shell, input.args ?? [], this.platform, env);
+    const args = plan.windowsVerbatimArguments ? plan.args.join(" ") : plan.args;
+    const ptyProcess = nodePty.spawn(plan.command, args, {
       cwd: input.cwd,
       cols: input.cols,
       rows: input.rows,

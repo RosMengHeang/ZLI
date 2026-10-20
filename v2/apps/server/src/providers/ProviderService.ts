@@ -1,6 +1,13 @@
-import type { ProviderCapabilities, ProviderDiscovery, ThreadId } from "@zli-v2/contracts";
+import type {
+  PermissionMode,
+  ProviderCapabilities,
+  ProviderDiscovery,
+  ThreadAttachment,
+  ThreadId,
+} from "@zli-v2/contracts";
 
 import { type CliProbe, createDefaultCliProbe, discoverCliProviders } from "./discoverCliProviders.js";
+import type { ProviderActivity } from "./toolActivity.js";
 
 export type ProviderKind = "codex" | "claude-code" | "cursor-agent" | "droid" | "opencode";
 
@@ -17,14 +24,31 @@ export type ProviderEvent =
   | { type: "turn.completed"; threadId: ThreadId; turnId: string; status: string }
   | { type: "approval.requested"; threadId: ThreadId; requestId: string; payload: Record<string, unknown> }
   | { type: "user-input.requested"; threadId: ThreadId; requestId: string; payload: Record<string, unknown> }
+  | { type: "activity"; threadId: ThreadId; turnId?: string; activity: ProviderActivity }
   | { type: "session.closed"; threadId: ThreadId; reason: string }
   | { type: "provider.error"; threadId?: ThreadId; message: string };
+
+export type ProviderSessionStart = {
+  threadId: ThreadId;
+  cwd: string;
+  /** Omitted means full access, matching how every agent launched before supervised mode existed. */
+  permissionMode?: PermissionMode;
+  model?: string;
+};
+
+export type ProviderTurnInput = {
+  threadId: ThreadId;
+  text: string;
+  model?: string;
+  /** Stored images. Their paths are already listed in `text`; adapters may also pass them natively. */
+  attachments?: readonly ThreadAttachment[];
+};
 
 export interface ProviderAdapter {
   readonly provider: ProviderKind;
   readonly capabilities: ProviderCapabilities;
-  startSession(input: { threadId: ThreadId; cwd: string }): Promise<ProviderSession>;
-  sendTurn(input: { threadId: ThreadId; text: string; model?: string }): Promise<{ turnId: string }>;
+  startSession(input: ProviderSessionStart): Promise<ProviderSession>;
+  sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }>;
   interruptTurn(input: { threadId: ThreadId; turnId?: string }): Promise<void>;
   respondToRequest(input: { threadId: ThreadId; requestId: string; decision: unknown }): Promise<void>;
   respondToUserInput(input: { threadId: ThreadId; requestId: string; answers: Record<string, string> }): Promise<void>;
@@ -102,7 +126,7 @@ export class ProviderService {
     return value;
   }
 
-  async startSession(input: { provider: ProviderKind; threadId: ThreadId; cwd: string }): Promise<ProviderSession> {
+  async startSession(input: ProviderSessionStart & { provider: ProviderKind }): Promise<ProviderSession> {
     if (this.sessions.has(input.threadId))
       throw new ProviderServiceError("session_exists", `Session already exists: ${input.threadId}`);
     const adapter = this.registry.get(input.provider);
@@ -119,7 +143,7 @@ export class ProviderService {
     }
   }
 
-  async sendTurn(input: { threadId: ThreadId; text: string; model?: string }): Promise<{ turnId: string }> {
+  async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
     return this.adapterFor(input.threadId).sendTurn(input);
   }
 

@@ -1,10 +1,20 @@
 import {
   RuntimeEventEnvelope,
   RuntimeProjection,
+  appendThreadMessage,
   deriveSharedProjectContexts,
+  upsertThreadActivity,
   type RuntimeEventEnvelope as RuntimeEventEnvelopeValue,
   type RuntimeProjection as RuntimeProjectionValue,
 } from "@zli-v2/contracts";
+
+function touchThread(
+  threads: RuntimeProjectionValue["threads"],
+  threadId: string,
+  occurredAt: string,
+): RuntimeProjectionValue["threads"] {
+  return threads.map((thread) => (thread.threadId === threadId ? { ...thread, updatedAt: occurredAt } : thread));
+}
 
 export type ProjectionListener = (projection: RuntimeProjectionValue) => void;
 export type EventApplication = "applied" | "duplicate" | "gap";
@@ -84,6 +94,7 @@ export class ProjectionStore {
                   ...worktree,
                   status: event.status,
                   ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+                  ...(event.branch ? { branch: event.branch } : {}),
                 }
               : worktree,
           ),
@@ -103,7 +114,7 @@ export class ProjectionStore {
           ...current,
           terminals: [
             ...current.terminals.filter((terminal) => terminal.terminalId !== event.terminal.terminalId),
-            event.terminal,
+            { ...event.terminal, createdAt: envelope.occurredAt, updatedAt: envelope.occurredAt },
           ],
           lastSequence: envelope.sequence,
         };
@@ -116,6 +127,7 @@ export class ProjectionStore {
               ? {
                   ...terminal,
                   status: event.status,
+                  updatedAt: envelope.occurredAt,
                   ...(event.lastSequence === undefined ? {} : { lastSequence: event.lastSequence }),
                   ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
                 }
@@ -151,10 +163,29 @@ export class ProjectionStore {
           lastSequence: envelope.sequence,
         };
         break;
+      case "thread.message.appended":
+        this.#projection = {
+          ...current,
+          messages: appendThreadMessage(current.messages ?? [], event.message),
+          threads: touchThread(current.threads, event.message.threadId, envelope.occurredAt),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "thread.activity.updated":
+        this.#projection = {
+          ...current,
+          activities: upsertThreadActivity(current.activities ?? [], event.activity),
+          threads: touchThread(current.threads, event.activity.threadId, envelope.occurredAt),
+          lastSequence: envelope.sequence,
+        };
+        break;
       case "thread.start.requested":
         this.#projection = {
           ...current,
-          threads: [...current.threads.filter((thread) => thread.threadId !== event.thread.threadId), event.thread],
+          threads: [
+            ...current.threads.filter((thread) => thread.threadId !== event.thread.threadId),
+            { ...event.thread, createdAt: envelope.occurredAt, updatedAt: envelope.occurredAt },
+          ],
           lastSequence: envelope.sequence,
         };
         break;
@@ -166,6 +197,7 @@ export class ProjectionStore {
               ? {
                   ...thread,
                   status: event.status,
+                  updatedAt: envelope.occurredAt,
                   ...(event.turnId ? { activeTurnId: event.turnId } : {}),
                   ...(event.capabilities ? { capabilities: event.capabilities } : {}),
                   ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),

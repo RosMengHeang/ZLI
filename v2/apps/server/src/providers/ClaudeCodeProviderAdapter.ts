@@ -2,18 +2,27 @@ import type { ProviderCapabilities, ThreadId } from "@zli-v2/contracts";
 import type { ClaudeCodeClient, ClaudeProviderEvent } from "@zli-v2/provider-claude-code";
 import { ClaudeProviderError } from "@zli-v2/provider-claude-code";
 
-import type { ProviderAdapter, ProviderEvent, ProviderSession } from "./ProviderService.js";
+import type {
+  ProviderAdapter,
+  ProviderEvent,
+  ProviderSession,
+  ProviderSessionStart,
+  ProviderTurnInput,
+} from "./ProviderService.js";
+import { toolActivity } from "./toolActivity.js";
 
-type ClaudeClient = Pick<ClaudeCodeClient, "sendTurn" | "interruptTurn" | "transcript" | "subscribe" | "close">;
+type ClaudeClient = Pick<ClaudeCodeClient, "sendTurn" | "interruptTurn" | "transcript" | "subscribe" | "close"> &
+  Partial<Pick<ClaudeCodeClient, "respondToApproval">>;
+type ClientStart = Pick<ProviderSessionStart, "cwd" | "permissionMode" | "model">;
 
 export class ClaudeCodeProviderAdapter implements ProviderAdapter {
   readonly provider = "claude-code" as const;
   readonly capabilities: ProviderCapabilities = {
     exactResume: false,
-    structuredApproval: false,
+    structuredApproval: true,
     structuredUserInput: false,
     conversationRollback: false,
-    modelSwitch: "unsupported",
+    modelSwitch: "in-session",
   };
 
   private readonly sessions = new Map<
@@ -22,22 +31,26 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
   >();
   private readonly listeners = new Set<(event: ProviderEvent) => void>();
 
-  constructor(private readonly options: { createClient: (input: { cwd: string }) => Promise<ClaudeClient> }) {}
+  constructor(private readonly options: { createClient: (input: ClientStart) => Promise<ClaudeClient> }) {}
 
-  async startSession(input: { threadId: ThreadId; cwd: string }): Promise<ProviderSession> {
-    const client = await this.options.createClient({ cwd: input.cwd });
+  async startSession(input: ProviderSessionStart): Promise<ProviderSession> {
+    const client = await this.options.createClient({
+      cwd: input.cwd,
+      ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+      ...(input.model ? { model: input.model } : {}),
+    });
     const session: ProviderSession = {
       threadId: input.threadId,
       provider: this.provider,
       cwd: input.cwd,
       status: "idle",
     };
-    const unsubscribe = client.subscribe((event) => this.onClaudeEvent(input.threadId, event));
+    const unsubscribe = client.subscribe((event) => this.onClaudeEvent(input.threadId, input.cwd, event));
     this.sessions.set(input.threadId, { session, client, unsubscribe });
     return session;
   }
 
-  async sendTurn(input: { threadId: ThreadId; text: string; model?: string }): Promise<{ turnId: string }> {
+  async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
     const context = this.context(input.threadId);
     const result = await context.client.sendTurn({
       text: input.text,
@@ -52,8 +65,11 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
   }
 
   async respondToRequest(input: { threadId: ThreadId; requestId: string; decision: unknown }): Promise<void> {
-    this.context(input.threadId);
-    throw new ClaudeProviderError("unsupported", "Claude Code adapter does not handle structured approvals.");
+    const context = this.context(input.threadId);
+    if (!context.client.respondToApproval) {
+      throw new ClaudeProviderError("unsupported", "Claude Code adapter does not handle structured approvals.");
+    }
+    await context.client.respondToApproval(input.requestId, approvalAllowed(input.decision));
   }
 
   async respondToUserInput(input: {
@@ -119,7 +135,7 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
     return context;
   }
 
-  private onClaudeEvent(threadId: ThreadId, event: ClaudeProviderEvent): void {
+  private onClaudeEvent(threadId: ThreadId, cwd: string, event: ClaudeProviderEvent): void {
     switch (event.type) {
       case "turn.started":
         this.emit({ type: "turn.started", threadId, turnId: event.providerTurnId });
@@ -132,6 +148,17 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
         return;
       case "turn.failed":
         this.emit({ type: "provider.error", threadId, message: event.message });
+        return;
+      case "tool.updated":
+        this.emit({
+          type: "activity",
+          threadId,
+          turnId: event.providerTurnId,
+          activity: toolActivity(event.tool, cwd),
+        });
+        return;
+      case "approval.requested":
+        this.emit({ type: "approval.requested", threadId, requestId: event.requestId, payload: event.payload });
         return;
       case "session.closed":
         this.dropSession(threadId);
@@ -156,4 +183,13 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
   private emit(event: ProviderEvent): void {
     for (const listener of this.listeners) listener(event);
   }
+}
+
+/** The UI answers approvals with { approved }; Codex-style { decision: "accept" } is accepted too. */
+export function approvalAllowed(decision: unknown): boolean {
+  if (decision === true) return true;
+  if (!decision || typeof decision !== "object" || Array.isArray(decision)) return false;
+  const record = decision as Record<string, unknown>;
+  if (typeof record.approved === "boolean") return record.approved;
+  return record.decision === "accept" || record.decision === "allow" || record.decision === "approved";
 }

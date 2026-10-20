@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { EnvironmentId } from "@zli-v2/contracts";
@@ -69,9 +69,14 @@ export async function startRuntime(options: {
   const worktreeReactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()));
   const daemonSupervisor = new DaemonSupervisor({ endpointPath: `${databasePath}.daemon.json` });
   const terminalService = new TerminalService(new RemotePtyFactory({ connect: () => daemonSupervisor.connect() }));
-  const terminalReactor = new TerminalReactor(engine, terminalService);
   const reviewReactor = new ReviewReactor(engine, new ReviewService(new GitProcess()));
   const providerService = new ProviderService(createProviderRegistry());
+  const terminalReactor = new TerminalReactor(engine, terminalService, {
+    resolveAgentCli: async (provider) => {
+      const discovery = (await providerService.discoverProviders()).find((entry) => entry.provider === provider);
+      return discovery?.status === "found" ? discovery.path : undefined;
+    },
+  });
   const providerReactor = new ProviderReactor(engine, providerService);
   const agentMessageReactor = new AgentMessageReactor(engine);
   const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
@@ -82,6 +87,7 @@ export async function startRuntime(options: {
     token,
     terminalService,
     discoverProviders: () => providerService.discoverProviders(),
+    attachmentsDir: join(dirname(databasePath), "attachments"),
   });
   await server.start();
   await terminalReactor.restore();

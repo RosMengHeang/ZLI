@@ -6,8 +6,8 @@ import {
   ClientWireMessage,
   type EnvironmentDescriptor,
   type ProviderDiscovery,
-  type RuntimeError,
   type RpcRequest,
+  type RuntimeError,
   type RuntimeProjection,
   TerminalId,
 } from "@zli-v2/contracts";
@@ -16,8 +16,12 @@ import { type RawData, WebSocket, WebSocketServer } from "ws";
 import type { Engine } from "../orchestration/Engine.js";
 import { unavailableProviderDiscovery } from "../providers/discoverCliProviders.js";
 import type { TerminalService, TerminalSubscription } from "../terminal/TerminalService.js";
+import { AttachmentError, storeThreadAttachments } from "./attachments.js";
 
-const MAX_FRAME_BYTES = 1024 * 1024;
+/** Fits thread.send with eight 10 MiB images as base64 (about 112 MB) plus the JSON envelope. */
+const MAX_FRAME_BYTES = 128 * 1024 * 1024;
+/** Before hello only a small handshake is expected, so large frames are dropped without parsing them. */
+const MAX_UNAUTHENTICATED_FRAME_BYTES = 64 * 1024;
 const HELLO_TIMEOUT_MS = 5_000;
 
 type RpcServerOptions = {
@@ -26,6 +30,8 @@ type RpcServerOptions = {
   token: string;
   terminalService?: TerminalService;
   discoverProviders?: () => Promise<readonly ProviderDiscovery[]>;
+  /** Root for uploaded thread images. Without it, image uploads are rejected. */
+  attachmentsDir?: string;
   host?: string;
   port?: number;
 };
@@ -36,6 +42,7 @@ export class RpcServer {
   private readonly token: string;
   private readonly terminalService: TerminalService | undefined;
   private readonly discoverProviders: RpcServerOptions["discoverProviders"];
+  private readonly attachmentsDir: string | undefined;
   private readonly host: string;
   private readonly port: number;
   private httpServer: HttpServer | undefined;
@@ -53,6 +60,7 @@ export class RpcServer {
     this.token = options.token;
     this.terminalService = options.terminalService;
     this.discoverProviders = options.discoverProviders;
+    this.attachmentsDir = options.attachmentsDir;
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
   }
@@ -206,6 +214,14 @@ export class RpcServer {
     return true;
   }
 
+  /** Image bytes are written to disk before dispatch; the command that reaches the event log carries only paths. */
+  private async storeAttachments(request: RpcRequest): Promise<RpcRequest> {
+    const command = request.command;
+    if (command.type !== "thread.send" || !command.attachments || command.attachments.length === 0) return request;
+    const attachments = await storeThreadAttachments(this.attachmentsDir, command.threadId, command.attachments);
+    return { ...request, command: { ...command, attachments } };
+  }
+
   private async receive(
     client: WebSocket,
     raw: RawData,
@@ -214,6 +230,16 @@ export class RpcServer {
     setUnsubscribe: (unsubscribe: () => void) => void,
     terminalSubscriptions: Map<string, TerminalSubscription>,
   ): Promise<void> {
+    const size = Array.isArray(raw)
+      ? raw.reduce((total, part) => total + part.length, 0)
+      : raw instanceof ArrayBuffer
+        ? raw.byteLength
+        : raw.length;
+    if (size > (isAuthenticated() ? MAX_FRAME_BYTES : MAX_UNAUTHENTICATED_FRAME_BYTES)) {
+      sendError(client, { code: "invalid_request", message: "RPC frame is too large.", retryable: false });
+      client.close(1009, "frame too large");
+      return;
+    }
     const text = raw.toString();
     if (Buffer.byteLength(text, "utf8") > MAX_FRAME_BYTES) {
       sendError(client, { code: "invalid_request", message: "RPC frame is too large.", retryable: false });
@@ -263,7 +289,22 @@ export class RpcServer {
       case "command":
         if (this.terminalService && this.handleTerminalInput(client, message.data.request)) return;
         try {
-          const receipt = await this.engine.dispatchPromise(message.data.request);
+          let request: RpcRequest;
+          try {
+            request = await this.storeAttachments(message.data.request);
+          } catch (error) {
+            if (!(error instanceof AttachmentError)) throw error;
+            send(client, {
+              type: "response",
+              response: {
+                commandId: message.data.request.commandId,
+                accepted: false,
+                error: { code: "invalid_request", message: error.message, retryable: false },
+              },
+            });
+            return;
+          }
+          const receipt = await this.engine.dispatchPromise(request);
           if (receipt.status === "accepted") {
             send(client, {
               type: "response",

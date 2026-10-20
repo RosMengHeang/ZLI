@@ -1,11 +1,20 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
-import { CommandId, ProviderKind, ThreadId, TurnId, type RuntimeEventEnvelope } from "@zli-v2/contracts";
+import {
+  CommandId,
+  ProviderKind,
+  type RuntimeEventEnvelope,
+  type ThreadAttachment,
+  ThreadId,
+  TurnId,
+} from "@zli-v2/contracts";
 
 import type { Engine } from "../orchestration/Engine.js";
-import type { ProviderService, ProviderEvent } from "./ProviderService.js";
+import type { ProviderEvent, ProviderService } from "./ProviderService.js";
 
 type StartIntent = Extract<RuntimeEventEnvelope["event"], { type: "thread.start.requested" }>;
+type SendIntent = Extract<RuntimeEventEnvelope["event"], { type: "thread.send.requested" }>;
+type ActivityEvent = Extract<ProviderEvent, { type: "activity" }>;
 type ThreadStatus = "starting" | "idle" | "working" | "waiting" | "stopped" | "failed";
 type StatusDetail = {
   turnId?: string;
@@ -17,6 +26,9 @@ type PendingDelta = { threadId: string; turnId: string; text: string; timer: Ret
 /** Streaming fragments are coalesced so one reply is one durable event per flush, not one per token. */
 const DELTA_FLUSH_MS = 120;
 const LIVE_STATUSES = new Set<ThreadStatus>(["starting", "idle", "working", "waiting"]);
+const MAX_ACTIVITY_TITLE = 500;
+const MAX_ACTIVITY_DETAIL = 4_000;
+const MAX_ACTIVITY_ID = 200;
 
 export class ProviderReactor {
   private readonly tasks = new Set<Promise<void>>();
@@ -67,7 +79,7 @@ export class ProviderReactor {
         this.track(this.start(envelope.event));
         return;
       case "thread.send.requested":
-        this.track(this.send(envelope.event.threadId, envelope.event.text, envelope.event.model));
+        this.track(this.send(envelope.event));
         return;
       case "thread.interrupt.requested":
         this.track(this.interrupt(envelope.event.threadId, envelope.event.turnId));
@@ -92,6 +104,8 @@ export class ProviderReactor {
         provider: ProviderKind.parse(intent.thread.provider),
         threadId: intent.thread.threadId,
         cwd: intent.cwd,
+        ...(intent.thread.permissionMode ? { permissionMode: intent.thread.permissionMode } : {}),
+        ...(intent.thread.model ? { model: intent.thread.model } : {}),
       });
       await this.status(intent.thread.threadId, "idle", {
         capabilities: this.service.getCapabilities(session.provider),
@@ -101,13 +115,16 @@ export class ProviderReactor {
     }
   }
 
-  private async send(threadId: string, text: string, model?: string): Promise<void> {
-    await this.message(threadId, "user", text);
+  private async send(intent: SendIntent): Promise<void> {
+    const { threadId, text, model } = intent;
+    const attachments = intent.attachments ?? [];
+    await this.message(threadId, "user", text, undefined, attachments);
     try {
       const result = await this.service.sendTurn({
         threadId: ThreadId.parse(threadId),
-        text,
+        text: promptWithAttachments(text, attachments),
         ...(model ? { model } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
       });
       await this.status(threadId, "working", { turnId: result.turnId });
     } catch (error) {
@@ -142,6 +159,12 @@ export class ProviderReactor {
     }
     if (event.type === "turn.started") {
       this.track(this.status(event.threadId, "working", { turnId: event.turnId }));
+      return;
+    }
+    if (event.type === "activity") {
+      // Text streamed before the tool call has to land first so the work log keeps the provider's order.
+      this.flushThreadDeltas(event.threadId);
+      this.track(this.activity(event));
       return;
     }
     if (event.type === "turn.completed") {
@@ -275,11 +298,39 @@ export class ProviderReactor {
       });
   }
 
+  private activity(event: ActivityEvent): Promise<void> {
+    const { activity } = event;
+    const title = activity.title.trim().slice(0, MAX_ACTIVITY_TITLE) || "Tool call";
+    const detail = activity.detail?.replace(/\s+$/u, "");
+    const files = (activity.files ?? []).filter((file) => file.length > 0 && file.length <= 4_000).slice(0, 100);
+    const turnId = event.turnId?.trim();
+    return this.engine
+      .dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        command: {
+          type: "thread.activity",
+          activity: {
+            activityId: scopedActivityId(event.threadId, activity.activityId),
+            threadId: ThreadId.parse(event.threadId),
+            ...(turnId ? { turnId } : {}),
+            kind: activity.kind,
+            title,
+            ...(detail ? { detail: detail.slice(-MAX_ACTIVITY_DETAIL) } : {}),
+            status: activity.status,
+            ...(files.length > 0 ? { files } : {}),
+          },
+        },
+      })
+      .then(() => undefined);
+  }
+
   private message(
     threadId: string,
     role: "user" | "assistant" | "system",
     text: string,
     turnId?: string,
+    attachments: readonly ThreadAttachment[] = [],
   ): Promise<void> {
     return this.engine
       .dispatchPromise({
@@ -293,6 +344,7 @@ export class ProviderReactor {
             role,
             text,
             ...(turnId ? { turnId } : {}),
+            ...(attachments.length > 0 ? { attachments: [...attachments] } : {}),
           },
         },
       })
@@ -313,6 +365,20 @@ function errorText(error: unknown, fallback: string): string {
   const cause = error.cause instanceof Error ? error.cause.message : undefined;
   const message = error.message.trim() || fallback;
   return cause && !message.includes(cause) ? `${message} ${cause}` : message;
+}
+
+/** Text paths are the baseline every CLI understands; adapters with native image input also get the list. */
+export function promptWithAttachments(text: string, attachments: readonly ThreadAttachment[]): string {
+  if (attachments.length === 0) return text;
+  const lines = attachments.map((attachment) => `- ${attachment.path}`).join("\n");
+  return `${text}\n\nAttached images (read them from disk):\n${lines}`;
+}
+
+/** Provider call ids are only unique inside one session, and projected activities are keyed globally. */
+function scopedActivityId(threadId: string, activityId: string): string {
+  const scoped = `${threadId}:${activityId}`;
+  if (scoped.length <= MAX_ACTIVITY_ID && !/[\r\n]/u.test(activityId)) return scoped;
+  return `${threadId}:${createHash("sha256").update(activityId).digest("hex").slice(0, 40)}`;
 }
 
 function safeTurnId(value: string): TurnId {

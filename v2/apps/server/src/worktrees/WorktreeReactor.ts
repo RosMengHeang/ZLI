@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 
-import { CommandId, WorktreeId, type RuntimeEventEnvelope } from "@zli-v2/contracts";
+import { CommandId, type RuntimeEventEnvelope, WorktreeId, type WorktreeProjection } from "@zli-v2/contracts";
 
 import type { Engine } from "../orchestration/Engine.js";
 import type { WorktreeService, WorktreeState } from "./WorktreeService.js";
@@ -54,6 +54,9 @@ export class WorktreeReactor {
             }),
           );
         }
+        return;
+      case "worktree.imported":
+        if (envelope.event.worktree.kind === "checkout") this.track(this.runCheckoutPlacement(envelope.event.worktree));
         return;
       case "worktree.remove.requested":
         this.startRemove(envelope.event.worktreeId, envelope.event.force);
@@ -160,6 +163,11 @@ export class WorktreeReactor {
     const worktree = projection.worktrees.find((entry) => entry.worktreeId === worktreeId);
     const project = worktree ? projection.projects.find((entry) => entry.projectId === worktree.projectId) : undefined;
     if (!worktree || !project) return;
+    // A checkout is the project's own working copy. Removing it from the workspace must never touch disk.
+    if (worktree.kind === "checkout") {
+      await this.dispatchCompletion("worktree.removed", worktreeId);
+      return;
+    }
     const intent = await this.intentFor(worktreeId);
     try {
       await this.service.remove({
@@ -180,6 +188,20 @@ export class WorktreeReactor {
     }
   }
 
+  /** The client imports a checkout with a placeholder branch; the real one comes from git. */
+  private async runCheckoutPlacement(worktree: WorktreeProjection): Promise<void> {
+    try {
+      const branch = await this.service.currentBranch(worktree.path);
+      if (branch !== worktree.branch) await this.dispatchStatus(worktree.worktreeId, "ready", undefined, branch);
+    } catch (error) {
+      await this.dispatchStatus(
+        worktree.worktreeId,
+        "failed",
+        error instanceof Error ? error.message : "Could not read the checkout's branch.",
+      );
+    }
+  }
+
   private startArchive(worktreeId: string): void {
     const task = this.dispatchCompletion("worktree.archived", worktreeId);
     this.tasks.add(task);
@@ -189,7 +211,12 @@ export class WorktreeReactor {
     );
   }
 
-  private dispatchStatus(worktreeId: string, status: WorktreeState, errorMessage?: string): Promise<void> {
+  private dispatchStatus(
+    worktreeId: string,
+    status: WorktreeState,
+    errorMessage?: string,
+    branch?: string,
+  ): Promise<void> {
     return this.engine
       .dispatchPromise({
         protocolVersion: 1,
@@ -199,6 +226,7 @@ export class WorktreeReactor {
           worktreeId: WorktreeId.parse(worktreeId),
           status,
           ...(errorMessage ? { errorMessage } : {}),
+          ...(branch ? { branch } : {}),
         },
       })
       .then(() => undefined);

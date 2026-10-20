@@ -171,3 +171,135 @@ describe("CodexAppServerClient", () => {
     ]);
   });
 });
+
+describe("CodexAppServerClient tool items", () => {
+  const ids = { threadId: "provider-thread-1", turnId: "provider-turn-1" };
+
+  it("normalizes item/started and item/completed tool items and skips message items", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    const events: CodexProviderEvent[] = [];
+    client.subscribe((event) => events.push(event));
+    const notify = (method: string, item: Record<string, unknown>) =>
+      peer.emit({ jsonrpc: "2.0", method, params: { ...ids, item } });
+
+    notify("item/started", {
+      type: "commandExecution",
+      id: "cmd-1",
+      command: "npm test",
+      cwd: "/work",
+      status: "inProgress",
+    });
+    notify("item/completed", {
+      type: "commandExecution",
+      id: "cmd-1",
+      command: "npm test",
+      cwd: "/work",
+      status: "completed",
+      aggregatedOutput: "1 failing",
+      exitCode: 1,
+    });
+    notify("item/completed", {
+      type: "fileChange",
+      id: "fc-1",
+      status: "completed",
+      changes: [{ path: "/work/src/a.ts", kind: { type: "update" } }, { path: "/work/src/b.ts" }],
+    });
+    notify("item/completed", {
+      type: "mcpToolCall",
+      id: "mcp-1",
+      server: "github",
+      tool: "search_issues",
+      status: "completed",
+      arguments: { query: "bug" },
+      result: { content: [{ type: "text", text: "3 issues" }] },
+    });
+    notify("item/started", { type: "webSearch", id: "web-1", query: "vitest docs" });
+    notify("item/completed", { type: "agentMessage", id: "msg-1", text: "hi" });
+    peer.emit({ jsonrpc: "2.0", method: "item/completed", params: { ...ids, item: "bad" } });
+
+    expect(events.filter((event) => event.type === "tool.updated")).toEqual([
+      {
+        type: "tool.updated",
+        providerThreadId: "provider-thread-1",
+        providerTurnId: "provider-turn-1",
+        tool: {
+          callId: "cmd-1",
+          name: "commandExecution",
+          input: { command: "npm test", cwd: "/work" },
+          status: "running",
+        },
+      },
+      {
+        type: "tool.updated",
+        providerThreadId: "provider-thread-1",
+        providerTurnId: "provider-turn-1",
+        tool: {
+          callId: "cmd-1",
+          name: "commandExecution",
+          input: { command: "npm test", cwd: "/work" },
+          status: "failed",
+          output: "1 failing",
+        },
+      },
+      {
+        type: "tool.updated",
+        providerThreadId: "provider-thread-1",
+        providerTurnId: "provider-turn-1",
+        tool: {
+          callId: "fc-1",
+          name: "fileChange",
+          input: { paths: ["/work/src/a.ts", "/work/src/b.ts"] },
+          status: "completed",
+        },
+      },
+      {
+        type: "tool.updated",
+        providerThreadId: "provider-thread-1",
+        providerTurnId: "provider-turn-1",
+        tool: {
+          callId: "mcp-1",
+          name: "github.search_issues",
+          input: { query: "bug" },
+          status: "completed",
+          output: "3 issues",
+        },
+      },
+      {
+        type: "tool.updated",
+        providerThreadId: "provider-thread-1",
+        providerTurnId: "provider-turn-1",
+        tool: { callId: "web-1", name: "webSearch", input: { query: "vitest docs" }, status: "running" },
+      },
+    ]);
+    expect(events.some((event) => event.type === "protocol.error")).toBe(false);
+  });
+
+  it("starts supervised threads with the requested policy and sends images as localImage input", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    await client.startSession({
+      cwd: "/work",
+      model: "gpt-5.2",
+      approvalPolicy: "on-request",
+      sandboxPolicy: "workspace-write",
+    });
+    await client.sendTurn({ providerThreadId: "provider-thread-1", text: "Look", imagePaths: ["/tmp/shot.png"] });
+    expect(peer.requests.slice(1)).toEqual([
+      {
+        method: "thread/start",
+        params: { cwd: "/work", model: "gpt-5.2", approvalPolicy: "on-request", sandbox: "workspace-write" },
+      },
+      {
+        method: "turn/start",
+        params: {
+          threadId: "provider-thread-1",
+          input: [
+            { type: "text", text: "Look" },
+            { type: "localImage", path: "/tmp/shot.png" },
+          ],
+        },
+      },
+    ]);
+  });
+});

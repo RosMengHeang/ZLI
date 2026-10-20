@@ -1,8 +1,6 @@
-// Print mode is required for stream-json input and output. No one-shot prompt:
-// user turns arrive as NDJSON on stdin. Resume and permission-prompt-tool are omitted.
-// Each agent runs in its own git worktree, so tool calls are allowed without prompts;
-// without this, print mode denies every Edit/Write/Bash call the user has not pre-allowed.
-export const CLAUDE_SESSION_ARGS = [
+export type ClaudePermissionMode = "full-access" | "supervised";
+
+const BASE_ARGS = [
   "-p",
   "--output-format",
   "stream-json",
@@ -10,9 +8,25 @@ export const CLAUDE_SESSION_ARGS = [
   "stream-json",
   "--verbose",
   "--include-partial-messages",
-  "--permission-mode",
-  "bypassPermissions",
 ] as const;
+
+// Print mode is required for stream-json input and output. No one-shot prompt:
+// user turns arrive as NDJSON on stdin. Resume is omitted.
+// Full access: each agent runs in its own git worktree, so tool calls are allowed
+// without prompts; without this, print mode denies every Edit/Write/Bash call the
+// user has not pre-allowed.
+export const CLAUDE_SESSION_ARGS = [...BASE_ARGS, "--permission-mode", "bypassPermissions"] as const;
+
+// Supervised: the default permission mode with "stdio" as the prompt tool makes
+// Claude ask over stdout with can_use_tool control requests instead of denying.
+export function claudeSessionArgs(input: { permissionMode?: ClaudePermissionMode; model?: string } = {}): string[] {
+  const args: string[] =
+    input.permissionMode === "supervised"
+      ? [...BASE_ARGS, "--permission-mode", "default", "--permission-prompt-tool", "stdio"]
+      : [...CLAUDE_SESSION_ARGS];
+  if (input.model) args.push("--model", input.model);
+  return args;
+}
 
 export const MAX_CLAUDE_LINE_CHARS = 1_000_000;
 

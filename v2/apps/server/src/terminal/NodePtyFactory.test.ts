@@ -51,6 +51,43 @@ describe("NodePtyFactory", () => {
     expect(exitListeners).toHaveLength(1);
   });
 
+  it("routes a Windows .cmd agent shim through cmd.exe with a verbatim command line", async () => {
+    const spawned: Array<{ shell: string; args: string[] | string; env: NodeJS.ProcessEnv }> = [];
+    const factory = new NodePtyFactory({ platform: "win32", load: async () => recordingModule(spawned) });
+
+    await factory.spawn({
+      cwd: "C:\\workspace\\tree",
+      shell: "C:\\Users\\dev\\AppData\\Roaming\\npm\\claude.cmd",
+      args: ["--dangerously-skip-permissions", "--model", "claude-sonnet-4-5"],
+      envOverrides: { TERM: "xterm-256color", COLORTERM: "truecolor" },
+      env: { ComSpec: "C:\\Windows\\System32\\cmd.exe", ZLI_DAEMON_TOKEN: "secret" },
+      cols: 120,
+      rows: 32,
+    });
+
+    expect(spawned[0]?.shell).toBe("C:\\Windows\\System32\\cmd.exe");
+    expect(spawned[0]?.args).toBe(
+      '/d /s /c "^"C:\\Users\\dev\\AppData\\Roaming\\npm\\claude.cmd^" ^"--dangerously-skip-permissions^" ^"--model^" ^"claude-sonnet-4-5^""',
+    );
+    expect(spawned[0]?.env).toMatchObject({ TERM: "xterm-256color", COLORTERM: "truecolor" });
+    expect(spawned[0]?.env.ZLI_DAEMON_TOKEN).toBeUndefined();
+  });
+
+  it("passes agent arguments as an argv array to an executable", async () => {
+    const spawned: Array<{ shell: string; args: string[] | string; env: NodeJS.ProcessEnv }> = [];
+    const factory = new NodePtyFactory({ platform: "linux", load: async () => recordingModule(spawned) });
+
+    await factory.spawn({
+      cwd: "/workspace",
+      shell: "/usr/local/bin/droid",
+      args: ["--auto", "high"],
+      cols: 80,
+      rows: 24,
+    });
+
+    expect(spawned[0]).toMatchObject({ shell: "/usr/local/bin/droid", args: ["--auto", "high"] });
+  });
+
   it("omits daemon credentials from the child environment when the parent has them", async () => {
     const previous = {
       token: process.env.ZLI_DAEMON_TOKEN,
@@ -107,6 +144,22 @@ describe("NodePtyFactory", () => {
     }
   });
 });
+
+function recordingModule(spawned: Array<{ shell: string; args: string[] | string; env: NodeJS.ProcessEnv }>) {
+  return {
+    spawn: (shell: string, args: string[] | string, options: Record<string, unknown>) => {
+      spawned.push({ shell, args, env: options.env as NodeJS.ProcessEnv });
+      return {
+        pid: 11,
+        write: () => undefined,
+        resize: () => undefined,
+        kill: () => undefined,
+        onData: () => ({ dispose: () => undefined }),
+        onExit: () => ({ dispose: () => undefined }),
+      };
+    },
+  };
+}
 
 function restoreEnv(key: string, value: string | undefined): void {
   if (value === undefined) delete process.env[key];

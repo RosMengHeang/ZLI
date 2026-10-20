@@ -1,7 +1,14 @@
-import type { ThreadId, ProviderCapabilities } from "@zli-v2/contracts";
+import type { ProviderCapabilities, ThreadId } from "@zli-v2/contracts";
 import type { CodexAppServerClient, CodexProviderEvent } from "@zli-v2/provider-codex";
 
-import type { ProviderAdapter, ProviderEvent, ProviderSession } from "./ProviderService.js";
+import type {
+  ProviderAdapter,
+  ProviderEvent,
+  ProviderSession,
+  ProviderSessionStart,
+  ProviderTurnInput,
+} from "./ProviderService.js";
+import { toolActivity } from "./toolActivity.js";
 
 type CodexClient = Pick<
   CodexAppServerClient,
@@ -31,9 +38,16 @@ export class CodexProviderAdapter implements ProviderAdapter {
 
   constructor(private readonly options: { createClient: () => Promise<CodexClient> }) {}
 
-  async startSession(input: { threadId: ThreadId; cwd: string }): Promise<ProviderSession> {
+  async startSession(input: ProviderSessionStart): Promise<ProviderSession> {
     const client = await this.ensureClient();
-    const started = await client.startSession({ cwd: input.cwd });
+    // Full access keeps Codex's own configured policy, as before supervised mode existed.
+    const started = await client.startSession({
+      cwd: input.cwd,
+      ...(input.model ? { model: input.model } : {}),
+      ...(input.permissionMode === "supervised"
+        ? { approvalPolicy: "on-request", sandboxPolicy: "workspace-write" }
+        : {}),
+    });
     const session: ProviderSession = {
       threadId: input.threadId,
       provider: this.provider,
@@ -44,13 +58,15 @@ export class CodexProviderAdapter implements ProviderAdapter {
     return session;
   }
 
-  async sendTurn(input: { threadId: ThreadId; text: string; model?: string }): Promise<{ turnId: string }> {
+  async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
     const context = this.context(input.threadId);
     const client = await this.ensureClient();
+    const imagePaths = (input.attachments ?? []).map((attachment) => attachment.path);
     const result = await client.sendTurn({
       providerThreadId: context.providerThreadId,
       text: input.text,
       ...(input.model ? { model: input.model } : {}),
+      ...(imagePaths.length > 0 ? { imagePaths } : {}),
     });
     return { turnId: result.providerTurnId };
   }
@@ -162,6 +178,14 @@ export class CodexProviderAdapter implements ProviderAdapter {
         return;
       case "turn.started":
         this.emit({ type: "turn.started", threadId: context.session.threadId, turnId: event.providerTurnId });
+        return;
+      case "tool.updated":
+        this.emit({
+          type: "activity",
+          threadId: context.session.threadId,
+          turnId: event.providerTurnId,
+          activity: toolActivity(event.tool, context.session.cwd),
+        });
         return;
       case "turn.completed":
         this.emit({

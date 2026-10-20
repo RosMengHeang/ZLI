@@ -10,13 +10,15 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
-import { ProviderReactor } from "./ProviderReactor.js";
+import { ProviderReactor, promptWithAttachments } from "./ProviderReactor.js";
 import {
   type ProviderAdapter,
   type ProviderEvent,
   ProviderRegistry,
   ProviderService,
   type ProviderSession,
+  type ProviderSessionStart,
+  type ProviderTurnInput,
 } from "./ProviderService.js";
 
 const environment = {
@@ -34,12 +36,16 @@ class FakeAdapter implements ProviderAdapter {
   readonly events = new Set<(event: ProviderEvent) => void>();
   started = false;
   responded = false;
+  readonly startInputs: ProviderSessionStart[] = [];
+  readonly turnInputs: ProviderTurnInput[] = [];
 
-  async startSession(input: { threadId: ThreadIdValue; cwd: string }): Promise<ProviderSession> {
+  async startSession(input: ProviderSessionStart): Promise<ProviderSession> {
     this.started = true;
+    this.startInputs.push(input);
     return { threadId: input.threadId, provider: this.provider, cwd: input.cwd, status: "idle" };
   }
-  async sendTurn(): Promise<{ turnId: string }> {
+  async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
+    this.turnInputs.push(input);
     return { turnId: "provider-turn" };
   }
   async interruptTurn(): Promise<void> {}
@@ -253,5 +259,148 @@ describe("ProviderReactor", () => {
     expect((await engine.projection()).threads[0]?.errorMessage).toContain("restarted");
     restartedReactor.stop();
     restartedService.dispose();
+  });
+  it("passes permission mode and model to the session, attachments to the turn, and records tool activity in order", async () => {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service);
+
+    await engine.dispatchPromise({
+      protocolVersion: 1,
+      commandId: CommandId.parse("10000000-0000-4000-8000-000000000921"),
+      command: { type: "project.register", path: "C:\\workspace\\activity" },
+    });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    await engine.dispatchPromise({
+      protocolVersion: 1,
+      commandId: CommandId.parse("10000000-0000-4000-8000-000000000922"),
+      command: {
+        type: "worktree.create",
+        worktreeId,
+        projectId: ProjectId.parse(project.projectId),
+        path: "C:\\workspace\\activity-tree",
+        workspaceRoot: "C:\\workspace",
+        branch: "feature/activity",
+      },
+    });
+    await engine.dispatchPromise({
+      protocolVersion: 1,
+      commandId: CommandId.parse("10000000-0000-4000-8000-000000000923"),
+      command: {
+        type: "thread.start",
+        threadId,
+        worktreeId,
+        provider: "codex",
+        cwd: "C:\\workspace\\activity-tree",
+        permissionMode: "supervised",
+        model: "gpt-5",
+      },
+    });
+    await reactor.waitForIdle();
+    expect(adapter.startInputs).toEqual([
+      expect.objectContaining({
+        threadId,
+        cwd: "C:\\workspace\\activity-tree",
+        permissionMode: "supervised",
+        model: "gpt-5",
+      }),
+    ]);
+
+    const image = { name: "shot.png", mimeType: "image/png" as const, path: "C:\\zli\\attachments\\shot.png" };
+    await engine.dispatchPromise({
+      protocolVersion: 1,
+      commandId: CommandId.parse("10000000-0000-4000-8000-000000000924"),
+      command: { type: "thread.send", threadId, text: "fix the layout", attachments: [image] },
+    });
+    await reactor.waitForIdle();
+    expect(adapter.turnInputs).toEqual([
+      {
+        threadId,
+        text: promptWithAttachments("fix the layout", [image]),
+        attachments: [image],
+      },
+    ]);
+    expect(adapter.turnInputs[0]?.text).toContain("C:\\zli\\attachments\\shot.png");
+    expect((await engine.projection()).messages).toEqual([
+      expect.objectContaining({ role: "user", text: "fix the layout", attachments: [image] }),
+    ]);
+
+    adapter.emit({ type: "assistant.delta", threadId, turnId: "turn-b", text: "Checking tests." });
+    adapter.emit({
+      type: "activity",
+      threadId,
+      turnId: "turn-b",
+      activity: { activityId: "call-1", kind: "command", title: "npm test", status: "running" },
+    });
+    await reactor.waitForIdle();
+    adapter.emit({
+      type: "activity",
+      threadId,
+      turnId: "turn-b",
+      activity: {
+        activityId: "call-1",
+        kind: "command",
+        title: "npm test",
+        detail: "1 failed\n\n",
+        status: "failed",
+      },
+    });
+    adapter.emit({
+      type: "activity",
+      threadId,
+      activity: {
+        activityId: "multi\nline",
+        kind: "file-read",
+        title: "   ",
+        status: "completed",
+        files: ["a.ts", ""],
+      },
+    });
+    await reactor.waitForIdle();
+
+    const projection = await engine.projection();
+    expect(projection.messages?.map((message) => [message.role, message.text])).toEqual([
+      ["user", "fix the layout"],
+      ["assistant", "Checking tests."],
+    ]);
+    expect(projection.activities).toEqual([
+      {
+        activityId: `${threadId}:call-1`,
+        threadId,
+        turnId: "turn-b",
+        kind: "command",
+        title: "npm test",
+        detail: "1 failed",
+        status: "failed",
+      },
+      {
+        activityId: expect.stringMatching(new RegExp(`^${threadId}:[0-9a-f]{40}$`, "u")),
+        threadId,
+        kind: "file-read",
+        title: "Tool call",
+        status: "completed",
+        files: ["a.ts"],
+      },
+    ]);
+
+    reactor.stop();
+    await service.stopAll();
+    service.dispose();
+  });
+});
+
+describe("promptWithAttachments", () => {
+  it("leaves text alone without attachments and lists stored paths otherwise", () => {
+    expect(promptWithAttachments("hello", [])).toBe("hello");
+    expect(
+      promptWithAttachments("hello", [
+        { name: "a.png", mimeType: "image/png", path: "/tmp/a.png" },
+        { name: "b.jpg", mimeType: "image/jpeg", path: "/tmp/b.jpg" },
+      ]),
+    ).toBe("hello\n\nAttached images (read them from disk):\n- /tmp/a.png\n- /tmp/b.jpg");
   });
 });

@@ -15,13 +15,15 @@ are tools that share the same work surface.
 
 ## Palette
 
-- Canvas: `#181818`, a soft charcoal that keeps terminal text comfortable.
-- Sidebar: `#202020`, a slightly lifted navigation plane.
-- Surface: `#212121`, shared pane and chrome color.
-- Raised surface: `#262626`, reserved for controls and focused content.
-- Accent: white in dark mode and `#111111` in light mode, reserved for primary actions.
+- Canvas: `#0a0a0a`, near-black so terminal output and the agent grid carry the
+  contrast.
+- Sidebar: `#0d0d0d`, barely lifted from the canvas.
+- Surface: `#111111`, shared tile and chrome color.
+- Raised surface: `#171717`, reserved for controls, popovers, and the composer.
+- Borders are low-alpha white hairlines rather than solid grays.
+- Accent: blue `oklch(.571 .21 264)`, reserved for primary actions, focus, and
+  the selected agent.
 - Status colors: green, amber, and red are reserved for real process state.
-
 ## Typography
 
 - Bundled Inter Variable carries controls and body copy consistently on every
@@ -47,7 +49,9 @@ are tools that share the same work surface.
   uses Claude's coral starburst rather than Anthropic's corporate mark.
 - Project details appear in one raised hover card because metadata and actions
   are useful on demand but would make every navigation row noisy if persistent.
-- The center workbench is the focal point. Browser, TaxChat, and Changes share
+- The center workbench is a grid of agent tiles, each switchable between its
+  terminal and a chat view. A per-session terminal drawer sits below the grid.
+- Browser, TaxChat, and Changes share
   one resizable utility column and stack vertically when used together. They
   never float above or overlap the terminal grid.
 - Pane boundaries are quiet separators. Provider identity comes from the tool

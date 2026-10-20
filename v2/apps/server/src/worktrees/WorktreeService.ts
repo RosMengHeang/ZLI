@@ -124,6 +124,24 @@ export class WorktreeService {
     return { removed: true, branchDeleted };
   }
 
+  /** Branch checked out at `worktreePath`, or "HEAD" when detached. Reads only; never changes the checkout. */
+  async currentBranch(worktreePath: string): Promise<string> {
+    const cwd = assertAbsolute(worktreePath, "worktreePath");
+    let branch: string;
+    try {
+      branch = (await this.git.run(["rev-parse", "--abbrev-ref", "HEAD"], { cwd, timeoutMs: 10_000 })).stdout.trim();
+    } catch (error) {
+      // A repository without commits has no HEAD to rev-parse, but its unborn branch still has a name.
+      try {
+        branch = (await this.git.run(["symbolic-ref", "--short", "HEAD"], { cwd, timeoutMs: 10_000 })).stdout.trim();
+      } catch {
+        throw error;
+      }
+    }
+    if (!branch) throw new WorktreeError("not_found", "Git did not report a branch for this checkout.");
+    return branch;
+  }
+
   private async runCreate(
     request: WorktreeCreateRequest,
     controller: AbortController,

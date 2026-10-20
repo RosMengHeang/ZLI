@@ -3,12 +3,21 @@ import { accessSync, constants, statSync } from "node:fs";
 
 import { spawnCli } from "@zli-v2/shared";
 
-import { CLAUDE_SESSION_ARGS, decodeClaudeLine, encodeClaudeMessage, MAX_CLAUDE_LINE_CHARS } from "./protocol.js";
 import {
+  type ClaudePermissionMode,
+  claudeSessionArgs,
+  decodeClaudeLine,
+  encodeClaudeMessage,
+  MAX_CLAUDE_LINE_CHARS,
+} from "./protocol.js";
+import {
+  allowToolRequest,
   classifyClaudeMessage,
+  claudeToolBlocks,
   denyToolRequest,
   initializeRequest,
   interruptRequest,
+  setModelRequest,
   unsupportedControlResponse,
   userTurnMessage,
 } from "./schema.js";
@@ -20,8 +29,18 @@ export type ClaudeProviderEvent =
   | { type: "assistant.delta"; providerTurnId: string; text: string }
   | { type: "turn.completed"; providerTurnId: string; status: string }
   | { type: "turn.failed"; providerTurnId: string; message: string }
+  | { type: "tool.updated"; providerTurnId: string; tool: ClaudeToolUpdate }
+  | { type: "approval.requested"; requestId: string; payload: Record<string, unknown> }
   | { type: "protocol.error"; message: string }
   | { type: "session.closed"; reason: string };
+
+export type ClaudeToolUpdate = {
+  callId: string;
+  name: string;
+  input?: Record<string, unknown>;
+  status: "running" | "completed" | "failed";
+  output?: string;
+};
 
 export type ClaudeTurnResult = { providerTurnId: string };
 export type ClaudeTranscriptTurn = { providerTurnId: string; text: string; status: string };
@@ -67,6 +86,8 @@ export type ClaudeCodeClientOptions = {
   peer?: ClaudePeer;
   spawnProcess?: (command: string, args: readonly string[], options: ClaudeSpawnOptions) => ClaudeChild;
   initTimeoutMs?: number;
+  permissionMode?: ClaudePermissionMode;
+  model?: string;
 };
 
 export class ClaudeProviderError extends Error {
@@ -80,7 +101,13 @@ export class ClaudeProviderError extends Error {
   }
 }
 
-type ActiveTurn = { id: string; text: string; sawPartial: boolean; sawText: boolean };
+type ActiveTurn = {
+  id: string;
+  text: string;
+  sawPartial: boolean;
+  sawText: boolean;
+  tools: Map<string, { name: string; input?: Record<string, unknown> }>;
+};
 
 export class ClaudeCodeClient {
   private readonly listeners = new Set<(event: ClaudeProviderEvent) => void>();
@@ -92,11 +119,14 @@ export class ClaudeCodeClient {
   private initRequestId = "";
   private initFailure: Error | undefined;
   private initGate: { resolve: () => void; reject: (error: Error) => void } | undefined;
+  private readonly pendingApprovals = new Map<string, Record<string, unknown>>();
   private closed = false;
 
   private constructor(
     private readonly peer: ClaudePeer,
     private readonly command: string,
+    private readonly permissionMode: ClaudePermissionMode,
+    private model: string | undefined,
   ) {
     this.unsubscribeMessage = peer.onMessage((message) => this.handleMessage(message));
     this.unsubscribeClose = peer.onClose((error) => this.onPeerClose(error));
@@ -105,7 +135,12 @@ export class ClaudeCodeClient {
   static async start(options: ClaudeCodeClientOptions): Promise<ClaudeCodeClient> {
     const command = options.command ?? "claude";
     const peer = options.peer ?? spawnClaudePeer(options, command);
-    const client = new ClaudeCodeClient(peer, command);
+    const client = new ClaudeCodeClient(
+      peer,
+      command,
+      options.permissionMode ?? "full-access",
+      options.model?.trim() || undefined,
+    );
     try {
       client.sendInitialize();
       await client.waitForInit(options.initTimeoutMs ?? SESSION_INIT_TIMEOUT_MS);
@@ -127,16 +162,19 @@ export class ClaudeCodeClient {
   }
 
   async sendTurn(input: { text: string; model?: string }): Promise<ClaudeTurnResult> {
-    if (input.model) {
-      throw new ClaudeProviderError("unsupported", "Claude Code adapter does not switch models in a session.");
-    }
     this.assertOpen();
     const sessionId = this.sessionId;
     if (!sessionId) throw new ClaudeProviderError("request_failed", "Claude Code session is not started.");
     if (this.active) throw new ClaudeProviderError("request_failed", "Claude Code already has a turn in progress.");
+    const model = input.model?.trim();
     const providerTurnId = randomUUID();
-    this.active = { id: providerTurnId, text: "", sawPartial: false, sawText: false };
+    this.active = { id: providerTurnId, text: "", sawPartial: false, sawText: false, tools: new Map() };
     try {
+      // The session keeps its model across turns, so only a different one needs a switch.
+      if (model && model !== this.model) {
+        this.write(setModelRequest(`set_model_${randomUUID()}`, model));
+        this.model = model;
+      }
       this.write(userTurnMessage(input.text, sessionId));
     } catch (error) {
       this.active = undefined;
@@ -154,6 +192,17 @@ export class ClaudeCodeClient {
     }
     this.write(interruptRequest(`interrupt_${randomUUID()}`));
     this.finishTurn("interrupted");
+  }
+
+  /** Answers a can_use_tool request raised while the session runs supervised. */
+  async respondToApproval(requestId: string, allow: boolean): Promise<void> {
+    this.assertOpen();
+    const input = this.pendingApprovals.get(requestId);
+    if (!input) throw new ClaudeProviderError("request_failed", `Claude Code approval request not found: ${requestId}`);
+    this.pendingApprovals.delete(requestId);
+    this.write(
+      allow ? allowToolRequest(requestId, input) : denyToolRequest(requestId, "The user declined this tool call."),
+    );
   }
 
   async close(): Promise<void> {
@@ -194,6 +243,7 @@ export class ClaudeCodeClient {
       this.emit({ type: "protocol.error", message: "Malformed Claude Code message." });
       return;
     }
+    this.handleToolBlocks(raw);
     const message = classifyClaudeMessage(raw);
     switch (message.kind) {
       case "init":
@@ -218,7 +268,7 @@ export class ClaudeCodeClient {
         this.onResult(message);
         return;
       case "control_request":
-        this.answerControl(message.requestId, message.subtype);
+        this.answerControl(message);
         return;
       case "control_response":
         if (message.requestId === this.initRequestId && !message.ok && !this.sessionId) {
@@ -266,6 +316,7 @@ export class ClaudeCodeClient {
     const active = this.active;
     if (!active) return;
     this.active = undefined;
+    this.pendingApprovals.clear();
     if (errorMessage) {
       this.completed.push({ providerTurnId: active.id, text: errorMessage, status });
       this.emit({ type: "turn.failed", providerTurnId: active.id, message: errorMessage });
@@ -275,8 +326,59 @@ export class ClaudeCodeClient {
     this.emit({ type: "turn.completed", providerTurnId: active.id, status });
   }
 
-  private answerControl(requestId: string, subtype: string): void {
+  private handleToolBlocks(raw: unknown): void {
+    const active = this.active;
+    if (!active) return;
+    for (const block of claudeToolBlocks(raw)) {
+      if (block.kind === "use") {
+        const tool = { name: block.name, ...(block.input ? { input: block.input } : {}) };
+        active.tools.set(block.id, tool);
+        this.emit({
+          type: "tool.updated",
+          providerTurnId: active.id,
+          tool: { callId: block.id, ...tool, status: "running" },
+        });
+        continue;
+      }
+      const started = active.tools.get(block.toolUseId);
+      active.tools.delete(block.toolUseId);
+      this.emit({
+        type: "tool.updated",
+        providerTurnId: active.id,
+        tool: {
+          callId: block.toolUseId,
+          name: started?.name ?? "Tool",
+          ...(started?.input ? { input: started.input } : {}),
+          status: block.isError ? "failed" : "completed",
+          ...(block.output ? { output: block.output } : {}),
+        },
+      });
+    }
+  }
+
+  private answerControl(message: {
+    requestId: string;
+    subtype: string;
+    toolName?: string;
+    input?: Record<string, unknown>;
+    toolUseId?: string;
+  }): void {
+    const { requestId, subtype } = message;
     try {
+      if (subtype === "can_use_tool" && this.permissionMode === "supervised") {
+        const input = message.input ?? {};
+        this.pendingApprovals.set(requestId, input);
+        this.emit({
+          type: "approval.requested",
+          requestId,
+          payload: {
+            toolName: message.toolName ?? "Tool",
+            input,
+            ...(message.toolUseId ? { toolUseId: message.toolUseId } : {}),
+          },
+        });
+        return;
+      }
       if (subtype === "can_use_tool") {
         this.write(denyToolRequest(requestId));
         this.emit({
@@ -366,7 +468,11 @@ function spawnClaudePeer(options: ClaudeCodeClientOptions, command: string): Cla
     throw new ClaudeProviderError("cli_missing", "Claude Code CLI was not found.");
   }
   const spawnProcess = options.spawnProcess ?? defaultSpawn;
-  const child = spawnProcess(command, CLAUDE_SESSION_ARGS, {
+  const args = claudeSessionArgs({
+    ...(options.permissionMode ? { permissionMode: options.permissionMode } : {}),
+    ...(options.model?.trim() ? { model: options.model.trim() } : {}),
+  });
+  const child = spawnProcess(command, args, {
     cwd: options.cwd,
     env: sessionEnv(options),
     shell: false,

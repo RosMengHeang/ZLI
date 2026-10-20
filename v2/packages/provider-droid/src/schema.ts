@@ -3,13 +3,16 @@ export type DroidInbound =
   | { kind: "text"; text: string }
   | { kind: "completion"; isError: boolean; text?: string }
   | { kind: "error"; message: string }
+  | { kind: "tool_call"; callId: string; name: string; input?: Record<string, unknown> }
+  | { kind: "tool_result"; callId: string; name?: string; isError: boolean; output?: string }
   | { kind: "ignore" }
   | { kind: "invalid"; reason: "init" | "message" };
 
 /**
  * stream-json lines seen from `droid exec`: system/init, message (user echo and
  * assistant text), reasoning, tool_call, tool_result, and completion. Only init,
- * assistant text, completion, and error records change turn state.
+ * assistant text, completion, and error records change turn state; tool records
+ * feed the work log.
  */
 export function classifyDroidMessage(value: unknown): DroidInbound {
   const record = asRecord(value);
@@ -35,9 +38,45 @@ export function classifyDroidMessage(value: unknown): DroidInbound {
     }
     case "error":
       return { kind: "error", message: errorText(record) ?? "Droid CLI reported an error." };
+    case "tool_call": {
+      const callId = textValue(record.id);
+      const name = textValue(record.toolName) ?? textValue(record.toolId);
+      if (!callId || !name) return { kind: "ignore" };
+      const input = asRecord(record.parameters);
+      return { kind: "tool_call", callId, name, ...(input ? { input } : {}) };
+    }
+    case "tool_result": {
+      const callId = textValue(record.id);
+      if (!callId) return { kind: "ignore" };
+      const name = textValue(record.toolName) ?? textValue(record.toolId);
+      const output = resultText(record.value ?? record.result ?? record.error);
+      return {
+        kind: "tool_result",
+        callId,
+        isError: record.isError === true || record.is_error === true || exitedWithFailure(output),
+        ...(name ? { name } : {}),
+        ...(output ? { output } : {}),
+      };
+    }
     default:
       return { kind: "ignore" };
   }
+}
+
+function resultText(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (value === undefined || value === null) return undefined;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Execute results end with "[Process exited with code N]"; a non-zero code fails the call whatever isError says. */
+function exitedWithFailure(output: string | undefined): boolean {
+  const match = output ? /\[Process exited with code (-?\d+)\]\s*$/u.exec(output) : null;
+  return match?.[1] !== undefined && match[1] !== "0";
 }
 
 function errorText(record: Record<string, unknown>): string | undefined {

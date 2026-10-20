@@ -16,6 +16,10 @@ export type WorkspaceId = z.infer<typeof WorkspaceId>;
 export const WorktreeId = id<"WorktreeId">();
 export type WorktreeId = z.infer<typeof WorktreeId>;
 
+/** Groups an agent's terminal, chat thread, and drawer shells into one session in the workbench. */
+export const SessionId = id<"SessionId">();
+export type SessionId = z.infer<typeof SessionId>;
+
 export const ThreadId = id<"ThreadId">();
 export type ThreadId = z.infer<typeof ThreadId>;
 

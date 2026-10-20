@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 import { TerminalId, WorktreeId } from "@zli-v2/contracts";
 
 import { NodePtyFactory } from "./terminal/NodePtyFactory.js";
-import { TerminalCwdError } from "./terminal/terminalCwd.js";
 import { TerminalService } from "./terminal/TerminalService.js";
+import { TerminalCwdError } from "./terminal/terminalCwd.js";
 
 const daemonEndpointFileMode = 0o600;
 const protocolVersion = Number.parseInt(process.env.ZLI_DAEMON_PROTOCOL_VERSION ?? "1", 10);
@@ -103,9 +103,9 @@ async function handle(client: Client, terminals: TerminalService, line: string):
         send(client.socket, { type: "result", terminals: terminals.list() });
         return;
       case "terminal.create": {
-        if (hasLaunchArgs(request.argv) || hasLaunchArgs(request.args)) {
-          throw new Error("Terminal launch does not accept arguments.");
-        }
+        if (request.argv !== undefined) throw new Error("Terminal launch does not accept argv.");
+        const args = readLaunchArgs(request.args);
+        const envOverrides = readEnvOverrides(request.envOverrides);
         const worktreePath = request.worktreePath;
         const cwd = request.cwd;
         const shell = request.shell;
@@ -120,6 +120,8 @@ async function handle(client: Client, terminals: TerminalService, line: string):
             worktreePath,
             cwd,
             shell,
+            ...(args ? { args } : {}),
+            ...(envOverrides ? { envOverrides } : {}),
             cols: Number(request.cols),
             rows: Number(request.rows),
             title: String(request.title),
@@ -168,8 +170,36 @@ async function streamSubscription(
   }
 }
 
-function hasLaunchArgs(value: unknown): boolean {
-  return Array.isArray(value) && value.length > 0;
+const MAX_LAUNCH_ARGS = 32;
+const MAX_LAUNCH_ARG_LENGTH = 1_000;
+const ALLOWED_ENV_OVERRIDES = new Set(["TERM", "COLORTERM"]);
+
+function readLaunchArgs(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_LAUNCH_ARGS ||
+    !value.every((arg) => typeof arg === "string" && arg.length <= MAX_LAUNCH_ARG_LENGTH && !arg.includes("\0"))
+  ) {
+    throw new Error("Terminal launch arguments are invalid.");
+  }
+  return value.length > 0 ? [...(value as string[])] : undefined;
+}
+
+/** Only terminal capability hints may be overridden; anything else could redirect the child's tools. */
+function readEnvOverrides(value: unknown): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Terminal environment overrides are invalid.");
+  }
+  const overrides: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (!ALLOWED_ENV_OVERRIDES.has(key) || typeof entry !== "string" || entry.length > 100) {
+      throw new Error(`Terminal environment override is not allowed: ${key}`);
+    }
+    overrides[key] = entry;
+  }
+  return overrides;
 }
 
 function send(socket: Socket, message: unknown): void {
