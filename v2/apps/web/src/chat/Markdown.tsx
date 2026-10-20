@@ -1,5 +1,7 @@
 import { Fragment, type ReactNode } from "react";
 
+import type { FileLinks } from "../files/FileIndex.js";
+
 type Block =
   | { kind: "code"; lang: string; text: string }
   | { kind: "heading"; level: number; text: string }
@@ -73,35 +75,84 @@ export function parseMarkdown(source: string): Block[] {
 
 const INLINE = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\[[^\]\n]+\]\([^)\s]+\))|(\*[^*\s][^*\n]*\*)/gu;
 
-export function renderInline(text: string): ReactNode[] {
+function fileLink(links: FileLinks, target: string, key: string, children: ReactNode): ReactNode | undefined {
+  const location = links.resolve(target);
+  if (!location) return undefined;
+  const suffix = location.line ? `:${location.line}${location.column ? `:${location.column}` : ""}` : "";
+  return (
+    <button
+      className="md-file-link"
+      type="button"
+      key={key}
+      title={`Open ${location.path}${suffix}`}
+      onClick={() => links.open(location)}
+    >
+      {children}
+    </button>
+  );
+}
+
+function renderText(text: string, keyPrefix: string, links: FileLinks | undefined): ReactNode[] {
+  if (!links) return [text];
   const nodes: ReactNode[] = [];
   let last = 0;
-  for (const match of text.matchAll(INLINE)) {
-    const start = match.index ?? 0;
-    if (start > last) nodes.push(text.slice(last, start));
-    const token = match[0];
-    const key = `${start}`;
-    if (match[1]) nodes.push(<code key={key}>{token.slice(1, -1)}</code>);
-    else if (match[2]) nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
-    else if (match[3]) {
-      const split = token.indexOf("](");
-      const label = token.slice(1, split);
-      const href = token.slice(split + 2, -1);
-      // Links stay inert: following one would navigate the app window away from the workbench.
-      nodes.push(
-        <span className="md-link" title={href} key={key}>
-          {label}
-        </span>,
-      );
-    } else nodes.push(<em key={key}>{token.slice(1, -1)}</em>);
-    last = start + token.length;
+  for (const reference of links.find(text)) {
+    if (reference.start < last) continue;
+    if (reference.start > last) nodes.push(text.slice(last, reference.start));
+    const label = text.slice(reference.start, reference.end);
+    const { location } = reference;
+    nodes.push(
+      <button
+        className="md-file-link is-plain"
+        type="button"
+        key={`${keyPrefix}-${reference.start}`}
+        title={`Open ${location.path}${location.line ? `:${location.line}` : ""}`}
+        onClick={() => links.open(location)}
+      >
+        {label}
+      </button>,
+    );
+    last = reference.end;
   }
   if (last < text.length) nodes.push(text.slice(last));
   return nodes;
 }
 
+/** Inline Markdown. With `links`, paths to files in the worktree become buttons that open the file. */
+export function renderInline(text: string, links?: FileLinks): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let last = 0;
+  for (const match of text.matchAll(INLINE)) {
+    const start = match.index ?? 0;
+    if (start > last) nodes.push(...renderText(text.slice(last, start), `t${last}`, links));
+    const token = match[0];
+    const key = `${start}`;
+    if (match[1]) {
+      const code = token.slice(1, -1);
+      const element = <code key={key}>{code}</code>;
+      nodes.push((links && fileLink(links, code, key, <code>{code}</code>)) ?? element);
+    } else if (match[2]) nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
+    else if (match[3]) {
+      const split = token.indexOf("](");
+      const label = token.slice(1, split);
+      const href = token.slice(split + 2, -1);
+      // Web links stay inert: following one would navigate the app window away from the workbench.
+      nodes.push(
+        (links && fileLink(links, href, key, label)) ?? (
+          <span className="md-link" title={href} key={key}>
+            {label}
+          </span>
+        ),
+      );
+    } else nodes.push(<em key={key}>{token.slice(1, -1)}</em>);
+    last = start + token.length;
+  }
+  if (last < text.length) nodes.push(...renderText(text.slice(last), `t${last}`, links));
+  return nodes;
+}
+
 /** Renders agent replies as React elements. No HTML from the agent reaches the DOM. */
-export function Markdown({ text }: { text: string }) {
+export function Markdown({ text, links }: { text: string; links?: FileLinks | undefined }) {
   const blocks = parseMarkdown(text);
   return (
     <div className="markdown">
@@ -117,24 +168,24 @@ export function Markdown({ text }: { text: string }) {
           case "heading":
             return (
               <p className={`md-heading md-h${Math.min(block.level, 3)}`} key={key}>
-                {renderInline(block.text)}
+                {renderInline(block.text, links)}
               </p>
             );
           case "list": {
             const items = block.items.map((item, itemIndex) => (
-              <li key={`${key}-${itemIndex.toString()}`}>{renderInline(item)}</li>
+              <li key={`${key}-${itemIndex.toString()}`}>{renderInline(item, links)}</li>
             ));
             return block.ordered ? <ol key={key}>{items}</ol> : <ul key={key}>{items}</ul>;
           }
           case "quote":
-            return <blockquote key={key}>{renderInline(block.text)}</blockquote>;
+            return <blockquote key={key}>{renderInline(block.text, links)}</blockquote>;
           default:
             return (
               <p key={key}>
                 {block.text.split("\n").map((line, lineIndex) => (
                   <Fragment key={`${key}-${lineIndex.toString()}`}>
                     {lineIndex > 0 ? <br /> : null}
-                    {renderInline(line)}
+                    {renderInline(line, links)}
                   </Fragment>
                 ))}
               </p>

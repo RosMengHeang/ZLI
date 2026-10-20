@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
 import { ChatView } from "../chat/ChatView.js";
+import { useFileLinks } from "../files/FileIndex.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { TerminalView } from "../terminal/TerminalView.js";
@@ -60,6 +61,7 @@ export function AgentTile({
   const terminal = session.terminal;
   const thread = session.thread;
   const terminalLive = terminal?.status === "running" || terminal?.status === "starting";
+  const fileLinks = useFileLinks(mode === "terminal" ? worktree?.worktreeId : undefined);
 
   const send = useCallback(
     async (command: Record<string, unknown>): Promise<RpcResponse | undefined> => {
@@ -219,6 +221,7 @@ export function AgentTile({
                 className="agent-terminal-output"
                 autoFocus={active}
                 onFocus={onFocus}
+                fileLinks={fileLinks}
               />
               {!terminalLive ? (
                 <div className="tile-ended" role="status">

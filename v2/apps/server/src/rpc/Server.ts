@@ -5,6 +5,12 @@ import type { AddressInfo } from "node:net";
 import {
   ClientWireMessage,
   type EnvironmentDescriptor,
+  FILE_COMMAND_TYPES,
+  type FileCommand,
+  FileListResult,
+  FileReadResult,
+  FileSearchResult,
+  FileWriteResult,
   type ProviderDiscovery,
   type RpcRequest,
   type RuntimeError,
@@ -13,6 +19,7 @@ import {
 } from "@zli-v2/contracts";
 import { type RawData, WebSocket, WebSocketServer } from "ws";
 
+import { errorCode, FileService, FileServiceError } from "../files/FileService.js";
 import type { Engine } from "../orchestration/Engine.js";
 import { unavailableProviderDiscovery } from "../providers/discoverCliProviders.js";
 import type { TerminalService, TerminalSubscription } from "../terminal/TerminalService.js";
@@ -29,6 +36,7 @@ type RpcServerOptions = {
   environment: EnvironmentDescriptor;
   token: string;
   terminalService?: TerminalService;
+  fileService?: FileService;
   discoverProviders?: () => Promise<readonly ProviderDiscovery[]>;
   /** Root for uploaded thread images. Without it, image uploads are rejected. */
   attachmentsDir?: string;
@@ -41,6 +49,7 @@ export class RpcServer {
   private readonly environment: EnvironmentDescriptor;
   private readonly token: string;
   private readonly terminalService: TerminalService | undefined;
+  private readonly fileService: FileService;
   private readonly discoverProviders: RpcServerOptions["discoverProviders"];
   private readonly attachmentsDir: string | undefined;
   private readonly host: string;
@@ -59,6 +68,7 @@ export class RpcServer {
     this.environment = options.environment;
     this.token = options.token;
     this.terminalService = options.terminalService;
+    this.fileService = options.fileService ?? new FileService();
     this.discoverProviders = options.discoverProviders;
     this.attachmentsDir = options.attachmentsDir;
     this.host = options.host ?? "127.0.0.1";
@@ -214,6 +224,57 @@ export class RpcServer {
     return true;
   }
 
+  /** File reads and saves touch only the worktree on disk; contents never enter the event log. */
+  private async handleFileCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isFileCommand(command)) return false;
+    try {
+      const projection = await this.engine.projection();
+      const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === command.worktreeId);
+      if (!worktree) throw new FileServiceError("Worktree does not exist.");
+      if (worktree.status !== "ready") throw new FileServiceError("Worktree is not ready.");
+      const result = await this.runFileCommand(worktree.path, command);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch (error) {
+      send(client, {
+        type: "response",
+        response: {
+          commandId: request.commandId,
+          accepted: false,
+          error: { code: "invalid_request", message: fileErrorMessage(command, error), retryable: false },
+        },
+      });
+    }
+    return true;
+  }
+
+  private async runFileCommand(root: string, command: FileCommand): Promise<unknown> {
+    switch (command.type) {
+      case "files.list":
+        return FileListResult.parse(await this.fileService.list(root));
+      case "files.read":
+        return FileReadResult.parse(await this.fileService.read(root, command.path));
+      case "files.write":
+        return FileWriteResult.parse(
+          await this.fileService.write(root, {
+            path: command.path,
+            content: command.content,
+            expectedVersion: command.expectedVersion,
+            ...(command.bom !== undefined ? { bom: command.bom } : {}),
+            ...(command.overwrite !== undefined ? { overwrite: command.overwrite } : {}),
+          }),
+        );
+      case "files.search":
+        return FileSearchResult.parse(
+          await this.fileService.search(root, command.query, {
+            ...(command.caseSensitive !== undefined ? { caseSensitive: command.caseSensitive } : {}),
+            ...(command.regex !== undefined ? { regex: command.regex } : {}),
+            ...(command.maxResults !== undefined ? { maxResults: command.maxResults } : {}),
+          }),
+        );
+    }
+  }
+
   /** Image bytes are written to disk before dispatch; the command that reaches the event log carries only paths. */
   private async storeAttachments(request: RpcRequest): Promise<RpcRequest> {
     const command = request.command;
@@ -288,6 +349,7 @@ export class RpcServer {
     switch (message.data.type) {
       case "command":
         if (this.terminalService && this.handleTerminalInput(client, message.data.request)) return;
+        if (await this.handleFileCommand(client, message.data.request)) return;
         try {
           let request: RpcRequest;
           try {
@@ -382,6 +444,30 @@ export class RpcServer {
         return;
     }
   }
+}
+
+function isFileCommand(command: RpcRequest["command"]): command is FileCommand {
+  return (FILE_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
+function fileErrorMessage(command: FileCommand, error: unknown): string {
+  if (error instanceof FileServiceError) return error.message;
+  const path = "path" in command ? command.path : undefined;
+  const code = errorCode(error);
+  if (path && code === "ENOENT") return `File not found: ${path}`;
+  if (path && (code === "EACCES" || code === "EPERM")) return `Permission denied: ${path}`;
+  if (path && code === "EISDIR") return `That path is a folder: ${path}`;
+  if (path && (code === "EBUSY" || code === "ETXTBSY")) return `File is locked by another program: ${path}`;
+  const detail = error instanceof Error ? error.message : "Unknown error.";
+  const action =
+    command.type === "files.write"
+      ? "save"
+      : command.type === "files.read"
+        ? "open"
+        : command.type === "files.search"
+          ? "search"
+          : "list";
+  return `Could not ${action}${path ? ` ${path}` : " files"}: ${detail}`;
 }
 
 function isLoopback(request: IncomingMessage): boolean {

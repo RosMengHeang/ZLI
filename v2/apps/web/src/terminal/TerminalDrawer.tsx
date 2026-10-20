@@ -1,6 +1,7 @@
 import type { RpcResponse, RuntimeProjection, TerminalProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { type KeyboardEvent, type PointerEvent, useCallback, useState } from "react";
 
+import { useFileLinks } from "../files/FileIndex.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { shellForPlatform } from "../sessions/launch.js";
@@ -44,6 +45,7 @@ export function TerminalDrawer({
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const fileLinks = useFileLinks(worktree?.worktreeId);
   const panes = drawerTerminals(projection.terminals, worktree?.worktreeId, sessionId)
     .filter((terminal) => !dismissed.includes(terminal.terminalId))
     .slice(-MAX_SPLITS);
@@ -188,6 +190,7 @@ export function TerminalDrawer({
                   terminalId={terminal.terminalId}
                   running={terminal.status === "running"}
                   send={send}
+                  fileLinks={fileLinks}
                 />
               ) : null}
               {terminal.errorMessage ? (

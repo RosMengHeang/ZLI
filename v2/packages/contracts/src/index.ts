@@ -1,6 +1,7 @@
 export * from "./browser.js";
 export * from "./diagnostics.js";
 export * from "./events.js";
+export * from "./files.js";
 export * from "./ids.js";
 export * from "./import.js";
 export * from "./projections.js";

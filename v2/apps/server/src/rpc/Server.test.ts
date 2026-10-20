@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -313,6 +313,93 @@ describe("authenticated local RPC server", () => {
       socket.close();
     } finally {
       await rm(attachmentsDir, { recursive: true, force: true });
+    }
+  });
+
+  it("serves worktree files directly without recording file commands as events", async () => {
+    const root = await mkdtemp(join(tmpdir(), "zli-rpc-files-"));
+    try {
+      await writeFile(join(root, "notes.txt"), "secret draft\n");
+      const database = new Database({ path: ":memory:" });
+      const engine = new Engine({ database, environment });
+      const server = new RpcServer({ engine, environment, token: "test-token" });
+      await server.start();
+      resources.push({ database, server });
+      const worktreeId = "00000000-0000-4000-8000-000000000171";
+      const project = await engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: "00000000-0000-4000-8000-000000000170",
+        command: { type: "project.register", path: root },
+      } as never);
+      await engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: "00000000-0000-4000-8000-000000000172",
+        command: {
+          type: "worktree.import",
+          worktreeId,
+          projectId: project.result?.projectId,
+          path: root,
+          branch: "main",
+        },
+      } as never);
+      const eventsBefore = await engine.eventsAfter(0);
+      const socket = await connected(server);
+      const command = (commandId: string, body: Record<string, unknown>) =>
+        socket.send(JSON.stringify({ type: "command", request: { protocolVersion: 1, commandId, command: body } }));
+
+      command("00000000-0000-4000-8000-000000000173", { type: "files.read", worktreeId, path: "notes.txt" });
+      const read = await nextMessage(socket);
+      expect(read).toMatchObject({
+        type: "response",
+        response: {
+          commandId: "00000000-0000-4000-8000-000000000173",
+          accepted: true,
+          result: { path: "notes.txt", content: "secret draft\n", binary: false, lineEnding: "lf" },
+        },
+      });
+      const version = (read.response as { result: { version: string } }).result.version;
+
+      command("00000000-0000-4000-8000-000000000174", {
+        type: "files.write",
+        worktreeId,
+        path: "notes.txt",
+        content: "secret final\n",
+        expectedVersion: version,
+      });
+      await expect(nextMessage(socket)).resolves.toMatchObject({
+        response: { accepted: true, result: { status: "saved", path: "notes.txt" } },
+      });
+      expect(await readFile(join(root, "notes.txt"), "utf8")).toBe("secret final\n");
+
+      command("00000000-0000-4000-8000-000000000175", { type: "files.read", worktreeId, path: "missing.txt" });
+      await expect(nextMessage(socket)).resolves.toMatchObject({
+        response: {
+          accepted: false,
+          error: { code: "invalid_request", message: "File not found: missing.txt" },
+        },
+      });
+
+      command("00000000-0000-4000-8000-000000000176", {
+        type: "files.read",
+        worktreeId: "00000000-0000-4000-8000-000000000179",
+        path: "notes.txt",
+      });
+      await expect(nextMessage(socket)).resolves.toMatchObject({
+        response: { accepted: false, error: { code: "invalid_request", message: "Worktree does not exist." } },
+      });
+
+      const direct = await engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: "00000000-0000-4000-8000-000000000177",
+        command: { type: "files.read", worktreeId, path: "notes.txt" },
+      } as never);
+      expect(direct.status).toBe("rejected");
+
+      expect(await engine.eventsAfter(0)).toEqual(eventsBefore);
+      expect(JSON.stringify(database.raw.prepare("SELECT * FROM commands").all())).not.toContain("secret");
+      socket.close();
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 

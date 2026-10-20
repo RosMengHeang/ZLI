@@ -2,6 +2,7 @@ import type { RuntimeProjection, ThreadId, ThreadProjection, WorktreeProjection 
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
+import { useFileLinks } from "../files/FileIndex.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { buildTimeline } from "../sessions/sessions.js";
@@ -44,6 +45,7 @@ export function ChatView({
     [projection.activities, thread.threadId],
   );
   const timeline = useMemo(() => buildTimeline(messages, activities), [messages, activities]);
+  const fileLinks = useFileLinks(worktree?.worktreeId, messages.length);
   const request = projection.requests?.find((candidate) => candidate.threadId === thread.threadId);
   const ended = thread.status === "stopped" || thread.status === "failed";
   const working = thread.status === "working" || thread.status === "waiting";
@@ -216,7 +218,7 @@ export function ChatView({
               }
               return (
                 <article className="chat-message chat-message-assistant" key={message.messageId}>
-                  <Markdown text={message.text} />
+                  <Markdown text={message.text} links={fileLinks} />
                 </article>
               );
             })

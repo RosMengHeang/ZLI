@@ -1,16 +1,19 @@
-import { type ProjectProjection, type RuntimeProjection, type WorktreeProjection, WorktreeId } from "@zli-v2/contracts";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ProjectProjection, type RuntimeProjection, WorktreeId, type WorktreeProjection } from "@zli-v2/contracts";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isSelectableProvider, providerDisplayName } from "../agent/providers.js";
 import { AttentionPanel } from "../attention/AttentionPanel.js";
-import { type BrowserReveal, BrowserPane } from "../browser/BrowserPane.js";
+import { BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
+import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
+import type { FilesFocus } from "../files/FilesPane.js";
+import { QuickOpen } from "../files/QuickOpen.js";
 import { type ReviewFocus, ReviewPane } from "../review/ReviewPane.js";
 import { getBridge, type ZliBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { RuntimeProvider, useRuntime } from "../runtime/RuntimeProvider.js";
 import { AgentTile } from "../sessions/AgentTile.js";
 import { createWorktree, ensureCheckout, startSessionAgent } from "../sessions/launch.js";
-import { type NewAgentRequest, NewAgentDialog } from "../sessions/NewAgentDialog.js";
+import { NewAgentDialog, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
 import {
   type AgentSession,
   deriveSessions,
@@ -24,13 +27,18 @@ import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
 import { Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
 import { Icon, type IconName } from "../ui/Icon.js";
+import { PaneHeader } from "../ui/Pane.js";
 import { PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
 import { HelpDialog } from "./HelpDialog.js";
 import "./AppShell.css";
+import "../files/files.css";
 
-type SidePane = "browser" | "review";
+// The editor is large, so it loads the first time the Files panel opens instead of at startup.
+const FilesPane = lazy(() => import("../files/FilesPane.js").then((module) => ({ default: module.FilesPane })));
 
-const sidePaneLabel: Record<SidePane, string> = { browser: "Browser", review: "Changes" };
+type SidePane = "files" | "browser" | "review";
+
+const sidePaneLabel: Record<SidePane, string> = { files: "Files", browser: "Browser", review: "Changes" };
 
 type PaletteCommand = { label: string; icon: IconName; hint?: string; action(): void };
 
@@ -61,6 +69,8 @@ function WorkspaceApp() {
   const [deleteRequest, setDeleteRequest] = useState<AgentSession>();
   const [version, setVersion] = useState<string>();
   const [browserReveal, setBrowserReveal] = useState<BrowserReveal>();
+  const [filesFocus, setFilesFocus] = useState<FilesFocus>();
+  const [quickOpen, setQuickOpen] = useState(false);
   const paletteSearchRef = useRef<HTMLInputElement>(null);
   const launching = useRef(new Set<string>());
   const projectionRef = useRef(projection);
@@ -120,16 +130,13 @@ function WorkspaceApp() {
 
   const tilesRef = useRef(tiles);
   tilesRef.current = tiles;
-  useEffect(() => {
-    if (!bridge) return;
-    let key = 0;
-    return bridge.browser.onReveal(({ browserTabId, worktreeId }) => {
-      key += 1;
-      setBrowserReveal({ browserTabId, worktreeId, key });
-      setSidePane("browser");
+  /**
+   * The utility panels follow the active agent's worktree, so showing something from another worktree
+   * moves focus to an agent there.
+   */
+  const focusWorktree = useCallback(
+    (worktreeId: string) => {
       setSelectedWorktreeId(worktreeId);
-      // The Browser panel follows the active agent's worktree, so a tab opened in another worktree
-      // only shows once focus moves to an agent there.
       updateWorkbench((state) => {
         const current = tilesRef.current.find((session) => session.sessionId === state.activeSessionId);
         if (current?.worktreeId === worktreeId) return state;
@@ -140,8 +147,41 @@ function WorkspaceApp() {
           ...(state.maximizedSessionId ? { maximizedSessionId: latest?.sessionId } : {}),
         };
       });
+    },
+    [updateWorkbench],
+  );
+  useEffect(() => {
+    if (!bridge) return;
+    let key = 0;
+    return bridge.browser.onReveal(({ browserTabId, worktreeId }) => {
+      key += 1;
+      setBrowserReveal({ browserTabId, worktreeId, key });
+      setSidePane("browser");
+      focusWorktree(worktreeId);
     });
-  }, [bridge, updateWorkbench]);
+  }, [bridge, focusWorktree]);
+
+  const openFile = useCallback(
+    ({ worktreeId, path, line, column }: OpenFileRequest) => {
+      setQuickOpen(false);
+      setSidePane("files");
+      focusWorktree(worktreeId);
+      setFilesFocus({ kind: "open", path, line, column, nonce: Date.now() });
+    },
+    [focusWorktree],
+  );
+  const contextWorktreeRef = useRef(contextWorktree);
+  contextWorktreeRef.current = contextWorktree;
+  const openQuickOpen = useCallback(() => {
+    if (contextWorktreeRef.current?.status !== "ready") return;
+    setPaletteOpen(false);
+    setQuickOpen(true);
+  }, []);
+  const searchInFiles = useCallback(() => {
+    setPaletteOpen(false);
+    setSidePane("files");
+    setFilesFocus({ kind: "search", nonce: Date.now() });
+  }, []);
 
   const openNewAgent = useCallback(
     (project?: ProjectProjection) => {
@@ -164,6 +204,12 @@ function WorkspaceApp() {
       } else if (mod && key === "n" && !event.shiftKey) {
         event.preventDefault();
         openNewAgent();
+      } else if (mod && key === "p" && !event.shiftKey) {
+        event.preventDefault();
+        openQuickOpen();
+      } else if (mod && event.shiftKey && key === "f") {
+        event.preventDefault();
+        searchInFiles();
       } else if (mod && key === "b") {
         event.preventDefault();
         updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
@@ -173,6 +219,7 @@ function WorkspaceApp() {
       } else if (event.key === "Escape") {
         setPaletteOpen(false);
         setPaletteQuery("");
+        setQuickOpen(false);
         setWorktreeDialogProject(undefined);
         setNewAgentProject(undefined);
         setLegacyImportBatchId(undefined);
@@ -183,7 +230,7 @@ function WorkspaceApp() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openNewAgent, updateWorkbench]);
+  }, [openNewAgent, openQuickOpen, searchInFiles, updateWorkbench]);
 
   useEffect(() => {
     if (paletteOpen) paletteSearchRef.current?.focus();
@@ -527,6 +574,13 @@ function WorkspaceApp() {
       hint: "Ctrl J",
       action: () => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen })),
     },
+    ...(contextWorktree?.status === "ready"
+      ? [
+          { label: "Go to file", icon: "file" as const, hint: "Ctrl P", action: openQuickOpen },
+          { label: "Search in files", icon: "search" as const, hint: "Ctrl Shift F", action: searchInFiles },
+        ]
+      : []),
+    { label: "Focus files", icon: "folderTree", action: () => setSidePane("files") },
     { label: "Focus browser", icon: "globe", action: () => setSidePane("browser") },
     { label: "Focus review", icon: "diff", action: () => setSidePane("review") },
     {
@@ -564,6 +618,7 @@ function WorkspaceApp() {
   };
   const overlayOpen =
     paletteOpen ||
+    quickOpen ||
     worktreeDialogProject !== undefined ||
     newAgentProject !== undefined ||
     helpOpen ||
@@ -574,337 +629,372 @@ function WorkspaceApp() {
   const rows = Math.max(1, Math.ceil(visibleTiles.length / columns));
 
   return (
-    <div className={`app-shell${workbench.sidebarOpen ? "" : " is-sidebar-hidden"}`}>
-      {workbench.sidebarOpen ? (
-        <Sidebar
-          projection={projection}
-          sessions={sessions}
-          activeSessionId={activeSession?.sessionId}
-          backgroundSessionIds={backgroundSessionIds}
-          activeWorktreeId={contextWorktree?.worktreeId}
-          onSelectSession={focusSession}
-          onStopSession={(session) => void stopSession(session)}
-          onDeleteSession={setDeleteRequest}
-          onSelectWorktree={(worktree) => {
-            setNotice(undefined);
-            setSelectedWorktreeId(worktree.worktreeId);
-            const latest = tiles.filter((session) => session.worktreeId === worktree.worktreeId).at(-1);
-            updateWorkbench((state) => ({ ...state, activeSessionId: latest?.sessionId }));
-          }}
-          onNewAgent={openNewAgent}
-          onOpenProject={() => void openProject()}
-          onCreateWorktree={(project) => setWorktreeDialogProject(project ?? contextProject ?? projection?.projects[0])}
-          onWorktreeAction={(worktree, action) => void worktreeAction(worktree, action)}
-          onOpenHelp={() => setHelpOpen(true)}
-          onHideSidebar={() => updateWorkbench((state) => ({ ...state, sidebarOpen: false }))}
-        />
-      ) : null}
-      <main className="main-workspace">
-        <header className="topbar">
-          {workbench.sidebarOpen ? null : (
-            <button
-              className="icon-button"
-              type="button"
-              onClick={() => updateWorkbench((state) => ({ ...state, sidebarOpen: true }))}
-              aria-label="Show sidebar"
-              title="Show sidebar (Ctrl B)"
-            >
-              <Icon name="panelLeft" size={15} />
-            </button>
-          )}
-          <div className="topbar-context">
-            {contextWorktree ? (
-              <>
-                {contextProject ? <span className="topbar-project">{contextProject.name}</span> : null}
-                <span className="topbar-branch" title={contextWorktree.path}>
-                  <Icon name="branch" size={12} />
-                  <span>{contextWorktree.branch}</span>
-                </span>
-              </>
-            ) : (
-              <span className="topbar-project is-empty">
-                {hasProjects ? "No worktree selected" : "No project open"}
-              </span>
+    <FileIndexProvider onOpenFile={openFile}>
+      <div className={`app-shell${workbench.sidebarOpen ? "" : " is-sidebar-hidden"}`}>
+        {workbench.sidebarOpen ? (
+          <Sidebar
+            projection={projection}
+            sessions={sessions}
+            activeSessionId={activeSession?.sessionId}
+            backgroundSessionIds={backgroundSessionIds}
+            activeWorktreeId={contextWorktree?.worktreeId}
+            onSelectSession={focusSession}
+            onStopSession={(session) => void stopSession(session)}
+            onDeleteSession={setDeleteRequest}
+            onSelectWorktree={(worktree) => {
+              setNotice(undefined);
+              setSelectedWorktreeId(worktree.worktreeId);
+              const latest = tiles.filter((session) => session.worktreeId === worktree.worktreeId).at(-1);
+              updateWorkbench((state) => ({ ...state, activeSessionId: latest?.sessionId }));
+            }}
+            onNewAgent={openNewAgent}
+            onOpenProject={() => void openProject()}
+            onCreateWorktree={(project) =>
+              setWorktreeDialogProject(project ?? contextProject ?? projection?.projects[0])
+            }
+            onWorktreeAction={(worktree, action) => void worktreeAction(worktree, action)}
+            onOpenHelp={() => setHelpOpen(true)}
+            onHideSidebar={() => updateWorkbench((state) => ({ ...state, sidebarOpen: false }))}
+          />
+        ) : null}
+        <main className="main-workspace">
+          <header className="topbar">
+            {workbench.sidebarOpen ? null : (
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => updateWorkbench((state) => ({ ...state, sidebarOpen: true }))}
+                aria-label="Show sidebar"
+                title="Show sidebar (Ctrl B)"
+              >
+                <Icon name="panelLeft" size={15} />
+              </button>
             )}
-            {tiles.length > 0 ? (
-              <span className="topbar-count">
-                {tiles.length} {tiles.length === 1 ? "agent" : "agents"}
-              </span>
-            ) : null}
-          </div>
-          <span className="topbar-spacer" />
-          {workbench.sidebarOpen || !hasProjects ? null : (
-            <button className="ghost-button" type="button" onClick={() => openNewAgent()}>
-              <Icon name="plus" size={13} />
-              New agent
-            </button>
-          )}
-          <div className="topbar-tools">
-            <button
-              className={`tool-toggle${workbench.drawerOpen ? " is-active" : ""}`}
-              type="button"
-              aria-pressed={workbench.drawerOpen}
-              title="Terminal (Ctrl J)"
-              onClick={() => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }))}
-            >
-              <Icon name="panelBottom" size={14} />
-              <span>Terminal</span>
-            </button>
-            <button
-              className={`tool-toggle${sidePane === "browser" ? " is-active" : ""}`}
-              type="button"
-              aria-pressed={sidePane === "browser"}
-              onClick={() => toggleSidePane("browser")}
-            >
-              <Icon name="globe" size={14} />
-              <span>Browser</span>
-            </button>
-            <button
-              className={`tool-toggle${sidePane === "review" ? " is-active" : ""}`}
-              type="button"
-              aria-pressed={sidePane === "review"}
-              onClick={() => toggleSidePane("review")}
-            >
-              <Icon name="diff" size={14} />
-              <span>Review</span>
-            </button>
-          </div>
-          <button className="command-trigger" type="button" onClick={() => setPaletteOpen(true)}>
-            <Icon name="search" size={13} />
-            <span>Search</span>
-            <kbd>Ctrl K</kbd>
-          </button>
-        </header>
-        {notice && (
-          <div className="notice-bar" role="alert">
-            <Icon name="alert" size={14} />
-            <span>{notice}</span>
-            <button
-              className="icon-button"
-              type="button"
-              onClick={() => setNotice(undefined)}
-              aria-label="Dismiss message"
-            >
-              <Icon name="x" size={14} />
-            </button>
-          </div>
-        )}
-        <AttentionPanel items={projection?.attention ?? []} />
-        {!bridge ? (
-          <DisconnectedState />
-        ) : !projection ? (
-          <LoadingState />
-        ) : (
-          <div className="workspace-body">
-            <div className="workbench-column">
-              <section className="agent-grid-region" aria-label="Agents">
-                {visibleTiles.length === 0 ? (
-                  <GridEmptyState
-                    projection={projection}
-                    closedCount={sessions.length}
-                    onOpenProject={() => void openProject()}
-                    onNewAgent={() => openNewAgent()}
-                  />
-                ) : (
-                  <div
-                    className="agent-grid"
-                    style={{
-                      gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-                      gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
-                    }}
-                  >
-                    {visibleTiles.map((session) => (
-                      <AgentTile
-                        key={session.sessionId}
-                        projection={projection}
-                        session={session}
-                        worktree={findWorktree(session.worktreeId)}
-                        mode={workbench.modes[session.sessionId] ?? session.defaultMode}
-                        active={session.sessionId === activeSession?.sessionId}
-                        maximized={maximized?.sessionId === session.sessionId}
-                        canMaximize={tiles.length > 1}
-                        onModeChange={(mode) =>
-                          updateWorkbench((state) => ({
-                            ...state,
-                            modes: { ...state.modes, [session.sessionId]: mode },
-                          }))
-                        }
-                        onFocus={() => focusSession(session)}
-                        onToggleMaximize={() =>
-                          updateWorkbench((state) => ({
-                            ...state,
-                            maximizedSessionId:
-                              state.maximizedSessionId === session.sessionId ? undefined : session.sessionId,
-                          }))
-                        }
-                        onStop={() => void stopSession(session)}
-                        onClose={() => closeTile(session)}
-                        onOpenDiff={(path) => {
-                          focusSession(session);
-                          setSidePane("review");
-                          setReviewFocus(path ? { path, nonce: Date.now() } : undefined);
-                        }}
-                        onStart={(mode) => startInSession(session, mode)}
-                        onRetryPending={() => retryPending(session)}
-                        onDismissPending={() => closeTileNow(session)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </section>
-              {workbench.drawerOpen ? (
-                <TerminalDrawer
-                  projection={projection}
-                  worktree={contextWorktree}
-                  sessionId={activeSession?.sessionId}
-                  height={workbench.drawerHeight}
-                  onHeightChange={(drawerHeight) => updateWorkbench((state) => ({ ...state, drawerHeight }))}
-                  onClose={() => updateWorkbench((state) => ({ ...state, drawerOpen: false }))}
-                />
+            <div className="topbar-context">
+              {contextWorktree ? (
+                <>
+                  {contextProject ? <span className="topbar-project">{contextProject.name}</span> : null}
+                  <span className="topbar-branch" title={contextWorktree.path}>
+                    <Icon name="branch" size={12} />
+                    <span>{contextWorktree.branch}</span>
+                  </span>
+                </>
+              ) : (
+                <span className="topbar-project is-empty">
+                  {hasProjects ? "No worktree selected" : "No project open"}
+                </span>
+              )}
+              {tiles.length > 0 ? (
+                <span className="topbar-count">
+                  {tiles.length} {tiles.length === 1 ? "agent" : "agents"}
+                </span>
               ) : null}
             </div>
-            {sidePane ? (
-              <>
-                <PanelResizer width={panelWidth} onChange={setPanelWidth} />
-                <aside
-                  className="tool-panel"
-                  aria-label={`${sidePaneLabel[sidePane]} panel`}
-                  style={{ width: panelWidth }}
-                >
-                  {sidePane === "browser" ? (
-                    <BrowserPane worktree={contextWorktree} obscured={overlayOpen} reveal={browserReveal} />
+            <span className="topbar-spacer" />
+            {workbench.sidebarOpen || !hasProjects ? null : (
+              <button className="ghost-button" type="button" onClick={() => openNewAgent()}>
+                <Icon name="plus" size={13} />
+                New agent
+              </button>
+            )}
+            <div className="topbar-tools">
+              <button
+                className={`tool-toggle${workbench.drawerOpen ? " is-active" : ""}`}
+                type="button"
+                aria-pressed={workbench.drawerOpen}
+                title="Terminal (Ctrl J)"
+                onClick={() => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }))}
+              >
+                <Icon name="panelBottom" size={14} />
+                <span>Terminal</span>
+              </button>
+              <button
+                className={`tool-toggle${sidePane === "files" ? " is-active" : ""}`}
+                type="button"
+                aria-pressed={sidePane === "files"}
+                onClick={() => toggleSidePane("files")}
+              >
+                <Icon name="folderTree" size={14} />
+                <span>Files</span>
+              </button>
+              <button
+                className={`tool-toggle${sidePane === "browser" ? " is-active" : ""}`}
+                type="button"
+                aria-pressed={sidePane === "browser"}
+                onClick={() => toggleSidePane("browser")}
+              >
+                <Icon name="globe" size={14} />
+                <span>Browser</span>
+              </button>
+              <button
+                className={`tool-toggle${sidePane === "review" ? " is-active" : ""}`}
+                type="button"
+                aria-pressed={sidePane === "review"}
+                onClick={() => toggleSidePane("review")}
+              >
+                <Icon name="diff" size={14} />
+                <span>Review</span>
+              </button>
+            </div>
+            <button className="command-trigger" type="button" onClick={() => setPaletteOpen(true)}>
+              <Icon name="search" size={13} />
+              <span>Search</span>
+              <kbd>Ctrl K</kbd>
+            </button>
+          </header>
+          {notice && (
+            <div className="notice-bar" role="alert">
+              <Icon name="alert" size={14} />
+              <span>{notice}</span>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => setNotice(undefined)}
+                aria-label="Dismiss message"
+              >
+                <Icon name="x" size={14} />
+              </button>
+            </div>
+          )}
+          <AttentionPanel items={projection?.attention ?? []} />
+          {!bridge ? (
+            <DisconnectedState />
+          ) : !projection ? (
+            <LoadingState />
+          ) : (
+            <div className="workspace-body">
+              <div className="workbench-column">
+                <section className="agent-grid-region" aria-label="Agents">
+                  {visibleTiles.length === 0 ? (
+                    <GridEmptyState
+                      projection={projection}
+                      closedCount={sessions.length}
+                      onOpenProject={() => void openProject()}
+                      onNewAgent={() => openNewAgent()}
+                    />
                   ) : (
-                    <ReviewPane worktree={contextWorktree} focus={reviewFocus} />
+                    <div
+                      className="agent-grid"
+                      style={{
+                        gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                        gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+                      }}
+                    >
+                      {visibleTiles.map((session) => (
+                        <AgentTile
+                          key={session.sessionId}
+                          projection={projection}
+                          session={session}
+                          worktree={findWorktree(session.worktreeId)}
+                          mode={workbench.modes[session.sessionId] ?? session.defaultMode}
+                          active={session.sessionId === activeSession?.sessionId}
+                          maximized={maximized?.sessionId === session.sessionId}
+                          canMaximize={tiles.length > 1}
+                          onModeChange={(mode) =>
+                            updateWorkbench((state) => ({
+                              ...state,
+                              modes: { ...state.modes, [session.sessionId]: mode },
+                            }))
+                          }
+                          onFocus={() => focusSession(session)}
+                          onToggleMaximize={() =>
+                            updateWorkbench((state) => ({
+                              ...state,
+                              maximizedSessionId:
+                                state.maximizedSessionId === session.sessionId ? undefined : session.sessionId,
+                            }))
+                          }
+                          onStop={() => void stopSession(session)}
+                          onClose={() => closeTile(session)}
+                          onOpenDiff={(path) => {
+                            focusSession(session);
+                            setSidePane("review");
+                            setReviewFocus(path ? { path, nonce: Date.now() } : undefined);
+                          }}
+                          onStart={(mode) => startInSession(session, mode)}
+                          onRetryPending={() => retryPending(session)}
+                          onDismissPending={() => closeTileNow(session)}
+                        />
+                      ))}
+                    </div>
                   )}
-                </aside>
-              </>
-            ) : null}
+                </section>
+                {workbench.drawerOpen ? (
+                  <TerminalDrawer
+                    projection={projection}
+                    worktree={contextWorktree}
+                    sessionId={activeSession?.sessionId}
+                    height={workbench.drawerHeight}
+                    onHeightChange={(drawerHeight) => updateWorkbench((state) => ({ ...state, drawerHeight }))}
+                    onClose={() => updateWorkbench((state) => ({ ...state, drawerOpen: false }))}
+                  />
+                ) : null}
+              </div>
+              {sidePane ? (
+                <>
+                  <PanelResizer width={panelWidth} onChange={setPanelWidth} />
+                  <aside
+                    className="tool-panel"
+                    aria-label={`${sidePaneLabel[sidePane]} panel`}
+                    style={{ width: panelWidth }}
+                  >
+                    {sidePane === "files" ? (
+                      <Suspense fallback={<LoadingFilesPane />}>
+                        <FilesPane
+                          worktree={contextWorktree}
+                          focus={filesFocus}
+                          onQuickOpen={openQuickOpen}
+                          onOpenDiff={(path) => {
+                            setSidePane("review");
+                            setReviewFocus({ path, nonce: Date.now() });
+                          }}
+                        />
+                      </Suspense>
+                    ) : sidePane === "browser" ? (
+                      <BrowserPane worktree={contextWorktree} obscured={overlayOpen} reveal={browserReveal} />
+                    ) : (
+                      <ReviewPane worktree={contextWorktree} focus={reviewFocus} />
+                    )}
+                  </aside>
+                </>
+              ) : null}
+            </div>
+          )}
+        </main>
+        {paletteOpen && (
+          <div className="palette-backdrop">
+            <button
+              className="dialog-scrim"
+              type="button"
+              aria-label="Close command palette"
+              onClick={() => setPaletteOpen(false)}
+            />
+            <section
+              className="command-palette"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Command palette"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="palette-search">
+                <Icon name="search" size={15} />
+                <input
+                  ref={paletteSearchRef}
+                  value={paletteQuery}
+                  onChange={(event) => {
+                    setPaletteQuery(event.target.value);
+                    setActiveCommandIndex(0);
+                  }}
+                  onKeyDown={handlePaletteKeyDown}
+                  placeholder="Search commands"
+                  aria-label="Search commands"
+                />
+              </div>
+              <div className="palette-section">
+                {filteredCommands.length === 0 ? (
+                  <p className="palette-empty">No matching commands.</p>
+                ) : (
+                  filteredCommands.map((command, index) => (
+                    <button
+                      className={index === activeCommandIndex ? "is-active" : undefined}
+                      type="button"
+                      key={command.label}
+                      aria-label={command.label}
+                      onClick={() => runPaletteCommand(command)}
+                      onMouseMove={() => setActiveCommandIndex(index)}
+                    >
+                      <Icon name={command.icon} size={15} />
+                      <span className="palette-label">{command.label}</span>
+                      {command.hint ? <kbd>{command.hint}</kbd> : null}
+                    </button>
+                  ))
+                )}
+              </div>
+            </section>
           </div>
         )}
-      </main>
-      {paletteOpen && (
-        <div className="palette-backdrop">
-          <button
-            className="dialog-scrim"
-            type="button"
-            aria-label="Close command palette"
-            onClick={() => setPaletteOpen(false)}
+        {quickOpen && contextWorktree ? (
+          <QuickOpen
+            worktreeId={contextWorktree.worktreeId}
+            branch={contextWorktree.branch}
+            onOpen={(location) => openFile({ worktreeId: contextWorktree.worktreeId, ...location })}
+            onClose={() => setQuickOpen(false)}
           />
-          <section
-            className="command-palette"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Command palette"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="palette-search">
-              <Icon name="search" size={15} />
-              <input
-                ref={paletteSearchRef}
-                value={paletteQuery}
-                onChange={(event) => {
-                  setPaletteQuery(event.target.value);
-                  setActiveCommandIndex(0);
-                }}
-                onKeyDown={handlePaletteKeyDown}
-                placeholder="Search commands"
-                aria-label="Search commands"
-              />
-            </div>
-            <div className="palette-section">
-              {filteredCommands.length === 0 ? (
-                <p className="palette-empty">No matching commands.</p>
-              ) : (
-                filteredCommands.map((command, index) => (
-                  <button
-                    className={index === activeCommandIndex ? "is-active" : undefined}
-                    type="button"
-                    key={command.label}
-                    aria-label={command.label}
-                    onClick={() => runPaletteCommand(command)}
-                    onMouseMove={() => setActiveCommandIndex(index)}
-                  >
-                    <Icon name={command.icon} size={15} />
-                    <span className="palette-label">{command.label}</span>
-                    {command.hint ? <kbd>{command.hint}</kbd> : null}
-                  </button>
-                ))
-              )}
-            </div>
-          </section>
-        </div>
-      )}
-      {legacyImportBatchId && projection && (
-        <LegacyImportDialog
-          projection={projection}
-          batchId={legacyImportBatchId}
-          onImport={(selected) => void importLegacyRecords(selected)}
-          onRollback={() => void rollbackLegacyImport()}
-          onClose={() => setLegacyImportBatchId(undefined)}
-        />
-      )}
-      {helpOpen && (
-        <HelpDialog
-          version={version}
-          onSupportBundle={() => {
-            setHelpOpen(false);
-            void exportSupportBundle();
-          }}
-          onImportLegacy={() => {
-            setHelpOpen(false);
-            void startLegacyImport();
-          }}
-          onClose={() => setHelpOpen(false)}
-        />
-      )}
-      {closeRequest && projection && (
-        <CloseAgentDialog
-          title={sessionTitle(closeRequest, projection.messages, projection.providers)}
-          provider={providerDisplayName(closeRequest.provider, projection.providers)}
-          onStopAndClose={() => {
-            const session = closeRequest;
-            setCloseRequest(undefined);
-            void stopSession(session);
-            closeTileNow(session);
-          }}
-          onKeepRunning={() => {
-            const session = closeRequest;
-            setCloseRequest(undefined);
-            closeTileNow(session);
-          }}
-          onCancel={() => setCloseRequest(undefined)}
-        />
-      )}
-      {deleteRequest && projection && (
-        <DeleteAgentDialog
-          title={sessionTitle(deleteRequest, projection.messages, projection.providers)}
-          provider={providerDisplayName(deleteRequest.provider, projection.providers)}
-          running={sessionStopCommands(deleteRequest).length > 0}
-          worktree={deletableWorktree(projection, sessions, deleteRequest)}
-          onDelete={(removeWorktree) => {
-            const session = deleteRequest;
-            setDeleteRequest(undefined);
-            void deleteSession(session, removeWorktree);
-          }}
-          onCancel={() => setDeleteRequest(undefined)}
-        />
-      )}
-      {worktreeDialogProject && (
-        <WorktreeDialog
-          onClose={() => setWorktreeDialogProject(undefined)}
-          onSubmit={(branch, baseRef) => void submitWorktree(worktreeDialogProject, branch, baseRef)}
-        />
-      )}
-      {newAgentProject && projection && (
-        <NewAgentDialog
-          projection={projection}
-          initialProject={newAgentProject === "default" ? (contextProject ?? projection.projects[0]) : newAgentProject}
-          initialWorktreeId={selectedWorktreeId ?? contextWorktree?.worktreeId}
-          onClose={() => setNewAgentProject(undefined)}
-          onSubmit={submitNewAgent}
-        />
-      )}
-    </div>
+        ) : null}
+        {legacyImportBatchId && projection && (
+          <LegacyImportDialog
+            projection={projection}
+            batchId={legacyImportBatchId}
+            onImport={(selected) => void importLegacyRecords(selected)}
+            onRollback={() => void rollbackLegacyImport()}
+            onClose={() => setLegacyImportBatchId(undefined)}
+          />
+        )}
+        {helpOpen && (
+          <HelpDialog
+            version={version}
+            onSupportBundle={() => {
+              setHelpOpen(false);
+              void exportSupportBundle();
+            }}
+            onImportLegacy={() => {
+              setHelpOpen(false);
+              void startLegacyImport();
+            }}
+            onClose={() => setHelpOpen(false)}
+          />
+        )}
+        {closeRequest && projection && (
+          <CloseAgentDialog
+            title={sessionTitle(closeRequest, projection.messages, projection.providers)}
+            provider={providerDisplayName(closeRequest.provider, projection.providers)}
+            onStopAndClose={() => {
+              const session = closeRequest;
+              setCloseRequest(undefined);
+              void stopSession(session);
+              closeTileNow(session);
+            }}
+            onKeepRunning={() => {
+              const session = closeRequest;
+              setCloseRequest(undefined);
+              closeTileNow(session);
+            }}
+            onCancel={() => setCloseRequest(undefined)}
+          />
+        )}
+        {deleteRequest && projection && (
+          <DeleteAgentDialog
+            title={sessionTitle(deleteRequest, projection.messages, projection.providers)}
+            provider={providerDisplayName(deleteRequest.provider, projection.providers)}
+            running={sessionStopCommands(deleteRequest).length > 0}
+            worktree={deletableWorktree(projection, sessions, deleteRequest)}
+            onDelete={(removeWorktree) => {
+              const session = deleteRequest;
+              setDeleteRequest(undefined);
+              void deleteSession(session, removeWorktree);
+            }}
+            onCancel={() => setDeleteRequest(undefined)}
+          />
+        )}
+        {worktreeDialogProject && (
+          <WorktreeDialog
+            onClose={() => setWorktreeDialogProject(undefined)}
+            onSubmit={(branch, baseRef) => void submitWorktree(worktreeDialogProject, branch, baseRef)}
+          />
+        )}
+        {newAgentProject && projection && (
+          <NewAgentDialog
+            projection={projection}
+            initialProject={
+              newAgentProject === "default" ? (contextProject ?? projection.projects[0]) : newAgentProject
+            }
+            initialWorktreeId={selectedWorktreeId ?? contextWorktree?.worktreeId}
+            onClose={() => setNewAgentProject(undefined)}
+            onSubmit={submitNewAgent}
+          />
+        )}
+      </div>
+    </FileIndexProvider>
   );
 }
 
@@ -949,6 +1039,15 @@ function GridEmptyState({
         New agent
         <kbd>Ctrl N</kbd>
       </button>
+    </div>
+  );
+}
+
+function LoadingFilesPane() {
+  return (
+    <div className="tool-pane files-pane">
+      <PaneHeader icon="folderTree" title="Files" />
+      <p className="files-hint">Loading the editor</p>
     </div>
   );
 }

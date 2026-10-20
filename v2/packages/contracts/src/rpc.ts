@@ -2,6 +2,7 @@ import { z } from "zod";
 import { BrowserTabProjection } from "./browser.js";
 import { DiagnosticLog } from "./diagnostics.js";
 import { RuntimeEventEnvelope } from "./events.js";
+import { FileCommand } from "./files.js";
 import {
   BrowserTabId,
   CommandId,
@@ -192,6 +193,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("legacy.rollbackImport"), batchId: z.string().min(1) }),
   z.object({ type: z.literal("legacy.rollback.completed"), batchId: z.string().min(1) }),
   z.object({ type: z.literal("legacy.operation.failed"), batchId: z.string().min(1), message: z.string().min(1) }),
+  ...FileCommand.options,
 ]);
 export type RuntimeCommand = z.infer<typeof RuntimeCommand>;
 

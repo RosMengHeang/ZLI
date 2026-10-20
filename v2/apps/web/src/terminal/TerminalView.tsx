@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
 
 import type { RpcResponse } from "@zli-v2/contracts";
+import type { FileLinks } from "../files/FileIndex.js";
 import type { ZliBridge } from "../runtime/bridge.js";
 
 type Props = {
@@ -15,6 +16,8 @@ type Props = {
   className?: string;
   autoFocus?: boolean;
   onFocus?(): void;
+  /** Makes file paths in the output open with Ctrl+click. */
+  fileLinks?: FileLinks | undefined;
 };
 
 const RESIZE_DEBOUNCE_MS = 80;
@@ -53,7 +56,10 @@ export function TerminalView({
   className = "terminal-output",
   autoFocus = true,
   onFocus,
+  fileLinks,
 }: Props) {
+  const fileLinksRef = useRef(fileLinks);
+  fileLinksRef.current = fileLinks;
   const autoFocusRef = useRef(autoFocus);
   const onFocusRef = useRef(onFocus);
   onFocusRef.current = onFocus;
@@ -79,6 +85,37 @@ export function TerminalView({
     terminal.loadAddon(fit);
     terminal.open(host);
     terminalRef.current = terminal;
+    const linkProvider = terminal.registerLinkProvider({
+      provideLinks(lineNumber, callback) {
+        const links = fileLinksRef.current;
+        const line = links ? terminal.buffer.active.getLine(lineNumber - 1)?.translateToString(true) : undefined;
+        if (!links || !line) {
+          callback(undefined);
+          return;
+        }
+        links.touch();
+        const found = links.find(line);
+        callback(
+          found.length === 0
+            ? undefined
+            : found.map((reference) => ({
+                text: line.slice(reference.start, reference.end),
+                range: { start: { x: reference.start + 1, y: lineNumber }, end: { x: reference.end, y: lineNumber } },
+                decorations: { underline: true, pointerCursor: true },
+                // A plain click focuses the terminal or selects text, so opening needs the modifier.
+                activate: (event) => {
+                  if (event.ctrlKey || event.metaKey) fileLinksRef.current?.open(reference.location);
+                },
+                hover: () => {
+                  host.title = `Ctrl+click to open ${reference.location.path}`;
+                },
+                leave: () => {
+                  host.title = "";
+                },
+              })),
+        );
+      },
+    });
     let active = true;
     // Snapshots and chunks are broadcast to every pane, including ones answering another caller's
     // attach, so output is only drawn when it continues exactly from the last drawn sequence.
@@ -189,6 +226,7 @@ export function TerminalView({
       if (resizeTimer !== undefined) clearTimeout(resizeTimer);
       observer?.disconnect();
       dataSubscription.dispose();
+      linkProvider.dispose();
       focusSubscription?.();
       unsubscribe();
       terminalRef.current = undefined;
