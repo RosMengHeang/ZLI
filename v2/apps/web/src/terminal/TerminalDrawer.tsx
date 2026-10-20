@@ -8,7 +8,6 @@ import { shellForPlatform } from "../sessions/launch.js";
 import { MIN_DRAWER_HEIGHT } from "../sessions/workbench.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { EmptyState } from "../ui/Pane.js";
 import { LazyTerminalView } from "./LazyTerminalView.js";
 import "./terminal.css";
 
@@ -116,6 +115,58 @@ export function TerminalDrawer({
     event.preventDefault();
   };
 
+  const closeButton = (
+    <IconButton
+      label="Close terminal drawer"
+      tooltip="Hide terminal"
+      shortcut="Mod+J"
+      icon="x"
+      size="sm"
+      iconSize={14}
+      onClick={onClose}
+    />
+  );
+  const errorLine = error ? (
+    <p className="inline-error" role="alert">
+      {error}
+    </p>
+  ) : null;
+
+  // Without a running shell the drawer is one row, so opening it does not take space from the agents.
+  if (panes.length === 0) {
+    return (
+      <section className="terminal-drawer is-compact" aria-label="Terminal panel">
+        <header className="drawer-header">
+          <Icon name="terminal" size={13} />
+          <h2>Terminal</h2>
+          <span className="drawer-note">
+            {worktree ? (
+              <>
+                No shell in <span className="drawer-detail">{worktree.branch}</span>
+              </>
+            ) : (
+              "Select an agent or worktree to open a terminal in it."
+            )}
+          </span>
+          <span className="drawer-spacer" />
+          {worktree ? (
+            <Button
+              size="sm"
+              icon="terminal"
+              loading={busy}
+              tooltip="Open a shell in this worktree. Up to four run side by side."
+              onClick={() => void createTerminal()}
+            >
+              {busy ? "Starting" : "Start terminal"}
+            </Button>
+          ) : null}
+          {closeButton}
+        </header>
+        {errorLine}
+      </section>
+    );
+  }
+
   return (
     <section className="terminal-drawer" aria-label="Terminal panel" style={{ height }}>
       {/* biome-ignore lint/a11y/useSemanticElements: a focusable ARIA separator is the standard splitter pattern. */}
@@ -135,91 +186,57 @@ export function TerminalDrawer({
         <h2>Terminal</h2>
         {worktree ? <span className="drawer-detail">{worktree.branch}</span> : null}
         <span className="drawer-spacer" />
-        {panes.length > 0 ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            icon="columns"
-            onClick={() => void createTerminal()}
-            disabled={busy || panes.length >= MAX_SPLITS}
-            tooltip={
-              panes.length >= MAX_SPLITS
-                ? `Up to ${MAX_SPLITS} terminals side by side`
-                : "Open another terminal beside this one"
-            }
-          >
-            Split
-          </Button>
-        ) : null}
-        <IconButton
-          label="Close terminal drawer"
-          tooltip="Hide terminal"
-          shortcut="Mod+J"
-          icon="x"
+        <Button
+          variant="ghost"
           size="sm"
-          iconSize={14}
-          onClick={onClose}
-        />
-      </header>
-      {!worktree ? (
-        <EmptyState
-          className="drawer-empty"
-          icon="terminal"
-          title="No worktree selected"
-          detail="Select an agent or worktree to open a terminal in it."
-        />
-      ) : panes.length === 0 ? (
-        <EmptyState
-          className="drawer-empty"
-          icon="terminal"
-          title={`A shell in ${worktree.branch}`}
-          detail="Run commands next to the agent. Open up to four side by side."
+          icon="columns"
+          onClick={() => void createTerminal()}
+          disabled={busy || panes.length >= MAX_SPLITS}
+          tooltip={
+            panes.length >= MAX_SPLITS
+              ? `Up to ${MAX_SPLITS} terminals side by side`
+              : "Open another terminal beside this one"
+          }
         >
-          <Button icon="terminal" loading={busy} onClick={() => void createTerminal()}>
-            {busy ? "Starting" : "Start terminal"}
-          </Button>
-        </EmptyState>
-      ) : (
-        <div className="drawer-splits" style={{ gridTemplateColumns: `repeat(${panes.length}, minmax(0, 1fr))` }}>
-          {panes.map((terminal) => (
-            <div className="drawer-pane" key={terminal.terminalId}>
-              <div className="drawer-pane-bar">
-                <span className={`status-dot status-terminal-${terminal.status}`} aria-hidden="true" />
-                <span className="drawer-pane-title">{terminal.title}</span>
-                {terminal.status !== "running" ? (
-                  <span className="drawer-pane-state">{terminal.status === "failed" ? "Failed" : "Exited"}</span>
-                ) : null}
-                <IconButton
-                  icon="x"
-                  size="xs"
-                  label={terminal.status === "running" ? `Stop ${terminal.title}` : `Close ${terminal.title}`}
-                  tooltip={terminal.status === "running" ? "Stop and close" : "Close"}
-                  onClick={() => void closePane(terminal)}
-                />
-              </div>
-              {bridge ? (
-                <LazyTerminalView
-                  bridge={bridge}
-                  terminalId={terminal.terminalId}
-                  running={terminal.status === "running"}
-                  send={send}
-                  fileLinks={fileLinks}
-                />
+          Split
+        </Button>
+        {closeButton}
+      </header>
+      <div className="drawer-splits" style={{ gridTemplateColumns: `repeat(${panes.length}, minmax(0, 1fr))` }}>
+        {panes.map((terminal) => (
+          <div className="drawer-pane" key={terminal.terminalId}>
+            <div className="drawer-pane-bar">
+              <span className={`status-dot status-terminal-${terminal.status}`} aria-hidden="true" />
+              <span className="drawer-pane-title">{terminal.title}</span>
+              {terminal.status !== "running" ? (
+                <span className="drawer-pane-state">{terminal.status === "failed" ? "Failed" : "Exited"}</span>
               ) : null}
-              {terminal.errorMessage ? (
-                <p className="inline-error" role="alert">
-                  {terminal.errorMessage}
-                </p>
-              ) : null}
+              <IconButton
+                icon="x"
+                size="xs"
+                label={terminal.status === "running" ? `Stop ${terminal.title}` : `Close ${terminal.title}`}
+                tooltip={terminal.status === "running" ? "Stop and close" : "Close"}
+                onClick={() => void closePane(terminal)}
+              />
             </div>
-          ))}
-        </div>
-      )}
-      {error ? (
-        <p className="inline-error" role="alert">
-          {error}
-        </p>
-      ) : null}
+            {bridge ? (
+              <LazyTerminalView
+                bridge={bridge}
+                terminalId={terminal.terminalId}
+                running={terminal.status === "running"}
+                send={send}
+                fileLinks={fileLinks}
+              />
+            ) : null}
+            {terminal.errorMessage ? (
+              <p className="inline-error" role="alert">
+                {terminal.errorMessage}
+              </p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      {errorLine}
     </section>
   );
 }

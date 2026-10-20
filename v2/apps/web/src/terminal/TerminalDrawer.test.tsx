@@ -383,6 +383,8 @@ describe("TerminalDrawer", () => {
   it("offers to start a shell when the worktree has none", async () => {
     const { bridge, dispatched } = makeBridge();
     const container = await render(bridge, []);
+    expect(container.querySelector(".terminal-drawer")?.classList.contains("is-compact")).toBe(true);
+    expect(container.querySelector('[role="separator"]')).toBeNull();
     await act(async () => button(container, "Start terminal")?.click());
     expect(dispatched.at(-1)?.command).toMatchObject({ type: "terminal.create", worktreeId, cwd: "C:/repo" });
   });
