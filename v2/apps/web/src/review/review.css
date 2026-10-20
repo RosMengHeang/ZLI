@@ -1,0 +1,34 @@
+/* ---------- Changes ---------- */
+.review-totals, .file-stat { display: inline-flex; gap: var(--zli-space-1-5); font-family: var(--zli-mono); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.review-totals { padding-right: var(--zli-space-2); }
+.diff-add { color: var(--zli-green); }
+.diff-del { color: var(--zli-red); }
+.inline-field { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-sm); white-space: nowrap; }
+.review-body { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.review-summary { padding: var(--zli-space-3) var(--zli-space-4) var(--zli-space-1-5); color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 600; }
+.review-file-list { flex: 0 1 auto; max-height: 38%; min-height: 0; overflow: auto; padding: 0 var(--zli-space-2) var(--zli-space-1-5); }
+.review-file { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2-5); height: 30px; padding: 0 var(--zli-space-2); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-text); cursor: pointer; font-size: var(--zli-text-sm); text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.review-file:hover { background: var(--zli-hover); }
+.review-file.is-selected { background: var(--zli-active); }
+.file-kind { display: inline-grid; place-items: center; width: 16px; height: 16px; flex: 0 0 auto; border-radius: var(--zli-radius-xs); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); font-weight: 700; }
+.file-kind-added, .file-kind-untracked { background: var(--zli-green-soft); color: var(--zli-green); }
+.file-kind-modified, .file-kind-renamed { background: var(--zli-amber-soft); color: var(--zli-amber); }
+.file-kind-deleted { background: var(--zli-red-soft); color: var(--zli-red); }
+.review-file-name { min-width: 0; flex: 1; overflow: hidden; font-family: var(--zli-mono); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.rename-arrow { margin: 0 var(--zli-space-1-5); color: var(--zli-dim); }
+.file-stat { color: var(--zli-dim); }
+.review-hint { margin: auto; color: var(--zli-dim); font-size: var(--zli-text-sm); }
+.review-diff-panel { display: flex; min-height: 0; flex: 1; flex-direction: column; margin: var(--zli-space-1) var(--zli-space-3) var(--zli-space-3); overflow: hidden; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-canvas); }
+.review-diff-header { display: flex; align-items: center; gap: var(--zli-space-2); height: 32px; flex: 0 0 auto; padding: 0 var(--zli-space-2-5); border-bottom: 1px solid var(--zli-border); color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.review-diff-path { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-muted); font-family: var(--zli-mono); text-overflow: ellipsis; white-space: nowrap; }
+.review-diff { min-height: 0; flex: 1; margin: 0; padding: var(--zli-space-1-5) 0; overflow: auto; color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: 1.6; }
+.diff-line { display: block; padding: 0 var(--zli-space-3); white-space: pre; }
+.diff-line.is-add { background: var(--zli-green-soft); color: #a3e0bb; }
+.diff-line.is-del { background: var(--zli-red-soft); color: #f0b0b0; }
+.diff-line.is-hunk { margin-top: var(--zli-space-1); background: var(--zli-blue-soft); color: var(--zli-blue); }
+.diff-line.is-meta { color: var(--zli-dim); }
+.review-actions { display: flex; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-2); padding: var(--zli-space-3) var(--zli-space-3) var(--zli-space-3) var(--zli-space-4); border-top: 1px solid var(--zli-border); background: var(--zli-sidebar); }
+.review-commit, .review-merge { display: flex; align-items: center; gap: var(--zli-space-2); }
+.review-commit .input { flex: 1; }
+.review-pane > .inline-error { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: 0 var(--zli-space-4) var(--zli-space-2-5); }
+.review-pane > .inline-error > svg { margin-top: 2px; }

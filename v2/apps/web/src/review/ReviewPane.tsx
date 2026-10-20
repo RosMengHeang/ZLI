@@ -2,8 +2,10 @@ import type { WorktreeProjection } from "@zli-v2/contracts";
 import { useEffect, useMemo, useState } from "react";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, PaneHeader } from "../ui/Pane.js";
+import "./review.css";
 
 export type ReviewFocus = { path: string; nonce: number };
 
@@ -84,7 +86,7 @@ export function ReviewPane({
       </PaneHeader>
       {worktree ? (
         <form
-          className="review-toolbar"
+          className="toolbar review-toolbar"
           onSubmit={(event) => {
             event.preventDefault();
             refresh();
@@ -92,12 +94,17 @@ export function ReviewPane({
         >
           <label className="inline-field">
             <span>Compare against</span>
-            <input value={baseRef} onChange={(event) => setBaseRef(event.target.value)} placeholder="main" />
+            <input
+              className="input input-sm is-mono"
+              value={baseRef}
+              onChange={(event) => setBaseRef(event.target.value)}
+              placeholder="main"
+              spellCheck={false}
+            />
           </label>
-          <button className="ghost-button" type="submit" disabled={busy || !baseRef.trim()}>
-            <Icon name="reload" size={13} />
-            {busy ? "Working" : "Refresh changes"}
-          </button>
+          <Button variant="ghost" size="sm" type="submit" icon="reload" loading={busy} disabled={!baseRef.trim()}>
+            Refresh changes
+          </Button>
         </form>
       ) : null}
       {!worktree ? (
@@ -109,8 +116,8 @@ export function ReviewPane({
       ) : !review ? (
         <EmptyState
           icon="diff"
-          title="No changes loaded"
-          detail="Refresh to load staged and unstaged changes from Git."
+          title="Changes not loaded yet"
+          detail="Choose a branch to compare against, then refresh to see staged and unstaged changes."
         />
       ) : (
         <div className="review-body">
@@ -192,13 +199,15 @@ export function ReviewPane({
       )}
       {review?.errorMessage && (
         <p className="inline-error" role="alert">
-          {review.errorMessage}
+          <Icon name="alert" size={13} />
+          <span>{review.errorMessage}</span>
         </p>
       )}
       {worktree && review ? (
         <div className="review-actions">
           <div className="review-commit">
             <input
+              className="input input-sm"
               aria-label="Commit message"
               value={message}
               onChange={(event) => setMessage(event.target.value)}
@@ -210,50 +219,57 @@ export function ReviewPane({
                 }
               }}
             />
-            <button
-              className="primary-button"
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
+              icon="commit"
               disabled={busy || !message.trim() || review.state === "conflicted"}
               onClick={() =>
                 void run({ type: "review.commit", worktreeId: worktree.worktreeId, message: message.trim() })
               }
             >
-              <Icon name="commit" size={13} />
               Commit changes
-            </button>
+            </Button>
           </div>
           <div className="review-merge">
             <label className="inline-field">
               <span>Merge target</span>
-              <input value={targetRef} onChange={(event) => setTargetRef(event.target.value)} placeholder="main" />
+              <input
+                className="input input-sm is-mono"
+                value={targetRef}
+                onChange={(event) => setTargetRef(event.target.value)}
+                placeholder="main"
+                spellCheck={false}
+              />
             </label>
-            <button
-              className="secondary-button"
-              type="button"
+            <Button
+              size="sm"
+              icon="merge"
               disabled={busy || !targetRef.trim() || review.state === "conflicted"}
               onClick={() =>
                 void run({ type: "review.merge", worktreeId: worktree.worktreeId, targetRef: targetRef.trim() })
               }
             >
-              <Icon name="merge" size={13} />
               Merge into target
-            </button>
+            </Button>
             {(review.state === "conflicted" || review.errorMessage) && (
-              <button
-                className="ghost-button is-danger"
-                type="button"
+              <Button
+                variant="ghost"
+                size="sm"
+                className="is-danger"
                 disabled={busy}
                 onClick={() => void run({ type: "review.abortMerge", worktreeId: worktree.worktreeId })}
               >
                 Abort merge
-              </button>
+              </Button>
             )}
           </div>
         </div>
       ) : null}
       {error && (
         <p className="inline-error" role="alert">
-          {error}
+          <Icon name="alert" size={13} />
+          <span>{error}</span>
         </p>
       )}
     </div>

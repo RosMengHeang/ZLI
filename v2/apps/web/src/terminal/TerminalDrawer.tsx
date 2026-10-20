@@ -6,8 +6,11 @@ import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { shellForPlatform } from "../sessions/launch.js";
 import { MIN_DRAWER_HEIGHT } from "../sessions/workbench.js";
+import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { EmptyState } from "../ui/Pane.js";
 import { TerminalView } from "./TerminalView.js";
+import "./terminal.css";
 
 const MAX_SPLITS = 4;
 
@@ -133,37 +136,49 @@ export function TerminalDrawer({
         {worktree ? <span className="drawer-detail">{worktree.branch}</span> : null}
         <span className="drawer-spacer" />
         {panes.length > 0 ? (
-          <button
-            className="ghost-button"
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
+            icon="columns"
             onClick={() => void createTerminal()}
             disabled={busy || panes.length >= MAX_SPLITS}
-            title={
+            tooltip={
               panes.length >= MAX_SPLITS
                 ? `Up to ${MAX_SPLITS} terminals side by side`
                 : "Open another terminal beside this one"
             }
           >
-            <Icon name="columns" size={13} />
             Split
-          </button>
+          </Button>
         ) : null}
-        <button className="icon-button" type="button" onClick={onClose} aria-label="Close terminal drawer">
-          <Icon name="x" size={14} />
-        </button>
+        <IconButton
+          label="Close terminal drawer"
+          tooltip="Hide terminal"
+          shortcut="Mod+J"
+          icon="x"
+          size="sm"
+          iconSize={14}
+          onClick={onClose}
+        />
       </header>
       {!worktree ? (
-        <div className="drawer-empty">
-          <p>Select an agent or worktree to open a terminal in it.</p>
-        </div>
+        <EmptyState
+          className="drawer-empty"
+          icon="terminal"
+          title="No worktree selected"
+          detail="Select an agent or worktree to open a terminal in it."
+        />
       ) : panes.length === 0 ? (
-        <div className="drawer-empty">
-          <p>A shell in {worktree.branch}, next to the agent.</p>
-          <button className="secondary-button" type="button" onClick={() => void createTerminal()} disabled={busy}>
-            <Icon name="terminal" size={13} />
+        <EmptyState
+          className="drawer-empty"
+          icon="terminal"
+          title={`A shell in ${worktree.branch}`}
+          detail="Run commands next to the agent. Open up to four side by side."
+        >
+          <Button icon="terminal" loading={busy} onClick={() => void createTerminal()}>
             {busy ? "Starting" : "Start terminal"}
-          </button>
-        </div>
+          </Button>
+        </EmptyState>
       ) : (
         <div className="drawer-splits" style={{ gridTemplateColumns: `repeat(${panes.length}, minmax(0, 1fr))` }}>
           {panes.map((terminal) => (
@@ -174,15 +189,13 @@ export function TerminalDrawer({
                 {terminal.status !== "running" ? (
                   <span className="drawer-pane-state">{terminal.status === "failed" ? "Failed" : "Exited"}</span>
                 ) : null}
-                <button
-                  className="icon-button is-small"
-                  type="button"
-                  aria-label={terminal.status === "running" ? `Stop ${terminal.title}` : `Close ${terminal.title}`}
-                  title={terminal.status === "running" ? "Stop and close" : "Close"}
+                <IconButton
+                  icon="x"
+                  size="xs"
+                  label={terminal.status === "running" ? `Stop ${terminal.title}` : `Close ${terminal.title}`}
+                  tooltip={terminal.status === "running" ? "Stop and close" : "Close"}
                   onClick={() => void closePane(terminal)}
-                >
-                  <Icon name="x" size={12} />
-                </button>
+                />
               </div>
               {bridge ? (
                 <TerminalView

@@ -2,8 +2,9 @@ import type { FileChangeStatus, FileReadResult, WorktreeProjection } from "@zli-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { EmptyState, PaneHeader } from "../ui/Pane.js";
+import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
 import { type CodeEditorHandle, createCodeEditor, languageLabel } from "./codeEditor.js";
 import { useFileIndex, useFileIndexContext } from "./FileIndex.js";
 import { FileSearchView, type SearchSettings } from "./FileSearchView.js";
@@ -417,37 +418,24 @@ function FilesWorkspace({
   return (
     <div className="tool-pane files-pane" ref={rootRef}>
       <PaneHeader icon="folderTree" title="Files" detail={worktree.branch}>
-        <button
-          className={`icon-button is-small${showTree ? " is-active" : ""}`}
-          type="button"
-          aria-pressed={showTree}
-          aria-label={showTree ? "Hide file list" : "Show file list"}
-          title={showTree ? "Hide file list" : "Show file list"}
+        <IconButton
+          icon="panelLeft"
+          size="sm"
+          pressed={showTree}
+          label={showTree ? "Hide file list" : "Show file list"}
           onClick={() => (wide ? setTreeHidden((value) => !value) : setBrowseOpen((value) => !value))}
-        >
-          <Icon name="panelLeft" size={13} />
-        </button>
-        <button
-          className="icon-button is-small"
-          type="button"
-          aria-label="Go to file"
-          title="Go to file (Ctrl P)"
-          onClick={onQuickOpen}
-        >
-          <Icon name="search" size={13} />
-        </button>
-        <button
-          className="icon-button is-small"
-          type="button"
-          aria-label="Reload file list"
-          title="Reload file list"
+        />
+        <IconButton icon="search" size="sm" label="Go to file" shortcut="Mod+P" onClick={onQuickOpen} />
+        <IconButton
+          icon="reload"
+          size="sm"
+          label="Reload file list"
+          tooltip="Reload file list"
           onClick={() => {
             void context.refresh(worktreeId, 0).catch(() => undefined);
             void checkActiveFile();
           }}
-        >
-          <Icon name="reload" size={13} />
-        </button>
+        />
       </PaneHeader>
       <div className={`files-body${wide ? " is-split" : ""}`}>
         {showTree ? (
@@ -496,7 +484,7 @@ function FilesWorkspace({
                 onOpen={openPath}
               />
             ) : !index ? (
-              <p className="files-hint">Loading files</p>
+              <LoadingState label="Loading files" />
             ) : changedOnly && treeEntries.length === 0 ? (
               <p className="files-hint">No uncommitted changes in this worktree.</p>
             ) : (
@@ -557,7 +545,8 @@ function FilesWorkspace({
               <EmptyState
                 icon="file"
                 title="Open a file"
-                detail="Pick one in the file list, press Ctrl P to find a file by name, or click a file path in an agent's reply or terminal."
+                detail="Pick one in the file list, or click a file path in an agent's reply or terminal."
+                hint={{ label: "Find a file by name", shortcut: "Mod+P" }}
               />
             ) : (
               <>
@@ -574,21 +563,21 @@ function FilesWorkspace({
                     </span>
                   ) : null}
                   {activeStatus ? (
-                    <button className="ghost-button" type="button" onClick={() => onOpenDiff(activePath)}>
-                      <Icon name="diff" size={12} />
+                    <Button variant="ghost" size="sm" icon="diff" onClick={() => onOpenDiff(activePath)}>
                       Diff
-                    </button>
+                    </Button>
                   ) : null}
                   {active?.status === "ready" && active.file.content !== undefined ? (
-                    <button
-                      className={dirty.has(activePath) ? "primary-button is-compact" : "ghost-button"}
-                      type="button"
+                    <Button
+                      variant={dirty.has(activePath) ? "primary" : "ghost"}
+                      size="sm"
                       disabled={!dirty.has(activePath) || active.saving}
-                      title="Save (Ctrl S)"
+                      tooltip={dirty.has(activePath) ? "Save" : "No unsaved changes"}
+                      shortcut="Mod+S"
                       onClick={() => void save(activePath)}
                     >
                       {active.saving ? "Saving" : dirty.has(activePath) ? "Save" : "Saved"}
-                    </button>
+                    </Button>
                   ) : null}
                 </div>
                 {closeRequest === activePath ? (
@@ -664,19 +653,14 @@ function FileBanner({
   actions: BannerAction[];
 }) {
   return (
-    <div className={`file-banner is-${tone}`} role="alert">
-      <Icon name="alert" size={13} />
-      <span className="file-banner-message">{message}</span>
-      <span className="file-banner-actions">
+    <div className={`banner banner-${tone} file-banner is-${tone}`} role="alert">
+      <Icon name="alert" size={14} />
+      <span className="banner-message file-banner-message">{message}</span>
+      <span className="banner-actions file-banner-actions">
         {actions.map((action) => (
-          <button
-            className={action.primary ? "secondary-button is-compact" : "ghost-button"}
-            type="button"
-            key={action.label}
-            onClick={action.run}
-          >
+          <Button variant={action.primary ? "secondary" : "ghost"} size="sm" key={action.label} onClick={action.run}>
             {action.label}
-          </button>
+          </Button>
         ))}
       </span>
     </div>
@@ -757,7 +741,7 @@ function FileBody({
   onOpenDiff(): void;
   onClose(): void;
 }) {
-  if (!data || data.status === "loading") return <p className="files-hint is-centered">Opening {baseName(path)}</p>;
+  if (!data || data.status === "loading") return <LoadingState label={`Opening ${baseName(path)}`} />;
   if (data.status === "error") {
     if (isMissing(data.message) && status === "deleted") {
       return (
@@ -766,27 +750,23 @@ function FileBody({
           title="This file was deleted"
           detail="It is gone from the worktree. The diff shows what was removed."
         >
-          <div className="empty-actions">
-            <button className="secondary-button" type="button" onClick={onOpenDiff}>
-              Show diff
-            </button>
-            <button className="ghost-button" type="button" onClick={onClose}>
-              Close
-            </button>
-          </div>
+          <Button icon="diff" onClick={onOpenDiff}>
+            Show diff
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
         </EmptyState>
       );
     }
     return (
-      <EmptyState icon="alert" title="The file could not be opened" detail={data.message}>
-        <div className="empty-actions">
-          <button className="secondary-button" type="button" onClick={onRetry}>
-            Try again
-          </button>
-          <button className="ghost-button" type="button" onClick={onClose}>
-            Close
-          </button>
-        </div>
+      <EmptyState icon="alert" tone="danger" title="The file could not be opened" detail={data.message}>
+        <Button icon="reload" onClick={onRetry}>
+          Try again
+        </Button>
+        <Button variant="ghost" onClick={onClose}>
+          Close
+        </Button>
       </EmptyState>
     );
   }
