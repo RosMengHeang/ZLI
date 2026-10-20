@@ -74,6 +74,7 @@ export function Topbar({
       )}
       <fieldset className="topbar-tools" aria-label="Panels">
         <ToolToggle label="Terminal" icon="panelBottom" shortcut="Mod+J" active={drawerOpen} onClick={onToggleDrawer} />
+        <span className="toolbar-divider" aria-hidden="true" />
         {(["files", "browser", "review"] as const).map((pane) => (
           <ToolToggle
             key={pane}
@@ -84,7 +85,6 @@ export function Topbar({
           />
         ))}
       </fieldset>
-      <span className="toolbar-divider" aria-hidden="true" />
       <button
         className="command-trigger"
         type="button"
