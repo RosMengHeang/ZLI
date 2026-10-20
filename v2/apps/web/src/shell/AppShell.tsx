@@ -17,7 +17,7 @@ import { NewAgentDialog, type NewAgentRequest } from "../sessions/NewAgentDialog
 import {
   type AgentSession,
   deriveSessions,
-  gridColumns,
+  gridLayout,
   type SessionMode,
   sessionStopCommands,
   sessionTitle,
@@ -60,6 +60,7 @@ function WorkspaceApp() {
   const [sidePane, setSidePane] = useState<SidePane>();
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
   const [panelWidth, setPanelWidth] = usePanelWidth(sidePane ?? "files");
+  const [gridRegionRef, gridWidth] = useElementWidth<HTMLElement>();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [worktreeDialogProject, setWorktreeDialogProject] = useState<ProjectProjection>();
   const [newAgentProject, setNewAgentProject] = useState<ProjectProjection | "default">();
@@ -601,8 +602,7 @@ function WorkspaceApp() {
     closeRequest !== undefined ||
     deleteRequest !== undefined ||
     (legacyImportBatchId !== undefined && projection !== undefined);
-  const columns = gridColumns(visibleTiles.length);
-  const rows = Math.max(1, Math.ceil(visibleTiles.length / columns));
+  const { columns, rows } = gridLayout(visibleTiles.length, gridWidth);
 
   return (
     <FileIndexProvider onOpenFile={openFile}>
@@ -663,7 +663,7 @@ function WorkspaceApp() {
           ) : (
             <div className="workspace-body">
               <div className="workbench-column">
-                <section className="agent-grid-region" aria-label="Agents">
+                <section className="agent-grid-region" aria-label="Agents" ref={gridRegionRef}>
                   {visibleTiles.length === 0 ? (
                     <GridEmptyState
                       projection={projection}
@@ -676,7 +676,8 @@ function WorkspaceApp() {
                       className="agent-grid"
                       style={{
                         gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-                        gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+                        // Rows keep a usable height; past that the grid scrolls.
+                        gridTemplateRows: `repeat(${rows}, minmax(${rows > 1 ? 260 : 0}px, 1fr))`,
                       }}
                     >
                       {visibleTiles.map((session) => (
@@ -845,4 +846,18 @@ function WorkspaceApp() {
       </div>
     </FileIndexProvider>
   );
+}
+
+/** The content width of an element, kept current as it resizes. */
+function useElementWidth<T extends HTMLElement>(): [(element: T | null) => void, number | undefined] {
+  const [width, setWidth] = useState<number>();
+  const ref = useCallback((element: T | null) => {
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setWidth(Math.round(entry.contentRect.width));
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, width];
 }

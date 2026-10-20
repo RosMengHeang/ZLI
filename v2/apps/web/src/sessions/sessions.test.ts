@@ -11,6 +11,7 @@ import {
   changedFiles,
   deriveSessions,
   gridColumns,
+  gridLayout,
   relativeTime,
   sessionStopCommands,
   sessionTitle,
@@ -156,6 +157,13 @@ describe("helpers", () => {
 
   it("chooses grid columns by tile count", () => {
     expect([1, 2, 4, 5, 9, 12].map(gridColumns)).toEqual([1, 2, 2, 3, 3, 4]);
+  });
+
+  it("stacks tiles into rows when the grid is too narrow for them side by side", () => {
+    expect(gridLayout(4, 1600)).toEqual({ columns: 2, rows: 2 });
+    expect(gridLayout(2, 700)).toEqual({ columns: 1, rows: 2 });
+    expect(gridLayout(9, 800)).toEqual({ columns: 2, rows: 5 });
+    expect(gridLayout(3, undefined)).toEqual({ columns: 2, rows: 2 });
   });
 
   it("stops both the agent CLI and the chat of a session", () => {
