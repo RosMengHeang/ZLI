@@ -402,8 +402,12 @@ export class RpcServer {
         const unsubscribe = this.engine.subscribe((event) => send(client, { type: "event", envelope: event }));
         setUnsubscribe(unsubscribe);
         try {
-          send(client, { type: "projection", projection: await this.projectionSnapshot() });
-          for (const event of await this.engine.eventsAfter(message.data.afterSequence)) {
+          const projection = await this.projectionSnapshot();
+          send(client, { type: "projection", projection });
+          // The snapshot already folds in every event up to its lastSequence; replaying those would make
+          // a first subscribe send the whole event log for the client to discard as duplicates.
+          const after = Math.max(message.data.afterSequence, projection.lastSequence);
+          for (const event of await this.engine.eventsAfter(after)) {
             send(client, { type: "event", envelope: event });
           }
         } catch (error) {
