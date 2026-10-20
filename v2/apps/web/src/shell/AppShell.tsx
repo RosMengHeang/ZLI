@@ -37,8 +37,8 @@ import { DisconnectedState, GridEmptyState, LoadingFilesPane, RuntimeLoadingStat
 import { type SidePane, sidePaneLabel, Topbar } from "./Topbar.js";
 import { useGlobalShortcuts } from "./useGlobalShortcuts.js";
 import { WorktreeDialog } from "./WorktreeDialog.js";
-import "./shell.css";
 import "./AppShell.css";
+import "./shell.css";
 import "../files/files.css";
 
 // The editor is large, so it loads the first time the Files panel opens instead of at startup.

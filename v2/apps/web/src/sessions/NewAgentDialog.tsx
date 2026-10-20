@@ -9,6 +9,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
 import { permissionLabel } from "../chat/Composer.js";
+import { Button } from "../ui/Button.js";
+import { Dialog } from "../ui/Dialog.js";
+import { Field, Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { checkoutWorktree, type LaunchOptions, type Placement } from "./launch.js";
@@ -101,10 +104,6 @@ export function NewAgentDialog({
   const sharing = sharedWorktreeId !== undefined && worktreeHasLiveThread(projection.threads, sharedWorktreeId);
 
   useEffect(() => {
-    submitRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
     if (!branchEdited) setBranch(suggestedBranch(provider));
   }, [provider, branchEdited]);
 
@@ -142,48 +141,43 @@ export function NewAgentDialog({
   };
 
   return (
-    <div className="palette-backdrop">
-      <button className="dialog-scrim" type="button" aria-label="Close new agent dialog" onClick={onClose} />
-      <section
-        className="dialog new-agent-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="New agent"
-        onMouseDown={(event) => event.stopPropagation()}
+    <Dialog
+      label="New agent"
+      size="lg"
+      title="New agent"
+      subtitle="Pick the agent, how you want to work with it, and where it runs."
+      className="new-agent-dialog"
+      scrimLabel="Close new agent dialog"
+      initialFocusRef={submitRef}
+      onClose={onClose}
+    >
+      <form
+        className="dialog-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
       >
-        <div className="dialog-header">
-          <div>
-            <h2>New agent</h2>
-            <p className="dialog-subtitle">Pick the agent, how you want to work with it, and where it runs.</p>
-          </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
-            <Icon name="x" size={15} />
-          </button>
-        </div>
-        <form
-          className="dialog-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit();
-          }}
-        >
+        <div className="dialog-body">
           {projection.projects.length > 1 ? (
-            <label className="field">
-              <span className="field-label">Project</span>
-              <select value={projectId} onChange={(event) => setProjectId(event.target.value as typeof projectId)}>
+            <Field label="Project">
+              <Select value={projectId} onChange={(event) => setProjectId(event.target.value as typeof projectId)}>
                 {projection.projects.map((candidate) => (
                   <option key={candidate.projectId} value={candidate.projectId}>
                     {candidate.name}
                   </option>
                 ))}
-              </select>
-            </label>
+              </Select>
+            </Field>
           ) : null}
 
           <fieldset className="field">
             <legend className="field-label">Agent</legend>
             {projection.providers === undefined ? (
-              <p className="field-hint">Checking which agent CLIs are installed.</p>
+              <p className="loading-line">
+                <span className="spinner" aria-hidden="true" />
+                Checking which agent CLIs are installed
+              </p>
             ) : listed.length === 0 ? (
               <p className="field-hint">No agent CLIs could be listed.</p>
             ) : (
@@ -222,7 +216,7 @@ export function NewAgentDialog({
             )}
             {installed.length > 0 && missing.length > 0 ? (
               <button
-                className="quiet-button field-toggle"
+                className="btn btn-ghost btn-xs field-toggle"
                 type="button"
                 aria-expanded={showMissing}
                 onClick={() => setShowMissing((value) => !value)}
@@ -278,21 +272,27 @@ export function NewAgentDialog({
               </label>
               {placementKind === "new" ? (
                 <div className="placement-fields">
-                  <label className="field">
-                    <span className="field-label">Branch name</span>
+                  <Field label="Branch name">
                     <input
+                      className="input is-mono"
                       value={branch}
                       onChange={(event) => {
                         setBranch(event.target.value);
                         setBranchEdited(true);
                       }}
                       placeholder="feature/my-change"
+                      spellCheck={false}
                     />
-                  </label>
-                  <label className="field">
-                    <span className="field-label">Start from</span>
-                    <input value={baseRef} onChange={(event) => setBaseRef(event.target.value)} placeholder="HEAD" />
-                  </label>
+                  </Field>
+                  <Field label="Start from">
+                    <input
+                      className="input is-mono"
+                      value={baseRef}
+                      onChange={(event) => setBaseRef(event.target.value)}
+                      placeholder="HEAD"
+                      spellCheck={false}
+                    />
+                  </Field>
                 </div>
               ) : null}
               <label className="choice-card">
@@ -328,16 +328,15 @@ export function NewAgentDialog({
                   </label>
                   {placementKind === "existing" ? (
                     <div className="placement-fields">
-                      <label className="field">
-                        <span className="field-label">Worktree</span>
-                        <select value={existingId} onChange={(event) => setExistingId(event.target.value)}>
+                      <Field label="Worktree">
+                        <Select value={existingId} onChange={(event) => setExistingId(event.target.value)}>
                           {projectWorktrees.map((worktree) => (
                             <option key={worktree.worktreeId} value={worktree.worktreeId}>
                               {worktree.branch}
                             </option>
                           ))}
-                        </select>
-                      </label>
+                        </Select>
+                      </Field>
                     </div>
                   ) : null}
                 </>
@@ -351,9 +350,8 @@ export function NewAgentDialog({
           </fieldset>
 
           <div className="field-row">
-            <label className="field">
-              <span className="field-label">Model</span>
-              <select
+            <Field label="Model" hint={modelUnsupported ? "Pick the model inside the Droid CLI." : undefined}>
+              <Select
                 value={modelUnsupported ? "" : model}
                 disabled={modelUnsupported}
                 onChange={(event) => setModel(event.target.value)}
@@ -364,12 +362,17 @@ export function NewAgentDialog({
                     {option.label}
                   </option>
                 ))}
-              </select>
-              {modelUnsupported ? <span className="field-hint">Pick the model inside the Droid CLI.</span> : null}
-            </label>
-            <label className="field">
-              <span className="field-label">Permissions</span>
-              <select
+              </Select>
+            </Field>
+            <Field
+              label="Permissions"
+              hint={
+                permissionMode === "full-access"
+                  ? "Edits files and runs commands without asking."
+                  : "Asks before risky commands where the agent supports it."
+              }
+            >
+              <Select
                 value={permissionMode}
                 onChange={(event) => setPermissionMode(event.target.value as PermissionMode)}
               >
@@ -378,30 +381,27 @@ export function NewAgentDialog({
                     {permissionLabel[option]}
                   </option>
                 ))}
-              </select>
-              <span className="field-hint">
-                {permissionMode === "full-access"
-                  ? "Edits files and runs commands without asking."
-                  : "Asks before risky commands where the agent supports it."}
-              </span>
-            </label>
+              </Select>
+            </Field>
           </div>
 
           {error ? (
             <p className="inline-error" role="alert">
+              <Icon name="alert" size={13} />
               {error}
             </p>
           ) : null}
-          <div className="dialog-actions">
-            <button className="secondary-button" type="button" onClick={onClose}>
-              Cancel
-            </button>
-            <button className="primary-button" type="submit" ref={submitRef} disabled={!ready || busy}>
-              {busy ? "Starting" : "Start agent"}
-            </button>
-          </div>
-        </form>
-      </section>
-    </div>
+        </div>
+        <div className="dialog-footer">
+          <span className="dialog-footer-note">
+            {placementKind === "new" && branch.trim() ? `Creates branch ${branch.trim()}` : null}
+          </span>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" ref={submitRef} disabled={!ready} loading={busy}>
+            {busy ? "Starting" : "Start agent"}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }

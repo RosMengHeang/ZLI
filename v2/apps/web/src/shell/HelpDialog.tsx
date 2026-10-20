@@ -1,4 +1,6 @@
+import { Dialog } from "../ui/Dialog.js";
 import { Icon } from "../ui/Icon.js";
+import { Kbd } from "../ui/Kbd.js";
 
 type HelpDialogProps = {
   version?: string | undefined;
@@ -7,47 +9,56 @@ type HelpDialogProps = {
   onClose(): void;
 };
 
-const shortcuts: [string, string][] = [
-  ["Command palette", "Ctrl K"],
-  ["Send message", "Enter"],
-  ["New line in message", "Shift Enter"],
-  ["Close dialog", "Esc"],
+const shortcutGroups: { title: string; items: [string, string][] }[] = [
+  {
+    title: "Workspace",
+    items: [
+      ["Command palette", "Mod+K"],
+      ["New agent", "Mod+N"],
+      ["Go to file", "Mod+P"],
+      ["Search in files", "Mod+Shift+F"],
+      ["Show or hide the sidebar", "Mod+B"],
+      ["Show or hide the terminal", "Mod+J"],
+    ],
+  },
+  {
+    title: "Messages and dialogs",
+    items: [
+      ["Send message", "Enter"],
+      ["New line in a message", "Shift+Enter"],
+      ["Close a dialog or panel", "Esc"],
+    ],
+  },
 ];
 
 export function HelpDialog({ version, onSupportBundle, onImportLegacy, onClose }: HelpDialogProps) {
   return (
-    <div className="palette-backdrop">
-      <button className="dialog-scrim" type="button" aria-label="Close help dialog" onClick={onClose} />
-      <section
-        className="worktree-dialog help-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Help and diagnostics"
-      >
-        <div className="dialog-header">
-          <div>
-            <h2>Help and diagnostics</h2>
-            <p className="dialog-subtitle">
-              Agents, terminals, and browser tabs run in a local runtime. Each worktree keeps its own sessions.
-            </p>
-          </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
-            <Icon name="x" size={15} />
-          </button>
-        </div>
-        <div className="help-body">
-          <dl className="help-shortcuts">
-            {shortcuts.map(([label, keys]) => (
-              <div key={label}>
-                <dt>{label}</dt>
-                <dd>
-                  {keys.split(" ").map((key) => (
-                    <kbd key={key}>{key}</kbd>
-                  ))}
-                </dd>
-              </div>
-            ))}
-          </dl>
+    <Dialog
+      label="Help and diagnostics"
+      title="Help and diagnostics"
+      subtitle="Agents, terminals, and browser tabs run in a local runtime. Each worktree keeps its own sessions."
+      className="help-dialog"
+      scrimLabel="Close help dialog"
+      onClose={onClose}
+    >
+      <div className="dialog-body help-body">
+        {shortcutGroups.map((group) => (
+          <section className="help-section" key={group.title} aria-label={group.title}>
+            <h3 className="help-section-title">{group.title}</h3>
+            <dl className="help-shortcuts">
+              {group.items.map(([label, shortcut]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>
+                    <Kbd shortcut={shortcut} />
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        ))}
+        <section className="help-section" aria-label="Diagnostics">
+          <h3 className="help-section-title">Diagnostics</h3>
           <div className="help-actions">
             <button className="menu-item" type="button" onClick={onSupportBundle}>
               <Icon name="download" size={15} />
@@ -64,9 +75,11 @@ export function HelpDialog({ version, onSupportBundle, onImportLegacy, onClose }
               </span>
             </button>
           </div>
-          <span className="help-version">ZLI {version ?? "development"}</span>
-        </div>
-      </section>
-    </div>
+        </section>
+      </div>
+      <div className="dialog-footer">
+        <span className="dialog-footer-note help-version">ZLI {version ?? "development"}</span>
+      </div>
+    </Dialog>
   );
 }
