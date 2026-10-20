@@ -80,7 +80,7 @@ export function ReviewPane({
   return (
     <div className="tool-pane review-pane">
       <PaneHeader icon="diff" title="Changes" detail={worktree?.branch}>
-        {review && fileCount > 0 ? (
+        {review && fileCount > 0 && totals.additions + totals.deletions > 0 ? (
           <span className="review-totals">
             <span className="diff-add">+{totals.additions}</span>
             <span className="diff-del">−{totals.deletions}</span>
@@ -163,7 +163,7 @@ export function ReviewPane({
                   <span className="file-stat">
                     {file.binary ? (
                       "binary"
-                    ) : (
+                    ) : file.additions + file.deletions === 0 ? null : (
                       <>
                         <span className="diff-add">+{file.additions}</span>
                         <span className="diff-del">−{file.deletions}</span>
@@ -183,7 +183,7 @@ export function ReviewPane({
               </div>
               <pre className="review-diff">
                 {review.diff.patch ? (
-                  review.diff.patch.split("\n").map((line, index) => (
+                  patchBody(review.diff.patch).map((line, index) => (
                     // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are positional and never reorder.
                     <span className={`diff-line ${diffLineClass(line)}`} key={index}>
                       {line || " "}
@@ -292,6 +292,13 @@ function kindLetter(kind: string): string {
     default:
       return "M";
   }
+}
+
+/** The lines of a patch from its first hunk on; the path header above the diff already names the file. */
+export function patchBody(patch: string): string[] {
+  const lines = patch.split("\n");
+  const firstHunk = lines.findIndex((line) => line.startsWith("@@"));
+  return firstHunk > 0 ? lines.slice(firstHunk) : lines;
 }
 
 function diffLineClass(line: string): string {
