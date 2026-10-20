@@ -1,7 +1,6 @@
-import { useEffect, useRef } from "react";
-
 import { FitAddon } from "@xterm/addon-fit";
 import { type ITheme, Terminal } from "@xterm/xterm";
+import { useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
 
 import type { RpcResponse } from "@zli-v2/contracts";
@@ -18,10 +17,10 @@ const RESIZE_DEBOUNCE_MS = 80;
 const ATTACH_ATTEMPTS = 30;
 
 export const terminalTheme: ITheme = {
-  background: "#181818",
+  background: "#161616",
   foreground: "#d7d7d7",
   cursor: "#f1f1f1",
-  cursorAccent: "#181818",
+  cursorAccent: "#161616",
   selectionBackground: "rgba(199, 215, 255, 0.28)",
   black: "#1f1f1f",
   red: "#d77c7c",

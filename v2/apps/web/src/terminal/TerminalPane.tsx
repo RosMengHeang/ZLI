@@ -1,8 +1,9 @@
-import { useCallback, useState } from "react";
-
 import type { RpcResponse, RuntimeProjection, TerminalProjection, WorktreeProjection } from "@zli-v2/contracts";
-import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { useCallback, useState } from "react";
 import { makeCommandId } from "../runtime/commandId.js";
+import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { Icon } from "../ui/Icon.js";
+import { EmptyState, PaneHeader } from "../ui/Pane.js";
 import { TerminalView } from "./TerminalView.js";
 
 type Props = {
@@ -61,15 +62,17 @@ export function TerminalPane({ projection, worktree, onOpenBrowser }: Props) {
 
   return (
     <div className="tool-pane terminal-pane">
-      <div className="tool-pane-header">
-        <div>
-          <span className="eyebrow">Terminal</span>
-          <h2>{worktree?.branch ?? "No worktree selected"}</h2>
-        </div>
-        <span className="pane-meta">{terminal ? terminal.status : "Idle"}</span>
-      </div>
+      <PaneHeader icon="terminal" title="Terminal" detail={worktree?.branch}>
+        {terminal ? (
+          <span className={`pane-status status-text-${terminal.status}`}>
+            <span className={`terminal-tab-dot terminal-tab-dot-${terminal.status}`} aria-hidden="true" />
+            {terminal.status}
+          </span>
+        ) : null}
+      </PaneHeader>
       {!worktree ? (
-        <EmptyPane
+        <EmptyState
+          icon="terminal"
           title="Select a worktree"
           detail="Terminal sessions belong to a worktree, so there is nothing to attach yet."
         />
@@ -95,15 +98,17 @@ export function TerminalPane({ projection, worktree, onOpenBrowser }: Props) {
             <div className="terminal-tab-actions">
               {live && (
                 <button
-                  className="secondary-button"
+                  className="ghost-button"
                   type="button"
                   onClick={() => void stopTerminal(terminal.terminalId)}
                   disabled={terminal.status !== "running"}
                 >
+                  <Icon name="square" size={12} />
                   Stop
                 </button>
               )}
-              <button className="secondary-button" type="button" onClick={() => void createTerminal()} disabled={busy}>
+              <button className="ghost-button" type="button" onClick={() => void createTerminal()} disabled={busy}>
+                <Icon name="plus" size={13} />
                 {busy ? "Starting" : "New terminal"}
               </button>
             </div>
@@ -139,9 +144,11 @@ export function TerminalPane({ projection, worktree, onOpenBrowser }: Props) {
           )}
         </>
       ) : (
-        <div className="empty-pane">
-          <p className="empty-title">No terminal session</p>
-          <p className="empty-detail">Start a real PTY attached to this worktree, or open the Chromium workspace.</p>
+        <EmptyState
+          icon="terminal"
+          title="No terminal session"
+          detail={`A shell that opens in ${worktree.branch}, separate from the agent.`}
+        >
           <div className="empty-actions">
             <button className="primary-button" type="button" onClick={() => void createTerminal()} disabled={busy}>
               {busy ? "Starting" : "Start terminal"}
@@ -155,7 +162,7 @@ export function TerminalPane({ projection, worktree, onOpenBrowser }: Props) {
               {error}
             </p>
           )}
-        </div>
+        </EmptyState>
       )}
     </div>
   );
@@ -165,15 +172,6 @@ function preferredTerminal(terminals: TerminalProjection[]): TerminalProjection 
   return (
     terminals.findLast((candidate) => candidate.status === "running" || candidate.status === "starting") ??
     terminals.at(-1)
-  );
-}
-
-function EmptyPane({ title, detail }: { title: string; detail: string }) {
-  return (
-    <div className="empty-pane">
-      <p className="empty-title">{title}</p>
-      <p className="empty-detail">{detail}</p>
-    </div>
   );
 }
 

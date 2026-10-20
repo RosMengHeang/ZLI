@@ -8,6 +8,7 @@ import {
 import { useState } from "react";
 
 import { isSelectableProvider, worktreeProviderLabel } from "../agent/providers.js";
+import { Icon } from "../ui/Icon.js";
 import { ProjectContextCard } from "./ProjectContextCard.js";
 
 type Props = {
@@ -71,9 +72,20 @@ export function WorktreeSidebar({
   return (
     <aside className="worktree-sidebar" aria-label="Projects and worktrees">
       <div className="sidebar-heading">
-        <span className="wordmark">ZLI</span>
-        <button className="quiet-button" type="button" onClick={onOpenProject} aria-label="Open project">
-          Open
+        <span className="brand">
+          <span className="brand-mark" aria-hidden="true">
+            Z
+          </span>
+          <span className="wordmark">ZLI</span>
+        </span>
+        <button
+          className="icon-button"
+          type="button"
+          onClick={onOpenProject}
+          aria-label="Open project"
+          title="Open project"
+        >
+          <Icon name="folderOpen" size={15} />
         </button>
       </div>
       <button
@@ -83,14 +95,15 @@ export function WorktreeSidebar({
         disabled={projects.length === 0}
         aria-label="Create worktree"
       >
-        <span aria-hidden="true">+</span>
+        <Icon name="plus" size={15} />
         New worktree
       </button>
       <div className="sidebar-scroll">
         {projects.length === 0 ? (
           <div className="sidebar-empty">
             <p>Open a Git repository to give agents their own worktrees.</p>
-            <button className="text-button" type="button" onClick={onOpenProject}>
+            <button className="secondary-button" type="button" onClick={onOpenProject}>
+              <Icon name="folderOpen" size={14} />
               Open a folder
             </button>
           </div>
@@ -100,6 +113,7 @@ export function WorktreeSidebar({
             return (
               <section className="project-tree" key={project.projectId}>
                 <div className="project-label" title={project.path}>
+                  <Icon name={project.projectId === activeProjectId ? "folderOpen" : "folder"} size={14} />
                   <span className="project-name">{project.name}</span>
                   {projectWorktrees.length > 0 ? (
                     <span className="project-count">{projectWorktrees.length}</span>
@@ -156,13 +170,20 @@ export function WorktreeSidebar({
                         ) : null}
                         {onWorktreeAction &&
                         (activeWorktreeId === worktree.worktreeId || worktree.status === "failed") ? (
-                          <div className="worktree-actions">
+                          <div
+                            className={`worktree-actions${
+                              worktree.status === "failed" || confirmRemoveId === worktree.worktreeId
+                                ? " is-persistent"
+                                : ""
+                            }`}
+                          >
                             {worktree.status === "failed" ? (
                               <button
                                 className="quiet-button"
                                 type="button"
                                 onClick={() => onWorktreeAction(worktree, "retry")}
                               >
+                                <Icon name="reload" size={12} />
                                 Retry
                               </button>
                             ) : null}
@@ -172,6 +193,7 @@ export function WorktreeSidebar({
                                 type="button"
                                 onClick={() => onWorktreeAction(worktree, "cancel")}
                               >
+                                <Icon name="x" size={12} />
                                 Cancel
                               </button>
                             ) : confirmRemoveId === worktree.worktreeId ? (
@@ -206,6 +228,7 @@ export function WorktreeSidebar({
                                 }
                                 onClick={() => setConfirmRemoveId(worktree.worktreeId)}
                               >
+                                <Icon name="trash" size={12} />
                                 Remove
                               </button>
                             )}
@@ -225,8 +248,14 @@ export function WorktreeSidebar({
         <span className={`connection-dot${projection ? " is-connected" : ""}`} aria-hidden="true" />
         <span>{projection ? "Local runtime" : "Waiting for runtime"}</span>
         {onOpenHelp ? (
-          <button className="quiet-button sidebar-help" type="button" onClick={onOpenHelp}>
-            Help
+          <button
+            className="icon-button sidebar-help"
+            type="button"
+            onClick={onOpenHelp}
+            aria-label="Help"
+            title="Help and diagnostics"
+          >
+            <Icon name="help" size={15} />
           </button>
         ) : null}
       </div>

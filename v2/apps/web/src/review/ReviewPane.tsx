@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
-
 import type { WorktreeProjection } from "@zli-v2/contracts";
-import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { useMemo, useState } from "react";
 import { makeCommandId } from "../runtime/commandId.js";
+import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { Icon } from "../ui/Icon.js";
+import { EmptyState, PaneHeader } from "../ui/Pane.js";
 
 export function ReviewPane({ worktree }: { worktree: WorktreeProjection | undefined }) {
   const { dispatch, projection } = useRuntime();
@@ -12,7 +13,15 @@ export function ReviewPane({ worktree }: { worktree: WorktreeProjection | undefi
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const review = projection?.reviews?.find((candidate) => candidate.worktreeId === worktree?.worktreeId);
-  const fileCount = useMemo(() => review?.files.length ?? 0, [review]);
+  const totals = useMemo(
+    () =>
+      (review?.files ?? []).reduce(
+        (sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }),
+        { additions: 0, deletions: 0 },
+      ),
+    [review],
+  );
+  const fileCount = review?.files.length ?? 0;
 
   const run = async (command: unknown) => {
     setBusy(true);
@@ -28,145 +37,219 @@ export function ReviewPane({ worktree }: { worktree: WorktreeProjection | undefi
   };
 
   const loadDiff = (path: string) => run({ type: "review.diff", worktreeId: worktree?.worktreeId, path });
+  const refresh = () => {
+    if (!worktree || !baseRef.trim()) return;
+    void run({ type: "review.refresh", worktreeId: worktree.worktreeId, baseRef: baseRef.trim() });
+  };
 
   return (
     <div className="tool-pane review-pane">
-      <div className="tool-pane-header">
-        <div>
-          <span className="eyebrow">Review</span>
-          <h2>{worktree?.branch ?? "No worktree selected"}</h2>
-        </div>
-        <span className="pane-meta">{review ? `${fileCount} file${fileCount === 1 ? "" : "s"}` : "Git"}</span>
-      </div>
+      <PaneHeader icon="diff" title="Changes" detail={worktree?.branch}>
+        {review && fileCount > 0 ? (
+          <span className="review-totals">
+            <span className="diff-add">+{totals.additions}</span>
+            <span className="diff-del">−{totals.deletions}</span>
+          </span>
+        ) : null}
+      </PaneHeader>
+      {worktree ? (
+        <form
+          className="review-toolbar"
+          onSubmit={(event) => {
+            event.preventDefault();
+            refresh();
+          }}
+        >
+          <label className="inline-field">
+            <span>Compare against</span>
+            <input value={baseRef} onChange={(event) => setBaseRef(event.target.value)} placeholder="main" />
+          </label>
+          <button className="ghost-button" type="submit" disabled={busy || !baseRef.trim()}>
+            <Icon name="reload" size={13} />
+            {busy ? "Working" : "Refresh changes"}
+          </button>
+        </form>
+      ) : null}
       {!worktree ? (
-        <div className="empty-pane">
-          <p className="empty-title">Select a worktree</p>
-          <p className="empty-detail">Changes and merge actions are scoped to the selected worktree.</p>
-        </div>
+        <EmptyState
+          icon="diff"
+          title="Select a worktree"
+          detail="Changes and merge actions are scoped to the selected worktree."
+        />
       ) : !review ? (
-        <div className="empty-pane">
-          <p className="empty-title">No review loaded</p>
-          <p className="empty-detail">Refresh this worktree to load real staged and unstaged changes from Git.</p>
-        </div>
+        <EmptyState
+          icon="diff"
+          title="No changes loaded"
+          detail="Refresh to load staged and unstaged changes from Git."
+        />
       ) : (
-        <div className="review-file-list">
-          {review.files.map((file) => (
-            <button
-              className={`review-file${review.diff?.path === file.path ? " is-selected" : ""}`}
-              key={file.path}
-              type="button"
-              onClick={() => void loadDiff(file.path)}
-              aria-pressed={review.diff?.path === file.path}
-            >
-              <span className={`status-dot status-${file.kind}`} aria-hidden="true" />
-              <span className="review-file-name" title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}>
-                {file.oldPath ? (
-                  <>
-                    {file.oldPath}
-                    <span className="rename-arrow" aria-hidden="true">
-                      →
-                    </span>
-                    {file.path}
-                  </>
-                ) : (
-                  file.path
-                )}
-              </span>
-              <span className="file-stat">{file.binary ? "binary" : `+${file.additions} −${file.deletions}`}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      {review?.diff && (
-        <section className="review-diff-panel" aria-label={`Diff for ${review.diff.path}`}>
-          <div className="review-diff-header">
-            <span>{review.diff.binary ? "Binary file" : "File diff"}</span>
-            <span>{review.diff.truncated ? "Output truncated" : "On demand"}</span>
+        <div className="review-body">
+          <div className="review-summary" role="status">
+            {review.state === "conflicted"
+              ? `${review.conflictFiles.length} conflict${review.conflictFiles.length === 1 ? "" : "s"} need attention.`
+              : review.files.length === 0
+                ? "Working tree is clean."
+                : `${review.files.length} changed file${review.files.length === 1 ? "" : "s"}`}
           </div>
-          <pre className="review-diff">{review.diff.patch || "No textual diff available for this file."}</pre>
-        </section>
+          {review.files.length > 0 ? (
+            <div className="review-file-list">
+              {review.files.map((file) => (
+                <button
+                  className={`review-file${review.diff?.path === file.path ? " is-selected" : ""}`}
+                  key={file.path}
+                  type="button"
+                  onClick={() => void loadDiff(file.path)}
+                  aria-pressed={review.diff?.path === file.path}
+                >
+                  <span className={`file-kind file-kind-${file.kind}`} title={file.kind} aria-hidden="true">
+                    {kindLetter(file.kind)}
+                  </span>
+                  <span
+                    className="review-file-name"
+                    title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+                  >
+                    {file.oldPath ? (
+                      <>
+                        {file.oldPath}
+                        <span className="rename-arrow" aria-hidden="true">
+                          →
+                        </span>
+                        {file.path}
+                      </>
+                    ) : (
+                      file.path
+                    )}
+                  </span>
+                  <span className="file-stat">
+                    {file.binary ? (
+                      "binary"
+                    ) : (
+                      <>
+                        <span className="diff-add">+{file.additions}</span>
+                        <span className="diff-del">−{file.deletions}</span>
+                      </>
+                    )}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {review.diff ? (
+            <section className="review-diff-panel" aria-label={`Diff for ${review.diff.path}`}>
+              <div className="review-diff-header">
+                <Icon name="file" size={12} />
+                <span className="review-diff-path">{review.diff.path}</span>
+                <span>{review.diff.binary ? "Binary file" : review.diff.truncated ? "Output truncated" : ""}</span>
+              </div>
+              <pre className="review-diff">
+                {review.diff.patch ? (
+                  review.diff.patch.split("\n").map((line, index) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are positional and never reorder.
+                    <span className={`diff-line ${diffLineClass(line)}`} key={index}>
+                      {line || " "}
+                      {"\n"}
+                    </span>
+                  ))
+                ) : (
+                  <span className="diff-line">No textual diff available for this file.</span>
+                )}
+              </pre>
+            </section>
+          ) : review.files.length > 0 ? (
+            <p className="review-hint">Select a file to see its diff.</p>
+          ) : null}
+        </div>
       )}
       {review?.errorMessage && (
         <p className="inline-error" role="alert">
           {review.errorMessage}
         </p>
       )}
-      {worktree && (
-        <div className="review-controls">
-          <label>
-            Compare against
-            <input value={baseRef} onChange={(event) => setBaseRef(event.target.value)} placeholder="main" />
-          </label>
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={busy || !baseRef.trim()}
-            onClick={() =>
-              void run({ type: "review.refresh", worktreeId: worktree.worktreeId, baseRef: baseRef.trim() })
-            }
-          >
-            {busy ? "Working" : "Refresh changes"}
-          </button>
-          {review && (
-            <>
-              <div className="review-summary">
-                {review.state === "conflicted"
-                  ? `${review.conflictFiles.length} conflict${review.conflictFiles.length === 1 ? "" : "s"} need attention.`
-                  : review.files.length === 0
-                    ? "Working tree is clean."
-                    : `${review.files.length} changed file${review.files.length === 1 ? "" : "s"}.`}
-              </div>
-              <label>
-                Commit message
-                <input
-                  value={message}
-                  onChange={(event) => setMessage(event.target.value)}
-                  placeholder="Describe the change"
-                />
-              </label>
-              <button
-                className="primary-button"
-                type="button"
-                disabled={busy || !message.trim() || review.state === "conflicted"}
-                onClick={() =>
-                  void run({ type: "review.commit", worktreeId: worktree.worktreeId, message: message.trim() })
+      {worktree && review ? (
+        <div className="review-actions">
+          <div className="review-commit">
+            <input
+              aria-label="Commit message"
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              placeholder="Commit message"
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && message.trim() && !busy && review.state !== "conflicted") {
+                  event.preventDefault();
+                  void run({ type: "review.commit", worktreeId: worktree.worktreeId, message: message.trim() });
                 }
-              >
-                Commit changes
-              </button>
-              <label>
-                Merge target
-                <input value={targetRef} onChange={(event) => setTargetRef(event.target.value)} placeholder="main" />
-              </label>
+              }}
+            />
+            <button
+              className="primary-button"
+              type="button"
+              disabled={busy || !message.trim() || review.state === "conflicted"}
+              onClick={() =>
+                void run({ type: "review.commit", worktreeId: worktree.worktreeId, message: message.trim() })
+              }
+            >
+              <Icon name="commit" size={13} />
+              Commit changes
+            </button>
+          </div>
+          <div className="review-merge">
+            <label className="inline-field">
+              <span>Merge target</span>
+              <input value={targetRef} onChange={(event) => setTargetRef(event.target.value)} placeholder="main" />
+            </label>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={busy || !targetRef.trim() || review.state === "conflicted"}
+              onClick={() =>
+                void run({ type: "review.merge", worktreeId: worktree.worktreeId, targetRef: targetRef.trim() })
+              }
+            >
+              <Icon name="merge" size={13} />
+              Merge into target
+            </button>
+            {(review.state === "conflicted" || review.errorMessage) && (
               <button
-                className="secondary-button"
+                className="ghost-button is-danger"
                 type="button"
-                disabled={busy || !targetRef.trim() || review.state === "conflicted"}
-                onClick={() =>
-                  void run({ type: "review.merge", worktreeId: worktree.worktreeId, targetRef: targetRef.trim() })
-                }
+                disabled={busy}
+                onClick={() => void run({ type: "review.abortMerge", worktreeId: worktree.worktreeId })}
               >
-                Merge into target
+                Abort merge
               </button>
-              {(review.state === "conflicted" || review.errorMessage) && (
-                <button
-                  className="secondary-button"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void run({ type: "review.abortMerge", worktreeId: worktree.worktreeId })}
-                >
-                  Abort merge
-                </button>
-              )}
-            </>
-          )}
-          {error && (
-            <p className="inline-error" role="alert">
-              {error}
-            </p>
-          )}
+            )}
+          </div>
         </div>
+      ) : null}
+      {error && (
+        <p className="inline-error" role="alert">
+          {error}
+        </p>
       )}
     </div>
   );
+}
+
+function kindLetter(kind: string): string {
+  switch (kind) {
+    case "added":
+      return "A";
+    case "untracked":
+      return "U";
+    case "deleted":
+      return "D";
+    case "renamed":
+      return "R";
+    default:
+      return "M";
+  }
+}
+
+function diffLineClass(line: string): string {
+  if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ") || line.startsWith("index "))
+    return "is-meta";
+  if (line.startsWith("@@")) return "is-hunk";
+  if (line.startsWith("+")) return "is-add";
+  if (line.startsWith("-")) return "is-del";
+  return "";
 }

@@ -3,6 +3,7 @@ import {
   type ProviderDiscovery,
   type RuntimeProjection,
   type ThreadId,
+  type ThreadProjection,
   threadOccupiesWorktree,
   type WorktreeProjection,
 } from "@zli-v2/contracts";
@@ -10,6 +11,8 @@ import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { Icon } from "../ui/Icon.js";
+import { EmptyState } from "../ui/Pane.js";
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "./providers.js";
 import { defaultWorktreeForNewAgent } from "./worktreeChoice.js";
 
@@ -225,7 +228,9 @@ export function AgentPane({
   const statusLabel =
     thread && discoveryError && (thread.status === "starting" || thread.status === "failed")
       ? "CLI missing"
-      : (thread?.status ?? "Idle");
+      : thread
+        ? threadStatusLabel[thread.status]
+        : undefined;
 
   return (
     <div className="tool-pane agent-pane">
@@ -235,30 +240,47 @@ export function AgentPane({
           listed={listed}
           selected={selectedKind}
           onSelect={setProviderChoice}
+          describedBy="agent-switch-note"
         />
-        <span className={`agent-state status-text-${thread?.status ?? "none"}`}>{statusLabel}</span>
-        {thread && threadLive ? (
-          <span className="agent-controls">
-            {thread.status === "working" || thread.status === "waiting" ? (
-              <button className="secondary-button" type="button" onClick={() => void control("thread.interrupt")}>
-                Interrupt
+        <span className="agent-toolbar-end">
+          {statusLabel ? (
+            <span className={`agent-state status-text-${thread?.status ?? "none"}`}>
+              <span className={`status-dot status-${thread?.status ?? "none"}`} aria-hidden="true" />
+              {statusLabel}
+            </span>
+          ) : null}
+          {thread && threadLive ? (
+            <span className="agent-controls">
+              {thread.status === "working" || thread.status === "waiting" ? (
+                <button className="ghost-button" type="button" onClick={() => void control("thread.interrupt")}>
+                  <Icon name="pause" size={12} />
+                  Interrupt
+                </button>
+              ) : null}
+              <button className="ghost-button" type="button" onClick={() => void control("thread.stop")}>
+                <Icon name="square" size={12} />
+                Stop
               </button>
-            ) : null}
-            <button className="secondary-button" type="button" onClick={() => void control("thread.stop")}>
-              Stop
-            </button>
-          </span>
-        ) : null}
+            </span>
+          ) : null}
+        </span>
       </div>
-      <p className="provider-picker-note">
+      <p id="agent-switch-note" className="sr-only">
         {placement.mode === "current" || placement.mode === "missing"
           ? "Changing the agent starts a new thread in this worktree. It does not continue the other agent's session."
           : `${occupantSentence(occupantLabel, occupants.length)} already using this worktree. A new agent gets its own worktree. It does not continue the session already here.`}
       </p>
       {!worktree ? (
-        <EmptyAgent title="Select a worktree" detail="Agent sessions are isolated to the selected worktree." />
+        <EmptyState
+          icon="branch"
+          title="Select a worktree"
+          detail="Agent sessions are isolated to the selected worktree."
+        />
       ) : !thread ? (
         <div className="empty-pane">
+          <span className="empty-icon">
+            <Icon name="sparkle" size={20} />
+          </span>
           {projection.providers === undefined ? (
             <>
               <p className="empty-title">Checking agent CLIs</p>
@@ -343,29 +365,53 @@ export function AgentPane({
         <>
           <div className="agent-messages" role="log" aria-label="Agent conversation">
             {messages.length === 0 ? (
-              <p className="agent-empty">Send a task to begin.</p>
+              <div className="agent-empty">
+                <span className="empty-icon">
+                  <Icon name="message" size={18} />
+                </span>
+                <p>{displayName} is ready. Describe a task to begin.</p>
+              </div>
             ) : (
               messages.map((message) =>
                 message.role === "agent" ? (
-                  <article className="agent-message" data-trust="untrusted" key={message.messageId}>
-                    <span className="pane-meta">{sourceLabel(projection, message.sourceThreadId)}</span>
+                  <article className="agent-message agent-message-peer" data-trust="untrusted" key={message.messageId}>
+                    <span className="agent-message-role">
+                      <Icon name="message" size={12} />
+                      {sourceLabel(projection, message.sourceThreadId)}
+                    </span>
                     <p>{message.text}</p>
                   </article>
                 ) : (
                   <article className={`agent-message agent-message-${message.role}`} key={message.messageId}>
-                    <span className="agent-message-role">{message.role}</span>
+                    {message.role === "user" ? null : (
+                      <span className="agent-message-role">
+                        <Icon name={message.role === "assistant" ? "sparkle" : "alert"} size={12} />
+                        {message.role === "assistant" ? displayName : message.role}
+                      </span>
+                    )}
                     <p>{message.text}</p>
                   </article>
                 ),
               )
             )}
+            {thread.status === "working" ? (
+              <div className="agent-working" role="status">
+                <span className="agent-working-dots" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+                {displayName} is working
+              </div>
+            ) : null}
           </div>
           {request && (
             <section
               className="agent-request"
               aria-label={request.kind === "approval" ? "Approval request" : "User input request"}
             >
-              <span className="agent-message-role">
+              <span className="agent-request-title">
+                <Icon name="alert" size={14} />
                 {request.kind === "approval" ? "Approval required" : "Input required"}
               </span>
               <pre>{JSON.stringify(request.payload, null, 2)}</pre>
@@ -399,8 +445,8 @@ export function AgentPane({
             </p>
           )}
           {threadEnded ? (
-            <div className="agent-ended">
-              <span className="pane-meta">
+            <div className={`agent-ended${thread.status === "failed" ? " is-failed" : ""}`}>
+              <span className="agent-ended-copy">
                 {thread.status === "failed" ? `${displayName} failed.` : `${displayName} session ended.`} Starting again
                 opens a new thread in this worktree.
               </span>
@@ -429,22 +475,32 @@ export function AgentPane({
               rows={3}
             />
             <div className="agent-composer-footer">
-              <span className="pane-meta">
-                {displayName} · {thread.status}
-                <span className="composer-hint"> · Enter to send, Shift+Enter for a new line</span>
+              <span className="composer-agent">
+                <Icon name="sparkle" size={12} />
+                {displayName}
+                <span className="composer-branch">
+                  <Icon name="branch" size={12} />
+                  {worktree.branch}
+                </span>
               </span>
+              <span className="composer-hint">Enter to send · Shift+Enter for a new line</span>
               <button
-                className="primary-button"
+                className="send-button"
                 type="submit"
+                aria-label="Send"
+                title="Send"
                 disabled={!draft.trim() || thread.status === "starting" || thread.status === "stopped"}
               >
-                Send
+                <Icon name="arrowUp" size={15} />
               </button>
             </div>
           </form>
           {peers.length > 0 && selectedPeerId && (
             <details className="agent-peer-wrap">
-              <summary>Message another agent in this project</summary>
+              <summary>
+                <Icon name="chevronRight" size={12} />
+                Message another agent in this project
+              </summary>
               <form
                 className="agent-peer"
                 aria-label="Send to another agent"
@@ -546,23 +602,39 @@ function peerOptionLabel(projection: RuntimeProjection, threadId: string): strin
   return `${branch} (${provider})`;
 }
 
+const threadStatusLabel: Record<ThreadProjection["status"], string> = {
+  starting: "Starting",
+  idle: "Ready",
+  working: "Working",
+  waiting: "Needs you",
+  stopped: "Stopped",
+  failed: "Failed",
+};
+
 function ProviderPicker({
   discoveries,
   listed,
   selected,
   onSelect,
+  describedBy,
 }: {
   discoveries: readonly ProviderDiscovery[] | undefined;
   listed: readonly ProviderDiscovery[];
   selected: ListedProviderKind | undefined;
   onSelect(provider: ListedProviderKind): void;
+  describedBy: string;
 }) {
   if (discoveries === undefined) return null;
   if (listed.length === 0) return null;
   return (
     <fieldset className="provider-picker">
       <legend className="pane-meta">Which agent</legend>
-      <div className="provider-options" role="radiogroup" aria-label="Installed agent CLIs">
+      <div
+        className="provider-options"
+        role="radiogroup"
+        aria-label="Installed agent CLIs"
+        aria-describedby={describedBy}
+      >
         {listed.map((provider) => {
           const detail =
             provider.status === "found"
@@ -580,24 +652,14 @@ function ProviderPicker({
                 onChange={() => onSelect(provider.provider)}
               />
               <span className="provider-option-copy">
-                <span className="pane-meta">
-                  {provider.displayName}: {provider.status === "found" ? "found" : "not found"}
-                </span>
-                <span className="provider-availability-detail">{detail}</span>
+                <span className="provider-option-name">{provider.displayName}</span>
+                <span className="sr-only">: {provider.status === "found" ? "found" : "not found"}</span>
+                <span className="sr-only">{detail}</span>
               </span>
             </label>
           );
         })}
       </div>
     </fieldset>
-  );
-}
-
-function EmptyAgent({ title, detail }: { title: string; detail: string }) {
-  return (
-    <div className="empty-pane">
-      <p className="empty-title">{title}</p>
-      <p className="empty-detail">{detail}</p>
-    </div>
   );
 }

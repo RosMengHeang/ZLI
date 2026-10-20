@@ -1,3 +1,5 @@
+import { Icon, type IconName } from "../ui/Icon.js";
+
 export type WorkspacePane = "agent" | "terminal" | "browser" | "review";
 
 export const paneLabel: Record<WorkspacePane, string> = {
@@ -5,6 +7,13 @@ export const paneLabel: Record<WorkspacePane, string> = {
   terminal: "Terminal",
   browser: "Browser",
   review: "Review",
+};
+
+export const paneIcon: Record<WorkspacePane, IconName> = {
+  agent: "sparkle",
+  terminal: "terminal",
+  browser: "globe",
+  review: "diff",
 };
 
 const toolPanes = ["terminal", "browser", "review"] as const;
@@ -22,7 +31,9 @@ export function PaneTree({ pane, onChange }: Props) {
       type="button"
       aria-pressed={pane === candidate}
       onClick={() => onChange(candidate)}
+      title={candidate === "agent" ? "Agent only" : `Show ${paneLabel[candidate].toLowerCase()} beside the agent`}
     >
+      <Icon name={paneIcon[candidate]} size={14} />
       {paneLabel[candidate]}
     </button>
   );

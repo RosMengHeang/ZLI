@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
 import type { BrowserTabProjection, WorktreeProjection } from "@zli-v2/contracts";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { Icon } from "../ui/Icon.js";
+import { EmptyState, PaneHeader } from "../ui/Pane.js";
 
 const DEFAULT_PROFILE_ID = "00000000-0000-4000-8000-000000000002";
 
@@ -243,7 +244,33 @@ export function BrowserPane({ worktree, obscured = false }: Props) {
 
   return (
     <div className="tool-pane browser-pane">
-      {worktree && (
+      <PaneHeader icon="globe" title={tab?.title || "Browser"} detail={worktree?.branch}>
+        {tab && worktreeTabs.length === 1 ? (
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => void closeTab(tab)}
+            disabled={busy}
+            aria-label={`Close ${tab.title || tab.url}`}
+            title="Close tab"
+          >
+            <Icon name="x" size={14} />
+          </button>
+        ) : null}
+        {worktree ? (
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => void newTab()}
+            disabled={busy}
+            aria-label="New browser tab"
+            title="New tab"
+          >
+            <Icon name="plus" size={15} />
+          </button>
+        ) : null}
+      </PaneHeader>
+      {worktree && worktreeTabs.length > 1 && (
         <div className="browser-tabs" role="tablist" aria-label="Worktree browser tabs">
           {worktreeTabs.map((candidate) => (
             <div
@@ -255,8 +282,10 @@ export function BrowserPane({ worktree, obscured = false }: Props) {
                 role="tab"
                 aria-selected={candidate.browserTabId === tab?.browserTabId}
                 onClick={() => void selectTab(candidate)}
+                title={candidate.url}
               >
-                {candidate.title || candidate.url}
+                <Icon name="globe" size={12} />
+                <span>{candidate.title || candidate.url || "New tab"}</span>
               </button>
               <button
                 className="browser-tab-close"
@@ -264,26 +293,13 @@ export function BrowserPane({ worktree, obscured = false }: Props) {
                 onClick={() => void closeTab(candidate)}
                 aria-label={`Close ${candidate.title || candidate.url}`}
               >
-                ×
+                <Icon name="x" size={12} />
               </button>
             </div>
           ))}
-          <button
-            className="browser-tab-new"
-            type="button"
-            onClick={() => void newTab()}
-            disabled={busy}
-            aria-label="New browser tab"
-          >
-            +
-          </button>
         </div>
       )}
-      <div className="tool-pane-header browser-header">
-        <div>
-          <span className="eyebrow">Browser</span>
-          <h2>{tab?.title || "Chromium workspace"}</h2>
-        </div>
+      <div className="browser-toolbar">
         <nav className="browser-controls" aria-label="Browser controls">
           <button
             className="icon-button"
@@ -291,8 +307,9 @@ export function BrowserPane({ worktree, obscured = false }: Props) {
             disabled={!tab}
             onClick={() => void run((activeBridge, activeTab) => activeBridge.browser.back(activeTab.browserTabId))}
             aria-label="Back"
+            title="Back"
           >
-            ←
+            <Icon name="arrowLeft" size={15} />
           </button>
           <button
             className="icon-button"
@@ -300,8 +317,9 @@ export function BrowserPane({ worktree, obscured = false }: Props) {
             disabled={!tab}
             onClick={() => void run((activeBridge, activeTab) => activeBridge.browser.forward(activeTab.browserTabId))}
             aria-label="Forward"
+            title="Forward"
           >
-            →
+            <Icon name="arrowRight" size={15} />
           </button>
           <button
             className="icon-button"
@@ -309,60 +327,63 @@ export function BrowserPane({ worktree, obscured = false }: Props) {
             disabled={!tab}
             onClick={() => void run((activeBridge, activeTab) => activeBridge.browser.reload(activeTab.browserTabId))}
             aria-label="Reload"
+            title="Reload"
           >
-            ↻
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            disabled={!tab}
-            onClick={() =>
-              void run((activeBridge, activeTab) => activeBridge.browser.openDevTools(activeTab.browserTabId))
-            }
-            aria-label="Open browser developer tools"
-          >
-            ⌘
+            <Icon name="reload" size={14} />
           </button>
         </nav>
-      </div>
-      <form className="browser-address" onSubmit={(event) => void openUrl(event)}>
-        <input
-          ref={urlInputRef}
-          aria-label="Browser URL"
-          placeholder="Enter an http(s) URL"
-          value={url}
-          onChange={(event) => {
-            urlEditedRef.current = true;
-            setUrlState(event.target.value);
-          }}
-        />
-        <button className="primary-button" type="submit" disabled={!worktree || !url.trim() || busy}>
-          {busy ? "Opening" : tab ? "Go" : "Open"}
+        <form className="browser-address" onSubmit={(event) => void openUrl(event)}>
+          <span className="browser-address-icon">
+            <Icon name="globe" size={13} />
+          </span>
+          <input
+            ref={urlInputRef}
+            aria-label="Browser URL"
+            placeholder="localhost:3000 or https://…"
+            value={url}
+            onChange={(event) => {
+              urlEditedRef.current = true;
+              setUrlState(event.target.value);
+            }}
+          />
+          <button className="primary-button" type="submit" disabled={!worktree || !url.trim() || busy}>
+            {busy ? "Opening" : tab ? "Go" : "Open"}
+          </button>
+        </form>
+        <button
+          className="icon-button"
+          type="button"
+          disabled={!tab}
+          onClick={() =>
+            void run((activeBridge, activeTab) => activeBridge.browser.openDevTools(activeTab.browserTabId))
+          }
+          aria-label="Open browser developer tools"
+          title="Developer tools"
+        >
+          <Icon name="code" size={15} />
         </button>
-      </form>
+      </div>
       {(error ?? tab?.loadError) && (
         <p className="inline-error" role="alert">
           {error ?? tab?.loadError}
         </p>
       )}
       <div className={`browser-surface${tab ? " has-tab" : ""}`} ref={surfaceRef}>
-        {!tab && (
-          <div className="empty-pane browser-empty">
-            <p className="empty-title">A browser that belongs to this worktree</p>
-            <p className="empty-detail">
-              Open a local dev server or any trusted HTTP(S) page above. Its cookies stay isolated to this worktree and
-              profile.
-            </p>
-          </div>
-        )}
-        {!worktree && (
-          <div className="empty-pane browser-empty">
-            <p className="empty-title">Select a worktree first</p>
-            <p className="empty-detail">
-              Browser tabs are restored per worktree, so the runtime needs a workspace before it can open Chromium.
-            </p>
-          </div>
-        )}
+        {!worktree ? (
+          <EmptyState
+            className="browser-empty"
+            icon="globe"
+            title="Select a worktree first"
+            detail="Browser tabs are restored per worktree, so the runtime needs a workspace before it can open Chromium."
+          />
+        ) : !tab ? (
+          <EmptyState
+            className="browser-empty"
+            icon="globe"
+            title="A browser that belongs to this worktree"
+            detail="Open a local dev server or any HTTP(S) page. Cookies stay isolated to this worktree."
+          />
+        ) : null}
       </div>
     </div>
   );

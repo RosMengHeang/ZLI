@@ -9,8 +9,9 @@ import { makeCommandId } from "../runtime/commandId.js";
 import { RuntimeProvider, useRuntime } from "../runtime/RuntimeProvider.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
 import { TerminalPane } from "../terminal/TerminalPane.js";
+import { Icon, type IconName } from "../ui/Icon.js";
 import { PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
-import { PaneTree, paneLabel, type WorkspacePane } from "../workspace/PaneTree.js";
+import { PaneTree, paneIcon, paneLabel, type WorkspacePane } from "../workspace/PaneTree.js";
 import { type WorktreeAction, WorktreeSidebar } from "../worktrees/WorktreeSidebar.js";
 import { HelpDialog } from "./HelpDialog.js";
 import "./AppShell.css";
@@ -208,6 +209,7 @@ function WorkspaceApp() {
     else setWorktreeDialogOpen(false);
   };
 
+  const hasProjects = (projection?.projects.length ?? 0) > 0;
   const choosePane = (next: WorkspacePane) => {
     setPane(next);
     setPaletteOpen(false);
@@ -215,27 +217,33 @@ function WorkspaceApp() {
   const commands: PaletteCommand[] = [
     {
       label: "Open project",
+      icon: "folderOpen",
       action: () => {
         void openProject();
       },
     },
+    ...(hasProjects
+      ? [{ label: "New worktree", icon: "plus" as const, action: () => setWorktreeDialogOpen(true) }]
+      : []),
+    { label: "Focus agent", icon: paneIcon.agent, action: () => choosePane("agent") },
+    { label: "Focus terminal", icon: paneIcon.terminal, action: () => choosePane("terminal") },
+    { label: "Focus browser", icon: paneIcon.browser, action: () => choosePane("browser") },
+    { label: "Focus review", icon: paneIcon.review, action: () => choosePane("review") },
     {
       label: "Export support bundle",
+      icon: "download",
       action: () => {
         void exportSupportBundle();
       },
     },
     {
       label: "Import legacy snapshot",
+      icon: "upload",
       action: () => {
         void startLegacyImport();
       },
     },
-    { label: "Help and diagnostics", action: () => setHelpOpen(true) },
-    { label: "Focus agent", action: () => choosePane("agent") },
-    { label: "Focus terminal", action: () => choosePane("terminal") },
-    { label: "Focus browser", action: () => choosePane("browser") },
-    { label: "Focus review", action: () => choosePane("review") },
+    { label: "Help and diagnostics", icon: "help", action: () => setHelpOpen(true) },
   ];
   const filteredCommands = commands.filter((command) =>
     command.label.toLowerCase().includes(paletteQuery.trim().toLowerCase()),
@@ -260,7 +268,9 @@ function WorkspaceApp() {
       if (command) runPaletteCommand(command);
     }
   };
-  const hasProjects = (projection?.projects.length ?? 0) > 0;
+  const activeProjectName = projection?.projects.find(
+    (candidate) => candidate.projectId === activeWorktree?.projectId,
+  )?.name;
   const overlayOpen =
     paletteOpen || worktreeDialogOpen || helpOpen || (legacyImportBatchId !== undefined && projection !== undefined);
 
@@ -283,9 +293,17 @@ function WorkspaceApp() {
           <div className="workspace-title">
             {activeWorktree ? (
               <>
-                <span className="workspace-branch">{activeWorktree.branch}</span>
-                <span className="workspace-path" title={activeWorktree.path}>
-                  {activeWorktree.path}
+                {activeProjectName ? (
+                  <>
+                    <span className="workspace-project">{activeProjectName}</span>
+                    <span className="workspace-sep" aria-hidden="true">
+                      /
+                    </span>
+                  </>
+                ) : null}
+                <span className="workspace-branch" title={activeWorktree.path}>
+                  <Icon name="branch" size={13} />
+                  <span>{activeWorktree.branch}</span>
                 </span>
               </>
             ) : (
@@ -294,15 +312,22 @@ function WorkspaceApp() {
           </div>
           <PaneTree pane={pane} onChange={setPane} />
           <button className="command-trigger" type="button" onClick={() => setPaletteOpen(true)}>
+            <Icon name="search" size={13} />
             <span>Search</span>
             <kbd>Ctrl K</kbd>
           </button>
         </header>
         {notice && (
           <div className="notice-bar" role="alert">
+            <Icon name="alert" size={14} />
             <span>{notice}</span>
-            <button type="button" onClick={() => setNotice(undefined)} aria-label="Dismiss message">
-              Dismiss
+            <button
+              className="icon-button"
+              type="button"
+              onClick={() => setNotice(undefined)}
+              aria-label="Dismiss message"
+            >
+              <Icon name="x" size={14} />
             </button>
           </div>
         )}
@@ -358,7 +383,7 @@ function WorkspaceApp() {
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="palette-search">
-              <span aria-hidden="true">⌕</span>
+              <Icon name="search" size={15} />
               <input
                 ref={paletteSearchRef}
                 value={paletteQuery}
@@ -372,7 +397,7 @@ function WorkspaceApp() {
               />
             </div>
             <div className="palette-section">
-              <span className="eyebrow">Workspace</span>
+              <span className="eyebrow">Commands</span>
               {filteredCommands.length === 0 ? (
                 <p className="palette-empty">No matching commands.</p>
               ) : (
@@ -382,7 +407,9 @@ function WorkspaceApp() {
                     type="button"
                     key={command.label}
                     onClick={() => runPaletteCommand(command)}
+                    onMouseMove={() => setActiveCommandIndex(index)}
                   >
+                    <Icon name={command.icon} size={15} />
                     {command.label}
                   </button>
                 ))
@@ -427,6 +454,9 @@ function WorkspaceApp() {
 function LoadingState() {
   return (
     <div className="center-state">
+      <span className="empty-icon is-pulsing">
+        <Icon name="bot" size={20} />
+      </span>
       <h1>Connecting to the local runtime</h1>
       <p>Projects, worktrees, and sessions appear once the runtime responds.</p>
     </div>
@@ -435,6 +465,9 @@ function LoadingState() {
 function DisconnectedState() {
   return (
     <div className="center-state">
+      <span className="empty-icon">
+        <Icon name="alert" size={20} />
+      </span>
       <h1>Start ZLI from the desktop app</h1>
       <p>
         This window has no runtime bridge. Run <code>pnpm --dir v2 desktop:dev</code> from the repository root.
@@ -442,7 +475,7 @@ function DisconnectedState() {
     </div>
   );
 }
-type PaletteCommand = { label: string; action(): void };
+type PaletteCommand = { label: string; icon: IconName; action(): void };
 function WorktreeDialog({ onClose, onSubmit }: { onClose(): void; onSubmit(branch: string, baseRef: string): void }) {
   const [branch, setBranch] = useState("");
   const [baseRef, setBaseRef] = useState("");
@@ -462,11 +495,11 @@ function WorktreeDialog({ onClose, onSubmit }: { onClose(): void; onSubmit(branc
       >
         <div className="dialog-header">
           <div>
-            <span className="eyebrow">New worktree</span>
-            <h2>Give this workspace a branch</h2>
+            <h2>New worktree</h2>
+            <p className="dialog-subtitle">Each worktree is its own checkout and branch, so agents never collide.</p>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
-            ×
+            <Icon name="x" size={15} />
           </button>
         </div>
         <form
@@ -476,7 +509,7 @@ function WorktreeDialog({ onClose, onSubmit }: { onClose(): void; onSubmit(branc
           }}
         >
           <label>
-            Branch
+            Branch name
             <input
               ref={branchInputRef}
               value={branch}
@@ -485,12 +518,9 @@ function WorktreeDialog({ onClose, onSubmit }: { onClose(): void; onSubmit(branc
             />
           </label>
           <label>
-            Base ref
-            <input
-              value={baseRef}
-              onChange={(event) => setBaseRef(event.target.value)}
-              placeholder="Current branch (leave empty)"
-            />
+            Start from
+            <input value={baseRef} onChange={(event) => setBaseRef(event.target.value)} placeholder="HEAD" />
+            <span className="field-hint">Any ref or commit. Leave empty to use the current HEAD.</span>
           </label>
           <div className="dialog-actions">
             <button className="secondary-button" type="button" onClick={onClose}>

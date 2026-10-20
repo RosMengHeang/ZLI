@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-
 import type { RuntimeProjection } from "@zli-v2/contracts";
+import { useEffect, useState } from "react";
+import { Icon } from "../ui/Icon.js";
 
 type LegacyImportDialogProps = {
   projection: RuntimeProjection;
@@ -44,11 +44,11 @@ export function LegacyImportDialog({ projection, batchId, onImport, onRollback, 
       >
         <div className="dialog-header">
           <div>
-            <span className="eyebrow">Legacy import</span>
-            <h2>Review before importing</h2>
+            <h2>Import legacy workspace</h2>
+            <p className="dialog-subtitle">Review what will be imported. The legacy data is never changed.</p>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
-            ×
+            <Icon name="x" size={15} />
           </button>
         </div>
         {!preview && state?.status === "scanning" && (
