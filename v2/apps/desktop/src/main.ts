@@ -14,6 +14,7 @@ import {
   BrowserScreenshotInput,
   BrowserSelectorInput,
   BrowserSetBoundsInput,
+  BrowserSetViewportInput,
   BrowserTabIdInput,
   BrowserWaitForNetworkIdleInput,
   RpcRequest,
@@ -22,8 +23,17 @@ import {
 
 import { BrowserManager } from "./browser/BrowserManager.js";
 import { BrowserAutomation } from "./browser/BrowserAutomation.js";
+import { createBrowserControlActions } from "./browser/BrowserControlActions.js";
+import { BrowserControlServer } from "./browser/BrowserControlServer.js";
+import { browserToolEnvironment, type BrowserToolPaths, writeBrowserToolShims } from "./browser/BrowserToolShim.js";
 import { CdpSession, type ElectronDebuggerLike } from "./browser/CdpSession.js";
 import { DesignMode } from "./browser/DesignMode.js";
+import {
+  type CapturableWebContents,
+  createCaptureFallback,
+  createInputWaker,
+  type WakeableWebContents,
+} from "./browser/HiddenRendering.js";
 import { DesktopDiagnostics } from "./diagnostics/DesktopDiagnostics.js";
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
 import { ensureDesktopDaemon } from "./runtime/DesktopDaemon.js";
@@ -44,6 +54,8 @@ protocol.registerSchemesAsPrivileged([
 let environment: EnvironmentProcess | undefined;
 let runtime: RuntimeClient | undefined;
 let browserManager: BrowserManager | undefined;
+let browserControl: BrowserControlServer | undefined;
+let mainWindow: BrowserWindow | undefined;
 let approvedSupportBundleRoot: string | undefined;
 
 async function main(): Promise<void> {
@@ -59,9 +71,16 @@ async function main(): Promise<void> {
     entryPath: join(DESKTOP_DIST, "daemon-entry.js"),
     endpointPath: `${databasePath}.daemon.json`,
   });
+  const browserToolPaths = await startBrowserControl(databasePath);
   environment = new EnvironmentProcess({
     serverEntryPath: process.env.ZLI_SERVER_ENTRY ?? join(DESKTOP_DIST, "server-entry.js"),
     databasePath,
+    extraEnv: {
+      ...browserToolEnvironment(browserToolPaths),
+      // Test and development launches use a throwaway control file, which must never be written
+      // into the user's real agent settings where it would go stale.
+      ...(process.env.ZLI_DATABASE_PATH ? { ZLI_BROWSER_USER_SETTINGS: "0" } : {}),
+    },
   });
   const descriptor = await environment.start();
   runtime = await RuntimeClient.connect({
@@ -77,6 +96,7 @@ async function main(): Promise<void> {
     APP_ORIGIN,
   );
   const electronWindow = window as unknown as BrowserWindow;
+  mainWindow = electronWindow;
   browserManager = new BrowserManager(
     {
       create: ({ session: browserSession }) =>
@@ -85,6 +105,8 @@ async function main(): Promise<void> {
             contextIsolation: true,
             sandbox: true,
             nodeIntegration: false,
+            // Agents drive tabs while the Browser panel is closed; throttled pages stall their timers.
+            backgroundThrottling: false,
             ...(browserSession ? { session: browserSession as Electron.Session } : {}),
           },
         }) as unknown as import("./browser/BrowserManager.js").BrowserViewLike,
@@ -116,7 +138,11 @@ async function main(): Promise<void> {
       automationFactory: (view) => {
         const debuggerLike = (view.webContents as unknown as { debugger: ElectronDebuggerLike }).debugger;
         const cdp = new CdpSession(debuggerLike);
-        const automation = new BrowserAutomation(cdp);
+        const captureFallback = createCaptureFallback(view.webContents as unknown as CapturableWebContents);
+        const automation = new BrowserAutomation(cdp, {
+          prepareInput: createInputWaker(view.webContents as unknown as WakeableWebContents),
+          ...(captureFallback ? { captureFallback } : {}),
+        });
         return { cdp, automation, designMode: new DesignMode(automation) };
       },
     },
@@ -134,6 +160,44 @@ async function main(): Promise<void> {
   const rendererUrl = process.env.ZLI_RENDERER_URL ?? `${APP_ORIGIN}/index.html`;
   if (window.loadURL) await window.loadURL(rendererUrl);
   window.once?.("ready-to-show", () => window.show?.());
+}
+
+/**
+ * Starts the agent browser control service and the zli-browser shims before the runtime server,
+ * so agents the server launches always find the endpoint file and command.
+ */
+async function startBrowserControl(databasePath: string): Promise<BrowserToolPaths> {
+  const userData = app.getPath("userData");
+  const paths: BrowserToolPaths = {
+    // Test and development launches pass their own database; keep their endpoint beside it so
+    // they never replace the endpoint of an installed ZLI that shares the same userData folder.
+    controlFile: process.env.ZLI_DATABASE_PATH
+      ? `${databasePath}.browser-control.json`
+      : join(userData, "browser-control.json"),
+    command: process.execPath,
+    script: join(DESKTOP_DIST, "zli-browser.js"),
+    shimDir: process.env.ZLI_DATABASE_PATH ? `${databasePath}.bin` : join(userData, "bin"),
+  };
+  browserControl = new BrowserControlServer({
+    endpointPath: paths.controlFile,
+    dispatch: createBrowserControlActions({
+      manager: () => browserManager,
+      worktrees: () => runtime?.projection()?.worktrees ?? [],
+      reveal: (event) => {
+        if (mainWindow && !mainWindow.webContents.isDestroyed())
+          mainWindow.webContents.send("zli:browser:reveal", event);
+      },
+    }),
+  });
+  try {
+    await browserControl.start();
+  } catch (error) {
+    console.error("Browser control service failed to start", error);
+  }
+  await writeBrowserToolShims(paths).catch((error: unknown) =>
+    console.error("zli-browser shims could not be written", error),
+  );
+  return paths;
 }
 
 async function registerTestProject(client: RuntimeClient): Promise<void> {
@@ -266,6 +330,11 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
   ipcMain.handle("zli:browser:devtools", (_event, input: unknown) =>
     browserManager?.openDevTools(BrowserTabIdInput.parse(input).browserTabId),
   );
+  ipcMain.handle("zli:browser:set-viewport", async (_event, input: unknown) => {
+    if (!browserManager) throw new Error("Browser is not ready.");
+    const parsed = BrowserSetViewportInput.parse(input);
+    return browserManager.setViewport(parsed.browserTabId, parsed.viewport);
+  });
   ipcMain.handle("zli:browser:snapshot", (_event, input: unknown) =>
     browserManager?.snapshot(BrowserTabIdInput.parse(input).browserTabId),
   );
@@ -349,6 +418,10 @@ function connectWebSocket(url: string): Promise<RuntimeTransport> {
 void main().catch((error) => {
   console.error(error);
   app.quit();
+});
+
+app.on("will-quit", () => {
+  browserControl?.stop();
 });
 
 app.on("window-all-closed", () => {

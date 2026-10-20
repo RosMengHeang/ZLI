@@ -92,6 +92,19 @@ describe("CodexProviderAdapter", () => {
     await adapter.stopAll();
     expect(client.calls.map((call) => call.method)).toEqual(["start", "read", "close"]);
   });
+
+  it("adds per-thread config overrides built from the session start", async () => {
+    const client = new FakeClient();
+    const adapter = new CodexProviderAdapter({
+      createClient: async () => client,
+      threadConfig: (input) => ({ "mcp_servers.zli-browser.env": { ZLI_WORKTREE_ID: input.worktreeId } }),
+    });
+    await adapter.startSession({ threadId, cwd: "C:/workspace/tree", worktreeId: "wt-1" });
+    expect(client.calls[0]).toEqual({
+      method: "start",
+      value: { cwd: "C:/workspace/tree", config: { "mcp_servers.zli-browser.env": { ZLI_WORKTREE_ID: "wt-1" } } },
+    });
+  });
 });
 
 describe("codexApprovalDecision", () => {

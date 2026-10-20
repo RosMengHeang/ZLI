@@ -35,6 +35,8 @@ export type ProviderSessionStart = {
   /** Omitted means full access, matching how every agent launched before supervised mode existed. */
   permissionMode?: PermissionMode;
   model?: string;
+  /** Lets agent tools such as zli-browser act on this thread's worktree. */
+  worktreeId?: string;
 };
 
 export type ProviderTurnInput = {

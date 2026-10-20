@@ -4,6 +4,14 @@ import { CodexAppServerClient, CodexProviderError } from "@zli-v2/provider-codex
 import { CursorAgentClient, CursorProviderError } from "@zli-v2/provider-cursor-agent";
 import { DroidClient, DroidProviderError } from "@zli-v2/provider-droid";
 
+import {
+  agentEnv,
+  type BrowserToolConfig,
+  codexMcpArgs,
+  codexThreadConfig,
+  mcpServerSpec,
+  writeMcpConfigFile,
+} from "../browser-tool/browserTool.js";
 import { type AcpProviderConfig, AcpProviderAdapter, type AcpProviderKind } from "./AcpProviderAdapter.js";
 import { ClaudeCodeProviderAdapter } from "./ClaudeCodeProviderAdapter.js";
 import { CodexProviderAdapter } from "./CodexProviderAdapter.js";
@@ -111,23 +119,70 @@ export async function resolveAcpCommand(
   );
 }
 
-export function createProviderRegistry(env: NodeJS.ProcessEnv = process.env): ProviderRegistry {
+export type ProviderRegistryOptions = {
+  /** When set, every chat agent gets the zli-browser MCP server and shell command. */
+  browserTool?: BrowserToolConfig;
+  writeMcpConfig?: typeof writeMcpConfigFile;
+};
+
+export function createProviderRegistry(
+  env: NodeJS.ProcessEnv = process.env,
+  options: ProviderRegistryOptions = {},
+): ProviderRegistry {
   if (env.ZLI_TEST_PROVIDER === "mock") return new ProviderRegistry([new MockProviderAdapter()]);
+  const browserTool = options.browserTool;
+  const writeMcpConfig = options.writeMcpConfig ?? writeMcpConfigFile;
+  const browserEnv = (worktreeId: string | undefined) =>
+    browserTool ? { env: agentEnv(browserTool, worktreeId, env) } : {};
+  const claudeMcpConfig = async (worktreeId: string | undefined) => {
+    if (!browserTool) return {};
+    try {
+      return { mcpConfig: await writeMcpConfig(browserTool, "claude", worktreeId) };
+    } catch {
+      return {};
+    }
+  };
   return new ProviderRegistry([
     new CodexProviderAdapter({
-      createClient: async () => CodexAppServerClient.connect({ command: await resolveCodexCommand() }),
+      // One app server serves every Codex thread, so it starts without a worktree id and each thread adds its own.
+      createClient: async () =>
+        CodexAppServerClient.connect({
+          command: await resolveCodexCommand(),
+          ...(browserTool ? { args: codexMcpArgs(mcpServerSpec(browserTool)), ...browserEnv(undefined) } : {}),
+        }),
+      ...(browserTool
+        ? { threadConfig: (input) => codexThreadConfig(mcpServerSpec(browserTool, input.worktreeId)) }
+        : {}),
     }),
     new ClaudeCodeProviderAdapter({
-      createClient: async (input) => ClaudeCodeClient.start({ ...input, command: await resolveClaudeCommand() }),
+      createClient: async ({ worktreeId, ...input }) =>
+        ClaudeCodeClient.start({
+          ...input,
+          command: await resolveClaudeCommand(),
+          ...browserEnv(worktreeId),
+          ...(await claudeMcpConfig(worktreeId)),
+        }),
     }),
     new CursorAgentProviderAdapter({
-      createClient: async (input) => CursorAgentClient.start({ ...input, command: await resolveCursorCommand() }),
+      createClient: async ({ worktreeId, ...input }) =>
+        CursorAgentClient.start({
+          ...input,
+          command: await resolveCursorCommand(),
+          ...browserEnv(worktreeId),
+          ...(browserTool ? { approveMcps: true } : {}),
+        }),
     }),
     new DroidProviderAdapter({
-      createClient: async (input) => DroidClient.start({ ...input, command: await resolveDroidCommand() }),
+      createClient: async ({ worktreeId, ...input }) =>
+        DroidClient.start({ ...input, command: await resolveDroidCommand(), ...browserEnv(worktreeId) }),
     }),
     ...ACP_PROVIDERS.map(
-      (config) => new AcpProviderAdapter({ ...config, resolveCommand: () => resolveAcpCommand(config.provider) }),
+      (config) =>
+        new AcpProviderAdapter({
+          ...config,
+          resolveCommand: () => resolveAcpCommand(config.provider),
+          ...(browserTool ? { browserTool } : {}),
+        }),
     ),
   ]);
 }

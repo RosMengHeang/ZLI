@@ -11,9 +11,12 @@ export function cursorTurnArgs(input: {
   sessionId?: string;
   permissionMode?: CursorPermissionMode;
   model?: string;
+  /** Starts configured MCP servers without the approval prompt print mode cannot answer. */
+  approveMcps?: boolean;
 }): string[] {
   const args = ["-p", "--output-format", "stream-json", "--stream-partial-output", "--trust"];
   if (input.permissionMode !== "supervised") args.push("--force");
+  if (input.approveMcps) args.push("--approve-mcps");
   args.push("--workspace", input.cwd);
   if (input.model) args.push("--model", input.model);
   if (input.sessionId) args.push("--resume", input.sessionId);

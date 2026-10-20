@@ -65,6 +65,36 @@ describe("ProjectionStore", () => {
     expect(store.current()?.lastSequence).toBe(3);
   });
 
+  it("applies browser tab updates as they arrive, including device viewports", () => {
+    const store = new ProjectionStore();
+    store.replace(projection());
+    const tab = {
+      browserTabId: id("21"),
+      profileId: id("02"),
+      worktreeId: id("11"),
+      url: "http://127.0.0.1:5173/",
+      title: "Dev",
+      active: true,
+      status: "idle",
+    };
+    expect(store.apply(envelope(1, { type: "browser.updated", tab }))).toBe("applied");
+    const viewport = { width: 393, height: 852, deviceScaleFactor: 3, mobile: true };
+    expect(store.apply(envelope(2, { type: "browser.updated", tab: { ...tab, viewport } }))).toBe("applied");
+    expect(store.current()?.browserTabs).toEqual([{ ...tab, viewport }]);
+    expect(store.apply(envelope(3, { type: "browser.closed", browserTabId: tab.browserTabId }))).toBe("applied");
+    expect(store.current()?.browserTabs).toEqual([]);
+    expect(store.current()?.lastSequence).toBe(3);
+  });
+
+  it("asks for a fresh projection when it cannot fold an event locally", () => {
+    const store = new ProjectionStore();
+    store.replace(projection());
+    expect(store.apply(envelope(1, { type: "diagnostics.bundle.requested", destinationPath: "C:/bundle.zip" }))).toBe(
+      "gap",
+    );
+    expect(store.current()?.lastSequence).toBe(0);
+  });
+
   it("projects an agent-to-agent message onto the target thread", () => {
     const store = new ProjectionStore();
     store.replace(projection());

@@ -4,7 +4,9 @@ import {
   BrowserNavigateInput,
   BrowserPressInput,
   BrowserReloadInput,
+  BrowserRevealEvent,
   BrowserSetBoundsInput,
+  BrowserSetViewportInput,
   BrowserScreenshotInput,
   BrowserSelectorInput,
   BrowserTabCreateInput,
@@ -15,6 +17,7 @@ import {
   RpcResponse,
   RuntimeEventEnvelope,
   RuntimeProjection,
+  type BrowserViewport,
   TerminalAttachSnapshot,
   TerminalStreamMessage,
 } from "@zli-v2/contracts";
@@ -87,6 +90,16 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
       stop: (browserTabId: string) => ipc.invoke("zli:browser:stop", BrowserTabIdInput.parse({ browserTabId })),
       openDevTools: (browserTabId: string) =>
         ipc.invoke("zli:browser:devtools", BrowserTabIdInput.parse({ browserTabId })),
+      setViewport: async (browserTabId: string, viewport: BrowserViewport | null) =>
+        BrowserTabProjection.parse(
+          await ipc.invoke("zli:browser:set-viewport", BrowserSetViewportInput.parse({ browserTabId, viewport })),
+        ),
+      /** Fires when an agent opens a tab, so the renderer can show the Browser panel with that tab. */
+      onReveal: (listener: (event: BrowserRevealEvent) => void) =>
+        ipc.on("zli:browser:reveal", (_event, value) => {
+          const parsed = BrowserRevealEvent.safeParse(value);
+          if (parsed.success) listener(parsed.data);
+        }),
       snapshot: (browserTabId: string) => ipc.invoke("zli:browser:snapshot", BrowserTabIdInput.parse({ browserTabId })),
       click: (input: { browserTabId: string; selector: string }) =>
         ipc.invoke("zli:browser:click", BrowserSelectorInput.parse(input)),

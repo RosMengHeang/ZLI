@@ -558,4 +558,19 @@ describe("CursorAgentClient tool activity", () => {
       "gpt-5.2",
     ]);
   });
+
+  it("approves configured MCP servers when asked, so print mode does not stall on the prompt", async () => {
+    const calls: Array<readonly string[]> = [];
+    const client = await CursorAgentClient.start({
+      command: "/usr/bin/cursor-agent",
+      cwd: "/work/tree",
+      approveMcps: true,
+      spawnProcess: (_command, args) => {
+        calls.push(args);
+        return new FakeProcess();
+      },
+    });
+    await client.sendTurn({ text: "Hi" });
+    expect(calls[0]).toEqual([...printArgs.slice(0, 6), "--approve-mcps", ...printArgs.slice(6)]);
+  });
 });

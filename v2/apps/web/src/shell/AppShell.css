@@ -406,6 +406,10 @@ select { color-scheme: dark; }
 .browser-address input:focus { border-color: var(--zli-accent-line); box-shadow: 0 0 0 3px var(--zli-accent-soft); }
 .browser-address input:focus-visible { outline: none; }
 .browser-address .primary-button { height: 28px; border-radius: 999px; }
+.browser-toolbar .icon-button.is-active { background: var(--zli-active); color: var(--zli-text); }
+.browser-device-bar { display: flex; align-items: center; gap: 6px; height: 34px; flex: 0 0 auto; padding: 0 8px; border-bottom: 1px solid var(--zli-border); background: var(--zli-sidebar); }
+.browser-device-size { color: var(--zli-dim); font-family: var(--zli-mono); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.browser-device-bar .ghost-button { margin-left: auto; }
 .browser-surface { position: relative; min-height: 0; flex: 1; overflow: hidden; background: var(--zli-canvas); }
 .browser-empty { min-height: 100%; }
 .browser-pane > .inline-error { margin: 8px 12px; }

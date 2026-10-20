@@ -64,6 +64,7 @@ export type CursorAgentClientOptions = {
   permissionMode?: CursorPermissionMode;
   /** Default model for every turn that does not name one. */
   model?: string;
+  approveMcps?: boolean;
   spawnProcess?: (command: string, args: readonly string[], options: CursorSpawnOptions) => CursorChild;
 };
 
@@ -98,6 +99,7 @@ export class CursorAgentClient {
     private readonly baseEnv: NodeJS.ProcessEnv | undefined,
     private readonly permissionMode: CursorPermissionMode,
     private readonly model: string | undefined,
+    private readonly approveMcps: boolean,
   ) {}
 
   static async start(options: CursorAgentClientOptions): Promise<CursorAgentClient> {
@@ -114,6 +116,7 @@ export class CursorAgentClient {
       options.env,
       options.permissionMode ?? "full-access",
       options.model?.trim() || undefined,
+      options.approveMcps ?? false,
     );
   }
 
@@ -171,6 +174,7 @@ export class CursorAgentClient {
       permissionMode: this.permissionMode,
       ...(model ? { model } : {}),
       ...(this.sessionId ? { sessionId: this.sessionId } : {}),
+      ...(this.approveMcps ? { approveMcps: true } : {}),
     });
     let child: CursorChild;
     try {

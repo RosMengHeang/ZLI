@@ -6,13 +6,21 @@ import {
   BrowserTabCreateInput,
   BrowserTabId,
   BrowserTabProjection,
+  BrowserViewport,
   type BrowserTabProjection as BrowserTabProjectionValue,
   type BrowserBounds as BrowserBoundsValue,
+  type BrowserViewport as BrowserViewportValue,
 } from "@zli-v2/contracts";
 
 import type {
   BrowserAutomation,
+  BrowserClickInput,
+  BrowserClickResult,
+  BrowserConsoleMessage,
+  BrowserEmulation,
+  BrowserEvaluateResult,
   BrowserInspection,
+  BrowserNetworkRequest,
   BrowserScreenshot,
   BrowserScreenshotOptions,
   BrowserSnapshot,
@@ -37,7 +45,9 @@ export type BrowserWebContentsLike = {
   on(event: string, listener: (...args: unknown[]) => void): void;
   isDestroyed(): boolean;
   destroy?(): void;
-  openDevTools?(): void;
+  openDevTools?(options?: { mode: "detach"; activate?: boolean }): void;
+  isDevToolsOpened?(): boolean;
+  readonly devToolsWebContents?: { focus(): void } | null;
 };
 
 export type BrowserViewLike = {
@@ -73,13 +83,17 @@ type ProjectionPatch = { [Key in keyof BrowserTabProjectionValue]?: BrowserTabPr
 type ManagedTab = {
   view: BrowserViewLike;
   projection: BrowserTabProjectionValue;
+  /** The pane surface the renderer reported. With a viewport the native view is fitted inside it. */
   bounds: BrowserBoundsValue;
+  /** The scale last sent to Chromium, so layout passes only re-emulate when it changes. */
+  emulatedScale?: number | undefined;
   automation?: BrowserAutomation | undefined;
   designMode?: DesignMode | undefined;
   recoveryAttempted?: boolean;
 };
 
 const DEFAULT_BOUNDS: BrowserBoundsValue = { x: 0, y: 0, width: 1024, height: 720 };
+const AUTOMATION_START_TIMEOUT_MS = 3_000;
 
 export class BrowserManager {
   readonly #tabs = new Map<string, ManagedTab>();
@@ -91,6 +105,7 @@ export class BrowserManager {
   readonly #onProjection: BrowserManagerOptions["onProjection"];
   readonly #onClose: BrowserManagerOptions["onClose"];
   #hidden = false;
+  #lastSurface: BrowserBoundsValue | undefined;
 
   constructor(
     private readonly factory: BrowserViewFactory,
@@ -119,7 +134,7 @@ export class BrowserManager {
       ? this.#sessionManager.getSession(this.#sessionModule, parsed.worktreeId, parsed.profileId)
       : undefined;
     const view = this.factory.create({ partition, ...(browserSession ? { session: browserSession } : {}) });
-    const bounds = parsed.bounds ?? this.#defaultBounds;
+    const bounds = parsed.bounds ?? this.#lastSurface ?? this.#defaultBounds;
     let attached = false;
     let tab: ManagedTab;
     try {
@@ -154,6 +169,9 @@ export class BrowserManager {
     // A failed page load (for example a dev server that is not running yet) must not orphan the
     // view: the tab stays registered and reports the failure through its projection.
     await this.#load(browserTabId, tab, parsed.url);
+    // CDP domain enables hang on a view that has no renderer yet, so automation starts after the
+    // first load; later navigations are then recorded from their first request.
+    if (this.#tabs.get(browserTabId) === tab) await this.#startAutomation(tab);
     if (this.#tabs.get(browserTabId) === tab) this.#publish(tab.projection);
     return tab.projection;
   }
@@ -199,7 +217,23 @@ export class BrowserManager {
     const tab = this.#require(browserTabId);
     const bounds = BrowserBounds.parse(input);
     tab.bounds = bounds;
-    tab.view.setBounds(bounds);
+    this.#lastSurface = bounds;
+    await this.#layout(tab);
+  }
+
+  /** Emulates a device screen, or restores the pane-filling desktop view when `viewport` is null. */
+  async setViewport(browserTabId: string, input: unknown): Promise<BrowserTabProjectionValue> {
+    const tab = this.#require(browserTabId);
+    const viewport = BrowserViewport.nullable().parse(input);
+    tab.emulatedScale = undefined;
+    this.#replace(browserTabId, { viewport: viewport ?? undefined });
+    if (!viewport) {
+      tab.view.setBounds(tab.bounds);
+      await tab.automation?.emulate(null);
+      return tab.projection;
+    }
+    await this.#layout(tab);
+    return tab.projection;
   }
 
   async navigate(input: unknown): Promise<BrowserTabProjectionValue> {
@@ -211,11 +245,18 @@ export class BrowserManager {
     return tab.projection;
   }
 
-  back(browserTabId: string): void {
-    this.#require(browserTabId).view.webContents.goBack();
+  /** Returns false when there is no earlier page to go back to. */
+  back(browserTabId: string): boolean {
+    const contents = this.#require(browserTabId).view.webContents;
+    if (!contents.canGoBack()) return false;
+    contents.goBack();
+    return true;
   }
-  forward(browserTabId: string): void {
-    this.#require(browserTabId).view.webContents.goForward();
+  forward(browserTabId: string): boolean {
+    const contents = this.#require(browserTabId).view.webContents;
+    if (!contents.canGoForward()) return false;
+    contents.goForward();
+    return true;
   }
   reload(browserTabId: string, hard = false): void {
     const contents = this.#require(browserTabId).view.webContents;
@@ -225,14 +266,20 @@ export class BrowserManager {
   stop(browserTabId: string): void {
     this.#require(browserTabId).view.webContents.stop();
   }
+  /** Opens DevTools in its own window, or brings that window forward when it is already open. */
   openDevTools(browserTabId: string): void {
-    this.#require(browserTabId).view.webContents.openDevTools?.();
+    const contents = this.#require(browserTabId).view.webContents;
+    if (contents.isDevToolsOpened?.()) {
+      contents.devToolsWebContents?.focus();
+      return;
+    }
+    contents.openDevTools?.({ mode: "detach", activate: true });
   }
 
   async snapshot(browserTabId: string): Promise<BrowserSnapshot> {
     return this.#automation(browserTabId).snapshot();
   }
-  async click(browserTabId: string, input: { selector: string } | { x: number; y: number }): Promise<void> {
+  async click(browserTabId: string, input: BrowserClickInput): Promise<BrowserClickResult> {
     return this.#automation(browserTabId).click(input);
   }
   async fill(browserTabId: string, input: { selector: string; value: string }): Promise<void> {
@@ -246,6 +293,16 @@ export class BrowserManager {
     options: { idleMs?: number; timeoutMs?: number },
   ): Promise<{ idle: boolean }> {
     return this.#automation(browserTabId).waitForNetworkIdle(options);
+  }
+  async waitForSelector(browserTabId: string, selector: string, options: { timeoutMs?: number }) {
+    return this.#automation(browserTabId).waitForSelector(selector, options);
+  }
+  async evaluate(
+    browserTabId: string,
+    expression: string,
+    options: { timeoutMs?: number } = {},
+  ): Promise<BrowserEvaluateResult> {
+    return this.#automation(browserTabId).evaluate(expression, options);
   }
   async screenshot(browserTabId: string, options: BrowserScreenshotOptions): Promise<BrowserScreenshot> {
     return this.#automation(browserTabId).screenshot(options);
@@ -263,6 +320,15 @@ export class BrowserManager {
   }
   networkEntries(browserTabId: string): readonly unknown[] {
     return this.#automation(browserTabId).networkEntries();
+  }
+  consoleMessages(browserTabId: string): readonly BrowserConsoleMessage[] {
+    return this.#automation(browserTabId).consoleMessages();
+  }
+  clearConsole(browserTabId: string): void {
+    this.#automation(browserTabId).clearConsole();
+  }
+  networkRequests(browserTabId: string): readonly BrowserNetworkRequest[] {
+    return this.#automation(browserTabId).networkRequests();
   }
 
   close(browserTabId: string, options: { persist?: boolean } = {}): void {
@@ -345,7 +411,9 @@ export class BrowserManager {
         ? this.#sessionManager.getSession(this.#sessionModule, worktreeId, profileId)
         : undefined;
       const replacement = this.factory.create({ partition, ...(browserSession ? { session: browserSession } : {}) });
-      replacement.setBounds(tab.bounds);
+      replacement.setBounds(
+        tab.projection.viewport ? fitViewport(tab.bounds, tab.projection.viewport).bounds : tab.bounds,
+      );
       replacement.setVisible(tab.projection.active && !this.#hidden);
       this.host.removeChildView(previousView);
       this.host.addChildView(replacement);
@@ -354,13 +422,29 @@ export class BrowserManager {
       tab.view = replacement;
       tab.automation = automation?.automation;
       tab.designMode = automation?.designMode;
+      tab.emulatedScale = undefined;
       previousView.webContents.destroy?.();
       this.#installObservers(browserTabId, tab);
       this.#replace(browserTabId, { status: "loading", loadError: undefined });
       await this.#load(browserTabId, tab, url);
+      await this.#startAutomation(tab);
+      await this.#layout(tab).catch(() => undefined);
     } catch {
       if (this.#tabs.get(browserTabId) === tab) this.#replace(browserTabId, { status: "crashed" });
     }
+  }
+
+  async #startAutomation(tab: ManagedTab): Promise<void> {
+    const automation = tab.automation;
+    if (!automation) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      automation.start().catch(() => undefined),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, AUTOMATION_START_TIMEOUT_MS);
+      }),
+    ]);
+    clearTimeout(timer);
   }
 
   async #load(browserTabId: string, tab: ManagedTab, url: string): Promise<void> {
@@ -373,6 +457,19 @@ export class BrowserManager {
         loadError: describeLoadFailure(cause instanceof Error ? cause.message : undefined, url),
       });
     }
+  }
+
+  async #layout(tab: ManagedTab): Promise<void> {
+    const viewport = tab.projection.viewport;
+    if (!viewport) {
+      tab.view.setBounds(tab.bounds);
+      return;
+    }
+    const fitted = fitViewport(tab.bounds, viewport);
+    tab.view.setBounds(fitted.bounds);
+    if (!tab.automation || tab.emulatedScale === fitted.scale) return;
+    tab.emulatedScale = fitted.scale;
+    await tab.automation.emulate(emulationFor(viewport, fitted.scale));
   }
 
   #replace(browserTabId: string, patch: ProjectionPatch): void {
@@ -403,6 +500,54 @@ export class BrowserManager {
     if (!automation) throw new Error("Browser automation is not available for this tab.");
     return automation;
   }
+}
+
+/**
+ * Places a device viewport inside the pane surface at the largest scale up to 1 that fits, centred.
+ * The view keeps the device's aspect ratio instead of stretching to the pane.
+ */
+export function fitViewport(
+  surface: BrowserBoundsValue,
+  viewport: Pick<BrowserViewportValue, "width" | "height">,
+): { bounds: BrowserBoundsValue; scale: number } {
+  const scale = Math.min(1, surface.width / viewport.width, surface.height / viewport.height);
+  const width = Math.max(1, Math.floor(viewport.width * scale));
+  const height = Math.max(1, Math.floor(viewport.height * scale));
+  return {
+    bounds: {
+      x: surface.x + Math.floor((surface.width - width) / 2),
+      y: surface.y + Math.floor((surface.height - height) / 2),
+      width,
+      height,
+    },
+    scale,
+  };
+}
+
+const IPHONE_USER_AGENT =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+const IPAD_USER_AGENT =
+  "Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+const ANDROID_USER_AGENT =
+  "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36";
+
+export function emulationFor(viewport: BrowserViewportValue, scale: number): BrowserEmulation {
+  const preset = viewport.preset ?? "";
+  const userAgent = !viewport.mobile
+    ? undefined
+    : preset.startsWith("iphone")
+      ? IPHONE_USER_AGENT
+      : preset.startsWith("ipad")
+        ? IPAD_USER_AGENT
+        : ANDROID_USER_AGENT;
+  return {
+    width: viewport.width,
+    height: viewport.height,
+    mobile: viewport.mobile,
+    scale,
+    ...(viewport.deviceScaleFactor === undefined ? {} : { deviceScaleFactor: viewport.deviceScaleFactor }),
+    ...(userAgent ? { userAgent } : {}),
+  };
 }
 
 const ABORTED_ERROR_CODE = -3;

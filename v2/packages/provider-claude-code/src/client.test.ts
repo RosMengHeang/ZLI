@@ -476,6 +476,25 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
     ]);
   });
 
+  it("adds a per-session MCP config last, after the other flags", async () => {
+    const child = new FakeProcess();
+    let args: readonly string[] = [];
+    const pending = ClaudeCodeClient.start({
+      command: "/usr/bin/claude",
+      cwd: "/work/tree",
+      model: "sonnet",
+      mcpConfig: "/data/mcp/claude-wt.json",
+      spawnProcess: (_command, spawnedArgs) => {
+        args = spawnedArgs;
+        return child;
+      },
+    });
+    child.stdout.emit("data", line({ type: "system", subtype: "init", session_id: "sess-m" }));
+    await pending;
+    expect(args.slice(-4)).toEqual(["--model", "sonnet", "--mcp-config", "/data/mcp/claude-wt.json"]);
+    expect(args).toContain("bypassPermissions");
+  });
+
   it("surfaces can_use_tool as an approval and answers allow or deny", async () => {
     const peer = new FakePeer();
     const pending = ClaudeCodeClient.start({ peer, cwd: "/work/tree", permissionMode: "supervised" });

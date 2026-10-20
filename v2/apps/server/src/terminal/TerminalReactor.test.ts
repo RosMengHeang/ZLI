@@ -9,6 +9,7 @@ import {
 } from "@zli-v2/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
+import type { BrowserToolConfig } from "../browser-tool/browserTool.js";
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
 import { TerminalReactor, type TerminalReactorOptions } from "./TerminalReactor.js";
@@ -283,6 +284,89 @@ describe("TerminalReactor", () => {
     } finally {
       restored.stop();
     }
+  });
+
+  it("gives every terminal the browser tool and registers it as an MCP server for the agent", async () => {
+    const browserTool: BrowserToolConfig = {
+      command: "C:\\ZLI\\ZLI.exe",
+      script: "C:\\ZLI\\zli-browser.js",
+      controlFile: "C:\\ZLI\\data\\browser-control.json",
+      shimDir: "C:\\ZLI\\data\\bin",
+      mcpConfigDir: "C:\\ZLI\\data\\mcp",
+    };
+    const spawned: PtySpawnInput[] = [];
+    const written: Array<{ kind: string; worktreeId: string | undefined }> = [];
+    const { engine, reactor, worktreeId } = await setup(
+      {
+        spawn: async (input) => {
+          spawned.push(input);
+          return new FakePty();
+        },
+      },
+      {
+        resolveAgentCli: async (provider) => `C:\\bin\\${provider}.exe`,
+        browserTool,
+        env: {},
+        writeMcpConfig: async (_config, kind, id) => {
+          written.push({ kind, worktreeId: id });
+          if (kind === "copilot") throw new Error("disk full");
+          return `C:\\ZLI\\data\\mcp\\${kind}-${id}.json`;
+        },
+      },
+    );
+    const create = (n: number, extra: Record<string, unknown>) =>
+      engine.dispatchPromise(
+        command("terminal.create", {
+          terminalId: TerminalId.parse(`00000000-0000-4000-8000-00000000032${n}`),
+          worktreeId,
+          cwd: "C:/workspace/project-tree",
+          shell: "powershell.exe",
+          title: "Terminal",
+          cols: 120,
+          rows: 32,
+          ...extra,
+        }),
+      );
+    await create(1, {});
+    await create(2, { agent: { provider: "claude-code" } });
+    await create(3, { agent: { provider: "opencode" } });
+    await create(4, { agent: { provider: "copilot" } });
+    await reactor.waitForIdle();
+
+    const browserEnv = { ZLI_BROWSER_CONTROL_FILE: browserTool.controlFile, ZLI_WORKTREE_ID: worktreeId };
+    expect(spawned[0]).toMatchObject({
+      shell: "powershell.exe",
+      envOverrides: browserEnv,
+      pathPrepend: browserTool.shimDir,
+    });
+    expect(spawned[0]?.args).toBeUndefined();
+    expect(spawned[1]).toMatchObject({
+      args: ["--dangerously-skip-permissions", "--mcp-config", `C:\\ZLI\\data\\mcp\\claude-${worktreeId}.json`],
+      envOverrides: { TERM: "xterm-256color", COLORTERM: "truecolor", ...browserEnv },
+      pathPrepend: browserTool.shimDir,
+    });
+    expect(JSON.parse(spawned[2]?.envOverrides?.OPENCODE_CONFIG_CONTENT ?? "")).toEqual({
+      mcp: {
+        "zli-browser": {
+          type: "local",
+          command: [browserTool.command, browserTool.script, "mcp"],
+          environment: { ELECTRON_RUN_AS_NODE: "1", ...browserEnv },
+          enabled: true,
+        },
+      },
+    });
+    // A failed config write drops only the MCP flag; the agent still starts.
+    expect(spawned[3]).toMatchObject({ shell: "C:\\bin\\copilot.exe", args: ["--allow-all"] });
+    expect(written).toEqual([
+      { kind: "claude", worktreeId },
+      { kind: "copilot", worktreeId },
+    ]);
+    expect((await engine.projection()).terminals.map((terminal) => terminal.status)).toEqual([
+      "running",
+      "running",
+      "running",
+      "running",
+    ]);
   });
 
   it("projects a PTY exit once", async () => {

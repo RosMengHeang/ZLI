@@ -13,6 +13,8 @@ export type PtySpawnInput = {
   args?: string[];
   /** Applied on top of the inherited environment after daemon secrets are removed. */
   envOverrides?: Record<string, string>;
+  /** Directory placed first on the inherited PATH, whatever case the PATH key has. */
+  pathPrepend?: string;
   cols: number;
   rows: number;
   env?: NodeJS.ProcessEnv;
@@ -40,6 +42,7 @@ export type TerminalCreateRequest = {
   shell: string;
   args?: string[];
   envOverrides?: Record<string, string>;
+  pathPrepend?: string;
   cols: number;
   rows: number;
   title: string;
@@ -215,6 +218,7 @@ export class TerminalService {
         shell: request.shell,
         ...(request.args ? { args: request.args } : {}),
         ...(request.envOverrides ? { envOverrides: request.envOverrides } : {}),
+        ...(request.pathPrepend ? { pathPrepend: request.pathPrepend } : {}),
         cols: request.cols,
         rows: request.rows,
         ...(request.env ? { env: request.env } : {}),

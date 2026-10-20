@@ -109,6 +109,7 @@ export class ProviderReactor {
         provider: ProviderKind.parse(intent.thread.provider),
         threadId: intent.thread.threadId,
         cwd: intent.cwd,
+        worktreeId: intent.thread.worktreeId,
         ...(intent.thread.permissionMode ? { permissionMode: intent.thread.permissionMode } : {}),
         ...(intent.thread.model ? { model: intent.thread.model } : {}),
       });

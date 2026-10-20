@@ -52,7 +52,14 @@ export type CodexAppServerClientOptions = {
   env?: NodeJS.ProcessEnv;
 };
 
-export type CodexSessionStartInput = { cwd: string; model?: string; approvalPolicy?: unknown; sandboxPolicy?: unknown };
+export type CodexSessionStartInput = {
+  cwd: string;
+  model?: string;
+  approvalPolicy?: unknown;
+  sandboxPolicy?: unknown;
+  /** Dotted config keys overridden for this thread only, like `-c` on the command line. */
+  config?: Record<string, unknown>;
+};
 export type CodexTurnInput = {
   providerThreadId: string;
   text: string;
@@ -118,6 +125,7 @@ export class CodexAppServerClient {
         ...(input.model ? { model: input.model } : {}),
         ...(input.approvalPolicy === undefined ? {} : { approvalPolicy: input.approvalPolicy }),
         ...(input.sandboxPolicy === undefined ? {} : { sandbox: input.sandboxPolicy }),
+        ...(input.config ? { config: input.config } : {}),
       }),
     );
     return { providerThreadId: result.thread.id };

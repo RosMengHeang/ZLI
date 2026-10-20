@@ -305,6 +305,7 @@ describe("ProviderReactor", () => {
       expect.objectContaining({
         threadId,
         cwd: "C:\\workspace\\activity-tree",
+        worktreeId,
         permissionMode: "supervised",
         model: "gpt-5",
       }),

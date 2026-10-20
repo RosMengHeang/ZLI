@@ -1,18 +1,31 @@
-import type { BrowserTabProjection, WorktreeProjection } from "@zli-v2/contracts";
+import {
+  BROWSER_DEVICE_PRESETS,
+  type BrowserTabProjection,
+  type BrowserViewport,
+  type WorktreeProjection,
+} from "@zli-v2/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, PaneHeader } from "../ui/Pane.js";
 
 const DEFAULT_PROFILE_ID = "00000000-0000-4000-8000-000000000002";
+const DEFAULT_DEVICE_ID = "iphone-15";
+const CUSTOM_DEVICE = "custom";
+/** How long a reveal waits for its tab to reach the projection before the pane falls back to normal restore. */
+const REVEAL_WAIT_MS = 3_000;
+
+export type BrowserReveal = { browserTabId: string; worktreeId: string; key: number };
 
 type Props = {
   worktree: WorktreeProjection | undefined;
   /** True while app UI (dialogs, palette) must sit above the pane; the native view cannot be layered under DOM. */
   obscured?: boolean;
+  /** A tab an agent opened that the pane should bring to the front once it belongs to this worktree. */
+  reveal?: BrowserReveal | undefined;
 };
 
-export function BrowserPane({ worktree, obscured = false }: Props) {
+export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
   const { bridge, projection } = useRuntime();
   const surfaceRef = useRef<HTMLDivElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
@@ -36,6 +49,9 @@ export function BrowserPane({ worktree, obscured = false }: Props) {
     [projection?.browserTabs, worktreeId],
   );
   const restoredTab = worktreeTabs.find((candidate) => candidate.active) ?? worktreeTabs[0];
+  const [handledRevealKey, setHandledRevealKey] = useState<number>();
+  const pendingReveal =
+    reveal && reveal.key !== handledRevealKey && reveal.worktreeId === worktreeId ? reveal : undefined;
 
   const activateInSurface = useCallback(
     async (browserTabId: string) => {
@@ -58,7 +74,7 @@ export function BrowserPane({ worktree, obscured = false }: Props) {
   }, [showUrl, worktreeId]);
 
   useEffect(() => {
-    if (!bridge || !worktreeId || !restoredTab || tab) return;
+    if (!bridge || !worktreeId || !restoredTab || tab || pendingReveal) return;
     let disposed = false;
     setBusy(true);
     setError(undefined);
@@ -85,7 +101,7 @@ export function BrowserPane({ worktree, obscured = false }: Props) {
     return () => {
       disposed = true;
     };
-  }, [activateInSurface, bridge, restoredTab, showUrl, tab, worktreeId]);
+  }, [activateInSurface, bridge, pendingReveal, restoredTab, showUrl, tab, worktreeId]);
 
   const visibleTabId = tab && !obscured ? tab.browserTabId : undefined;
   useEffect(() => {
@@ -158,7 +174,8 @@ export function BrowserPane({ worktree, obscured = false }: Props) {
       next.url === tab.url &&
       next.status === tab.status &&
       next.active === tab.active &&
-      next.loadError === tab.loadError
+      next.loadError === tab.loadError &&
+      sameViewport(next.viewport, tab.viewport)
     )
       return;
     const editing = urlEditedRef.current && document.activeElement === urlInputRef.current;
@@ -197,6 +214,39 @@ export function BrowserPane({ worktree, obscured = false }: Props) {
       setError(cause instanceof Error ? cause.message : "The browser tab could not be activated.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const selectTabRef = useRef(selectTab);
+  selectTabRef.current = selectTab;
+  const pendingRevealTab = pendingReveal
+    ? worktreeTabs.find((candidate) => candidate.browserTabId === pendingReveal.browserTabId)
+    : undefined;
+  const revealingKeyRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!pendingReveal) return;
+    if (!pendingRevealTab) {
+      const timer = window.setTimeout(() => setHandledRevealKey(pendingReveal.key), REVEAL_WAIT_MS);
+      return () => window.clearTimeout(timer);
+    }
+    if (revealingKeyRef.current === pendingReveal.key) return;
+    revealingKeyRef.current = pendingReveal.key;
+    // The reveal stays pending until the tab is shown, which keeps the restore effect from
+    // activating the previously active tab in the meantime.
+    const shown =
+      pendingRevealTab.browserTabId === tab?.browserTabId ? Promise.resolve() : selectTabRef.current(pendingRevealTab);
+    void shown.finally(() => setHandledRevealKey(pendingReveal.key));
+    return undefined;
+  }, [pendingReveal, pendingRevealTab, tab?.browserTabId]);
+
+  const setViewport = (viewport: BrowserViewport | null) =>
+    void run((activeBridge, activeTab) => activeBridge.browser.setViewport(activeTab.browserTabId, viewport));
+  const devicePreset = tab?.viewport ? findPreset(tab.viewport) : undefined;
+  const toggleDevice = () => {
+    if (tab?.viewport) setViewport(null);
+    else {
+      const preset = BROWSER_DEVICE_PRESETS.find((candidate) => candidate.id === DEFAULT_DEVICE_ID);
+      if (preset) setViewport(preset.viewport);
     }
   };
 
@@ -351,6 +401,17 @@ export function BrowserPane({ worktree, obscured = false }: Props) {
           </button>
         </form>
         <button
+          className={`icon-button${tab?.viewport ? " is-active" : ""}`}
+          type="button"
+          disabled={!tab}
+          onClick={toggleDevice}
+          aria-pressed={Boolean(tab?.viewport)}
+          aria-label="Device size"
+          title={tab?.viewport ? "Back to full panel size" : "Preview at a device size"}
+        >
+          <Icon name="smartphone" size={15} />
+        </button>
+        <button
           className="icon-button"
           type="button"
           disabled={!tab}
@@ -358,11 +419,59 @@ export function BrowserPane({ worktree, obscured = false }: Props) {
             void run((activeBridge, activeTab) => activeBridge.browser.openDevTools(activeTab.browserTabId))
           }
           aria-label="Open browser developer tools"
-          title="Developer tools"
+          title="Open DevTools in a window"
         >
           <Icon name="code" size={15} />
         </button>
       </div>
+      {tab?.viewport ? (
+        <div className="browser-device-bar">
+          <label className="composer-select" title="Device">
+            <select
+              aria-label="Device"
+              value={devicePreset?.id ?? CUSTOM_DEVICE}
+              onChange={(event) => {
+                const preset = BROWSER_DEVICE_PRESETS.find((candidate) => candidate.id === event.target.value);
+                if (preset) setViewport(preset.viewport);
+              }}
+            >
+              {devicePreset ? null : <option value={CUSTOM_DEVICE}>Custom</option>}
+              {BROWSER_DEVICE_PRESETS.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+            <Icon name="chevronDown" size={12} />
+          </label>
+          <span className="browser-device-size">
+            {tab.viewport.width} × {tab.viewport.height}
+            {tab.viewport.deviceScaleFactor && tab.viewport.deviceScaleFactor !== 1
+              ? ` · ${tab.viewport.deviceScaleFactor}x`
+              : ""}
+          </span>
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => {
+              const current = tab.viewport;
+              if (current) setViewport({ ...current, width: current.height, height: current.width });
+            }}
+            aria-label="Rotate"
+            title="Rotate"
+          >
+            <Icon name="rotate" size={14} />
+          </button>
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => setViewport(null)}
+            title="Back to full panel size"
+          >
+            Fit panel
+          </button>
+        </div>
+      ) : null}
       {(error ?? tab?.loadError) && (
         <p className="inline-error" role="alert">
           {error ?? tab?.loadError}
@@ -387,6 +496,20 @@ export function BrowserPane({ worktree, obscured = false }: Props) {
       </div>
     </div>
   );
+}
+
+function sameViewport(left: BrowserViewport | undefined, right: BrowserViewport | undefined) {
+  if (!left || !right) return left === right;
+  return (
+    left.width === right.width &&
+    left.height === right.height &&
+    left.deviceScaleFactor === right.deviceScaleFactor &&
+    left.mobile === right.mobile
+  );
+}
+
+function findPreset(viewport: BrowserViewport) {
+  return BROWSER_DEVICE_PRESETS.find((preset) => sameViewport(preset.viewport, viewport));
 }
 
 function measureBounds(surface: HTMLElement) {

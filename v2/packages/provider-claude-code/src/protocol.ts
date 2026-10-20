@@ -19,12 +19,17 @@ export const CLAUDE_SESSION_ARGS = [...BASE_ARGS, "--permission-mode", "bypassPe
 
 // Supervised: the default permission mode with "stdio" as the prompt tool makes
 // Claude ask over stdout with can_use_tool control requests instead of denying.
-export function claudeSessionArgs(input: { permissionMode?: ClaudePermissionMode; model?: string } = {}): string[] {
+// --mcp-config adds servers for this process only and keeps the user's own; it is variadic,
+// so it goes last where no positional argument can be mistaken for another config.
+export function claudeSessionArgs(
+  input: { permissionMode?: ClaudePermissionMode; model?: string; mcpConfig?: string } = {},
+): string[] {
   const args: string[] =
     input.permissionMode === "supervised"
       ? [...BASE_ARGS, "--permission-mode", "default", "--permission-prompt-tool", "stdio"]
       : [...CLAUDE_SESSION_ARGS];
   if (input.model) args.push("--model", input.model);
+  if (input.mcpConfig) args.push("--mcp-config", input.mcpConfig);
   return args;
 }
 

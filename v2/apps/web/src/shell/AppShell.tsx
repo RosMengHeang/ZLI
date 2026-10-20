@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isSelectableProvider, providerDisplayName } from "../agent/providers.js";
 import { AttentionPanel } from "../attention/AttentionPanel.js";
-import { BrowserPane } from "../browser/BrowserPane.js";
+import { type BrowserReveal, BrowserPane } from "../browser/BrowserPane.js";
 import { type ReviewFocus, ReviewPane } from "../review/ReviewPane.js";
 import { getBridge, type ZliBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
@@ -60,6 +60,7 @@ function WorkspaceApp() {
   const [closeRequest, setCloseRequest] = useState<AgentSession>();
   const [deleteRequest, setDeleteRequest] = useState<AgentSession>();
   const [version, setVersion] = useState<string>();
+  const [browserReveal, setBrowserReveal] = useState<BrowserReveal>();
   const paletteSearchRef = useRef<HTMLInputElement>(null);
   const launching = useRef(new Set<string>());
   const projectionRef = useRef(projection);
@@ -116,6 +117,31 @@ function WorkspaceApp() {
     },
     [updateWorkbench],
   );
+
+  const tilesRef = useRef(tiles);
+  tilesRef.current = tiles;
+  useEffect(() => {
+    if (!bridge) return;
+    let key = 0;
+    return bridge.browser.onReveal(({ browserTabId, worktreeId }) => {
+      key += 1;
+      setBrowserReveal({ browserTabId, worktreeId, key });
+      setSidePane("browser");
+      setSelectedWorktreeId(worktreeId);
+      // The Browser panel follows the active agent's worktree, so a tab opened in another worktree
+      // only shows once focus moves to an agent there.
+      updateWorkbench((state) => {
+        const current = tilesRef.current.find((session) => session.sessionId === state.activeSessionId);
+        if (current?.worktreeId === worktreeId) return state;
+        const latest = tilesRef.current.filter((session) => session.worktreeId === worktreeId).at(-1);
+        return {
+          ...state,
+          activeSessionId: latest?.sessionId,
+          ...(state.maximizedSessionId ? { maximizedSessionId: latest?.sessionId } : {}),
+        };
+      });
+    });
+  }, [bridge, updateWorkbench]);
 
   const openNewAgent = useCallback(
     (project?: ProjectProjection) => {
@@ -746,7 +772,7 @@ function WorkspaceApp() {
                   style={{ width: panelWidth }}
                 >
                   {sidePane === "browser" ? (
-                    <BrowserPane worktree={contextWorktree} obscured={overlayOpen} />
+                    <BrowserPane worktree={contextWorktree} obscured={overlayOpen} reveal={browserReveal} />
                   ) : (
                     <ReviewPane worktree={contextWorktree} focus={reviewFocus} />
                   )}

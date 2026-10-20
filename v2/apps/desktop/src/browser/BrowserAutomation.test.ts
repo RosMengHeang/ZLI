@@ -244,3 +244,51 @@ describe("BrowserAutomation", () => {
     ]);
   });
 });
+
+describe("BrowserAutomation device emulation", () => {
+  it("emulates the device and scales trusted input into the fitted view", async () => {
+    const { cdp, commands } = fakeCdp();
+    const prepared: string[] = [];
+    const automation = new BrowserAutomation(cdp, {
+      prepareInput: async () => {
+        prepared.push("wake");
+      },
+    });
+    await automation.emulate({
+      width: 393,
+      height: 852,
+      mobile: true,
+      deviceScaleFactor: 3,
+      scale: 0.5,
+      userAgent: "iPhone",
+    });
+    expect(commands.find((command) => command.method === "Emulation.setDeviceMetricsOverride")?.params).toMatchObject({
+      width: 393,
+      height: 852,
+      deviceScaleFactor: 3,
+      mobile: true,
+      scale: 0.5,
+    });
+    expect(commands.find((command) => command.method === "Emulation.setUserAgentOverride")?.params).toEqual({
+      userAgent: "iPhone",
+    });
+
+    await automation.click({ x: 100, y: 200 });
+    const mouse = commands.filter((command) => command.method === "Input.dispatchMouseEvent");
+    expect(mouse.map((command) => (command.params as { type: string }).type)).toEqual([
+      "mouseMoved",
+      "mousePressed",
+      "mouseReleased",
+    ]);
+    expect(mouse[1]?.params).toMatchObject({ x: 50, y: 100 });
+    expect(prepared).toEqual(["wake"]);
+
+    await automation.emulate(null);
+    expect(commands.some((command) => command.method === "Emulation.clearDeviceMetricsOverride")).toBe(true);
+    await automation.click({ x: 100, y: 200 });
+    expect(commands.filter((command) => command.method === "Input.dispatchMouseEvent").at(-1)?.params).toMatchObject({
+      x: 100,
+      y: 200,
+    });
+  });
+});

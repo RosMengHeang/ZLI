@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 
 import { planSpawn } from "@zli-v2/shared";
 
+import { prependPath } from "../browser-tool/browserTool.js";
 import type { PtyFactory, PtyProcess, PtySpawnInput } from "./TerminalService.js";
 
 type NodePtyProcess = {
@@ -28,8 +29,11 @@ const requireForNodePty = createRequire(import.meta.url);
 function childPtyEnv(
   source: NodeJS.ProcessEnv | undefined,
   overrides: Record<string, string> | undefined,
+  pathPrepend: string | undefined,
+  platform: NodeJS.Platform,
 ): NodeJS.ProcessEnv {
-  const env = { ...(source ?? process.env), ...overrides };
+  const inherited = { ...(source ?? process.env), ...overrides };
+  const env = pathPrepend ? prependPath(inherited, pathPrepend, platform) : inherited;
   delete env.ZLI_DAEMON_TOKEN;
   delete env.ZLI_DAEMON_ENDPOINT_PATH;
   return env;
@@ -46,7 +50,7 @@ export class NodePtyFactory implements PtyFactory {
 
   async spawn(input: PtySpawnInput): Promise<PtyProcess> {
     const nodePty = await this.load();
-    const env = childPtyEnv(input.env, input.envOverrides);
+    const env = childPtyEnv(input.env, input.envOverrides, input.pathPrepend, this.platform);
     if (this.platform === "win32" && env.TERM === undefined) env.TERM = "xterm-256color";
     // npm and Cursor install .cmd/.ps1 shims on Windows; planSpawn routes them through cmd.exe or
     // PowerShell with cmd-safe quoting. Its cmd.exe line is pre-quoted, so node-pty must not quote it again.

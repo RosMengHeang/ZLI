@@ -1,9 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { EnvironmentId } from "@zli-v2/contracts";
+import { type BrowserToolConfig, browserToolConfigFromEnv } from "./browser-tool/browserTool.js";
+import { registerBrowserToolInUserSettings, type UserSettingsOutcome } from "./browser-tool/userSettings.js";
 import { DaemonSupervisor } from "./daemon/DaemonSupervisor.js";
 import { Database } from "./db/Database.js";
 import { DiagnosticsReactor } from "./diagnostics/DiagnosticsReactor.js";
@@ -38,6 +41,8 @@ export type RuntimeProcess = {
   reviewReactor: ReviewReactor;
   diagnosticsReactor: DiagnosticsReactor;
   legacyImportReactor: LegacyImportReactor;
+  /** Settles once the browser tool is registered in agent user settings (empty when not configured). */
+  browserToolRegistration: Promise<readonly UserSettingsOutcome[]>;
   token: string;
   close: () => Promise<void>;
 };
@@ -47,6 +52,12 @@ export async function startRuntime(options: {
   token?: string;
   environmentId?: string;
   label?: string;
+  /** Lets agents drive ZLI's browser. Absent in tests and CLI runs, which then inject nothing. */
+  browserTool?: BrowserToolConfig;
+  /** Home directory whose agent settings receive the browser tool. Defaults to the user's home. */
+  userHome?: string;
+  /** False keeps the browser tool out of agent user settings; per-launch wiring still applies. */
+  registerInUserSettings?: boolean;
 }): Promise<RuntimeProcess> {
   const databasePath = resolve(options.databasePath);
   await mkdir(dirname(databasePath), { recursive: true });
@@ -70,12 +81,15 @@ export async function startRuntime(options: {
   const daemonSupervisor = new DaemonSupervisor({ endpointPath: `${databasePath}.daemon.json` });
   const terminalService = new TerminalService(new RemotePtyFactory({ connect: () => daemonSupervisor.connect() }));
   const reviewReactor = new ReviewReactor(engine, new ReviewService(new GitProcess()));
-  const providerService = new ProviderService(createProviderRegistry());
+  const browserTool = options.browserTool;
+  const providerService = new ProviderService(createProviderRegistry(process.env, browserTool ? { browserTool } : {}));
+  const resolveAgentCli = async (provider: string) => {
+    const discovery = (await providerService.discoverProviders()).find((entry) => entry.provider === provider);
+    return discovery?.status === "found" ? discovery.path : undefined;
+  };
   const terminalReactor = new TerminalReactor(engine, terminalService, {
-    resolveAgentCli: async (provider) => {
-      const discovery = (await providerService.discoverProviders()).find((entry) => entry.provider === provider);
-      return discovery?.status === "found" ? discovery.path : undefined;
-    },
+    resolveAgentCli,
+    ...(browserTool ? { browserTool } : {}),
   });
   const providerReactor = new ProviderReactor(engine, providerService);
   const agentMessageReactor = new AgentMessageReactor(engine);
@@ -92,6 +106,15 @@ export async function startRuntime(options: {
   await server.start();
   await terminalReactor.restore();
   await providerReactor.reconcileOrphanedThreads();
+  // Runs in the background: discovery can take seconds and agent settings are not needed to serve the UI.
+  const browserToolRegistration: Promise<readonly UserSettingsOutcome[]> =
+    browserTool && options.registerInUserSettings !== false
+      ? registerBrowserToolInUserSettings(browserTool, {
+          home: options.userHome ?? homedir(),
+          isInstalled: async (provider) => (await resolveAgentCli(provider)) !== undefined,
+          log: (level, message, context) => logger.record(level, message, {}, context),
+        }).catch(() => [])
+      : Promise.resolve([]);
   return {
     database,
     engine,
@@ -106,9 +129,11 @@ export async function startRuntime(options: {
     reviewReactor,
     diagnosticsReactor,
     legacyImportReactor,
+    browserToolRegistration,
     token,
     close: async () => {
       await server.stop();
+      await browserToolRegistration;
       await worktreeReactor.waitForIdle();
       await terminalReactor.waitForIdle();
       await reviewReactor.waitForIdle();
@@ -131,9 +156,12 @@ export async function startRuntime(options: {
 }
 
 async function main(): Promise<void> {
+  const browserTool = browserToolConfigFromEnv(process.env);
   const runtime = await startRuntime({
     databasePath: process.env.ZLI_DATABASE_PATH ?? "./.zli/runtime.sqlite",
     ...(process.env.ZLI_RUNTIME_TOKEN ? { token: process.env.ZLI_RUNTIME_TOKEN } : {}),
+    ...(browserTool ? { browserTool } : {}),
+    registerInUserSettings: process.env.ZLI_BROWSER_USER_SETTINGS !== "0",
   });
   process.stdout.write(`${JSON.stringify({ url: runtime.server.url(), token: runtime.token })}\n`);
   const shutdown = () => {

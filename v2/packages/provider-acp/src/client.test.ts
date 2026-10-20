@@ -188,6 +188,21 @@ describe("AcpClient handshake", () => {
     expect(client.supportsImages).toBe(true);
   });
 
+  it("offers the session's MCP servers in session/new", async () => {
+    const agent = new FakeAgent();
+    const server = {
+      name: "zli-browser",
+      command: "C:\\ZLI\\ZLI.exe",
+      args: ["C:\\ZLI\\resources\\zli-browser.js", "mcp"],
+      env: [
+        { name: "ELECTRON_RUN_AS_NODE", value: "1" },
+        { name: "ZLI_WORKTREE_ID", value: "wt-1" },
+      ],
+    };
+    await harness(agent, { mcpServers: [server] });
+    expect(agent.received[1]?.params).toEqual({ cwd: "/work/tree", mcpServers: [server] });
+  });
+
   it("turns an auth failure on session/new into a sign-in hint and stops the agent", async () => {
     const agent = new FakeAgent();
     agent.handlers.set("session/new", () => new RpcFailure(-32000, "Authentication required"));

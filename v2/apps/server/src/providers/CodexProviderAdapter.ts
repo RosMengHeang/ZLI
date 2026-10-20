@@ -36,13 +36,21 @@ export class CodexProviderAdapter implements ProviderAdapter {
   private readonly sessions = new Map<string, { providerThreadId: string; session: ProviderSession }>();
   private readonly listeners = new Set<(event: ProviderEvent) => void>();
 
-  constructor(private readonly options: { createClient: () => Promise<CodexClient> }) {}
+  constructor(
+    private readonly options: {
+      createClient: () => Promise<CodexClient>;
+      /** Config overrides for one thread; the app server is shared, so per-thread values go here. */
+      threadConfig?: (input: ProviderSessionStart) => Record<string, unknown> | undefined;
+    },
+  ) {}
 
   async startSession(input: ProviderSessionStart): Promise<ProviderSession> {
     const client = await this.ensureClient();
+    const config = this.options.threadConfig?.(input);
     // Full access keeps Codex's own configured policy, as before supervised mode existed.
     const started = await client.startSession({
       cwd: input.cwd,
+      ...(config ? { config } : {}),
       ...(input.model ? { model: input.model } : {}),
       ...(input.permissionMode === "supervised"
         ? { approvalPolicy: "on-request", sandboxPolicy: "workspace-write" }

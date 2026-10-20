@@ -8,11 +8,20 @@ type EnvironmentChild = {
   kill(): void;
 };
 
+type LaunchInput = {
+  serverEntryPath: string;
+  databasePath: string;
+  token: string;
+  extraEnv?: Readonly<Record<string, string>>;
+};
+
 type EnvironmentProcessOptions = {
   serverEntryPath: string;
   databasePath: string;
   timeoutMs?: number;
-  launcher?: (input: { serverEntryPath: string; databasePath: string; token: string }) => EnvironmentChild;
+  /** Added to the server's environment, which agent processes inherit. */
+  extraEnv?: Readonly<Record<string, string>>;
+  launcher?: (input: LaunchInput) => EnvironmentChild;
 };
 
 export type EnvironmentDescriptorLine = { url: string; token: string };
@@ -33,6 +42,7 @@ export class EnvironmentProcess {
         serverEntryPath: this.options.serverEntryPath,
         databasePath: this.options.databasePath,
         token: this.token,
+        ...(this.options.extraEnv ? { extraEnv: this.options.extraEnv } : {}),
       });
       this.child = child;
       let buffer = "";
@@ -97,10 +107,11 @@ export class EnvironmentProcess {
   }
 }
 
-function defaultLauncher(input: { serverEntryPath: string; databasePath: string; token: string }): EnvironmentChild {
+function defaultLauncher(input: LaunchInput): EnvironmentChild {
   const runtimeNode = process.env.ZLI_TEST_PROVIDER === "mock" ? process.env.ZLI_RUNTIME_NODE : undefined;
   const environment: NodeJS.ProcessEnv = {
     ...process.env,
+    ...input.extraEnv,
     ZLI_DATABASE_PATH: input.databasePath,
     ZLI_RUNTIME_TOKEN: input.token,
   };

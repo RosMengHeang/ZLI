@@ -92,6 +92,8 @@ function firstBrowserTab() {
   return browserTab;
 }
 
+let revealListener: ((event: { browserTabId: string; worktreeId: string }) => void) | undefined;
+
 function makeBridge(current: RuntimeProjection, dispatched: unknown[] = []): ZliBridge {
   return {
     runtime: {
@@ -116,6 +118,13 @@ function makeBridge(current: RuntimeProjection, dispatched: unknown[] = []): Zli
       reload: async () => undefined,
       stop: async () => undefined,
       openDevTools: async () => undefined,
+      setViewport: async () => firstBrowserTab(),
+      onReveal: (listener) => {
+        revealListener = listener;
+        return () => {
+          revealListener = undefined;
+        };
+      },
       snapshot: async () => undefined,
       click: async () => undefined,
       fill: async () => undefined,
@@ -180,6 +189,16 @@ describe("AppShell", () => {
     expect(browserAction).not.toBeUndefined();
     await act(async () => {
       browserAction?.click();
+    });
+    expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
+    expect(button(container, "Browser")?.classList.contains("is-active")).toBe(true);
+  });
+
+  it("opens the Browser panel when an agent opens a page", async () => {
+    const container = await render(makeBridge(projection));
+    expect(container.querySelector('[aria-label="Browser panel"]')).toBeNull();
+    await act(async () => {
+      revealListener?.({ browserTabId: "00000000-0000-4000-8000-000000000021", worktreeId });
     });
     expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
     expect(button(container, "Browser")?.classList.contains("is-active")).toBe(true);

@@ -1,7 +1,8 @@
 import type {
   BrowserTabProjection,
-  RuntimeProjection,
+  BrowserViewport,
   RpcResponse,
+  RuntimeProjection,
   TerminalAttachSnapshot,
   TerminalStreamMessage,
 } from "@zli-v2/contracts";
@@ -32,6 +33,8 @@ export type ZliBridge = {
     reload(browserTabId: string, hard?: boolean): Promise<void>;
     stop(browserTabId: string): Promise<void>;
     openDevTools(browserTabId: string): Promise<void>;
+    setViewport(browserTabId: string, viewport: BrowserViewport | null): Promise<BrowserTabProjection>;
+    onReveal(listener: (event: { browserTabId: string; worktreeId: string }) => void): () => void;
     snapshot(browserTabId: string): Promise<unknown>;
     click(input: unknown): Promise<void>;
     fill(input: unknown): Promise<void>;

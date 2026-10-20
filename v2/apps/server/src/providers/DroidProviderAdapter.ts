@@ -12,7 +12,7 @@ import type {
 import { toolActivity } from "./toolActivity.js";
 
 type DroidSessionClient = Pick<DroidClient, "sendTurn" | "interruptTurn" | "transcript" | "subscribe" | "close">;
-type ClientStart = Pick<ProviderSessionStart, "cwd" | "permissionMode" | "model">;
+type ClientStart = Pick<ProviderSessionStart, "cwd" | "permissionMode" | "model" | "worktreeId">;
 
 export class DroidProviderAdapter implements ProviderAdapter {
   readonly provider = "droid" as const;
@@ -37,6 +37,7 @@ export class DroidProviderAdapter implements ProviderAdapter {
       cwd: input.cwd,
       ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
       ...(input.model ? { model: input.model } : {}),
+      ...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
     });
     const session: ProviderSession = {
       threadId: input.threadId,

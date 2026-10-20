@@ -275,6 +275,19 @@ describe("CodexAppServerClient tool items", () => {
     expect(events.some((event) => event.type === "protocol.error")).toBe(false);
   });
 
+  it("sends per-thread config overrides with thread/start", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    await client.startSession({
+      cwd: "/work",
+      config: { "mcp_servers.zli-browser.env": { ZLI_WORKTREE_ID: "wt-1" } },
+    });
+    expect(peer.requests[1]).toEqual({
+      method: "thread/start",
+      params: { cwd: "/work", config: { "mcp_servers.zli-browser.env": { ZLI_WORKTREE_ID: "wt-1" } } },
+    });
+  });
+
   it("starts supervised threads with the requested policy and sends images as localImage input", async () => {
     const peer = new FakePeer();
     const client = await CodexAppServerClient.connect({ peer });

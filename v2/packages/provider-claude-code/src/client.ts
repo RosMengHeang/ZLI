@@ -88,6 +88,8 @@ export type ClaudeCodeClientOptions = {
   initTimeoutMs?: number;
   permissionMode?: ClaudePermissionMode;
   model?: string;
+  /** MCP config file (or JSON) passed as --mcp-config for this session. */
+  mcpConfig?: string;
 };
 
 export class ClaudeProviderError extends Error {
@@ -471,6 +473,7 @@ function spawnClaudePeer(options: ClaudeCodeClientOptions, command: string): Cla
   const args = claudeSessionArgs({
     ...(options.permissionMode ? { permissionMode: options.permissionMode } : {}),
     ...(options.model?.trim() ? { model: options.model.trim() } : {}),
+    ...(options.mcpConfig ? { mcpConfig: options.mcpConfig } : {}),
   });
   const child = spawnProcess(command, args, {
     cwd: options.cwd,

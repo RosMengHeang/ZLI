@@ -1,6 +1,7 @@
 import type { ProviderCapabilities, ProviderKind, ThreadId } from "@zli-v2/contracts";
 import { AcpClient, type AcpProviderEvent, AcpProviderError, type AcpToolUpdate } from "@zli-v2/provider-acp";
 
+import { acpMcpServer, agentEnv, type BrowserToolConfig, mcpServerSpec } from "../browser-tool/browserTool.js";
 import { approvalAllowed } from "./ClaudeCodeProviderAdapter.js";
 import type {
   ProviderAdapter,
@@ -21,13 +22,15 @@ export type AcpProviderConfig = {
   acpArgs: readonly string[];
   /** Shown when the agent reports that it needs a login. */
   authHint: string;
+  /** Offered to every session as an MCP server, with its shell shim on PATH. */
+  browserTool?: BrowserToolConfig;
 };
 
 type AcpSessionClient = Pick<
   AcpClient,
   "sendTurn" | "interruptTurn" | "respondToPermission" | "transcript" | "subscribe" | "close"
 >;
-type ClientStart = Pick<ProviderSessionStart, "cwd" | "permissionMode" | "model">;
+type ClientStart = Pick<ProviderSessionStart, "cwd" | "permissionMode" | "model" | "worktreeId">;
 
 const MAX_TITLE = 500;
 const GENERIC_TITLES = new Set(["Read file", "Edit files", "Search", "List files", "Tool call"]);
@@ -57,14 +60,22 @@ export class AcpProviderAdapter implements ProviderAdapter {
     this.provider = config.provider;
     this.createClient =
       options.createClient ??
-      (async (input) =>
-        AcpClient.start({
+      (async ({ worktreeId, ...input }) => {
+        const browserTool = config.browserTool;
+        return AcpClient.start({
           ...input,
           command: await config.resolveCommand(),
           args: config.acpArgs,
           displayName: config.displayName,
           authHint: config.authHint,
-        }));
+          ...(browserTool
+            ? {
+                env: agentEnv(browserTool, worktreeId),
+                mcpServers: [acpMcpServer(mcpServerSpec(browserTool, worktreeId))],
+              }
+            : {}),
+        });
+      });
   }
 
   async startSession(input: ProviderSessionStart): Promise<ProviderSession> {
@@ -72,6 +83,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
       cwd: input.cwd,
       ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
       ...(input.model ? { model: input.model } : {}),
+      ...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
     });
     const session: ProviderSession = {
       threadId: input.threadId,

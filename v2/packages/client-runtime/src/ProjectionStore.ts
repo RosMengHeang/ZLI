@@ -214,6 +214,24 @@ export class ProjectionStore {
           lastSequence: envelope.sequence,
         };
         break;
+      case "browser.updated":
+        this.#projection = {
+          ...current,
+          browserTabs: [...current.browserTabs.filter((tab) => tab.browserTabId !== event.tab.browserTabId), event.tab],
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "browser.closed":
+        this.#projection = {
+          ...current,
+          browserTabs: current.browserTabs.filter((tab) => tab.browserTabId !== event.browserTabId),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      default:
+        // Events this store cannot fold locally still change the server projection, so ask for a
+        // fresh copy instead of leaving lastSequence behind until an unrelated event arrives.
+        return "gap";
     }
 
     if (this.#projection && this.#projection !== current) {

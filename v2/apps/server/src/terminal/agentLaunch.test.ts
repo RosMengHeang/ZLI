@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { AgentLaunchError, agentCliMissingMessage, buildAgentArgs } from "./agentLaunch.js";
+import { codexMcpArgs, gooseExtension, mcpServerSpec } from "../browser-tool/browserTool.js";
+import {
+  AgentLaunchError,
+  agentCliMissingMessage,
+  browserToolArgs,
+  browserToolConfigFileKind,
+  buildAgentArgs,
+} from "./agentLaunch.js";
 
 describe("buildAgentArgs", () => {
   it("defaults every provider to full access", () => {
@@ -92,5 +99,46 @@ describe("buildAgentArgs", () => {
     expect(agentCliMissingMessage("claude-code")).toBe("Claude Code CLI was not found. Install it or check PATH.");
     expect(agentCliMissingMessage("copilot")).toBe("GitHub Copilot CLI was not found. Install it or check PATH.");
     expect(agentCliMissingMessage("kimi")).toBe("Kimi Code CLI was not found. Install it or check PATH.");
+  });
+});
+
+describe("browserToolArgs", () => {
+  const spec = mcpServerSpec(
+    {
+      command: "C:\\ZLI\\ZLI.exe",
+      script: "C:\\ZLI\\zli-browser.js",
+      controlFile: "C:\\ZLI\\data\\browser-control.json",
+      shimDir: "C:\\ZLI\\data\\bin",
+      mcpConfigDir: "C:\\ZLI\\data\\mcp",
+    },
+    "00000000-0000-4000-8000-000000000302",
+  );
+
+  it("registers the MCP server per launch with each CLI's own flag", () => {
+    expect(browserToolArgs("codex", { spec })).toEqual(codexMcpArgs(spec));
+    expect(browserToolArgs("claude-code", { spec, configFile: "C:\\ZLI\\data\\mcp\\claude-wt.json" })).toEqual([
+      "--mcp-config",
+      "C:\\ZLI\\data\\mcp\\claude-wt.json",
+    ]);
+    expect(browserToolArgs("copilot", { spec, configFile: "C:\\ZLI\\data\\mcp\\copilot-wt.json" })).toEqual([
+      "--additional-mcp-config",
+      "@C:\\ZLI\\data\\mcp\\copilot-wt.json",
+    ]);
+    expect(browserToolArgs("cursor-agent", { spec })).toEqual(["--approve-mcps"]);
+    expect(browserToolArgs("goose", { spec }, "win32")).toEqual(["--with-extension", gooseExtension(spec, "win32")]);
+  });
+
+  it("adds nothing for CLIs that read user settings or the environment, or when the config file is missing", () => {
+    for (const provider of ["droid", "opencode", "gemini", "kimi", "qwen"] as const) {
+      expect(browserToolArgs(provider, { spec })).toEqual([]);
+    }
+    expect(browserToolArgs("claude-code", { spec })).toEqual([]);
+    expect(browserToolArgs("copilot", { spec })).toEqual([]);
+  });
+
+  it("asks for a config file only from Claude Code and Copilot", () => {
+    expect(browserToolConfigFileKind("claude-code")).toBe("claude");
+    expect(browserToolConfigFileKind("copilot")).toBe("copilot");
+    expect(browserToolConfigFileKind("codex")).toBeUndefined();
   });
 });

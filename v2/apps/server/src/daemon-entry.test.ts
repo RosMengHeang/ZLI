@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { accept, writeDaemonEndpointFile } from "./daemon-entry.js";
 import { TerminalService } from "./terminal/TerminalService.js";
@@ -135,13 +135,19 @@ it("rejects terminal cwd escapes and argv, and accepts a worktree subdirectory",
     const { accept: acceptFresh } = await import("./daemon-entry.js");
     const { TerminalService: FreshTerminalService } = await import("./terminal/TerminalService.js");
     const spawned: string[] = [];
-    const launches: Array<{ args?: string[]; envOverrides?: Record<string, string> }> = [];
+    const launches: Array<{ args?: string[]; envOverrides?: Record<string, string>; pathPrepend?: string }> = [];
     const service = new FreshTerminalService({
-      spawn: async (input: { cwd: string; args?: string[]; envOverrides?: Record<string, string> }) => {
+      spawn: async (input: {
+        cwd: string;
+        args?: string[];
+        envOverrides?: Record<string, string>;
+        pathPrepend?: string;
+      }) => {
         spawned.push(input.cwd);
         launches.push({
           ...(input.args ? { args: input.args } : {}),
           ...(input.envOverrides ? { envOverrides: input.envOverrides } : {}),
+          ...(input.pathPrepend ? { pathPrepend: input.pathPrepend } : {}),
         });
         return {
           pid: 9,
@@ -224,6 +230,45 @@ it("rejects terminal cwd escapes and argv, and accepts a worktree subdirectory",
       {},
       { args: ["--auto", "high"], envOverrides: { TERM: "xterm-256color", COLORTERM: "truecolor" } },
     ]);
+
+    const controlFile = resolve("/data/zli/browser-control.json");
+    const shimDir = resolve("/data/zli/bin");
+    const browser = (n: number, extra: Record<string, unknown>) => ({
+      ...outside,
+      terminalId: `00000000-0000-4000-8000-00000000012${n}`,
+      cwd: "src",
+      ...extra,
+    });
+    expect(
+      await request(browser(1, { envOverrides: { ZLI_WORKTREE_ID: "00000000-0000-4000-8000-000000000999" } })),
+    ).toMatchObject({ type: "error", message: "Terminal environment override is not allowed: ZLI_WORKTREE_ID" });
+    expect(
+      await request(browser(2, { envOverrides: { ZLI_BROWSER_CONTROL_FILE: "relative/control.json" } })),
+    ).toMatchObject({
+      type: "error",
+      message: "Terminal environment override is not allowed: ZLI_BROWSER_CONTROL_FILE",
+    });
+    expect(await request(browser(3, { envOverrides: { OPENCODE_CONFIG_CONTENT: "not json" } }))).toMatchObject({
+      type: "error",
+      message: "Terminal environment override is not allowed: OPENCODE_CONFIG_CONTENT",
+    });
+    expect(await request(browser(4, { pathPrepend: "relative/bin" }))).toMatchObject({
+      type: "error",
+      message: "Terminal PATH addition is invalid.",
+    });
+    expect(await request(browser(5, { pathPrepend: `${shimDir}${delimiter}${resolve("/evil")}` }))).toMatchObject({
+      type: "error",
+      message: "Terminal PATH addition is invalid.",
+    });
+    const accepted = {
+      ZLI_WORKTREE_ID: outside.worktreeId,
+      ZLI_BROWSER_CONTROL_FILE: controlFile,
+      OPENCODE_CONFIG_CONTENT: JSON.stringify({ mcp: {} }),
+    };
+    expect(await request(browser(6, { envOverrides: accepted, pathPrepend: shimDir }))).toMatchObject({
+      type: "result",
+    });
+    expect(launches.at(-1)).toEqual({ envOverrides: accepted, pathPrepend: shimDir });
   } finally {
     restoreEnv("ZLI_DAEMON_TOKEN", previous.token);
     restoreEnv("ZLI_DAEMON_ENDPOINT_PATH", previous.endpointPath);

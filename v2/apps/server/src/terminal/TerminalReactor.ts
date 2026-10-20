@@ -8,8 +8,22 @@ import {
   TerminalId,
 } from "@zli-v2/contracts";
 
+import {
+  type BrowserToolConfig,
+  browserToolEnv,
+  mcpServerSpec,
+  opencodeConfigContent,
+  writeMcpConfigFile,
+} from "../browser-tool/browserTool.js";
 import type { Engine } from "../orchestration/Engine.js";
-import { AGENT_PTY_ENV, AgentLaunchError, agentCliMissingMessage, buildAgentArgs } from "./agentLaunch.js";
+import {
+  AGENT_PTY_ENV,
+  AgentLaunchError,
+  agentCliMissingMessage,
+  browserToolArgs,
+  browserToolConfigFileKind,
+  buildAgentArgs,
+} from "./agentLaunch.js";
 import type { TerminalService } from "./TerminalService.js";
 
 type CreateIntent = Extract<RuntimeEventEnvelope["event"], { type: "terminal.create.requested" }>;
@@ -19,7 +33,14 @@ export type AgentCliResolver = (provider: ListedProviderKind) => Promise<string 
 
 export type TerminalReactorOptions = {
   resolveAgentCli?: AgentCliResolver;
+  /** When set, every terminal can run `zli-browser` and agent CLIs get it as an MCP server. */
+  browserTool?: BrowserToolConfig;
+  writeMcpConfig?: typeof writeMcpConfigFile;
+  /** The environment agent settings such as OPENCODE_CONFIG_CONTENT are merged with. */
+  env?: NodeJS.ProcessEnv;
 };
+
+type AgentCommand = { file: string; args: string[]; env: Record<string, string> };
 
 export class TerminalReactor {
   private readonly intents = new Map<string, CreateIntent>();
@@ -102,14 +123,23 @@ export class TerminalReactor {
     try {
       const worktreePath = intent.worktreePath ?? (await this.worktreePath(intent.terminal.worktreeId));
       if (!worktreePath) throw new Error(`Worktree does not exist: ${intent.terminal.worktreeId}`);
-      const agent = intent.terminal.agent ? await this.agentCommand(intent.terminal.agent) : undefined;
+      const worktreeId = intent.terminal.worktreeId;
+      const agent = intent.terminal.agent ? await this.agentCommand(intent.terminal.agent, worktreeId) : undefined;
+      const browserTool = this.options.browserTool;
+      const envOverrides = {
+        ...(agent ? AGENT_PTY_ENV : {}),
+        ...(browserTool ? browserToolEnv(browserTool, worktreeId) : {}),
+        ...agent?.env,
+      };
       await this.service.create({
         terminalId: intent.terminal.terminalId,
-        worktreeId: intent.terminal.worktreeId,
+        worktreeId,
         worktreePath,
         cwd: intent.cwd,
         shell: agent?.file ?? intent.shell,
-        ...(agent ? { args: agent.args, envOverrides: { ...AGENT_PTY_ENV } } : {}),
+        ...(agent ? { args: agent.args } : {}),
+        ...(Object.keys(envOverrides).length > 0 ? { envOverrides } : {}),
+        ...(browserTool ? { pathPrepend: browserTool.shimDir } : {}),
         cols: intent.cols,
         rows: intent.rows,
         title: intent.terminal.title,
@@ -175,7 +205,7 @@ export class TerminalReactor {
     }
   }
 
-  private async agentCommand(agent: TerminalAgentLaunch): Promise<{ file: string; args: string[] }> {
+  private async agentCommand(agent: TerminalAgentLaunch, worktreeId: string): Promise<AgentCommand> {
     const args = buildAgentArgs(agent);
     let file: string | undefined;
     try {
@@ -184,7 +214,33 @@ export class TerminalReactor {
       file = undefined;
     }
     if (!file) throw new AgentLaunchError(agentCliMissingMessage(agent.provider));
-    return { file, args };
+    if (!this.options.browserTool) return { file, args, env: {} };
+    const browser = await this.browserLaunch(this.options.browserTool, agent, worktreeId);
+    return { file, args: [...args, ...browser.args], env: browser.env };
+  }
+
+  /** The browser tool is an extra; a failure to prepare it never blocks the agent from starting. */
+  private async browserLaunch(
+    config: BrowserToolConfig,
+    agent: TerminalAgentLaunch,
+    worktreeId: string,
+  ): Promise<{ args: string[]; env: Record<string, string> }> {
+    const spec = mcpServerSpec(config, worktreeId);
+    const kind = browserToolConfigFileKind(agent.provider);
+    let configFile: string | undefined;
+    if (kind) {
+      try {
+        configFile = await (this.options.writeMcpConfig ?? writeMcpConfigFile)(config, kind, worktreeId);
+      } catch {
+        configFile = undefined;
+      }
+    }
+    const env: Record<string, string> = {};
+    if (agent.provider === "opencode") {
+      const content = opencodeConfigContent(spec, (this.options.env ?? process.env).OPENCODE_CONFIG_CONTENT);
+      if (content) env.OPENCODE_CONFIG_CONTENT = content;
+    }
+    return { args: browserToolArgs(agent.provider, { spec, ...(configFile ? { configFile } : {}) }), env };
   }
 
   private async worktreePath(worktreeId: string): Promise<string | undefined> {

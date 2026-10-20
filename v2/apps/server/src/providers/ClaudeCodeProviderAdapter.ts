@@ -13,7 +13,7 @@ import { toolActivity } from "./toolActivity.js";
 
 type ClaudeClient = Pick<ClaudeCodeClient, "sendTurn" | "interruptTurn" | "transcript" | "subscribe" | "close"> &
   Partial<Pick<ClaudeCodeClient, "respondToApproval">>;
-type ClientStart = Pick<ProviderSessionStart, "cwd" | "permissionMode" | "model">;
+type ClientStart = Pick<ProviderSessionStart, "cwd" | "permissionMode" | "model" | "worktreeId">;
 
 export class ClaudeCodeProviderAdapter implements ProviderAdapter {
   readonly provider = "claude-code" as const;
@@ -38,6 +38,7 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
       cwd: input.cwd,
       ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
       ...(input.model ? { model: input.model } : {}),
+      ...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
     });
     const session: ProviderSession = {
       threadId: input.threadId,

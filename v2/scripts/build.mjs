@@ -33,6 +33,14 @@ await build({
   external: ["electron"],
 });
 
+// Agents run this under ELECTRON_RUN_AS_NODE, so it must not import electron.
+await build({
+  ...shared,
+  entryPoints: [resolve(root, "apps/desktop/src/browser-tool/zli-browser.ts")],
+  outfile: resolve(desktopDist, "zli-browser.js"),
+  format: "esm",
+});
+
 await build({
   ...shared,
   entryPoints: [resolve(root, "apps/server/src/main.ts")],

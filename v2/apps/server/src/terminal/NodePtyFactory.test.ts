@@ -73,6 +73,28 @@ describe("NodePtyFactory", () => {
     expect(spawned[0]?.env.ZLI_DAEMON_TOKEN).toBeUndefined();
   });
 
+  it("puts the browser shim first on PATH under the key Windows already uses", async () => {
+    const spawned: Array<{ shell: string; args: string[] | string; env: NodeJS.ProcessEnv }> = [];
+    const factory = new NodePtyFactory({ platform: "win32", load: async () => recordingModule(spawned) });
+
+    await factory.spawn({
+      cwd: "C:\\workspace\\tree",
+      shell: "powershell.exe",
+      envOverrides: { ZLI_WORKTREE_ID: "wt-1" },
+      pathPrepend: "C:\\ZLI\\bin",
+      env: { Path: "C:\\Windows\\System32", SystemRoot: "C:\\Windows" },
+      cols: 120,
+      rows: 32,
+    });
+
+    expect(spawned[0]?.env).toMatchObject({
+      Path: "C:\\ZLI\\bin;C:\\Windows\\System32",
+      ZLI_WORKTREE_ID: "wt-1",
+      SystemRoot: "C:\\Windows",
+    });
+    expect(spawned[0]?.env.PATH).toBeUndefined();
+  });
+
   it("passes agent arguments as an argv array to an executable", async () => {
     const spawned: Array<{ shell: string; args: string[] | string; env: NodeJS.ProcessEnv }> = [];
     const factory = new NodePtyFactory({ platform: "linux", load: async () => recordingModule(spawned) });

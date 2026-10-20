@@ -70,4 +70,45 @@ describe("preload API", () => {
 
     expect(calls).toEqual([{ channel: "zli:browser:hide", payload: undefined }]);
   });
+
+  it("sets device viewports and delivers valid reveal events", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const listeners = new Map<string, (event: unknown, value: unknown) => void>();
+    const browserTabId = "00000000-0000-4000-8000-000000000010";
+    const worktreeId = "00000000-0000-4000-8000-000000000011";
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        return {
+          browserTabId,
+          profileId: "00000000-0000-4000-8000-000000000002",
+          worktreeId,
+          url: "about:blank",
+          title: "",
+          active: true,
+          status: "idle",
+        };
+      },
+      on: (channel, listener) => {
+        listeners.set(channel, listener);
+        return () => listeners.delete(channel);
+      },
+    });
+
+    const viewport = { preset: "iphone-15", width: 393, height: 852, deviceScaleFactor: 3, mobile: true };
+    await api.browser.setViewport(browserTabId, viewport);
+    await api.browser.setViewport(browserTabId, null);
+    expect(calls).toEqual([
+      { channel: "zli:browser:set-viewport", payload: { browserTabId, viewport } },
+      { channel: "zli:browser:set-viewport", payload: { browserTabId, viewport: null } },
+    ]);
+
+    const reveals: unknown[] = [];
+    const unsubscribe = api.browser.onReveal((event) => reveals.push(event));
+    listeners.get("zli:browser:reveal")?.({}, { browserTabId, worktreeId });
+    listeners.get("zli:browser:reveal")?.({}, { browserTabId: "not-a-tab" });
+    expect(reveals).toEqual([{ browserTabId, worktreeId }]);
+    unsubscribe();
+    expect(listeners.has("zli:browser:reveal")).toBe(false);
+  });
 });

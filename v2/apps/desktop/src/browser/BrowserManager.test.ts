@@ -1,6 +1,8 @@
+import { browserViewportForPreset } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
-import { BrowserManager, type BrowserViewFactory } from "./BrowserManager.js";
+import type { BrowserAutomation } from "./BrowserAutomation.js";
+import { BrowserManager, type BrowserViewFactory, emulationFor, fitViewport } from "./BrowserManager.js";
 
 const worktreeId = "00000000-0000-4000-8000-000000000001";
 const profileId = "00000000-0000-4000-8000-000000000002";
@@ -350,5 +352,157 @@ describe("BrowserManager", () => {
     await manager.activate(tab.browserTabId);
     expect(manager.hidden).toBe(false);
     expect(views[1]?.visible).toBe(true);
+  });
+});
+
+describe("BrowserManager device viewports and DevTools", () => {
+  function managerWithAutomation(order: string[] = []) {
+    const views: Array<ReturnType<typeof createFakeView>> = [];
+    const emulations: unknown[] = [];
+    const automation = {
+      start: async () => {
+        order.push("start");
+      },
+      emulate: async (emulation: unknown) => {
+        emulations.push(emulation);
+      },
+      dispose: () => undefined,
+    };
+    const manager = new BrowserManager(
+      {
+        create: () => {
+          const view = createFakeView("about:blank");
+          const load = view.webContents.loadURL;
+          view.webContents.loadURL = async (next: string) => {
+            order.push(`load ${next}`);
+            await load(next);
+          };
+          views.push(view);
+          return view;
+        },
+      },
+      { addChildView: () => undefined, removeChildView: () => undefined },
+      {
+        automationFactory: () => ({
+          cdp: {} as never,
+          automation: automation as unknown as BrowserAutomation,
+          designMode: {} as never,
+        }),
+      },
+    );
+    return { manager, views, emulations };
+  }
+
+  it("starts automation after the first load so a fresh view cannot stall it", async () => {
+    const order: string[] = [];
+    const { manager } = managerWithAutomation(order);
+    await manager.create({ worktreeId, profileId, url: "about:blank" });
+    expect(order).toEqual(["load about:blank", "start"]);
+  });
+
+  it("fits a device viewport inside the pane surface and scales input with it", async () => {
+    const { manager, views, emulations } = managerWithAutomation();
+    const tab = await manager.create({ worktreeId, profileId, url: "about:blank" });
+    await manager.setBounds(tab.browserTabId, { x: 100, y: 50, width: 700, height: 500 });
+    expect(views[0]?.bounds).toEqual({ x: 100, y: 50, width: 700, height: 500 });
+
+    const iphone = browserViewportForPreset("iphone-15");
+    const projection = await manager.setViewport(tab.browserTabId, iphone);
+    expect(projection.viewport).toEqual(iphone);
+    expect(views[0]?.bounds).toEqual({ x: 335, y: 50, width: 230, height: 500 });
+    expect(emulations).toHaveLength(1);
+    expect(emulations[0]).toMatchObject({ width: 393, height: 852, mobile: true, deviceScaleFactor: 3 });
+    expect((emulations[0] as { scale: number }).scale).toBeCloseTo(500 / 852);
+    expect((emulations[0] as { userAgent: string }).userAgent).toContain("iPhone");
+
+    // The same scale is not sent to Chromium again on every layout pass.
+    await manager.setBounds(tab.browserTabId, { x: 100, y: 50, width: 700, height: 500 });
+    expect(emulations).toHaveLength(1);
+    await manager.setBounds(tab.browserTabId, { x: 0, y: 0, width: 1200, height: 1000 });
+    expect(views[0]?.bounds).toEqual({ x: 403, y: 74, width: 393, height: 852 });
+    expect(emulations.at(-1)).toMatchObject({ scale: 1 });
+
+    const reset = await manager.setViewport(tab.browserTabId, null);
+    expect(reset.viewport).toBeUndefined();
+    expect(views[0]?.bounds).toEqual({ x: 0, y: 0, width: 1200, height: 1000 });
+    expect(emulations.at(-1)).toBeNull();
+  });
+
+  it("rejects invalid viewports", async () => {
+    const { manager } = managerWithAutomation();
+    const tab = await manager.create({ worktreeId, profileId, url: "about:blank" });
+    await expect(manager.setViewport(tab.browserTabId, { width: 0, height: 800, mobile: true })).rejects.toThrow();
+  });
+
+  it("places new tabs at the last pane surface the renderer reported", async () => {
+    const { manager, views } = managerWithAutomation();
+    const first = await manager.create({ worktreeId, profileId, url: "about:blank" });
+    await manager.setBounds(first.browserTabId, { x: 10, y: 20, width: 600, height: 400 });
+    await manager.create({ worktreeId, profileId, url: "about:blank" });
+    expect(views[1]?.bounds).toEqual({ x: 10, y: 20, width: 600, height: 400 });
+  });
+
+  it("opens DevTools detached and focuses the existing window on a second request", async () => {
+    const { manager, views } = managerWithAutomation();
+    const tab = await manager.create({ worktreeId, profileId, url: "about:blank" });
+    const contents = views[0]?.webContents as Record<string, unknown>;
+    const opened: unknown[] = [];
+    let focused = 0;
+    let open = false;
+    contents.openDevTools = (options: unknown) => {
+      opened.push(options);
+      open = true;
+    };
+    contents.isDevToolsOpened = () => open;
+    contents.devToolsWebContents = {
+      focus: () => {
+        focused += 1;
+      },
+    };
+
+    manager.openDevTools(tab.browserTabId);
+    manager.openDevTools(tab.browserTabId);
+
+    expect(opened).toEqual([{ mode: "detach", activate: true }]);
+    expect(focused).toBe(1);
+  });
+
+  it("reports whether history navigation was possible", async () => {
+    const { manager, views } = managerWithAutomation();
+    const tab = await manager.create({ worktreeId, profileId, url: "about:blank" });
+    expect(manager.back(tab.browserTabId)).toBe(false);
+    expect(manager.forward(tab.browserTabId)).toBe(false);
+    const contents = views[0]?.webContents as Record<string, unknown>;
+    let wentBack = false;
+    contents.canGoBack = () => true;
+    contents.goBack = () => {
+      wentBack = true;
+    };
+    expect(manager.back(tab.browserTabId)).toBe(true);
+    expect(wentBack).toBe(true);
+  });
+});
+
+describe("fitViewport and emulationFor", () => {
+  it("never upscales and keeps the device aspect ratio", () => {
+    expect(fitViewport({ x: 0, y: 0, width: 2000, height: 2000 }, { width: 400, height: 800 })).toEqual({
+      bounds: { x: 800, y: 600, width: 400, height: 800 },
+      scale: 1,
+    });
+    const fitted = fitViewport({ x: 0, y: 0, width: 200, height: 1000 }, { width: 400, height: 800 });
+    expect(fitted.scale).toBe(0.5);
+    expect(fitted.bounds).toEqual({ x: 0, y: 300, width: 200, height: 400 });
+  });
+
+  it("leaves the desktop user agent alone for non-mobile viewports", () => {
+    expect(emulationFor({ width: 1280, height: 800, mobile: false }, 1)).toEqual({
+      width: 1280,
+      height: 800,
+      mobile: false,
+      scale: 1,
+    });
+    expect(emulationFor({ preset: "pixel-8", width: 412, height: 915, mobile: true }, 1).userAgent).toContain(
+      "Android",
+    );
   });
 });

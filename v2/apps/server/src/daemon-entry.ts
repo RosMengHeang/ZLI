@@ -1,6 +1,6 @@
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
-import { dirname, resolve } from "node:path";
+import { delimiter, dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { TERMINAL_DAEMON_VERSION, TerminalId, WorktreeId } from "@zli-v2/contracts";
@@ -105,7 +105,8 @@ async function handle(client: Client, terminals: TerminalService, line: string):
       case "terminal.create": {
         if (request.argv !== undefined) throw new Error("Terminal launch does not accept argv.");
         const args = readLaunchArgs(request.args);
-        const envOverrides = readEnvOverrides(request.envOverrides);
+        const envOverrides = readEnvOverrides(request.envOverrides, request.worktreeId);
+        const pathPrepend = readPathPrepend(request.pathPrepend);
         const worktreePath = request.worktreePath;
         const cwd = request.cwd;
         const shell = request.shell;
@@ -122,6 +123,7 @@ async function handle(client: Client, terminals: TerminalService, line: string):
             shell,
             ...(args ? { args } : {}),
             ...(envOverrides ? { envOverrides } : {}),
+            ...(pathPrepend ? { pathPrepend } : {}),
             cols: Number(request.cols),
             rows: Number(request.rows),
             title: String(request.title),
@@ -171,8 +173,20 @@ async function streamSubscription(
 }
 
 const MAX_LAUNCH_ARGS = 32;
-const MAX_LAUNCH_ARG_LENGTH = 1_000;
-const ALLOWED_ENV_OVERRIDES = new Set(["TERM", "COLORTERM"]);
+const MAX_LAUNCH_ARG_LENGTH = 4_000;
+const MAX_PATH_LENGTH = 1_000;
+
+/**
+ * Terminal capability hints plus the browser tool's variables. Each value is checked narrowly:
+ * anything looser could redirect the child's tools.
+ */
+const ENV_OVERRIDE_RULES: Record<string, (value: string, worktreeId: unknown) => boolean> = {
+  TERM: (value) => value.length <= 100,
+  COLORTERM: (value) => value.length <= 100,
+  ZLI_WORKTREE_ID: (value, worktreeId) => value === worktreeId,
+  ZLI_BROWSER_CONTROL_FILE: (value) => value.length <= MAX_PATH_LENGTH && isAbsolute(value),
+  OPENCODE_CONFIG_CONTENT: (value) => value.length <= 16_000 && isJsonObject(value),
+};
 
 function readLaunchArgs(value: unknown): string[] | undefined {
   if (value === undefined) return undefined;
@@ -186,20 +200,44 @@ function readLaunchArgs(value: unknown): string[] | undefined {
   return value.length > 0 ? [...(value as string[])] : undefined;
 }
 
-/** Only terminal capability hints may be overridden; anything else could redirect the child's tools. */
-function readEnvOverrides(value: unknown): Record<string, string> | undefined {
+function readEnvOverrides(value: unknown, worktreeId: unknown): Record<string, string> | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Terminal environment overrides are invalid.");
   }
   const overrides: Record<string, string> = {};
   for (const [key, entry] of Object.entries(value)) {
-    if (!ALLOWED_ENV_OVERRIDES.has(key) || typeof entry !== "string" || entry.length > 100) {
+    const rule = Object.hasOwn(ENV_OVERRIDE_RULES, key) ? ENV_OVERRIDE_RULES[key] : undefined;
+    if (!rule || typeof entry !== "string" || entry.includes("\0") || !rule(entry, worktreeId)) {
       throw new Error(`Terminal environment override is not allowed: ${key}`);
     }
     overrides[key] = entry;
   }
   return overrides;
+}
+
+/** One absolute directory put first on PATH, used for the zli-browser shell shim. */
+function readPathPrepend(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (
+    typeof value !== "string" ||
+    value.length > MAX_PATH_LENGTH ||
+    !isAbsolute(value) ||
+    value.includes(delimiter) ||
+    value.includes("\0")
+  ) {
+    throw new Error("Terminal PATH addition is invalid.");
+  }
+  return value;
+}
+
+function isJsonObject(value: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
+  } catch {
+    return false;
+  }
 }
 
 function send(socket: Socket, message: unknown): void {

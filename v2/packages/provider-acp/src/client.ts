@@ -79,6 +79,14 @@ export type AcpChild = {
   kill(signal?: NodeJS.Signals): boolean;
 };
 
+/** ACP stdio MCP server passed in session/new; env is a list of name/value pairs. */
+export type AcpMcpServer = {
+  name: string;
+  command: string;
+  args: readonly string[];
+  env: ReadonlyArray<{ name: string; value: string }>;
+};
+
 export type AcpSpawnOptions = {
   cwd: string;
   env: NodeJS.ProcessEnv;
@@ -100,6 +108,8 @@ export type AcpClientOptions = {
   permissionMode?: AcpPermissionMode;
   /** Model selected at session start and kept for turns that do not name one. */
   model?: string;
+  /** MCP servers the agent connects to for this session only. */
+  mcpServers?: readonly AcpMcpServer[];
   requestTimeoutMs?: number;
   spawnProcess?: (command: string, args: readonly string[], options: AcpSpawnOptions) => AcpChild;
   readAttachment?: (path: string) => Promise<Buffer>;
@@ -206,7 +216,7 @@ export class AcpClient {
       options.readAttachment ?? ((path) => readFile(path)),
     );
     try {
-      await client.handshake(options.model?.trim() || undefined);
+      await client.handshake(options.model?.trim() || undefined, options.mcpServers ?? []);
     } catch (error) {
       await client.close();
       throw startError(error, command, displayName);
@@ -307,7 +317,7 @@ export class AcpClient {
     await this.connection.close();
   }
 
-  private async handshake(model: string | undefined): Promise<void> {
+  private async handshake(model: string | undefined, mcpServers: readonly AcpMcpServer[]): Promise<void> {
     const init = InitializeResult.safeParse(
       await this.connection.request("initialize", initializeParams(), this.timeoutMs),
     );
@@ -324,7 +334,7 @@ export class AcpClient {
     this.authDescription = init.data.authMethods?.find((method) => method.description?.trim())?.description?.trim();
     let created: unknown;
     try {
-      created = await this.connection.request("session/new", { cwd: this.cwd, mcpServers: [] }, this.timeoutMs);
+      created = await this.connection.request("session/new", { cwd: this.cwd, mcpServers }, this.timeoutMs);
     } catch (error) {
       if (isAuthError(error)) throw new AcpProviderError("auth_required", this.authMessage(error), { cause: error });
       throw error;

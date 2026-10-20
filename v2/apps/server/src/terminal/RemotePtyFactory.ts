@@ -28,6 +28,7 @@ export class RemotePtyFactory implements PtyFactory {
         shell: input.shell,
         ...(input.args && input.args.length > 0 ? { args: input.args } : {}),
         ...(input.envOverrides ? { envOverrides: input.envOverrides } : {}),
+        ...(input.pathPrepend ? { pathPrepend: input.pathPrepend } : {}),
         cols: input.cols,
         rows: input.rows,
       });
