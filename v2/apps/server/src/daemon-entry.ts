@@ -3,7 +3,7 @@ import { createServer, type Socket } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { TerminalId, WorktreeId } from "@zli-v2/contracts";
+import { TERMINAL_DAEMON_VERSION, TerminalId, WorktreeId } from "@zli-v2/contracts";
 
 import { NodePtyFactory } from "./terminal/NodePtyFactory.js";
 import { TerminalService } from "./terminal/TerminalService.js";
@@ -11,7 +11,7 @@ import { TerminalCwdError } from "./terminal/terminalCwd.js";
 
 const daemonEndpointFileMode = 0o600;
 const protocolVersion = Number.parseInt(process.env.ZLI_DAEMON_PROTOCOL_VERSION ?? "1", 10);
-const daemonVersion = process.env.ZLI_DAEMON_VERSION ?? "zli-v2-daemon/1";
+const daemonVersion = process.env.ZLI_DAEMON_VERSION ?? TERMINAL_DAEMON_VERSION;
 const token = process.env.ZLI_DAEMON_TOKEN;
 const endpointPath = process.env.ZLI_DAEMON_ENDPOINT_PATH;
 delete process.env.ZLI_DAEMON_TOKEN;

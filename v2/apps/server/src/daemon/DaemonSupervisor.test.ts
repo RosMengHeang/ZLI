@@ -9,7 +9,13 @@ import { DaemonConnection, DaemonSupervisor, type DaemonEndpoint } from "./Daemo
 const servers: Server[] = [];
 const directories: string[] = [];
 
-async function makeDaemon(endpointPath: string, token: string, protocolVersion = 1): Promise<DaemonEndpoint> {
+async function makeDaemon(
+  endpointPath: string,
+  token: string,
+  protocolVersion = 1,
+  daemonVersion = "test-daemon",
+  pid = process.pid,
+): Promise<DaemonEndpoint> {
   const server = createServer((socket) => {
     let input = "";
     socket.on("data", (chunk) => {
@@ -30,8 +36,8 @@ async function makeDaemon(endpointPath: string, token: string, protocolVersion =
   if (!address || typeof address === "string") throw new Error("server did not bind");
   const endpoint: DaemonEndpoint = {
     protocolVersion,
-    daemonVersion: "test-daemon",
-    pid: process.pid,
+    daemonVersion,
+    pid,
     host: "127.0.0.1",
     port: address.port,
     token,
@@ -130,5 +136,46 @@ describe("DaemonSupervisor", () => {
     expect(launchCount).toBe(1);
     expect(endpoint.protocolVersion).toBe(1);
     expect(endpoint.token).not.toBe("old-token");
+  });
+
+  it("stops a live daemon from another build instead of adopting it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "zli-daemon-test-"));
+    directories.push(directory);
+    const endpointPath = join(directory, "daemon.json");
+    await makeDaemon(endpointPath, "old-token", 1, "test-daemon/1", 4242);
+    const stopped: number[] = [];
+    const supervisor = new DaemonSupervisor({
+      endpointPath,
+      daemonVersion: "test-daemon/2",
+      launch: async ({ token }) => makeDaemon(endpointPath, token, 1, "test-daemon/2"),
+      stopProcess: (pid) => stopped.push(pid),
+      waitTimeoutMs: 500,
+    });
+
+    const endpoint = await supervisor.ensure();
+    expect(stopped).toEqual([4242]);
+    expect(endpoint.daemonVersion).toBe("test-daemon/2");
+    expect(endpoint.token).not.toBe("old-token");
+  });
+
+  it("leaves a stale endpoint's pid alone when nothing answers on its port", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "zli-daemon-test-"));
+    directories.push(directory);
+    const endpointPath = join(directory, "daemon.json");
+    const stale = await makeDaemon(endpointPath, "old-token", 1, "test-daemon/1", 4242);
+    const server = servers.pop();
+    if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
+    const stopped: number[] = [];
+    const supervisor = new DaemonSupervisor({
+      endpointPath,
+      daemonVersion: "test-daemon/2",
+      launch: async ({ token }) => makeDaemon(endpointPath, token, 1, "test-daemon/2"),
+      stopProcess: (pid) => stopped.push(pid),
+      waitTimeoutMs: 500,
+    });
+
+    await expect(supervisor.ensure()).resolves.toMatchObject({ daemonVersion: "test-daemon/2" });
+    expect(stopped).toEqual([]);
+    expect(stale.pid).toBe(4242);
   });
 });

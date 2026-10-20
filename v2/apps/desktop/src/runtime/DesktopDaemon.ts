@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { resolve } from "node:path";
 
+import { TERMINAL_DAEMON_VERSION } from "@zli-v2/contracts";
+
 type DaemonEndpoint = {
   protocolVersion: number;
   daemonVersion: string;
@@ -17,10 +19,16 @@ export async function ensureDesktopDaemon(options: {
   endpointPath: string;
   entryPath: string;
   timeoutMs?: number;
+  stopProcess?: (pid: number) => void;
 }): Promise<DaemonEndpoint> {
   const endpointPath = resolve(options.endpointPath);
   const existing = await readEndpoint(endpointPath);
-  if (existing && (await handshake(existing))) return existing;
+  if (existing && (await handshake(existing))) {
+    if (existing.daemonVersion === TERMINAL_DAEMON_VERSION) return existing;
+    // An older daemon rejects newer requests (agent launch arguments, for one), and once replaced
+    // its PTYs would keep running with nothing attached.
+    (options.stopProcess ?? stopProcess)(existing.pid);
+  }
 
   const token = randomBytes(32).toString("hex");
   const child = spawn(process.execPath, [resolve(options.entryPath)], {
@@ -32,7 +40,7 @@ export async function ensureDesktopDaemon(options: {
       ELECTRON_RUN_AS_NODE: "1",
       ZLI_DAEMON_ENDPOINT_PATH: endpointPath,
       ZLI_DAEMON_PROTOCOL_VERSION: "1",
-      ZLI_DAEMON_VERSION: "zli-v2-daemon/1",
+      ZLI_DAEMON_VERSION: TERMINAL_DAEMON_VERSION,
       ZLI_DAEMON_TOKEN: token,
     },
   });
@@ -116,13 +124,23 @@ function isEndpoint(value: unknown): value is DaemonEndpoint {
   const input = value as Partial<DaemonEndpoint>;
   return (
     input.protocolVersion === 1 &&
-    input.daemonVersion === "zli-v2-daemon/1" &&
+    typeof input.daemonVersion === "string" &&
     input.host === "127.0.0.1" &&
     typeof input.pid === "number" &&
     typeof input.port === "number" &&
     typeof input.token === "string" &&
     input.token.length > 0
   );
+}
+
+/** The pid is self-reported by a daemon that just proved it holds the endpoint token. */
+function stopProcess(pid: number): void {
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return;
+  try {
+    process.kill(pid);
+  } catch {
+    // Already exited.
+  }
 }
 
 function delay(milliseconds: number): Promise<void> {

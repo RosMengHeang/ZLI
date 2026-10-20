@@ -5,6 +5,8 @@ import { createConnection, type Socket } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { TERMINAL_DAEMON_VERSION } from "@zli-v2/contracts";
+
 export type DaemonEndpoint = {
   protocolVersion: number;
   daemonVersion: string;
@@ -27,6 +29,7 @@ type SupervisorOptions = {
   daemonVersion?: string;
   waitTimeoutMs?: number;
   launch?: (input: LaunchInput) => Promise<DaemonEndpoint | { pid: number }>;
+  stopProcess?: (pid: number) => void;
 };
 
 export class DaemonSupervisor {
@@ -35,21 +38,23 @@ export class DaemonSupervisor {
   private readonly daemonVersion: string;
   private readonly waitTimeoutMs: number;
   private readonly launchDaemon: (input: LaunchInput) => Promise<DaemonEndpoint | { pid: number }>;
+  private readonly stopProcess: (pid: number) => void;
 
   constructor(options: SupervisorOptions) {
     this.endpointPath = resolve(options.endpointPath);
     this.protocolVersion = options.protocolVersion ?? 1;
-    this.daemonVersion = options.daemonVersion ?? "zli-v2-daemon/1";
+    this.daemonVersion = options.daemonVersion ?? TERMINAL_DAEMON_VERSION;
     this.waitTimeoutMs = options.waitTimeoutMs ?? 5_000;
     this.launchDaemon = options.launch ?? defaultLaunch;
+    this.stopProcess = options.stopProcess ?? stopDaemonProcess;
   }
 
   async ensure(): Promise<DaemonEndpoint> {
     const existing = await this.readEndpoint();
-    const existingCompatible = existing ? this.isCompatible(existing) : false;
-    if (existing && existingCompatible) {
-      const handshake = await this.handshake(existing);
-      if (handshake) return existing;
+    if (existing && existing.host === "127.0.0.1" && (await this.handshake(existing))) {
+      if (this.isCompatible(existing)) return existing;
+      // A live daemon from another build would keep its PTYs running unseen once replaced.
+      this.stopProcess(existing.pid);
     }
 
     const token = randomBytes(32).toString("hex");
@@ -253,6 +258,16 @@ async function defaultLaunch(input: LaunchInput): Promise<{ pid: number }> {
   child.unref();
   if (!child.pid) throw new Error("Terminal daemon did not receive a process id.");
   return { pid: child.pid };
+}
+
+/** The pid is self-reported by a daemon that just proved it holds the endpoint token. */
+export function stopDaemonProcess(pid: number): void {
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return;
+  try {
+    process.kill(pid);
+  } catch {
+    // Already exited.
+  }
 }
 
 function isDaemonEndpoint(value: unknown): value is DaemonEndpoint {
