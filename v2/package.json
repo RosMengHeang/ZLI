@@ -24,7 +24,9 @@
   },
   "pnpm": {
     "overrides": {
-      "esbuild": "0.28.1"
+      "esbuild": "0.28.1",
+      "http-cache-semantics": "4.3.0",
+      "source-map-js": "1.2.2"
     }
   },
   "devDependencies": {
