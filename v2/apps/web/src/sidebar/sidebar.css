@@ -15,7 +15,7 @@
 .sidebar-empty { display: flex; flex-direction: column; align-items: flex-start; gap: var(--zli-space-3); padding: var(--zli-space-2) var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 .sidebar-empty p { margin: 0; }
 .sidebar-project + .sidebar-project { margin-top: var(--zli-space-4); }
-.project-label { display: flex; align-items: center; gap: var(--zli-space-2); height: var(--zli-control-md); padding: 0 var(--zli-space-1) 0 var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-sm); font-weight: 600; }
+.project-label { display: flex; align-items: center; gap: var(--zli-space-2); height: var(--zli-control-lg); padding: 0 var(--zli-space-1) 0 var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-base); font-weight: 600; }
 .project-label > svg { color: var(--zli-dim); }
 .project-name { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-text); text-overflow: ellipsis; white-space: nowrap; }
 .project-action { opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
@@ -24,14 +24,18 @@
 .sidebar-note.is-error { margin-left: 22px; color: var(--zli-red); overflow-wrap: anywhere; }
 
 .session-list, .worktree-list { margin: 0; padding: 0; list-style: none; }
+/* Agents hang off their project on a guide line, so the tree reads at a glance. */
+.sidebar-project > .session-list { margin-left: 15px; padding-left: var(--zli-space-1-5); border-left: 1px solid var(--zli-border); }
+.sidebar-project > .session-list + .worktree-heading { margin-top: var(--zli-space-3); }
 .session-entry, .worktree-entry { position: relative; }
 .session-row {
-  display: flex; align-items: center; gap: var(--zli-space-2-5); width: 100%; min-height: 40px; padding: 5px var(--zli-space-2) 5px var(--zli-space-3);
+  position: relative; display: flex; align-items: center; gap: var(--zli-space-2-5); width: 100%; min-height: 38px; padding: 4px var(--zli-space-2) 4px var(--zli-space-2-5);
   border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: pointer; text-align: left;
   transition: background-color var(--zli-duration-fast) var(--zli-ease);
 }
 .session-row:hover { background: var(--zli-hover); }
 .session-row.is-active { background: var(--zli-active); }
+.session-row.is-active::before { position: absolute; top: 9px; bottom: 9px; left: -7.5px; width: 2px; border-radius: 1px; background: var(--zli-accent); content: ""; }
 .session-row .provider-mark { color: var(--zli-dim); }
 .session-row:hover .provider-mark, .session-row.is-active .provider-mark { color: var(--zli-text); }
 .session-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
@@ -80,6 +84,10 @@
 .connection-dot { width: 6px; height: 6px; flex-basis: 6px; }
 .sidebar-help { margin-left: auto; }
 
+@media (max-width: 1240px) {
+  .sidebar { width: 236px; flex-basis: 236px; }
+}
 @media (max-width: 1080px) {
-  .sidebar { width: 224px; flex-basis: 224px; }
+  .sidebar { width: 216px; flex-basis: 216px; }
+  .session-time { display: none; }
 }
