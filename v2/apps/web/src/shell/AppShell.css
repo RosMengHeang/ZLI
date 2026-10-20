@@ -1,4 +1,5 @@
 @import "@zli-v2/ui/tokens.css";
+@import "@zli-v2/ui/primitives.css";
 
 /* ---------- Primitives ---------- */
 .primary-button, .secondary-button, .ghost-button {
@@ -30,14 +31,8 @@
 }
 .quiet-button:hover:not(:disabled) { background: var(--zli-hover); color: var(--zli-text); }
 .text-button { padding: 0; border: 0; background: none; color: var(--zli-text); cursor: pointer; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
-kbd {
-  display: inline-flex; align-items: center; height: 18px; padding: 0 5px; border: 1px solid var(--zli-border-strong);
-  border-radius: 4px; color: var(--zli-dim); font-family: inherit; font-size: 10.5px; font-weight: 500;
-}
-code { padding: 1px 5px; border-radius: 4px; background: var(--zli-raised); color: var(--zli-text); font-family: var(--zli-mono); font-size: .9em; }
 .eyebrow { color: var(--zli-dim); font-size: 11px; font-weight: 600; letter-spacing: .02em; }
 .pane-meta { color: var(--zli-muted); font-size: 12px; }
-input::placeholder, textarea::placeholder { color: var(--zli-dim); }
 .text-input, .inline-field input, .review-commit input, .field input, .field select {
   height: 32px; min-width: 0; padding: 0 10px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md);
   outline: none; background: var(--zli-canvas); color: var(--zli-text); font-size: 12.5px;
@@ -45,7 +40,6 @@ input::placeholder, textarea::placeholder { color: var(--zli-dim); }
 }
 .inline-field input:focus, .review-commit input:focus, .field input:focus, .field select:focus { border-color: var(--zli-accent-line); box-shadow: 0 0 0 3px var(--zli-accent-soft); }
 .inline-field input:focus-visible, .review-commit input:focus-visible, .field input:focus-visible, .field select:focus-visible { outline: none; }
-select { color-scheme: dark; }
 .field select:disabled { opacity: .5; }
 
 /* Status dots */
@@ -193,21 +187,12 @@ select { color-scheme: dark; }
 
 /* ---------- Shared pane chrome ---------- */
 .tool-pane { display: flex; height: 100%; min-height: 0; flex-direction: column; }
-.tool-pane-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 40px; flex: 0 0 auto; padding: 0 10px 0 14px; border-bottom: 1px solid var(--zli-border); }
-.tool-pane-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.tool-pane-title svg { color: var(--zli-muted); }
-.tool-pane-title h2 { margin: 0; color: var(--zli-text); font-size: 13px; font-weight: 600; white-space: nowrap; }
-.tool-pane-detail { min-width: 0; overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
-.tool-pane-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
-.empty-pane, .center-state { display: flex; align-items: center; justify-content: center; min-height: 220px; flex: 1; flex-direction: column; padding: 32px; text-align: center; }
+.center-state { display: flex; align-items: center; justify-content: center; min-height: 220px; flex: 1; flex-direction: column; padding: 32px; text-align: center; }
 .center-state { height: 100%; }
 .empty-icon { display: inline-grid; place-items: center; width: 42px; height: 42px; margin-bottom: 14px; border-radius: 11px; background: var(--zli-surface); color: var(--zli-muted); box-shadow: inset 0 0 0 1px var(--zli-border-strong); }
 .empty-title, .center-state h1 { margin: 0; color: var(--zli-text); font-size: 15px; font-weight: 600; letter-spacing: -.005em; }
 .empty-detail, .center-state p { max-width: 440px; margin: 6px 0 0; color: var(--zli-muted); font-size: 13px; line-height: 1.55; }
 .center-state .primary-button { height: 34px; margin-top: 18px; padding: 0 14px; }
-.inline-error { margin: 8px 14px; color: var(--zli-red); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
-.field-hint { color: var(--zli-dim); font-size: 11.5px; font-weight: 400; line-height: 1.45; }
-.field-hint.is-warning { color: var(--zli-amber); }
 
 /* ---------- Agent grid ---------- */
 .agent-grid-region { display: flex; min-height: 0; flex: 1; flex-direction: column; padding: 8px; }
@@ -361,7 +346,7 @@ select { color-scheme: dark; }
 .changed-files-more { padding: 4px 6px; color: var(--zli-dim); font-size: 11.5px; }
 
 /* Composer */
-.composer { padding: 10px 10px 8px 14px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-composer); background: var(--zli-raised); transition: border-color 120ms var(--zli-ease); }
+.composer { padding: 10px 10px 8px 14px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-raised); transition: border-color 120ms var(--zli-ease); }
 .composer:focus-within { border-color: rgba(255, 255, 255, .2); }
 .composer textarea { display: block; width: 100%; min-height: 40px; max-height: 220px; resize: none; padding: 2px 0 0; border: 0; outline: none; background: transparent; color: var(--zli-text); font-size: 13.5px; line-height: 1.55; field-sizing: content; }
 .composer textarea:focus-visible { outline: none; }
@@ -451,9 +436,7 @@ select { color-scheme: dark; }
 
 /* ---------- Dialogs and palette ---------- */
 .palette-backdrop { position: fixed; z-index: 10; inset: 0; display: flex; align-items: flex-start; justify-content: center; padding-top: 10vh; background: rgba(0, 0, 0, .6); }
-.dialog-scrim { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: default; }
-.dialog-scrim:focus-visible { outline: none; }
-.command-palette, .dialog, .worktree-dialog { position: relative; z-index: 1; max-height: calc(100vh - 10vh - 24px); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-xl); background: var(--zli-surface); box-shadow: var(--zli-shadow-pop); overflow: auto; }
+.command-palette, .worktree-dialog { position: relative; z-index: 1; max-height: calc(100vh - 10vh - 24px); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-surface); box-shadow: var(--zli-shadow-pop); overflow: auto; }
 .command-palette { display: flex; width: min(560px, calc(100vw - 32px)); flex-direction: column; overflow: hidden; }
 .palette-search { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--zli-border); color: var(--zli-dim); }
 .palette-search input { width: 100%; height: 48px; border: 0; outline: none; background: transparent; color: var(--zli-text); font-size: 14px; }
@@ -476,12 +459,8 @@ select { color-scheme: dark; }
 .check-field .choice-detail { overflow-wrap: anywhere; }
 .primary-button.is-danger { background: #b93f3f; color: #fff; }
 .primary-button.is-danger:hover:not(:disabled) { background: #c94a4a; }
-.dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 18px 14px 4px 20px; }
-.dialog-header h2 { margin: 0; color: var(--zli-text); font-size: 15px; font-weight: 600; }
-.dialog-subtitle { margin: 4px 0 0; color: var(--zli-muted); font-size: 12.5px; line-height: 1.5; }
+.dialog-header h2 { margin: 0; color: var(--zli-text); font-size: var(--zli-text-md); font-weight: 600; }
 .dialog-form { display: flex; flex-direction: column; gap: 16px; padding: 12px 20px 18px; }
-.field { display: flex; min-width: 0; flex-direction: column; gap: 6px; margin: 0; padding: 0; border: 0; }
-.field-label { padding: 0; color: var(--zli-text); font-size: 12.5px; font-weight: 500; }
 .field input { height: 34px; font-family: var(--zli-mono); }
 .field select { height: 34px; }
 .field-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -548,7 +527,7 @@ select { color-scheme: dark; }
 }
 
 @media (max-width: 1240px) {
-  .tool-pane-detail, .tile-branch { display: none; }
+  .pane-detail, .tile-branch { display: none; }
 }
 @media (max-width: 1080px) {
   .sidebar { width: 224px; flex-basis: 224px; }
@@ -557,4 +536,3 @@ select { color-scheme: dark; }
   .tool-toggle span { display: none; }
   .segmented button span { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }

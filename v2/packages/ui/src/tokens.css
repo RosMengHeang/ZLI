@@ -1,58 +1,140 @@
+/*
+ * ZLI design tokens. Every color, size, and duration in the renderer comes from this file;
+ * component styles reference these variables instead of raw values.
+ */
 :root {
   color-scheme: dark;
-  font-family: "Inter Variable", Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  font-size: 13px;
-  font-feature-settings: "cv11", "ss01", "ss03";
-  font-synthesis: none;
-  -webkit-font-smoothing: antialiased;
-  --zli-canvas: #0a0a0a;
-  --zli-sidebar: #0d0d0d;
-  --zli-surface: #111111;
-  --zli-raised: #171717;
-  --zli-overlay: #1c1c1c;
-  --zli-terminal: #0c0c0c;
-  --zli-hover: rgba(255, 255, 255, .045);
-  --zli-active: rgba(255, 255, 255, .075);
-  --zli-border: rgba(255, 255, 255, .065);
-  --zli-border-strong: rgba(255, 255, 255, .11);
-  --zli-text: #f5f5f5;
-  --zli-muted: #8a8a8a;
-  --zli-dim: #5e5e5e;
+
+  /* Surfaces, from the deepest layer up. */
+  --zli-canvas: #0b0b0c;
+  --zli-sidebar: #0e0e0f;
+  --zli-surface: #121213;
+  --zli-raised: #19191a;
+  --zli-overlay: #202022;
+  --zli-terminal: #0b0b0c;
+
+  /* Interaction fills drawn over any surface. */
+  --zli-hover: rgba(255, 255, 255, .05);
+  --zli-active: rgba(255, 255, 255, .085);
+  --zli-pressed: rgba(255, 255, 255, .11);
+
+  /* Hairlines. */
+  --zli-border: rgba(255, 255, 255, .07);
+  --zli-border-strong: rgba(255, 255, 255, .12);
+  --zli-border-hover: rgba(255, 255, 255, .2);
+
+  /*
+   * Text. Each step keeps WCAG AA (4.5:1) on every surface above, including --zli-overlay.
+   * --zli-disabled is only for disabled controls and decorative glyphs, never for readable copy.
+   */
+  --zli-text: #ededed;
+  --zli-muted: #a3a3a3;
+  --zli-dim: #858585;
+  --zli-disabled: #5c5c5c;
+
+  /* The one accent: primary actions, focus, and the selected agent. */
   --zli-accent: oklch(.571 .21 264);
   --zli-accent-hover: oklch(.62 .2 264);
+  --zli-accent-pressed: oklch(.53 .2 264);
   --zli-accent-ink: #ffffff;
   --zli-accent-soft: oklch(.571 .21 264 / .14);
-  --zli-accent-line: oklch(.571 .21 264 / .55);
-  --zli-blue: oklch(.74 .13 264);
-  --zli-green: #4fbf7f;
-  --zli-amber: #e0b05a;
-  --zli-red: #ec7272;
-  --zli-green-soft: rgba(79, 191, 127, .12);
-  --zli-amber-soft: rgba(224, 176, 90, .12);
-  --zli-red-soft: rgba(236, 114, 114, .12);
-  --zli-blue-soft: oklch(.74 .13 264 / .12);
-  --zli-focus: oklch(.62 .2 264 / .75);
+  --zli-accent-line: oklch(.62 .2 264 / .6);
+  --zli-focus: oklch(.66 .19 264 / .9);
+
+  /* Status colors carry process and Git meaning only. */
+  --zli-blue: oklch(.76 .12 264);
+  --zli-green: #57c487;
+  --zli-amber: #e3b45f;
+  --zli-red: #ef7b7b;
+  --zli-blue-soft: oklch(.76 .12 264 / .13);
+  --zli-green-soft: rgba(87, 196, 135, .13);
+  --zli-amber-soft: rgba(227, 180, 95, .13);
+  --zli-red-soft: rgba(239, 123, 123, .13);
+  --zli-red-line: rgba(239, 123, 123, .32);
+  --zli-amber-line: rgba(227, 180, 95, .32);
+  --zli-danger: #c2413f;
+  --zli-danger-hover: #d14d4b;
+
+  /* Spacing: a 4px scale. */
+  --zli-space-0-5: 2px;
+  --zli-space-1: 4px;
+  --zli-space-1-5: 6px;
+  --zli-space-2: 8px;
+  --zli-space-3: 12px;
+  --zli-space-4: 16px;
+  --zli-space-5: 20px;
+  --zli-space-6: 24px;
+  --zli-space-8: 32px;
+  --zli-space-10: 40px;
+
+  /* Type. */
+  --zli-font: "Inter Variable", Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --zli-mono: "JetBrains Mono Variable", "JetBrains Mono", "SFMono-Regular", "Cascadia Mono", Consolas, monospace;
+  --zli-text-2xs: 10.5px;
+  --zli-text-xs: 11px;
+  --zli-text-sm: 12px;
+  --zli-text-base: 13px;
+  --zli-text-md: 14px;
+  --zli-text-lg: 16px;
+  --zli-text-xl: 20px;
+  --zli-leading-tight: 1.3;
+  --zli-leading-normal: 1.5;
+  --zli-leading-relaxed: 1.65;
+
+  /* Control heights. */
+  --zli-control-xs: 20px;
+  --zli-control-sm: 24px;
+  --zli-control-md: 28px;
+  --zli-control-lg: 32px;
+
+  /* Chrome rows. */
+  --zli-bar-height: 44px;
+  --zli-pane-header: 40px;
+  --zli-toolbar: 36px;
+
+  /* Radii: small on controls, larger on containers. Pills only for counts. */
   --zli-radius-xs: 4px;
   --zli-radius-sm: 6px;
   --zli-radius-md: 8px;
-  --zli-radius-lg: 10px;
-  --zli-radius-xl: 16px;
-  --zli-radius-composer: 22px;
-  --zli-shadow-pop: 0 0 0 1px rgba(0, 0, 0, .5), 0 16px 40px rgba(0, 0, 0, .6), 0 2px 8px rgba(0, 0, 0, .4);
-  --zli-mono: "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  --zli-radius-lg: 12px;
+  --zli-radius-pill: 999px;
+
+  /* Elevation: popovers and dialogs only. Panes and tiles sit flat. */
+  --zli-shadow-pop: 0 0 0 1px rgba(0, 0, 0, .45), 0 8px 24px rgba(0, 0, 0, .5);
+  --zli-shadow-dialog: 0 0 0 1px rgba(0, 0, 0, .5), 0 24px 64px rgba(0, 0, 0, .6);
+
+  /* Motion. */
   --zli-ease: cubic-bezier(.2, 0, 0, 1);
+  --zli-duration-fast: 100ms;
+  --zli-duration-base: 160ms;
+
+  /* Stacking. */
+  --zli-z-dialog: 20;
+  --zli-z-tooltip: 40;
+
+  font-family: var(--zli-font);
+  font-size: var(--zli-text-base);
+  font-feature-settings: "cv11", "ss01", "ss03";
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
 }
 
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; }
-body { overflow: hidden; background: var(--zli-canvas); color: var(--zli-text); line-height: 1.45; }
+body { overflow: hidden; background: var(--zli-canvas); color: var(--zli-text); line-height: var(--zli-leading-normal); }
 button, input, textarea, select { font: inherit; letter-spacing: inherit; }
-::selection { background: oklch(.571 .21 264 / .35); }
-* { scrollbar-color: rgba(255, 255, 255, .12) transparent; scrollbar-width: thin; }
 button { color: inherit; }
 svg { flex: 0 0 auto; }
-button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
-  outline: 2px solid var(--zli-focus);
-  outline-offset: 1px;
-}
+::selection { background: oklch(.571 .21 264 / .38); }
+* { scrollbar-color: rgba(255, 255, 255, .14) transparent; scrollbar-width: thin; }
+input::placeholder, textarea::placeholder { color: var(--zli-dim); opacity: 1; }
+select { color-scheme: dark; }
+code { padding: 1px 5px; border-radius: var(--zli-radius-xs); background: var(--zli-raised); color: var(--zli-text); font-family: var(--zli-mono); font-size: .9em; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* One focus ring for everything that takes keyboard focus. Fields replace it with their own border ring. */
+:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}

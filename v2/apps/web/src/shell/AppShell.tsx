@@ -28,6 +28,7 @@ import { Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 import { PaneHeader } from "../ui/Pane.js";
+import { TooltipLayer } from "../ui/Tooltip.js";
 import { PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
 import { HelpDialog } from "./HelpDialog.js";
 import "./AppShell.css";
@@ -993,6 +994,7 @@ function WorkspaceApp() {
             onSubmit={submitNewAgent}
           />
         )}
+        <TooltipLayer />
       </div>
     </FileIndexProvider>
   );
