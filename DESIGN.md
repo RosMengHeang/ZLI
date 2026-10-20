@@ -50,12 +50,14 @@ not cover, add it to the primitives instead of styling it locally.
 
 ## Typography
 
-- No fonts are bundled. The UI asks for Inter and falls back to Segoe UI
-  Variable, then the system UI font, so ZLI looks native when Inter is not
-  installed.
-- Monospace asks for JetBrains Mono, then SFMono-Regular, Cascadia Mono, and
-  Consolas. It is used for paths, branches, diffs, timestamps, and terminal
-  output.
+- Inter and JetBrains Mono ship with the app as variable fonts
+  (`@fontsource-variable/inter` and `@fontsource-variable/jetbrains-mono`),
+  so every machine renders the same type. Segoe UI Variable, the system UI
+  font, SFMono-Regular, Cascadia Mono, and Consolas remain as fallbacks.
+- Monospace is used for paths, branches, diffs, timestamps, and terminal
+  output. Code, diffs, the editor, and terminals turn ligatures off so
+  operators such as `!=` and `=>` read as typed. The terminal measures its
+  cells again once the bundled font has loaded.
 - The type scale runs from 10.5px to 20px. Body copy and controls are 13px;
   dense lists and metadata use 11px to 12px. Tabular numbers are used wherever
   counts or sizes line up.
@@ -65,7 +67,8 @@ not cover, add it to the primitives instead of styling it locally.
 - Spacing uses a 4px scale with 2px, 6px, and 10px half-steps for dense
   chrome.
 - Controls come in four heights: 20, 24, 28, and 32px. The top bar is 44px,
-  pane headers 40px, and toolbars 36px, so the rows line up across panels.
+  pane headers 40px, and toolbars and agent tile headers 36px, so the rows
+  line up across panels.
 - Radii are 4 to 8px on controls and 12px on dialogs and large containers.
   Pills are only for counts.
 
@@ -73,15 +76,33 @@ not cover, add it to the primitives instead of styling it locally.
 
 - The left sidebar is the home for projects, agents, and worktrees.
   Collapsing it removes it completely so the workbench gets the full width.
-- Agent rows sit under their project with the provider mark. A row shows a
-  status badge only when the agent needs attention or is starting. Otherwise
-  it shows how recently the agent was active.
-- The center is a grid of agent tiles. Each tile switches between the agent's
-  terminal and a chat view, can be maximized, and docks a restart bar when
-  its process ends.
+  It is 256px wide, 236px under 1240px, and 216px under 1080px.
+- Agent rows hang off their project on a guide line, with the provider mark.
+  The selected agent gets an accent bar on that line. A row shows a status
+  badge only when the agent needs attention or is starting. Otherwise it
+  shows how recently the agent was active.
+- The top bar is a toolbar: a breadcrumb (project, branch chip, agent count)
+  on the left, then one bordered group of panel toggles with Terminal split
+  from Files, Browser, and Changes, then the command palette trigger. Under
+  1080px the toggles and the trigger show icons only.
+- The center is a grid of agent tiles. Columns follow the agent count (one,
+  two, three, then four) but drop before a tile would fall under 380px, so a
+  narrow grid stacks agents into rows of at least 260px and scrolls past
+  that. Each tile switches between the agent's terminal and a chat view, can
+  be maximized, and docks a restart bar when its process ends.
+- A tile header shows the provider mark in a small chip, the title, a branch
+  chip, and the status, then the view switch and the window actions. The
+  active tile has an accent border and a raised header.
+- Chats follow Codex and T3 Code: user messages are right-aligned bubbles,
+  replies are plain text in a centered column, and the log fades out above
+  the composer. Tiles under 520px use smaller gutters and 13px text.
 - Terminal, Files, Browser, and Changes open from the top bar. Files,
-  Browser, and Changes share one resizable column on the right. The terminal
-  drawer sits under the grid. Panels never float over the agent grid.
+  Browser, and Changes share one resizable column on the right, and each
+  remembers its own width. Files opens at 640px so the tree fits beside the
+  editor, Browser at 560px, and Changes at 520px, each capped at 45% of the
+  window. Panels never float over the agent grid.
+- The terminal drawer starts closed. Opened without a shell, it is a single
+  row with Start terminal; once a shell runs it takes its remembered height.
 - Every panel starts with the same pane header: icon, title, context, then
   actions. Toolbars below it use the same height and control sizes.
 
