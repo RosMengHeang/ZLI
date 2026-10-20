@@ -135,7 +135,9 @@ export function AgentTile({
       onMouseDown={onFocus}
     >
       <header className="tile-header">
-        <ProviderMark provider={session.provider} size={15} />
+        <span className="tile-mark" aria-hidden="true">
+          <ProviderMark provider={session.provider} size={13} />
+        </span>
         <span className="tile-title" title={title}>
           {title}
         </span>
@@ -154,7 +156,10 @@ export function AgentTile({
         </Badge>
         <span className="tile-spacer" />
         {session.pending && !terminal && !thread ? null : (
-          <Segmented label="View" className="tile-modes" value={mode} options={modeOptions} onChange={onModeChange} />
+          <>
+            <Segmented label="View" className="tile-modes" value={mode} options={modeOptions} onChange={onModeChange} />
+            <span className="toolbar-divider tile-divider" aria-hidden="true" />
+          </>
         )}
         <span className="tile-actions">
           {mode === "chat" && (thread?.status === "working" || thread?.status === "waiting") ? (

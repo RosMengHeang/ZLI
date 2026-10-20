@@ -8,11 +8,18 @@
   transition: border-color var(--zli-duration-base) var(--zli-ease);
 }
 .agent-tile.is-active { border-color: var(--zli-accent-line); }
-.tile-header { display: flex; align-items: center; gap: var(--zli-space-2); height: var(--zli-pane-header); flex: 0 0 auto; padding: 0 var(--zli-space-1-5) 0 var(--zli-space-3); border-bottom: 1px solid var(--zli-border); }
-.tile-header > .provider-mark { color: var(--zli-dim); }
-.agent-tile.is-active .tile-header > .provider-mark { color: var(--zli-text); }
-.tile-title { min-width: 40px; flex: 0 1 auto; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.tile-branch { display: inline-flex; min-width: 0; flex: 0 100 auto; align-items: center; gap: var(--zli-space-1); overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); white-space: nowrap; }
+.tile-header {
+  display: flex; align-items: center; gap: var(--zli-space-2); height: var(--zli-toolbar); flex: 0 0 auto; padding: 0 var(--zli-space-1) 0 var(--zli-space-2);
+  border-bottom: 1px solid var(--zli-border); background: var(--zli-surface);
+  transition: background-color var(--zli-duration-base) var(--zli-ease);
+}
+.agent-tile.is-active .tile-header { background: var(--zli-raised); }
+.tile-mark { display: inline-grid; place-items: center; width: 22px; height: 22px; flex: 0 0 22px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); background: var(--zli-canvas); color: var(--zli-muted); }
+.agent-tile.is-active .tile-mark { border-color: var(--zli-border-strong); color: var(--zli-text); }
+.tile-title { min-width: 40px; flex: 0 1 auto; overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-base); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.agent-tile.is-active .tile-title { color: var(--zli-text); }
+.tile-branch { display: inline-flex; min-width: 0; flex: 0 100 auto; align-items: center; gap: var(--zli-space-1); height: 20px; padding: 0 var(--zli-space-1-5); overflow: hidden; border-radius: var(--zli-radius-xs); background: var(--zli-hover); color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); white-space: nowrap; }
+.tile-divider { height: 14px; margin: 0 var(--zli-space-0-5); }
 .tile-branch span { overflow: hidden; text-overflow: ellipsis; }
 .tile-spacer { flex: 1; }
 .tile-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 1px; }
