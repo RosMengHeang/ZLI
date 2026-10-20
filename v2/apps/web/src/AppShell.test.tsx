@@ -64,6 +64,28 @@ const discovered: RuntimeProjection = {
   ],
 };
 
+const agentSessionId = "00000000-0000-4000-8000-000000000201";
+const agentTerminalId = "00000000-0000-4000-8000-000000000301";
+
+const withAgent: RuntimeProjection = {
+  ...discovered,
+  terminals: [
+    {
+      terminalId: agentTerminalId,
+      worktreeId,
+      title: "Claude Code",
+      status: "running",
+      kind: "agent",
+      agent: { provider: "claude-code", permissionMode: "full-access" },
+      sessionId: agentSessionId,
+    } as RuntimeProjection["terminals"][number],
+  ],
+};
+
+function commands(dispatched: unknown[]): Record<string, unknown>[] {
+  return dispatched.map((request) => (request as { command: Record<string, unknown> }).command);
+}
+
 function firstBrowserTab() {
   const browserTab = projection.browserTabs[0];
   if (!browserTab) throw new Error("The test projection has no browser tab.");
@@ -196,11 +218,13 @@ describe("AppShell", () => {
     });
     const dialog = container.querySelector('[role="dialog"][aria-label="New agent"]');
     expect(dialog).not.toBeNull();
-    const codex = dialog?.querySelector<HTMLInputElement>('input[value="codex"]');
     const claude = dialog?.querySelector<HTMLInputElement>('input[value="claude-code"]');
-    expect(codex?.disabled).toBe(true);
     expect(claude?.checked).toBe(true);
-    expect(dialog?.textContent).not.toContain("OpenCode");
+    expect(dialog?.querySelector('input[value="codex"]')).toBeNull();
+    await act(async () => {
+      button(container, "Show 1 not installed")?.click();
+    });
+    expect(dialog?.querySelector<HTMLInputElement>('input[value="codex"]')?.disabled).toBe(true);
     await act(async () => {
       button(container, "Start agent")?.click();
     });
@@ -218,21 +242,6 @@ describe("AppShell", () => {
   });
 
   it("shows running agent terminals as tiles and sidebar rows grouped under the project", async () => {
-    const sessionId = "00000000-0000-4000-8000-000000000201";
-    const withAgent: RuntimeProjection = {
-      ...discovered,
-      terminals: [
-        {
-          terminalId: "00000000-0000-4000-8000-000000000301",
-          worktreeId,
-          title: "Claude Code",
-          status: "running",
-          kind: "agent",
-          agent: { provider: "claude-code", permissionMode: "full-access" },
-          sessionId,
-        } as RuntimeProjection["terminals"][number],
-      ],
-    };
     const container = await render(makeBridge(withAgent));
     expect(container.querySelectorAll(".agent-tile")).toHaveLength(1);
     expect(container.querySelector('[aria-label="Claude Code terminal"]')).not.toBeNull();
@@ -240,11 +249,77 @@ describe("AppShell", () => {
     await act(async () => {
       button(container, "Close tile")?.click();
     });
+    expect(container.querySelector('[role="dialog"][aria-label="Close agent"]')).not.toBeNull();
+    await act(async () => {
+      button(container, "Keep running")?.click();
+    });
     expect(container.querySelectorAll(".agent-tile")).toHaveLength(0);
     expect(container.textContent).toContain("Pick an agent in the sidebar");
+    expect(container.querySelector(".session-row")?.getAttribute("aria-label")).toBe(
+      "Claude Code, Claude Code, Ready, in the background",
+    );
     await act(async () => {
       container.querySelector<HTMLButtonElement>(".session-row")?.click();
     });
     expect(container.querySelectorAll(".agent-tile")).toHaveLength(1);
+  });
+
+  it("stops the agent when closing its tile with Stop and close", async () => {
+    const dispatched: unknown[] = [];
+    const container = await render(makeBridge(withAgent, dispatched));
+    await act(async () => {
+      button(container, "Close tile")?.click();
+    });
+    await act(async () => {
+      button(container, "Stop and close")?.click();
+    });
+    expect(container.querySelectorAll(".agent-tile")).toHaveLength(0);
+    expect(commands(dispatched)).toContainEqual({ type: "terminal.stop", terminalId: agentTerminalId });
+  });
+
+  it("deletes a running agent for good", async () => {
+    const dispatched: unknown[] = [];
+    const container = await render(makeBridge(withAgent, dispatched));
+    await act(async () => {
+      button(container, "Delete Claude Code")?.click();
+    });
+    const dialog = container.querySelector('[role="dialog"][aria-label="Delete agent"]');
+    expect(dialog?.textContent).toContain("Stops Claude Code");
+    await act(async () => {
+      button(container, "Delete agent")?.click();
+    });
+    expect(container.querySelector('[role="dialog"][aria-label="Delete agent"]')).toBeNull();
+    const sent = commands(dispatched);
+    expect(sent).toContainEqual({ type: "session.delete", sessionId: agentSessionId });
+    expect(sent.some((command) => command.type === "worktree.remove")).toBe(false);
+  });
+
+  it("deletes a stopped agent with its worktree when asked", async () => {
+    const dispatched: unknown[] = [];
+    const stopped: RuntimeProjection = {
+      ...withAgent,
+      terminals: withAgent.terminals.map((terminal) => ({ ...terminal, status: "exited" as const })),
+    };
+    const container = await render(makeBridge(stopped, dispatched));
+    await act(async () => {
+      button(container, "Delete Claude Code")?.click();
+    });
+    const dialog = container.querySelector('[role="dialog"][aria-label="Delete agent"]');
+    expect(dialog?.textContent).not.toContain("Stops");
+    const checkbox = dialog?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    expect(checkbox).not.toBeNull();
+    await act(async () => {
+      checkbox?.click();
+    });
+    await act(async () => {
+      button(container, "Delete agent and worktree")?.click();
+    });
+    expect(container.querySelector('[role="dialog"][aria-label="Delete agent"]')).toBeNull();
+    const sent = commands(dispatched);
+    expect(sent).toContainEqual({ type: "session.delete", sessionId: agentSessionId });
+    expect(sent).toContainEqual({ type: "worktree.remove", worktreeId, force: true });
+    expect(sent.findIndex((command) => command.type === "session.delete")).toBeLessThan(
+      sent.findIndex((command) => command.type === "worktree.remove"),
+    );
   });
 });

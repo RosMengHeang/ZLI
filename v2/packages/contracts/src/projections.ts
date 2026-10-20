@@ -122,6 +122,33 @@ export type RuntimeProjection = z.infer<typeof RuntimeProjection>;
 const MAX_PROJECTED_MESSAGES = 2_000;
 const MAX_PROJECTED_ACTIVITIES = 4_000;
 
+/** Drops a deleted session's terminals and threads, and everything recorded for those threads. */
+export function removeSession(
+  projection: RuntimeProjection,
+  terminalIds: readonly string[],
+  threadIds: readonly string[],
+): RuntimeProjection {
+  const terminals = new Set(terminalIds);
+  const threads = new Set(threadIds);
+  const requests = projection.requests ?? [];
+  const removedRequests = new Set(
+    requests.filter((request) => threads.has(request.threadId)).map((request) => `thread-request:${request.requestId}`),
+  );
+  return {
+    ...projection,
+    terminals: projection.terminals.filter((terminal) => !terminals.has(terminal.terminalId)),
+    threads: projection.threads.filter((thread) => !threads.has(thread.threadId)),
+    ...(projection.messages
+      ? { messages: projection.messages.filter((message) => !threads.has(message.threadId)) }
+      : {}),
+    ...(projection.activities
+      ? { activities: projection.activities.filter((activity) => !threads.has(activity.threadId)) }
+      : {}),
+    ...(projection.requests ? { requests: requests.filter((request) => !threads.has(request.threadId)) } : {}),
+    attention: projection.attention.filter((item) => !removedRequests.has(item.id)),
+  };
+}
+
 /** Streamed assistant text for one turn extends that turn's bubble instead of adding a new one. */
 export function appendThreadMessage(
   messages: readonly ThreadMessageProjection[],

@@ -2,6 +2,7 @@ import type {
   PermissionMode,
   ProviderCapabilities,
   ProviderDiscovery,
+  ProviderKind,
   ThreadAttachment,
   ThreadId,
 } from "@zli-v2/contracts";
@@ -9,7 +10,7 @@ import type {
 import { type CliProbe, createDefaultCliProbe, discoverCliProviders } from "./discoverCliProviders.js";
 import type { ProviderActivity } from "./toolActivity.js";
 
-export type ProviderKind = "codex" | "claude-code" | "cursor-agent" | "droid" | "opencode";
+export type { ProviderKind };
 
 export type ProviderSession = {
   threadId: ThreadId;

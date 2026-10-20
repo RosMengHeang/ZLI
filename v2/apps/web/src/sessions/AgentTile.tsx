@@ -8,7 +8,13 @@ import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { TerminalView } from "../terminal/TerminalView.js";
 import { Icon } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
-import { type AgentSession, type SessionMode, sessionStatusLabel, sessionTitle } from "./sessions.js";
+import {
+  type AgentSession,
+  type SessionMode,
+  sessionStatusLabel,
+  sessionStopCommands,
+  sessionTitle,
+} from "./sessions.js";
 
 export function AgentTile({
   projection,
@@ -21,6 +27,7 @@ export function AgentTile({
   onModeChange,
   onFocus,
   onToggleMaximize,
+  onStop,
   onClose,
   onOpenDiff,
   onStart,
@@ -37,6 +44,7 @@ export function AgentTile({
   onModeChange(mode: SessionMode): void;
   onFocus(): void;
   onToggleMaximize(): void;
+  onStop(): void;
   onClose(): void;
   onOpenDiff(path?: string): void;
   onStart(mode: SessionMode): Promise<string | undefined>;
@@ -52,7 +60,6 @@ export function AgentTile({
   const terminal = session.terminal;
   const thread = session.thread;
   const terminalLive = terminal?.status === "running" || terminal?.status === "starting";
-  const threadLive = thread !== undefined && thread.status !== "stopped" && thread.status !== "failed";
 
   const send = useCallback(
     async (command: Record<string, unknown>): Promise<RpcResponse | undefined> => {
@@ -76,13 +83,6 @@ export function AgentTile({
     setBusy(false);
   };
 
-  const stop = () => {
-    setError(undefined);
-    if (mode === "terminal" && terminal && terminalLive)
-      void send({ type: "terminal.stop", terminalId: terminal.terminalId });
-    else if (mode === "chat" && thread && threadLive) void send({ type: "thread.stop", threadId: thread.threadId });
-  };
-
   const interrupt = () => {
     if (!thread) return;
     void send({
@@ -92,7 +92,7 @@ export function AgentTile({
     });
   };
 
-  const canStop = (mode === "terminal" && terminalLive) || (mode === "chat" && threadLive);
+  const canStop = sessionStopCommands(session).length > 0;
 
   return (
     <section
@@ -152,7 +152,16 @@ export function AgentTile({
             </button>
           ) : null}
           {canStop ? (
-            <button className="icon-button" type="button" aria-label="Stop agent" title="Stop agent" onClick={stop}>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="Stop agent"
+              title="Stop agent (terminal and chat)"
+              onClick={() => {
+                setError(undefined);
+                onStop();
+              }}
+            >
               <Icon name="square" size={12} />
             </button>
           ) : null}
@@ -167,13 +176,7 @@ export function AgentTile({
               <Icon name={maximized ? "minimize" : "maximize"} size={13} />
             </button>
           ) : null}
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="Close tile"
-            title="Close tile (keeps running)"
-            onClick={onClose}
-          >
+          <button className="icon-button" type="button" aria-label="Close tile" title="Close tile" onClick={onClose}>
             <Icon name="x" size={14} />
           </button>
         </span>

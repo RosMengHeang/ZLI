@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@zli-v2/contracts": "workspace:*",
+    "@zli-v2/provider-acp": "workspace:*",
     "@zli-v2/provider-claude-code": "workspace:*",
     "@zli-v2/provider-codex": "workspace:*",
     "@zli-v2/provider-cursor-agent": "workspace:*",

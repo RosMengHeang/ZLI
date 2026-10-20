@@ -6,6 +6,7 @@ import {
   type RuntimeEvent,
   type RuntimeEventEnvelope,
   type RuntimeProjection,
+  SessionId,
   TerminalId,
   ThreadId,
   WorktreeId,
@@ -236,5 +237,87 @@ describe("terminal cwd", () => {
     expect(() => decide(projection("C:/Work/Tree"), terminalCreate("C:../Outside"))).toThrowError(
       expect.objectContaining({ code: "terminal_cwd_rejected" }),
     );
+  });
+});
+
+describe("session delete", () => {
+  const sessionId = SessionId.parse("00000000-0000-4000-8000-000000000410");
+  const agentTerminal = TerminalId.parse("00000000-0000-4000-8000-000000000411");
+  const drawerShell = TerminalId.parse("00000000-0000-4000-8000-000000000412");
+  const otherShell = TerminalId.parse("00000000-0000-4000-8000-000000000416");
+  const chatThread = ThreadId.parse("00000000-0000-4000-8000-000000000413");
+  const legacyThread = ThreadId.parse("00000000-0000-4000-8000-000000000414");
+
+  function populated(): RuntimeProjection {
+    const base = projection("/repo/tree");
+    return {
+      ...base,
+      terminals: [
+        {
+          terminalId: agentTerminal,
+          worktreeId,
+          title: "Cursor",
+          status: "exited",
+          lastSequence: 3,
+          kind: "agent",
+          agent: { provider: "cursor-agent" },
+          sessionId,
+        },
+        { terminalId: drawerShell, worktreeId, title: "shell", status: "running", lastSequence: 0, sessionId },
+        { terminalId: otherShell, worktreeId, title: "shell", status: "running", lastSequence: 0 },
+      ],
+      threads: [
+        { threadId: chatThread, worktreeId, provider: "cursor-agent", status: "idle", capabilities: {}, sessionId },
+        { threadId: legacyThread, worktreeId, provider: "codex", status: "stopped", capabilities: {} },
+      ],
+      messages: [
+        { messageId: "m1", threadId: chatThread, role: "user", text: "hi" },
+        { messageId: "m2", threadId: legacyThread, role: "user", text: "old" },
+      ],
+      activities: [{ activityId: "a1", threadId: chatThread, kind: "command", title: "npm test", status: "completed" }],
+      requests: [{ requestId: "r1", threadId: chatThread, kind: "approval", payload: {} }],
+      attention: [{ id: "thread-request:r1", kind: "approval", title: "Agent approval required" }],
+    };
+  }
+
+  function apply(state: RuntimeProjection, event: RuntimeEvent): RuntimeProjection {
+    const envelope: RuntimeEventEnvelope = {
+      protocolVersion: 1,
+      sequence: state.lastSequence + 1,
+      eventId: EventId.parse("00000000-0000-4000-8000-000000000415"),
+      occurredAt: "2026-10-20T10:00:00.000Z",
+      event,
+    };
+    return projectEvent(state, envelope);
+  }
+
+  it("removes the session's terminals, threads, and their history, and nothing else", () => {
+    const state = populated();
+    const decisions = decide(state, { type: "session.delete", sessionId });
+    expect(decisions).toEqual([
+      { type: "session.deleted", sessionId, terminalIds: [agentTerminal, drawerShell], threadIds: [chatThread] },
+    ]);
+    const next = apply(state, decisions[0] as RuntimeEvent);
+    expect(next.terminals.map((terminal) => terminal.terminalId)).toEqual([otherShell]);
+    expect(next.threads.map((thread) => thread.threadId)).toEqual([legacyThread]);
+    expect(next.messages?.map((message) => message.messageId)).toEqual(["m2"]);
+    expect(next.activities).toEqual([]);
+    expect(next.requests).toEqual([]);
+    expect(next.attention).toEqual([]);
+  });
+
+  it("treats a record from before sessions existed as its own session", () => {
+    expect(decide(populated(), { type: "session.delete", sessionId: SessionId.parse(legacyThread) })).toEqual([
+      { type: "session.deleted", sessionId: legacyThread, terminalIds: [], threadIds: [legacyThread] },
+    ]);
+  });
+
+  it("rejects an unknown session", () => {
+    expect(() =>
+      decide(populated(), {
+        type: "session.delete",
+        sessionId: SessionId.parse("00000000-0000-4000-8000-000000000499"),
+      }),
+    ).toThrowError(expect.objectContaining({ code: "session_missing" }));
   });
 });

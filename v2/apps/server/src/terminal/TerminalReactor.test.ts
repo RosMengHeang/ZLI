@@ -305,4 +305,35 @@ describe("TerminalReactor", () => {
     await new Promise((resolve) => setImmediate(resolve));
     expect((await engine.projection()).terminals).toMatchObject([{ terminalId: id, status: "exited" }]);
   });
+  it("stops a deleted session's terminal and records nothing more for it", async () => {
+    const kills: number[] = [];
+    const pty = new FakePty();
+    pty.kill = () => kills.push(1);
+    const { engine, reactor, worktreeId } = await setup({ spawn: async () => pty });
+    const id = TerminalId.parse("00000000-0000-4000-8000-000000000310");
+    const sessionId = "00000000-0000-4000-8000-000000000311";
+    await engine.dispatchPromise(
+      command("terminal.create", {
+        terminalId: id,
+        worktreeId,
+        cwd: "C:/workspace/project-tree",
+        shell: "powershell.exe",
+        title: "PowerShell",
+        cols: 120,
+        rows: 32,
+        sessionId,
+      }),
+    );
+    await reactor.waitForIdle();
+    await engine.dispatchPromise(command("session.delete", { sessionId }));
+    await reactor.waitForIdle();
+    expect(kills).toEqual([1]);
+
+    const before = (await engine.projection()).lastSequence;
+    pty.exit(0);
+    await reactor.waitForIdle();
+    const after = await engine.projection();
+    expect(after.terminals).toEqual([]);
+    expect(after.lastSequence).toBe(before);
+  });
 });

@@ -11,10 +11,27 @@ import {
   fileLooksExecutable,
   parseCursorModels,
   parseDroidModels,
+  parseOpenCodeModels,
   readCachedCliModels,
   readCliModels,
   readCliVersion,
 } from "./discoverCliProviders.js";
+
+const ACP_CLIS = [
+  ["opencode", "OpenCode"],
+  ["gemini", "Gemini"],
+  ["copilot", "GitHub Copilot"],
+  ["kimi", "Kimi Code"],
+  ["qwen", "Qwen Code"],
+  ["goose", "Goose"],
+] as const;
+
+const acpMissing = ACP_CLIS.map(([provider, displayName]) => ({
+  provider,
+  displayName,
+  status: "missing",
+  reason: `${displayName} CLI was not found on PATH or in known install locations.`,
+}));
 
 function probe(overrides: Partial<CliProbe> & Pick<CliProbe, "fileExists">): CliProbe {
   return {
@@ -64,9 +81,9 @@ describe("discoverCliProviders", () => {
         status: "missing",
         reason: "Droid CLI was not found on PATH or in known install locations.",
       },
+      ...acpMissing,
     ]);
     expect(versionCalls).toEqual(["/later/codex", "/tools/claude"]);
-    expect(discovery.map((entry) => entry.provider)).not.toContain("opencode");
   });
 
   it("reports every listed CLI missing without reading versions", async () => {
@@ -83,12 +100,13 @@ describe("discoverCliProviders", () => {
       }),
     );
 
-    expect(discovery.map((entry) => entry.status)).toEqual(["missing", "missing", "missing", "missing"]);
+    expect(discovery.map((entry) => entry.status)).toEqual(Array(10).fill("missing"));
     expect(discovery.map((entry) => ("reason" in entry ? entry.reason : ""))).toEqual([
       "Codex CLI was not found on PATH or in known install locations.",
       "Claude Code CLI was not found on PATH or in known install locations.",
       "Cursor CLI was not found on PATH or in known install locations.",
       "Droid CLI was not found on PATH or in known install locations.",
+      ...acpMissing.map((entry) => entry.reason),
     ]);
     expect(versionCalls).toEqual([]);
   });
@@ -107,7 +125,7 @@ describe("discoverCliProviders", () => {
       }),
     );
 
-    expect(discovery).toEqual([
+    expect(discovery.slice(0, 4)).toEqual([
       { provider: "codex", displayName: "Codex", status: "found", path: "/usr/bin/codex" },
       { provider: "claude-code", displayName: "Claude Code", status: "found", path: "/home/dev/.claude/local/claude" },
       { provider: "cursor-agent", displayName: "Cursor", status: "found", path: "/opt/homebrew/bin/cursor-agent" },
@@ -169,6 +187,63 @@ describe("discoverCliProviders", () => {
     });
   });
 
+  it("finds ACP agent CLIs in their installer, bun, and npm directories on Windows", async () => {
+    const found = new Set([
+      "C:\\Users\\dev\\.bun\\bin\\opencode.exe",
+      "C:\\Users\\dev\\AppData\\Roaming\\npm\\gemini.cmd",
+      "C:\\Users\\dev\\AppData\\Roaming\\npm\\copilot.cmd",
+      "C:\\Users\\dev\\.kimi-code\\bin\\kimi.exe",
+      "C:\\Users\\dev\\.bun\\bin\\qwen.exe",
+      "C:\\Users\\dev\\.local\\bin\\goose.exe",
+    ]);
+    const discovery = await discoverCliProviders(
+      probe({
+        platform: "win32",
+        homeDir: "C:\\Users\\dev",
+        appData: "C:\\Users\\dev\\AppData\\Roaming",
+        fileExists: (filePath) => found.has(filePath),
+      }),
+    );
+    expect(discovery.slice(4)).toEqual([
+      {
+        provider: "opencode",
+        displayName: "OpenCode",
+        status: "found",
+        path: "C:\\Users\\dev\\.bun\\bin\\opencode.exe",
+      },
+      {
+        provider: "gemini",
+        displayName: "Gemini",
+        status: "found",
+        path: "C:\\Users\\dev\\AppData\\Roaming\\npm\\gemini.cmd",
+      },
+      {
+        provider: "copilot",
+        displayName: "GitHub Copilot",
+        status: "found",
+        path: "C:\\Users\\dev\\AppData\\Roaming\\npm\\copilot.cmd",
+      },
+      {
+        provider: "kimi",
+        displayName: "Kimi Code",
+        status: "found",
+        path: "C:\\Users\\dev\\.kimi-code\\bin\\kimi.exe",
+      },
+      { provider: "qwen", displayName: "Qwen Code", status: "found", path: "C:\\Users\\dev\\.bun\\bin\\qwen.exe" },
+      { provider: "goose", displayName: "Goose", status: "found", path: "C:\\Users\\dev\\.local\\bin\\goose.exe" },
+    ]);
+  });
+
+  it("finds OpenCode in its own installer directory on unix", async () => {
+    const discovery = await discoverCliProviders(
+      probe({ homeDir: "/home/dev", fileExists: (filePath) => filePath === "/home/dev/.opencode/bin/opencode" }),
+    );
+    expect(discovery.find((entry) => entry.provider === "opencode")).toMatchObject({
+      status: "found",
+      path: "/home/dev/.opencode/bin/opencode",
+    });
+  });
+
   it("keeps a found CLI when the version probe fails", async () => {
     const discovery = await discoverCliProviders(
       probe({
@@ -188,11 +263,16 @@ describe("CLI probe helpers", () => {
     const cli = createDefaultCliProbe({ PATH: "C:\\a;C:\\b", USERPROFILE: "C:\\Users\\dev" }, "win32");
     expect(cli.pathEntries).toEqual(["C:\\a", "C:\\b"]);
     expect(cli.homeDir).toBe("C:\\Users\\dev");
+    expect(createDefaultCliProbe({ APPDATA: "C:\\Users\\dev\\AppData\\Roaming" }, "win32").appData).toBe(
+      "C:\\Users\\dev\\AppData\\Roaming",
+    );
+    expect(createDefaultCliProbe({ APPDATA: "/ignored" }, "linux").appData).toBeUndefined();
   });
 
   it("reports a synthetic Codex CLI when the mock provider is selected", async () => {
     const linux = await discoverCliProviders(createDefaultCliProbe({ ZLI_TEST_PROVIDER: "mock" }, "linux"));
-    expect(linux).toEqual([
+    expect(linux.slice(4)).toEqual(acpMissing);
+    expect(linux.slice(0, 4)).toEqual([
       {
         provider: "codex",
         displayName: "Codex",
@@ -228,11 +308,9 @@ describe("CLI probe helpers", () => {
       path: "C:\\zli\\mock-provider\\codex.exe",
       version: "codex mock",
     });
-    expect(windows.filter((entry) => entry.provider !== "codex").map((entry) => entry.status)).toEqual([
-      "missing",
-      "missing",
-      "missing",
-    ]);
+    expect(windows.filter((entry) => entry.provider !== "codex").map((entry) => entry.status)).toEqual(
+      Array(9).fill("missing"),
+    );
   });
 
   it.skipIf(process.platform === "win32")("requires the executable bit for unix files", () => {
@@ -295,6 +373,25 @@ describe("model discovery", () => {
     ]);
     expect(parseDroidModels("Usage: droid exec\n\nOptions:\n  -m  Model")).toBeUndefined();
     expect(parseDroidModels(undefined)).toBeUndefined();
+  });
+
+  it("parses opencode models output and skips ids a terminal launch would reject", () => {
+    const output = [
+      "opencode/big-pickle",
+      "openai/gpt-5",
+      "openrouter/~anthropic/claude-opus-latest",
+      "openrouter/cohere/north-mini-code:free",
+      "openai/gpt-5",
+      "not-a-model",
+      "",
+    ].join("\r\n");
+    expect(parseOpenCodeModels(output)).toEqual([
+      { id: "opencode/big-pickle", label: "opencode/big-pickle" },
+      { id: "openai/gpt-5", label: "openai/gpt-5" },
+      { id: "openrouter/cohere/north-mini-code:free", label: "openrouter/cohere/north-mini-code:free" },
+    ]);
+    expect(parseOpenCodeModels("Error: no providers")).toBeUndefined();
+    expect(parseOpenCodeModels(undefined)).toBeUndefined();
   });
 
   it("returns the static Claude Code aliases and nothing for Codex", async () => {

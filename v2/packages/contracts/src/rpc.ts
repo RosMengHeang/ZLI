@@ -126,6 +126,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("thread.interrupt"), threadId: ThreadId, turnId: TurnId.optional() }),
   z.object({ type: z.literal("thread.stop"), threadId: ThreadId }),
+  /** Stops every terminal and thread in the session and removes them, with their history, for good. */
+  z.object({ type: z.literal("session.delete"), sessionId: SessionId }),
   z.object({
     type: z.literal("thread.status"),
     threadId: ThreadId,

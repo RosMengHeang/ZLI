@@ -1,7 +1,7 @@
 import { type ProjectProjection, type RuntimeProjection, type WorktreeProjection, WorktreeId } from "@zli-v2/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { isSelectableProvider } from "../agent/providers.js";
+import { isSelectableProvider, providerDisplayName } from "../agent/providers.js";
 import { AttentionPanel } from "../attention/AttentionPanel.js";
 import { BrowserPane } from "../browser/BrowserPane.js";
 import { type ReviewFocus, ReviewPane } from "../review/ReviewPane.js";
@@ -11,8 +11,15 @@ import { RuntimeProvider, useRuntime } from "../runtime/RuntimeProvider.js";
 import { AgentTile } from "../sessions/AgentTile.js";
 import { createWorktree, ensureCheckout, startSessionAgent } from "../sessions/launch.js";
 import { type NewAgentRequest, NewAgentDialog } from "../sessions/NewAgentDialog.js";
-import { type AgentSession, deriveSessions, gridColumns, type SessionMode } from "../sessions/sessions.js";
-import { useWorkbenchState } from "../sessions/workbench.js";
+import {
+  type AgentSession,
+  deriveSessions,
+  gridColumns,
+  type SessionMode,
+  sessionStopCommands,
+  sessionTitle,
+} from "../sessions/sessions.js";
+import { forgetSession, useWorkbenchState } from "../sessions/workbench.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
 import { Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
@@ -50,21 +57,30 @@ function WorkspaceApp() {
   const [notice, setNotice] = useState<string>();
   const [legacyImportBatchId, setLegacyImportBatchId] = useState<string>();
   const [helpOpen, setHelpOpen] = useState(false);
+  const [closeRequest, setCloseRequest] = useState<AgentSession>();
+  const [deleteRequest, setDeleteRequest] = useState<AgentSession>();
   const [version, setVersion] = useState<string>();
   const paletteSearchRef = useRef<HTMLInputElement>(null);
   const launching = useRef(new Set<string>());
+  const projectionRef = useRef(projection);
+  projectionRef.current = projection;
 
   const sessions = useMemo(
     () => (projection ? deriveSessions(projection, workbench.pending) : []),
     [projection, workbench.pending],
   );
-  const listedSessions = useMemo(
-    () => sessions.filter((session) => !workbench.hidden.includes(session.sessionId)),
-    [sessions, workbench.hidden],
-  );
   const tiles = useMemo(
-    () => listedSessions.filter((session) => !workbench.closed.includes(session.sessionId)),
-    [listedSessions, workbench.closed],
+    () => sessions.filter((session) => !workbench.closed.includes(session.sessionId)),
+    [sessions, workbench.closed],
+  );
+  const backgroundSessionIds = useMemo(
+    () =>
+      new Set(
+        sessions
+          .filter((session) => workbench.closed.includes(session.sessionId) && sessionStopCommands(session).length > 0)
+          .map((session) => session.sessionId),
+      ),
+    [sessions, workbench.closed],
   );
   const activeSession = tiles.find((session) => session.sessionId === workbench.activeSessionId);
   const maximized = tiles.find((session) => session.sessionId === workbench.maximizedSessionId);
@@ -135,6 +151,8 @@ function WorkspaceApp() {
         setNewAgentProject(undefined);
         setLegacyImportBatchId(undefined);
         setHelpOpen(false);
+        setCloseRequest(undefined);
+        setDeleteRequest(undefined);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -357,7 +375,60 @@ function WorkspaceApp() {
     return undefined;
   };
 
-  const closeTile = (session: AgentSession) =>
+  const send = async (command: Record<string, unknown>): Promise<boolean> => {
+    try {
+      const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
+      if (response?.accepted === false) {
+        setNotice(response.error.message);
+        return false;
+      }
+      return response !== undefined;
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "The command failed.");
+      return false;
+    }
+  };
+
+  const stopSession = async (session: AgentSession): Promise<void> => {
+    await Promise.all(sessionStopCommands(session).map((command) => send(command)));
+  };
+
+  const closeTile = (session: AgentSession) => {
+    if (sessionStopCommands(session).length > 0) setCloseRequest(session);
+    else closeTileNow(session);
+  };
+
+  /** Resolves once the session runs nothing, or after the timeout. */
+  const waitUntilStopped = async (sessionId: string, timeoutMs = 8000): Promise<void> => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const current = projectionRef.current;
+      const live = current ? deriveSessions(current).find((candidate) => candidate.sessionId === sessionId) : undefined;
+      if (!live || sessionStopCommands(live).length === 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  };
+
+  const deleteSession = async (session: AgentSession, removeWorktree: boolean): Promise<void> => {
+    setNotice(undefined);
+    const worktree = removeWorktree ? findWorktree(session.worktreeId) : undefined;
+    // Windows keeps a folder locked while a process runs inside it, so the agent must exit before git removes it.
+    if (worktree && sessionStopCommands(session).length > 0) {
+      await stopSession(session);
+      await waitUntilStopped(session.sessionId);
+    }
+    if (session.terminal || session.thread) {
+      const deleted = await send({ type: "session.delete", sessionId: session.sessionId });
+      if (!deleted) return;
+    }
+    updateWorkbench((state) => forgetSession(state, session.sessionId));
+    if (!worktree) return;
+    // The person confirmed that uncommitted changes in the folder are lost.
+    const removed = await send({ type: "worktree.remove", worktreeId: worktree.worktreeId, force: true });
+    if (removed && worktree.worktreeId === selectedWorktreeId) setSelectedWorktreeId(undefined);
+  };
+
+  const closeTileNow = (session: AgentSession) =>
     updateWorkbench((state) => ({
       ...state,
       pending:
@@ -367,15 +438,6 @@ function WorkspaceApp() {
       closed: session.terminal || session.thread ? [...state.closed, session.sessionId] : state.closed,
       ...(state.maximizedSessionId === session.sessionId ? { maximizedSessionId: undefined } : {}),
       ...(state.activeSessionId === session.sessionId ? { activeSessionId: undefined } : {}),
-    }));
-
-  const hideSession = (session: AgentSession) =>
-    updateWorkbench((state) => ({
-      ...state,
-      hidden: [...state.hidden, session.sessionId],
-      closed: [...state.closed, session.sessionId],
-      pending: state.pending.filter((entry) => entry.sessionId !== session.sessionId),
-      ...(state.maximizedSessionId === session.sessionId ? { maximizedSessionId: undefined } : {}),
     }));
 
   const retryPending = (session: AgentSession) => {
@@ -479,6 +541,8 @@ function WorkspaceApp() {
     worktreeDialogProject !== undefined ||
     newAgentProject !== undefined ||
     helpOpen ||
+    closeRequest !== undefined ||
+    deleteRequest !== undefined ||
     (legacyImportBatchId !== undefined && projection !== undefined);
   const columns = gridColumns(visibleTiles.length);
   const rows = Math.max(1, Math.ceil(visibleTiles.length / columns));
@@ -488,11 +552,13 @@ function WorkspaceApp() {
       {workbench.sidebarOpen ? (
         <Sidebar
           projection={projection}
-          sessions={listedSessions}
+          sessions={sessions}
           activeSessionId={activeSession?.sessionId}
+          backgroundSessionIds={backgroundSessionIds}
           activeWorktreeId={contextWorktree?.worktreeId}
           onSelectSession={focusSession}
-          onHideSession={hideSession}
+          onStopSession={(session) => void stopSession(session)}
+          onDeleteSession={setDeleteRequest}
           onSelectWorktree={(worktree) => {
             setNotice(undefined);
             setSelectedWorktreeId(worktree.worktreeId);
@@ -609,7 +675,7 @@ function WorkspaceApp() {
                 {visibleTiles.length === 0 ? (
                   <GridEmptyState
                     projection={projection}
-                    closedCount={listedSessions.length}
+                    closedCount={sessions.length}
                     onOpenProject={() => void openProject()}
                     onNewAgent={() => openNewAgent()}
                   />
@@ -645,6 +711,7 @@ function WorkspaceApp() {
                               state.maximizedSessionId === session.sessionId ? undefined : session.sessionId,
                           }))
                         }
+                        onStop={() => void stopSession(session)}
                         onClose={() => closeTile(session)}
                         onOpenDiff={(path) => {
                           focusSession(session);
@@ -653,7 +720,7 @@ function WorkspaceApp() {
                         }}
                         onStart={(mode) => startInSession(session, mode)}
                         onRetryPending={() => retryPending(session)}
-                        onDismissPending={() => closeTile(session)}
+                        onDismissPending={() => closeTileNow(session)}
                       />
                     ))}
                   </div>
@@ -764,6 +831,38 @@ function WorkspaceApp() {
           onClose={() => setHelpOpen(false)}
         />
       )}
+      {closeRequest && projection && (
+        <CloseAgentDialog
+          title={sessionTitle(closeRequest, projection.messages, projection.providers)}
+          provider={providerDisplayName(closeRequest.provider, projection.providers)}
+          onStopAndClose={() => {
+            const session = closeRequest;
+            setCloseRequest(undefined);
+            void stopSession(session);
+            closeTileNow(session);
+          }}
+          onKeepRunning={() => {
+            const session = closeRequest;
+            setCloseRequest(undefined);
+            closeTileNow(session);
+          }}
+          onCancel={() => setCloseRequest(undefined)}
+        />
+      )}
+      {deleteRequest && projection && (
+        <DeleteAgentDialog
+          title={sessionTitle(deleteRequest, projection.messages, projection.providers)}
+          provider={providerDisplayName(deleteRequest.provider, projection.providers)}
+          running={sessionStopCommands(deleteRequest).length > 0}
+          worktree={deletableWorktree(projection, sessions, deleteRequest)}
+          onDelete={(removeWorktree) => {
+            const session = deleteRequest;
+            setDeleteRequest(undefined);
+            void deleteSession(session, removeWorktree);
+          }}
+          onCancel={() => setDeleteRequest(undefined)}
+        />
+      )}
       {worktreeDialogProject && (
         <WorktreeDialog
           onClose={() => setWorktreeDialogProject(undefined)}
@@ -850,6 +949,143 @@ function DisconnectedState() {
       <p>
         This window has no runtime bridge. Run <code>pnpm --dir v2 desktop:dev</code> from the repository root.
       </p>
+    </div>
+  );
+}
+
+/** A worktree that only this session uses, which deleting the agent may also delete. */
+function deletableWorktree(
+  projection: RuntimeProjection,
+  sessions: readonly AgentSession[],
+  session: AgentSession,
+): WorktreeProjection | undefined {
+  const worktree = projection.worktrees.find((entry) => entry.worktreeId === session.worktreeId);
+  if (!worktree || worktree.kind === "checkout") return undefined;
+  const shared = sessions.some(
+    (other) => other.sessionId !== session.sessionId && other.worktreeId === session.worktreeId,
+  );
+  return shared ? undefined : worktree;
+}
+
+function CloseAgentDialog({
+  title,
+  provider,
+  onStopAndClose,
+  onKeepRunning,
+  onCancel,
+}: {
+  title: string;
+  provider: string;
+  onStopAndClose(): void;
+  onKeepRunning(): void;
+  onCancel(): void;
+}) {
+  const stopRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    stopRef.current?.focus();
+  }, []);
+  return (
+    <div className="palette-backdrop">
+      <button className="dialog-scrim" type="button" aria-label="Cancel" onClick={onCancel} />
+      <section
+        className="dialog confirm-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Close agent"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="dialog-header">
+          <div>
+            <h2>{provider} is still running</h2>
+            <p className="dialog-subtitle">
+              Stop "{title}" and close its tile, or keep it running in the background. A running agent stays in the
+              sidebar so you can reopen it.
+            </p>
+          </div>
+        </div>
+        <div className="dialog-form">
+          <div className="dialog-actions">
+            <button className="secondary-button" type="button" onClick={onCancel}>
+              Cancel
+            </button>
+            <button className="secondary-button" type="button" onClick={onKeepRunning}>
+              Keep running
+            </button>
+            <button className="primary-button" type="button" ref={stopRef} onClick={onStopAndClose}>
+              Stop and close
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function DeleteAgentDialog({
+  title,
+  provider,
+  running,
+  worktree,
+  onDelete,
+  onCancel,
+}: {
+  title: string;
+  provider: string;
+  running: boolean;
+  worktree: WorktreeProjection | undefined;
+  onDelete(removeWorktree: boolean): void;
+  onCancel(): void;
+}) {
+  const [removeWorktree, setRemoveWorktree] = useState(false);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    cancelRef.current?.focus();
+  }, []);
+  return (
+    <div className="palette-backdrop">
+      <button className="dialog-scrim" type="button" aria-label="Cancel" onClick={onCancel} />
+      <section
+        className="dialog confirm-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Delete agent"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="dialog-header">
+          <div>
+            <h2>Delete this agent?</h2>
+            <p className="dialog-subtitle">
+              {running ? `Stops ${provider} and removes` : "Removes"} "{title}" from ZLI, with its terminal output and
+              chat history. This cannot be undone.
+            </p>
+          </div>
+        </div>
+        <div className="dialog-form">
+          {worktree ? (
+            <label className="check-field">
+              <input
+                type="checkbox"
+                checked={removeWorktree}
+                onChange={(event) => setRemoveWorktree(event.target.checked)}
+              />
+              <span className="choice-copy">
+                <span className="choice-title">Also delete the worktree {worktree.branch}</span>
+                <span className="choice-detail" title={worktree.path}>
+                  Removes the folder {worktree.path}. Uncommitted changes there are lost.
+                </span>
+              </span>
+            </label>
+          ) : null}
+          <div className="dialog-actions">
+            <button className="secondary-button" type="button" ref={cancelRef} onClick={onCancel}>
+              Cancel
+            </button>
+            <button className="primary-button is-danger" type="button" onClick={() => onDelete(removeWorktree)}>
+              {removeWorktree ? "Delete agent and worktree" : "Delete agent"}
+            </button>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

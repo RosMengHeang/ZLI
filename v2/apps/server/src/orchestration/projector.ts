@@ -2,6 +2,7 @@ import {
   RuntimeEvent,
   appendThreadMessage,
   deriveSharedProjectContexts,
+  removeSession,
   upsertThreadActivity,
   type EnvironmentDescriptor,
   type RuntimeEventEnvelope,
@@ -202,6 +203,8 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
     case "thread.interrupt.requested":
     case "thread.stop.requested":
       return { ...projection, lastSequence: envelope.sequence };
+    case "session.deleted":
+      return { ...removeSession(projection, event.terminalIds, event.threadIds), lastSequence: envelope.sequence };
     case "browser.updated":
       return {
         ...projection,

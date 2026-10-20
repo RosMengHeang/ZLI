@@ -5,13 +5,24 @@ import { posix, win32 } from "node:path";
 import type { ListedProviderKind, ProviderDiscovery, ProviderModelOption } from "@zli-v2/contracts";
 import { spawnCli } from "@zli-v2/shared";
 
-/** Codex, Claude Code, Cursor, and Droid only. OpenCode is not a selectable provider. */
 const LISTED = [
   { provider: "codex", displayName: "Codex", binary: "codex" },
   { provider: "claude-code", displayName: "Claude Code", binary: "claude" },
   { provider: "cursor-agent", displayName: "Cursor", binary: "cursor-agent" },
   { provider: "droid", displayName: "Droid", binary: "droid" },
-] as const;
+  { provider: "opencode", displayName: "OpenCode", binary: "opencode" },
+  { provider: "gemini", displayName: "Gemini", binary: "gemini" },
+  { provider: "copilot", displayName: "GitHub Copilot", binary: "copilot" },
+  { provider: "kimi", displayName: "Kimi Code", binary: "kimi" },
+  { provider: "qwen", displayName: "Qwen Code", binary: "qwen" },
+  { provider: "goose", displayName: "Goose", binary: "goose" },
+] as const satisfies ReadonlyArray<{ provider: ListedProviderKind; displayName: string; binary: string }>;
+
+/** CLIs distributed through npm or bun, whose global shims land outside PATH on some machines. */
+const PACKAGE_MANAGER_CLIS: ReadonlySet<ListedProviderKind> = new Set(["opencode", "gemini", "copilot", "qwen"]);
+
+/** Model ids a terminal launch accepts; OpenRouter aliases such as "openrouter/~x/y" are left out. */
+const LAUNCHABLE_MODEL_ID = /^[A-Za-z0-9._:/[\]=,-]+$/u;
 
 type ListedSpec = (typeof LISTED)[number];
 
@@ -19,6 +30,8 @@ export type CliProbe = {
   pathEntries: readonly string[];
   homeDir?: string;
   localAppData?: string;
+  /** Roaming AppData on Windows, where npm puts global CLI shims. */
+  appData?: string;
   platform: NodeJS.Platform;
   fileExists(filePath: string): boolean;
   readVersion?(command: string): Promise<string | undefined>;
@@ -49,10 +62,12 @@ export function createDefaultCliProbe(
   const api = platform === "win32" ? win32 : posix;
   const homeDir = platform === "win32" ? env.USERPROFILE : env.HOME;
   const localAppData = env.LOCALAPPDATA;
+  const appData = platform === "win32" ? env.APPDATA : undefined;
   return {
     pathEntries: (env.PATH ?? "").split(api.delimiter).filter((entry) => entry.length > 0),
     ...(homeDir ? { homeDir } : {}),
     ...(localAppData ? { localAppData } : {}),
+    ...(appData ? { appData } : {}),
     platform,
     fileExists: (filePath) => fileLooksExecutable(filePath, platform),
     readVersion: (command) => readCliVersion(command),
@@ -192,6 +207,10 @@ export async function readCliModels(
           maxChars: MAX_MODEL_OUTPUT_CHARS,
         }),
       );
+    case "opencode":
+      return parseOpenCodeModels(
+        await readCliOutput(command, ["models"], { timeoutMs: MODEL_TIMEOUT_MS, maxChars: MAX_MODEL_OUTPUT_CHARS }),
+      );
     default:
       return undefined;
   }
@@ -225,6 +244,16 @@ export function parseDroidModels(output: string | undefined): ProviderModelOptio
     if (!/^\s/u.test(line)) break;
     const match = /^\s+(\S+)\s{2,}(.+)$/u.exec(line);
     if (match?.[1] && match[2]) pushModel(models, match[1], match[2]);
+  }
+  return models.length > 0 ? models : undefined;
+}
+
+/** `opencode models` prints one "provider/model" id per line. */
+export function parseOpenCodeModels(output: string | undefined): ProviderModelOption[] | undefined {
+  if (!output) return undefined;
+  const models: ProviderModelOption[] = [];
+  for (const line of cleanLines(output)) {
+    if (line.includes("/") && LAUNCHABLE_MODEL_ID.test(line)) pushModel(models, line, line);
   }
   return models.length > 0 ? models : undefined;
 }
@@ -334,9 +363,15 @@ function installDirs(spec: ListedSpec, probe: CliProbe, api: typeof posix | type
       dirs.push(api.join(probe.homeDir, ".local", "share", "cursor-agent"));
     }
     if (spec.provider === "droid") dirs.push(api.join(probe.homeDir, "bin"));
+    if (spec.provider === "opencode") dirs.push(api.join(probe.homeDir, ".opencode", "bin"));
+    if (spec.provider === "kimi") dirs.push(api.join(probe.homeDir, ".kimi-code", "bin"));
+    if (PACKAGE_MANAGER_CLIS.has(spec.provider)) dirs.push(api.join(probe.homeDir, ".bun", "bin"));
   }
   if (probe.platform === "win32" && probe.localAppData && spec.provider === "cursor-agent") {
     dirs.push(api.join(probe.localAppData, "cursor-agent"));
+  }
+  if (probe.platform === "win32" && probe.appData && PACKAGE_MANAGER_CLIS.has(spec.provider)) {
+    dirs.push(api.join(probe.appData, "npm"));
   }
   if (probe.platform !== "win32") dirs.push("/usr/local/bin", "/opt/homebrew/bin");
   return dirs;

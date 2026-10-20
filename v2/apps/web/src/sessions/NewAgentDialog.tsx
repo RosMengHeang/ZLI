@@ -27,8 +27,13 @@ function readLastLaunch(): LastLaunch {
   }
 }
 
-function suggestedBranch(provider: string | undefined): string {
-  const stem = provider === "claude-code" ? "claude" : provider === "cursor-agent" ? "cursor" : (provider ?? "agent");
+const branchStems: Partial<Record<ListedProviderKind, string>> = {
+  "claude-code": "claude",
+  "cursor-agent": "cursor",
+};
+
+function suggestedBranch(provider: ListedProviderKind | undefined): string {
+  const stem = provider ? (branchStems[provider] ?? provider) : "agent";
   return `${stem}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
@@ -57,6 +62,10 @@ export function NewAgentDialog({
   const [mode, setMode] = useState<SessionMode>(last.mode ?? "terminal");
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(last.permissionMode ?? "full-access");
   const [model, setModel] = useState("");
+  const [showMissing, setShowMissing] = useState(false);
+  const installed = listed.filter((entry) => entry.status === "found");
+  const missing = listed.filter((entry) => entry.status !== "found");
+  const shownProviders = installed.length === 0 || showMissing ? [...installed, ...missing] : installed;
   const project = projection.projects.find((candidate) => candidate.projectId === projectId);
   const projectWorktrees = projection.worktrees.filter(
     (worktree) =>
@@ -179,7 +188,7 @@ export function NewAgentDialog({
               <p className="field-hint">No agent CLIs could be listed.</p>
             ) : (
               <div className="choice-grid" role="radiogroup" aria-label="Agent">
-                {listed.map((entry) => (
+                {shownProviders.map((entry) => (
                   <label
                     className={`choice-card is-compact${entry.status === "missing" ? " is-missing" : ""}`}
                     key={entry.provider}
@@ -211,6 +220,17 @@ export function NewAgentDialog({
                 ))}
               </div>
             )}
+            {installed.length > 0 && missing.length > 0 ? (
+              <button
+                className="quiet-button field-toggle"
+                type="button"
+                aria-expanded={showMissing}
+                onClick={() => setShowMissing((value) => !value)}
+              >
+                <Icon name="chevronRight" size={11} className={showMissing ? "is-open" : undefined} />
+                {showMissing ? "Hide agents that are not installed" : `Show ${missing.length} not installed`}
+              </button>
+            ) : null}
           </fieldset>
 
           <fieldset className="field">

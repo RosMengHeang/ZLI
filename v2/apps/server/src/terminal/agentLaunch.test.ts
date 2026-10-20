@@ -8,6 +8,12 @@ describe("buildAgentArgs", () => {
     expect(buildAgentArgs({ provider: "claude-code" })).toEqual(["--dangerously-skip-permissions"]);
     expect(buildAgentArgs({ provider: "cursor-agent" })).toEqual(["--force", "--trust"]);
     expect(buildAgentArgs({ provider: "droid" })).toEqual(["--auto", "high"]);
+    expect(buildAgentArgs({ provider: "opencode" })).toEqual(["--auto"]);
+    expect(buildAgentArgs({ provider: "gemini" })).toEqual(["--approval-mode", "yolo"]);
+    expect(buildAgentArgs({ provider: "copilot" })).toEqual(["--allow-all"]);
+    expect(buildAgentArgs({ provider: "kimi" })).toEqual(["--yolo"]);
+    expect(buildAgentArgs({ provider: "qwen" })).toEqual(["--approval-mode", "yolo"]);
+    expect(buildAgentArgs({ provider: "goose" })).toEqual(["session"]);
   });
 
   it("drops permission bypass flags in supervised mode", () => {
@@ -15,6 +21,10 @@ describe("buildAgentArgs", () => {
     expect(buildAgentArgs({ provider: "claude-code", permissionMode: "supervised" })).toEqual([]);
     expect(buildAgentArgs({ provider: "cursor-agent", permissionMode: "supervised" })).toEqual(["--trust"]);
     expect(buildAgentArgs({ provider: "droid", permissionMode: "supervised" })).toEqual([]);
+    for (const provider of ["opencode", "gemini", "copilot", "kimi", "qwen"] as const) {
+      expect(buildAgentArgs({ provider, permissionMode: "supervised" })).toEqual([]);
+    }
+    expect(buildAgentArgs({ provider: "goose", permissionMode: "supervised" })).toEqual(["session"]);
   });
 
   it("passes the model with each CLI's own flag", () => {
@@ -33,6 +43,33 @@ describe("buildAgentArgs", () => {
       "claude-opus-4-8[context=1m,effort=high]",
     ]);
     expect(buildAgentArgs({ provider: "droid", model: "gpt-5" })).toEqual(["--auto", "high"]);
+    expect(buildAgentArgs({ provider: "opencode", model: "openai/gpt-5" })).toEqual([
+      "--auto",
+      "--model",
+      "openai/gpt-5",
+    ]);
+    expect(buildAgentArgs({ provider: "gemini", model: "gemini-3.1-pro", permissionMode: "supervised" })).toEqual([
+      "--model",
+      "gemini-3.1-pro",
+    ]);
+    expect(buildAgentArgs({ provider: "copilot", model: "claude-sonnet-4.5" })).toEqual([
+      "--allow-all",
+      "--model",
+      "claude-sonnet-4.5",
+    ]);
+    expect(buildAgentArgs({ provider: "kimi", model: "kimi-k2.7-code" })).toEqual([
+      "--yolo",
+      "--model",
+      "kimi-k2.7-code",
+    ]);
+    expect(buildAgentArgs({ provider: "qwen", model: "qwen3-coder-plus" })).toEqual([
+      "--approval-mode",
+      "yolo",
+      "--model",
+      "qwen3-coder-plus",
+    ]);
+    expect(buildAgentArgs({ provider: "goose", model: "gpt-5" })).toEqual(["session"]);
+    expect(() => buildAgentArgs({ provider: "goose", model: "gpt 5" })).toThrow(AgentLaunchError);
   });
 
   it.each([
@@ -53,5 +90,7 @@ describe("buildAgentArgs", () => {
   it("names the missing CLI", () => {
     expect(agentCliMissingMessage("cursor-agent")).toBe("Cursor CLI was not found. Install it or check PATH.");
     expect(agentCliMissingMessage("claude-code")).toBe("Claude Code CLI was not found. Install it or check PATH.");
+    expect(agentCliMissingMessage("copilot")).toBe("GitHub Copilot CLI was not found. Install it or check PATH.");
+    expect(agentCliMissingMessage("kimi")).toBe("Kimi Code CLI was not found. Install it or check PATH.");
   });
 });

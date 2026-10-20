@@ -6,8 +6,8 @@ import { providerDisplayName } from "../agent/providers.js";
 import {
   type AgentSession,
   relativeTime,
-  sessionIsLive,
   sessionStatusLabel,
+  sessionStopCommands,
   sessionTitle,
 } from "../sessions/sessions.js";
 import { Icon } from "../ui/Icon.js";
@@ -32,9 +32,12 @@ type Props = {
   projection: RuntimeProjection | undefined;
   sessions: readonly AgentSession[];
   activeSessionId: string | undefined;
+  /** Running sessions without a tile on the board. */
+  backgroundSessionIds: ReadonlySet<string>;
   activeWorktreeId: string | undefined;
   onSelectSession(session: AgentSession): void;
-  onHideSession(session: AgentSession): void;
+  onStopSession(session: AgentSession): void;
+  onDeleteSession(session: AgentSession): void;
   onSelectWorktree(worktree: WorktreeProjection): void;
   onNewAgent(project?: ProjectProjection): void;
   onOpenProject(): void;
@@ -48,9 +51,11 @@ export function Sidebar({
   projection,
   sessions,
   activeSessionId,
+  backgroundSessionIds,
   activeWorktreeId,
   onSelectSession,
-  onHideSession,
+  onStopSession,
+  onDeleteSession,
   onSelectWorktree,
   onNewAgent,
   onOpenProject,
@@ -147,12 +152,14 @@ export function Sidebar({
                       const provider = providerDisplayName(session.provider, projection?.providers);
                       const status = sessionStatusLabel[session.status];
                       const active = session.sessionId === activeSessionId;
+                      const background = backgroundSessionIds.has(session.sessionId);
+                      const stoppable = sessionStopCommands(session).length > 0;
                       return (
                         <li className="session-entry" key={session.sessionId}>
                           <button
                             className={`session-row${active ? " is-active" : ""}`}
                             type="button"
-                            aria-label={`${title}, ${provider}, ${status}`}
+                            aria-label={`${title}, ${provider}, ${status}${background ? ", in the background" : ""}`}
                             aria-current={active ? "true" : undefined}
                             onClick={() => onSelectSession(session)}
                             title={worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}
@@ -163,6 +170,7 @@ export function Sidebar({
                               <span className="session-meta">
                                 <span className="session-branch">{worktree?.branch ?? "worktree"}</span>
                                 <span className="session-provider">{provider}</span>
+                                {background ? <span className="session-background">background</span> : null}
                               </span>
                             </span>
                             <span className="session-side">
@@ -176,17 +184,28 @@ export function Sidebar({
                               <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
                             </span>
                           </button>
-                          {!sessionIsLive(session) ? (
+                          <span className="session-actions">
+                            {stoppable ? (
+                              <button
+                                className="icon-button is-small"
+                                type="button"
+                                aria-label={`Stop ${title}`}
+                                title="Stop agent"
+                                onClick={() => onStopSession(session)}
+                              >
+                                <Icon name="square" size={11} />
+                              </button>
+                            ) : null}
                             <button
-                              className="icon-button is-small session-hide"
+                              className="icon-button is-small"
                               type="button"
-                              aria-label={`Remove ${title} from the list`}
-                              title="Remove from the list"
-                              onClick={() => onHideSession(session)}
+                              aria-label={`Delete ${title}`}
+                              title="Delete agent"
+                              onClick={() => onDeleteSession(session)}
                             >
-                              <Icon name="x" size={12} />
+                              <Icon name="trash" size={12} />
                             </button>
-                          ) : null}
+                          </span>
                         </li>
                       );
                     })}

@@ -112,7 +112,16 @@ describe("ProviderService", () => {
       fileExists: (filePath) => filePath === "/tools/claude",
     });
 
-    await expect(service.discoverProviders()).resolves.toEqual([
+    const discovery = await service.discoverProviders();
+    expect(discovery.slice(4).map((entry) => [entry.provider, entry.status])).toEqual([
+      ["opencode", "missing"],
+      ["gemini", "missing"],
+      ["copilot", "missing"],
+      ["kimi", "missing"],
+      ["qwen", "missing"],
+      ["goose", "missing"],
+    ]);
+    expect(discovery.slice(0, 4)).toEqual([
       {
         provider: "codex",
         displayName: "Codex",

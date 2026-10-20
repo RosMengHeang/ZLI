@@ -123,13 +123,28 @@ export function sessionIsLive(session: Pick<AgentSession, "status">): boolean {
   return session.status !== "ended" && session.status !== "failed";
 }
 
+/** Commands that stop everything the session still runs: its agent CLI and its chat. */
+export function sessionStopCommands(
+  session: Pick<AgentSession, "terminal" | "thread">,
+): ({ type: "terminal.stop"; terminalId: string } | { type: "thread.stop"; threadId: string })[] {
+  const commands: ({ type: "terminal.stop"; terminalId: string } | { type: "thread.stop"; threadId: string })[] = [];
+  const { terminal, thread } = session;
+  if (terminal && (terminal.status === "running" || terminal.status === "starting")) {
+    commands.push({ type: "terminal.stop", terminalId: terminal.terminalId });
+  }
+  if (thread && thread.status !== "stopped" && thread.status !== "failed") {
+    commands.push({ type: "thread.stop", threadId: thread.threadId });
+  }
+  return commands;
+}
+
 export const sessionStatusLabel: Record<SessionStatus, string> = {
   preparing: "Preparing",
   starting: "Starting",
   working: "Working",
   waiting: "Needs input",
   ready: "Ready",
-  ended: "Ended",
+  ended: "Stopped",
   failed: "Failed",
 };
 

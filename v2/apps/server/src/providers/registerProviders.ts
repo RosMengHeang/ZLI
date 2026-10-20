@@ -1,8 +1,10 @@
+import { AcpProviderError } from "@zli-v2/provider-acp";
 import { ClaudeCodeClient, ClaudeProviderError } from "@zli-v2/provider-claude-code";
 import { CodexAppServerClient, CodexProviderError } from "@zli-v2/provider-codex";
 import { CursorAgentClient, CursorProviderError } from "@zli-v2/provider-cursor-agent";
 import { DroidClient, DroidProviderError } from "@zli-v2/provider-droid";
 
+import { type AcpProviderConfig, AcpProviderAdapter, type AcpProviderKind } from "./AcpProviderAdapter.js";
 import { ClaudeCodeProviderAdapter } from "./ClaudeCodeProviderAdapter.js";
 import { CodexProviderAdapter } from "./CodexProviderAdapter.js";
 import { CursorAgentProviderAdapter } from "./CursorAgentProviderAdapter.js";
@@ -53,6 +55,62 @@ export async function resolveDroidCommand(probe: CliProbe = createDefaultCliProb
   );
 }
 
+/**
+ * Chat-mode launch for every ACP agent. Gemini CLI before 0.33.0 only knew
+ * --experimental-acp; current releases deprecate it in favor of --acp.
+ */
+export const ACP_PROVIDERS: ReadonlyArray<Omit<AcpProviderConfig, "resolveCommand">> = [
+  {
+    provider: "opencode",
+    displayName: "OpenCode",
+    acpArgs: ["acp"],
+    authHint: "Sign in to OpenCode in a terminal first (run `opencode auth login`).",
+  },
+  {
+    provider: "gemini",
+    displayName: "Gemini",
+    acpArgs: ["--acp"],
+    authHint: "Sign in to Gemini in a terminal first (run `gemini` and choose a login method).",
+  },
+  {
+    provider: "copilot",
+    displayName: "GitHub Copilot",
+    acpArgs: ["--acp", "--stdio"],
+    authHint: "Sign in to GitHub Copilot in a terminal first (run `copilot`, then `/login`).",
+  },
+  {
+    provider: "kimi",
+    displayName: "Kimi Code",
+    acpArgs: ["acp"],
+    authHint: "Sign in to Kimi Code in a terminal first (run `kimi login`).",
+  },
+  {
+    provider: "qwen",
+    displayName: "Qwen Code",
+    acpArgs: ["--acp"],
+    authHint: "Sign in to Qwen Code in a terminal first (run `qwen` and complete the login).",
+  },
+  {
+    provider: "goose",
+    displayName: "Goose",
+    acpArgs: ["acp"],
+    authHint: "Configure a Goose provider in a terminal first (run `goose configure`).",
+  },
+];
+
+export async function resolveAcpCommand(
+  provider: AcpProviderKind,
+  probe: CliProbe = createDefaultCliProbe(),
+): Promise<string> {
+  const discovered = await discoverCliProviders(probe, { models: false });
+  const entry = discovered.find((candidate) => candidate.provider === provider);
+  if (entry?.status === "found") return entry.path;
+  throw new AcpProviderError(
+    "cli_missing",
+    entry?.status === "missing" ? entry.reason : `${provider} CLI was not found on PATH or in known install locations.`,
+  );
+}
+
 export function createProviderRegistry(env: NodeJS.ProcessEnv = process.env): ProviderRegistry {
   if (env.ZLI_TEST_PROVIDER === "mock") return new ProviderRegistry([new MockProviderAdapter()]);
   return new ProviderRegistry([
@@ -68,5 +126,8 @@ export function createProviderRegistry(env: NodeJS.ProcessEnv = process.env): Pr
     new DroidProviderAdapter({
       createClient: async (input) => DroidClient.start({ ...input, command: await resolveDroidCommand() }),
     }),
+    ...ACP_PROVIDERS.map(
+      (config) => new AcpProviderAdapter({ ...config, resolveCommand: () => resolveAcpCommand(config.provider) }),
+    ),
   ]);
 }

@@ -129,7 +129,7 @@ describe("runtime contracts", () => {
     ).toHaveLength(1);
   });
 
-  it("reports listed CLI discovery and rejects OpenCode in that list", () => {
+  it("reports listed CLI discovery and rejects unknown CLIs in that list", () => {
     expect(
       RuntimeProjection.parse({
         environment: {
@@ -186,9 +186,7 @@ describe("runtime contracts", () => {
         projects: [],
         worktrees: [],
         threads: [],
-        providers: [
-          { provider: "opencode", displayName: "OpenCode", status: "found", path: "/usr/local/bin/opencode" },
-        ],
+        providers: [{ provider: "aider", displayName: "Aider", status: "found", path: "/usr/local/bin/aider" }],
         terminals: [],
         browserTabs: [],
         attention: [],

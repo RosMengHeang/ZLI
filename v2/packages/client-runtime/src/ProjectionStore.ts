@@ -3,6 +3,7 @@ import {
   RuntimeProjection,
   appendThreadMessage,
   deriveSharedProjectContexts,
+  removeSession,
   upsertThreadActivity,
   type RuntimeEventEnvelope as RuntimeEventEnvelopeValue,
   type RuntimeProjection as RuntimeProjectionValue,
@@ -204,6 +205,12 @@ export class ProjectionStore {
                 }
               : thread,
           ),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "session.deleted":
+        this.#projection = {
+          ...removeSession(current, event.terminalIds, event.threadIds),
           lastSequence: envelope.sequence,
         };
         break;

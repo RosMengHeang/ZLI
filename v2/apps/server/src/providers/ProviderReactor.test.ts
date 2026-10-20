@@ -391,6 +391,56 @@ describe("ProviderReactor", () => {
     await service.stopAll();
     service.dispose();
   });
+  it("stops a deleted session's provider and drops its late output", async () => {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service);
+    const sessionId = "00000000-0000-4000-8000-000000000990";
+    const dispatch = (suffix: string, command: Record<string, unknown>) =>
+      engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`10000000-0000-4000-8000-0000000009${suffix}`),
+        command,
+      } as never);
+
+    await dispatch("71", { type: "project.register", path: "C:\\workspace\\provider" });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    await dispatch("72", {
+      type: "worktree.create",
+      worktreeId,
+      projectId: project.projectId,
+      path: "C:\\workspace\\provider-tree",
+      workspaceRoot: "C:\\workspace",
+      branch: "feature/provider",
+    });
+    await dispatch("73", {
+      type: "thread.start",
+      threadId,
+      worktreeId,
+      provider: "codex",
+      cwd: "C:\\workspace\\provider-tree",
+      sessionId,
+    });
+    await reactor.waitForIdle();
+    expect(adapter.started).toBe(true);
+
+    await dispatch("74", { type: "session.delete", sessionId });
+    await reactor.waitForIdle();
+    expect(adapter.started).toBe(false);
+
+    const before = (await engine.projection()).lastSequence;
+    adapter.emit({ type: "assistant.delta", threadId, turnId: "late", text: "late text" });
+    adapter.emit({ type: "session.closed", threadId, reason: "gone" });
+    await reactor.waitForIdle();
+    const after = await engine.projection();
+    expect(after.threads).toEqual([]);
+    expect(after.lastSequence).toBe(before);
+    reactor.stop();
+  });
 });
 
 describe("promptWithAttachments", () => {

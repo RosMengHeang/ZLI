@@ -5,12 +5,18 @@ import {
   threadOccupiesWorktree,
 } from "@zli-v2/contracts";
 
-/** Picker order. OpenCode stays out: it is not a listed provider. */
+/** Picker order. */
 export const SELECTABLE_PROVIDERS = [
   "codex",
   "claude-code",
   "cursor-agent",
   "droid",
+  "opencode",
+  "gemini",
+  "copilot",
+  "kimi",
+  "qwen",
+  "goose",
 ] as const satisfies readonly ListedProviderKind[];
 
 const FALLBACK_NAMES: Record<(typeof SELECTABLE_PROVIDERS)[number], string> = {
@@ -18,6 +24,12 @@ const FALLBACK_NAMES: Record<(typeof SELECTABLE_PROVIDERS)[number], string> = {
   "claude-code": "Claude Code",
   "cursor-agent": "Cursor",
   droid: "Droid",
+  opencode: "OpenCode",
+  gemini: "Gemini",
+  copilot: "GitHub Copilot",
+  kimi: "Kimi Code",
+  qwen: "Qwen Code",
+  goose: "Goose",
 };
 
 export function isSelectableProvider(provider: string): provider is ListedProviderKind {

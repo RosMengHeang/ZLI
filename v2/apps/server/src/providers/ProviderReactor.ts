@@ -33,6 +33,8 @@ const MAX_ACTIVITY_ID = 200;
 export class ProviderReactor {
   private readonly tasks = new Set<Promise<void>>();
   private readonly pendingDeltas = new Map<string, PendingDelta>();
+  /** Threads whose session was deleted. Late provider output for them has no record to land on. */
+  private readonly deleted = new Set<string>();
   private readonly unsubscribe: () => void;
   private readonly unsubscribeProvider: () => void;
 
@@ -93,6 +95,9 @@ export class ProviderReactor {
       case "thread.user-input.requested":
         this.track(this.respondUserInput(envelope.event.threadId, envelope.event.requestId, envelope.event.answers));
         return;
+      case "session.deleted":
+        for (const threadId of envelope.event.threadIds) this.track(this.forget(threadId));
+        return;
       default:
         return;
     }
@@ -107,6 +112,10 @@ export class ProviderReactor {
         ...(intent.thread.permissionMode ? { permissionMode: intent.thread.permissionMode } : {}),
         ...(intent.thread.model ? { model: intent.thread.model } : {}),
       });
+      if (this.deleted.has(intent.thread.threadId)) {
+        await this.forget(intent.thread.threadId);
+        return;
+      }
       await this.status(intent.thread.threadId, "idle", {
         capabilities: this.service.getCapabilities(session.provider),
       });
@@ -152,7 +161,24 @@ export class ProviderReactor {
     }
   }
 
+  private async forget(threadId: string): Promise<void> {
+    this.deleted.add(threadId);
+    for (const [key, pending] of this.pendingDeltas) {
+      if (pending.threadId !== threadId) continue;
+      clearTimeout(pending.timer);
+      this.pendingDeltas.delete(key);
+    }
+    const id = ThreadId.parse(threadId);
+    if (!this.service.hasSession(id)) return;
+    try {
+      await this.service.stopSession({ threadId: id });
+    } catch {
+      // The process is already gone.
+    }
+  }
+
   private onProviderEvent(event: ProviderEvent): void {
+    if (event.threadId && this.deleted.has(event.threadId)) return;
     if (event.type === "assistant.delta") {
       this.bufferDelta(event.threadId, event.turnId, event.text);
       return;
@@ -231,6 +257,7 @@ export class ProviderReactor {
   }
 
   private status(threadId: string, status: ThreadStatus, detail: StatusDetail = {}): Promise<void> {
+    if (this.deleted.has(threadId)) return Promise.resolve();
     return this.engine
       .dispatchPromise({
         protocolVersion: 1,
@@ -271,6 +298,7 @@ export class ProviderReactor {
     requestId: string,
     payload: Record<string, unknown>,
   ): Promise<void> {
+    if (this.deleted.has(threadId)) return Promise.resolve();
     return this.engine
       .dispatchPromise({
         protocolVersion: 1,
@@ -304,6 +332,7 @@ export class ProviderReactor {
     const detail = activity.detail?.replace(/\s+$/u, "");
     const files = (activity.files ?? []).filter((file) => file.length > 0 && file.length <= 4_000).slice(0, 100);
     const turnId = event.turnId?.trim();
+    if (this.deleted.has(event.threadId)) return Promise.resolve();
     return this.engine
       .dispatchPromise({
         protocolVersion: 1,
@@ -332,6 +361,7 @@ export class ProviderReactor {
     turnId?: string,
     attachments: readonly ThreadAttachment[] = [],
   ): Promise<void> {
+    if (this.deleted.has(threadId)) return Promise.resolve();
     return this.engine
       .dispatchPromise({
         protocolVersion: 1,

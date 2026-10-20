@@ -7,8 +7,6 @@ const STORAGE_KEY = "zli.workbench.v1";
 export type WorkbenchState = {
   /** Sessions removed from the grid. They stay in the sidebar and keep running. */
   closed: string[];
-  /** Sessions removed from the sidebar list as well. */
-  hidden: string[];
   modes: Record<string, SessionMode>;
   pending: PendingLaunch[];
   activeSessionId?: string | undefined;
@@ -23,13 +21,25 @@ export const MIN_DRAWER_HEIGHT = 140;
 
 const initialState: WorkbenchState = {
   closed: [],
-  hidden: [],
   modes: {},
   pending: [],
   drawerOpen: false,
   drawerHeight: DEFAULT_DRAWER_HEIGHT,
   sidebarOpen: true,
 };
+
+/** Drops every layout trace of a session that no longer exists. */
+export function forgetSession(state: WorkbenchState, sessionId: string): WorkbenchState {
+  const { [sessionId]: _mode, ...modes } = state.modes;
+  return {
+    ...state,
+    closed: state.closed.filter((id) => id !== sessionId),
+    pending: state.pending.filter((entry) => entry.sessionId !== sessionId),
+    modes,
+    activeSessionId: state.activeSessionId === sessionId ? undefined : state.activeSessionId,
+    maximizedSessionId: state.maximizedSessionId === sessionId ? undefined : state.maximizedSessionId,
+  };
+}
 
 function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string").slice(-500) : [];
@@ -56,7 +66,6 @@ export function parseWorkbenchState(raw: string | null): WorkbenchState {
       : [];
     return {
       closed: strings(value.closed),
-      hidden: strings(value.hidden),
       modes,
       pending,
       ...(typeof value.activeSessionId === "string" ? { activeSessionId: value.activeSessionId } : {}),

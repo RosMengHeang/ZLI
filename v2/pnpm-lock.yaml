@@ -66,6 +66,9 @@ importers:
       '@zli-v2/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@zli-v2/provider-acp':
+        specifier: workspace:*
+        version: link:../../packages/provider-acp
       '@zli-v2/provider-claude-code':
         specifier: workspace:*
         version: link:../../packages/provider-claude-code
@@ -146,6 +149,19 @@ importers:
       zod:
         specifier: 4.1.11
         version: 4.1.11
+
+  packages/provider-acp:
+    dependencies:
+      '@zli-v2/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: 4.1.11
+        version: 4.1.11
+    devDependencies:
+      '@types/node':
+        specifier: 24.10.1
+        version: 24.10.1
 
   packages/provider-claude-code:
     dependencies:

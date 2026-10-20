@@ -1,7 +1,7 @@
 import type { ProviderDiscovery } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
-import { listedDiscoveries, preferredProvider, worktreeProviderLabel } from "./providers.js";
+import { listedDiscoveries, preferredProvider, providerDisplayName, worktreeProviderLabel } from "./providers.js";
 
 const codex: ProviderDiscovery = {
   provider: "codex",
@@ -30,23 +30,31 @@ const droid: ProviderDiscovery = {
 };
 
 describe("listedDiscoveries", () => {
-  it("keeps Codex, Claude Code, Cursor, and Droid, and drops OpenCode", () => {
+  it("lists every supported agent CLI and drops unknown ones", () => {
     const mixed = [
       codex,
       claude,
       cursor,
       droid,
       { provider: "opencode", displayName: "OpenCode", status: "found", path: "/usr/local/bin/opencode" },
-    ] as ProviderDiscovery[];
+      { provider: "kimi", displayName: "Kimi", status: "missing", reason: "Kimi CLI was not found." },
+      { provider: "aider", displayName: "Aider", status: "found", path: "/usr/local/bin/aider" },
+    ] as unknown as ProviderDiscovery[];
 
     expect(listedDiscoveries(mixed).map((entry) => entry.provider)).toEqual([
       "codex",
       "claude-code",
       "cursor-agent",
       "droid",
+      "opencode",
+      "kimi",
     ]);
-    expect(listedDiscoveries(mixed).some((entry) => entry.displayName === "OpenCode")).toBe(false);
     expect(listedDiscoveries(undefined)).toEqual([]);
+  });
+
+  it("names new agents before discovery reports them", () => {
+    expect(providerDisplayName("gemini", undefined)).toBe("Gemini");
+    expect(providerDisplayName("qwen", [])).toBe("Qwen Code");
   });
 
   it("prefers the first CLI discovery already found", () => {
@@ -62,7 +70,7 @@ describe("listedDiscoveries", () => {
           { worktreeId: "tree-1", provider: "codex", status: "idle" },
           { worktreeId: "tree-1", provider: "claude-code", status: "working" },
           { worktreeId: "tree-1", provider: "cursor-agent", status: "stopped" },
-          { worktreeId: "tree-1", provider: "opencode", status: "idle" },
+          { worktreeId: "tree-1", provider: "aider", status: "idle" },
           { worktreeId: "tree-2", provider: "cursor-agent", status: "idle" },
         ],
         "tree-1",

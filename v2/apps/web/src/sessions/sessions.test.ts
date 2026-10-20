@@ -6,8 +6,16 @@ import type {
 } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
-import { buildTimeline, changedFiles, deriveSessions, gridColumns, relativeTime, sessionTitle } from "./sessions.js";
-import { parseWorkbenchState } from "./workbench.js";
+import {
+  buildTimeline,
+  changedFiles,
+  deriveSessions,
+  gridColumns,
+  relativeTime,
+  sessionStopCommands,
+  sessionTitle,
+} from "./sessions.js";
+import { forgetSession, parseWorkbenchState } from "./workbench.js";
 
 const worktreeId = "00000000-0000-4000-8000-000000000011";
 const sessionId = "00000000-0000-4000-8000-000000000201";
@@ -130,6 +138,40 @@ describe("helpers", () => {
 
   it("chooses grid columns by tile count", () => {
     expect([1, 2, 4, 5, 9, 12].map(gridColumns)).toEqual([1, 2, 2, 3, 3, 4]);
+  });
+
+  it("stops both the agent CLI and the chat of a session", () => {
+    const idleThread = { ...thread, status: "idle" } as ThreadProjection;
+    expect(sessionStopCommands({ terminal: agentTerminal, thread: idleThread })).toEqual([
+      { type: "terminal.stop", terminalId: agentTerminal.terminalId },
+      { type: "thread.stop", threadId },
+    ]);
+    expect(
+      sessionStopCommands({
+        terminal: { ...agentTerminal, status: "exited" },
+        thread: { ...thread, status: "stopped" } as ThreadProjection,
+      }),
+    ).toEqual([]);
+    const [session] = deriveSessions({ terminals: [{ ...agentTerminal, status: "exited" }], threads: [idleThread] });
+    expect(session?.status).toBe("ready");
+  });
+
+  it("forgets every layout trace of a deleted session", () => {
+    const state = parseWorkbenchState(
+      JSON.stringify({
+        closed: ["a", "b"],
+        modes: { a: "chat", b: "terminal" },
+        pending: [{ sessionId: "a", worktreeId, provider: "droid", mode: "chat" }],
+        activeSessionId: "a",
+        maximizedSessionId: "a",
+      }),
+    );
+    const next = forgetSession(state, "a");
+    expect(next.closed).toEqual(["b"]);
+    expect(next.modes).toEqual({ b: "terminal" });
+    expect(next.pending).toEqual([]);
+    expect(next.activeSessionId).toBeUndefined();
+    expect(next.maximizedSessionId).toBeUndefined();
   });
 
   it("drops malformed workbench state from storage", () => {

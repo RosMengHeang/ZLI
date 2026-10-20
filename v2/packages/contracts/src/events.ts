@@ -1,7 +1,17 @@
 import { z } from "zod";
 import { BrowserTabProjection } from "./browser.js";
 import { DiagnosticLog } from "./diagnostics.js";
-import { BrowserTabId, EventId, ProjectId, TerminalId, ThreadId, TurnId, WorkspaceId, WorktreeId } from "./ids.js";
+import {
+  BrowserTabId,
+  EventId,
+  ProjectId,
+  SessionId,
+  TerminalId,
+  ThreadId,
+  TurnId,
+  WorkspaceId,
+  WorktreeId,
+} from "./ids.js";
 import { LegacyImportPreview } from "./import.js";
 import { ProjectProjection, SupportBundleProjection, WorktreeProjection } from "./projections.js";
 import {
@@ -86,6 +96,12 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("thread.interrupt.requested"), threadId: ThreadId, turnId: TurnId.optional() }),
   z.object({ type: z.literal("thread.stop.requested"), threadId: ThreadId }),
+  z.object({
+    type: z.literal("session.deleted"),
+    sessionId: SessionId,
+    terminalIds: z.array(TerminalId),
+    threadIds: z.array(ThreadId),
+  }),
   z.object({
     type: z.literal("thread.status.changed"),
     threadId: ThreadId,

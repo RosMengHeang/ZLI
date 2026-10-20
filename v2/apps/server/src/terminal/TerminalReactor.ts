@@ -23,6 +23,8 @@ export type TerminalReactorOptions = {
 
 export class TerminalReactor {
   private readonly intents = new Map<string, CreateIntent>();
+  /** Terminals whose session was deleted. Their exit and startup results have no record to update. */
+  private readonly deleted = new Set<string>();
   private readonly tasks = new Set<Promise<void>>();
   private readonly unsubscribe: () => void;
   private readonly unsubscribeExit: () => void;
@@ -34,6 +36,7 @@ export class TerminalReactor {
   ) {
     this.unsubscribe = engine.subscribe((envelope) => this.onEvent(envelope));
     this.unsubscribeExit = service.subscribeExit((terminalId, event) => {
+      if (this.deleted.has(terminalId)) return;
       this.track(this.dispatchStatus(terminalId, "exited", undefined, event.code));
     });
   }
@@ -82,6 +85,9 @@ export class TerminalReactor {
       case "terminal.stop.requested":
         this.track(this.runStop(envelope.event.terminalId));
         return;
+      case "session.deleted":
+        for (const terminalId of envelope.event.terminalIds) this.forget(terminalId);
+        return;
       default:
         return;
     }
@@ -108,8 +114,13 @@ export class TerminalReactor {
         rows: intent.rows,
         title: intent.terminal.title,
       });
+      if (this.deleted.has(intent.terminal.terminalId)) {
+        this.stopQuietly(intent.terminal.terminalId);
+        return;
+      }
       await this.dispatchStatus(intent.terminal.terminalId, "running");
     } catch (error) {
+      if (this.deleted.has(intent.terminal.terminalId)) return;
       await this.dispatchStatus(
         intent.terminal.terminalId,
         "failed",
@@ -147,6 +158,20 @@ export class TerminalReactor {
       this.service.stop(TerminalId.parse(terminalId));
     } catch (error) {
       await this.dispatchStatus(terminalId, "failed", error instanceof Error ? error.message : "Terminal stop failed.");
+    }
+  }
+
+  private forget(terminalId: string): void {
+    this.deleted.add(terminalId);
+    this.intents.delete(terminalId);
+    this.stopQuietly(terminalId);
+  }
+
+  private stopQuietly(terminalId: string): void {
+    try {
+      this.service.stop(TerminalId.parse(terminalId));
+    } catch {
+      // Not started yet, or already gone.
     }
   }
 

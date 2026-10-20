@@ -1,0 +1,16 @@
+{
+  "name": "@zli-v2/provider-acp",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@zli-v2/shared": "workspace:*",
+    "zod": "4.1.11"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1"
+  }
+}

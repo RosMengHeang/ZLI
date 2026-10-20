@@ -11,6 +11,12 @@ const DISPLAY_NAMES: Record<ListedProviderKind, string> = {
   "claude-code": "Claude Code",
   "cursor-agent": "Cursor",
   droid: "Droid",
+  opencode: "OpenCode",
+  gemini: "Gemini",
+  copilot: "GitHub Copilot",
+  kimi: "Kimi Code",
+  qwen: "Qwen Code",
+  goose: "Goose",
 };
 
 /** Agent TUIs probe these to pick their color depth; ConPTY does not set them. */
@@ -48,6 +54,18 @@ export function buildAgentArgs(agent: TerminalAgentLaunch): string[] {
     case "droid":
       // Interactive droid has no model flag; the model is chosen inside the TUI.
       return fullAccess ? ["--auto", "high"] : [];
+    case "opencode":
+      return [...(fullAccess ? ["--auto"] : []), ...(model ? ["--model", model] : [])];
+    case "gemini":
+    case "qwen":
+      return [...(fullAccess ? ["--approval-mode", "yolo"] : []), ...(model ? ["--model", model] : [])];
+    case "copilot":
+      return [...(fullAccess ? ["--allow-all"] : []), ...(model ? ["--model", model] : [])];
+    case "kimi":
+      return [...(fullAccess ? ["--yolo"] : []), ...(model ? ["--model", model] : [])];
+    case "goose":
+      // goose session has no permission or model flags; GOOSE_MODE and GOOSE_MODEL in its config decide both.
+      return ["session"];
   }
 }
 

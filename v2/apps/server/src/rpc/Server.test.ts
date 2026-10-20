@@ -351,11 +351,21 @@ describe("authenticated local RPC server", () => {
     expect(message).toMatchObject({ type: "projection" });
     const providers = (message.projection as { providers: Array<{ provider: string; status: string; reason: string }> })
       .providers;
-    expect(providers.map((provider) => provider.provider)).toEqual(["codex", "claude-code", "cursor-agent", "droid"]);
+    expect(providers.map((provider) => provider.provider)).toEqual([
+      "codex",
+      "claude-code",
+      "cursor-agent",
+      "droid",
+      "opencode",
+      "gemini",
+      "copilot",
+      "kimi",
+      "qwen",
+      "goose",
+    ]);
     expect(
       providers.every((provider) => provider.status === "missing" && provider.reason === "Provider discovery failed."),
     ).toBe(true);
-    expect(providers.map((provider) => provider.provider)).not.toContain("opencode");
     socket.close();
   });
 });

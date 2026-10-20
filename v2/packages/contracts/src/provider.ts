@@ -2,11 +2,22 @@ import { z } from "zod";
 
 import { SessionId, ThreadId, TurnId, WorktreeId } from "./ids.js";
 
-export const ProviderKind = z.enum(["codex", "claude-code", "cursor-agent", "droid", "opencode"]);
+export const ProviderKind = z.enum([
+  "codex",
+  "claude-code",
+  "cursor-agent",
+  "droid",
+  "opencode",
+  "gemini",
+  "copilot",
+  "kimi",
+  "qwen",
+  "goose",
+]);
 export type ProviderKind = z.infer<typeof ProviderKind>;
 
-/** Providers a person can see in discovery. OpenCode stays in ProviderKind for stored sessions, and is not listed. */
-export const ListedProviderKind = z.enum(["codex", "claude-code", "cursor-agent", "droid"]);
+/** Providers a person can see in discovery. */
+export const ListedProviderKind = ProviderKind;
 export type ListedProviderKind = z.infer<typeof ListedProviderKind>;
 
 /** How much an agent may do without asking. Full access is the default for every launch. */

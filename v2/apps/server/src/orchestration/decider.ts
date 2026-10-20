@@ -22,6 +22,7 @@ export type DomainErrorCode =
   | "terminal_cwd_rejected"
   | "thread_exists"
   | "thread_missing"
+  | "session_missing"
   | "worktree_occupied"
   | "a2a_cross_project"
   | "a2a_invalid_target"
@@ -84,6 +85,7 @@ export type DomainDecision = Extract<
       | "thread.a2a.delivered"
       | "thread.interrupt.requested"
       | "thread.stop.requested"
+      | "session.deleted"
       | "thread.status.changed"
       | "thread.message.appended"
       | "thread.request.requested"
@@ -321,6 +323,26 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     case "thread.stop":
       assertThread(projection, command.threadId);
       return [{ type: "thread.stop.requested", threadId: command.threadId }];
+    case "session.delete": {
+      // The session's drawer shells go with it. Agent records from before sessions existed are
+      // their own session, keyed by their own id.
+      const terminalIds = projection.terminals
+        .filter(
+          (terminal) =>
+            terminal.sessionId === command.sessionId ||
+            (terminal.kind === "agent" &&
+              terminal.sessionId === undefined &&
+              String(terminal.terminalId) === command.sessionId),
+        )
+        .map((terminal) => terminal.terminalId);
+      const threadIds = projection.threads
+        .filter((thread) => (thread.sessionId ?? thread.threadId) === command.sessionId)
+        .map((thread) => thread.threadId);
+      if (terminalIds.length === 0 && threadIds.length === 0) {
+        throw new DomainError("session_missing", `Session does not exist: ${command.sessionId}`);
+      }
+      return [{ type: "session.deleted", sessionId: command.sessionId, terminalIds, threadIds }];
+    }
     case "thread.status":
       assertThread(projection, command.threadId);
       return [

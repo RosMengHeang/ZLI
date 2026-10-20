@@ -3,21 +3,36 @@ import { describe, expect, it } from "vitest";
 import type { CliProbe } from "./discoverCliProviders.js";
 import {
   createProviderRegistry,
+  resolveAcpCommand,
   resolveClaudeCommand,
   resolveCursorCommand,
   resolveDroidCommand,
 } from "./registerProviders.js";
 
 describe("createProviderRegistry", () => {
-  it("registers Codex, Claude Code, Cursor, and Droid, and leaves OpenCode unregistered", () => {
+  it("registers Codex, Claude Code, Cursor, Droid, and the ACP agents", () => {
     const registry = createProviderRegistry({});
     expect(registry.list().map((adapter) => adapter.provider)).toEqual([
       "codex",
       "claude-code",
       "cursor-agent",
       "droid",
+      "opencode",
+      "gemini",
+      "copilot",
+      "kimi",
+      "qwen",
+      "goose",
     ]);
-    expect(registry.get("opencode")).toBeUndefined();
+    for (const provider of ["opencode", "gemini", "copilot", "kimi", "qwen", "goose"] as const) {
+      expect(registry.get(provider)?.capabilities).toEqual({
+        exactResume: false,
+        structuredApproval: true,
+        structuredUserInput: false,
+        conversationRollback: false,
+        modelSwitch: "in-session",
+      });
+    }
     expect(registry.get("codex")?.capabilities).toMatchObject({
       exactResume: true,
       structuredApproval: true,
@@ -90,6 +105,22 @@ describe("resolveCursorCommand", () => {
     await expect(resolveCursorCommand(missing)).rejects.toMatchObject({
       code: "cli_missing",
       message: "Cursor CLI was not found on PATH or in known install locations.",
+    });
+  });
+});
+
+describe("resolveAcpCommand", () => {
+  it("returns the discovered Kimi Code path and a typed error when discovery misses Goose", async () => {
+    const found: CliProbe = {
+      pathEntries: [],
+      homeDir: "C:\\Users\\dev",
+      platform: "win32",
+      fileExists: (filePath) => filePath === "C:\\Users\\dev\\.kimi-code\\bin\\kimi.exe",
+    };
+    await expect(resolveAcpCommand("kimi", found)).resolves.toBe("C:\\Users\\dev\\.kimi-code\\bin\\kimi.exe");
+    await expect(resolveAcpCommand("goose", found)).rejects.toMatchObject({
+      code: "cli_missing",
+      message: "Goose CLI was not found on PATH or in known install locations.",
     });
   });
 });
