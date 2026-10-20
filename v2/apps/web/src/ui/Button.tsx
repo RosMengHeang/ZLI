@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, Ref } from "react";
+import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 
 import { Icon, type IconName } from "./Icon.js";
 import { Kbd } from "./Kbd.js";
@@ -28,17 +28,21 @@ export function Button({
   icon,
   shortcut,
   showShortcut = false,
+  loading = false,
   tooltip,
   className,
   type = "button",
+  disabled,
   children,
   ref,
   ...rest
 }: BaseProps & {
   icon?: IconName | undefined;
   showShortcut?: boolean;
+  /** Replaces the icon with a spinner and blocks clicks while an action runs. */
+  loading?: boolean;
   tooltip?: string | undefined;
-  children?: React.ReactNode;
+  children?: ReactNode;
 }) {
   return (
     <button
@@ -48,9 +52,15 @@ export function Button({
       data-tooltip={tooltip}
       data-shortcut={shortcut && (tooltip || !showShortcut) ? shortcutText(shortcut) : undefined}
       aria-keyshortcuts={shortcut ? ariaShortcut(shortcut) : undefined}
+      aria-busy={loading || undefined}
+      disabled={disabled || loading}
       {...rest}
     >
-      {icon ? <Icon name={icon} size={iconSizes[size]} /> : null}
+      {loading ? (
+        <span className="spinner" aria-hidden="true" />
+      ) : icon ? (
+        <Icon name={icon} size={iconSizes[size]} />
+      ) : null}
       {children}
       {shortcut && showShortcut ? <Kbd shortcut={shortcut} /> : null}
     </button>

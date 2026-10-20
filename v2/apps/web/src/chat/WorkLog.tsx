@@ -1,6 +1,8 @@
 import type { ThreadActivityProjection } from "@zli-v2/contracts";
 import { useState } from "react";
 
+import { Badge } from "../ui/Badge.js";
+import { Button } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 
 const kindIcon: Record<ThreadActivityProjection["kind"], IconName> = {
@@ -51,7 +53,8 @@ export function WorkLog({
       <button className="work-log-header" type="button" aria-expanded={open} onClick={() => setExpanded(!open)}>
         <Icon name="chevronRight" size={12} className="work-log-chevron" />
         <span className="work-log-summary">{workSummary(activities)}</span>
-        {failed > 0 ? <span className="work-log-failed">{failed} failed</span> : null}
+        {running ? <span className="spinner work-log-spinner" aria-hidden="true" /> : null}
+        {failed > 0 ? <Badge tone="danger">{failed} failed</Badge> : null}
       </button>
       {open || running ? (
         <ol className="work-log-list">
@@ -78,7 +81,7 @@ export function WorkLog({
                   <span className={`work-entry-title${entry.kind === "command" ? " is-mono" : ""}`}>{entry.title}</span>
                   <span className="work-entry-status">
                     {entry.status === "running" ? (
-                      <Icon name="circle" size={11} aria-label="Running" />
+                      <span className="spinner" role="img" aria-label="Running" />
                     ) : entry.status === "failed" ? (
                       <Icon name="x" size={12} aria-label="Failed" />
                     ) : (
@@ -104,9 +107,9 @@ export function ChangedFiles({ files, onOpenDiff }: { files: readonly string[]; 
         <span>
           {files.length} {files.length === 1 ? "file" : "files"} changed
         </span>
-        <button className="ghost-button" type="button" onClick={() => onOpenDiff()}>
+        <Button variant="ghost" size="xs" onClick={() => onOpenDiff()}>
           Open diff
-        </button>
+        </Button>
       </header>
       <ul className="changed-files-list">
         {files.slice(0, 12).map((file) => {

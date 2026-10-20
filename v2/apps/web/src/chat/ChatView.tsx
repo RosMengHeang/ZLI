@@ -6,11 +6,15 @@ import { useFileLinks } from "../files/FileIndex.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { buildTimeline } from "../sessions/sessions.js";
+import { Button } from "../ui/Button.js";
+import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
+import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { Composer, type ComposerAttachment } from "./Composer.js";
 import { Markdown } from "./Markdown.js";
 import { ChangedFiles, WorkLog } from "./WorkLog.js";
+import "./chat.css";
 
 export function ChatView({
   projection,
@@ -143,7 +147,7 @@ export function ChatView({
   };
 
   const lastTurnRunning = working ? thread.activeTurnId : undefined;
-  const visibleError = error ?? (ended ? thread.errorMessage : undefined);
+  const visibleError = error;
 
   return (
     <div className="chat-view">
@@ -159,15 +163,18 @@ export function ChatView({
       >
         <div className="chat-column">
           {timeline.length === 0 ? (
-            <div className="chat-empty">
-              <ProviderMark provider={thread.provider} size={22} />
-              <p className="chat-empty-title">
-                {thread.status === "starting" ? `Starting ${displayName}` : `${displayName} is ready`}
-              </p>
-              <p className="chat-empty-detail">
-                Describe a task. {displayName} works in {worktree?.branch ?? "this worktree"}.
-              </p>
-            </div>
+            <EmptyState
+              className="chat-empty"
+              media={
+                thread.status === "starting" ? (
+                  <span className="spinner" aria-hidden="true" />
+                ) : (
+                  <ProviderMark provider={thread.provider} size={18} />
+                )
+              }
+              title={thread.status === "starting" ? `Starting ${displayName}` : `${displayName} is ready`}
+              detail={`Describe a task. ${displayName} works in ${worktree?.branch ?? "this worktree"}.`}
+            />
           ) : (
             timeline.map((item) => {
               if (item.kind === "work") {
@@ -225,7 +232,7 @@ export function ChatView({
           )}
           {thread.status === "working" ? (
             <p className="chat-working" role="status">
-              <span className="chat-working-mark" aria-hidden="true" />
+              <span className="spinner" aria-hidden="true" />
               {displayName} is working
             </p>
           ) : null}
@@ -245,9 +252,10 @@ export function ChatView({
               <pre>{JSON.stringify(request.payload, null, 2)}</pre>
               {request.kind === "approval" ? (
                 <div className="chat-request-actions">
-                  <button
-                    className="primary-button"
-                    type="button"
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon="check"
                     onClick={() =>
                       void run({
                         type: "thread.respond",
@@ -258,10 +266,9 @@ export function ChatView({
                     }
                   >
                     Approve
-                  </button>
-                  <button
-                    className="secondary-button"
-                    type="button"
+                  </Button>
+                  <Button
+                    size="sm"
                     onClick={() =>
                       void run({
                         type: "thread.respond",
@@ -272,19 +279,22 @@ export function ChatView({
                     }
                   >
                     Reject
-                  </button>
+                  </Button>
                 </div>
               ) : (
                 <>
                   <textarea
+                    className="textarea is-mono"
                     value={answers}
                     onChange={(event) => setAnswers(event.target.value)}
                     aria-label="Structured user input answers"
                     rows={3}
                   />
-                  <button className="primary-button" type="button" onClick={() => void submitAnswers()}>
-                    Submit answers
-                  </button>
+                  <div className="chat-request-actions">
+                    <Button variant="primary" size="sm" onClick={() => void submitAnswers()}>
+                      Submit answers
+                    </Button>
+                  </div>
                 </>
               )}
             </section>
@@ -295,14 +305,19 @@ export function ChatView({
             </p>
           ) : null}
           {ended ? (
-            <div className={`chat-ended${thread.status === "failed" ? " is-failed" : ""}`}>
-              <span>
-                {thread.status === "failed" ? `${displayName} failed.` : `${displayName} session ended.`} A new chat
-                starts fresh in the same worktree.
+            <div className={`chat-ended${thread.status === "failed" ? " is-failed" : ""}`} role="status">
+              <Icon name={thread.status === "failed" ? "alert" : "square"} size={13} />
+              <span className="chat-ended-copy">
+                <span className="chat-ended-title">
+                  {thread.status === "failed" ? `${displayName} failed` : `${displayName} session ended`}
+                </span>
+                <span className="chat-ended-detail">
+                  {thread.errorMessage ?? "A new chat starts fresh in the same worktree."}
+                </span>
               </span>
-              <button className="primary-button" type="button" onClick={onRestart}>
+              <Button variant="primary" size="sm" icon="plus" onClick={onRestart}>
                 New chat
-              </button>
+              </Button>
             </div>
           ) : (
             <Composer
@@ -330,7 +345,8 @@ export function ChatView({
                   void sendToPeer();
                 }}
               >
-                <select
+                <Select
+                  className="input-sm"
                   aria-label="Another thread in this project"
                   value={selectedPeerId}
                   onChange={(event) => setPeerTargetId(event.target.value)}
@@ -340,17 +356,18 @@ export function ChatView({
                       {peerOptionLabel(projection, peer.threadId)}
                     </option>
                   ))}
-                </select>
+                </Select>
                 <textarea
+                  className="textarea"
                   value={peerDraft}
                   onChange={(event) => setPeerDraft(event.target.value)}
                   placeholder="Message for that agent"
                   aria-label="Message for the other agent"
                   rows={2}
                 />
-                <button className="secondary-button" type="submit" disabled={!peerDraft.trim()}>
+                <Button size="sm" type="submit" disabled={!peerDraft.trim()}>
                   Send to agent
-                </button>
+                </Button>
               </form>
             </details>
           ) : null}

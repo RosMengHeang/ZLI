@@ -34,6 +34,7 @@ export function PaneHeader({
 /** Explains why a view is empty and offers the action that fills it. */
 export function EmptyState({
   icon,
+  media,
   title,
   detail,
   hint,
@@ -42,7 +43,9 @@ export function EmptyState({
   children,
   className,
 }: {
-  icon: IconName;
+  icon?: IconName;
+  /** Replaces the icon, for example with a provider mark or a spinner. */
+  media?: ReactNode;
   title: string;
   detail?: ReactNode;
   /** A keyboard shortcut that does the same as the main action, for example "Mod+N". */
@@ -55,7 +58,7 @@ export function EmptyState({
   return (
     <div className={`empty-state${size === "large" ? " is-large" : ""}${className ? ` ${className}` : ""}`}>
       <span className={`empty-state-icon${tone === "danger" ? " is-danger" : ""}`}>
-        <Icon name={icon} size={18} />
+        {media ?? (icon ? <Icon name={icon} size={18} /> : null)}
       </span>
       <p className="empty-state-title">{title}</p>
       {detail ? <p className="empty-state-detail">{detail}</p> : null}

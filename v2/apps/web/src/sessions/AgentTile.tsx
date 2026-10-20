@@ -7,15 +7,43 @@ import { useFileLinks } from "../files/FileIndex.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { TerminalView } from "../terminal/TerminalView.js";
+import { Badge, type BadgeTone } from "../ui/Badge.js";
+import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
+import { Segmented, type SegmentedOption } from "../ui/Segmented.js";
 import {
   type AgentSession,
   type SessionMode,
+  type SessionStatus,
   sessionStatusLabel,
   sessionStopCommands,
   sessionTitle,
 } from "./sessions.js";
+
+import "./tile.css";
+
+const statusTone: Record<SessionStatus, BadgeTone> = {
+  preparing: "info",
+  starting: "info",
+  working: "info",
+  waiting: "warning",
+  ready: "success",
+  ended: "quiet",
+  failed: "danger",
+};
+
+const modeOptions: readonly SegmentedOption<SessionMode>[] = [
+  {
+    value: "terminal",
+    label: "Terminal",
+    icon: "terminal",
+    ariaLabel: "Terminal view",
+    tooltip: "Agent CLI in a terminal",
+  },
+  { value: "chat", label: "Chat", icon: "message", ariaLabel: "Chat view", tooltip: "Chat with a work log and diffs" },
+];
 
 export function AgentTile({
   projection,
@@ -95,6 +123,9 @@ export function AgentTile({
   };
 
   const canStop = sessionStopCommands(session).length > 0;
+  const status = session.status;
+  const statusBusy = status === "working" || status === "starting" || status === "preparing";
+  const mark = <ProviderMark provider={session.provider} size={18} />;
 
   return (
     <section
@@ -112,102 +143,70 @@ export function AgentTile({
           <Icon name="branch" size={11} />
           <span>{branch}</span>
         </span>
-        <span className={`status-pill is-${session.status}`} title={sessionStatusLabel[session.status]}>
-          <span className="status-pill-dot" aria-hidden="true" />
-          {sessionStatusLabel[session.status]}
-        </span>
+        <Badge
+          className="tile-status"
+          tone={statusTone[status]}
+          dot={!statusBusy}
+          spinner={statusBusy}
+          title={sessionStatusLabel[status]}
+        >
+          {sessionStatusLabel[status]}
+        </Badge>
         <span className="tile-spacer" />
         {session.pending && !terminal && !thread ? null : (
-          <div className="segmented">
-            <button
-              type="button"
-              aria-pressed={mode === "terminal"}
-              aria-label="Terminal view"
-              title="Agent CLI in a terminal"
-              onClick={() => onModeChange("terminal")}
-            >
-              <Icon name="terminal" size={12} />
-              <span>Terminal</span>
-            </button>
-            <button
-              type="button"
-              aria-pressed={mode === "chat"}
-              aria-label="Chat view"
-              title="Chat with a work log"
-              onClick={() => onModeChange("chat")}
-            >
-              <Icon name="message" size={12} />
-              <span>Chat</span>
-            </button>
-          </div>
+          <Segmented label="View" className="tile-modes" value={mode} options={modeOptions} onChange={onModeChange} />
         )}
         <span className="tile-actions">
           {mode === "chat" && (thread?.status === "working" || thread?.status === "waiting") ? (
-            <button
-              className="icon-button"
-              type="button"
-              aria-label="Interrupt"
-              title="Interrupt the turn"
-              onClick={interrupt}
-            >
-              <Icon name="pause" size={13} />
-            </button>
+            <IconButton label="Interrupt" tooltip="Interrupt the turn" icon="pause" size="sm" onClick={interrupt} />
           ) : null}
           {canStop ? (
-            <button
-              className="icon-button"
-              type="button"
-              aria-label="Stop agent"
-              title="Stop agent (terminal and chat)"
+            <IconButton
+              label="Stop agent"
+              tooltip="Stop the agent in the terminal and the chat"
+              icon="square"
+              size="sm"
+              iconSize={11}
               onClick={() => {
                 setError(undefined);
                 onStop();
               }}
-            >
-              <Icon name="square" size={12} />
-            </button>
+            />
           ) : null}
           {canMaximize ? (
-            <button
-              className="icon-button"
-              type="button"
-              aria-label={maximized ? "Show all agents" : "Maximize"}
-              title={maximized ? "Show all agents" : "Maximize"}
+            <IconButton
+              label={maximized ? "Show all agents" : "Maximize"}
+              icon={maximized ? "minimize" : "maximize"}
+              size="sm"
               onClick={onToggleMaximize}
-            >
-              <Icon name={maximized ? "minimize" : "maximize"} size={13} />
-            </button>
+            />
           ) : null}
-          <button className="icon-button" type="button" aria-label="Close tile" title="Close tile" onClick={onClose}>
-            <Icon name="x" size={14} />
-          </button>
+          <IconButton label="Close tile" icon="x" size="sm" iconSize={14} onClick={onClose} />
         </span>
       </header>
       <div className="tile-body">
         {!terminal && !thread && session.pending ? (
-          <div className="tile-empty">
-            {session.pending.errorMessage ? (
-              <>
-                <p className="tile-empty-title">{displayName} could not start</p>
-                <p className="tile-empty-detail">{session.pending.errorMessage}</p>
-                <div className="tile-empty-actions">
-                  <button className="secondary-button" type="button" onClick={onRetryPending}>
-                    Try again
-                  </button>
-                  <button className="ghost-button" type="button" onClick={onDismissPending}>
-                    Dismiss
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="tile-empty-title">Preparing {branch}</p>
-                <p className="tile-empty-detail">
-                  {displayName} starts as soon as the worktree is ready{worktree ? ` (${worktree.status})` : ""}.
-                </p>
-              </>
-            )}
-          </div>
+          session.pending.errorMessage ? (
+            <EmptyState
+              icon="alert"
+              tone="danger"
+              title={`${displayName} could not start`}
+              detail={session.pending.errorMessage}
+            >
+              <Button icon="reload" onClick={onRetryPending}>
+                Try again
+              </Button>
+              <Button variant="ghost" onClick={onDismissPending}>
+                Dismiss
+              </Button>
+            </EmptyState>
+          ) : (
+            <EmptyState
+              media={<span className="spinner" aria-hidden="true" />}
+              title={`Preparing ${branch}`}
+              detail={`${displayName} starts as soon as the worktree is ready${worktree ? ` (${worktree.status})` : ""}.`}
+            />
+          )
         ) : mode === "terminal" ? (
           terminal && bridge ? (
             <div className="tile-terminal">
@@ -224,37 +223,29 @@ export function AgentTile({
                 fileLinks={fileLinks}
               />
               {!terminalLive ? (
-                <div className="tile-ended" role="status">
-                  <span>
+                <div className={`tile-ended${terminal.status === "failed" ? " is-failed" : ""}`} role="status">
+                  <Icon name={terminal.status === "failed" ? "alert" : "square"} size={12} />
+                  <span className="tile-ended-message">
                     {terminal.status === "failed"
                       ? (terminal.errorMessage ?? `${displayName} failed to start.`)
                       : `${displayName} exited.`}
                   </span>
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void start("terminal")}
-                  >
-                    <Icon name="reload" size={12} />
+                  <Button size="sm" icon="reload" loading={busy} onClick={() => void start("terminal")}>
                     Restart
-                  </button>
+                  </Button>
                 </div>
               ) : null}
             </div>
           ) : (
-            <div className="tile-empty">
-              <ProviderMark provider={session.provider} size={22} />
-              <p className="tile-empty-title">Run {displayName} in a terminal</p>
-              <p className="tile-empty-detail">
-                Starts the {displayName} CLI in {branch}. It keeps its own history, separate from the chat.
-              </p>
-              <div className="tile-empty-actions">
-                <button className="primary-button" type="button" disabled={busy} onClick={() => void start("terminal")}>
-                  {busy ? "Starting" : "Start in terminal"}
-                </button>
-              </div>
-            </div>
+            <EmptyState
+              media={mark}
+              title={`Run ${displayName} in a terminal`}
+              detail={`Starts the ${displayName} CLI in ${branch}. It keeps its own history, separate from the chat.`}
+            >
+              <Button variant="primary" icon="play" loading={busy} onClick={() => void start("terminal")}>
+                {busy ? "Starting" : "Start in terminal"}
+              </Button>
+            </EmptyState>
           )
         ) : thread ? (
           <ChatView
@@ -266,22 +257,20 @@ export function AgentTile({
             onRestart={() => void start("chat")}
           />
         ) : (
-          <div className="tile-empty">
-            <ProviderMark provider={session.provider} size={22} />
-            <p className="tile-empty-title">Chat with {displayName}</p>
-            <p className="tile-empty-detail">
-              A structured chat with a work log and diffs, in {branch}. It does not share history with the terminal.
-            </p>
-            <div className="tile-empty-actions">
-              <button className="primary-button" type="button" disabled={busy} onClick={() => void start("chat")}>
-                {busy ? "Starting" : "Start chat"}
-              </button>
-            </div>
-          </div>
+          <EmptyState
+            media={mark}
+            title={`Chat with ${displayName}`}
+            detail={`A structured chat with a work log and diffs, in ${branch}. It does not share history with the terminal.`}
+          >
+            <Button variant="primary" icon="message" loading={busy} onClick={() => void start("chat")}>
+              {busy ? "Starting" : "Start chat"}
+            </Button>
+          </EmptyState>
         )}
         {error ? (
           <p className="inline-error tile-error" role="alert">
-            {error}
+            <Icon name="alert" size={13} />
+            <span>{error}</span>
           </p>
         ) : null}
       </div>
