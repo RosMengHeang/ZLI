@@ -664,29 +664,35 @@ function WorkspaceApp() {
   const [keepRequest, setKeepRequest] = useState<AgentSession>();
 
   /** Keeps one best-of run: deletes the other runs and their worktrees, which the person confirmed. */
+  const keepingGroups = useRef(new Set<string>());
   const keepRun = async (kept: AgentSession): Promise<void> => {
     const position = runPosition(workbench.groups, kept.sessionId);
     if (!position || !projection) return;
+    const { groupId } = position.group;
+    if (keepingGroups.current.has(groupId)) return;
+    keepingGroups.current.add(groupId);
     const others = position.group.sessionIds
       .filter((sessionId) => sessionId !== kept.sessionId)
       .map((sessionId) => sessions.find((session) => session.sessionId === sessionId))
       .filter((session): session is AgentSession => session !== undefined);
-    updateWorkbench((state) => ({
-      ...state,
-      groups: state.groups.filter((group) => group.groupId !== position.group.groupId),
-    }));
-    await Promise.all(
-      others.map(async (session) => {
-        const worktree = deletableWorktree(projection, sessions, session);
-        if (worktree && worktreeInProgress(worktree.status)) {
-          // Cancelling stops the setup and removes the half-made folder.
-          await send({ type: "worktree.cancel", worktreeId: worktree.worktreeId });
-          await deleteSession(session, false);
-          return;
-        }
-        await deleteSession(session, worktree !== undefined);
-      }),
-    );
+    // The group is not dropped up front: each successful delete leaves it through forgetSession, so a run
+    // whose delete fails stays grouped with the kept one and can be kept or deleted again.
+    try {
+      await Promise.all(
+        others.map(async (session) => {
+          const worktree = deletableWorktree(projection, sessions, session);
+          if (worktree && worktreeInProgress(worktree.status)) {
+            // Cancelling stops the setup and removes the half-made folder.
+            await send({ type: "worktree.cancel", worktreeId: worktree.worktreeId });
+            await deleteSession(session, false);
+            return;
+          }
+          await deleteSession(session, worktree !== undefined);
+        }),
+      );
+    } finally {
+      keepingGroups.current.delete(groupId);
+    }
     focusSession(kept);
   };
   const closeTileNow = (session: AgentSession) =>
