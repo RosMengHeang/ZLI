@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { type ChildProcess, execFile } from "node:child_process";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -51,34 +51,64 @@ export async function launchDesktop(
       ? await findPackagedExecutable()
       : undefined;
   const executablePath = externalExecutable ?? packagedExecutable;
-  const app = await electron.launch({
-    args: executablePath
-      ? packagedExecutable
-        ? []
-        : [join(V2_ROOT, "apps/desktop/dist/main.js")]
-      : [join(V2_ROOT, "apps/desktop/dist/main.js")],
-    ...(executablePath ? { executablePath } : {}),
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: undefined,
-      ...(externalExecutable ? { ZLI_RUNTIME_NODE: process.execPath } : { ZLI_RUNTIME_NODE: undefined }),
-      ZLI_DATABASE_PATH: databasePath,
-      ...(packagedExecutable
-        ? {}
-        : {
-            ZLI_RENDERER_ROOT: join(V2_ROOT, "apps/desktop/renderer"),
-            ZLI_SERVER_ENTRY: join(V2_ROOT, "apps/desktop/dist/server-entry.js"),
-          }),
-      ZLI_TEST_PROJECT_PATH: repo,
-      ZLI_TEST_PROVIDER: "mock",
-      ZLI_TEST_LEGACY_SNAPSHOT_PATH: options.legacySnapshotPath,
-    },
-    timeout: 30_000,
-  });
-  const page = await app.firstWindow();
-  await page.waitForLoadState("domcontentloaded");
-  await page.getByText("Local runtime").waitFor({ state: "visible" });
-  return { app, page, root, repo };
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await launchOnce();
+    } catch (error) {
+      // A busy Windows runner sometimes never opens the first window of a new process. The failed
+      // launch is already cleaned up, so starting again once is safe; any other failure is real.
+      if (!(error instanceof WindowTimeout)) throw error;
+      if (attempt >= 2) throw error.cause;
+    }
+  }
+
+  async function launchOnce(): Promise<DesktopFixture> {
+    const app = await electron.launch({
+      args: executablePath
+        ? packagedExecutable
+          ? []
+          : [join(V2_ROOT, "apps/desktop/dist/main.js")]
+        : [join(V2_ROOT, "apps/desktop/dist/main.js")],
+      ...(executablePath ? { executablePath } : {}),
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: undefined,
+        ...(externalExecutable ? { ZLI_RUNTIME_NODE: process.execPath } : { ZLI_RUNTIME_NODE: undefined }),
+        ZLI_DATABASE_PATH: databasePath,
+        ...(packagedExecutable
+          ? {}
+          : {
+              ZLI_RENDERER_ROOT: join(V2_ROOT, "apps/desktop/renderer"),
+              ZLI_SERVER_ENTRY: join(V2_ROOT, "apps/desktop/dist/server-entry.js"),
+            }),
+        ZLI_TEST_PROJECT_PATH: repo,
+        ZLI_TEST_PROVIDER: "mock",
+        ZLI_TEST_LEGACY_SNAPSHOT_PATH: options.legacySnapshotPath,
+      },
+      timeout: 30_000,
+    });
+    try {
+      const page = await app.firstWindow().catch((error: unknown) => {
+        throw new WindowTimeout(error);
+      });
+      await page.waitForLoadState("domcontentloaded");
+      await page.getByText("Local runtime").waitFor({ state: "visible" });
+      return { app, page, root, repo };
+    } catch (error) {
+      // A launched app that never showed its window would otherwise outlive the test and stall worker shutdown.
+      const child = app.process();
+      await closeChildProcess(app.close.bind(app), child, () => terminateProcessTree(child.pid)).catch(() => undefined);
+      releaseStdio(child);
+      await stopDesktopDaemon(root).catch(() => undefined);
+      throw error;
+    }
+  }
+}
+
+class WindowTimeout extends Error {
+  constructor(cause: unknown) {
+    super("The app window did not open.", { cause });
+  }
 }
 
 async function findPackagedExecutable(): Promise<string> {
@@ -168,6 +198,15 @@ export async function closeApp(
       if (isProcessAlive(pid)) signalProcess(pid, "SIGKILL");
     }
   });
+  releaseStdio(child);
+}
+
+/**
+ * Playwright tracks a launched app until its stdio pipes close, and waits for that when the worker shuts
+ * down. A helper process that outlives a killed app can hold the pipes open, so close them from this side.
+ */
+function releaseStdio(child: ChildProcess): void {
+  for (const stream of child.stdio) stream?.destroy();
 }
 
 async function terminateProcessTree(pid: number | undefined): Promise<void> {
