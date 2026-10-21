@@ -11,7 +11,7 @@ import {
 } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
 import type { ZliBridge } from "../runtime/bridge.js";
@@ -189,6 +189,11 @@ const button = (container: HTMLElement, name: string) =>
   [...container.querySelectorAll("button")].find(
     (candidate) => candidate.textContent?.trim() === name || candidate.getAttribute("aria-label") === name,
   );
+
+// The drawer loads TerminalView lazily. Loading it once up front keeps the first render from racing the import.
+beforeAll(async () => {
+  await import("./TerminalView.js");
+});
 
 beforeEach(() => {
   xterm.FakeTerminal.instances.length = 0;
