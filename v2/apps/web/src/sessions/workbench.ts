@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 
+import { parseRunGroups, type RunGroup, withoutRun } from "./bestOf.js";
 import type { PendingLaunch, SessionMode } from "./sessions.js";
 
 const STORAGE_KEY = "zli.workbench.v1";
@@ -11,6 +12,8 @@ export type WorkbenchState = {
   pending: PendingLaunch[];
   /** First messages waiting for their agent to be ready for input, by session. */
   firstMessages: Record<string, string>;
+  /** Best-of runs that are still being compared. */
+  groups: RunGroup[];
   activeSessionId?: string | undefined;
   maximizedSessionId?: string | undefined;
   drawerOpen: boolean;
@@ -26,6 +29,7 @@ const initialState: WorkbenchState = {
   modes: {},
   pending: [],
   firstMessages: {},
+  groups: [],
   drawerOpen: false,
   drawerHeight: DEFAULT_DRAWER_HEIGHT,
   sidebarOpen: true,
@@ -38,6 +42,7 @@ export function forgetSession(state: WorkbenchState, sessionId: string): Workben
   return {
     ...state,
     firstMessages,
+    groups: withoutRun(state.groups, sessionId),
     closed: state.closed.filter((id) => id !== sessionId),
     pending: state.pending.filter((entry) => entry.sessionId !== sessionId),
     modes,
@@ -78,6 +83,7 @@ export function parseWorkbenchState(raw: string | null): WorkbenchState {
       modes,
       pending,
       firstMessages,
+      groups: parseRunGroups(value.groups),
       ...(typeof value.activeSessionId === "string" ? { activeSessionId: value.activeSessionId } : {}),
       ...(typeof value.maximizedSessionId === "string" ? { maximizedSessionId: value.maximizedSessionId } : {}),
       drawerOpen: value.drawerOpen === true,

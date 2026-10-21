@@ -14,6 +14,7 @@ import { Icon } from "../ui/Icon.js";
 import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { Segmented, type SegmentedOption } from "../ui/Segmented.js";
+import type { RunPosition } from "./bestOf.js";
 import {
   type AgentSession,
   type SessionMode,
@@ -65,6 +66,8 @@ export function AgentTile({
   onDismissPending,
   onReviewSetup,
   onShowSetupOutput,
+  run,
+  onKeep,
 }: {
   projection: RuntimeProjection;
   session: AgentSession;
@@ -84,6 +87,9 @@ export function AgentTile({
   onDismissPending(): void;
   onReviewSetup(): void;
   onShowSetupOutput(): void;
+  /** Where this agent sits in a best-of run that is still being compared. */
+  run?: RunPosition | undefined;
+  onKeep(): void;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
@@ -152,6 +158,11 @@ export function AgentTile({
           <Icon name="branch" size={11} />
           <span>{branch}</span>
         </span>
+        {run ? (
+          <span className="tile-run" title={`Run ${run.index} of ${run.count} for ${run.group.label}`}>
+            Run {run.index} of {run.count}
+          </span>
+        ) : null}
         <Badge
           className="tile-status"
           tone={statusTone[status]}
@@ -169,6 +180,19 @@ export function AgentTile({
           </>
         )}
         <span className="tile-actions">
+          {run ? (
+            <Button
+              className="tile-keep"
+              size="xs"
+              variant="ghost"
+              icon="check"
+              aria-label="Keep this one"
+              tooltip="Keep this run and delete the others"
+              onClick={onKeep}
+            >
+              <span className="tile-keep-label">Keep this one</span>
+            </Button>
+          ) : null}
           {mode === "chat" && (thread?.status === "working" || thread?.status === "waiting") ? (
             <IconButton label="Interrupt" tooltip="Interrupt the turn" icon="pause" size="sm" onClick={interrupt} />
           ) : null}
@@ -216,7 +240,7 @@ export function AgentTile({
             <EmptyState
               media={<span className="spinner" aria-hidden="true" />}
               title={`Setting up ${branch}`}
-              detail={`${setupProgress(setup)} ${displayName} starts when setup finishes.`}
+              detail={`${displayName} starts when setup finishes. ${setupProgress(setup)}`}
             >
               {setup.status === "waiting" ? (
                 <Button variant="primary" icon="check" onClick={onReviewSetup}>

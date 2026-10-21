@@ -24,12 +24,14 @@ import { makeCommandId } from "../runtime/commandId.js";
 import { RuntimeProvider, useRuntime, useShellProjection } from "../runtime/RuntimeProvider.js";
 import { AgentTile } from "../sessions/AgentTile.js";
 import { firstMessageStep, TERMINAL_FIRST_MESSAGE_DELAY_MS, terminalFirstMessage } from "../sessions/firstMessage.js";
-import { createWorktree, ensureCheckout, startSessionAgent } from "../sessions/launch.js";
+import { type RunGroup, runBranches, runPosition, withoutRun, worktreeInProgress } from "../sessions/bestOf.js";
+import { createWorktree, ensureCheckout, safeBranchName, startSessionAgent } from "../sessions/launch.js";
 import { NewAgentDialog, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
 import {
   type AgentSession,
   deriveSessions,
   gridLayout,
+  type PendingLaunch,
   type SessionMode,
   sessionStopCommands,
   sessionTitle,
@@ -44,7 +46,13 @@ import { IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { TooltipLayer } from "../ui/Tooltip.js";
 import { PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
-import { CloseAgentDialog, DeleteAgentDialog, deletableWorktree } from "./AgentDialogs.js";
+import {
+  CloseAgentDialog,
+  DeleteAgentDialog,
+  deletableWorktree,
+  discardedRuns,
+  KeepRunDialog,
+} from "./AgentDialogs.js";
 import { CommandPalette, type PaletteCommand } from "./CommandPalette.js";
 import { HelpDialog } from "./HelpDialog.js";
 import { DisconnectedState, GridEmptyState, LoadingFilesPane, RuntimeLoadingState } from "./ShellStates.js";
@@ -349,6 +357,18 @@ function WorkspaceApp() {
     }
   }, [dispatch, projection, sessions, updateWorkbench, workbench.pending]);
 
+  // Runs deleted elsewhere, for example from another window, leave their group.
+  useEffect(() => {
+    if (!projection) return;
+    const known = new Set(sessions.map((session) => session.sessionId));
+    const gone = workbench.groups.flatMap((group) => group.sessionIds.filter((sessionId) => !known.has(sessionId)));
+    if (gone.length === 0) return;
+    updateWorkbench((state) => ({
+      ...state,
+      groups: gone.reduce((groups, sessionId) => withoutRun(groups, sessionId), state.groups),
+    }));
+  }, [projection, sessions, updateWorkbench, workbench.groups]);
+
   // A first message goes out once its agent can take input: an idle chat, or a CLI that had time to draw.
   const delivering = useRef(new Set<string>());
   useEffect(() => {
@@ -532,48 +552,62 @@ function WorkspaceApp() {
 
   const submitNewAgent = async (request: NewAgentRequest): Promise<string | undefined> => {
     if (!projection) return "The runtime is not connected.";
-    let worktreeId: string;
+    const placements: { worktreeId: string; provider: string }[] = [];
+    let partialFailure: string | undefined;
     if (request.placement.kind === "new") {
-      const result = await createWorktree(
-        dispatch,
-        request.project,
-        request.placement.branch,
-        request.placement.baseRef,
-      );
-      if ("error" in result) return result.error;
-      worktreeId = result.worktreeId;
+      const agents = request.runs && request.runs.length > 1 ? request.runs : [request.provider];
+      const branches = runBranches(request.placement.branch, agents.length);
+      for (const [index, branch] of branches.entries()) {
+        const result = await createWorktree(dispatch, request.project, branch, request.placement.baseRef);
+        if ("error" in result) {
+          if (placements.length === 0) return result.error;
+          partialFailure = `Started ${placements.length} of ${branches.length} runs. ${branch}: ${result.error}`;
+          break;
+        }
+        placements.push({ worktreeId: result.worktreeId, provider: agents[index] ?? request.provider });
+      }
     } else if (request.placement.kind === "checkout") {
       const result = await ensureCheckout(dispatch, projection, request.project);
       if ("error" in result) return result.error;
-      worktreeId = result.worktreeId;
+      placements.push({ worktreeId: result.worktreeId, provider: request.provider });
     } else {
-      worktreeId = request.placement.worktreeId;
+      placements.push({ worktreeId: request.placement.worktreeId, provider: request.provider });
     }
-    const sessionId = makeCommandId();
+    const createdAt = new Date().toISOString();
+    const launches: PendingLaunch[] = placements.map((placement) => ({
+      sessionId: makeCommandId(),
+      worktreeId: placement.worktreeId,
+      provider: placement.provider,
+      mode: request.mode,
+      permissionMode: request.permissionMode,
+      // Model ids belong to one agent, so runs with another agent use their default.
+      ...(request.model && placement.provider === request.provider ? { model: request.model } : {}),
+      ...(request.prompt ? { prompt: request.prompt } : {}),
+      createdAt,
+    }));
+    const first = launches[0];
+    if (!first) return "No worktree could be created.";
+    const group: RunGroup | undefined =
+      launches.length > 1 && request.placement.kind === "new"
+        ? {
+            groupId: makeCommandId(),
+            label: safeBranchName(request.placement.branch),
+            sessionIds: launches.map((launch) => launch.sessionId),
+          }
+        : undefined;
     updateWorkbench((state) => ({
       ...state,
-      pending: [
-        ...state.pending,
-        {
-          sessionId,
-          worktreeId,
-          provider: request.provider,
-          mode: request.mode,
-          permissionMode: request.permissionMode,
-          ...(request.model ? { model: request.model } : {}),
-          ...(request.prompt ? { prompt: request.prompt } : {}),
-          createdAt: new Date().toISOString(),
-        },
-      ],
-      modes: { ...state.modes, [sessionId]: request.mode },
-      activeSessionId: sessionId,
+      pending: [...state.pending, ...launches],
+      modes: { ...state.modes, ...Object.fromEntries(launches.map((launch) => [launch.sessionId, request.mode])) },
+      ...(group ? { groups: [...state.groups, group] } : {}),
+      activeSessionId: first.sessionId,
       maximizedSessionId: undefined,
     }));
-    setSelectedWorktreeId(worktreeId);
+    setSelectedWorktreeId(first.worktreeId);
     setNewAgentProject(undefined);
+    if (partialFailure) showError(partialFailure);
     return undefined;
   };
-
   const send = async (command: Record<string, unknown>): Promise<boolean> => {
     try {
       const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
@@ -627,6 +661,34 @@ function WorkspaceApp() {
     if (removed && worktree.worktreeId === selectedWorktreeId) setSelectedWorktreeId(undefined);
   };
 
+  const [keepRequest, setKeepRequest] = useState<AgentSession>();
+
+  /** Keeps one best-of run: deletes the other runs and their worktrees, which the person confirmed. */
+  const keepRun = async (kept: AgentSession): Promise<void> => {
+    const position = runPosition(workbench.groups, kept.sessionId);
+    if (!position || !projection) return;
+    const others = position.group.sessionIds
+      .filter((sessionId) => sessionId !== kept.sessionId)
+      .map((sessionId) => sessions.find((session) => session.sessionId === sessionId))
+      .filter((session): session is AgentSession => session !== undefined);
+    updateWorkbench((state) => ({
+      ...state,
+      groups: state.groups.filter((group) => group.groupId !== position.group.groupId),
+    }));
+    await Promise.all(
+      others.map(async (session) => {
+        const worktree = deletableWorktree(projection, sessions, session);
+        if (worktree && worktreeInProgress(worktree.status)) {
+          // Cancelling stops the setup and removes the half-made folder.
+          await send({ type: "worktree.cancel", worktreeId: worktree.worktreeId });
+          await deleteSession(session, false);
+          return;
+        }
+        await deleteSession(session, worktree !== undefined);
+      }),
+    );
+    focusSession(kept);
+  };
   const closeTileNow = (session: AgentSession) =>
     updateWorkbench((state) => ({
       ...state,
@@ -786,6 +848,7 @@ function WorkspaceApp() {
     helpOpen ||
     closeRequest !== undefined ||
     deleteRequest !== undefined ||
+    keepRequest !== undefined ||
     promptManager !== undefined ||
     (legacyImportBatchId !== undefined && projection !== undefined);
   // Waits behind other dialogs so it never stacks on top of one.
@@ -793,6 +856,7 @@ function WorkspaceApp() {
   setupApprovalRef.current = setupApproval;
   const overlayOpen = otherOverlayOpen || setupApproval !== undefined;
   const { columns, rows } = gridLayout(visibleTiles.length, gridWidth);
+  const keepPosition = keepRequest ? runPosition(workbench.groups, keepRequest.sessionId) : undefined;
 
   return (
     <FileIndexProvider onOpenFile={openFile}>
@@ -910,6 +974,8 @@ function WorkspaceApp() {
                           onDismissPending={() => closeTileNow(session)}
                           onReviewSetup={() => reviewSetup(session.worktreeId)}
                           onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
+                          run={runPosition(workbench.groups, session.sessionId)}
+                          onKeep={() => setKeepRequest(session)}
                         />
                       ))}
                     </div>
@@ -1026,6 +1092,20 @@ function WorkspaceApp() {
             onCancel={() => setDeleteRequest(undefined)}
           />
         )}
+        {keepRequest && keepPosition && projection ? (
+          <KeepRunDialog
+            index={keepPosition.index}
+            count={keepPosition.count}
+            branch={findWorktree(keepRequest.worktreeId)?.branch ?? keepPosition.group.label}
+            discarded={discardedRuns(projection, sessions, keepPosition.group, keepRequest.sessionId)}
+            onKeep={() => {
+              const session = keepRequest;
+              setKeepRequest(undefined);
+              void keepRun(session);
+            }}
+            onCancel={() => setKeepRequest(undefined)}
+          />
+        ) : null}
         {worktreeDialogProject && (
           <WorktreeDialog
             onClose={() => setWorktreeDialogProject(undefined)}
