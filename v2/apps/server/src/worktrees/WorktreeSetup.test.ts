@@ -85,8 +85,13 @@ async function setupFixture(config: unknown) {
   return { engine, repoPath, worktreePath, projectId, worktreeId };
 }
 
-function startRunner(engine: Engine, terminals: ReturnType<typeof fakeTerminals>) {
-  const runner = new WorktreeSetupRunner(engine, terminals.service, "linux");
+function startRunner(engine: Engine, terminals: ReturnType<typeof fakeTerminals>, approvalTimeoutMs?: number) {
+  const runner = new WorktreeSetupRunner(
+    engine,
+    terminals.service,
+    "linux",
+    approvalTimeoutMs === undefined ? {} : { approvalTimeoutMs },
+  );
   cleanups.push(() => runner.stop());
   return runner;
 }
@@ -237,6 +242,28 @@ describe("worktree setup", () => {
     controller.abort();
 
     await expect(run).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("skips the commands when nobody answers the approval in time", async () => {
+    const fixture = await setupFixture({ version: 1, worktree: { setup: ["make"] } });
+    const terminals = fakeTerminals(fixture.engine);
+    const runner = startRunner(fixture.engine, terminals, 20);
+
+    await runner.run({ ...fixture, signal: new AbortController().signal });
+
+    const setup = await setupOf(fixture.engine, fixture.worktreeId);
+    expect(setup?.status).toBe("skipped");
+    expect(setup?.errorMessage).toContain("nobody approved");
+    expect(terminals.started).toEqual([]);
+    const late = await fixture.engine.dispatchPromise(
+      command({
+        type: "worktree.setup.respond",
+        worktreeId: fixture.worktreeId,
+        commandsHash: setup?.commandsHash ?? "",
+        decision: "run-once",
+      }),
+    );
+    expect(late.status).toBe("rejected");
   });
 
   it("marks setup left running by a previous run as failed and releases the worktree", async () => {

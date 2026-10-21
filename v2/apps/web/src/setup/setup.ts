@@ -66,7 +66,7 @@ export function setupProgress(setup: WorktreeSetupProjection): string {
     case "invalid":
       return setup.errorMessage ?? "zli.json could not be read.";
     case "skipped":
-      return "Setup was skipped.";
+      return setup.errorMessage ?? "Setup was skipped.";
     case "succeeded":
       return "Setup finished.";
   }

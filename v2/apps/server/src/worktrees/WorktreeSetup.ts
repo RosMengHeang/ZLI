@@ -26,6 +26,14 @@ export type WorktreeSetupContext = {
 
 type TerminalOutcome = { kind: "exited"; code: number } | { kind: "failed"; message: string };
 
+/**
+ * Agents queued for the worktree wait while setup does, so an unanswered prompt cannot hold them
+ * forever. Unanswered commands are skipped rather than run, because nobody approved them.
+ */
+export const SETUP_APPROVAL_TIMEOUT_MS = 10 * 60_000;
+
+export type WorktreeSetupOptions = { approvalTimeoutMs?: number };
+
 /** The shell a setup command runs in. A login shell on Unix so PATH matches the person's terminal. */
 export function setupShell(command: string, platform: NodeJS.Platform = process.platform) {
   return platform === "win32"
@@ -48,6 +56,7 @@ export class WorktreeSetupRunner {
     private readonly engine: Engine,
     terminalService: Pick<TerminalService, "subscribeExit">,
     private readonly platform: NodeJS.Platform = process.platform,
+    private readonly options: WorktreeSetupOptions = {},
   ) {
     this.unsubscribe = engine.subscribe((envelope) => this.onEvent(envelope));
     this.unsubscribeExit = terminalService.subscribeExit((terminalId, event) => {
@@ -112,6 +121,15 @@ export class WorktreeSetupRunner {
     if (!(await this.trusted(setup))) {
       setup = { ...setup, status: "waiting" };
       const decision = await this.waitForDecision(setup, context.signal);
+      if (decision === "timed-out") {
+        const minutes = Math.max(1, Math.round(this.approvalTimeoutMs / 60_000));
+        await this.report({
+          ...setup,
+          status: "skipped",
+          errorMessage: `Setup was skipped because nobody approved the commands within ${minutes} minute${minutes === 1 ? "" : "s"}.`,
+        });
+        return;
+      }
       if (decision === "skip") {
         await this.report({ ...setup, status: "skipped" });
         return;
@@ -159,19 +177,35 @@ export class WorktreeSetupRunner {
     );
   }
 
-  private async waitForDecision(setup: WorktreeSetupProjection, signal: AbortSignal): Promise<SetupDecision> {
-    const decision = new Promise<SetupDecision>((resolve, reject) => {
-      const onAbort = () => {
+  private get approvalTimeoutMs(): number {
+    return this.options.approvalTimeoutMs ?? SETUP_APPROVAL_TIMEOUT_MS;
+  }
+
+  private async waitForDecision(
+    setup: WorktreeSetupProjection,
+    signal: AbortSignal,
+  ): Promise<SetupDecision | "timed-out"> {
+    const decision = new Promise<SetupDecision | "timed-out">((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const settle = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
         this.decisions.delete(setup.worktreeId);
+      };
+      const onAbort = () => {
+        settle();
         reject(abortError());
       };
       if (signal.aborted) return onAbort();
       signal.addEventListener("abort", onAbort, { once: true });
       this.decisions.set(setup.worktreeId, (value) => {
-        signal.removeEventListener("abort", onAbort);
-        this.decisions.delete(setup.worktreeId);
+        settle();
         resolve(value);
       });
+      timer = setTimeout(() => {
+        settle();
+        resolve("timed-out");
+      }, this.approvalTimeoutMs);
     });
     // The waiter is registered before the record is published, so an instant answer is not missed.
     await this.report(setup);
