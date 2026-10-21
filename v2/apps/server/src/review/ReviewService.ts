@@ -266,7 +266,7 @@ function isConflict(xy: string): boolean {
   return xy.includes("U") || xy === "AA" || xy === "DD";
 }
 
-function assertRef(value: string): void {
+export function assertRef(value: string): void {
   if (
     !value ||
     value.startsWith("-") ||

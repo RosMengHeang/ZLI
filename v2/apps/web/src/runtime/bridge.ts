@@ -52,8 +52,8 @@ export type ZliBridge = {
     openLegacySnapshot(): Promise<string | undefined>;
   };
   menu: { trigger(command: string): Promise<unknown> };
-  app: { getVersion(): Promise<string>; quit(): Promise<void> };
-  test?: { restartRuntime(): Promise<unknown>; crashMain(): Promise<unknown> };
+  app: { getVersion(): Promise<string>; quit(): Promise<void>; openExternal?(url: string): Promise<unknown> };
+  test?: { restartRuntime(): Promise<unknown>; crashMain(): Promise<unknown>; takeExternalUrl?(): Promise<unknown> };
   notifications?: {
     getSettings(): Promise<NotificationSettings>;
     setSettings(patch: Partial<NotificationSettings>): Promise<NotificationSettings>;

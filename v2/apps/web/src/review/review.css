@@ -32,3 +32,26 @@
 .review-commit .input { flex: 1; }
 .review-pane > .inline-error { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: 0 var(--zli-space-4) var(--zli-space-2-5); }
 .review-pane > .inline-error > svg { margin-top: 2px; }
+
+/* ---------- Pull request ---------- */
+.review-pr { display: flex; min-width: 0; min-height: var(--zli-control-sm); align-items: center; gap: var(--zli-space-2); margin: 0; padding: 0; border: 0; }
+.review-pr-state { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.review-pr-state > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-pr-state > svg { flex: 0 0 auto; color: var(--zli-dim); }
+.review-pr-state.is-problem > svg { color: var(--zli-amber); }
+.review-pr-state.is-problem > span:last-child { white-space: normal; }
+.review-pr-number { color: var(--zli-text); font-family: var(--zli-mono); font-variant-numeric: tabular-nums; }
+.pr-dialog .is-mono { font-family: var(--zli-mono); font-size: .95em; }
+.pr-body { min-height: 132px; font-size: var(--zli-text-sm); }
+.check-field.pr-draft input { accent-color: var(--zli-accent); }
+.pr-steps { display: flex; flex-direction: column; gap: var(--zli-space-3); margin: 0; padding: var(--zli-space-1) 0; list-style: none; }
+.pr-step { display: flex; align-items: center; gap: var(--zli-space-2-5); color: var(--zli-text); font-size: var(--zli-text-base); }
+.pr-step > svg, .pr-step > .spinner { flex: 0 0 auto; }
+.pr-step.is-pending { color: var(--zli-dim); }
+.pr-step.is-done > svg { color: var(--zli-green); }
+.pr-step.is-failed > svg { color: var(--zli-red); }
+.pr-error { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: 0; }
+.pr-error > svg { flex: 0 0 auto; margin-top: 2px; }
+.pr-result { display: flex; align-items: center; gap: var(--zli-space-2); margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); }
+.pr-result > svg { color: var(--zli-green); }
+.pr-url { display: block; padding: var(--zli-space-2) var(--zli-space-2-5); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); background: var(--zli-canvas); color: var(--zli-text); cursor: text; font-family: var(--zli-mono); font-size: var(--zli-text-sm); overflow-wrap: anywhere; text-decoration: none; user-select: all; }

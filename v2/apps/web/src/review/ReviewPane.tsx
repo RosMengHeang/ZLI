@@ -1,10 +1,11 @@
 import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, PaneHeader } from "../ui/Pane.js";
+import { PullRequestSection } from "./PullRequestSection.js";
 import "./review.css";
 
 export type ReviewFocus = { path: string; nonce: number };
@@ -32,6 +33,9 @@ export function ReviewPane({
   const reviews = useRuntimeSelector(selectReviews);
   const [baseRef, setBaseRef] = useState("main");
   const [targetRef, setTargetRef] = useState("main");
+  const [targetTouched, setTargetTouched] = useState(false);
+  const [prCheckKey, setPrCheckKey] = useState(0);
+  const commitRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -74,6 +78,7 @@ export function ReviewPane({
   }, [focus?.nonce, worktree?.worktreeId]);
   const refresh = () => {
     if (!worktree || !baseRef.trim()) return;
+    setPrCheckKey((key) => key + 1);
     void run({ type: "review.refresh", worktreeId: worktree.worktreeId, baseRef: baseRef.trim() });
   };
 
@@ -210,6 +215,7 @@ export function ReviewPane({
         <div className="review-actions">
           <div className="review-commit">
             <input
+              ref={commitRef}
               className="input input-sm"
               aria-label="Commit message"
               value={message}
@@ -240,7 +246,10 @@ export function ReviewPane({
               <input
                 className="input input-sm is-mono"
                 value={targetRef}
-                onChange={(event) => setTargetRef(event.target.value)}
+                onChange={(event) => {
+                  setTargetRef(event.target.value);
+                  setTargetTouched(true);
+                }}
                 placeholder="main"
                 spellCheck={false}
               />
@@ -267,6 +276,12 @@ export function ReviewPane({
               </Button>
             )}
           </div>
+          <PullRequestSection
+            worktree={worktree}
+            base={targetTouched ? targetRef.trim() || undefined : undefined}
+            checkKey={prCheckKey}
+            onCommitFirst={() => commitRef.current?.focus()}
+          />
         </div>
       ) : null}
       {error && (

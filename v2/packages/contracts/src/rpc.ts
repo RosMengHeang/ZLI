@@ -32,6 +32,7 @@ import {
   ThreadProjection,
   ThreadRequestProjection,
 } from "./provider.js";
+import { PullRequestCommand } from "./pullRequest.js";
 import { ReviewProjection } from "./review.js";
 import { TerminalAgentLaunch, TerminalAttachSnapshot, TerminalProjection, TerminalStreamMessage } from "./terminal.js";
 
@@ -198,6 +199,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("devserver.detected"), terminalId: TerminalId, url: z.string().min(1).max(2_000) }),
   z.object({ type: z.literal("devserver.stopped"), terminalId: TerminalId, port: DevServerProjection.shape.port }),
   ...FileCommand.options,
+  ...PullRequestCommand.options,
 ]);
 export type RuntimeCommand = z.infer<typeof RuntimeCommand>;
 
