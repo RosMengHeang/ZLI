@@ -124,6 +124,8 @@ export function NewAgentDialog({
   const picker = usePromptPicker({ draft: task, setDraft: setTask, prompts });
   const taskRef = useRef<HTMLTextAreaElement>(null);
   const [busy, setBusy] = useState(false);
+  // `busy` state lags a render behind, so two quick Cmd/Ctrl+Enter presses would both see it false.
+  const launching = useRef(false);
   const [error, setError] = useState<string>();
   const submitRef = useRef<HTMLButtonElement>(null);
   const discovery = listed.find((entry) => entry.provider === provider);
@@ -148,7 +150,8 @@ export function NewAgentDialog({
     (placementKind !== "existing" || existingId !== undefined);
 
   const submit = async () => {
-    if (!ready || !project || !provider) return;
+    if (launching.current || !ready || !project || !provider) return;
+    launching.current = true;
     const placement: Placement =
       placementKind === "new"
         ? { kind: "new", branch, baseRef }
@@ -162,17 +165,24 @@ export function NewAgentDialog({
     } catch {
       // Remembering the last choice is a convenience only.
     }
-    const failure = await onSubmit({
-      project,
-      placement,
-      provider,
-      mode,
-      permissionMode,
-      ...(model && !modelUnsupported ? { model } : {}),
-      ...(task.trim() ? { prompt: task.trim() } : {}),
-      ...(runs > 1 ? { runs: runAgents.map((agent) => agent ?? provider) } : {}),
-    });
-    setBusy(false);
+    let failure: string | undefined;
+    try {
+      failure = await onSubmit({
+        project,
+        placement,
+        provider,
+        mode,
+        permissionMode,
+        ...(model && !modelUnsupported ? { model } : {}),
+        ...(task.trim() ? { prompt: task.trim() } : {}),
+        ...(runs > 1 ? { runs: runAgents.map((agent) => agent ?? provider) } : {}),
+      });
+    } catch (cause) {
+      failure = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      launching.current = false;
+      setBusy(false);
+    }
     if (failure) setError(failure);
   };
 
