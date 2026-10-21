@@ -130,6 +130,7 @@ export function AgentTile({
   return (
     <section
       className={`agent-tile${active ? " is-active" : ""}`}
+      data-session-id={session.sessionId}
       aria-label={`${title}, ${displayName}`}
       onFocusCapture={onFocus}
       onMouseDown={onFocus}

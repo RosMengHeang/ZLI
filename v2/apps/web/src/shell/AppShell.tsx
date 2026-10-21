@@ -143,6 +143,26 @@ function WorkspaceApp() {
       if (session) focusSession(session);
     },
   );
+
+  /** Brings an agent forward in one view and puts the cursor in its prompt. */
+  const showAgent = useCallback(
+    (sessionId: string, mode: SessionMode) => {
+      const session = sessions.find((candidate) => candidate.sessionId === sessionId);
+      if (!session) return;
+      focusSession(session);
+      updateWorkbench((state) =>
+        state.modes[sessionId] === mode ? state : { ...state, modes: { ...state.modes, [sessionId]: mode } },
+      );
+      requestAnimationFrame(() => {
+        const tile = document.querySelector(`.agent-tile[data-session-id="${CSS.escape(sessionId)}"]`);
+        tile
+          ?.querySelector<HTMLElement>(mode === "chat" ? 'textarea[aria-label^="Message"]' : ".xterm-helper-textarea")
+          ?.focus();
+      });
+    },
+    [sessions, focusSession, updateWorkbench],
+  );
+
   const tilesRef = useRef(tiles);
   tilesRef.current = tiles;
   /**
@@ -789,7 +809,7 @@ function WorkspaceApp() {
                         openRequest={browserOpen}
                       />
                     ) : (
-                      <ReviewPane worktree={contextWorktree} focus={reviewFocus} />
+                      <ReviewPane worktree={contextWorktree} focus={reviewFocus} onShowAgent={showAgent} />
                     )}
                   </aside>
                 </>

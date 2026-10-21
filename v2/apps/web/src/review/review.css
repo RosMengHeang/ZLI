@@ -22,16 +22,55 @@
 .review-diff-header { display: flex; align-items: center; gap: var(--zli-space-2); height: 32px; flex: 0 0 auto; padding: 0 var(--zli-space-2-5); border-bottom: 1px solid var(--zli-border); color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .review-diff-path { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-muted); font-family: var(--zli-mono); text-overflow: ellipsis; white-space: nowrap; }
 .review-diff { min-height: 0; flex: 1; margin: 0; padding: var(--zli-space-1-5) 0; overflow: auto; color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: 1.6; }
-.diff-line { display: block; padding: 0 var(--zli-space-3); white-space: pre; }
+.review-diff-hint { color: var(--zli-dim); white-space: nowrap; }
+.diff-lines { width: max-content; min-width: 100%; }
+.diff-line { display: flex; padding-right: var(--zli-space-3); outline: none; }
 .diff-line.is-add { background: var(--zli-green-soft); color: var(--zli-green-ink); }
 .diff-line.is-del { background: var(--zli-red-soft); color: var(--zli-red-ink); }
 .diff-line.is-hunk { margin-top: var(--zli-space-1); background: var(--zli-blue-soft); color: var(--zli-blue); }
 .diff-line.is-meta { color: var(--zli-dim); }
+.diff-line[tabindex] { cursor: pointer; }
+.diff-line[tabindex]:hover { box-shadow: inset 2px 0 0 var(--zli-border-hover); }
+.diff-line.is-selected { background: var(--zli-accent-soft); box-shadow: inset 2px 0 0 var(--zli-accent); }
+.diff-line:focus-visible { box-shadow: inset 0 0 0 1px var(--zli-focus); }
+.diff-num { flex: 0 0 auto; width: 4.5ch; padding-right: 1ch; color: var(--zli-dim); opacity: .7; text-align: right; user-select: none; font-variant-numeric: tabular-nums; }
+.diff-mark { display: inline-grid; flex: 0 0 auto; width: 18px; place-items: center; color: var(--zli-accent); user-select: none; }
+.diff-mark > svg { opacity: 0; }
+.diff-line[tabindex]:hover .diff-mark > svg, .diff-line:focus-visible .diff-mark > svg, .diff-line.is-commented .diff-mark > svg { opacity: 1; }
+.diff-text { flex: 1 0 auto; white-space: pre; }
+.diff-empty { margin: 0; padding: 0 var(--zli-space-3); }
+.diff-composer { display: flex; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-2); padding: var(--zli-space-2-5) var(--zli-space-3); border-top: 1px solid var(--zli-border); background: var(--zli-sidebar); }
+.diff-composer-label { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.diff-composer-label > svg { flex: 0 0 auto; color: var(--zli-dim); }
+.diff-composer-label .is-mono { color: var(--zli-text); font-family: var(--zli-mono); font-size: .95em; overflow-wrap: anywhere; }
+.diff-composer-input { min-height: 64px; font-size: var(--zli-text-sm); }
+.diff-composer-actions, .review-comment-edit-actions { display: flex; justify-content: flex-end; gap: var(--zli-space-2); }
 .review-actions { display: flex; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-2); padding: var(--zli-space-3) var(--zli-space-3) var(--zli-space-3) var(--zli-space-4); border-top: 1px solid var(--zli-border); background: var(--zli-sidebar); }
 .review-commit, .review-merge { display: flex; align-items: center; gap: var(--zli-space-2); }
 .review-commit .input { flex: 1; }
 .review-pane > .inline-error { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: 0 var(--zli-space-4) var(--zli-space-2-5); }
 .review-pane > .inline-error > svg { margin-top: 2px; }
+
+/* ---------- Review comments ---------- */
+.review-comments { display: flex; flex: 0 1 auto; min-height: 0; max-height: 34%; flex-direction: column; margin: 0 var(--zli-space-3) var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-canvas); }
+.review-comments-header { display: flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2); padding: var(--zli-space-1-5) var(--zli-space-1-5) var(--zli-space-1-5) var(--zli-space-2-5); border-bottom: 1px solid var(--zli-border); }
+.review-comments-header > svg { flex: 0 0 auto; color: var(--zli-dim); }
+.review-comments-title { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.review-comments-note { flex: 1; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.review-comment-items { min-height: 0; margin: 0; padding: 0; overflow: auto; list-style: none; }
+.review-comment { display: flex; flex-direction: column; gap: var(--zli-space-1); padding: var(--zli-space-2) var(--zli-space-1-5) var(--zli-space-2) var(--zli-space-2-5); }
+.review-comment + .review-comment { border-top: 1px solid var(--zli-border); }
+.review-comment-head { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-0-5); }
+.review-comment-location { min-width: 0; flex: 1; overflow: hidden; padding: 0; border: 0; background: none; color: var(--zli-text); cursor: pointer; font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.review-comment-location:hover { text-decoration: underline; }
+.review-comment-excerpt { overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: pre; }
+.review-comment-body { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; white-space: pre-wrap; }
+.review-comment-edit { display: flex; flex-direction: column; gap: var(--zli-space-2); }
+.review-comment-edit .textarea { min-height: 56px; font-size: var(--zli-text-sm); }
+.send-targets { display: flex; flex-direction: column; gap: var(--zli-space-1-5); }
+.send-preview pre { margin: 0; font: inherit; white-space: inherit; }
+.send-preview { max-height: 220px; margin: 0; padding: var(--zli-space-2) var(--zli-space-2-5); overflow: auto; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); background: var(--zli-canvas); color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.send-comments-dialog .is-mono { font-family: var(--zli-mono); font-size: .95em; }
 
 /* ---------- Pull request ---------- */
 .review-pr { display: flex; min-width: 0; min-height: var(--zli-control-sm); align-items: center; gap: var(--zli-space-2); margin: 0; padding: 0; border: 0; }
