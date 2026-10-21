@@ -23,6 +23,11 @@ export function planSpawn(
 ): SpawnPlan {
   if (platform !== "win32") return { command, args: [...args], windowsVerbatimArguments: false, wrapped: false };
   const lower = command.toLowerCase();
+  if (isCmdExe(lower, env) && args[0] === "/d" && args[1] === "/s" && args[2] === "/c") {
+    // "/s /c" makes cmd.exe strip one pair of outer quotes and run the rest as typed, so the caller
+    // has already quoted the line and re-quoting it would break operators such as > and &&.
+    return { command, args: [...args], windowsVerbatimArguments: true, wrapped: false };
+  }
   if (lower.endsWith(".cmd") || lower.endsWith(".bat")) {
     const line = [quoteCmdArgument(command), ...args.map(quoteCmdArgument)].join(" ");
     return {
@@ -41,6 +46,11 @@ export function planSpawn(
     };
   }
   return { command, args: [...args], windowsVerbatimArguments: false, wrapped: false };
+}
+
+function isCmdExe(lower: string, env: NodeJS.ProcessEnv): boolean {
+  const name = lower.split(/[\\/]/u).at(-1);
+  return name === "cmd" || name === "cmd.exe" || lower === (env.ComSpec ?? env.COMSPEC)?.toLowerCase();
 }
 
 export function quoteCmdArgument(value: string): string {

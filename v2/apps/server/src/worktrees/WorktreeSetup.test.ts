@@ -294,11 +294,11 @@ describe("worktree setup", () => {
     expect(projection.worktrees[0]?.status).toBe("ready");
   });
 
-  it("runs commands in a login bash on Unix and PowerShell on Windows", () => {
+  it("runs commands in a login bash on Unix and cmd.exe on Windows", () => {
     expect(setupShell("pnpm i", "darwin")).toEqual({ shell: "/bin/bash", args: ["-lc", "pnpm i"] });
-    expect(setupShell("pnpm i", "win32")).toEqual({
-      shell: "powershell.exe",
-      args: ["-NoLogo", "-NoProfile", "-Command", "pnpm i"],
+    expect(setupShell("pnpm i && echo done > log.txt", "win32")).toEqual({
+      shell: "cmd.exe",
+      args: ["/d", "/s", "/c", '"pnpm i && echo done > log.txt"'],
     });
   });
 });

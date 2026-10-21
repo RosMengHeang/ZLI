@@ -34,10 +34,13 @@ export const SETUP_APPROVAL_TIMEOUT_MS = 10 * 60_000;
 
 export type WorktreeSetupOptions = { approvalTimeoutMs?: number };
 
-/** The shell a setup command runs in. A login shell on Unix so PATH matches the person's terminal. */
+/**
+ * The shell a setup command runs in. A login shell on Unix so PATH matches the person's terminal.
+ * On Windows it is cmd.exe, as for npm scripts: Windows PowerShell 5.1 has no `&&` and its `>` writes UTF-16.
+ */
 export function setupShell(command: string, platform: NodeJS.Platform = process.platform) {
   return platform === "win32"
-    ? { shell: "powershell.exe", args: ["-NoLogo", "-NoProfile", "-Command", command] }
+    ? { shell: "cmd.exe", args: ["/d", "/s", "/c", `"${command}"`] }
     : { shell: "/bin/bash", args: ["-lc", command] };
 }
 
