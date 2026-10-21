@@ -23,6 +23,12 @@ import {
   TerminalStreamMessage,
 } from "@zli-v2/contracts";
 
+import {
+  type NotificationSettings,
+  parseNotificationSettings,
+  parseNotificationSettingsPatch,
+} from "./notifications/notificationSettings.js";
+
 type IpcBridge = {
   invoke(channel: string, payload?: unknown): Promise<unknown>;
   on(channel: string, listener: (event: unknown, value: unknown) => void): () => void;
@@ -214,6 +220,24 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
     app: {
       getVersion: () => ipc.invoke("zli:app:version"),
       quit: () => ipc.invoke("zli:app:quit"),
+    },
+    notifications: {
+      getSettings: async () => parseNotificationSettings(await ipc.invoke("zli:notifications:get-settings")),
+      setSettings: async (patch: Partial<NotificationSettings>) =>
+        parseNotificationSettings(
+          await ipc.invoke("zli:notifications:set-settings", parseNotificationSettingsPatch(patch)),
+        ),
+      /** Sessions whose tiles are on screen; main skips their alerts while the window has focus. */
+      setViewing: (sessionIds: readonly string[]) =>
+        ipc.invoke("zli:notifications:set-viewing", {
+          sessionIds: sessionIds.filter((id) => typeof id === "string").slice(0, 200),
+        }),
+      /** Fires when the person clicks a notification, with the session to select. */
+      onActivate: (listener: (event: { sessionId: string }) => void) =>
+        ipc.on("zli:notifications:activate", (_event, value) => {
+          const sessionId = (value as { sessionId?: unknown } | null)?.sessionId;
+          if (typeof sessionId === "string" && sessionId.length > 0) listener({ sessionId });
+        }),
     },
   };
   return options.testMode

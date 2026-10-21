@@ -181,6 +181,40 @@ describe("preload API", () => {
     expect("test" in productionApi).toBe(false);
   });
 
+  it("sends only known notification settings and delivers valid activation events", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const listeners = new Map<string, (event: unknown, value: unknown) => void>();
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        return { enabled: false, sound: true };
+      },
+      on: (channel, listener) => {
+        listeners.set(channel, listener);
+        return () => listeners.delete(channel);
+      },
+    });
+
+    expect(await api.notifications.setSettings({ enabled: false, extra: true } as never)).toEqual({
+      enabled: false,
+      sound: true,
+    });
+    await api.notifications.setViewing(["s1", 4 as never]);
+    expect(calls).toEqual([
+      { channel: "zli:notifications:set-settings", payload: { enabled: false } },
+      { channel: "zli:notifications:set-viewing", payload: { sessionIds: ["s1"] } },
+    ]);
+
+    const activated: unknown[] = [];
+    const unsubscribe = api.notifications.onActivate((event) => activated.push(event));
+    listeners.get("zli:notifications:activate")?.({}, { sessionId: "s1" });
+    listeners.get("zli:notifications:activate")?.({}, { sessionId: 7 });
+    listeners.get("zli:notifications:activate")?.({}, null);
+    expect(activated).toEqual([{ sessionId: "s1" }]);
+    unsubscribe();
+    expect(listeners.has("zli:notifications:activate")).toBe(false);
+  });
+
   it("hides native browser views through a dedicated channel", async () => {
     const calls: Array<{ channel: string; payload: unknown }> = [];
     const api = createPreloadApi({

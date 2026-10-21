@@ -7,8 +7,9 @@ import { BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
 import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
 import type { FilesFocus } from "../files/FilesPane.js";
 import { QuickOpen } from "../files/QuickOpen.js";
+import { useAgentNotifications } from "../notifications/useAgentNotifications.js";
 import { type ReviewFocus, ReviewPane } from "../review/ReviewPane.js";
-import { getBridge, type ZliBridge } from "../runtime/bridge.js";
+import { getBridge, type NotificationSettings, type ZliBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { RuntimeProvider, useRuntime, useShellProjection } from "../runtime/RuntimeProvider.js";
 import { AgentTile } from "../sessions/AgentTile.js";
@@ -130,6 +131,16 @@ function WorkspaceApp() {
     [updateWorkbench],
   );
 
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const notifications = useAgentNotifications(
+    bridge,
+    useMemo(() => visibleTiles.map((session) => session.sessionId), [visibleTiles]),
+    (sessionId) => {
+      const session = sessionsRef.current.find((candidate) => candidate.sessionId === sessionId);
+      if (session) focusSession(session);
+    },
+  );
   const tilesRef = useRef(tiles);
   tilesRef.current = tiles;
   /**
@@ -592,6 +603,7 @@ function WorkspaceApp() {
     { label: "Export support bundle", icon: "download", group: "App", action: () => void exportSupportBundle() },
     { label: "Import legacy snapshot", icon: "upload", group: "App", action: () => void startLegacyImport() },
     { label: "Help and diagnostics", icon: "help", group: "App", action: () => setHelpOpen(true) },
+    ...notificationCommands(notifications.settings, (patch) => void notifications.update(patch)),
   ];
   const overlayOpen =
     paletteOpen ||
@@ -846,6 +858,31 @@ function WorkspaceApp() {
       </div>
     </FileIndexProvider>
   );
+}
+
+function notificationCommands(
+  settings: NotificationSettings | undefined,
+  update: (patch: Partial<NotificationSettings>) => void,
+): PaletteCommand[] {
+  if (!settings) return [];
+  return [
+    {
+      label: settings.enabled ? "Turn off agent notifications" : "Turn on agent notifications",
+      icon: "bell",
+      group: "App",
+      action: () => update({ enabled: !settings.enabled }),
+    },
+    ...(settings.enabled
+      ? [
+          {
+            label: settings.sound ? "Mute notification sound" : "Play a sound with notifications",
+            icon: "bell" as const,
+            group: "App" as const,
+            action: () => update({ sound: !settings.sound }),
+          },
+        ]
+      : []),
+  ];
 }
 
 /** The content width of an element, kept current as it resizes. */

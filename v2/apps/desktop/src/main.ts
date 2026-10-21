@@ -35,6 +35,7 @@ import {
   type WakeableWebContents,
 } from "./browser/HiddenRendering.js";
 import { DesktopDiagnostics } from "./diagnostics/DesktopDiagnostics.js";
+import { registerAgentNotifications } from "./notifications/electronNotifications.js";
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
 import { ensureDesktopDaemon } from "./runtime/DesktopDaemon.js";
 import { resolveAppAsset } from "./window/ElectronProtocol.js";
@@ -97,6 +98,13 @@ async function main(): Promise<void> {
   );
   const electronWindow = window as unknown as BrowserWindow;
   mainWindow = electronWindow;
+  await registerAgentNotifications({
+    window: electronWindow,
+    runtime,
+    settingsPath: process.env.ZLI_DATABASE_PATH
+      ? `${databasePath}.notifications.json`
+      : join(app.getPath("userData"), "notification-settings.json"),
+  }).catch((error: unknown) => console.error("Agent notifications could not start", error));
   browserManager = new BrowserManager(
     {
       create: ({ session: browserSession }) =>
