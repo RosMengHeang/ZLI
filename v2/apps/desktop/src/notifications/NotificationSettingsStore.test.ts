@@ -37,4 +37,15 @@ describe("notification settings", () => {
     await writeFile(path, "{not json", "utf8");
     expect(await new NotificationSettingsStore(path).load()).toEqual({ enabled: true, sound: true });
   });
+
+  it("keeps the last of several quick updates on disk", async () => {
+    const path = await tempPath();
+    const store = new NotificationSettingsStore(path);
+    await Promise.all([
+      store.update({ enabled: false }),
+      store.update({ sound: false }),
+      store.update({ enabled: true }),
+    ]);
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ enabled: true, sound: false });
+  });
 });
