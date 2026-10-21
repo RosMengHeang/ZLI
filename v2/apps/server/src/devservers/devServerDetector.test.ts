@@ -36,6 +36,11 @@ describe("detectDevServerUrls", () => {
     ["a remote server", "Server running at https://example.com:443/"],
     ["an address without a port", "Server running at http://localhost/"],
     ["a line without an address", "Server ready in 412 ms"],
+    ["a Vite proxy error", "[vite] http proxy error: /api server url http://localhost:8080/api ECONNREFUSED"],
+    ["a failed request", "Request to http://localhost:4000/graphql failed: server responded with 500"],
+    ["a client error", "Error: connect ECONNREFUSED to local server at http://127.0.0.1:5432"],
+    ["a request log", "[server] GET http://localhost:3000/api/users 200 in 12ms"],
+    ["a port conflict", "Error: listen EADDRINUSE: address already in use, server http://localhost:3000"],
   ])("ignores %s", (_name, line) => {
     expect(detectDevServerUrls(line)).toEqual([]);
   });

@@ -11,6 +11,13 @@ const LOCAL_URL = /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):\
  * `curl http://localhost:3000`, has none of them, so its echo is not taken for a server.
  */
 const SERVER_WORDS = /\b(?:local|loopback|listening|running|ready|serving|server|started|available|url)\b/iu;
+/**
+ * Error and request logs often name a local address next to a server word ("proxy error ... url",
+ * "GET http://localhost:3000/api 500"), but they describe a call to a server, not one starting.
+ */
+const LOG_WORDS =
+  /\b(?:errors?|err|exceptions?|fail(?:s|ed|ure)?|refused|unable|cannot|could not|warn(?:ing)?|timed? ?out|request(?:ed|ing)?|fetch(?:ed|ing)?|proxy(?:ing)?|E(?:CONN[A-Z]+|TIMEDOUT|ADDRINUSE|HOSTUNREACH|NOTFOUND))\b/iu;
+const HTTP_METHODS = /\b(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/u;
 const MAX_LINE = 1_000;
 const MAX_PARTIAL = 4_096;
 
@@ -25,7 +32,8 @@ export function detectDevServerUrls(rawLine: string): string[] {
   if (line.length > MAX_LINE) return [];
   const matches = line.match(LOCAL_URL);
   if (!matches) return [];
-  if (!SERVER_WORDS.test(line.replace(LOCAL_URL, " "))) return [];
+  const words = line.replace(LOCAL_URL, " ");
+  if (!SERVER_WORDS.test(words) || LOG_WORDS.test(words) || HTTP_METHODS.test(words)) return [];
   const urls: string[] = [];
   for (const match of matches) {
     const parsed = parseDevServerUrl(match.replace(/[.,;:!]+$/u, ""));
