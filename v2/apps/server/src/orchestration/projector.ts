@@ -2,7 +2,10 @@ import {
   RuntimeEvent,
   appendThreadMessage,
   deriveSharedProjectContexts,
+  pruneDevServers,
+  removeDevServer,
   removeSession,
+  upsertDevServer,
   upsertThreadActivity,
   type EnvironmentDescriptor,
   type RuntimeEventEnvelope,
@@ -26,7 +29,11 @@ export function createEmptyProjection(environment: EnvironmentDescriptor): Runti
 
 export function projectEvent(projection: RuntimeProjection, envelope: RuntimeEventEnvelope): RuntimeProjection {
   const next = applyProjectionEvent(projection, envelope);
-  return { ...next, projectContexts: deriveSharedProjectContexts(next) };
+  return {
+    ...next,
+    projectContexts: deriveSharedProjectContexts(next),
+    ...(next.devServers ? { devServers: pruneDevServers(next) } : {}),
+  };
 }
 
 function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEventEnvelope): RuntimeProjection {
@@ -337,6 +344,21 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
     case "runtime.ready":
     case "runtime.reactor.failed":
       return { ...projection, lastSequence: envelope.sequence };
+    case "devserver.detected":
+      return {
+        ...projection,
+        devServers: upsertDevServer(projection.devServers ?? [], {
+          ...event.devServer,
+          detectedAt: envelope.occurredAt,
+        }),
+        lastSequence: envelope.sequence,
+      };
+    case "devserver.stopped":
+      return {
+        ...projection,
+        devServers: removeDevServer(projection.devServers ?? [], event.terminalId, event.port),
+        lastSequence: envelope.sequence,
+      };
   }
 }
 

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BrowserTabProjection } from "./browser.js";
+import { DevServerProjection } from "./devServers.js";
 import { EnvironmentId, ProjectId, ThreadId, WorktreeId } from "./ids.js";
 import { LegacyImportProjection } from "./import.js";
 import {
@@ -111,6 +112,7 @@ export const RuntimeProjection = z.object({
   activities: z.array(ThreadActivityProjection).optional(),
   terminals: z.array(TerminalProjection),
   browserTabs: z.array(BrowserTabProjection),
+  devServers: z.array(DevServerProjection).optional(),
   reviews: z.array(ReviewProjection).optional(),
   diagnostics: DiagnosticsProjection.optional(),
   legacyImport: LegacyImportProjection.optional(),

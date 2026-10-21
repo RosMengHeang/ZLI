@@ -4,8 +4,10 @@ import {
   type BrowserViewport,
   type RuntimeProjection,
   type WorktreeProjection,
+  worktreeDevServers,
 } from "@zli-v2/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DevServerBar, devServerLabel, originOf } from "../devservers/DevServers.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
@@ -19,6 +21,8 @@ const CUSTOM_DEVICE = "custom";
 const REVEAL_WAIT_MS = 3_000;
 
 export type BrowserReveal = { browserTabId: string; worktreeId: string; key: number };
+/** A dev server address to show, from the topbar chip or the command palette. */
+export type BrowserOpenRequest = { url: string; worktreeId: string; key: number };
 
 type Props = {
   worktree: WorktreeProjection | undefined;
@@ -26,13 +30,16 @@ type Props = {
   obscured?: boolean;
   /** A tab an agent opened that the pane should bring to the front once it belongs to this worktree. */
   reveal?: BrowserReveal | undefined;
+  openRequest?: BrowserOpenRequest | undefined;
 };
 
 const selectBrowserTabs = (projection: RuntimeProjection | undefined) => projection?.browserTabs;
+const selectDevServers = (projection: RuntimeProjection | undefined) => projection?.devServers;
 
-export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
+export function BrowserPane({ worktree, obscured = false, reveal, openRequest }: Props) {
   const { bridge } = useRuntime();
   const browserTabs = useRuntimeSelector(selectBrowserTabs);
+  const allDevServers = useRuntimeSelector(selectDevServers);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const urlEditedRef = useRef(false);
@@ -58,6 +65,12 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
   const [handledRevealKey, setHandledRevealKey] = useState<number>();
   const pendingReveal =
     reveal && reveal.key !== handledRevealKey && reveal.worktreeId === worktreeId ? reveal : undefined;
+  const devServers = useMemo(() => worktreeDevServers(allDevServers, worktreeId), [allDevServers, worktreeId]);
+  const [handledOpenKey, setHandledOpenKey] = useState<number>();
+  const pendingOpen =
+    openRequest && openRequest.key !== handledOpenKey && openRequest.worktreeId === worktreeId
+      ? openRequest
+      : undefined;
 
   const activateInSurface = useCallback(
     async (browserTabId: string) => {
@@ -80,7 +93,7 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
   }, [showUrl, worktreeId]);
 
   useEffect(() => {
-    if (!bridge || !worktreeId || !restoredTab || tab || pendingReveal) return;
+    if (!bridge || !worktreeId || !restoredTab || tab || pendingReveal || pendingOpen) return;
     let disposed = false;
     setBusy(true);
     setError(undefined);
@@ -107,7 +120,7 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
     return () => {
       disposed = true;
     };
-  }, [activateInSurface, bridge, pendingReveal, restoredTab, showUrl, tab, worktreeId]);
+  }, [activateInSurface, bridge, pendingOpen, pendingReveal, restoredTab, showUrl, tab, worktreeId]);
 
   const visibleTabId = tab && !obscured ? tab.browserTabId : undefined;
   useEffect(() => {
@@ -244,6 +257,42 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
     void shown.finally(() => setHandledRevealKey(pendingReveal.key));
     return undefined;
   }, [pendingReveal, pendingRevealTab, tab?.browserTabId]);
+
+  /** Shows a tab already on the server's origin, or opens one, so the person's current page stays put. */
+  const openDevServer = async (target: string) => {
+    if (!bridge || !worktree) return;
+    const origin = originOf(target);
+    if (tab && originOf(tab.url) === origin) return;
+    const existing = worktreeTabs.find((candidate) => originOf(candidate.url) === origin);
+    if (existing) {
+      await selectTab(existing);
+      return;
+    }
+    setBusy(true);
+    setError(undefined);
+    try {
+      const next =
+        tab && (tab.url === "about:blank" || !tab.url)
+          ? await bridge.browser.navigate(tab.browserTabId, target)
+          : await bridge.browser
+              .create({ worktreeId: worktree.worktreeId, profileId: tab?.profileId ?? DEFAULT_PROFILE_ID, url: target })
+              .then((created) => activateInSurface(created.browserTabId));
+      setTab(next);
+      showUrl(next.url);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The dev server could not be opened.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const openDevServerRef = useRef(openDevServer);
+  openDevServerRef.current = openDevServer;
+  const openingKeyRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!pendingOpen || !bridge || openingKeyRef.current === pendingOpen.key) return;
+    openingKeyRef.current = pendingOpen.key;
+    void openDevServerRef.current(pendingOpen.url).finally(() => setHandledOpenKey(pendingOpen.key));
+  }, [bridge, pendingOpen]);
 
   const setViewport = (viewport: BrowserViewport | null) =>
     void run((activeBridge, activeTab) => activeBridge.browser.setViewport(activeTab.browserTabId, viewport));
@@ -466,6 +515,14 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
           </Button>
         </div>
       ) : null}
+      {tab ? (
+        <DevServerBar
+          devServers={devServers}
+          currentUrl={tab.url}
+          busy={busy}
+          onOpen={(target) => void openDevServer(target)}
+        />
+      ) : null}
       {(error ?? tab?.loadError) && (
         <div className="banner banner-danger" role="alert">
           <Icon name="alert" size={14} />
@@ -480,6 +537,27 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
             title="Select a worktree first"
             detail="Browser tabs are restored per worktree, so the runtime needs a workspace before it can open Chromium."
           />
+        ) : !tab && devServers.length > 0 ? (
+          <EmptyState
+            className="browser-empty"
+            icon="globe"
+            title="Open a dev server"
+            detail="Started from a terminal in this worktree."
+          >
+            <div className="devserver-list">
+              {devServers.map((devServer, index) => (
+                <Button
+                  key={`${devServer.terminalId}:${devServer.port}`}
+                  variant={index === 0 ? "primary" : "secondary"}
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => void openDevServer(devServer.url)}
+                >
+                  Open {devServerLabel(devServer.url)}
+                </Button>
+              ))}
+            </div>
+          </EmptyState>
         ) : !tab ? (
           <EmptyState
             className="browser-empty"

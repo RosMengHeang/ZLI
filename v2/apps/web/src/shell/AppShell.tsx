@@ -1,9 +1,10 @@
-import { type ProjectProjection, WorktreeId, type WorktreeProjection } from "@zli-v2/contracts";
+import { type ProjectProjection, WorktreeId, type WorktreeProjection, worktreeDevServers } from "@zli-v2/contracts";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isSelectableProvider, providerDisplayName } from "../agent/providers.js";
 import { AttentionPanel } from "../attention/AttentionPanel.js";
-import { BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
+import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
+import { devServerCommands } from "../devservers/DevServers.js";
 import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
 import type { FilesFocus } from "../files/FilesPane.js";
 import { QuickOpen } from "../files/QuickOpen.js";
@@ -73,6 +74,7 @@ function WorkspaceApp() {
   const [deleteRequest, setDeleteRequest] = useState<AgentSession>();
   const [version, setVersion] = useState<string>();
   const [browserReveal, setBrowserReveal] = useState<BrowserReveal>();
+  const [browserOpen, setBrowserOpen] = useState<BrowserOpenRequest>();
   const [filesFocus, setFilesFocus] = useState<FilesFocus>();
   const [quickOpen, setQuickOpen] = useState(false);
   const launching = useRef(new Set<string>());
@@ -173,6 +175,20 @@ function WorkspaceApp() {
       focusWorktree(worktreeId);
     });
   }, [bridge, focusWorktree]);
+
+  const contextDevServers = useMemo(
+    () => worktreeDevServers(projection?.devServers, contextWorktree?.worktreeId),
+    [projection?.devServers, contextWorktree?.worktreeId],
+  );
+  const openDevServer = useCallback(
+    (url: string) => {
+      const worktreeId = contextWorktree?.worktreeId;
+      if (!worktreeId) return;
+      setBrowserOpen({ url, worktreeId, key: Date.now() });
+      setSidePane("browser");
+    },
+    [contextWorktree?.worktreeId],
+  );
 
   const openFile = useCallback(
     ({ worktreeId, path, line, column }: OpenFileRequest) => {
@@ -604,6 +620,7 @@ function WorkspaceApp() {
     { label: "Import legacy snapshot", icon: "upload", group: "App", action: () => void startLegacyImport() },
     { label: "Help and diagnostics", icon: "help", group: "App", action: () => setHelpOpen(true) },
     ...notificationCommands(notifications.settings, (patch) => void notifications.update(patch)),
+    ...devServerCommands(contextDevServers, openDevServer),
   ];
   const overlayOpen =
     paletteOpen ||
@@ -659,6 +676,8 @@ function WorkspaceApp() {
             onToggleDrawer={toggleDrawer}
             onToggleSidePane={toggleSidePane}
             onOpenPalette={() => setPaletteOpen(true)}
+            devServers={contextDevServers}
+            onOpenDevServer={openDevServer}
           />
           {notice ? (
             <div className={`banner banner-${notice.tone}`} role={notice.tone === "danger" ? "alert" : "status"}>
@@ -763,7 +782,12 @@ function WorkspaceApp() {
                         />
                       </Suspense>
                     ) : sidePane === "browser" ? (
-                      <BrowserPane worktree={contextWorktree} obscured={overlayOpen} reveal={browserReveal} />
+                      <BrowserPane
+                        worktree={contextWorktree}
+                        obscured={overlayOpen}
+                        reveal={browserReveal}
+                        openRequest={browserOpen}
+                      />
                     ) : (
                       <ReviewPane worktree={contextWorktree} focus={reviewFocus} />
                     )}

@@ -3,7 +3,10 @@ import {
   RuntimeProjection,
   appendThreadMessage,
   deriveSharedProjectContexts,
+  pruneDevServers,
+  removeDevServer,
   removeSession,
+  upsertDevServer,
   upsertThreadActivity,
   type RuntimeEventEnvelope as RuntimeEventEnvelopeValue,
   type RuntimeProjection as RuntimeProjectionValue,
@@ -230,6 +233,23 @@ export class ProjectionStore {
           lastSequence: envelope.sequence,
         };
         break;
+      case "devserver.detected":
+        this.#projection = {
+          ...current,
+          devServers: upsertDevServer(current.devServers ?? [], {
+            ...event.devServer,
+            detectedAt: envelope.occurredAt,
+          }),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "devserver.stopped":
+        this.#projection = {
+          ...current,
+          devServers: removeDevServer(current.devServers ?? [], event.terminalId, event.port),
+          lastSequence: envelope.sequence,
+        };
+        break;
       default:
         // Events this store cannot fold locally still change the server projection, so ask for a
         // fresh copy instead of leaving lastSequence behind until an unrelated event arrives.
@@ -240,6 +260,7 @@ export class ProjectionStore {
       this.#projection = {
         ...this.#projection,
         projectContexts: deriveSharedProjectContexts(this.#projection),
+        ...(this.#projection.devServers ? { devServers: pruneDevServers(this.#projection) } : {}),
       };
     }
 

@@ -4,6 +4,7 @@ import { posix, win32 } from "node:path";
 import {
   ProjectId,
   type ProjectProjection,
+  parseDevServerUrl,
   type RuntimeCommand,
   type RuntimeEvent,
   type RuntimeProjection,
@@ -92,7 +93,9 @@ export type DomainDecision = Extract<
       | "thread.activity.updated"
       | "thread.request.resolved"
       | "thread.respond.requested"
-      | "thread.user-input.requested";
+      | "thread.user-input.requested"
+      | "devserver.detected"
+      | "devserver.stopped";
   }
 >;
 
@@ -467,6 +470,33 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       return [{ type: "legacy.rollback.completed", batchId: command.batchId }];
     case "legacy.operation.failed":
       return [{ type: "legacy.operation.failed", batchId: command.batchId, message: command.message }];
+    case "devserver.detected": {
+      const terminal = projection.terminals.find((candidate) => candidate.terminalId === command.terminalId);
+      if (!terminal) throw new DomainError("terminal_missing", `Terminal does not exist: ${command.terminalId}`);
+      const parsed = parseDevServerUrl(command.url);
+      if (!parsed) throw new DomainError("unsupported_command", "Dev server URLs must be local http(s) addresses.");
+      if (terminal.status === "exited" || terminal.status === "failed") return [];
+      const known = (projection.devServers ?? []).find(
+        (devServer) => devServer.terminalId === command.terminalId && devServer.port === parsed.port,
+      );
+      // Servers reprint their address on every restart and rebuild; only a new address is an event.
+      if (known?.url === parsed.url) return [];
+      return [
+        {
+          type: "devserver.detected",
+          devServer: { worktreeId: terminal.worktreeId, terminalId: terminal.terminalId, ...parsed },
+        },
+      ];
+    }
+    case "devserver.stopped":
+      if (
+        !(projection.devServers ?? []).some(
+          (devServer) => devServer.terminalId === command.terminalId && devServer.port === command.port,
+        )
+      ) {
+        return [];
+      }
+      return [{ type: "devserver.stopped", terminalId: command.terminalId, port: command.port }];
     default:
       throw new DomainError("unsupported_command", `Command ${command.type} is not a domain mutation.`);
   }

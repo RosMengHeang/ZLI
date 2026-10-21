@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BrowserTabProjection } from "./browser.js";
+import { DevServerProjection } from "./devServers.js";
 import { DiagnosticLog } from "./diagnostics.js";
 import {
   BrowserTabId,
@@ -169,6 +170,12 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     status: TerminalStatus,
     lastSequence: z.number().int().nonnegative().optional(),
     errorMessage: z.string().min(1).optional(),
+  }),
+  z.object({ type: z.literal("devserver.detected"), devServer: DevServerProjection.omit({ detectedAt: true }) }),
+  z.object({
+    type: z.literal("devserver.stopped"),
+    terminalId: TerminalId,
+    port: DevServerProjection.shape.port,
   }),
 ]);
 export type RuntimeEvent = z.infer<typeof RuntimeEvent>;

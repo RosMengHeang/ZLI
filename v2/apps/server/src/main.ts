@@ -9,6 +9,7 @@ import { type BrowserToolConfig, browserToolConfigFromEnv } from "./browser-tool
 import { registerBrowserToolInUserSettings, type UserSettingsOutcome } from "./browser-tool/userSettings.js";
 import { DaemonSupervisor } from "./daemon/DaemonSupervisor.js";
 import { Database } from "./db/Database.js";
+import { DevServerReactor } from "./devservers/DevServerReactor.js";
 import { DiagnosticsReactor } from "./diagnostics/DiagnosticsReactor.js";
 import { StructuredLogger } from "./diagnostics/StructuredLogger.js";
 import { GitProcess } from "./git/GitProcess.js";
@@ -41,6 +42,7 @@ export type RuntimeProcess = {
   reviewReactor: ReviewReactor;
   diagnosticsReactor: DiagnosticsReactor;
   legacyImportReactor: LegacyImportReactor;
+  devServerReactor: DevServerReactor;
   /** Settles once the browser tool is registered in agent user settings (empty when not configured). */
   browserToolRegistration: Promise<readonly UserSettingsOutcome[]>;
   token: string;
@@ -98,6 +100,7 @@ export async function startRuntime(options: {
   const agentMessageReactor = new AgentMessageReactor(engine);
   const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
   const legacyImportReactor = new LegacyImportReactor(engine);
+  const devServerReactor = new DevServerReactor(engine, terminalService);
   const server = new RpcServer({
     engine,
     environment,
@@ -132,6 +135,7 @@ export async function startRuntime(options: {
     reviewReactor,
     diagnosticsReactor,
     legacyImportReactor,
+    devServerReactor,
     browserToolRegistration,
     token,
     close: async () => {
@@ -151,6 +155,8 @@ export async function startRuntime(options: {
       agentMessageReactor.stop();
       diagnosticsReactor.stop();
       legacyImportReactor.stop();
+      devServerReactor.stop();
+      await devServerReactor.waitForIdle();
       await providerService.stopAll();
       providerService.dispose();
       await engine.flushProjection();
