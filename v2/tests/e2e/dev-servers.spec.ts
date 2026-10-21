@@ -39,11 +39,14 @@ test("finds a dev server in terminal output and opens it in the browser panel", 
     const terminalToggle = page.getByRole("button", { name: "Terminal", exact: true });
     if ((await terminalToggle.getAttribute("aria-pressed")) !== "true") await terminalToggle.click();
     await page.getByRole("button", { name: "Start terminal" }).click();
+    const output = page.getByRole("log", { name: "Terminal output" });
+    // Keys typed before the shell prints its prompt are lost, which Windows PowerShell does slowly.
+    await expect(output).toHaveText(/[$>#%]\s*$/u, { timeout: 20_000 });
     const input = page.locator(".terminal-output .xterm-helper-textarea");
     await input.focus();
     await page.keyboard.type("node serve.mjs");
     await page.keyboard.press("Enter");
-    await expect(page.getByRole("log", { name: "Terminal output" })).toContainText(`localhost:${port}`, {
+    await expect(output).toContainText(`localhost:${port}`, {
       timeout: 20_000,
     });
 
