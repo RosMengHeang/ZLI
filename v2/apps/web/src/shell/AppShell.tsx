@@ -13,6 +13,8 @@ import { AttentionPanel } from "../attention/AttentionPanel.js";
 import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
 import { devServerCommands } from "../devservers/DevServers.js";
 import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
+import { PromptsDialog } from "../prompts/PromptsDialog.js";
+import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.js";
 import type { FilesFocus } from "../files/FilesPane.js";
 import { QuickOpen } from "../files/QuickOpen.js";
 import { useAgentNotifications } from "../notifications/useAgentNotifications.js";
@@ -21,6 +23,7 @@ import { getBridge, type NotificationSettings, type ZliBridge } from "../runtime
 import { makeCommandId } from "../runtime/commandId.js";
 import { RuntimeProvider, useRuntime, useShellProjection } from "../runtime/RuntimeProvider.js";
 import { AgentTile } from "../sessions/AgentTile.js";
+import { firstMessageStep, TERMINAL_FIRST_MESSAGE_DELAY_MS, terminalFirstMessage } from "../sessions/firstMessage.js";
 import { createWorktree, ensureCheckout, startSessionAgent } from "../sessions/launch.js";
 import { NewAgentDialog, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
 import {
@@ -88,6 +91,7 @@ function WorkspaceApp() {
   const [quickOpen, setQuickOpen] = useState(false);
   /** Setup approvals the person closed without answering; they stay reachable from the sidebar. */
   const [deferredSetups, setDeferredSetups] = useState<string[]>([]);
+  const [promptManager, setPromptManager] = useState<ManagerRequest>();
   const setupApprovalRef = useRef<WorktreeSetupProjection>(undefined);
   const launching = useRef(new Set<string>());
   const projectionRef = useRef(projection);
@@ -271,10 +275,19 @@ function WorkspaceApp() {
       setHelpOpen(false);
       setCloseRequest(undefined);
       setDeleteRequest(undefined);
+      setPromptManager(undefined);
       const approval = setupApprovalRef.current;
       if (approval) deferSetup(approval);
     },
   });
+  useEffect(
+    () =>
+      onPromptManagerRequest((request) => {
+        setPaletteOpen(false);
+        setPromptManager(request);
+      }),
+    [],
+  );
   // Agents wait for their worktree; start each one once its folder is ready.
   useEffect(() => {
     if (!projection) return;
@@ -318,19 +331,66 @@ function WorkspaceApp() {
         cwd: worktree.path,
       }).then((failure) => {
         launching.current.delete(launch.sessionId);
-        updateWorkbench((state) => ({
-          ...state,
-          pending: state.pending.map((entry) =>
-            entry.sessionId !== launch.sessionId
-              ? entry
-              : failure
-                ? { ...entry, errorMessage: failure }
-                : { ...entry, started: true },
-          ),
-        }));
+        updateWorkbench((state) => {
+          // The pending entry may already be gone because the session showed up in the projection first.
+          const prompt = failure ? undefined : launch.prompt;
+          return {
+            ...state,
+            pending: state.pending.map((candidate) => {
+              if (candidate.sessionId !== launch.sessionId) return candidate;
+              if (failure) return { ...candidate, errorMessage: failure };
+              const { prompt: _prompt, ...rest } = candidate;
+              return { ...rest, started: true };
+            }),
+            ...(prompt ? { firstMessages: { ...state.firstMessages, [launch.sessionId]: prompt } } : {}),
+          };
+        });
       });
     }
   }, [dispatch, projection, sessions, updateWorkbench, workbench.pending]);
+
+  // A first message goes out once its agent can take input: an idle chat, or a CLI that had time to draw.
+  const delivering = useRef(new Set<string>());
+  useEffect(() => {
+    const forget = (sessionId: string) =>
+      updateWorkbench((state) => {
+        const { [sessionId]: _sent, ...firstMessages } = state.firstMessages;
+        return { ...state, firstMessages };
+      });
+    const run = async (command: Record<string, unknown>) => {
+      try {
+        const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
+        if (response?.accepted === false) showError(response.error.message);
+      } catch (cause) {
+        showError(cause instanceof Error ? cause.message : "The first message could not be sent.");
+      }
+    };
+    for (const [sessionId, text] of Object.entries(workbench.firstMessages)) {
+      if (delivering.current.has(sessionId)) continue;
+      const step = firstMessageStep(sessions.find((session) => session.sessionId === sessionId));
+      if (step.kind === "wait") continue;
+      if (step.kind === "drop") {
+        forget(sessionId);
+        continue;
+      }
+      delivering.current.add(sessionId);
+      if (step.kind === "chat") {
+        forget(sessionId);
+        void run({ type: "thread.send", threadId: step.threadId, text }).finally(() =>
+          delivering.current.delete(sessionId),
+        );
+        continue;
+      }
+      const keys = terminalFirstMessage(text);
+      setTimeout(() => {
+        forget(sessionId);
+        void run({ type: "terminal.write", terminalId: step.terminalId, data: keys.body })
+          .then(() => new Promise((resolve) => setTimeout(resolve, 150)))
+          .then(() => run({ type: "terminal.write", terminalId: step.terminalId, data: keys.submit }))
+          .finally(() => delivering.current.delete(sessionId));
+      }, TERMINAL_FIRST_MESSAGE_DELAY_MS);
+    }
+  }, [dispatch, sessions, showError, updateWorkbench, workbench.firstMessages]);
 
   const openProject = async () => {
     if (!bridge) {
@@ -501,6 +561,7 @@ function WorkspaceApp() {
           mode: request.mode,
           permissionMode: request.permissionMode,
           ...(request.model ? { model: request.model } : {}),
+          ...(request.prompt ? { prompt: request.prompt } : {}),
           createdAt: new Date().toISOString(),
         },
       ],
@@ -694,6 +755,12 @@ function WorkspaceApp() {
           },
         ]
       : []),
+    {
+      label: "Saved prompts",
+      icon: "bookmark",
+      group: "Go to",
+      action: () => setPromptManager({ projectId: contextProject?.projectId }),
+    },
     { label: "Toggle terminal", icon: "terminal", group: "View", shortcut: "Mod+J", action: toggleDrawer },
     { label: "Focus files", icon: "folderTree", group: "View", action: () => setSidePane("files") },
     { label: "Focus browser", icon: "globe", group: "View", action: () => setSidePane("browser") },
@@ -719,6 +786,7 @@ function WorkspaceApp() {
     helpOpen ||
     closeRequest !== undefined ||
     deleteRequest !== undefined ||
+    promptManager !== undefined ||
     (legacyImportBatchId !== undefined && projection !== undefined);
   // Waits behind other dialogs so it never stacks on top of one.
   const setupApproval = otherOverlayOpen ? undefined : nextSetupApproval(projection, deferredSetups);
@@ -975,6 +1043,15 @@ function WorkspaceApp() {
             onSubmit={submitNewAgent}
           />
         )}
+        {promptManager && projection ? (
+          <PromptsDialog
+            project={
+              projection.projects.find((project) => project.projectId === promptManager.projectId) ?? contextProject
+            }
+            initialDraft={promptManager.draft}
+            onClose={() => setPromptManager(undefined)}
+          />
+        ) : null}
         {setupApproval && projection ? (
           <SetupApprovalDialog
             key={setupDeferKey(setupApproval)}

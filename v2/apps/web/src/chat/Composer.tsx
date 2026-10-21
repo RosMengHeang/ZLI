@@ -1,7 +1,10 @@
 import type { ImageMimeType, PermissionMode, ProviderModelOption } from "@zli-v2/contracts";
-import { type ClipboardEvent, type DragEvent, type FormEvent, useEffect, useRef, useState } from "react";
+import { type ClipboardEvent, type DragEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import { IconButton } from "../ui/Button.js";
+import { PromptList, usePromptPicker } from "../prompts/PromptPicker.js";
+import { combinePrompts, requestPromptManager, slashQuery, usePersonalPrompts } from "../prompts/prompts.js";
+import { useSharedPrompts } from "../prompts/useSharedPrompts.js";
+import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 
 export type ComposerAttachment = { name: string; mimeType: ImageMimeType; dataBase64: string };
@@ -42,6 +45,7 @@ export function Composer({
   modelLocked,
   onModelChange,
   permissionMode,
+  projectId,
   onSubmit,
 }: {
   displayName: string;
@@ -53,6 +57,8 @@ export function Composer({
   modelLocked: boolean;
   onModelChange(model: string | undefined): void;
   permissionMode: PermissionMode;
+  /** Where shared prompts come from. */
+  projectId: string | undefined;
   onSubmit(text: string, attachments: ComposerAttachment[]): Promise<boolean>;
 }) {
   const [draft, setDraft] = useState("");
@@ -60,6 +66,14 @@ export function Composer({
   const [error, setError] = useState<string>();
   const [sending, setSending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const personalPrompts = usePersonalPrompts();
+  const sharedPrompts = useSharedPrompts(projectId);
+  const prompts = useMemo(
+    () => combinePrompts(sharedPrompts.prompts, personalPrompts),
+    [sharedPrompts.prompts, personalPrompts],
+  );
+  const picker = usePromptPicker({ draft, setDraft, prompts });
   const imagesRef = useRef(images);
   imagesRef.current = images;
 
@@ -148,7 +162,7 @@ export function Composer({
 
   return (
     <form
-      className="composer"
+      className="composer prompt-anchor"
       onSubmit={(event) => void submit(event)}
       onDragOver={(event) => {
         if ([...event.dataTransfer.types].includes("Files")) event.preventDefault();
@@ -173,11 +187,47 @@ export function Composer({
           ))}
         </ul>
       ) : null}
+      <PromptList
+        picker={picker}
+        emptyHint="No saved prompts yet."
+        sharedError={sharedPrompts.error}
+        footer={
+          <>
+            {draft.trim() && slashQuery(draft) === undefined ? (
+              <Button
+                variant="ghost"
+                size="xs"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  picker.close();
+                  requestPromptManager({ projectId, draft });
+                }}
+              >
+                Save draft
+              </Button>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="xs"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                picker.close();
+                requestPromptManager({ projectId });
+              }}
+            >
+              Manage
+            </Button>
+          </>
+        }
+      />
       <textarea
+        ref={textareaRef}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onPaste={onPaste}
+        {...picker.inputProps}
         onKeyDown={(event) => {
+          if (picker.onKeyDown(event)) return;
           if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault();
             event.currentTarget.form?.requestSubmit();
@@ -205,6 +255,17 @@ export function Composer({
           onChange={(event) => {
             addFiles([...(event.target.files ?? [])]);
             event.target.value = "";
+          }}
+        />
+        <IconButton
+          label="Saved prompts"
+          tooltip="Saved prompts, or type / to search them"
+          icon="bookmark"
+          pressed={picker.open}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            picker.toggle();
+            textareaRef.current?.focus();
           }}
         />
         <label

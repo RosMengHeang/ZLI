@@ -22,6 +22,20 @@ Put a `zli.json` at the root of a repository to share worktree setup with the te
 Setup commands run with your permissions, so ZLI asks before running them. The dialog shows the exact commands and offers **Run once**, **Always run for this project**, or **Skip setup**. "Always" is remembered for that exact list of commands: if `zli.json` changes them, ZLI asks again. Until you answer, the worktree shows "Needs approval" and agents waiting for it do not start. After setup finishes, fails, or is skipped, the worktree is ready and its agents start.
 
 An invalid `zli.json` never blocks work. ZLI creates the worktree without copying or running anything and shows the problem, naming the field that failed. A `.worktreeinclude` file is still honored and is applied before `zli.json`.
+
+### Saved prompts
+
+`zli.json` can also share prompts with the team:
+
+```json
+{
+  "version": 1,
+  "prompts": [{ "name": "Review checklist", "prompt": "Review the diff for missing tests and unclear names." }]
+}
+```
+
+Type `/` at the start of a message, or of the first message in the New agent dialog, to pick one: the list narrows as you type, arrows move, Enter inserts it. The bookmark button next to the message box opens the same list. Prompts you keep for yourself are saved on this computer under **Saved prompts** in the command palette, where you can add, edit, and delete them; the prompts from `zli.json` are shown there read-only. A first message typed in the New agent dialog is sent as soon as the agent starts.
+
 ## Verify locally
 
 From this directory:

@@ -318,6 +318,7 @@ export function ChatView({
               modelLocked={thread.capabilities.modelSwitch === "unsupported" && messages.length > 0}
               onModelChange={setModel}
               permissionMode={thread.permissionMode ?? "full-access"}
+              projectId={worktree?.projectId}
               onSubmit={send}
             />
           )}

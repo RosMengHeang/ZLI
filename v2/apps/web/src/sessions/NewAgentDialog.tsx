@@ -5,10 +5,13 @@ import {
   type RuntimeProjection,
   worktreeHasLiveThread,
 } from "@zli-v2/contracts";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
 import { permissionLabel } from "../chat/Composer.js";
+import { PromptList, usePromptPicker } from "../prompts/PromptPicker.js";
+import { combinePrompts, usePersonalPrompts } from "../prompts/prompts.js";
+import { useSharedPrompts } from "../prompts/useSharedPrompts.js";
 import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Field, Select } from "../ui/Field.js";
@@ -40,7 +43,12 @@ function suggestedBranch(provider: ListedProviderKind | undefined): string {
   return `${stem}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-export type NewAgentRequest = LaunchOptions & { project: ProjectProjection; placement: Placement };
+export type NewAgentRequest = LaunchOptions & {
+  project: ProjectProjection;
+  placement: Placement;
+  /** The first message, sent once the agent is running. */
+  prompt?: string;
+};
 
 export function NewAgentDialog({
   projection,
@@ -92,6 +100,16 @@ export function NewAgentDialog({
     projectWorktrees.find((worktree) => worktree.worktreeId === initialWorktreeId)?.worktreeId ??
       projectWorktrees[0]?.worktreeId,
   );
+  const [task, setTask] = useState("");
+  const taskId = useId();
+  const personalPrompts = usePersonalPrompts();
+  const sharedPrompts = useSharedPrompts(projectId);
+  const prompts = useMemo(
+    () => combinePrompts(sharedPrompts.prompts, personalPrompts),
+    [sharedPrompts.prompts, personalPrompts],
+  );
+  const picker = usePromptPicker({ draft: task, setDraft: setTask, prompts });
+  const taskRef = useRef<HTMLTextAreaElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const submitRef = useRef<HTMLButtonElement>(null);
@@ -135,6 +153,7 @@ export function NewAgentDialog({
       mode,
       permissionMode,
       ...(model && !modelUnsupported ? { model } : {}),
+      ...(task.trim() ? { prompt: task.trim() } : {}),
     });
     setBusy(false);
     if (failure) setError(failure);
@@ -253,6 +272,52 @@ export function NewAgentDialog({
               </label>
             </div>
           </fieldset>
+
+          <div className="field">
+            <div className="prompt-label-row">
+              <label className="field-label" htmlFor={taskId}>
+                First message
+              </label>
+              <Button
+                variant="ghost"
+                size="xs"
+                icon="bookmark"
+                aria-pressed={picker.open}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  picker.toggle();
+                  taskRef.current?.focus();
+                }}
+              >
+                Saved prompts
+              </Button>
+            </div>
+            <div className="prompt-anchor is-inline">
+              <textarea
+                id={taskId}
+                ref={taskRef}
+                className="textarea"
+                rows={3}
+                value={task}
+                onChange={(event) => setTask(event.target.value)}
+                {...picker.inputProps}
+                onKeyDown={(event) => {
+                  if (picker.onKeyDown(event)) return;
+                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                    event.preventDefault();
+                    void submit();
+                  }
+                }}
+                placeholder="Optional. Type / to insert a saved prompt."
+              />
+              <PromptList
+                picker={picker}
+                emptyHint="No saved prompts yet. Add them from Saved prompts in the command palette."
+                sharedError={sharedPrompts.error}
+              />
+            </div>
+            <span className="field-hint">Sent to the agent as soon as it starts.</span>
+          </div>
 
           <fieldset className="field">
             <legend className="field-label">Where it runs</legend>

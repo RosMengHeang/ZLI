@@ -1,0 +1,43 @@
+/* ---------- Saved prompt picker ---------- */
+.prompt-anchor { position: relative; }
+.prompt-picker {
+  position: absolute; z-index: 30; right: 0; bottom: calc(100% + var(--zli-space-1-5)); left: 0;
+  display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: var(--zli-overlay);
+  box-shadow: var(--zli-shadow-pop);
+}
+/* Inside a scrolling dialog the list opens in the flow, so it is never clipped. */
+.prompt-anchor.is-inline .prompt-picker { position: static; margin-top: var(--zli-space-1-5); box-shadow: none; }
+.prompt-label-row { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-2); }
+.prompt-options { display: flex; max-height: 260px; flex-direction: column; padding: var(--zli-space-1); overflow: auto; }
+.prompt-group { margin: var(--zli-space-1-5) var(--zli-space-2) var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 600; }
+.prompt-option {
+  display: flex; min-width: 0; flex-direction: column; gap: 1px; padding: var(--zli-space-1-5) var(--zli-space-2);
+  border-radius: var(--zli-radius-sm); cursor: pointer;
+}
+.prompt-option.is-active { background: var(--zli-active); }
+.prompt-option-name { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 550; }
+.prompt-option-text { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.prompt-empty { margin: var(--zli-space-2) var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.prompt-warning { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: 0; padding: var(--zli-space-1-5) var(--zli-space-3); border-top: 1px solid var(--zli-border); color: var(--zli-amber); font-size: var(--zli-text-xs); overflow-wrap: anywhere; }
+.prompt-warning svg { flex: 0 0 auto; margin-top: 2px; }
+.prompt-footer {
+  display: flex; align-items: center; gap: var(--zli-space-2); min-height: 32px; padding: 0 var(--zli-space-1) 0 var(--zli-space-3);
+  border-top: 1px solid var(--zli-border); background: var(--zli-sidebar); color: var(--zli-dim); font-size: var(--zli-text-xs);
+}
+.prompt-footer > span { flex: 1; }
+.prompt-footer kbd { margin-right: 2px; }
+
+/* ---------- Saved prompts manager ---------- */
+.prompt-manager-body { gap: var(--zli-space-3); }
+.prompt-section { display: flex; flex-direction: column; gap: var(--zli-space-1-5); }
+.prompt-section-title { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 600; }
+.prompt-rows { margin: 0; padding: 0; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); list-style: none; }
+.prompt-row { display: flex; align-items: center; gap: var(--zli-space-2); min-height: 44px; padding: var(--zli-space-1-5) var(--zli-space-1-5) var(--zli-space-1-5) var(--zli-space-3); }
+.prompt-row + .prompt-row { border-top: 1px solid var(--zli-border); }
+.prompt-row-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
+.prompt-row-copy strong { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 550; }
+.prompt-row-copy span { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.prompt-new { align-self: flex-start; }
+.prompt-editor { display: flex; flex-direction: column; gap: var(--zli-space-2-5); padding: var(--zli-space-3); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); }
+.prompt-editor-actions { display: flex; justify-content: flex-end; gap: var(--zli-space-1-5); }
