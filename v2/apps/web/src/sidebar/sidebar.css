@@ -79,6 +79,8 @@
 .worktree-name { min-width: 0; flex: 1; overflow: hidden; font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .worktree-kind { flex: 0 0 auto; padding: 0 5px; border-radius: var(--zli-radius-xs); background: var(--zli-raised); color: var(--zli-dim); font-size: var(--zli-text-2xs); line-height: 16px; }
 .worktree-status { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.worktree-status.is-attention { color: var(--zli-amber); }
+.worktree-status.is-danger { color: var(--zli-red); }
 
 .sidebar-footer { display: flex; align-items: center; gap: var(--zli-space-2); height: 40px; flex: 0 0 auto; padding: 0 var(--zli-space-1-5) 0 var(--zli-space-4); border-top: 1px solid var(--zli-border); color: var(--zli-dim); font-size: var(--zli-text-sm); }
 .connection-dot { width: 6px; height: 6px; flex-basis: 6px; }

@@ -16,6 +16,7 @@ import {
   WorktreeId,
 } from "./ids.js";
 import { LegacyImportPreview } from "./import.js";
+import { SetupDecision, WorktreeSetupProjection } from "./projectConfig.js";
 import {
   EnvironmentDescriptor,
   RuntimeProjection,
@@ -84,6 +85,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     /** Start this agent CLI instead of an interactive shell. The runtime resolves the executable. */
     agent: TerminalAgentLaunch.optional(),
     sessionId: SessionId.optional(),
+    /** Arguments for `shell`, so the terminal runs one command instead of an interactive shell. */
+    args: z.array(z.string().max(8_000)).max(16).optional(),
   }),
   z.object({ type: z.literal("terminal.write"), terminalId: TerminalId, data: z.string() }),
   z.object({
@@ -200,6 +203,17 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("devserver.stopped"), terminalId: TerminalId, port: DevServerProjection.shape.port }),
   ...FileCommand.options,
   ...PullRequestCommand.options,
+  /** Reported by the runtime while it copies files and runs zli.json setup in a new worktree. */
+  z.object({ type: z.literal("worktree.setup"), setup: WorktreeSetupProjection }),
+  /** The person's answer to running zli.json setup commands; the hash pins the exact list they saw. */
+  z.object({
+    type: z.literal("worktree.setup.respond"),
+    worktreeId: WorktreeId,
+    commandsHash: z.string().min(1).max(200),
+    decision: SetupDecision,
+  }),
+  /** Reads zli.json from the project folder. Answered by the server; never stored in the event log. */
+  z.object({ type: z.literal("project.config"), projectId: ProjectId }),
 ]);
 export type RuntimeCommand = z.infer<typeof RuntimeCommand>;
 

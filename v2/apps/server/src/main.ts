@@ -27,6 +27,7 @@ import { TerminalReactor } from "./terminal/TerminalReactor.js";
 import { TerminalService } from "./terminal/TerminalService.js";
 import { WorktreeReactor } from "./worktrees/WorktreeReactor.js";
 import { WorktreeService } from "./worktrees/WorktreeService.js";
+import { WorktreeSetupRunner } from "./worktrees/WorktreeSetup.js";
 
 export type RuntimeProcess = {
   database: Database;
@@ -79,9 +80,12 @@ export async function startRuntime(options: {
   const database = new Database({ path: databasePath });
   const logger = new StructuredLogger();
   const engine = new Engine({ database, environment, logger });
-  const worktreeReactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()));
   const daemonSupervisor = new DaemonSupervisor({ endpointPath: `${databasePath}.daemon.json` });
   const terminalService = new TerminalService(new RemotePtyFactory({ connect: () => daemonSupervisor.connect() }));
+  const worktreeSetup = new WorktreeSetupRunner(engine, terminalService);
+  const worktreeReactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()), {
+    setup: (context) => worktreeSetup.run(context),
+  });
   const reviewReactor = new ReviewReactor(engine, new ReviewService(new GitProcess()));
   const browserTool = options.browserTool;
   const providerService = new ProviderService(createProviderRegistry(process.env, browserTool ? { browserTool } : {}));
@@ -109,6 +113,8 @@ export async function startRuntime(options: {
     discoverProviders: () => providerService.discoverProviders(),
     attachmentsDir: join(dirname(databasePath), "attachments"),
   });
+  // Before the server accepts commands, so a setup started by a new request is never mistaken for a stale one.
+  await worktreeSetup.reconcile();
   await server.start();
   await terminalReactor.restore();
   await providerReactor.reconcileOrphanedThreads();
@@ -149,6 +155,7 @@ export async function startRuntime(options: {
       await diagnosticsReactor.waitForIdle();
       await legacyImportReactor.waitForIdle();
       worktreeReactor.stop();
+      worktreeSetup.stop();
       terminalReactor.stop();
       reviewReactor.stop();
       providerReactor.stop();

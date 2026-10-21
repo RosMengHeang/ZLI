@@ -8,6 +8,14 @@ import type { WorktreeService, WorktreeState } from "./WorktreeService.js";
 
 type WorktreeReactorOptions = {
   bootstrap?: (context: { worktreePath: string; signal: AbortSignal }) => Promise<void>;
+  /** Project setup (zli.json) for a newly created worktree. Runs after `bootstrap`, before "ready". */
+  setup?: (context: {
+    worktreeId: string;
+    projectId: string;
+    repoPath: string;
+    worktreePath: string;
+    signal: AbortSignal;
+  }) => Promise<void>;
 };
 
 type CreateIntent = Extract<RuntimeEventEnvelope["event"], { type: "worktree.create.requested" }>;
@@ -95,6 +103,19 @@ export class WorktreeReactor {
       if (state === "queued") return;
       statusQueue = statusQueue.then(() => this.dispatchStatus(intent.worktree.worktreeId, state));
     };
+    const { bootstrap, setup } = this.options;
+    const prepare =
+      bootstrap || setup
+        ? async (context: { worktreePath: string; signal: AbortSignal }) => {
+            await bootstrap?.(context);
+            await setup?.({
+              ...context,
+              worktreeId: intent.worktree.worktreeId,
+              projectId: project.projectId,
+              repoPath: project.path,
+            });
+          }
+        : undefined;
     const job = this.service.create({
       jobId: intent.worktree.worktreeId,
       repoPath: project.path,
@@ -103,7 +124,7 @@ export class WorktreeReactor {
       branch: intent.worktree.branch,
       ...(intent.baseRef ? { baseRef: intent.baseRef } : {}),
       ...(intent.checkoutExistingBranch ? { checkoutExistingBranch: true } : {}),
-      ...(this.options.bootstrap ? { bootstrap: this.options.bootstrap } : {}),
+      ...(prepare ? { bootstrap: prepare } : {}),
       onState: reportState,
     });
     this.active.set(intent.worktree.worktreeId, job);

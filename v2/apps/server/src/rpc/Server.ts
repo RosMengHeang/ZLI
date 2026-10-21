@@ -31,6 +31,7 @@ import {
   runPullRequestCommand,
 } from "../review/PullRequestService.js";
 import type { TerminalService, TerminalSubscription } from "../terminal/TerminalService.js";
+import { readZliConfig } from "../worktrees/zliConfig.js";
 import { AttachmentError, storeThreadAttachments } from "./attachments.js";
 
 /** Fits thread.send with eight 10 MiB images as base64 (about 112 MB) plus the JSON envelope. */
@@ -300,6 +301,28 @@ export class RpcServer {
     return true;
   }
 
+  /** zli.json is read fresh from the project folder, so edits show up without a restart. */
+  private async handleProjectConfig(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (command.type !== "project.config") return false;
+    const projection = await this.engine.projection();
+    const project = projection.projects.find((candidate) => candidate.projectId === command.projectId);
+    if (!project) {
+      send(client, {
+        type: "response",
+        response: {
+          commandId: request.commandId,
+          accepted: false,
+          error: { code: "invalid_request", message: "Project does not exist.", retryable: false },
+        },
+      });
+      return true;
+    }
+    const result = await readZliConfig(project.path);
+    send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    return true;
+  }
+
   private async runFileCommand(root: string, command: FileCommand): Promise<unknown> {
     switch (command.type) {
       case "files.list":
@@ -427,6 +450,7 @@ export class RpcServer {
         if (this.terminalService && this.handleTerminalInput(client, message.data.request)) return;
         if (await this.handleFileCommand(client, message.data.request)) return;
         if (await this.handlePullRequestCommand(client, message.data.request)) return;
+        if (await this.handleProjectConfig(client, message.data.request)) return;
         try {
           let request: RpcRequest;
           try {

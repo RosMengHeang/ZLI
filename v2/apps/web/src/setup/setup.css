@@ -1,0 +1,15 @@
+/* ---------- zli.json setup approval ---------- */
+.setup-approval { gap: var(--zli-space-2-5); }
+.setup-commands {
+  display: flex; flex-direction: column; max-height: 240px; margin: 0; padding: 0; overflow: auto;
+  border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-canvas);
+  counter-reset: setup; list-style: none;
+}
+.setup-commands li {
+  display: flex; align-items: baseline; gap: var(--zli-space-2-5); padding: var(--zli-space-2) var(--zli-space-3);
+  counter-increment: setup;
+}
+.setup-commands li + li { border-top: 1px solid var(--zli-border); }
+.setup-commands li::before { flex: 0 0 auto; min-width: 1.5ch; color: var(--zli-dim); content: counter(setup); font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
+.setup-commands code { min-width: 0; color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-sm); overflow-wrap: anywhere; white-space: pre-wrap; }
+.setup-note { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }

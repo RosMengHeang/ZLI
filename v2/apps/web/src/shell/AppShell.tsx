@@ -1,4 +1,11 @@
-import { type ProjectProjection, WorktreeId, type WorktreeProjection, worktreeDevServers } from "@zli-v2/contracts";
+import {
+  type ProjectProjection,
+  type SetupDecision,
+  WorktreeId,
+  type WorktreeProjection,
+  type WorktreeSetupProjection,
+  worktreeDevServers,
+} from "@zli-v2/contracts";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isSelectableProvider, providerDisplayName } from "../agent/providers.js";
@@ -26,6 +33,8 @@ import {
 } from "../sessions/sessions.js";
 import { forgetSession, useWorkbenchState } from "../sessions/workbench.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
+import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
+import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
 import { Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
 import { IconButton } from "../ui/Button.js";
@@ -77,6 +86,9 @@ function WorkspaceApp() {
   const [browserOpen, setBrowserOpen] = useState<BrowserOpenRequest>();
   const [filesFocus, setFilesFocus] = useState<FilesFocus>();
   const [quickOpen, setQuickOpen] = useState(false);
+  /** Setup approvals the person closed without answering; they stay reachable from the sidebar. */
+  const [deferredSetups, setDeferredSetups] = useState<string[]>([]);
+  const setupApprovalRef = useRef<WorktreeSetupProjection>(undefined);
   const launching = useRef(new Set<string>());
   const projectionRef = useRef(projection);
   projectionRef.current = projection;
@@ -259,6 +271,8 @@ function WorkspaceApp() {
       setHelpOpen(false);
       setCloseRequest(undefined);
       setDeleteRequest(undefined);
+      const approval = setupApprovalRef.current;
+      if (approval) deferSetup(approval);
     },
   });
   // Agents wait for their worktree; start each one once its folder is ready.
@@ -396,6 +410,32 @@ function WorkspaceApp() {
     const message = projection?.diagnostics?.lastError;
     if (message) showError(`Support bundle failed: ${message}`);
   }, [projection?.diagnostics?.lastError, showError]);
+
+  // Setup problems never block the worktree, so they are announced once as they happen.
+  const announcedSetups = useRef<Set<string>>(undefined);
+  const worktreeSetups = projection?.worktreeSetups;
+  const hasProjection = projection !== undefined;
+  useEffect(() => {
+    if (!hasProjection) return;
+    const problems = (worktreeSetups ?? []).filter((setup) => setup.status === "invalid" || setup.status === "failed");
+    const key = (setup: WorktreeSetupProjection) => `${setup.worktreeId}:${setup.status}:${setup.errorMessage ?? ""}`;
+    if (!announcedSetups.current) {
+      announcedSetups.current = new Set(problems.map(key));
+      return;
+    }
+    for (const setup of problems) {
+      if (announcedSetups.current.has(key(setup))) continue;
+      announcedSetups.current.add(key(setup));
+      const branch =
+        projectionRef.current?.worktrees.find((worktree) => worktree.worktreeId === setup.worktreeId)?.branch ??
+        "the new worktree";
+      showError(
+        setup.status === "invalid"
+          ? `${setup.errorMessage ?? "zli.json could not be read."} ${branch} was created without running setup.`
+          : `Setup failed in ${branch}. ${setup.errorMessage ?? ""}`.trim(),
+      );
+    }
+  }, [hasProjection, worktreeSetups, showError]);
 
   useEffect(() => {
     if (!helpOpen || !bridge) return;
@@ -569,6 +609,35 @@ function WorkspaceApp() {
     });
   };
 
+  const deferSetup = (setup: WorktreeSetupProjection) =>
+    setDeferredSetups((current) => [...current, setupDeferKey(setup)]);
+  const reviewSetup = (worktreeId: string) =>
+    setDeferredSetups((current) => current.filter((key) => !key.startsWith(`${worktreeId}:`)));
+  const showSetupOutput = (worktreeId: string) => {
+    focusWorktree(worktreeId);
+    updateWorkbench((state) => ({ ...state, drawerOpen: true }));
+  };
+  const respondToSetup = async (
+    setup: WorktreeSetupProjection,
+    decision: SetupDecision,
+  ): Promise<string | undefined> => {
+    try {
+      const response = await dispatch({
+        protocolVersion: 1,
+        commandId: makeCommandId(),
+        command: {
+          type: "worktree.setup.respond",
+          worktreeId: setup.worktreeId,
+          commandsHash: setup.commandsHash,
+          decision,
+        },
+      });
+      return response?.accepted === false ? response.error.message : undefined;
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : "The answer could not be sent.";
+    }
+  };
+
   const toggleSidePane = (next: SidePane) => setSidePane((current) => (current === next ? undefined : next));
   const commands: PaletteCommand[] = [
     ...(hasProjects
@@ -642,7 +711,7 @@ function WorkspaceApp() {
     ...notificationCommands(notifications.settings, (patch) => void notifications.update(patch)),
     ...devServerCommands(contextDevServers, openDevServer),
   ];
-  const overlayOpen =
+  const otherOverlayOpen =
     paletteOpen ||
     quickOpen ||
     worktreeDialogProject !== undefined ||
@@ -651,6 +720,10 @@ function WorkspaceApp() {
     closeRequest !== undefined ||
     deleteRequest !== undefined ||
     (legacyImportBatchId !== undefined && projection !== undefined);
+  // Waits behind other dialogs so it never stacks on top of one.
+  const setupApproval = otherOverlayOpen ? undefined : nextSetupApproval(projection, deferredSetups);
+  setupApprovalRef.current = setupApproval;
+  const overlayOpen = otherOverlayOpen || setupApproval !== undefined;
   const { columns, rows } = gridLayout(visibleTiles.length, gridWidth);
 
   return (
@@ -678,6 +751,8 @@ function WorkspaceApp() {
               setWorktreeDialogProject(project ?? contextProject ?? projection?.projects[0])
             }
             onWorktreeAction={(worktree, action) => void worktreeAction(worktree, action)}
+            onReviewSetup={(worktree) => reviewSetup(worktree.worktreeId)}
+            onShowSetupOutput={(worktree) => showSetupOutput(worktree.worktreeId)}
             onOpenHelp={() => setHelpOpen(true)}
             onHideSidebar={() => updateWorkbench((state) => ({ ...state, sidebarOpen: false }))}
           />
@@ -765,6 +840,8 @@ function WorkspaceApp() {
                           onStart={(mode) => startInSession(session, mode)}
                           onRetryPending={() => retryPending(session)}
                           onDismissPending={() => closeTileNow(session)}
+                          onReviewSetup={() => reviewSetup(session.worktreeId)}
+                          onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
                         />
                       ))}
                     </div>
@@ -898,6 +975,16 @@ function WorkspaceApp() {
             onSubmit={submitNewAgent}
           />
         )}
+        {setupApproval && projection ? (
+          <SetupApprovalDialog
+            key={setupDeferKey(setupApproval)}
+            setup={setupApproval}
+            project={projection.projects.find((project) => project.projectId === setupApproval.projectId)}
+            worktree={findWorktree(setupApproval.worktreeId)}
+            onRespond={(decision) => respondToSetup(setupApproval, decision)}
+            onDefer={() => deferSetup(setupApproval)}
+          />
+        ) : null}
         <TooltipLayer />
       </div>
     </FileIndexProvider>

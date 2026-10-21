@@ -137,7 +137,7 @@ export class TerminalReactor {
         worktreePath,
         cwd: intent.cwd,
         shell: agent?.file ?? intent.shell,
-        ...(agent ? { args: agent.args } : {}),
+        ...(agent ? { args: agent.args } : intent.args ? { args: intent.args } : {}),
         ...(Object.keys(envOverrides).length > 0 ? { envOverrides } : {}),
         ...(browserTool ? { pathPrepend: browserTool.shimDir } : {}),
         cols: intent.cols,
