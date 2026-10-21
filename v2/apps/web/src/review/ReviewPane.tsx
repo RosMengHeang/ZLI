@@ -80,7 +80,7 @@ export function ReviewPane({
   return (
     <div className="tool-pane review-pane">
       <PaneHeader icon="diff" title="Changes" detail={worktree?.branch}>
-        {review && fileCount > 0 && totals.additions + totals.deletions > 0 ? (
+        {review && fileCount > 0 ? (
           <span className="review-totals">
             <span className="diff-add">+{totals.additions}</span>
             <span className="diff-del">−{totals.deletions}</span>
@@ -163,7 +163,7 @@ export function ReviewPane({
                   <span className="file-stat">
                     {file.binary ? (
                       "binary"
-                    ) : file.additions + file.deletions === 0 ? null : (
+                    ) : (
                       <>
                         <span className="diff-add">+{file.additions}</span>
                         <span className="diff-del">−{file.deletions}</span>

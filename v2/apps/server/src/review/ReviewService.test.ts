@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { ReviewService } from "./ReviewService.js";
+import { parseNumstat, ReviewService } from "./ReviewService.js";
 import { WorktreeId } from "@zli-v2/contracts";
 import { GitProcess } from "../git/GitProcess.js";
 
@@ -41,7 +41,8 @@ describe("ReviewService", () => {
         if (args[0] === "rev-parse") return { code: 0, stdout: "feature/ui\n", stderr: "" };
         if (args[0] === "status")
           return { code: 0, stdout: " M src/App.tsx\n?? notes.txt\nUU src/conflict.ts\n", stderr: "" };
-        return { code: 0, stdout: "2\t1\tsrc/App.tsx\n-\t-\tassets/logo.png\n", stderr: "" };
+        if (args[0] === "merge-base") return { code: 0, stdout: "abc123\n", stderr: "" };
+        return { code: 0, stdout: "2\t1\tsrc/App.tsx\0-\t-\tassets/logo.png\0", stderr: "" };
       },
     });
     const review = await service.refresh({
@@ -59,7 +60,43 @@ describe("ReviewService", () => {
       { path: "src/conflict.ts", kind: "modified", staged: false, additions: 0, deletions: 0, binary: false },
     ]);
     expect(review.conflictFiles).toEqual(["src/conflict.ts"]);
-    expect(calls[2]).toEqual(["diff", "--numstat", "--find-renames", "main...HEAD"]);
+    expect(calls[2]).toEqual(["merge-base", "main", "HEAD"]);
+    expect(calls[3]).toEqual(["diff", "--numstat", "-z", "--find-renames", "abc123"]);
+  });
+
+  it("parses numstat -z records, including renames and binary files", () => {
+    expect(parseNumstat("3\t1\tsrc/a b.ts\x000\t0\t\x00old/name.ts\x00new/name.ts\x00-\t-\tlogo.png\x00")).toEqual([
+      { path: "src/a b.ts", additions: 3, deletions: 1, binary: false },
+      { path: "new/name.ts", oldPath: "old/name.ts", additions: 0, deletions: 0, binary: false },
+      { path: "logo.png", additions: 0, deletions: 0, binary: true },
+    ]);
+  });
+
+  it("counts added and removed lines of uncommitted, committed, and untracked changes", async () => {
+    const fixture = await createRepository();
+    try {
+      await writeFile(join(fixture.worktreePath, "README.md"), "changed\nsecond\n", "utf8");
+      await writeFile(join(fixture.worktreePath, "committed.txt"), "one\ntwo\nthree\n", "utf8");
+      await fixture.git.run(["add", "committed.txt"], { cwd: fixture.worktreePath });
+      await fixture.git.run(["commit", "-m", "committed"], { cwd: fixture.worktreePath });
+      await writeFile(join(fixture.worktreePath, "committed.txt"), "one\nthree\n", "utf8");
+      await writeFile(join(fixture.worktreePath, "untracked.txt"), "a\nb\nno newline", "utf8");
+
+      const review = await new ReviewService(fixture.git).refresh({
+        worktreeId: WORKTREE_ID,
+        worktreePath: fixture.worktreePath,
+        repositoryPath: fixture.repositoryPath,
+        branch: "feature/ui",
+        baseRef: "main",
+      });
+      expect(review.files).toEqual([
+        { path: "README.md", kind: "modified", staged: false, additions: 2, deletions: 1, binary: false },
+        { path: "committed.txt", kind: "modified", staged: false, additions: 2, deletions: 0, binary: false },
+        { path: "untracked.txt", kind: "untracked", staged: false, additions: 3, deletions: 0, binary: false },
+      ]);
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
   });
 
   it("loads a bounded on-demand patch for a reviewed file", async () => {
@@ -67,7 +104,8 @@ describe("ReviewService", () => {
       run: async (args) => {
         if (args[0] === "rev-parse") return { code: 0, stdout: "feature/ui\n", stderr: "" };
         if (args[0] === "status") return { code: 0, stdout: " M src/App.tsx\n", stderr: "" };
-        if (args[2] === "--numstat") return { code: 0, stdout: "2\t1\tsrc/App.tsx\n", stderr: "" };
+        if (args[0] === "merge-base") return { code: 0, stdout: "abc123\n", stderr: "" };
+        if (args[1] === "--numstat") return { code: 0, stdout: "2\t1\tsrc/App.tsx\0", stderr: "" };
         return { code: 0, stdout: "@@ -1,1 +1,2 @@\n-old\n+new\n", stderr: "" };
       },
     });
@@ -148,6 +186,7 @@ describe("ReviewService", () => {
       run: async (args) => {
         calls.push([...args]);
         if (args[0] === "rev-parse") return { code: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "merge-base") return { code: 0, stdout: "abc123\n", stderr: "" };
         return { code: 0, stdout: "", stderr: "" };
       },
     });
@@ -172,6 +211,7 @@ describe("ReviewService", () => {
         calls.push({ args: [...args], cwd: options.cwd });
         if (args[0] === "status") return { code: 0, stdout: "", stderr: "" };
         if (args[0] === "rev-parse") return { code: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "merge-base") return { code: 0, stdout: "abc123\n", stderr: "" };
         return { code: 0, stdout: "", stderr: "" };
       },
     });
@@ -196,6 +236,7 @@ describe("ReviewService", () => {
       run: async (args, options) => {
         calls.push({ args: [...args], cwd: options.cwd });
         if (args[0] === "rev-parse") return { code: 0, stdout: "feature/ui\n", stderr: "" };
+        if (args[0] === "merge-base") return { code: 0, stdout: "abc123\n", stderr: "" };
         return { code: 0, stdout: "", stderr: "" };
       },
     });
