@@ -42,7 +42,11 @@ test("notifies when a background agent finishes and lets people turn notificatio
     await page.keyboard.press(`${mod}+k`);
     await page.getByRole("button", { name: "Turn off agent notifications" }).click();
     await expect
-      .poll(async () => JSON.parse(await readFile(join(root, "runtime.sqlite.notifications.json"), "utf8")))
+      .poll(() =>
+        readFile(join(root, "runtime.sqlite.notifications.json"), "utf8")
+          .then((saved) => JSON.parse(saved))
+          .catch(() => undefined),
+      )
       .toMatchObject({ enabled: false });
     await page.keyboard.press(`${mod}+k`);
     await expect(page.getByRole("button", { name: "Turn on agent notifications" })).toBeVisible();
