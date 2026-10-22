@@ -581,3 +581,61 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
     });
   });
 });
+
+describe("ClaudeCodeClient usage", () => {
+  it("reports each turn's tokens and context, and the cost added since the previous turn", async () => {
+    const { client, peer, events } = await startedClient();
+    const first = await client.sendTurn({ text: "One" });
+    peer.emit({
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "A" }],
+        usage: { input_tokens: 10, cache_creation_input_tokens: 100, cache_read_input_tokens: 900, output_tokens: 50 },
+      },
+    });
+    peer.emit({
+      type: "assistant",
+      parent_tool_use_id: "toolu_sub",
+      message: { role: "assistant", content: [], usage: { input_tokens: 99_999, output_tokens: 1 } },
+    });
+    peer.emit({
+      type: "result",
+      subtype: "success",
+      result: "A",
+      total_cost_usd: 0.05,
+      usage: { input_tokens: 20, cache_creation_input_tokens: 100, cache_read_input_tokens: 1_800, output_tokens: 80 },
+      modelUsage: { "claude-sonnet": { contextWindow: 200_000 }, "claude-haiku": { contextWindow: 100_000 } },
+    });
+    const second = await client.sendTurn({ text: "Two" });
+    peer.emit({ type: "result", subtype: "success", result: "B", total_cost_usd: 0.08, usage: { output_tokens: 10 } });
+
+    expect(events.filter((event) => event.type === "usage.updated")).toEqual([
+      {
+        type: "usage.updated",
+        providerTurnId: first.providerTurnId,
+        usage: {
+          inputTokens: 1_920,
+          cachedInputTokens: 1_800,
+          outputTokens: 80,
+          costUsd: 0.05,
+          contextTokens: 1_060,
+          contextWindow: 200_000,
+        },
+      },
+      {
+        type: "usage.updated",
+        providerTurnId: second.providerTurnId,
+        usage: { outputTokens: 10, costUsd: expect.closeTo(0.03, 9) },
+      },
+    ]);
+  });
+
+  it("reports nothing when a result has no usage", async () => {
+    const { client, peer, events } = await startedClient();
+    await client.sendTurn({ text: "One" });
+    peer.emit({ type: "result", subtype: "success", result: "A" });
+    expect(events.some((event) => event.type === "usage.updated")).toBe(false);
+  });
+});

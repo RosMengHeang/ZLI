@@ -533,3 +533,59 @@ describe("promptWithAttachments", () => {
     ).toBe("hello\n\nAttached images (read them from disk):\n- /tmp/a.png\n- /tmp/b.jpg");
   });
 });
+
+describe("ProviderReactor usage", () => {
+  it("records provider usage reports against the thread's turn", async () => {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service);
+    let sequence = 0;
+    const dispatch = (command: Parameters<Engine["dispatchPromise"]>[0]["command"]) => {
+      sequence += 1;
+      return engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`20000000-0000-4000-8000-0000000009${String(sequence).padStart(2, "0")}`),
+        command,
+      });
+    };
+    await dispatch({ type: "project.register", path: "C:\\workspace\\usage" });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    await dispatch({
+      type: "worktree.create",
+      worktreeId,
+      projectId: ProjectId.parse(project.projectId),
+      path: "C:\\workspace\\usage-tree",
+      workspaceRoot: "C:\\workspace",
+      branch: "feature/usage",
+    });
+    await dispatch({
+      type: "thread.start",
+      threadId,
+      worktreeId,
+      provider: "codex",
+      cwd: "C:\\workspace\\usage-tree",
+      model: "gpt-5",
+    });
+    await reactor.waitForIdle();
+
+    adapter.emit({ type: "usage", threadId, turnId: "provider-turn", usage: { inputTokens: 40, outputTokens: 5 } });
+    adapter.emit({ type: "usage", threadId, turnId: "provider-turn", usage: { inputTokens: 90, outputTokens: 12 } });
+    await reactor.waitForIdle();
+
+    const records = (await engine.projection()).usage ?? [];
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      threadId,
+      turnId: "provider-turn",
+      provider: "codex",
+      projectId: project.projectId,
+      model: "gpt-5",
+      usage: { inputTokens: 90, outputTokens: 12 },
+    });
+    reactor.stop();
+  });
+});

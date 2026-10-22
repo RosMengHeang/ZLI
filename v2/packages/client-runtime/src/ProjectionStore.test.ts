@@ -161,6 +161,42 @@ describe("ProjectionStore", () => {
     ]);
   });
 
+  it("keeps one usage record per turn and keeps it after the session is deleted", () => {
+    const store = new ProjectionStore();
+    const threadId = id("31");
+    store.replace({
+      ...projection(),
+      threads: [{ threadId, worktreeId: id("11"), provider: "codex", status: "working", capabilities: {} }],
+    });
+    const recorded = (outputTokens: number) => ({
+      type: "thread.usage.recorded",
+      record: {
+        usageId: `${threadId}:t1`,
+        threadId,
+        turnId: "t1",
+        provider: "codex",
+        usage: { outputTokens },
+      },
+    });
+    const events = [
+      recorded(5),
+      recorded(9),
+      { type: "session.deleted", sessionId: threadId, terminalIds: [], threadIds: [threadId] },
+    ];
+    expect(events.map((event, index) => store.apply(envelope(index + 1, event)))).toEqual(events.map(() => "applied"));
+    expect(store.current()?.threads).toEqual([]);
+    expect(store.current()?.usage).toEqual([
+      {
+        usageId: `${threadId}:t1`,
+        threadId,
+        turnId: "t1",
+        provider: "codex",
+        recordedAt: "2026-09-21T00:00:00.000Z",
+        usage: { outputTokens: 9 },
+      },
+    ]);
+  });
+
   it("projects an agent-to-agent message onto the target thread", () => {
     const store = new ProjectionStore();
     store.replace(projection());

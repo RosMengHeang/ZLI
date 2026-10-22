@@ -5,6 +5,7 @@ import type {
   ProviderKind,
   ThreadAttachment,
   ThreadId,
+  TurnUsage,
 } from "@zli-v2/contracts";
 
 import { type CliProbe, createDefaultCliProbe, discoverCliProviders } from "./discoverCliProviders.js";
@@ -26,6 +27,8 @@ export type ProviderEvent =
   | { type: "approval.requested"; threadId: ThreadId; requestId: string; payload: Record<string, unknown> }
   | { type: "user-input.requested"; threadId: ThreadId; requestId: string; payload: Record<string, unknown> }
   | { type: "activity"; threadId: ThreadId; turnId?: string; activity: ProviderActivity }
+  /** Usage so far for one turn. A later report for the same turn replaces it. */
+  | { type: "usage"; threadId: ThreadId; turnId: string; usage: TurnUsage }
   | { type: "session.closed"; threadId: ThreadId; reason: string }
   | { type: "provider.error"; threadId?: ThreadId; message: string };
 

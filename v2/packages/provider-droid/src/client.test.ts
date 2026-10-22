@@ -493,3 +493,30 @@ describe("DroidClient tool activity", () => {
     expect(calls.map((args) => args.includes("low"))).toEqual([false, true, true]);
   });
 });
+
+describe("DroidClient usage", () => {
+  it("reports the completion's token counts for the turn, with cache reads counted as input", async () => {
+    const { client, children, events } = await harness();
+    const turn = await client.sendTurn({ text: "Hi" });
+    children[0]?.stdout.emit(
+      "data",
+      line({
+        type: "completion",
+        finalText: "Hello",
+        session_id: "sess-1",
+        usage: {
+          input_tokens: 30,
+          output_tokens: 12,
+          cache_read_input_tokens: 2_000,
+          cache_creation_input_tokens: 500,
+          factory_credits: 3,
+        },
+      }),
+    );
+    expect(events).toContainEqual({
+      type: "usage.updated",
+      providerTurnId: turn.providerTurnId,
+      usage: { inputTokens: 2_530, cachedInputTokens: 2_000, outputTokens: 12 },
+    });
+  });
+});

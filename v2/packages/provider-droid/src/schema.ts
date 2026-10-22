@@ -1,7 +1,9 @@
+import { compactUsage, type ProviderUsage, sumCounts, tokenCount } from "@zli-v2/shared";
+
 export type DroidInbound =
   | { kind: "init"; sessionId: string }
   | { kind: "text"; text: string }
-  | { kind: "completion"; isError: boolean; text?: string }
+  | { kind: "completion"; isError: boolean; text?: string; usage?: ProviderUsage }
   | { kind: "error"; message: string }
   | { kind: "tool_call"; callId: string; name: string; input?: Record<string, unknown> }
   | { kind: "tool_result"; callId: string; name?: string; isError: boolean; output?: string }
@@ -14,6 +16,22 @@ export type DroidInbound =
  * assistant text, completion, and error records change turn state; tool records
  * feed the work log.
  */
+/**
+ * Each `droid exec` run is one turn, so its completion usage is that turn's. Like Anthropic's API,
+ * input_tokens leaves out cache reads and writes, so they are added back. Factory credits are not
+ * dollars and are left out.
+ */
+function completionUsage(value: unknown): ProviderUsage | undefined {
+  const usage = asRecord(value);
+  if (!usage) return undefined;
+  const cacheRead = tokenCount(usage.cache_read_input_tokens);
+  return compactUsage({
+    inputTokens: sumCounts(tokenCount(usage.input_tokens), tokenCount(usage.cache_creation_input_tokens), cacheRead),
+    cachedInputTokens: cacheRead,
+    outputTokens: tokenCount(usage.output_tokens),
+  });
+}
+
 export function classifyDroidMessage(value: unknown): DroidInbound {
   const record = asRecord(value);
   if (!record || typeof record.type !== "string") return { kind: "invalid", reason: "message" };
@@ -34,7 +52,8 @@ export function classifyDroidMessage(value: unknown): DroidInbound {
         record.isError === true ||
         record.is_error === true ||
         (textValue(record.subtype)?.startsWith("error") ?? false);
-      return { kind: "completion", isError, ...(text === undefined ? {} : { text }) };
+      const usage = completionUsage(record.usage);
+      return { kind: "completion", isError, ...(text === undefined ? {} : { text }), ...(usage ? { usage } : {}) };
     }
     case "error":
       return { kind: "error", message: errorText(record) ?? "Droid CLI reported an error." };

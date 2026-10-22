@@ -14,6 +14,7 @@ import {
   type ThreadId,
   type ThreadProjection,
   type ThreadQueuedMessage,
+  type TurnUsage,
   threadOccupiesWorktree,
 } from "@zli-v2/contracts";
 
@@ -91,6 +92,7 @@ export type DomainDecision = Extract<
       | "thread.start.requested"
       | "thread.send.requested"
       | "thread.queued"
+      | "thread.usage.recorded"
       | "thread.queue.removed"
       | "thread.queue.prioritized"
       | "thread.a2a.delivered"
@@ -413,6 +415,8 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     case "thread.message":
       assertThread(projection, command.message.threadId);
       return [{ type: "thread.message.appended", message: command.message }];
+    case "thread.usage":
+      return decideUsage(projection, command);
     case "thread.request":
       assertThread(projection, command.request.threadId);
       return [{ type: "thread.request.requested", request: command.request }];
@@ -582,6 +586,36 @@ function decideSetupResponse(
       ? [{ type: "project.setup.trusted" as const, projectId: setup.projectId, commandsHash: command.commandsHash }]
       : []),
   ];
+}
+
+function decideUsage(
+  projection: RuntimeProjection,
+  command: Extract<RuntimeCommand, { type: "thread.usage" }>,
+): DomainDecision[] {
+  const thread = requireThread(projection, command.threadId);
+  const usageId = `${command.threadId}:${command.turnId}`;
+  const known = (projection.usage ?? []).find((record) => record.usageId === usageId);
+  if (known && sameUsage(known.usage, command.usage)) return [];
+  const projectId = projection.worktrees.find((worktree) => worktree.worktreeId === thread.worktreeId)?.projectId;
+  return [
+    {
+      type: "thread.usage.recorded",
+      record: {
+        usageId,
+        threadId: command.threadId,
+        turnId: command.turnId,
+        provider: thread.provider,
+        ...(projectId ? { projectId } : {}),
+        ...(thread.model ? { model: thread.model } : {}),
+        usage: command.usage,
+      },
+    },
+  ];
+}
+
+function sameUsage(left: TurnUsage, right: TurnUsage): boolean {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)] as Array<keyof TurnUsage>);
+  return [...keys].every((key) => left[key] === right[key]);
 }
 
 function assertWorktree(projection: RuntimeProjection, worktreeId: string): void {

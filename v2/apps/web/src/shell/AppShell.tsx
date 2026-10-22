@@ -67,6 +67,7 @@ import "../files/files.css";
 
 // The editor is large, so it loads the first time the Files panel opens instead of at startup.
 const FilesPane = lazy(() => import("../files/FilesPane.js").then((module) => ({ default: module.FilesPane })));
+const UsageDialog = lazy(() => import("../usage/UsageDialog.js").then((module) => ({ default: module.UsageDialog })));
 
 export function AppShell({ bridge = getBridge() }: { bridge?: ZliBridge } = {}) {
   return (
@@ -93,6 +94,7 @@ function WorkspaceApp() {
   const [legacyImportBatchId, setLegacyImportBatchId] = useState<string>();
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>();
+  const [usageOpen, setUsageOpen] = useState(false);
   const [closeRequest, setCloseRequest] = useState<AgentSession>();
   const [deleteRequest, setDeleteRequest] = useState<AgentSession>();
   const [version, setVersion] = useState<string>();
@@ -274,6 +276,10 @@ function WorkspaceApp() {
     setPaletteOpen(false);
     setSettingsSection(section);
   };
+  const openUsage = () => {
+    setPaletteOpen(false);
+    setUsageOpen(true);
+  };
   const shortcuts = useShortcuts();
   useGlobalShortcuts({
     palette: () => setPaletteOpen(true),
@@ -291,6 +297,7 @@ function WorkspaceApp() {
       setLegacyImportBatchId(undefined);
       setHelpOpen(false);
       setSettingsSection(undefined);
+      setUsageOpen(false);
       setCloseRequest(undefined);
       setDeleteRequest(undefined);
       setPromptManager(undefined);
@@ -866,6 +873,7 @@ function WorkspaceApp() {
       action: () => openSettings("shortcuts"),
     },
     { label: "MCP servers", icon: "wrench", group: "App", action: () => openSettings("mcp") },
+    { label: "Usage and cost", icon: "gauge", group: "App", action: openUsage },
     { label: "Help and diagnostics", icon: "help", group: "App", action: () => setHelpOpen(true) },
     ...notificationCommands(notifications.settings, (patch) => void notifications.update(patch)),
     ...devServerCommands(contextDevServers, openDevServer),
@@ -877,6 +885,7 @@ function WorkspaceApp() {
     newAgentProject !== undefined ||
     helpOpen ||
     settingsSection !== undefined ||
+    usageOpen ||
     closeRequest !== undefined ||
     deleteRequest !== undefined ||
     keepRequest !== undefined ||
@@ -918,6 +927,7 @@ function WorkspaceApp() {
             onShowSetupOutput={(worktree) => showSetupOutput(worktree.worktreeId)}
             onOpenHelp={() => setHelpOpen(true)}
             onOpenSettings={() => openSettings()}
+            onOpenUsage={openUsage}
             onHideSidebar={() => updateWorkbench((state) => ({ ...state, sidebarOpen: false }))}
           />
         ) : null}
@@ -1100,6 +1110,15 @@ function WorkspaceApp() {
             notifications={{ settings: notifications.settings, update: (patch) => void notifications.update(patch) }}
             onClose={() => setSettingsSection(undefined)}
           />
+        ) : null}
+        {usageOpen ? (
+          <Suspense fallback={null}>
+            <UsageDialog
+              projection={projection}
+              initialProjectId={contextProject?.projectId}
+              onClose={() => setUsageOpen(false)}
+            />
+          </Suspense>
         ) : null}
         {closeRequest && projection && (
           <CloseAgentDialog

@@ -195,6 +195,14 @@ export class CodexProviderAdapter implements ProviderAdapter {
           activity: toolActivity(event.tool, context.session.cwd),
         });
         return;
+      case "usage.updated":
+        this.emit({
+          type: "usage",
+          threadId: context.session.threadId,
+          turnId: event.providerTurnId,
+          usage: event.usage,
+        });
+        return;
       case "turn.completed":
         this.emit({
           type: "turn.completed",

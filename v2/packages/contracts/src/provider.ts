@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { SessionId, ThreadId, TurnId, WorktreeId } from "./ids.js";
+import { ProjectId, SessionId, ThreadId, TurnId, WorktreeId } from "./ids.js";
 
 export const ProviderKind = z.enum([
   "codex",
@@ -130,6 +130,36 @@ export const ThreadQueuedMessage = z.object({
   queuedAt: z.string().datetime({ offset: true }).optional(),
 });
 export type ThreadQueuedMessage = z.infer<typeof ThreadQueuedMessage>;
+
+const TokenCount = z.number().int().nonnegative();
+
+/** What a provider reported for one turn. A missing field means the provider did not report it. */
+export const TurnUsage = z.object({
+  /** Every prompt token, cached or not. */
+  inputTokens: TokenCount.optional(),
+  /** The part of inputTokens served from the provider's prompt cache. */
+  cachedInputTokens: TokenCount.optional(),
+  outputTokens: TokenCount.optional(),
+  /** The provider's own estimate in US dollars. */
+  costUsd: z.number().nonnegative().optional(),
+  /** Tokens in the context window at the end of the turn, out of contextWindow. */
+  contextTokens: TokenCount.optional(),
+  contextWindow: z.number().int().positive().optional(),
+});
+export type TurnUsage = z.infer<typeof TurnUsage>;
+
+/** One turn's usage. Kept after its session is deleted, so spend history stays complete. */
+export const ThreadUsageRecord = z.object({
+  usageId: z.string().min(1).max(300),
+  threadId: ThreadId,
+  turnId: z.string().min(1).max(200),
+  provider: z.string().min(1),
+  projectId: ProjectId.optional(),
+  model: z.string().min(1).max(200).optional(),
+  recordedAt: z.string().datetime({ offset: true }).optional(),
+  usage: TurnUsage,
+});
+export type ThreadUsageRecord = z.infer<typeof ThreadUsageRecord>;
 
 export const ThreadActivityKind = z.enum(["command", "file-read", "file-edit", "search", "web", "tool"]);
 export type ThreadActivityKind = z.infer<typeof ThreadActivityKind>;

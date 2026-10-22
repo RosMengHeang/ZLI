@@ -70,6 +70,21 @@ export class MockProviderAdapter implements ProviderAdapter {
       }
       this.emit({ type: "turn.started", threadId: input.threadId, turnId });
       this.emit({ type: "assistant.delta", threadId: input.threadId, turnId, text: `Mock response: ${input.text}` });
+      if (input.text.includes("[usage]")) {
+        this.emit({
+          type: "usage",
+          threadId: input.threadId,
+          turnId,
+          usage: {
+            inputTokens: 12_400,
+            cachedInputTokens: 8_000,
+            outputTokens: 1_250,
+            costUsd: 0.042,
+            contextTokens: 13_650,
+            contextWindow: 200_000,
+          },
+        });
+      }
       this.emit({ type: "turn.completed", threadId: input.threadId, turnId, status: "completed" });
       session.status = "idle";
     }, 5);

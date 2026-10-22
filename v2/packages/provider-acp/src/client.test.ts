@@ -678,3 +678,70 @@ describe("AcpClient startup checks", () => {
     });
   });
 });
+
+describe("AcpClient usage", () => {
+  it("keeps context and the cost added during each turn, including updates that land after the prompt ends", async () => {
+    const { client, agent, events } = await harness();
+    const first = await client.sendTurn({ text: "One" });
+    agent.update({
+      sessionUpdate: "usage_update",
+      used: 5_000,
+      size: 128_000,
+      cost: { amount: 0.25, currency: "USD" },
+    });
+    agent.update({ sessionUpdate: "usage_update", used: 9_000, size: 128_000, cost: { amount: 0.4, currency: "USD" } });
+    agent.finishPrompt();
+    await new Promise((resolve) => setImmediate(resolve));
+    agent.update({
+      sessionUpdate: "usage_update",
+      used: 9_500,
+      size: 128_000,
+      cost: { amount: 0.45, currency: "USD" },
+    });
+    const second = await client.sendTurn({ text: "Two" });
+    agent.update({
+      sessionUpdate: "usage_update",
+      used: 12_000,
+      size: 128_000,
+      cost: { amount: 0.6, currency: "USD" },
+    });
+    agent.update({ sessionUpdate: "usage_update", used: 12_500, size: 128_000, cost: { amount: 9, currency: "EUR" } });
+
+    const usage = events.filter((event) => event.type === "usage.updated");
+    expect(usage.map((event) => event.providerTurnId)).toEqual([
+      first.providerTurnId,
+      first.providerTurnId,
+      first.providerTurnId,
+      second.providerTurnId,
+      second.providerTurnId,
+    ]);
+    expect(usage[2]?.usage).toEqual({ contextTokens: 9_500, contextWindow: 128_000, costUsd: 0.45 });
+    expect(usage[3]?.usage).toEqual({
+      contextTokens: 12_000,
+      contextWindow: 128_000,
+      costUsd: expect.closeTo(0.15, 9),
+    });
+    expect(usage[4]?.usage).toEqual({
+      contextTokens: 12_500,
+      contextWindow: 128_000,
+      costUsd: expect.closeTo(0.15, 9),
+    });
+  });
+
+  it("reads token counts from the prompt response when the agent sends them", async () => {
+    const { client, agent, events } = await harness();
+    const turn = await client.sendTurn({ text: "One" });
+    const prompt = agent.prompts[0];
+    agent.send({
+      jsonrpc: "2.0",
+      id: prompt?.id,
+      result: { stopReason: "end_turn", usage: { inputTokens: 800, cachedReadTokens: 600, outputTokens: 90 } },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(events).toContainEqual({
+      type: "usage.updated",
+      providerTurnId: turn.providerTurnId,
+      usage: { inputTokens: 800, cachedInputTokens: 600, outputTokens: 90 },
+    });
+  });
+});

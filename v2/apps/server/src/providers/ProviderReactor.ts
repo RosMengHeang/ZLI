@@ -15,6 +15,7 @@ import type { ProviderEvent, ProviderService } from "./ProviderService.js";
 type StartIntent = Extract<RuntimeEventEnvelope["event"], { type: "thread.start.requested" }>;
 type SendIntent = Extract<RuntimeEventEnvelope["event"], { type: "thread.send.requested" }>;
 type ActivityEvent = Extract<ProviderEvent, { type: "activity" }>;
+type UsageEvent = Extract<ProviderEvent, { type: "usage" }>;
 type ThreadStatus = "starting" | "idle" | "working" | "waiting" | "stopped" | "failed";
 type StatusDetail = {
   turnId?: string;
@@ -217,6 +218,10 @@ export class ProviderReactor {
       this.track(this.activity(event));
       return;
     }
+    if (event.type === "usage") {
+      this.track(this.usage(event));
+      return;
+    }
     if (event.type === "turn.completed") {
       this.flushThreadDeltas(event.threadId);
       if (this.turnEnded(event.threadId, event.turnId)) return;
@@ -398,6 +403,24 @@ export class ProviderReactor {
             status: activity.status,
             ...(files.length > 0 ? { files } : {}),
           },
+        },
+      })
+      .then(() => undefined);
+  }
+
+  private usage(event: UsageEvent): Promise<void> {
+    if (this.deleted.has(event.threadId)) return Promise.resolve();
+    const turnId = event.turnId.trim();
+    if (!turnId) return Promise.resolve();
+    return this.engine
+      .dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        command: {
+          type: "thread.usage",
+          threadId: ThreadId.parse(event.threadId),
+          turnId: turnId.length <= MAX_ACTIVITY_ID ? turnId : createHash("sha256").update(turnId).digest("hex"),
+          usage: event.usage,
         },
       })
       .then(() => undefined);

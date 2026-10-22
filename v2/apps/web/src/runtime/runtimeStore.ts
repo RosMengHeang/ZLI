@@ -147,6 +147,7 @@ const SHELL_IGNORED = new Set<keyof RuntimeProjection>([
   "activities",
   "requests",
   "queuedMessages",
+  "usage",
   "lastSequence",
 ]);
 

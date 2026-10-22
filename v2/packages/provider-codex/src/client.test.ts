@@ -316,3 +316,46 @@ describe("CodexAppServerClient tool items", () => {
     ]);
   });
 });
+
+describe("CodexAppServerClient token usage", () => {
+  it("turns the running thread total into usage for each turn", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    const events: CodexProviderEvent[] = [];
+    client.subscribe((event) => events.push(event));
+    const report = (turnId: string, total: Record<string, number>, last: Record<string, number>) =>
+      peer.emit({
+        jsonrpc: "2.0",
+        method: "thread/tokenUsage/updated",
+        params: { threadId: "t1", turnId, tokenUsage: { total, last, modelContextWindow: 272_000 } },
+      });
+
+    report(
+      "turn-1",
+      { totalTokens: 1_200, inputTokens: 1_000, cachedInputTokens: 400, outputTokens: 200 },
+      { totalTokens: 1_200, inputTokens: 1_000, cachedInputTokens: 400, outputTokens: 200 },
+    );
+    report(
+      "turn-1",
+      { totalTokens: 3_000, inputTokens: 2_500, cachedInputTokens: 1_400, outputTokens: 500 },
+      { totalTokens: 1_800, inputTokens: 1_500, cachedInputTokens: 1_000, outputTokens: 300 },
+    );
+    report(
+      "turn-2",
+      { totalTokens: 5_000, inputTokens: 4_200, cachedInputTokens: 2_400, outputTokens: 800 },
+      { totalTokens: 2_000, inputTokens: 1_700, cachedInputTokens: 1_000, outputTokens: 300 },
+    );
+
+    const turn = (providerTurnId: string, usage: Record<string, number>) => ({
+      type: "usage.updated",
+      providerThreadId: "t1",
+      providerTurnId,
+      usage: { ...usage, contextWindow: 272_000 },
+    });
+    expect(events).toEqual([
+      turn("turn-1", { inputTokens: 1_000, cachedInputTokens: 400, outputTokens: 200, contextTokens: 1_200 }),
+      turn("turn-1", { inputTokens: 2_500, cachedInputTokens: 1_400, outputTokens: 500, contextTokens: 1_800 }),
+      turn("turn-2", { inputTokens: 1_700, cachedInputTokens: 1_000, outputTokens: 300, contextTokens: 2_000 }),
+    ]);
+  });
+});

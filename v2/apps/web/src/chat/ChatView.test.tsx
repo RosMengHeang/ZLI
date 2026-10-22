@@ -292,3 +292,28 @@ describe("ChatView", () => {
     });
   });
 });
+
+describe("ChatView context meter", () => {
+  it("shows how full the context window was after the last turn", async () => {
+    const { container } = await render(
+      projectionWith({
+        threads: [{ ...thread, status: "idle" }],
+        usage: [
+          {
+            usageId: `${threadId}:t1`,
+            threadId: thread.threadId,
+            turnId: "t1",
+            provider: "droid",
+            usage: { contextTokens: 170_000, contextWindow: 200_000 },
+          },
+        ],
+      }),
+    );
+    const meter = container.querySelector(".composer-context");
+    expect(meter?.querySelector("[aria-hidden]")?.textContent).toBe("85% context");
+    expect(meter?.classList.contains("is-full")).toBe(true);
+    expect(meter?.querySelector(".sr-only")?.textContent).toBe(
+      "85% of context used. 170k of 200k tokens in context after the last turn",
+    );
+  });
+});

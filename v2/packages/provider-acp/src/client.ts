@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { accessSync, constants, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
-import { killProcessTree, spawnCli } from "@zli-v2/shared";
+import { growth, killProcessTree, type ProviderUsage, spawnCli } from "@zli-v2/shared";
 
 import {
   ACP_AUTH_REQUIRED,
@@ -32,6 +32,7 @@ import {
   acpToolUpdate,
   mergeToolFields,
   parseSessionNotification,
+  promptUsage,
 } from "./schema.js";
 
 const VERSION_PROBE_MS = 1_000;
@@ -49,6 +50,7 @@ export type AcpProviderEvent =
   | { type: "turn.completed"; providerTurnId: string; status: string }
   | { type: "turn.failed"; providerTurnId: string; message: string }
   | { type: "tool.updated"; providerTurnId: string; tool: AcpToolUpdate }
+  | { type: "usage.updated"; providerTurnId: string; usage: ProviderUsage }
   | { type: "approval.requested"; providerTurnId: string; requestId: string; payload: Record<string, unknown> }
   | { type: "protocol.error"; message: string }
   | { type: "session.closed"; reason: string };
@@ -166,6 +168,9 @@ export class AcpClient {
   private legacyModels = false;
   private modelApi: ModelApi | undefined;
   private active: ActiveTurn | undefined;
+  /** Usage arrives in pieces and can land just after the prompt settles, so it stays with its turn. */
+  private usageTurn: { id: string; costBefore?: number; usage: ProviderUsage } | undefined;
+  private sessionCostUsd: number | undefined;
   private promptSettled: Promise<void> = Promise.resolve();
   private closed = false;
 
@@ -431,6 +436,8 @@ export class AcpClient {
   private onPromptResult(turnId: string, result: unknown): void {
     if (this.closed || this.active?.id !== turnId) return;
     this.cancelPermissions(turnId);
+    const usage = promptUsage(result);
+    if (usage) this.noteUsage(turnId, usage);
     const parsed = PromptResult.safeParse(result);
     if (!parsed.success) {
       this.emit({ type: "protocol.error", message: `${this.displayName} sent an invalid prompt response.` });
@@ -480,6 +487,12 @@ export class AcpClient {
       case "config":
         if (update.configOptions.length > 0) this.configOptions = update.configOptions;
         return;
+      case "usage": {
+        const turnId = active?.id ?? this.usageTurn?.id;
+        if (turnId) this.noteUsage(turnId, update.usage, update.totalCostUsd);
+        else if (update.totalCostUsd !== undefined) this.sessionCostUsd = update.totalCostUsd;
+        return;
+      }
       case "invalid":
         this.emit({ type: "protocol.error", message: `Malformed ${this.displayName} session update.` });
         return;
@@ -516,6 +529,25 @@ export class AcpClient {
       requestId,
       payload: permissionPayload(parsed.data.toolCall ?? {}, options),
     });
+  }
+
+  private noteUsage(turnId: string, reported: ProviderUsage, totalCostUsd?: number): void {
+    if (this.usageTurn?.id !== turnId) {
+      this.usageTurn = {
+        id: turnId,
+        ...(this.sessionCostUsd === undefined ? {} : { costBefore: this.sessionCostUsd }),
+        usage: {},
+      };
+    }
+    const turn = this.usageTurn;
+    turn.usage = { ...turn.usage, ...reported };
+    if (totalCostUsd !== undefined) {
+      const costUsd = growth(totalCostUsd, turn.costBefore);
+      if (costUsd !== undefined) turn.usage.costUsd = costUsd;
+      this.sessionCostUsd = totalCostUsd;
+    }
+    if (Object.keys(turn.usage).length > 0)
+      this.emit({ type: "usage.updated", providerTurnId: turnId, usage: { ...turn.usage } });
   }
 
   private cancelPermissions(turnId: string): void {

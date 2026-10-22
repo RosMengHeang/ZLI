@@ -1,5 +1,5 @@
 import type { ProviderCapabilities, ProviderKind, ThreadId } from "@zli-v2/contracts";
-import { AcpClient, type AcpProviderEvent, AcpProviderError, type AcpToolUpdate } from "@zli-v2/provider-acp";
+import { AcpClient, AcpProviderError, type AcpProviderEvent, type AcpToolUpdate } from "@zli-v2/provider-acp";
 
 import {
   acpMcpServer,
@@ -214,6 +214,9 @@ export class AcpProviderAdapter implements ProviderAdapter {
         return;
       case "turn.failed":
         this.emit({ type: "provider.error", threadId, message: event.message });
+        return;
+      case "usage.updated":
+        this.emit({ type: "usage", threadId, turnId: event.providerTurnId, usage: event.usage });
         return;
       case "tool.updated":
         this.emit({ type: "activity", threadId, turnId: event.providerTurnId, activity: acpActivity(event.tool, cwd) });

@@ -25,6 +25,7 @@ import {
   ThreadProjection,
   ThreadQueuedMessage,
   ThreadRequestProjection,
+  ThreadUsageRecord,
 } from "./provider.js";
 import { ReviewProjection } from "./review.js";
 import { TerminalProjection, TerminalStatus } from "./terminal.js";
@@ -96,6 +97,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     attachments: z.array(ThreadAttachment).max(8).optional(),
   }),
   z.object({ type: z.literal("thread.queued"), message: ThreadQueuedMessage }),
+  z.object({ type: z.literal("thread.usage.recorded"), record: ThreadUsageRecord }),
   z.object({ type: z.literal("thread.queue.removed"), threadId: ThreadId, queueId: z.string().min(1).max(200) }),
   z.object({ type: z.literal("thread.queue.prioritized"), threadId: ThreadId, queueId: z.string().min(1).max(200) }),
   z.object({

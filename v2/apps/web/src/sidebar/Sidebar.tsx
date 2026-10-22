@@ -53,6 +53,7 @@ type Props = {
   onShowSetupOutput(worktree: WorktreeProjection): void;
   onOpenHelp(): void;
   onOpenSettings(): void;
+  onOpenUsage(): void;
   onHideSidebar(): void;
 };
 
@@ -74,6 +75,7 @@ export function Sidebar({
   onShowSetupOutput,
   onOpenHelp,
   onOpenSettings,
+  onOpenUsage,
   onHideSidebar,
 }: Props) {
   const newAgentShortcut = useShortcut("newAgent");
@@ -409,12 +411,13 @@ export function Sidebar({
         <span className={`connection-dot${projection ? " is-connected" : ""}`} aria-hidden="true" />
         <span>{projection ? "Local runtime" : "Waiting for runtime"}</span>
         <IconButton
-          className="sidebar-settings"
-          label="Settings"
-          icon="settings"
-          shortcut={settingsShortcut}
-          onClick={onOpenSettings}
+          className="sidebar-usage"
+          label="Usage"
+          tooltip="Usage and cost"
+          icon="gauge"
+          onClick={onOpenUsage}
         />
+        <IconButton label="Settings" icon="settings" shortcut={settingsShortcut} onClick={onOpenSettings} />
         <IconButton
           className="sidebar-help"
           label="Help"
