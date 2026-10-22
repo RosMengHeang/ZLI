@@ -1,15 +1,15 @@
 import {
-  RuntimeEventEnvelope,
-  RuntimeProjection,
   appendThreadMessage,
   deriveSharedProjectContexts,
   pruneDevServers,
+  RuntimeEventEnvelope,
+  type RuntimeEventEnvelope as RuntimeEventEnvelopeValue,
+  RuntimeProjection,
+  type RuntimeProjection as RuntimeProjectionValue,
   removeDevServer,
   removeSession,
   upsertDevServer,
   upsertThreadActivity,
-  type RuntimeEventEnvelope as RuntimeEventEnvelopeValue,
-  type RuntimeProjection as RuntimeProjectionValue,
 } from "@zli-v2/contracts";
 
 function touchThread(
@@ -185,6 +185,51 @@ export class ProjectionStore {
           lastSequence: envelope.sequence,
         };
         break;
+      case "thread.request.requested":
+        this.#projection = {
+          ...current,
+          requests: [
+            ...(current.requests ?? []).filter((request) => request.requestId !== event.request.requestId),
+            event.request,
+          ],
+          attention: [
+            ...current.attention.filter((item) => item.id !== `thread-request:${event.request.requestId}`),
+            {
+              id: `thread-request:${event.request.requestId}`,
+              kind: event.request.kind,
+              title: event.request.kind === "approval" ? "Agent approval required" : "Agent input required",
+            },
+          ],
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "thread.request.resolved":
+        this.#projection = {
+          ...current,
+          requests: (current.requests ?? []).filter((request) => request.requestId !== event.requestId),
+          attention: current.attention.filter((item) => item.id !== `thread-request:${event.requestId}`),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "thread.respond.requested":
+      case "thread.user-input.requested":
+      case "thread.interrupt.requested":
+      case "thread.stop.requested":
+        this.#projection = { ...current, lastSequence: envelope.sequence };
+        break;
+      case "thread.send.requested": {
+        const { permissionMode } = event;
+        this.#projection = {
+          ...current,
+          threads: permissionMode
+            ? current.threads.map((thread) =>
+                thread.threadId === event.threadId ? { ...thread, permissionMode } : thread,
+              )
+            : current.threads,
+          lastSequence: envelope.sequence,
+        };
+        break;
+      }
       case "thread.start.requested":
         this.#projection = {
           ...current,
