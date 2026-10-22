@@ -11,7 +11,7 @@ import {
   codexServerConfig,
   codexThreadConfig,
   type McpServerSpec,
-  mcpServerSpec,
+  zliMcpServerSpecs,
   writeAgentMcpConfig,
 } from "../browser-tool/browserTool.js";
 import { type AcpProviderConfig, AcpProviderAdapter, type AcpProviderKind } from "./AcpProviderAdapter.js";
@@ -147,7 +147,7 @@ export function createProviderRegistry(
     }
   };
   const allServers = (worktreeId: string | undefined) => [
-    ...(browserTool ? [mcpServerSpec(browserTool, worktreeId)] : []),
+    ...(browserTool ? zliMcpServerSpecs(browserTool, worktreeId) : []),
     ...addedServers(),
   ];
   const browserEnv = (worktreeId: string | undefined) =>
@@ -166,7 +166,7 @@ export function createProviderRegistry(
   const codexThreadOverrides = (worktreeId: string | undefined) => {
     const config = Object.assign(
       {},
-      browserTool ? codexThreadConfig(mcpServerSpec(browserTool, worktreeId)) : {},
+      ...(browserTool ? zliMcpServerSpecs(browserTool, worktreeId).map(codexThreadConfig) : []),
       ...addedServers().map(codexServerConfig),
     );
     return Object.keys(config).length > 0 ? config : undefined;
@@ -177,7 +177,9 @@ export function createProviderRegistry(
       createClient: async () =>
         CodexAppServerClient.connect({
           command: await resolveCodexCommand(),
-          ...(browserTool ? { args: codexMcpArgs(mcpServerSpec(browserTool)), ...browserEnv(undefined) } : {}),
+          ...(browserTool
+            ? { args: zliMcpServerSpecs(browserTool).flatMap(codexMcpArgs), ...browserEnv(undefined) }
+            : {}),
         }),
       ...(browserTool || options.mcpServers ? { threadConfig: (input) => codexThreadOverrides(input.worktreeId) } : {}),
     }),

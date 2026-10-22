@@ -1,6 +1,13 @@
 import { readFile } from "node:fs/promises";
 
-import { type McpListResult, type McpServerConfig, McpServerList, type McpSettingsOutcome } from "@zli-v2/contracts";
+import {
+  AgentToolAccess,
+  DEFAULT_AGENT_TOOL_ACCESS,
+  type McpListResult,
+  type McpServerConfig,
+  McpServerList,
+  type McpSettingsOutcome,
+} from "@zli-v2/contracts";
 
 import { isPlainObject, type McpServerSpec, writeFileAtomic } from "../browser-tool/browserTool.js";
 import type { UserSettingsOwnership } from "../browser-tool/userSettings.js";
@@ -11,7 +18,12 @@ export type McpUserSettingsSync = (
   owned: UserSettingsOwnership,
 ) => Promise<{ outcomes: McpSettingsOutcome[]; owned: Record<string, string[]> }>;
 
-type StoredFile = { version: 1; servers: McpServerConfig[]; owned: Record<string, string[]> };
+type StoredFile = {
+  version: 1;
+  servers: McpServerConfig[];
+  owned: Record<string, string[]>;
+  agentAccess: AgentToolAccess;
+};
 
 export function mcpLaunchSpec(server: McpServerConfig): McpServerSpec {
   return { name: server.name, command: server.command, args: [...server.args], env: { ...server.env } };
@@ -24,6 +36,7 @@ export function mcpLaunchSpec(server: McpServerConfig): McpServerSpec {
 export class McpServerStore {
   private servers: McpServerConfig[] = [];
   private owned: Record<string, string[]> = {};
+  private access: AgentToolAccess = DEFAULT_AGENT_TOOL_ACCESS;
   private outcomes: McpSettingsOutcome[] = [];
   private problem: string | undefined;
   private queue: Promise<unknown> = Promise.resolve();
@@ -46,6 +59,10 @@ export class McpServerStore {
       this.problem = "The saved MCP server list is not valid JSON.";
       return;
     }
+    if (isPlainObject(parsed)) {
+      const access = AgentToolAccess.safeParse(parsed.agentAccess);
+      if (access.success) this.access = access.data;
+    }
     const servers = isPlainObject(parsed) ? McpServerList.safeParse(parsed.servers) : undefined;
     if (!servers?.success) {
       this.problem = "The saved MCP server list is not valid.";
@@ -60,9 +77,14 @@ export class McpServerStore {
     return this.servers.filter((server) => server.enabled).map(mcpLaunchSpec);
   }
 
+  agentAccess(): AgentToolAccess {
+    return this.access;
+  }
+
   list(): McpListResult {
     return {
       servers: this.servers.map((server) => ({ ...server, args: [...server.args], env: { ...server.env } })),
+      agentAccess: this.access,
       userSettings: { enabled: this.options.syncUserSettings !== undefined, outcomes: [...this.outcomes] },
       ...(this.problem ? { problem: this.problem } : {}),
     };
@@ -75,6 +97,21 @@ export class McpServerStore {
       this.servers = next;
       this.problem = undefined;
       await this.sync();
+      return this.list();
+    });
+  }
+
+  setAgentAccess(access: AgentToolAccess): Promise<McpListResult> {
+    return this.serialize(async () => {
+      const next = AgentToolAccess.parse(access);
+      const previous = this.access;
+      this.access = next;
+      try {
+        await this.write();
+      } catch (error) {
+        this.access = previous;
+        throw error;
+      }
       return this.list();
     });
   }
@@ -115,7 +152,7 @@ export class McpServerStore {
   }
 
   private async write(servers: McpServerConfig[] = this.servers): Promise<void> {
-    const file: StoredFile = { version: 1, servers, owned: this.owned };
+    const file: StoredFile = { version: 1, servers, owned: this.owned, agentAccess: this.access };
     await writeFileAtomic(this.options.path, `${JSON.stringify(file, null, 2)}\n`);
   }
 }

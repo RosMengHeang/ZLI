@@ -43,6 +43,13 @@ await build({
 
 await build({
   ...shared,
+  entryPoints: [resolve(root, "apps/desktop/src/agent-tool/zli.ts")],
+  outfile: resolve(desktopDist, "zli.js"),
+  format: "esm",
+});
+
+await build({
+  ...shared,
   entryPoints: [resolve(root, "apps/server/src/main.ts")],
   outfile: resolve(desktopDist, "server-entry.js"),
   format: "esm",

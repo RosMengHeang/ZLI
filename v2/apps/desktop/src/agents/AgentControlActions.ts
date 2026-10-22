@@ -1,0 +1,402 @@
+import { randomUUID } from "node:crypto";
+
+import {
+  AgentControlAction,
+  AgentControlListInput,
+  AgentControlReadInput,
+  AgentControlSendInput,
+  AgentControlStartInput,
+  type AgentToolAccess,
+  McpListResult,
+  READ_AGENT_CONTROL_ACTIONS,
+  type RpcResponse,
+  type RuntimeProjection,
+  TerminalReadResult,
+  type WorktreeProjection,
+} from "@zli-v2/contracts";
+
+import {
+  BrowserControlError,
+  type BrowserControlDispatch,
+  resolveBrowserControlWorktree,
+} from "../browser/BrowserControlActions.js";
+
+const MAX_MESSAGE_CHARS = 4_000;
+const DEFAULT_READ_LIMIT = 20;
+
+export type AgentControlHost = {
+  projection(): RuntimeProjection | undefined;
+  /** Calls the listener after every projection change. Returns the unsubscribe function. */
+  subscribe(listener: () => void): () => void;
+  /** Sends one runtime RPC request. */
+  command(request: { protocolVersion: 1; commandId: string; command: Record<string, unknown> }): Promise<RpcResponse>;
+  readonly platform?: NodeJS.Platform;
+  readonly sleep?: (milliseconds: number) => Promise<void>;
+  readonly newId?: () => string;
+  /** How long a start waits for the worktree and then the agent to be ready. */
+  readonly startTimeoutMs?: number;
+  /** How long an agent CLI gets to draw its prompt before the first message is typed into it. */
+  readonly terminalPromptDelayMs?: number;
+};
+
+export type AgentSummary = {
+  id: string;
+  kind: "chat" | "terminal";
+  provider: string;
+  providerName: string;
+  status: string;
+  branch: string;
+  worktreeId: string;
+  /** The agent works in the same worktree as the caller. */
+  sameWorktree: boolean;
+  model?: string;
+};
+
+type Agent = AgentSummary & { createdAt: string };
+
+export function isAgentControlAction(action: string): boolean {
+  return AgentControlAction.safeParse(action).success;
+}
+
+/**
+ * Lets an agent see, read, start, and message the other agents in its project. Access comes from
+ * Settings and is read on every call, so a change applies to agents that are already running.
+ */
+export function createAgentControlActions(host: AgentControlHost): BrowserControlDispatch {
+  const platform = host.platform ?? process.platform;
+  const sleep =
+    host.sleep ?? ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
+  const newId = host.newId ?? randomUUID;
+  const startTimeoutMs = host.startTimeoutMs ?? 120_000;
+  const terminalPromptDelayMs = host.terminalPromptDelayMs ?? 3_000;
+
+  const run = async (command: Record<string, unknown>): Promise<unknown> => {
+    let response: RpcResponse;
+    try {
+      response = await host.command({ protocolVersion: 1, commandId: newId(), command });
+    } catch (cause) {
+      throw new BrowserControlError(
+        `ZLI's runtime did not answer: ${cause instanceof Error ? cause.message : String(cause)}`,
+        503,
+      );
+    }
+    if (!response.accepted) throw new BrowserControlError(response.error.message, 409);
+    return response.result;
+  };
+
+  const currentAccess = async (): Promise<AgentToolAccess> =>
+    McpListResult.parse(await run({ type: "mcp.list" })).agentAccess;
+
+  const projection = (): RuntimeProjection => {
+    const current = host.projection();
+    if (!current) throw new BrowserControlError("ZLI is still starting. Try again in a moment.", 503);
+    return current;
+  };
+
+  const caller = (input: AgentControlListInput, state: RuntimeProjection) => {
+    const worktree = resolveBrowserControlWorktree(input, state.worktrees, platform);
+    const full = state.worktrees.find(
+      (candidate) => candidate.worktreeId === worktree.worktreeId,
+    ) as WorktreeProjection;
+    const project = state.projects.find((candidate) => candidate.projectId === full.projectId);
+    if (!project) throw new BrowserControlError("The worktree this agent works in has no ZLI project.", 404);
+    return { worktree: full, project };
+  };
+
+  const providerName = (state: RuntimeProjection, provider: string) =>
+    state.providers?.find((entry) => entry.provider === provider)?.displayName ?? provider;
+
+  const projectAgents = (state: RuntimeProjection, projectId: string, callerWorktreeId: string): Agent[] => {
+    const worktrees = new Map(
+      state.worktrees
+        .filter((worktree) => worktree.projectId === projectId)
+        .map((worktree) => [worktree.worktreeId, worktree]),
+    );
+    const agents: Agent[] = [];
+    for (const thread of state.threads) {
+      const worktree = worktrees.get(thread.worktreeId);
+      if (!worktree || thread.status === "stopped") continue;
+      agents.push({
+        id: thread.threadId,
+        kind: "chat",
+        provider: thread.provider,
+        providerName: providerName(state, thread.provider),
+        status: thread.status,
+        branch: worktree.branch,
+        worktreeId: worktree.worktreeId,
+        sameWorktree: worktree.worktreeId === callerWorktreeId,
+        ...(thread.model ? { model: thread.model } : {}),
+        createdAt: thread.createdAt ?? "",
+      });
+    }
+    for (const terminal of state.terminals) {
+      const worktree = worktrees.get(terminal.worktreeId);
+      if (!worktree || !terminal.agent) continue;
+      if (terminal.status !== "starting" && terminal.status !== "running") continue;
+      agents.push({
+        id: terminal.terminalId,
+        kind: "terminal",
+        provider: terminal.agent.provider,
+        providerName: providerName(state, terminal.agent.provider),
+        status: terminal.status,
+        branch: worktree.branch,
+        worktreeId: worktree.worktreeId,
+        sameWorktree: worktree.worktreeId === callerWorktreeId,
+        ...(terminal.agent.model ? { model: terminal.agent.model } : {}),
+        createdAt: terminal.createdAt ?? "",
+      });
+    }
+    return agents.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  };
+
+  const summary = ({ createdAt: _createdAt, ...agent }: Agent): AgentSummary => agent;
+
+  const findAgent = (agents: readonly Agent[], ref: string): Agent => {
+    const exact = agents.find((agent) => agent.id === ref);
+    if (exact) return exact;
+    const matches = ref.length >= 4 ? agents.filter((agent) => agent.id.startsWith(ref)) : [];
+    if (matches.length === 1 && matches[0]) return matches[0];
+    if (matches.length > 1)
+      throw new BrowserControlError(`More than one agent id starts with ${ref}. Use the full id.`);
+    throw new BrowserControlError(`This project has no running agent ${ref}. Call list_agents for the ids.`, 404);
+  };
+
+  /** Resolves once `pick` returns a value, rejects when it throws or time runs out. */
+  const waitFor = <T>(pick: (state: RuntimeProjection) => T | undefined, what: string): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      let unsubscribe: () => void = () => undefined;
+      let done = false;
+      const finish = () => {
+        done = true;
+        clearTimeout(timer);
+        unsubscribe();
+      };
+      const check = () => {
+        if (done) return;
+        const state = host.projection();
+        if (!state) return;
+        try {
+          const value = pick(state);
+          if (value === undefined) return;
+          finish();
+          resolve(value);
+        } catch (cause) {
+          finish();
+          reject(cause);
+        }
+      };
+      const timer = setTimeout(() => {
+        finish();
+        reject(new BrowserControlError(`${what} took longer than ${Math.round(startTimeoutMs / 1000)} seconds.`, 504));
+      }, startTimeoutMs);
+      check();
+      if (!done) unsubscribe = host.subscribe(check);
+    });
+
+  const typeIntoTerminal = async (terminalId: string, text: string) => {
+    const body = /[\r\n]/u.test(text) ? `\u001b[200~${text}\u001b[201~` : text;
+    await run({ type: "terminal.write", terminalId, data: body });
+    // Agent CLIs treat text and Enter that arrive in one read as a paste, which would not submit.
+    await sleep(150);
+    await run({ type: "terminal.write", terminalId, data: "\r" });
+  };
+
+  const list = async (raw: unknown) => {
+    const input = AgentControlListInput.parse(raw);
+    const state = projection();
+    const { worktree, project } = caller(input, state);
+    return {
+      project: project.name,
+      yourBranch: worktree.branch,
+      agents: projectAgents(state, project.projectId, worktree.worktreeId).map(summary),
+    };
+  };
+
+  const read = async (raw: unknown) => {
+    const input = AgentControlReadInput.parse(raw);
+    const state = projection();
+    const { worktree, project } = caller(input, state);
+    const agent = findAgent(projectAgents(state, project.projectId, worktree.worktreeId), input.agent);
+    if (agent.kind === "terminal") {
+      const output = TerminalReadResult.parse(await run({ type: "terminal.read", terminalId: agent.id }));
+      return { agent: summary(agent), output: output.text, truncated: output.truncated };
+    }
+    const messages = (state.messages ?? []).filter((message) => message.threadId === agent.id);
+    const limit = input.limit ?? DEFAULT_READ_LIMIT;
+    return {
+      agent: summary(agent),
+      messages: messages.slice(-limit).map((message) => ({
+        role: message.role,
+        text: message.text.length > MAX_MESSAGE_CHARS ? `${message.text.slice(0, MAX_MESSAGE_CHARS)}...` : message.text,
+      })),
+      truncated: messages.length > limit,
+    };
+  };
+
+  const send = async (raw: unknown) => {
+    const input = AgentControlSendInput.parse(raw);
+    const state = projection();
+    const { worktree, project } = caller(input, state);
+    const agents = projectAgents(state, project.projectId, worktree.worktreeId);
+    const agent = findAgent(agents, input.agent);
+    const neighbors = agents.filter((candidate) => candidate.sameWorktree);
+    if (agent.sameWorktree && neighbors.length === 1)
+      throw new BrowserControlError("That agent is you. Pick another agent from list_agents.");
+    const sender = neighbors.length === 1 ? neighbors[0] : undefined;
+    const text = [
+      `Message from another agent in ZLI, working on branch ${worktree.branch}${sender ? ` (agent id ${sender.id})` : ""}:`,
+      "",
+      input.text,
+    ].join("\n");
+    if (agent.kind === "terminal") {
+      if (agent.status !== "running")
+        throw new BrowserControlError("That terminal agent is still starting. Try again shortly.", 409);
+      await typeIntoTerminal(agent.id, text);
+      return { delivered: true, agent: summary(agent) };
+    }
+    if (agent.status === "working" || agent.status === "waiting")
+      throw new BrowserControlError(
+        `That agent is ${agent.status === "working" ? "in the middle of a turn" : "waiting for the person to answer it"}. Try again when list_agents shows it idle.`,
+        409,
+      );
+    if (agent.status === "failed") throw new BrowserControlError("That agent failed and cannot take messages.", 409);
+    if (agent.status === "starting")
+      await waitFor((next) => {
+        const thread = next.threads.find((candidate) => candidate.threadId === agent.id);
+        if (thread?.status === "failed" || thread?.status === "stopped")
+          throw new BrowserControlError("That agent stopped before it could take the message.", 409);
+        return thread?.status === "idle" ? true : undefined;
+      }, "Waiting for that agent to start");
+    await run({ type: "thread.send", threadId: agent.id, text });
+    return { delivered: true, agent: summary(agent) };
+  };
+
+  const start = async (raw: unknown) => {
+    const input = AgentControlStartInput.parse(raw);
+    const state = projection();
+    const { worktree: callerWorktree, project } = caller(input, state);
+    const discovery = state.providers?.find((entry) => entry.provider === input.provider);
+    if (discovery?.status === "missing")
+      throw new BrowserControlError(`${discovery.displayName} is not installed here. ${discovery.reason}`, 409);
+
+    let target: WorktreeProjection;
+    if (input.worktree === "same") target = callerWorktree;
+    else {
+      const branch = safeBranchName(input.branch ?? `${input.provider}-${newId().slice(0, 6)}`);
+      if (!branch) throw new BrowserControlError("Choose a branch name with letters or digits.");
+      const worktreeId = newId();
+      const workspaceRoot = `${project.path.replace(/[\\/]+$/u, "")}-worktrees`;
+      await run({
+        type: "worktree.create",
+        worktreeId,
+        projectId: project.projectId,
+        path: `${workspaceRoot}/${branch.replace(/[\\/]/gu, "-")}`,
+        workspaceRoot,
+        branch,
+        baseRef: callerWorktree.branch,
+      });
+      target = await waitFor((next) => {
+        const created = next.worktrees.find((candidate) => candidate.worktreeId === worktreeId);
+        if (created?.status === "failed" || created?.status === "cancelled")
+          throw new BrowserControlError(`The worktree could not be created. ${created.errorMessage ?? ""}`.trim(), 409);
+        return created?.status === "ready" ? created : undefined;
+      }, "Creating the worktree");
+    }
+
+    const sessionId = newId();
+    const mode = input.mode ?? "chat";
+    let agentId: string;
+    if (mode === "chat") {
+      agentId = newId();
+      const shared = state.threads.some(
+        (thread) =>
+          thread.worktreeId === target.worktreeId && ["starting", "idle", "working", "waiting"].includes(thread.status),
+      );
+      await run({
+        type: "thread.start",
+        threadId: agentId,
+        worktreeId: target.worktreeId,
+        provider: input.provider,
+        cwd: target.path,
+        sessionId,
+        permissionMode: "full-access",
+        ...(input.model ? { model: input.model } : {}),
+        ...(shared ? { shareWorktree: true } : {}),
+      });
+      await waitFor((next) => {
+        const thread = next.threads.find((candidate) => candidate.threadId === agentId);
+        if (thread?.status === "failed" || thread?.status === "stopped")
+          throw new BrowserControlError(`The agent did not start. ${thread.errorMessage ?? ""}`.trim(), 409);
+        return thread?.status === "idle" ? true : undefined;
+      }, "Starting the agent");
+      await run({ type: "thread.send", threadId: agentId, text: input.prompt });
+    } else {
+      agentId = newId();
+      await run({
+        type: "terminal.create",
+        terminalId: agentId,
+        worktreeId: target.worktreeId,
+        cwd: target.path,
+        shell: platform === "win32" ? "powershell.exe" : "/bin/bash",
+        title: providerName(state, input.provider),
+        cols: 120,
+        rows: 32,
+        sessionId,
+        agent: {
+          provider: input.provider,
+          permissionMode: "full-access",
+          ...(input.model ? { model: input.model } : {}),
+        },
+      });
+      await waitFor((next) => {
+        const terminal = next.terminals.find((candidate) => candidate.terminalId === agentId);
+        if (terminal?.status === "failed" || terminal?.status === "exited")
+          throw new BrowserControlError(`The agent did not start. ${terminal.errorMessage ?? ""}`.trim(), 409);
+        return terminal?.status === "running" ? true : undefined;
+      }, "Starting the agent");
+      await sleep(terminalPromptDelayMs);
+      await typeIntoTerminal(agentId, input.prompt);
+    }
+    const started = projectAgents(projection(), project.projectId, callerWorktree.worktreeId).find(
+      (agent) => agent.id === agentId,
+    );
+    return {
+      started: true,
+      agent: started
+        ? summary(started)
+        : { id: agentId, kind: mode, provider: input.provider, branch: target.branch, worktreeId: target.worktreeId },
+      worktree: { branch: target.branch, path: target.path },
+    };
+  };
+
+  const handlers: Record<AgentControlAction, (input: unknown) => Promise<unknown>> = {
+    agentaccess: async () => ({ access: await currentAccess() }),
+    agentlist: list,
+    agentread: read,
+    agentsend: send,
+    agentstart: start,
+  };
+
+  return async (action, input) => {
+    const parsed = AgentControlAction.safeParse(action);
+    if (!parsed.success) throw new BrowserControlError(`Unknown agent action: ${action}`, 404);
+    if (parsed.data !== "agentaccess") {
+      const access = await currentAccess();
+      if (access === "off")
+        throw new BrowserControlError("Agent tools are turned off in ZLI Settings, under MCP servers.", 403);
+      if (access === "read" && !READ_AGENT_CONTROL_ACTIONS.includes(parsed.data))
+        throw new BrowserControlError(
+          "ZLI Settings let agents list and read other agents, but not start or message them.",
+          403,
+        );
+    }
+    return handlers[parsed.data](input ?? {});
+  };
+}
+
+export function safeBranchName(branch: string): string {
+  return branch
+    .trim()
+    .replace(/[^a-zA-Z0-9._/-]/gu, "-")
+    .replace(/^[-/]+|[-/]+$/gu, "");
+}

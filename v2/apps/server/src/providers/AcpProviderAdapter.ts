@@ -6,7 +6,7 @@ import {
   agentEnv,
   type BrowserToolConfig,
   type McpServerSpec,
-  mcpServerSpec,
+  zliMcpServerSpecs,
 } from "../browser-tool/browserTool.js";
 import { approvalAllowed } from "./ClaudeCodeProviderAdapter.js";
 import type {
@@ -71,7 +71,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
       (async ({ worktreeId, ...input }) => {
         const browserTool = config.browserTool;
         const specs = [
-          ...(browserTool ? [mcpServerSpec(browserTool, worktreeId)] : []),
+          ...(browserTool ? zliMcpServerSpecs(browserTool, worktreeId) : []),
           ...(config.mcpServers?.() ?? []),
         ];
         return AcpClient.start({

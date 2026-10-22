@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import type { ListedProviderKind } from "@zli-v2/contracts";
 
 import {
+  AGENT_MCP_SERVER,
+  agentMcpServerSpec,
   BROWSER_MCP_SERVER,
   type BrowserToolConfig,
   isPlainObject,
@@ -80,11 +82,14 @@ export async function registerBrowserToolInUserSettings(
   options: UserSettingsOptions,
 ): Promise<UserSettingsOutcome[]> {
   const outcomes: UserSettingsOutcome[] = [];
+  const agentSpec = agentMcpServerSpec(config);
+  const agentEntry = (provider: UserSettingsProvider): Record<string, unknown> =>
+    agentSpec ? { [AGENT_MCP_SERVER]: userSettingsEntry(provider, agentSpec) } : {};
   for (const target of userSettingsTargets(config, options.home, options.env)) {
     const { outcome } = await applySafely(
       target.provider,
       target.path,
-      { set: { [BROWSER_MCP_SERVER]: target.entry }, remove: [] },
+      { set: { [BROWSER_MCP_SERVER]: target.entry, ...agentEntry(target.provider) }, remove: [] },
       options,
     );
     outcomes.push(outcome);

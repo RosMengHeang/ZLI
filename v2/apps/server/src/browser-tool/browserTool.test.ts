@@ -20,6 +20,7 @@ import {
   pathKey,
   prependPath,
   writeMcpConfigFile,
+  zliMcpServerSpecs,
 } from "./browserTool.js";
 
 const WORKTREE = "00000000-0000-4000-8000-000000000302";
@@ -58,6 +59,13 @@ describe("browserToolConfigFromEnv", () => {
   it.each(Object.keys(fullEnv))("is undefined when %s is missing or blank", (key) => {
     expect(browserToolConfigFromEnv({ ...fullEnv, [key]: undefined })).toBeUndefined();
     expect(browserToolConfigFromEnv({ ...fullEnv, [key]: "  " })).toBeUndefined();
+  });
+
+  it("adds the agent tool script when the desktop passes an absolute one", () => {
+    expect(
+      browserToolConfigFromEnv({ ...fullEnv, ZLI_AGENT_TOOL_SCRIPT: "/opt/zli/resources/zli.js" })?.agentScript,
+    ).toBe("/opt/zli/resources/zli.js");
+    expect(browserToolConfigFromEnv({ ...fullEnv, ZLI_AGENT_TOOL_SCRIPT: "zli.js" })).not.toHaveProperty("agentScript");
   });
 
   it("is undefined for relative paths", () => {
@@ -113,6 +121,17 @@ describe("MCP server definitions", () => {
     expect(mcpServerSpec(config).env).toEqual({
       ELECTRON_RUN_AS_NODE: "1",
       ZLI_BROWSER_CONTROL_FILE: config.controlFile,
+    });
+  });
+
+  it("adds the zli agent server beside the browser when its script is bundled", () => {
+    expect(zliMcpServerSpecs(config, WORKTREE).map((spec) => spec.name)).toEqual(["zli-browser"]);
+    const withAgents = zliMcpServerSpecs({ ...config, agentScript: "C:\\ZLI\\zli.js" }, WORKTREE);
+    expect(withAgents[1]).toEqual({
+      name: "zli",
+      command: config.command,
+      args: ["C:\\ZLI\\zli.js", "mcp"],
+      env: { ELECTRON_RUN_AS_NODE: "1", ZLI_BROWSER_CONTROL_FILE: config.controlFile, ZLI_WORKTREE_ID: WORKTREE },
     });
   });
 

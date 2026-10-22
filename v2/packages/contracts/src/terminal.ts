@@ -50,6 +50,15 @@ export const TerminalAttachSnapshot = z.object({
 });
 export type TerminalAttachSnapshot = z.infer<typeof TerminalAttachSnapshot>;
 
+export const TerminalReadResult = z.object({
+  terminalId: TerminalId,
+  /** Recent output with color and cursor codes removed. */
+  text: z.string(),
+  /** True when older output was left out. */
+  truncated: z.boolean(),
+});
+export type TerminalReadResult = z.infer<typeof TerminalReadResult>;
+
 export const TerminalStreamMessage = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("chunk"), chunk: TerminalChunk }),
   z.object({

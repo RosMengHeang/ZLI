@@ -38,6 +38,9 @@
 .mcp-row-copy strong { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
 .mcp-row-command { overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .mcp-row.is-off .mcp-row-copy strong { color: var(--zli-muted); }
+.mcp-row-detail { color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.mcp-row > .select-wrap { flex: 0 0 auto; }
+.mcp-subhead { margin: var(--zli-space-1) 0 0; color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 550; letter-spacing: 0.02em; }
 .mcp-editor { display: flex; flex-direction: column; gap: var(--zli-space-2-5); padding: var(--zli-space-3); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); }
 .mcp-editor .textarea.is-mono { font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
 .mcp-editor-actions { display: flex; justify-content: flex-end; gap: var(--zli-space-1-5); }

@@ -12,7 +12,7 @@ import {
   type BrowserToolConfig,
   browserToolEnv,
   type McpServerSpec,
-  mcpServerSpec,
+  zliMcpServerSpecs,
   opencodeConfigContent,
   writeAgentMcpConfig,
 } from "../browser-tool/browserTool.js";
@@ -233,7 +233,7 @@ export class TerminalReactor {
     } catch {
       added = [];
     }
-    return [...(browserTool ? [mcpServerSpec(browserTool, worktreeId)] : []), ...added];
+    return [...(browserTool ? zliMcpServerSpecs(browserTool, worktreeId) : []), ...added];
   }
 
   /** MCP servers are extras; a failure to prepare them never blocks the agent from starting. */

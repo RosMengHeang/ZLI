@@ -8,9 +8,9 @@ export const ZLI_BROWSER_VERSION = "1.0.0";
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const LATEST_PROTOCOL_VERSION = "2025-06-18";
 
-type JsonSchema = Record<string, unknown>;
+export type JsonSchema = Record<string, unknown>;
 
-type McpTool = {
+export type McpTool = {
   readonly name: string;
   readonly title: string;
   readonly description: string;
@@ -209,33 +209,79 @@ export const MCP_TOOLS: readonly McpTool[] = [
 
 type JsonRpcId = string | number | null;
 type JsonRpcMessage = { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown };
-type ToolResult = {
+export type ToolResult = {
   content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
   isError?: boolean;
 };
 
 export type McpServer = { handleMessage(message: unknown): Promise<unknown | undefined> };
 
+/** One MCP server built on the ZLI control service: its tools, how it describes itself, and how it answers. */
+export type ToolServerDefinition = {
+  readonly tools: readonly McpTool[];
+  readonly serverInfo: { name: string; title: string; version: string };
+  readonly instructions: string;
+  /** Properties every tool accepts, such as cwd. */
+  readonly targetProperties: Record<string, JsonSchema>;
+  readonly failureMessage: string;
+  readonly toInput?: (tool: McpTool, args: Record<string, unknown>) => Record<string, unknown>;
+  readonly formatResult?: (action: string, result: unknown) => ToolResult;
+  /** Names of the tools to list right now. Every tool is listed when this resolves undefined. */
+  readonly visibleTools?: () => Promise<ReadonlySet<string> | undefined>;
+};
+
 export function createMcpServer(call: ZliBrowserCall): McpServer {
-  const tools = new Map(MCP_TOOLS.map((tool) => [tool.name, tool]));
+  return createToolServer(call, {
+    tools: MCP_TOOLS,
+    serverInfo: { name: "zli-browser", title: "ZLI browser", version: ZLI_BROWSER_VERSION },
+    instructions: `${PANE} Use browser_open to load the web app you are working on, then browser_snapshot, browser_screenshot, and browser_console to verify it. browser_viewport emulates phones and tablets.`,
+    targetProperties: TARGET_PROPERTIES,
+    failureMessage: "The browser action failed.",
+    toInput: (tool, args) => {
+      const input = pickToolInput(tool, args);
+      if (typeof args.tabId === "string") input.browserTabId = args.tabId;
+      return input;
+    },
+    formatResult,
+  });
+}
+
+/** The arguments a tool declares, plus cwd. */
+export function pickToolInput(tool: McpTool, args: Record<string, unknown>): Record<string, unknown> {
+  const input: Record<string, unknown> = {};
+  for (const key of [...Object.keys(tool.properties), "cwd"]) if (args[key] !== undefined) input[key] = args[key];
+  return input;
+}
+
+export function createToolServer(call: ZliBrowserCall, definition: ToolServerDefinition): McpServer {
+  const tools = new Map(definition.tools.map((tool) => [tool.name, tool]));
+  const toInput = definition.toInput ?? pickToolInput;
+  const format = definition.formatResult ?? formatResult;
 
   const callTool = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
     const tool = tools.get(name);
     if (!tool) throw new RpcError(-32602, `Unknown tool: ${name}`);
-    const input: Record<string, unknown> = {};
-    for (const key of [...Object.keys(tool.properties), "cwd"]) if (args[key] !== undefined) input[key] = args[key];
-    if (typeof args.tabId === "string") input.browserTabId = args.tabId;
     try {
-      return formatResult(tool.action, await call(tool.action, input));
+      return format(tool.action, await call(tool.action, toInput(tool, args)));
     } catch (cause) {
       const message =
         cause instanceof ZliBrowserUnavailableError
           ? cause.message
           : cause instanceof Error
             ? cause.message
-            : "The browser action failed.";
+            : definition.failureMessage;
       return { content: [{ type: "text", text: message }], isError: true };
     }
+  };
+
+  const listTools = async () => {
+    let visible: ReadonlySet<string> | undefined;
+    try {
+      visible = await definition.visibleTools?.();
+    } catch {
+      visible = undefined;
+    }
+    return definition.tools.filter((tool) => !visible || visible.has(tool.name));
   };
 
   const handleRequest = async (method: string, params: unknown): Promise<unknown> => {
@@ -245,21 +291,21 @@ export function createMcpServer(call: ZliBrowserCall): McpServer {
         return {
           protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.includes(requested) ? requested : LATEST_PROTOCOL_VERSION,
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: "zli-browser", title: "ZLI browser", version: ZLI_BROWSER_VERSION },
-          instructions: `${PANE} Use browser_open to load the web app you are working on, then browser_snapshot, browser_screenshot, and browser_console to verify it. browser_viewport emulates phones and tablets.`,
+          serverInfo: definition.serverInfo,
+          instructions: definition.instructions,
         };
       }
       case "ping":
         return {};
       case "tools/list":
         return {
-          tools: MCP_TOOLS.map((tool) => ({
+          tools: (await listTools()).map((tool) => ({
             name: tool.name,
             title: tool.title,
             description: tool.description,
             inputSchema: {
               type: "object",
-              properties: { ...tool.properties, ...TARGET_PROPERTIES },
+              properties: { ...tool.properties, ...definition.targetProperties },
               ...(tool.required ? { required: [...tool.required] } : {}),
               additionalProperties: false,
             },

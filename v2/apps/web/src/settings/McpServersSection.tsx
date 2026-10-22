@@ -1,10 +1,11 @@
-import type { McpServerConfig } from "@zli-v2/contracts";
+import { AgentToolAccess, type McpServerConfig } from "@zli-v2/contracts";
 import { useRef, useState } from "react";
 
 import { Button, IconButton } from "../ui/Button.js";
-import { Field } from "../ui/Field.js";
+import { Field, Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import {
+  AGENT_ACCESS_LABELS,
   applyDraft,
   commandLine,
   draftFromServer,
@@ -20,7 +21,7 @@ type Editing = { index?: number; draft: McpDraft };
 const SETTINGS_AGENTS = "Cursor, Droid, Gemini, Kimi Code, and Qwen Code";
 
 export function McpServersSection() {
-  const { state, reload, save } = useMcpServers();
+  const { state, reload, save, setAgentAccess } = useMcpServers();
   const [editing, setEditing] = useState<Editing>();
   const [problem, setProblem] = useState<string>();
   const [saveError, setSaveError] = useState<string>();
@@ -59,14 +60,14 @@ export function McpServersSection() {
     );
   }
 
-  const { servers, userSettings, problem: storeProblem } = state.result;
+  const { servers, userSettings, agentAccess, problem: storeProblem } = state.result;
   const problems = settingsProblems(userSettings.outcomes);
 
-  const persist = async (next: McpServerConfig[]): Promise<boolean> => {
+  const run = async (work: () => Promise<unknown>): Promise<boolean> => {
     setSaving(true);
     setSaveError(undefined);
     try {
-      await save(next);
+      await work();
       return true;
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : String(error));
@@ -75,6 +76,8 @@ export function McpServersSection() {
       setSaving(false);
     }
   };
+
+  const persist = (next: McpServerConfig[]) => run(() => save(next));
 
   const startEdit = (index?: number) => {
     setConfirmDelete(undefined);
@@ -109,6 +112,43 @@ export function McpServersSection() {
           {storeProblem} Saving starts a new list.
         </p>
       ) : null}
+      <h3 className="mcp-subhead">Built into ZLI</h3>
+      <ul className="mcp-rows">
+        <li className="mcp-row">
+          <span className="mcp-row-copy">
+            <strong>zli</strong>
+            <span className="mcp-row-detail">
+              Lets agents see and read the other agents in their project, and start or message them if allowed. Also the
+              zli command in terminals.
+            </span>
+          </span>
+          <Select
+            className="input-sm"
+            aria-label="What agents may do with other agents"
+            value={agentAccess}
+            disabled={saving}
+            onChange={(event) => {
+              const access = AgentToolAccess.parse(event.target.value);
+              void run(() => setAgentAccess(access));
+            }}
+          >
+            {AgentToolAccess.options.map((access) => (
+              <option key={access} value={access}>
+                {AGENT_ACCESS_LABELS[access]}
+              </option>
+            ))}
+          </Select>
+        </li>
+        <li className="mcp-row">
+          <span className="mcp-row-copy">
+            <strong>zli-browser</strong>
+            <span className="mcp-row-detail">
+              Lets agents open and test pages in the Browser panel. Always on, and the zli-browser command in terminals.
+            </span>
+          </span>
+        </li>
+      </ul>
+      <h3 className="mcp-subhead">Added by you</h3>
       {servers.length === 0 && !editing ? (
         <p className="settings-empty">
           No servers yet. Add one here instead of in each agent's own settings, and every agent can use it.

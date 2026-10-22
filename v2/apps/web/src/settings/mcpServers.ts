@@ -1,4 +1,5 @@
 import {
+  type AgentToolAccess,
   McpListResult,
   type McpServerConfig,
   McpServerList,
@@ -32,6 +33,16 @@ export function listMcpServers(dispatch: Dispatch): Promise<McpListResult> {
 export function saveMcpServers(dispatch: Dispatch, servers: readonly McpServerConfig[]): Promise<McpListResult> {
   return request(dispatch, { type: "mcp.save", servers });
 }
+
+export function setAgentToolAccess(dispatch: Dispatch, access: AgentToolAccess): Promise<McpListResult> {
+  return request(dispatch, { type: "mcp.agentAccess", access });
+}
+
+export const AGENT_ACCESS_LABELS: Record<AgentToolAccess, string> = {
+  full: "Start and message agents",
+  read: "List and read agents",
+  off: "Off",
+};
 
 export function draftFromServer(server: McpServerConfig): McpDraft {
   return {
@@ -136,6 +147,7 @@ export function useMcpServers(): {
   state: McpServersState;
   reload(): void;
   save(servers: readonly McpServerConfig[]): Promise<McpListResult>;
+  setAgentAccess(access: AgentToolAccess): Promise<McpListResult>;
 } {
   const { dispatch } = useRuntime();
   const [state, setState] = useState<McpServersState>({ status: "loading" });
@@ -166,5 +178,14 @@ export function useMcpServers(): {
     [dispatch],
   );
 
-  return { state, reload: () => setAttempt((value) => value + 1), save };
+  const setAgentAccess = useCallback(
+    async (access: AgentToolAccess) => {
+      const result = await setAgentToolAccess(dispatch, access);
+      setState({ status: "ready", result });
+      return result;
+    },
+    [dispatch],
+  );
+
+  return { state, reload: () => setAttempt((value) => value + 1), save, setAgentAccess };
 }

@@ -1,3 +1,4 @@
+export * from "./agentControl.js";
 export * from "./browser.js";
 export * from "./devServers.js";
 export * from "./diagnostics.js";

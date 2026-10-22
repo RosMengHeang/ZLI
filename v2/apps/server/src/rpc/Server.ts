@@ -3,6 +3,7 @@ import { createServer, type Server as HttpServer, type IncomingMessage } from "n
 import type { AddressInfo } from "node:net";
 
 import {
+  type AgentToolAccess,
   ClientWireMessage,
   type EnvironmentDescriptor,
   FILE_COMMAND_TYPES,
@@ -22,6 +23,7 @@ import {
   type RuntimeError,
   type RuntimeProjection,
   TerminalId,
+  type TerminalReadResult,
 } from "@zli-v2/contracts";
 import { type RawData, WebSocket, WebSocketServer } from "ws";
 
@@ -35,6 +37,7 @@ import {
   runPullRequestCommand,
 } from "../review/PullRequestService.js";
 import type { TerminalService, TerminalSubscription } from "../terminal/TerminalService.js";
+import { readableTerminalText } from "../terminal/terminalText.js";
 import { readZliConfig } from "../worktrees/zliConfig.js";
 import { AttachmentError, storeThreadAttachments } from "./attachments.js";
 
@@ -61,7 +64,11 @@ type RpcServerOptions = {
   attachmentsDir?: string;
   pullRequestService?: PullRequestService;
   /** The MCP servers from Settings. Without it, MCP commands are answered as unavailable. */
-  mcpServers?: { list(): McpListResult; save(servers: readonly McpServerConfig[]): Promise<McpListResult> };
+  mcpServers?: {
+    list(): McpListResult;
+    save(servers: readonly McpServerConfig[]): Promise<McpListResult>;
+    setAgentAccess(access: AgentToolAccess): Promise<McpListResult>;
+  };
   host?: string;
   port?: number;
 };
@@ -261,10 +268,22 @@ export class RpcServer {
    */
   private handleTerminalInput(client: WebSocket, request: RpcRequest): boolean {
     const command = request.command;
-    if (command.type !== "terminal.write" && command.type !== "terminal.resize") return false;
+    if (command.type !== "terminal.write" && command.type !== "terminal.resize" && command.type !== "terminal.read")
+      return false;
     const terminalService = this.terminalService;
     if (!terminalService) return false;
     try {
+      if (command.type === "terminal.read") {
+        const output = terminalService.recentOutput(command.terminalId, command.maxBytes ?? 64 * 1024);
+        const readable = readableTerminalText(output.data);
+        const result: TerminalReadResult = {
+          terminalId: command.terminalId,
+          text: readable.text,
+          truncated: output.truncated || readable.cutLines,
+        };
+        send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+        return true;
+      }
       if (command.type === "terminal.write") terminalService.write(command.terminalId, command.data);
       else terminalService.resize(command.terminalId, command.cols, command.rows);
       send(client, { type: "response", response: { commandId: request.commandId, accepted: true } });
@@ -348,7 +367,12 @@ export class RpcServer {
       return true;
     }
     try {
-      const result = command.type === "mcp.list" ? store.list() : await store.save(command.servers);
+      const result =
+        command.type === "mcp.list"
+          ? store.list()
+          : command.type === "mcp.save"
+            ? await store.save(command.servers)
+            : await store.setAgentAccess(command.access);
       send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
     } catch (error) {
       send(client, {
