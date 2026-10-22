@@ -2,6 +2,7 @@
   "name": "@zli-v2/server",
   "private": true,
   "version": "0.0.0",
+  "license": "MIT",
   "type": "module",
   "dependencies": {
     "@zli-v2/contracts": "workspace:*",

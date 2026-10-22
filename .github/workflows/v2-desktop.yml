@@ -12,8 +12,14 @@ on:
       - "package.json"
       - ".github/workflows/v2-desktop.yml"
 
+permissions:
+  contents: read
+
 jobs:
   verify:
+    permissions:
+      contents: read
+      actions: write
     strategy:
       fail-fast: false
       matrix:

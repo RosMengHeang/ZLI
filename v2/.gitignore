@@ -6,3 +6,11 @@ node_modules/
 apps/desktop/renderer/
 release/
 test-results/
+
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+id_rsa*

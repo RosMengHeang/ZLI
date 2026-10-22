@@ -2,6 +2,7 @@
   "name": "zli",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "scripts": {
     "dev": "pnpm --dir v2 run desktop:dev",
     "build": "pnpm --dir v2 run build",

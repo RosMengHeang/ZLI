@@ -2,6 +2,7 @@
   "name": "@zli-v2/desktop",
   "private": true,
   "version": "0.0.0",
+  "license": "MIT",
   "description": "Secure Electron desktop shell for ZLI V2.",
   "author": "ZLI contributors",
   "type": "module",
