@@ -391,7 +391,8 @@ function QueuedMessages({
       <ol className="chat-queue-list">
         {queued.map((message, index) => {
           const preview = message.text.trim().split(/\r?\n/u)[0] ?? "";
-          const images = message.attachments?.length ?? 0;
+          const files = message.attachments ?? [];
+          const onlyImages = files.every((file) => file.mimeType !== "text/plain");
           return (
             <li className="chat-queue-item" key={message.queueId}>
               <span className="chat-queue-index" aria-hidden="true">
@@ -400,10 +401,11 @@ function QueuedMessages({
               <span className="chat-queue-text" title={message.text}>
                 {preview}
               </span>
-              {images > 0 ? (
-                <span className="chat-queue-meta">
-                  <Icon name="image" size={11} />
-                  {images}
+              {files.length > 0 ? (
+                <span className="chat-queue-meta" title={files.map((file) => file.name).join(", ")}>
+                  <Icon name={onlyImages ? "image" : "paperclip"} size={11} />
+                  {files.length}
+                  <span className="sr-only">{files.length === 1 ? " attachment" : " attachments"}</span>
                 </span>
               ) : null}
               {canSteer ? (
@@ -503,7 +505,7 @@ const ChatMessage = memo(function ChatMessage({
           <ul className="chat-attachments">
             {message.attachments.map((attachment) => (
               <li key={attachment.path} title={attachment.path}>
-                <Icon name="image" size={12} />
+                <Icon name={attachment.mimeType === "text/plain" ? "fileText" : "image"} size={12} />
                 {attachment.name}
               </li>
             ))}

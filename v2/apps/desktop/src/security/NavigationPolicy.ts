@@ -6,6 +6,11 @@ export function isAllowedMainNavigation(candidate: string, appOrigin: string): b
   return url !== undefined && origin !== undefined && url.origin === origin.origin && url.protocol === origin.protocol;
 }
 
+/** Frames inside the app window only ever show inline documents. */
+export function isAllowedSubframeNavigation(candidate: string): boolean {
+  return candidate === "about:srcdoc" || candidate === "about:blank";
+}
+
 export function isAllowedBrowserNavigation(candidate: string): boolean {
   const url = parse(candidate);
   return (

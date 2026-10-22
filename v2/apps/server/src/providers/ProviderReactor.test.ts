@@ -532,6 +532,17 @@ describe("promptWithAttachments", () => {
       ]),
     ).toBe("hello\n\nAttached images (read them from disk):\n- /tmp/a.png\n- /tmp/b.jpg");
   });
+
+  it("lists pasted text separately from images", () => {
+    expect(
+      promptWithAttachments("review this", [
+        { name: "pasted-text-1.txt", mimeType: "text/plain", path: "/tmp/p.txt" },
+        { name: "a.png", mimeType: "image/png", path: "/tmp/a.png" },
+      ]),
+    ).toBe(
+      "review this\n\nAttached images (read them from disk):\n- /tmp/a.png\n\nAttached text the person pasted (read it from disk):\n- /tmp/p.txt",
+    );
+  });
 });
 
 describe("ProviderReactor usage", () => {

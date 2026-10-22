@@ -500,11 +500,16 @@ function errorText(error: unknown, fallback: string): string {
   return cause && !message.includes(cause) ? `${message} ${cause}` : message;
 }
 
-/** Text paths are the baseline every CLI understands; adapters with native image input also get the list. */
+/** Text paths are the baseline every CLI understands; adapters with native image input also get the images. */
 export function promptWithAttachments(text: string, attachments: readonly ThreadAttachment[]): string {
   if (attachments.length === 0) return text;
-  const lines = attachments.map((attachment) => `- ${attachment.path}`).join("\n");
-  return `${text}\n\nAttached images (read them from disk):\n${lines}`;
+  const list = (entries: readonly ThreadAttachment[]) => entries.map((entry) => `- ${entry.path}`).join("\n");
+  const images = attachments.filter((attachment) => attachment.mimeType !== "text/plain");
+  const texts = attachments.filter((attachment) => attachment.mimeType === "text/plain");
+  const sections = [text];
+  if (images.length > 0) sections.push(`Attached images (read them from disk):\n${list(images)}`);
+  if (texts.length > 0) sections.push(`Attached text the person pasted (read it from disk):\n${list(texts)}`);
+  return sections.join("\n\n");
 }
 
 /** Provider call ids are only unique inside one session, and projected activities are keyed globally. */

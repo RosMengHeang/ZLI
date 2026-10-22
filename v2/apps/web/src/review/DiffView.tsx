@@ -1,16 +1,18 @@
 import { type KeyboardEvent, type MouseEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 
-import { Button } from "../ui/Button.js";
+import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import {
   anchorCovers,
   anchorFor,
   type DiffLine,
+  findInLines,
   formatLocation,
   isCommentable,
   type LineAnchor,
   parseDiffLines,
   patchBody,
+  splitOnMatches,
 } from "./diffLines.js";
 import { addReviewComment, useReviewComments } from "./reviewComments.js";
 
@@ -37,6 +39,13 @@ export function DiffView({
   const lineRefs = useRef(new Map<number, HTMLDivElement>());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerId = useId();
+  const [findOpen, setFindOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
+  const findRef = useRef<HTMLInputElement>(null);
+  const activeQuery = findOpen ? query : "";
+  const matches = useMemo(() => findInLines(lines, activeQuery), [lines, activeQuery]);
+  const currentMatch = matches.length > 0 ? matches[Math.min(matchIndex, matches.length - 1)] : undefined;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: a different file starts with nothing picked.
   useEffect(() => {
@@ -44,7 +53,32 @@ export function DiffView({
     setAnchorIndex(undefined);
     setDraft(undefined);
     setText("");
+    setMatchIndex(0);
   }, [diff.path]);
+
+  useEffect(() => {
+    if (currentMatch !== undefined) lineRefs.current.get(currentMatch)?.scrollIntoView({ block: "nearest" });
+  }, [currentMatch]);
+
+  const openFind = () => {
+    setFindOpen(true);
+    requestAnimationFrame(() => {
+      findRef.current?.focus();
+      findRef.current?.select();
+    });
+  };
+
+  const closeFind = () => {
+    setFindOpen(false);
+    const target = currentMatch !== undefined && lines[currentMatch] && isCommentable(lines[currentMatch]);
+    if (target) focusLine(currentMatch);
+    else lineRefs.current.get(focused ?? firstCommentable ?? -1)?.focus();
+  };
+
+  const stepMatch = (direction: 1 | -1) => {
+    if (matches.length === 0) return;
+    setMatchIndex((current) => (Math.min(current, matches.length - 1) + direction + matches.length) % matches.length);
+  };
 
   useEffect(() => {
     if (draft) textareaRef.current?.focus();
@@ -157,7 +191,17 @@ export function DiffView({
       : 0;
 
   return (
-    <section className="review-diff-panel" aria-label={`Diff for ${diff.path}`}>
+    <section
+      className="review-diff-panel"
+      aria-label={`Diff for ${diff.path}`}
+      onKeyDown={(event) => {
+        if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f") {
+          if (lines.length === 0) return;
+          event.preventDefault();
+          openFind();
+        }
+      }}
+    >
       <div className="review-diff-header">
         <Icon name="file" size={12} />
         <span className="review-diff-path">{diff.path}</span>
@@ -181,7 +225,67 @@ export function DiffView({
             <span className="review-diff-hint">Pick lines to comment</span>
           ) : null
         ) : null}
+        {lines.length > 0 ? (
+          <IconButton
+            label="Find in diff"
+            icon="search"
+            size="xs"
+            shortcut="Mod+F"
+            pressed={findOpen}
+            onClick={() => (findOpen ? closeFind() : openFind())}
+          />
+        ) : null}
       </div>
+      {findOpen ? (
+        <search className="diff-find">
+          <Icon name="search" size={12} />
+          <input
+            ref={findRef}
+            className="diff-find-input"
+            type="search"
+            value={query}
+            placeholder="Find in this diff"
+            aria-label="Find in diff"
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setMatchIndex(0);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                stepMatch(event.shiftKey ? -1 : 1);
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                closeFind();
+              }
+            }}
+          />
+          <span className="diff-find-count" aria-live="polite">
+            {!query
+              ? ""
+              : matches.length === 0
+                ? "No matches"
+                : `${matches.indexOf(currentMatch ?? -1) + 1} of ${matches.length}`}
+          </span>
+          <IconButton
+            label="Previous match"
+            icon="chevronUp"
+            size="xs"
+            shortcut="Shift+Enter"
+            disabled={matches.length === 0}
+            onClick={() => stepMatch(-1)}
+          />
+          <IconButton
+            label="Next match"
+            icon="chevronDown"
+            size="xs"
+            shortcut="Enter"
+            disabled={matches.length === 0}
+            onClick={() => stepMatch(1)}
+          />
+          <IconButton label="Close find" icon="x" size="xs" shortcut="Escape" onClick={closeFind} />
+        </search>
+      ) : null}
       <div className="review-diff">
         {lines.length > 0 ? (
           <div
@@ -211,7 +315,7 @@ export function DiffView({
                     if (element) lineRefs.current.set(line.index, element);
                     else lineRefs.current.delete(line.index);
                   }}
-                  className={lineClass(line, selected, commented.has(line.index))}
+                  className={`${lineClass(line, selected, commented.has(line.index))}${line.index === currentMatch ? " is-find-current" : ""}`}
                   role="option"
                   data-line={line.index}
                   tabIndex={commentable ? (tabStop ? 0 : -1) : undefined}
@@ -234,7 +338,20 @@ export function DiffView({
                       <Icon name="plus" size={10} />
                     ) : null}
                   </span>
-                  <span className="diff-text">{line.text || " "}</span>
+                  <span className="diff-text">
+                    {activeQuery && line.text
+                      ? splitOnMatches(line.text, activeQuery).map((part, partIndex) =>
+                          part.match ? (
+                            // biome-ignore lint/suspicious/noArrayIndexKey: parts never reorder within one render.
+                            <mark className="diff-find-hit" key={partIndex}>
+                              {part.text}
+                            </mark>
+                          ) : (
+                            part.text
+                          ),
+                        )
+                      : line.text || " "}
+                  </span>
                   {commented.has(line.index) ? <span className="sr-only"> (commented)</span> : null}
                 </div>
               );

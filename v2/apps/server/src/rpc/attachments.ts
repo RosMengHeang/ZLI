@@ -1,16 +1,17 @@
 import { createHash } from "node:crypto";
-import { mkdir, open, realpath, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 
-import type { ImageMimeType, ThreadAttachment, ThreadAttachmentUpload } from "@zli-v2/contracts";
+import type { AttachmentMimeType, ThreadAttachment, ThreadAttachmentUpload } from "@zli-v2/contracts";
 
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
-const EXTENSIONS: Record<ImageMimeType, string> = {
+const EXTENSIONS: Record<AttachmentMimeType, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
   "image/gif": "gif",
   "image/webp": "webp",
+  "text/plain": "txt",
 };
 
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/u;
@@ -24,7 +25,7 @@ export class AttachmentError extends Error {
 }
 
 /**
- * Writes uploaded image bytes under `<root>/<threadId>/` and returns path-only attachments, so the
+ * Writes uploaded file bytes under `<root>/<threadId>/` and returns path-only attachments, so the
  * durable event log never holds image data. Files are named by content hash, which keeps a retried
  * command (same commandId, same bytes) identical to the original and therefore idempotent.
  */
@@ -34,7 +35,7 @@ export async function storeThreadAttachments(
   uploads: readonly ThreadAttachmentUpload[],
 ): Promise<ThreadAttachment[]> {
   if (uploads.length === 0) return [];
-  if (!root) throw new AttachmentError("Image attachments are unavailable in this runtime.");
+  if (!root) throw new AttachmentError("Attachments are unavailable in this runtime.");
   if (!THREAD_DIRECTORY.test(threadId)) throw new AttachmentError("Attachment thread id is invalid.");
   const directory = join(root, threadId);
   const stored: ThreadAttachment[] = [];
@@ -44,7 +45,7 @@ export async function storeThreadAttachments(
     } else if (upload.path !== undefined) {
       stored.push(await adoptStoredFile(directory, upload.name, upload.mimeType, upload.path));
     } else {
-      throw new AttachmentError(`Attachment ${upload.name} has no image data.`);
+      throw new AttachmentError(`Attachment ${upload.name} has no data.`);
     }
   }
   return stored;
@@ -53,7 +54,7 @@ export async function storeThreadAttachments(
 async function storeUpload(
   directory: string,
   name: string,
-  mimeType: ImageMimeType,
+  mimeType: AttachmentMimeType,
   dataBase64: string,
 ): Promise<ThreadAttachment> {
   if (dataBase64.length % 4 !== 0 || !BASE64.test(dataBase64)) {
@@ -65,7 +66,7 @@ async function storeUpload(
   const bytes = Buffer.from(dataBase64, "base64");
   if (bytes.length === 0) throw new AttachmentError(`Attachment ${name} is empty.`);
   if (!matchesMimeType(bytes, mimeType)) {
-    throw new AttachmentError(`Attachment ${name} is not a ${mimeType} image.`);
+    throw new AttachmentError(mismatch(name, mimeType));
   }
   await mkdir(directory, { recursive: true });
   const path = join(directory, `${createHash("sha256").update(bytes).digest("hex")}.${EXTENSIONS[mimeType]}`);
@@ -77,14 +78,14 @@ async function storeUpload(
   return { name, mimeType, path };
 }
 
-/** A client may resend an image this runtime already stored for the same thread, but nothing else on disk. */
+/** A client may resend a file this runtime already stored for the same thread, but nothing else on disk. */
 async function adoptStoredFile(
   directory: string,
   name: string,
-  mimeType: ImageMimeType,
+  mimeType: AttachmentMimeType,
   candidate: string,
 ): Promise<ThreadAttachment> {
-  const rejected = new AttachmentError(`Attachment ${name} must be an image stored for this thread.`);
+  const rejected = new AttachmentError(`Attachment ${name} must be a file stored for this thread.`);
   if (!isAbsolute(candidate)) throw rejected;
   let resolvedDirectory: string;
   let resolvedPath: string;
@@ -98,13 +99,18 @@ async function adoptStoredFile(
   if (!inside || inside.startsWith("..") || isAbsolute(inside)) throw rejected;
   const info = await stat(resolvedPath);
   if (!info.isFile() || info.size === 0 || info.size > MAX_ATTACHMENT_BYTES) throw rejected;
-  if (!matchesMimeType(await readHead(resolvedPath), mimeType)) {
-    throw new AttachmentError(`Attachment ${name} is not a ${mimeType} image.`);
-  }
+  const bytes = mimeType === "text/plain" ? await readFile(resolvedPath) : await readHead(resolvedPath);
+  if (!matchesMimeType(bytes, mimeType)) throw new AttachmentError(mismatch(name, mimeType));
   return { name, mimeType, path: resolvedPath };
 }
 
-export function matchesMimeType(bytes: Uint8Array, mimeType: ImageMimeType): boolean {
+function mismatch(name: string, mimeType: AttachmentMimeType): string {
+  return mimeType === "text/plain"
+    ? `Attachment ${name} is not plain UTF-8 text.`
+    : `Attachment ${name} is not a ${mimeType} image.`;
+}
+
+export function matchesMimeType(bytes: Uint8Array, mimeType: AttachmentMimeType): boolean {
   const startsWith = (signature: readonly number[], offset = 0) =>
     bytes.length >= offset + signature.length && signature.every((byte, index) => bytes[offset + index] === byte);
   switch (mimeType) {
@@ -116,6 +122,18 @@ export function matchesMimeType(bytes: Uint8Array, mimeType: ImageMimeType): boo
       return startsWith([0x47, 0x49, 0x46, 0x38]);
     case "image/webp":
       return startsWith([0x52, 0x49, 0x46, 0x46]) && startsWith([0x57, 0x45, 0x42, 0x50], 8);
+    case "text/plain":
+      return isPlainText(bytes);
+  }
+}
+
+function isPlainText(bytes: Uint8Array): boolean {
+  if (bytes.includes(0)) return false;
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return true;
+  } catch {
+    return false;
   }
 }
 

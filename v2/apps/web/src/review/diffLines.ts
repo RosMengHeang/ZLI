@@ -86,3 +86,26 @@ export function formatLocation(path: string, anchor: LineAnchor): string {
   const range = anchor.start === anchor.end ? `${anchor.start}` : `${anchor.start}-${anchor.end}`;
   return anchor.side === "new" ? `${path}:${range}` : `${path}:${range} (before this change)`;
 }
+
+/** Indexes of the lines that contain `query`, ignoring case. An empty query matches nothing. */
+export function findInLines(lines: readonly DiffLine[], query: string): number[] {
+  const needle = query.toLowerCase();
+  if (!needle) return [];
+  return lines.filter((line) => line.text.toLowerCase().includes(needle)).map((line) => line.index);
+}
+
+/** `text` cut into plain and matching runs, so every occurrence of `query` can be highlighted. */
+export function splitOnMatches(text: string, query: string): Array<{ text: string; match: boolean }> {
+  const needle = query.toLowerCase();
+  if (!needle) return [{ text, match: false }];
+  const haystack = text.toLowerCase();
+  const parts: Array<{ text: string; match: boolean }> = [];
+  let from = 0;
+  for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + needle.length)) {
+    if (at > from) parts.push({ text: text.slice(from, at), match: false });
+    parts.push({ text: text.slice(at, at + needle.length), match: true });
+    from = at + needle.length;
+  }
+  if (from < text.length) parts.push({ text: text.slice(from), match: false });
+  return parts;
+}

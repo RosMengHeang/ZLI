@@ -133,6 +133,13 @@ const paths = {
       <path d="M14 2v4a2 2 0 0 0 2 2h4" />
     </>
   ),
+  fileText: (
+    <>
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+      <path d="M10 9H8M16 13H8M16 17H8" />
+    </>
+  ),
   chevronRight: <path d="m9 18 6-6-6-6" />,
   paperclip: (
     <path d="m16 6-8.41 8.59a2 2 0 0 0 2.83 2.83l8.49-8.48a4 4 0 0 0-5.66-5.66l-8.49 8.49a6 6 0 0 0 8.49 8.49L21 12" />
@@ -179,6 +186,7 @@ const paths = {
     </>
   ),
   chevronDown: <path d="m6 9 6 6 6-6" />,
+  chevronUp: <path d="m18 15-6-6-6 6" />,
   more: (
     <>
       <circle cx="12" cy="12" r="1" />

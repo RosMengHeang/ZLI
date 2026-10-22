@@ -1,4 +1,4 @@
-import type { ImageMimeType, PermissionMode, ProviderModelOption } from "@zli-v2/contracts";
+import type { AttachmentMimeType, ImageMimeType, PermissionMode, ProviderModelOption } from "@zli-v2/contracts";
 import { type ClipboardEvent, type DragEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { PromptList, usePromptPicker } from "../prompts/PromptPicker.js";
@@ -7,10 +7,20 @@ import { useSharedPrompts } from "../prompts/useSharedPrompts.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { formatTokens } from "../usage/usage.js";
+import {
+  attachmentOnlyMessage,
+  isLongPaste,
+  lineCount,
+  MAX_TEXT_ATTACHMENT_BYTES,
+  textBase64,
+  textByteLength,
+} from "./pastedText.js";
 
-export type ComposerAttachment = { name: string; mimeType: ImageMimeType; dataBase64: string };
+export type ComposerAttachment = { name: string; mimeType: AttachmentMimeType; dataBase64: string };
 
-type Draft = { id: string; file: File; mimeType: ImageMimeType; previewUrl: string };
+type Draft =
+  | { kind: "image"; id: string; file: File; mimeType: ImageMimeType; previewUrl: string }
+  | { kind: "text"; id: string; name: string; text: string; lines: number };
 
 const IMAGE_TYPES: readonly ImageMimeType[] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 const MAX_ATTACHMENTS = 8;
@@ -48,7 +58,7 @@ function isImageType(value: string): value is ImageMimeType {
   return (IMAGE_TYPES as readonly string[]).includes(value);
 }
 
-function readBase64(file: File): Promise<string> {
+function readBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -112,7 +122,7 @@ export function Composer({
 
   useEffect(
     () => () => {
-      for (const image of imagesRef.current) URL.revokeObjectURL(image.previewUrl);
+      for (const image of imagesRef.current) if (image.kind === "image") URL.revokeObjectURL(image.previewUrl);
     },
     [],
   );
@@ -130,6 +140,7 @@ export function Composer({
         continue;
       }
       accepted.push({
+        kind: "image",
         id: `${file.name}-${file.size}-${Math.random().toString(36).slice(2)}`,
         file,
         mimeType: file.type,
@@ -138,17 +149,50 @@ export function Composer({
     }
     setImages((current) => {
       const next = [...current, ...accepted];
-      if (next.length > MAX_ATTACHMENTS) setError(`Attach up to ${MAX_ATTACHMENTS} images per message.`);
+      if (next.length > MAX_ATTACHMENTS) setError(`Attach up to ${MAX_ATTACHMENTS} files per message.`);
       return next.slice(0, MAX_ATTACHMENTS);
+    });
+  };
+
+  const addPastedText = (text: string) => {
+    setError(undefined);
+    if (textByteLength(text) > MAX_TEXT_ATTACHMENT_BYTES) {
+      setError("Pasted text is larger than 10 MB.");
+      return;
+    }
+    setImages((current) => {
+      if (current.length >= MAX_ATTACHMENTS) {
+        setError(`Attach up to ${MAX_ATTACHMENTS} files per message.`);
+        return current;
+      }
+      const number = current.filter((entry) => entry.kind === "text").length + 1;
+      return [
+        ...current,
+        {
+          kind: "text",
+          id: `pasted-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          name: `pasted-text-${number}.txt`,
+          text,
+          lines: lineCount(text),
+        },
+      ];
     });
   };
 
   const removeImage = (id: string) => {
     setImages((current) => {
       const removed = current.find((image) => image.id === id);
-      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+      if (removed?.kind === "image" && removed.previewUrl) URL.revokeObjectURL(removed.previewUrl);
       return current.filter((image) => image.id !== id);
     });
+  };
+
+  const inlinePastedText = (id: string) => {
+    const entry = images.find((image) => image.id === id);
+    if (entry?.kind !== "text") return;
+    setDraft((current) => (current ? `${current.replace(/\s+$/u, "")}\n\n${entry.text}` : entry.text));
+    removeImage(id);
+    textareaRef.current?.focus();
   };
 
   const submit = async (event: FormEvent) => {
@@ -159,16 +203,23 @@ export function Composer({
     setError(undefined);
     try {
       const attachments = await Promise.all(
-        images.map(async (image) => ({
-          name: image.file.name || "image",
-          mimeType: image.mimeType,
-          dataBase64: await readBase64(image.file),
-        })),
+        images.map(
+          async (image): Promise<ComposerAttachment> =>
+            image.kind === "text"
+              ? { name: image.name, mimeType: "text/plain", dataBase64: textBase64(image.text) }
+              : {
+                  name: image.file.name || "image",
+                  mimeType: image.mimeType,
+                  dataBase64: await readBase64(image.file),
+                },
+        ),
       );
       setDraft("");
-      const sent = await onSubmit(text || "See the attached images.", attachments);
+      const texts = images.filter((image) => image.kind === "text").length;
+      const sent = await onSubmit(text || attachmentOnlyMessage(images.length - texts, texts), attachments);
       if (sent) {
-        for (const image of images) if (image.previewUrl) URL.revokeObjectURL(image.previewUrl);
+        for (const image of images)
+          if (image.kind === "image" && image.previewUrl) URL.revokeObjectURL(image.previewUrl);
         setImages([]);
       } else setDraft(text);
     } catch (cause) {
@@ -181,9 +232,15 @@ export function Composer({
 
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = [...event.clipboardData.files].filter((file) => file.type.startsWith("image/"));
-    if (files.length === 0) return;
+    if (files.length > 0) {
+      event.preventDefault();
+      addFiles(files);
+      return;
+    }
+    const pasted = event.clipboardData.getData("text/plain");
+    if (!isLongPaste(pasted)) return;
     event.preventDefault();
-    addFiles(files);
+    addPastedText(pasted);
   };
 
   const onDrop = (event: DragEvent<HTMLFormElement>) => {
@@ -203,21 +260,51 @@ export function Composer({
       onDrop={onDrop}
     >
       {images.length > 0 ? (
-        <ul className="composer-attachments" aria-label="Attached images">
-          {images.map((image) => (
-            <li className="composer-attachment" key={image.id}>
-              {image.previewUrl ? <img src={image.previewUrl} alt="" /> : <Icon name="image" size={14} />}
-              <span>{image.file.name || "image"}</span>
-              <IconButton
-                className="composer-attachment-remove"
-                label={`Remove ${image.file.name || "image"}`}
-                icon="x"
-                size="xs"
-                iconSize={11}
-                onClick={() => removeImage(image.id)}
-              />
-            </li>
-          ))}
+        <ul className="composer-attachments" aria-label="Attachments">
+          {images.map((image) =>
+            image.kind === "text" ? (
+              <li className="composer-attachment is-text" key={image.id} title={image.text.slice(0, 400)}>
+                <span className="composer-attachment-icon" aria-hidden="true">
+                  <Icon name="fileText" size={14} />
+                </span>
+                <span className="composer-attachment-label">
+                  <span>Pasted text</span>
+                  <span className="composer-attachment-meta">
+                    {image.lines === 1 ? "1 line" : `${image.lines.toLocaleString()} lines`}
+                  </span>
+                </span>
+                <IconButton
+                  label={`Put ${image.name} back in the message`}
+                  tooltip="Put it back in the message"
+                  icon="pencil"
+                  size="xs"
+                  iconSize={11}
+                  onClick={() => inlinePastedText(image.id)}
+                />
+                <IconButton
+                  label={`Remove ${image.name}`}
+                  tooltip="Remove"
+                  icon="x"
+                  size="xs"
+                  iconSize={11}
+                  onClick={() => removeImage(image.id)}
+                />
+              </li>
+            ) : (
+              <li className="composer-attachment" key={image.id}>
+                {image.previewUrl ? <img src={image.previewUrl} alt="" /> : <Icon name="image" size={14} />}
+                <span>{image.file.name || "image"}</span>
+                <IconButton
+                  className="composer-attachment-remove"
+                  label={`Remove ${image.file.name || "image"}`}
+                  icon="x"
+                  size="xs"
+                  iconSize={11}
+                  onClick={() => removeImage(image.id)}
+                />
+              </li>
+            ),
+          )}
         </ul>
       ) : null}
       <PromptList

@@ -1,4 +1,4 @@
-import type { ProviderCapabilities, ProviderKind, ThreadId } from "@zli-v2/contracts";
+import { isImageMimeType, type ProviderCapabilities, type ProviderKind, type ThreadId } from "@zli-v2/contracts";
 import { AcpClient, AcpProviderError, type AcpProviderEvent, type AcpToolUpdate } from "@zli-v2/provider-acp";
 
 import {
@@ -106,10 +106,9 @@ export class AcpProviderAdapter implements ProviderAdapter {
 
   async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
     const context = this.context(input.threadId);
-    const attachments = input.attachments?.map((attachment) => ({
-      mimeType: attachment.mimeType,
-      path: attachment.path,
-    }));
+    const attachments = input.attachments
+      ?.filter((attachment) => isImageMimeType(attachment.mimeType))
+      .map((attachment) => ({ mimeType: attachment.mimeType, path: attachment.path }));
     const result = await context.client.sendTurn({
       text: input.text,
       ...(input.model ? { model: input.model } : {}),

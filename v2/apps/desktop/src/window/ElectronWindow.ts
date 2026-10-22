@@ -1,9 +1,13 @@
-import { isAllowedMainNavigation } from "../security/NavigationPolicy.js";
+import { isAllowedMainNavigation, isAllowedSubframeNavigation } from "../security/NavigationPolicy.js";
 
 export type BrowserWindowLike = {
   webContents: {
     setWindowOpenHandler(handler: (details: { url: string }) => { action: "deny" }): void;
     on(event: "will-navigate", listener: (event: { preventDefault(): void }, url: string) => void): void;
+    on(
+      event: "will-frame-navigate",
+      listener: (event: { url: string; isMainFrame: boolean; preventDefault(): void }) => void,
+    ): void;
     on(event: "render-process-gone", listener: () => void): void;
     reload(): void;
     isDestroyed?(): boolean;
@@ -45,6 +49,10 @@ export function createMainWindow(
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => {
     if (!isAllowedMainNavigation(url, appOrigin)) event.preventDefault();
+  });
+  // Reply previews are sandboxed frames; a link inside one would otherwise load the web page in place.
+  window.webContents.on("will-frame-navigate", (event) => {
+    if (!event.isMainFrame && !isAllowedSubframeNavigation(event.url)) event.preventDefault();
   });
   window.webContents.on("render-process-gone", () => window.webContents.reload());
   return window;

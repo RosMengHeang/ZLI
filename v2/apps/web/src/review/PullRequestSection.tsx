@@ -1,5 +1,5 @@
 import type { PullRequestCheck, PullRequestInfo, WorktreeProjection } from "@zli-v2/contracts";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import type { SessionMode } from "../sessions/sessions.js";
