@@ -35,14 +35,16 @@ export function ChatView({
   worktree,
   onOpenDiff,
   onRestart,
+  onHandoff,
 }: {
   projection: RuntimeProjection;
   thread: ThreadProjection;
   worktree: WorktreeProjection | undefined;
   onOpenDiff(path?: string): void;
   onRestart(): void;
+  onHandoff?: (() => void) | undefined;
 }) {
-  const { dispatch } = useRuntime();
+  const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
   const [model, setModel] = useState<string | undefined>(thread.model);
   const threadMode = thread.permissionMode ?? "full-access";
@@ -301,12 +303,23 @@ export function ChatView({
                   {thread.errorMessage ?? "A new chat starts fresh in the same worktree."}
                 </span>
               </span>
+              {onHandoff ? (
+                <Button
+                  size="sm"
+                  icon="handoff"
+                  tooltip="Start another agent from this conversation"
+                  onClick={onHandoff}
+                >
+                  Switch agent
+                </Button>
+              ) : null}
               <Button variant="primary" size="sm" icon="plus" onClick={onRestart}>
                 New chat
               </Button>
             </div>
           ) : (
             <Composer
+              capture={bridge?.capture}
               displayName={displayName}
               branch={worktree?.branch ?? "this worktree"}
               disabled={thread.status === "starting"}

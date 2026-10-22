@@ -68,6 +68,7 @@ export function AgentTile({
   onShowSetupOutput,
   run,
   onKeep,
+  onHandoff,
 }: {
   projection: RuntimeProjection;
   session: AgentSession;
@@ -90,6 +91,8 @@ export function AgentTile({
   /** Where this agent sits in a best-of run that is still being compared. */
   run?: RunPosition | undefined;
   onKeep(): void;
+  /** Absent when the chat has nothing to hand over yet. */
+  onHandoff?: (() => void) | undefined;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
@@ -192,6 +195,16 @@ export function AgentTile({
             >
               <span className="tile-keep-label">Keep this one</span>
             </Button>
+          ) : null}
+          {mode === "chat" && onHandoff ? (
+            <IconButton
+              label="Continue with another agent"
+              tooltip="Continue this chat with another agent"
+              icon="handoff"
+              size="sm"
+              iconSize={13}
+              onClick={onHandoff}
+            />
           ) : null}
           {mode === "chat" && (thread?.status === "working" || thread?.status === "waiting") ? (
             <IconButton label="Interrupt" tooltip="Interrupt the turn" icon="pause" size="sm" onClick={interrupt} />
@@ -308,6 +321,7 @@ export function AgentTile({
             worktree={worktree}
             onOpenDiff={onOpenDiff}
             onRestart={() => void start("chat")}
+            onHandoff={onHandoff}
           />
         ) : (
           <EmptyState

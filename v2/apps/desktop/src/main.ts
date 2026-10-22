@@ -1,10 +1,7 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, shell, WebContentsView } from "electron";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { WebSocket } from "ws";
-
 import { RuntimeClient, type RuntimeTransport } from "@zli-v2/client-runtime";
 import {
   BrowserFillInput,
@@ -20,13 +17,27 @@ import {
   RpcRequest,
   TerminalId,
 } from "@zli-v2/contracts";
+import {
+  app,
+  BrowserWindow,
+  desktopCapturer,
+  dialog,
+  ipcMain,
+  net,
+  protocol,
+  screen,
+  session,
+  shell,
+  WebContentsView,
+} from "electron";
+import { WebSocket } from "ws";
 
 import { createAgentControlActions, isAgentControlAction } from "./agents/AgentControlActions.js";
-import { BrowserManager } from "./browser/BrowserManager.js";
 import { BrowserAutomation } from "./browser/BrowserAutomation.js";
 import { createBrowserControlActions } from "./browser/BrowserControlActions.js";
 import { BrowserControlServer } from "./browser/BrowserControlServer.js";
-import { browserToolEnvironment, type BrowserToolPaths, writeBrowserToolShims } from "./browser/BrowserToolShim.js";
+import { BrowserManager } from "./browser/BrowserManager.js";
+import { type BrowserToolPaths, browserToolEnvironment, writeBrowserToolShims } from "./browser/BrowserToolShim.js";
 import { CdpSession, type ElectronDebuggerLike } from "./browser/CdpSession.js";
 import { DesignMode } from "./browser/DesignMode.js";
 import {
@@ -35,13 +46,15 @@ import {
   createInputWaker,
   type WakeableWebContents,
 } from "./browser/HiddenRendering.js";
+import { type CaptureDependencies, captureSource, listCaptureSources, parseSourceId } from "./capture/WindowCapture.js";
 import { DesktopDiagnostics } from "./diagnostics/DesktopDiagnostics.js";
 import { registerAgentNotifications } from "./notifications/electronNotifications.js";
-import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
 import { ensureDesktopDaemon } from "./runtime/DesktopDaemon.js";
+import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
+import { ensureScratchFolder } from "./scratch/ScratchFolder.js";
 import { shouldOpenExternal } from "./security/NavigationPolicy.js";
 import { resolveAppAsset } from "./window/ElectronProtocol.js";
-import { createMainWindow, type BrowserWindowConstructor } from "./window/ElectronWindow.js";
+import { type BrowserWindowConstructor, createMainWindow } from "./window/ElectronWindow.js";
 
 const DEFAULT_ENVIRONMENT_ID = "00000000-0000-4000-8000-000000000001";
 const APP_ORIGIN = "zli-v2://app";
@@ -60,6 +73,7 @@ let browserManager: BrowserManager | undefined;
 let browserControl: BrowserControlServer | undefined;
 let mainWindow: BrowserWindow | undefined;
 let approvedSupportBundleRoot: string | undefined;
+let scratchFolderPath: string | undefined;
 /** Test launches record links instead of starting the system browser. */
 let lastExternalUrl: string | undefined;
 
@@ -72,6 +86,8 @@ async function main(): Promise<void> {
     return net.fetch(pathToFileURL(asset).toString());
   });
   const databasePath = process.env.ZLI_DATABASE_PATH ?? join(app.getPath("userData"), "runtime.sqlite");
+  // Test launches keep scratch chats next to their throwaway database.
+  scratchFolderPath = join(process.env.ZLI_DATABASE_PATH ? dirname(databasePath) : app.getPath("userData"), "Scratch");
   await ensureDesktopDaemon({
     entryPath: join(DESKTOP_DIST, "daemon-entry.js"),
     endpointPath: `${databasePath}.daemon.json`,
@@ -312,6 +328,24 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
     });
     return result.canceled ? undefined : result.filePaths[0];
   });
+  ipcMain.handle("zli:scratch:folder", async () => {
+    if (!scratchFolderPath) throw new Error("ZLI is still starting.");
+    return ensureScratchFolder(scratchFolderPath);
+  });
+  const capture: CaptureDependencies = {
+    getSources: (options) => desktopCapturer.getSources(options),
+    largestDisplay: () =>
+      screen.getAllDisplays().reduce(
+        (largest, display) => {
+          const width = Math.round(display.size.width * display.scaleFactor);
+          const height = Math.round(display.size.height * display.scaleFactor);
+          return width * height > largest.width * largest.height ? { width, height } : largest;
+        },
+        { width: 1, height: 1 },
+      ),
+  };
+  ipcMain.handle("zli:capture:sources", () => listCaptureSources(capture));
+  ipcMain.handle("zli:capture:take", (_event, input: unknown) => captureSource(capture, parseSourceId(input)));
   ipcMain.handle("zli:menu:trigger", (_event, input: { command?: string }) => {
     if (!input || !["new-project", "settings", "toggle-sidebar"].includes(input.command ?? "")) {
       throw new Error("Unknown menu command.");

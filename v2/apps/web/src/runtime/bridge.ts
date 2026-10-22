@@ -51,6 +51,11 @@ export type ZliBridge = {
     saveSupportBundle(): Promise<string | undefined>;
     openLegacySnapshot(): Promise<string | undefined>;
   };
+  scratch?: { folder(): Promise<string | undefined> };
+  capture?: {
+    sources(): Promise<CaptureSource[]>;
+    take(id: string): Promise<{ name: string; dataBase64: string }>;
+  };
   menu: { trigger(command: string): Promise<unknown> };
   app: { getVersion(): Promise<string>; quit(): Promise<void>; openExternal?(url: string): Promise<unknown> };
   test?: { restartRuntime(): Promise<unknown>; crashMain(): Promise<unknown>; takeExternalUrl?(): Promise<unknown> };
@@ -63,6 +68,9 @@ export type ZliBridge = {
 };
 
 export type NotificationSettings = { enabled: boolean; sound: boolean };
+
+/** A window or screen that can be attached as a picture. The thumbnail is a data URL. */
+export type CaptureSource = { id: string; name: string; kind: "window" | "screen"; thumbnail?: string };
 
 declare global {
   interface Window {

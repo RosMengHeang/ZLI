@@ -1,5 +1,6 @@
 import {
   type ProjectProjection,
+  type RuntimeProjection,
   type SetupDecision,
   WorktreeId,
   type WorktreeProjection,
@@ -8,9 +9,10 @@ import {
 } from "@zli-v2/contracts";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { isSelectableProvider, providerDisplayName } from "../agent/providers.js";
+import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
 import { AttentionPanel } from "../attention/AttentionPanel.js";
 import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
+import { textBase64 } from "../chat/pastedText.js";
 import { devServerCommands } from "../devservers/DevServers.js";
 import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
 import type { FilesFocus } from "../files/FilesPane.js";
@@ -26,7 +28,9 @@ import { RuntimeProvider, useRuntime, useShellProjection } from "../runtime/Runt
 import { AgentTile } from "../sessions/AgentTile.js";
 import { type RunGroup, runBranches, runPosition, withoutRun, worktreeInProgress } from "../sessions/bestOf.js";
 import { firstMessageStep, TERMINAL_FIRST_MESSAGE_DELAY_MS, terminalFirstMessage } from "../sessions/firstMessage.js";
-import { createWorktree, ensureCheckout, safeBranchName, startSessionAgent } from "../sessions/launch.js";
+import type { HandoffRequest } from "../sessions/HandoffDialog.js";
+import { canHandOff, inlineFirstMessage } from "../sessions/handoff.js";
+import { createWorktree, ensureCheckout, safeBranchName, samePath, startSessionAgent } from "../sessions/launch.js";
 import { NewAgentDialog, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
 import {
   type AgentSession,
@@ -38,6 +42,7 @@ import {
   sessionTitle,
 } from "../sessions/sessions.js";
 import { forgetSession, useWorkbenchState } from "../sessions/workbench.js";
+import { resolveLaunchDefaults, useAppSettings } from "../settings/appSettings.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
 import { SettingsDialog, type SettingsSection } from "../settings/SettingsDialog.js";
 import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
@@ -69,6 +74,9 @@ import "../files/files.css";
 
 // The editor is large, so it loads the first time the Files panel opens instead of at startup.
 const FilesPane = lazy(() => import("../files/FilesPane.js").then((module) => ({ default: module.FilesPane })));
+const HandoffDialog = lazy(() =>
+  import("../sessions/HandoffDialog.js").then((module) => ({ default: module.HandoffDialog })),
+);
 const UsageDialog = lazy(() => import("../usage/UsageDialog.js").then((module) => ({ default: module.UsageDialog })));
 // The diff viewer and pull request tools load the first time the Changes panel opens.
 const ReviewPane = lazy(() => import("../review/ReviewPane.js").then((module) => ({ default: module.ReviewPane })));
@@ -85,6 +93,7 @@ function WorkspaceApp() {
   const { bridge, dispatch } = useRuntime();
   const projection = useShellProjection();
   const [workbench, updateWorkbench] = useWorkbenchState();
+  const settings = useAppSettings();
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string>();
   const [sidePane, setSidePane] = useState<SidePane>();
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
@@ -101,6 +110,7 @@ function WorkspaceApp() {
   const [usageOpen, setUsageOpen] = useState(false);
   const [closeRequest, setCloseRequest] = useState<AgentSession>();
   const [deleteRequest, setDeleteRequest] = useState<AgentSession>();
+  const [handoffRequest, setHandoffRequest] = useState<AgentSession>();
   const [version, setVersion] = useState<string>();
   const [browserReveal, setBrowserReveal] = useState<BrowserReveal>();
   const [browserOpen, setBrowserOpen] = useState<BrowserOpenRequest>();
@@ -314,6 +324,7 @@ function WorkspaceApp() {
       setUsageOpen(false);
       setCloseRequest(undefined);
       setDeleteRequest(undefined);
+      setHandoffRequest(undefined);
       setPromptManager(undefined);
       const approval = setupApprovalRef.current;
       if (approval) deferSetup(approval);
@@ -373,15 +384,18 @@ function WorkspaceApp() {
         updateWorkbench((state) => {
           // The pending entry may already be gone because the session showed up in the projection first.
           const prompt = failure ? undefined : launch.prompt;
+          const message = prompt
+            ? { text: prompt, ...(launch.promptFile ? { file: launch.promptFile } : {}) }
+            : undefined;
           return {
             ...state,
             pending: state.pending.map((candidate) => {
               if (candidate.sessionId !== launch.sessionId) return candidate;
               if (failure) return { ...candidate, errorMessage: failure };
-              const { prompt: _prompt, ...rest } = candidate;
+              const { prompt: _prompt, promptFile: _file, ...rest } = candidate;
               return { ...rest, started: true };
             }),
-            ...(prompt ? { firstMessages: { ...state.firstMessages, [launch.sessionId]: prompt } } : {}),
+            ...(message ? { firstMessages: { ...state.firstMessages, [launch.sessionId]: message } } : {}),
           };
         });
       });
@@ -416,7 +430,7 @@ function WorkspaceApp() {
         showError(cause instanceof Error ? cause.message : "The first message could not be sent.");
       }
     };
-    for (const [sessionId, text] of Object.entries(workbench.firstMessages)) {
+    for (const [sessionId, message] of Object.entries(workbench.firstMessages)) {
       if (delivering.current.has(sessionId)) continue;
       const step = firstMessageStep(sessions.find((session) => session.sessionId === sessionId));
       if (step.kind === "wait") continue;
@@ -427,12 +441,18 @@ function WorkspaceApp() {
       delivering.current.add(sessionId);
       if (step.kind === "chat") {
         forget(sessionId);
-        void run({ type: "thread.send", threadId: step.threadId, text }).finally(() =>
-          delivering.current.delete(sessionId),
-        );
+        const { file } = message;
+        void run({
+          type: "thread.send",
+          threadId: step.threadId,
+          text: message.text,
+          ...(file
+            ? { attachments: [{ name: file.name, mimeType: "text/plain", dataBase64: textBase64(file.text) }] }
+            : {}),
+        }).finally(() => delivering.current.delete(sessionId));
         continue;
       }
-      const keys = terminalFirstMessage(text);
+      const keys = terminalFirstMessage(inlineFirstMessage(message.text, message.file));
       setTimeout(() => {
         forget(sessionId);
         void run({ type: "terminal.write", terminalId: step.terminalId, data: keys.body })
@@ -456,6 +476,81 @@ function WorkspaceApp() {
       command: { type: "project.register", path },
     });
     if (response?.accepted === false) showError(response.error.message);
+  };
+
+  /** Polls the projection, which catches up with a command a moment after it is accepted. */
+  const waitForProjection = async <T,>(
+    pick: (current: RuntimeProjection) => T | undefined,
+    timeoutMs = 8000,
+  ): Promise<T | undefined> => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const current = projectionRef.current;
+      const found = current ? pick(current) : undefined;
+      if (found !== undefined) return found;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return undefined;
+  };
+
+  const startingScratch = useRef(false);
+  /** A chat outside any project, in a folder of its own that ZLI keeps for quick questions. */
+  const startScratchChat = async () => {
+    setPaletteOpen(false);
+    if (!bridge?.scratch) {
+      showError("The desktop bridge is unavailable. Start ZLI from Electron.");
+      return;
+    }
+    if (startingScratch.current) return;
+    startingScratch.current = true;
+    setNotice(undefined);
+    try {
+      const path = await bridge.scratch.folder();
+      if (!path) throw new Error("The scratch folder could not be created.");
+      const findProject = (current: RuntimeProjection) =>
+        current.projects.find((candidate) => samePath(candidate.path, path));
+      let project = projectionRef.current ? findProject(projectionRef.current) : undefined;
+      if (!project) {
+        const response = await dispatch({
+          protocolVersion: 1,
+          commandId: makeCommandId(),
+          command: { type: "project.register", path },
+        });
+        if (response?.accepted === false) throw new Error(response.error.message);
+        project = await waitForProjection(findProject);
+      }
+      const current = projectionRef.current;
+      if (!project || !current) throw new Error("The scratch folder could not be added.");
+      const listed = listedDiscoveries(current.providers);
+      const defaults = resolveLaunchDefaults(settings, project.projectId);
+      const provider =
+        listed.find((entry) => entry.provider === defaults.provider && entry.status === "found")?.provider ??
+        (listed.some((entry) => entry.status === "found") ? preferredProvider(listed) : undefined);
+      if (!provider) throw new Error("No agent CLI is installed. Install one, then start a scratch chat.");
+      const checkout = await ensureCheckout(dispatch, current, project);
+      if ("error" in checkout) throw new Error(checkout.error);
+      const launch: PendingLaunch = {
+        sessionId: makeCommandId(),
+        worktreeId: checkout.worktreeId,
+        provider,
+        mode: "chat",
+        permissionMode: defaults.permissionMode ?? "full-access",
+        ...(defaults.provider === provider && defaults.model ? { model: defaults.model } : {}),
+        createdAt: new Date().toISOString(),
+      };
+      updateWorkbench((state) => ({
+        ...state,
+        pending: [...state.pending, launch],
+        modes: { ...state.modes, [launch.sessionId]: "chat" },
+        activeSessionId: launch.sessionId,
+        maximizedSessionId: undefined,
+      }));
+      setSelectedWorktreeId(checkout.worktreeId);
+    } catch (cause) {
+      showError(cause instanceof Error ? cause.message : "The scratch chat could not start.");
+    } finally {
+      startingScratch.current = false;
+    }
   };
 
   const exportSupportBundle = async () => {
@@ -639,6 +734,39 @@ function WorkspaceApp() {
     if (partialFailure) showError(partialFailure);
     return undefined;
   };
+  const submitHandoff = async (from: AgentSession, request: HandoffRequest): Promise<string | undefined> => {
+    const worktree = findWorktree(from.worktreeId);
+    if (worktree?.status !== "ready") return "The worktree for this agent is gone.";
+    if (request.stopCurrent) await stopSession(from);
+    const launch: PendingLaunch = {
+      sessionId: makeCommandId(),
+      worktreeId: worktree.worktreeId,
+      provider: request.provider,
+      mode: request.mode,
+      permissionMode: from.thread?.permissionMode ?? "full-access",
+      prompt: request.message.text,
+      promptFile: request.message.transcript,
+      createdAt: new Date().toISOString(),
+    };
+    updateWorkbench((state) => ({
+      ...state,
+      pending: [...state.pending, launch],
+      modes: { ...state.modes, [launch.sessionId]: request.mode },
+      closed:
+        request.stopCurrent && !state.closed.includes(from.sessionId)
+          ? [...state.closed, from.sessionId]
+          : state.closed,
+      activeSessionId: launch.sessionId,
+      ...(state.maximizedSessionId ? { maximizedSessionId: launch.sessionId } : {}),
+    }));
+    setHandoffRequest(undefined);
+    return undefined;
+  };
+  const handoffTarget = (session: AgentSession | undefined) =>
+    session && canHandOff(session, projection?.messages) && findWorktree(session.worktreeId)?.status === "ready"
+      ? session
+      : undefined;
+
   const send = async (command: Record<string, unknown>): Promise<boolean> => {
     try {
       const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
@@ -822,6 +950,16 @@ function WorkspaceApp() {
         ]
       : []),
     { label: "Add project", icon: "folderPlus", group: "Create", action: () => void openProject() },
+    ...(bridge?.scratch
+      ? [
+          {
+            label: "New scratch chat",
+            icon: "scratch" as const,
+            group: "Create" as const,
+            action: () => void startScratchChat(),
+          },
+        ]
+      : []),
     ...(tiles.length > 0
       ? [
           {
@@ -832,6 +970,19 @@ function WorkspaceApp() {
               setSidePane(undefined);
               const target = activeSession ?? tiles.at(-1);
               if (target) focusSession(target);
+            },
+          },
+        ]
+      : []),
+    ...(handoffTarget(activeSession)
+      ? [
+          {
+            label: "Continue with another agent",
+            icon: "handoff" as const,
+            group: "Create" as const,
+            action: () => {
+              setPaletteOpen(false);
+              setHandoffRequest(activeSession);
             },
           },
         ]
@@ -902,6 +1053,7 @@ function WorkspaceApp() {
     usageOpen ||
     closeRequest !== undefined ||
     deleteRequest !== undefined ||
+    handoffRequest !== undefined ||
     keepRequest !== undefined ||
     promptManager !== undefined ||
     (legacyImportBatchId !== undefined && projection !== undefined);
@@ -911,6 +1063,10 @@ function WorkspaceApp() {
   const overlayOpen = otherOverlayOpen || setupApproval !== undefined;
   const { columns, rows } = gridLayout(visibleTiles.length, gridWidth);
   const keepPosition = keepRequest ? runPosition(workbench.groups, keepRequest.sessionId) : undefined;
+  const handoffSession = handoffRequest
+    ? sessions.find((session) => session.sessionId === handoffRequest.sessionId)
+    : undefined;
+  const handoffWorktree = handoffSession ? findWorktree(handoffSession.worktreeId) : undefined;
 
   return (
     <FileIndexProvider onOpenFile={openFile}>
@@ -984,6 +1140,7 @@ function WorkspaceApp() {
                       closedCount={sessions.length}
                       onOpenProject={() => void openProject()}
                       onNewAgent={() => openNewAgent()}
+                      onScratchChat={bridge.scratch ? () => void startScratchChat() : undefined}
                     />
                   ) : (
                     <div
@@ -1032,6 +1189,7 @@ function WorkspaceApp() {
                           onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
                           run={runPosition(workbench.groups, session.sessionId)}
                           onKeep={() => setKeepRequest(session)}
+                          onHandoff={handoffTarget(session) ? () => setHandoffRequest(session) : undefined}
                         />
                       ))}
                     </div>
@@ -1168,6 +1326,17 @@ function WorkspaceApp() {
             onCancel={() => setDeleteRequest(undefined)}
           />
         )}
+        {handoffSession && handoffWorktree && projection ? (
+          <Suspense fallback={null}>
+            <HandoffDialog
+              projection={projection}
+              session={handoffSession}
+              worktree={handoffWorktree}
+              onClose={() => setHandoffRequest(undefined)}
+              onSubmit={(request) => submitHandoff(handoffSession, request)}
+            />
+          </Suspense>
+        ) : null}
         {keepRequest && keepPosition && projection ? (
           <KeepRunDialog
             index={keepPosition.index}

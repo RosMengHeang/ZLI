@@ -1,9 +1,20 @@
 import type { AttachmentMimeType, ImageMimeType, PermissionMode, ProviderModelOption } from "@zli-v2/contracts";
-import { type ClipboardEvent, type DragEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ClipboardEvent,
+  type DragEvent,
+  type FormEvent,
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { PromptList, usePromptPicker } from "../prompts/PromptPicker.js";
 import { combinePrompts, requestPromptManager, slashQuery, usePersonalPrompts } from "../prompts/prompts.js";
 import { useSharedPrompts } from "../prompts/useSharedPrompts.js";
+import type { ZliBridge } from "../runtime/bridge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { formatTokens } from "../usage/usage.js";
@@ -15,6 +26,8 @@ import {
   textBase64,
   textByteLength,
 } from "./pastedText.js";
+
+const CapturePicker = lazy(() => import("./CapturePicker.js").then((module) => ({ default: module.CapturePicker })));
 
 export type ComposerAttachment = { name: string; mimeType: AttachmentMimeType; dataBase64: string };
 
@@ -83,6 +96,7 @@ export function Composer({
   onPermissionModeChange,
   projectId,
   context,
+  capture,
   onSubmit,
 }: {
   displayName: string;
@@ -102,12 +116,15 @@ export function Composer({
   projectId: string | undefined;
   /** How full the context window was after the agent's latest turn, when it reports that. */
   context?: { tokens: number; window?: number } | undefined;
+  /** Window capture from the desktop app. Absent where it is not available. */
+  capture?: ZliBridge["capture"] | undefined;
   onSubmit(text: string, attachments: ComposerAttachment[]): Promise<boolean>;
 }) {
   const [draft, setDraft] = useState("");
   const [images, setImages] = useState<Draft[]>([]);
   const [error, setError] = useState<string>();
   const [sending, setSending] = useState(false);
+  const [capturing, setCapturing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const personalPrompts = usePersonalPrompts();
@@ -259,6 +276,22 @@ export function Composer({
       }}
       onDrop={onDrop}
     >
+      {capturing && capture ? (
+        <Suspense fallback={null}>
+          <CapturePicker
+            capture={capture}
+            onPick={(file) => {
+              addFiles([file]);
+              setCapturing(false);
+              textareaRef.current?.focus();
+            }}
+            onClose={() => {
+              setCapturing(false);
+              textareaRef.current?.focus();
+            }}
+          />
+        </Suspense>
+      ) : null}
       {images.length > 0 ? (
         <ul className="composer-attachments" aria-label="Attachments">
           {images.map((image) =>
@@ -377,6 +410,15 @@ export function Composer({
             event.target.value = "";
           }}
         />
+        {capture ? (
+          <IconButton
+            label="Attach a window"
+            tooltip="Attach a picture of an open window"
+            icon="appWindow"
+            pressed={capturing}
+            onClick={() => setCapturing((open) => !open)}
+          />
+        ) : null}
         <IconButton
           label="Saved prompts"
           tooltip="Saved prompts, or type / to search them"

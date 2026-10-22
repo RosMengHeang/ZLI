@@ -1,9 +1,12 @@
 import { useCallback, useState } from "react";
 
 import { parseRunGroups, type RunGroup, withoutRun } from "./bestOf.js";
+import type { FirstMessageFile } from "./handoff.js";
 import type { PendingLaunch, SessionMode } from "./sessions.js";
 
 const STORAGE_KEY = "zli.workbench.v1";
+
+export type FirstMessage = { text: string; file?: FirstMessageFile };
 
 export type WorkbenchState = {
   /** Sessions removed from the grid. They stay in the sidebar and keep running. */
@@ -11,7 +14,7 @@ export type WorkbenchState = {
   modes: Record<string, SessionMode>;
   pending: PendingLaunch[];
   /** First messages waiting for their agent to be ready for input, by session. */
-  firstMessages: Record<string, string>;
+  firstMessages: Record<string, FirstMessage>;
   /** Best-of runs that are still being compared. */
   groups: RunGroup[];
   activeSessionId?: string | undefined;
@@ -51,6 +54,16 @@ export function forgetSession(state: WorkbenchState, sessionId: string): Workben
   };
 }
 
+/** Earlier versions stored the first message as a bare string. */
+function parseFirstMessage(value: unknown): FirstMessage | undefined {
+  if (typeof value === "string") return value.length > 0 ? { text: value } : undefined;
+  if (typeof value !== "object" || value === null) return undefined;
+  const { text, file } = value as { text?: unknown; file?: unknown };
+  if (typeof text !== "string" || text.length === 0) return undefined;
+  const { name, text: body } = (file ?? {}) as { name?: unknown; text?: unknown };
+  return typeof name === "string" && typeof body === "string" ? { text, file: { name, text: body } } : { text };
+}
+
 function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string").slice(-500) : [];
 }
@@ -74,9 +87,10 @@ export function parseWorkbenchState(raw: string | null): WorkbenchState {
             (entry.mode === "terminal" || entry.mode === "chat"),
         )
       : [];
-    const firstMessages: Record<string, string> = {};
-    for (const [key, text] of Object.entries(value.firstMessages ?? {}).slice(0, 50)) {
-      if (typeof text === "string" && text.length > 0) firstMessages[key] = text;
+    const firstMessages: Record<string, FirstMessage> = {};
+    for (const [key, entry] of Object.entries((value.firstMessages ?? {}) as Record<string, unknown>).slice(0, 50)) {
+      const message = parseFirstMessage(entry);
+      if (message) firstMessages[key] = message;
     }
     return {
       closed: strings(value.closed),

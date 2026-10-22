@@ -249,6 +249,25 @@ const paths = {
     </>
   ),
   externalLink: <path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />,
+  handoff: <path d="m16 3 4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" />,
+  monitor: (
+    <>
+      <rect width="20" height="14" x="2" y="3" rx="2" />
+      <path d="M8 21h8M12 17v4" />
+    </>
+  ),
+  appWindow: (
+    <>
+      <rect width="20" height="16" x="2" y="4" rx="2" />
+      <path d="M10 4v4M2 8h20M6 4v4" />
+    </>
+  ),
+  scratch: (
+    <>
+      <path d="M12 20h9" />
+      <path d="M16.38 3.62a1 1 0 0 1 3 3L7.37 18.64a2 2 0 0 1-.86.5l-2.87.84a.5.5 0 0 1-.62-.62l.84-2.87a2 2 0 0 1 .5-.86z" />
+    </>
+  ),
 } as const;
 
 export type IconName = keyof typeof paths;

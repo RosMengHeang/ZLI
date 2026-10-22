@@ -6,19 +6,19 @@ import {
   BrowserPressInput,
   BrowserReloadInput,
   BrowserRevealEvent,
-  BrowserSetBoundsInput,
-  BrowserSetViewportInput,
   BrowserScreenshotInput,
   BrowserSelectorInput,
+  BrowserSetBoundsInput,
+  BrowserSetViewportInput,
   BrowserTabCreateInput,
   BrowserTabIdInput,
   BrowserTabProjection,
+  type BrowserViewport,
   BrowserWaitForNetworkIdleInput,
   RpcRequest,
   RpcResponse,
   RuntimeEventEnvelope,
   RuntimeProjection,
-  type BrowserViewport,
   TerminalAttachSnapshot,
   TerminalStreamMessage,
 } from "@zli-v2/contracts";
@@ -111,6 +111,23 @@ function createProjectionMirror(ipc: IpcBridge) {
       };
     },
   };
+}
+
+type CaptureSource = { id: string; name: string; kind: "window" | "screen"; thumbnail?: string };
+
+function parseCaptureSources(value: unknown): CaptureSource[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const { id, name, kind, thumbnail } = (entry ?? {}) as Record<string, unknown>;
+    if (typeof id !== "string" || typeof name !== "string" || (kind !== "window" && kind !== "screen")) return [];
+    return [{ id, name, kind, ...(typeof thumbnail === "string" ? { thumbnail } : {}) }];
+  });
+}
+
+function parseCapture(value: unknown): { name: string; dataBase64: string } {
+  const { name, dataBase64 } = (value ?? {}) as Record<string, unknown>;
+  if (typeof name !== "string" || typeof dataBase64 !== "string") throw new Error("The capture could not be read.");
+  return { name, dataBase64 };
 }
 
 export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean } = {}) {
@@ -213,6 +230,17 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
         const path = await ipc.invoke("zli:dialog:open-legacy-snapshot");
         return typeof path === "string" ? path : undefined;
       },
+    },
+    scratch: {
+      /** The scratch chats folder, created on first use. */
+      folder: async () => {
+        const path = await ipc.invoke("zli:scratch:folder");
+        return typeof path === "string" ? path : undefined;
+      },
+    },
+    capture: {
+      sources: async () => parseCaptureSources(await ipc.invoke("zli:capture:sources")),
+      take: async (id: string) => parseCapture(await ipc.invoke("zli:capture:take", { id })),
     },
     menu: {
       trigger: (command: string) => ipc.invoke("zli:menu:trigger", { command }),
