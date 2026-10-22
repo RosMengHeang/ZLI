@@ -13,9 +13,6 @@ v2/**/dist
 v2/**/coverage
 v2/**/*.tsbuildinfo
 .worktrees
-dist
-dist-ssr
-src-tauri/binaries/zli-*
 *.local
 
 # Editor directories and files

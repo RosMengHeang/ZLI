@@ -123,7 +123,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
       await setRendererRandomUUID(fixture.page, false);
       rendererRandomUUIDDisabled = true;
     }
-    await page.getByRole("button", { name: "Review", exact: true }).click();
+    await page.getByRole("button", { name: "Changes", exact: true }).click();
     await page.getByRole("button", { name: "Refresh changes" }).click();
     await expect(page.getByText("change.txt")).toBeVisible({ timeout: 20_000 });
     await page.getByRole("button", { name: /change\.txt/iu }).click();

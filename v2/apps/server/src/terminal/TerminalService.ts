@@ -104,6 +104,7 @@ class Subscriber {
   private closed = false;
   private overflowed = false;
   private pendingBytes = 0;
+  private queuedChunks = 0;
 
   constructor(
     private readonly terminalId: TerminalId,
@@ -115,7 +116,10 @@ class Subscriber {
   next(): Promise<TerminalStreamMessage | undefined> {
     const message = this.queue.shift();
     if (message) {
-      this.pendingBytes -= message.kind === "chunk" ? Buffer.byteLength(message.chunk.bytesBase64, "base64") : 0;
+      if (message.kind === "chunk") {
+        this.pendingBytes -= Buffer.byteLength(message.chunk.bytesBase64, "base64");
+        this.queuedChunks -= 1;
+      }
       return Promise.resolve(message);
     }
     if (this.closed) return Promise.resolve(undefined);
@@ -131,11 +135,7 @@ class Subscriber {
     }
     if (message.kind === "chunk") {
       const size = Buffer.byteLength(message.chunk.bytesBase64, "base64");
-      if (
-        this.overflowed ||
-        this.queue.filter((entry) => entry.kind === "chunk").length >= this.maxChunks ||
-        this.pendingBytes + size > this.maxBytes
-      ) {
+      if (this.overflowed || this.queuedChunks >= this.maxChunks || this.pendingBytes + size > this.maxBytes) {
         if (!this.overflowed) {
           this.overflowed = true;
           this.queue.push({
@@ -147,6 +147,7 @@ class Subscriber {
         return;
       }
       this.pendingBytes += size;
+      this.queuedChunks += 1;
     }
     this.queue.push(message);
   }
@@ -156,6 +157,7 @@ class Subscriber {
     this.closed = true;
     this.queue.length = 0;
     this.pendingBytes = 0;
+    this.queuedChunks = 0;
     for (const waiter of this.waiters.splice(0)) waiter(undefined);
   }
 }

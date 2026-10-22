@@ -10,8 +10,12 @@ import {
   sessionStopCommands,
   sessionTitle,
 } from "../sessions/sessions.js";
+import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { Kbd } from "../ui/Kbd.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
+import { ariaShortcut } from "../ui/shortcuts.js";
+import "./sidebar.css";
 
 export type WorktreeAction = "retry" | "cancel" | "remove";
 
@@ -80,44 +84,39 @@ export function Sidebar({
   return (
     <aside className="sidebar" aria-label="Projects and agents">
       <div className="sidebar-top">
-        <button
-          className="icon-button"
-          type="button"
-          onClick={onHideSidebar}
-          aria-label="Hide sidebar"
-          title="Hide sidebar (Ctrl B)"
-        >
-          <Icon name="panelLeft" size={15} />
-        </button>
         <span className="brand">
           <span className="brand-mark" aria-hidden="true">
             Z
           </span>
           <span className="wordmark">ZLI</span>
         </span>
+        <span className="sidebar-top-actions">
+          <IconButton label="Open project" icon="folderOpen" onClick={onOpenProject} />
+          <IconButton label="Hide sidebar" icon="panelLeft" shortcut="Mod+B" onClick={onHideSidebar} />
+        </span>
+      </div>
+      <div className="sidebar-primary">
         <button
-          className="icon-button sidebar-top-end"
+          className="btn btn-secondary sidebar-new-agent"
           type="button"
-          onClick={onOpenProject}
-          aria-label="Open project"
-          title="Open project"
+          onClick={() => onNewAgent()}
+          disabled={projects.length === 0}
+          aria-keyshortcuts={ariaShortcut("Mod+N")}
         >
-          <Icon name="folderOpen" size={15} />
+          <Icon name="plus" size={14} />
+          <span>New agent</span>
+          <Kbd shortcut="Mod+N" />
         </button>
       </div>
-      <button className="sidebar-new-agent" type="button" onClick={() => onNewAgent()} disabled={projects.length === 0}>
-        <Icon name="plus" size={14} />
-        <span>New agent</span>
-        <kbd>Ctrl N</kbd>
-      </button>
       <div className="sidebar-scroll">
         {projects.length === 0 ? (
           <div className="sidebar-empty">
-            <p>Open a Git repository. Each agent gets its own terminal, and its own worktree if you want one.</p>
-            <button className="secondary-button" type="button" onClick={onOpenProject}>
-              <Icon name="folderOpen" size={14} />
+            <p>
+              Open a Git repository to start. Each agent gets its own terminal, and its own worktree if you want one.
+            </p>
+            <Button variant="secondary" size="sm" icon="folderOpen" onClick={onOpenProject}>
               Open a folder
-            </button>
+            </Button>
           </div>
         ) : (
           projects.map((project) => {
@@ -128,19 +127,19 @@ export function Sidebar({
               .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
             const worktreesOpen = !collapsedWorktrees.includes(project.projectId);
             return (
-              <section className="sidebar-project" key={project.projectId}>
+              <section className="sidebar-project" key={project.projectId} aria-label={project.name}>
                 <div className="project-label" title={project.path}>
                   <Icon name="folder" size={14} />
                   <span className="project-name">{project.name}</span>
-                  <button
-                    className="icon-button is-small project-action"
-                    type="button"
-                    aria-label={`New agent in ${project.name}`}
-                    title="New agent"
+                  <IconButton
+                    className="project-action"
+                    label={`New agent in ${project.name}`}
+                    tooltip="New agent here"
+                    icon="plus"
+                    size="xs"
+                    iconSize={13}
                     onClick={() => onNewAgent(project)}
-                  >
-                    <Icon name="plus" size={13} />
-                  </button>
+                  />
                 </div>
                 {projectSessions.length === 0 ? (
                   <p className="sidebar-note">No agents yet.</p>
@@ -154,6 +153,7 @@ export function Sidebar({
                       const active = session.sessionId === activeSessionId;
                       const background = backgroundSessionIds.has(session.sessionId);
                       const stoppable = sessionStopCommands(session).length > 0;
+                      const quiet = session.status === "ready" || session.status === "ended";
                       return (
                         <li className="session-entry" key={session.sessionId}>
                           <button
@@ -169,42 +169,39 @@ export function Sidebar({
                               <span className="session-title">{title}</span>
                               <span className="session-meta">
                                 <span className="session-branch">{worktree?.branch ?? "worktree"}</span>
-                                <span className="session-provider">{provider}</span>
-                                {background ? <span className="session-background">background</span> : null}
+                                {background ? <span className="session-background">Background</span> : null}
                               </span>
                             </span>
                             <span className="session-side">
-                              <span className={`session-status is-${session.status}`}>
-                                {session.status === "ready" || session.status === "ended" ? (
-                                  <span className={`status-dot status-session-${session.status}`} aria-hidden="true" />
-                                ) : (
-                                  status
-                                )}
-                              </span>
-                              <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
+                              {quiet ? (
+                                <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
+                              ) : (
+                                <span className={`session-status is-${session.status}`}>
+                                  <span className="dot" aria-hidden="true" />
+                                  {status}
+                                </span>
+                              )}
                             </span>
                           </button>
                           <span className="session-actions">
                             {stoppable ? (
-                              <button
-                                className="icon-button is-small"
-                                type="button"
-                                aria-label={`Stop ${title}`}
-                                title="Stop agent"
+                              <IconButton
+                                label={`Stop ${title}`}
+                                tooltip="Stop agent"
+                                icon="square"
+                                size="xs"
+                                iconSize={10}
                                 onClick={() => onStopSession(session)}
-                              >
-                                <Icon name="square" size={11} />
-                              </button>
+                              />
                             ) : null}
-                            <button
-                              className="icon-button is-small"
-                              type="button"
-                              aria-label={`Delete ${title}`}
-                              title="Delete agent"
+                            <IconButton
+                              label={`Delete ${title}`}
+                              tooltip="Delete agent"
+                              icon="trash"
+                              size="xs"
+                              iconSize={12}
                               onClick={() => onDeleteSession(session)}
-                            >
-                              <Icon name="trash" size={12} />
-                            </button>
+                            />
                           </span>
                         </li>
                       );
@@ -228,15 +225,13 @@ export function Sidebar({
                     Worktrees
                     <span className="worktree-count">{projectWorktrees.length}</span>
                   </button>
-                  <button
-                    className="icon-button is-small"
-                    type="button"
-                    aria-label="Create worktree"
-                    title="Create worktree"
+                  <IconButton
+                    label="Create worktree"
+                    icon="plus"
+                    size="xs"
+                    iconSize={13}
                     onClick={() => onCreateWorktree(project)}
-                  >
-                    <Icon name="plus" size={13} />
-                  </button>
+                  />
                 </div>
                 {worktreesOpen ? (
                   projectWorktrees.length === 0 ? (
@@ -267,9 +262,11 @@ export function Sidebar({
                               <span className={`status-dot status-${worktree.status}`} aria-hidden="true" />
                               <span className="worktree-name">{worktree.branch}</span>
                               {checkout ? <span className="worktree-kind">checkout</span> : null}
-                              <span className="worktree-status">{worktreeStatusLabel[worktree.status]}</span>
+                              <span className={`worktree-status${worktree.status === "ready" ? " is-ready" : ""}`}>
+                                {worktreeStatusLabel[worktree.status]}
+                              </span>
                               {changed ? (
-                                <span className="worktree-changes" title={`${changed} changed files`}>
+                                <span className="count" title={`${changed} changed files`}>
                                   {changed}
                                 </span>
                               ) : null}
@@ -285,61 +282,57 @@ export function Sidebar({
                               }`}
                             >
                               {worktree.status === "failed" ? (
-                                <button
-                                  className="quiet-button"
-                                  type="button"
+                                <Button
+                                  variant="ghost"
+                                  size="xs"
+                                  icon="reload"
                                   onClick={() => onWorktreeAction(worktree, "retry")}
                                 >
-                                  <Icon name="reload" size={12} />
                                   Retry
-                                </button>
+                                </Button>
                               ) : null}
                               {inProgress.has(worktree.status) ? (
-                                <button
-                                  className="quiet-button"
-                                  type="button"
+                                <Button
+                                  variant="ghost"
+                                  size="xs"
+                                  icon="x"
                                   onClick={() => onWorktreeAction(worktree, "cancel")}
                                 >
-                                  <Icon name="x" size={12} />
                                   Cancel
-                                </button>
+                                </Button>
                               ) : confirming ? (
                                 <>
-                                  <button
-                                    className="quiet-button is-danger"
-                                    type="button"
+                                  <Button
+                                    variant="ghost"
+                                    size="xs"
+                                    className="is-danger"
                                     onClick={() => {
                                       setConfirmRemoveId(undefined);
                                       onWorktreeAction(worktree, "remove");
                                     }}
                                   >
                                     {checkout ? "Forget checkout" : "Delete checkout"}
-                                  </button>
-                                  <button
-                                    className="quiet-button"
-                                    type="button"
-                                    onClick={() => setConfirmRemoveId(undefined)}
-                                  >
+                                  </Button>
+                                  <Button variant="ghost" size="xs" onClick={() => setConfirmRemoveId(undefined)}>
                                     Keep
-                                  </button>
+                                  </Button>
                                 </>
                               ) : (
-                                <button
-                                  className="quiet-button"
-                                  type="button"
-                                  disabled={live}
-                                  aria-label="Remove worktree"
-                                  title={
+                                <IconButton
+                                  label="Remove worktree"
+                                  tooltip={
                                     live
-                                      ? "Stop the agents in this worktree first."
+                                      ? "Stop the agents in this worktree first"
                                       : checkout
                                         ? "Remove from ZLI. Files stay on disk."
                                         : "Delete this worktree and its folder"
                                   }
+                                  icon="trash"
+                                  size="xs"
+                                  iconSize={12}
+                                  disabled={live}
                                   onClick={() => setConfirmRemoveId(worktree.worktreeId)}
-                                >
-                                  <Icon name="trash" size={12} />
-                                </button>
+                                />
                               )}
                             </div>
                           </li>
@@ -356,15 +349,13 @@ export function Sidebar({
       <div className="sidebar-footer">
         <span className={`connection-dot${projection ? " is-connected" : ""}`} aria-hidden="true" />
         <span>{projection ? "Local runtime" : "Waiting for runtime"}</span>
-        <button
-          className="icon-button sidebar-help"
-          type="button"
+        <IconButton
+          className="sidebar-help"
+          label="Help"
+          tooltip="Help and diagnostics"
+          icon="help"
           onClick={onOpenHelp}
-          aria-label="Help"
-          title="Help and diagnostics"
-        >
-          <Icon name="help" size={15} />
-        </button>
+        />
       </div>
     </aside>
   );

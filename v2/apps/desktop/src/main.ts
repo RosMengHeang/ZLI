@@ -147,10 +147,11 @@ async function main(): Promise<void> {
       },
     },
   );
-  runtime.subscribe((projection) => {
-    if (!window.webContents.isDestroyed?.() && window.webContents.send) {
-      window.webContents.send("zli:runtime:projection", projection);
-    }
+  runtime.subscribe((projection, change) => {
+    if (window.webContents.isDestroyed?.() || !window.webContents.send) return;
+    // The preload folds events into its own copy; whole projections cross only when main's was replaced.
+    if (change.kind === "event") window.webContents.send("zli:runtime:projection-event", change.envelope);
+    else window.webContents.send("zli:runtime:projection", projection);
   });
   runtime.subscribeTerminal((message) => {
     if (!window.webContents.isDestroyed?.() && window.webContents.send) {

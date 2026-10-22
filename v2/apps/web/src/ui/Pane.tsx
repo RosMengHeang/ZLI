@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
-import { Icon, type IconName } from "./Icon.js";
 
+import { Icon, type IconName } from "./Icon.js";
+import { Kbd } from "./Kbd.js";
+
+/** The header row every utility pane starts with: icon, title, context, then actions. */
 export function PaneHeader({
   icon,
   title,
@@ -13,42 +16,70 @@ export function PaneHeader({
   children?: ReactNode;
 }) {
   return (
-    <div className="tool-pane-header">
-      <div className="tool-pane-title">
-        <Icon name={icon} size={15} />
-        <h2>{title}</h2>
+    <div className="pane-header">
+      <div className="pane-title">
+        <Icon name={icon} size={14} />
+        <h2 title={title}>{title}</h2>
         {detail ? (
-          <span className="tool-pane-detail" title={detail}>
+          <span className="pane-detail" title={detail}>
             {detail}
           </span>
         ) : null}
       </div>
-      {children ? <div className="tool-pane-actions">{children}</div> : null}
+      {children ? <div className="pane-actions">{children}</div> : null}
     </div>
   );
 }
 
+/** Explains why a view is empty and offers the action that fills it. */
 export function EmptyState({
   icon,
+  media,
   title,
   detail,
+  hint,
+  tone,
+  size,
   children,
   className,
 }: {
-  icon: IconName;
+  icon?: IconName;
+  /** Replaces the icon, for example with a provider mark or a spinner. */
+  media?: ReactNode;
   title: string;
   detail?: ReactNode;
+  /** A keyboard shortcut that does the same as the main action, for example "Mod+N". */
+  hint?: { label: string; shortcut: string } | undefined;
+  tone?: "danger";
+  size?: "large";
   children?: ReactNode;
   className?: string;
 }) {
   return (
-    <div className={`empty-pane${className ? ` ${className}` : ""}`}>
-      <span className="empty-icon">
-        <Icon name={icon} size={20} />
+    <div className={`empty-state${size === "large" ? " is-large" : ""}${className ? ` ${className}` : ""}`}>
+      <span className={`empty-state-icon${tone === "danger" ? " is-danger" : ""}`}>
+        {media ?? (icon ? <Icon name={icon} size={18} /> : null)}
       </span>
-      <p className="empty-title">{title}</p>
-      {detail ? <p className="empty-detail">{detail}</p> : null}
-      {children}
+      <p className="empty-state-title">{title}</p>
+      {detail ? <p className="empty-state-detail">{detail}</p> : null}
+      {children ? <div className="empty-state-actions">{children}</div> : null}
+      {hint ? (
+        <p className="empty-state-hint">
+          {hint.label} <Kbd shortcut={hint.shortcut} />
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** A view that is waiting for data. The label says what is loading. */
+export function LoadingState({ label, className }: { label: string; className?: string }) {
+  return (
+    <div className={`empty-state is-loading${className ? ` ${className}` : ""}`} role="status">
+      <p className="loading-line">
+        <span className="spinner" aria-hidden="true" />
+        {label}
+      </p>
     </div>
   );
 }

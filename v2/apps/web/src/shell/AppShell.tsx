@@ -1,4 +1,4 @@
-import { type ProjectProjection, type RuntimeProjection, WorktreeId, type WorktreeProjection } from "@zli-v2/contracts";
+import { type ProjectProjection, WorktreeId, type WorktreeProjection } from "@zli-v2/contracts";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isSelectableProvider, providerDisplayName } from "../agent/providers.js";
@@ -10,14 +10,14 @@ import { QuickOpen } from "../files/QuickOpen.js";
 import { type ReviewFocus, ReviewPane } from "../review/ReviewPane.js";
 import { getBridge, type ZliBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
-import { RuntimeProvider, useRuntime } from "../runtime/RuntimeProvider.js";
+import { RuntimeProvider, useRuntime, useShellProjection } from "../runtime/RuntimeProvider.js";
 import { AgentTile } from "../sessions/AgentTile.js";
 import { createWorktree, ensureCheckout, startSessionAgent } from "../sessions/launch.js";
 import { NewAgentDialog, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
 import {
   type AgentSession,
   deriveSessions,
-  gridColumns,
+  gridLayout,
   type SessionMode,
   sessionStopCommands,
   sessionTitle,
@@ -26,21 +26,23 @@ import { forgetSession, useWorkbenchState } from "../sessions/workbench.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
 import { Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
-import { Icon, type IconName } from "../ui/Icon.js";
-import { PaneHeader } from "../ui/Pane.js";
+import { IconButton } from "../ui/Button.js";
+import { Icon } from "../ui/Icon.js";
+import { TooltipLayer } from "../ui/Tooltip.js";
 import { PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
+import { CloseAgentDialog, DeleteAgentDialog, deletableWorktree } from "./AgentDialogs.js";
+import { CommandPalette, type PaletteCommand } from "./CommandPalette.js";
 import { HelpDialog } from "./HelpDialog.js";
+import { DisconnectedState, GridEmptyState, LoadingFilesPane, RuntimeLoadingState } from "./ShellStates.js";
+import { type SidePane, sidePaneLabel, Topbar } from "./Topbar.js";
+import { useGlobalShortcuts } from "./useGlobalShortcuts.js";
+import { WorktreeDialog } from "./WorktreeDialog.js";
 import "./AppShell.css";
+import "./shell.css";
 import "../files/files.css";
 
 // The editor is large, so it loads the first time the Files panel opens instead of at startup.
 const FilesPane = lazy(() => import("../files/FilesPane.js").then((module) => ({ default: module.FilesPane })));
-
-type SidePane = "files" | "browser" | "review";
-
-const sidePaneLabel: Record<SidePane, string> = { files: "Files", browser: "Browser", review: "Changes" };
-
-type PaletteCommand = { label: string; icon: IconName; hint?: string; action(): void };
 
 export function AppShell({ bridge = getBridge() }: { bridge?: ZliBridge } = {}) {
   return (
@@ -51,18 +53,19 @@ export function AppShell({ bridge = getBridge() }: { bridge?: ZliBridge } = {}) 
 }
 
 function WorkspaceApp() {
-  const { bridge, projection, dispatch } = useRuntime();
+  const { bridge, dispatch } = useRuntime();
+  const projection = useShellProjection();
   const [workbench, updateWorkbench] = useWorkbenchState();
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string>();
   const [sidePane, setSidePane] = useState<SidePane>();
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
-  const [panelWidth, setPanelWidth] = usePanelWidth();
+  const [panelWidth, setPanelWidth] = usePanelWidth(sidePane ?? "files");
+  const [gridRegionRef, gridWidth] = useElementWidth<HTMLElement>();
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [paletteQuery, setPaletteQuery] = useState("");
-  const [activeCommandIndex, setActiveCommandIndex] = useState(0);
   const [worktreeDialogProject, setWorktreeDialogProject] = useState<ProjectProjection>();
   const [newAgentProject, setNewAgentProject] = useState<ProjectProjection | "default">();
-  const [notice, setNotice] = useState<string>();
+  const [notice, setNotice] = useState<{ message: string; tone: "danger" | "info" }>();
+  const showError = useCallback((message: string) => setNotice({ message, tone: "danger" }), []);
   const [legacyImportBatchId, setLegacyImportBatchId] = useState<string>();
   const [helpOpen, setHelpOpen] = useState(false);
   const [closeRequest, setCloseRequest] = useState<AgentSession>();
@@ -71,7 +74,6 @@ function WorkspaceApp() {
   const [browserReveal, setBrowserReveal] = useState<BrowserReveal>();
   const [filesFocus, setFilesFocus] = useState<FilesFocus>();
   const [quickOpen, setQuickOpen] = useState(false);
-  const paletteSearchRef = useRef<HTMLInputElement>(null);
   const launching = useRef(new Set<string>());
   const projectionRef = useRef(projection);
   projectionRef.current = projection;
@@ -192,50 +194,26 @@ function WorkspaceApp() {
     [hasProjects],
   );
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const mod = event.ctrlKey || event.metaKey;
-      const key = event.key.toLowerCase();
-      if (mod && key === "k") {
-        event.preventDefault();
-        setPaletteQuery("");
-        setActiveCommandIndex(0);
-        setPaletteOpen(true);
-      } else if (mod && key === "n" && !event.shiftKey) {
-        event.preventDefault();
-        openNewAgent();
-      } else if (mod && key === "p" && !event.shiftKey) {
-        event.preventDefault();
-        openQuickOpen();
-      } else if (mod && event.shiftKey && key === "f") {
-        event.preventDefault();
-        searchInFiles();
-      } else if (mod && key === "b") {
-        event.preventDefault();
-        updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
-      } else if (mod && key === "j") {
-        event.preventDefault();
-        updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }));
-      } else if (event.key === "Escape") {
-        setPaletteOpen(false);
-        setPaletteQuery("");
-        setQuickOpen(false);
-        setWorktreeDialogProject(undefined);
-        setNewAgentProject(undefined);
-        setLegacyImportBatchId(undefined);
-        setHelpOpen(false);
-        setCloseRequest(undefined);
-        setDeleteRequest(undefined);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openNewAgent, openQuickOpen, searchInFiles, updateWorkbench]);
-
-  useEffect(() => {
-    if (paletteOpen) paletteSearchRef.current?.focus();
-  }, [paletteOpen]);
-
+  const toggleSidebar = () => updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
+  const toggleDrawer = () => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }));
+  useGlobalShortcuts({
+    onPalette: () => setPaletteOpen(true),
+    onNewAgent: () => openNewAgent(),
+    onQuickOpen: openQuickOpen,
+    onSearchFiles: searchInFiles,
+    onToggleSidebar: toggleSidebar,
+    onToggleDrawer: toggleDrawer,
+    onEscape: () => {
+      setPaletteOpen(false);
+      setQuickOpen(false);
+      setWorktreeDialogProject(undefined);
+      setNewAgentProject(undefined);
+      setLegacyImportBatchId(undefined);
+      setHelpOpen(false);
+      setCloseRequest(undefined);
+      setDeleteRequest(undefined);
+    },
+  });
   // Agents wait for their worktree; start each one once its folder is ready.
   useEffect(() => {
     if (!projection) return;
@@ -295,7 +273,7 @@ function WorkspaceApp() {
 
   const openProject = async () => {
     if (!bridge) {
-      setNotice("The desktop bridge is unavailable. Start ZLI from Electron.");
+      showError("The desktop bridge is unavailable. Start ZLI from Electron.");
       return;
     }
     const path = await bridge.dialog.openProject();
@@ -305,12 +283,12 @@ function WorkspaceApp() {
       commandId: makeCommandId(),
       command: { type: "project.register", path },
     });
-    if (response?.accepted === false) setNotice(response.error.message);
+    if (response?.accepted === false) showError(response.error.message);
   };
 
   const exportSupportBundle = async () => {
     if (!bridge) {
-      setNotice("The desktop bridge is unavailable. Start ZLI from Electron.");
+      showError("The desktop bridge is unavailable. Start ZLI from Electron.");
       return;
     }
     const destinationPath = await bridge.dialog.saveSupportBundle();
@@ -320,13 +298,13 @@ function WorkspaceApp() {
       commandId: makeCommandId(),
       command: { type: "diagnostics.createSupportBundle", destinationPath },
     });
-    if (response?.accepted === false) setNotice(response.error.message);
-    else setNotice("Creating a redacted support bundle...");
+    if (response?.accepted === false) showError(response.error.message);
+    else setNotice({ message: "Creating a redacted support bundle.", tone: "info" });
   };
 
   const startLegacyImport = async () => {
     if (!bridge) {
-      setNotice("The desktop bridge is unavailable. Start ZLI from Electron.");
+      showError("The desktop bridge is unavailable. Start ZLI from Electron.");
       return;
     }
     const snapshotPath = await bridge.dialog.openLegacySnapshot();
@@ -339,7 +317,7 @@ function WorkspaceApp() {
       commandId: makeCommandId(),
       command: { type: "legacy.scan", batchId, snapshotPath },
     });
-    if (response?.accepted === false) setNotice(response.error.message);
+    if (response?.accepted === false) showError(response.error.message);
   };
 
   const importLegacyRecords = async (selectedRecordIds: string[]) => {
@@ -349,7 +327,7 @@ function WorkspaceApp() {
       commandId: makeCommandId(),
       command: { type: "legacy.import", batchId: legacyImportBatchId, selectedRecordIds },
     });
-    if (response?.accepted === false) setNotice(response.error.message);
+    if (response?.accepted === false) showError(response.error.message);
   };
 
   const rollbackLegacyImport = async () => {
@@ -359,18 +337,18 @@ function WorkspaceApp() {
       commandId: makeCommandId(),
       command: { type: "legacy.rollbackImport", batchId: legacyImportBatchId },
     });
-    if (response?.accepted === false) setNotice(response.error.message);
+    if (response?.accepted === false) showError(response.error.message);
   };
 
   const bundlePath = projection?.diagnostics?.lastBundle?.path;
   useEffect(() => {
-    if (bundlePath) setNotice(`Support bundle saved: ${bundlePath}`);
+    if (bundlePath) setNotice({ message: `Support bundle saved: ${bundlePath}`, tone: "info" });
   }, [bundlePath]);
 
   useEffect(() => {
     const message = projection?.diagnostics?.lastError;
-    if (message) setNotice(`Support bundle failed: ${message}`);
-  }, [projection?.diagnostics?.lastError]);
+    if (message) showError(`Support bundle failed: ${message}`);
+  }, [projection?.diagnostics?.lastError, showError]);
 
   useEffect(() => {
     if (!helpOpen || !bridge) return;
@@ -391,14 +369,14 @@ function WorkspaceApp() {
           ? { type: "worktree.remove", worktreeId }
           : { type: action === "retry" ? "worktree.retry" : "worktree.cancel", worktreeId },
     });
-    if (response?.accepted === false) setNotice(response.error.message);
+    if (response?.accepted === false) showError(response.error.message);
     else if (action === "remove" && worktree.worktreeId === selectedWorktreeId) setSelectedWorktreeId(undefined);
   };
 
   const submitWorktree = async (project: ProjectProjection, branch: string, baseRef: string) => {
     const result = await createWorktree(dispatch, project, branch, baseRef);
     if ("error" in result) {
-      setNotice(result.error);
+      showError(result.error);
       return;
     }
     setWorktreeDialogProject(undefined);
@@ -452,12 +430,12 @@ function WorkspaceApp() {
     try {
       const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
       if (response?.accepted === false) {
-        setNotice(response.error.message);
+        showError(response.error.message);
         return false;
       }
       return response !== undefined;
     } catch (cause) {
-      setNotice(cause instanceof Error ? cause.message : "The command failed.");
+      showError(cause instanceof Error ? cause.message : "The command failed.");
       return false;
     }
   };
@@ -547,75 +525,74 @@ function WorkspaceApp() {
   const toggleSidePane = (next: SidePane) => setSidePane((current) => (current === next ? undefined : next));
   const commands: PaletteCommand[] = [
     ...(hasProjects
-      ? [{ label: "New agent", icon: "plus" as const, hint: "Ctrl N", action: () => openNewAgent() }]
+      ? [
+          {
+            label: "New agent",
+            icon: "plus" as const,
+            group: "Create" as const,
+            shortcut: "Mod+N",
+            action: () => openNewAgent(),
+          },
+        ]
       : []),
-    { label: "Open project", icon: "folderOpen", action: () => void openProject() },
     ...(hasProjects
       ? [
           {
             label: "New worktree",
             icon: "branch" as const,
+            group: "Create" as const,
             action: () => setWorktreeDialogProject(contextProject ?? projection?.projects[0]),
           },
         ]
       : []),
-    {
-      label: "Focus agent",
-      icon: "bot",
-      action: () => {
-        setSidePane(undefined);
-        const target = activeSession ?? tiles.at(-1);
-        if (target) focusSession(target);
-      },
-    },
-    {
-      label: "Toggle terminal",
-      icon: "terminal",
-      hint: "Ctrl J",
-      action: () => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen })),
-    },
-    ...(contextWorktree?.status === "ready"
+    { label: "Open project", icon: "folderOpen", group: "Create", action: () => void openProject() },
+    ...(tiles.length > 0
       ? [
-          { label: "Go to file", icon: "file" as const, hint: "Ctrl P", action: openQuickOpen },
-          { label: "Search in files", icon: "search" as const, hint: "Ctrl Shift F", action: searchInFiles },
+          {
+            label: "Focus agent",
+            icon: "bot" as const,
+            group: "Go to" as const,
+            action: () => {
+              setSidePane(undefined);
+              const target = activeSession ?? tiles.at(-1);
+              if (target) focusSession(target);
+            },
+          },
         ]
       : []),
-    { label: "Focus files", icon: "folderTree", action: () => setSidePane("files") },
-    { label: "Focus browser", icon: "globe", action: () => setSidePane("browser") },
-    { label: "Focus review", icon: "diff", action: () => setSidePane("review") },
+    ...(contextWorktree?.status === "ready"
+      ? [
+          {
+            label: "Go to file",
+            icon: "file" as const,
+            group: "Go to" as const,
+            shortcut: "Mod+P",
+            action: openQuickOpen,
+          },
+          {
+            label: "Search in files",
+            icon: "search" as const,
+            group: "Go to" as const,
+            shortcut: "Mod+Shift+F",
+            action: searchInFiles,
+          },
+        ]
+      : []),
+    { label: "Toggle terminal", icon: "terminal", group: "View", shortcut: "Mod+J", action: toggleDrawer },
+    { label: "Focus files", icon: "folderTree", group: "View", action: () => setSidePane("files") },
+    { label: "Focus browser", icon: "globe", group: "View", action: () => setSidePane("browser") },
+    { label: "Focus changes", icon: "diff", group: "View", action: () => setSidePane("review") },
     {
       label: workbench.sidebarOpen ? "Hide sidebar" : "Show sidebar",
       icon: "panelLeft",
-      hint: "Ctrl B",
-      action: () => updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen })),
+      group: "View",
+      shortcut: "Mod+B",
+      action: toggleSidebar,
     },
-    { label: "Export support bundle", icon: "download", action: () => void exportSupportBundle() },
-    { label: "Import legacy snapshot", icon: "upload", action: () => void startLegacyImport() },
-    { label: "Help and diagnostics", icon: "help", action: () => setHelpOpen(true) },
+    { label: "Export support bundle", icon: "download", group: "App", action: () => void exportSupportBundle() },
+    { label: "Import legacy snapshot", icon: "upload", group: "App", action: () => void startLegacyImport() },
+    { label: "Help and diagnostics", icon: "help", group: "App", action: () => setHelpOpen(true) },
   ];
-  const filteredCommands = commands.filter((command) =>
-    command.label.toLowerCase().includes(paletteQuery.trim().toLowerCase()),
-  );
-  const runPaletteCommand = (command: PaletteCommand) => {
-    setPaletteOpen(false);
-    setPaletteQuery("");
-    command.action();
-  };
-  const handlePaletteKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setActiveCommandIndex((index) => (filteredCommands.length === 0 ? 0 : (index + 1) % filteredCommands.length));
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setActiveCommandIndex((index) =>
-        filteredCommands.length === 0 ? 0 : (index - 1 + filteredCommands.length) % filteredCommands.length,
-      );
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      const command = filteredCommands[activeCommandIndex];
-      if (command) runPaletteCommand(command);
-    }
-  };
   const overlayOpen =
     paletteOpen ||
     quickOpen ||
@@ -625,8 +602,7 @@ function WorkspaceApp() {
     closeRequest !== undefined ||
     deleteRequest !== undefined ||
     (legacyImportBatchId !== undefined && projection !== undefined);
-  const columns = gridColumns(visibleTiles.length);
-  const rows = Math.max(1, Math.ceil(visibleTiles.length / columns));
+  const { columns, rows } = gridLayout(visibleTiles.length, gridWidth);
 
   return (
     <FileIndexProvider onOpenFile={openFile}>
@@ -658,113 +634,36 @@ function WorkspaceApp() {
           />
         ) : null}
         <main className="main-workspace">
-          <header className="topbar">
-            {workbench.sidebarOpen ? null : (
-              <button
-                className="icon-button"
-                type="button"
-                onClick={() => updateWorkbench((state) => ({ ...state, sidebarOpen: true }))}
-                aria-label="Show sidebar"
-                title="Show sidebar (Ctrl B)"
-              >
-                <Icon name="panelLeft" size={15} />
-              </button>
-            )}
-            <div className="topbar-context">
-              {contextWorktree ? (
-                <>
-                  {contextProject ? <span className="topbar-project">{contextProject.name}</span> : null}
-                  <span className="topbar-branch" title={contextWorktree.path}>
-                    <Icon name="branch" size={12} />
-                    <span>{contextWorktree.branch}</span>
-                  </span>
-                </>
-              ) : (
-                <span className="topbar-project is-empty">
-                  {hasProjects ? "No worktree selected" : "No project open"}
-                </span>
-              )}
-              {tiles.length > 0 ? (
-                <span className="topbar-count">
-                  {tiles.length} {tiles.length === 1 ? "agent" : "agents"}
-                </span>
-              ) : null}
+          <Topbar
+            sidebarOpen={workbench.sidebarOpen}
+            project={contextWorktree ? contextProject : undefined}
+            worktree={contextWorktree}
+            hasProjects={hasProjects}
+            agentCount={tiles.length}
+            drawerOpen={workbench.drawerOpen}
+            sidePane={sidePane}
+            onShowSidebar={toggleSidebar}
+            onNewAgent={() => openNewAgent()}
+            onToggleDrawer={toggleDrawer}
+            onToggleSidePane={toggleSidePane}
+            onOpenPalette={() => setPaletteOpen(true)}
+          />
+          {notice ? (
+            <div className={`banner banner-${notice.tone}`} role={notice.tone === "danger" ? "alert" : "status"}>
+              <Icon name={notice.tone === "danger" ? "alert" : "check"} size={14} />
+              <span className="banner-message">{notice.message}</span>
+              <IconButton label="Dismiss message" icon="x" size="sm" onClick={() => setNotice(undefined)} />
             </div>
-            <span className="topbar-spacer" />
-            {workbench.sidebarOpen || !hasProjects ? null : (
-              <button className="ghost-button" type="button" onClick={() => openNewAgent()}>
-                <Icon name="plus" size={13} />
-                New agent
-              </button>
-            )}
-            <div className="topbar-tools">
-              <button
-                className={`tool-toggle${workbench.drawerOpen ? " is-active" : ""}`}
-                type="button"
-                aria-pressed={workbench.drawerOpen}
-                title="Terminal (Ctrl J)"
-                onClick={() => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }))}
-              >
-                <Icon name="panelBottom" size={14} />
-                <span>Terminal</span>
-              </button>
-              <button
-                className={`tool-toggle${sidePane === "files" ? " is-active" : ""}`}
-                type="button"
-                aria-pressed={sidePane === "files"}
-                onClick={() => toggleSidePane("files")}
-              >
-                <Icon name="folderTree" size={14} />
-                <span>Files</span>
-              </button>
-              <button
-                className={`tool-toggle${sidePane === "browser" ? " is-active" : ""}`}
-                type="button"
-                aria-pressed={sidePane === "browser"}
-                onClick={() => toggleSidePane("browser")}
-              >
-                <Icon name="globe" size={14} />
-                <span>Browser</span>
-              </button>
-              <button
-                className={`tool-toggle${sidePane === "review" ? " is-active" : ""}`}
-                type="button"
-                aria-pressed={sidePane === "review"}
-                onClick={() => toggleSidePane("review")}
-              >
-                <Icon name="diff" size={14} />
-                <span>Review</span>
-              </button>
-            </div>
-            <button className="command-trigger" type="button" onClick={() => setPaletteOpen(true)}>
-              <Icon name="search" size={13} />
-              <span>Search</span>
-              <kbd>Ctrl K</kbd>
-            </button>
-          </header>
-          {notice && (
-            <div className="notice-bar" role="alert">
-              <Icon name="alert" size={14} />
-              <span>{notice}</span>
-              <button
-                className="icon-button"
-                type="button"
-                onClick={() => setNotice(undefined)}
-                aria-label="Dismiss message"
-              >
-                <Icon name="x" size={14} />
-              </button>
-            </div>
-          )}
+          ) : null}
           <AttentionPanel items={projection?.attention ?? []} />
           {!bridge ? (
             <DisconnectedState />
           ) : !projection ? (
-            <LoadingState />
+            <RuntimeLoadingState />
           ) : (
             <div className="workspace-body">
               <div className="workbench-column">
-                <section className="agent-grid-region" aria-label="Agents">
+                <section className="agent-grid-region" aria-label="Agents" ref={gridRegionRef}>
                   {visibleTiles.length === 0 ? (
                     <GridEmptyState
                       projection={projection}
@@ -777,7 +676,8 @@ function WorkspaceApp() {
                       className="agent-grid"
                       style={{
                         gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-                        gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+                        // Rows keep a usable height; past that the grid scrolls.
+                        gridTemplateRows: `repeat(${rows}, minmax(${rows > 1 ? 260 : 0}px, 1fr))`,
                       }}
                     >
                       {visibleTiles.map((session) => (
@@ -861,58 +761,7 @@ function WorkspaceApp() {
             </div>
           )}
         </main>
-        {paletteOpen && (
-          <div className="palette-backdrop">
-            <button
-              className="dialog-scrim"
-              type="button"
-              aria-label="Close command palette"
-              onClick={() => setPaletteOpen(false)}
-            />
-            <section
-              className="command-palette"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Command palette"
-              onMouseDown={(event) => event.stopPropagation()}
-            >
-              <div className="palette-search">
-                <Icon name="search" size={15} />
-                <input
-                  ref={paletteSearchRef}
-                  value={paletteQuery}
-                  onChange={(event) => {
-                    setPaletteQuery(event.target.value);
-                    setActiveCommandIndex(0);
-                  }}
-                  onKeyDown={handlePaletteKeyDown}
-                  placeholder="Search commands"
-                  aria-label="Search commands"
-                />
-              </div>
-              <div className="palette-section">
-                {filteredCommands.length === 0 ? (
-                  <p className="palette-empty">No matching commands.</p>
-                ) : (
-                  filteredCommands.map((command, index) => (
-                    <button
-                      className={index === activeCommandIndex ? "is-active" : undefined}
-                      type="button"
-                      key={command.label}
-                      aria-label={command.label}
-                      onClick={() => runPaletteCommand(command)}
-                      onMouseMove={() => setActiveCommandIndex(index)}
-                    >
-                      <Icon name={command.icon} size={15} />
-                      <span className="palette-label">{command.label}</span>
-                      {command.hint ? <kbd>{command.hint}</kbd> : null}
-                    </button>
-                  ))
-                )}
-              </div>
-            </section>
-          </div>
-        )}
+        {paletteOpen ? <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} /> : null}
         {quickOpen && contextWorktree ? (
           <QuickOpen
             worktreeId={contextWorktree.worktreeId}
@@ -993,285 +842,22 @@ function WorkspaceApp() {
             onSubmit={submitNewAgent}
           />
         )}
+        <TooltipLayer />
       </div>
     </FileIndexProvider>
   );
 }
 
-function GridEmptyState({
-  projection,
-  closedCount,
-  onOpenProject,
-  onNewAgent,
-}: {
-  projection: RuntimeProjection;
-  closedCount: number;
-  onOpenProject(): void;
-  onNewAgent(): void;
-}) {
-  if (projection.projects.length === 0) {
-    return (
-      <div className="center-state">
-        <span className="empty-icon">
-          <Icon name="folderOpen" size={20} />
-        </span>
-        <h1>Open a project to start</h1>
-        <p>Pick a Git repository. Agents run side by side in it, each in its own terminal.</p>
-        <button className="primary-button" type="button" onClick={onOpenProject}>
-          Open project
-        </button>
-      </div>
-    );
-  }
-  return (
-    <div className="center-state">
-      <span className="empty-icon">
-        <Icon name="grid" size={20} />
-      </span>
-      <h1>No agents on the board</h1>
-      <p>
-        {closedCount > 0
-          ? "Pick an agent in the sidebar to bring it back, or start another one."
-          : "Start an agent in a terminal or a chat. Run several at once, each in its own worktree or in the current checkout."}
-      </p>
-      <button className="primary-button" type="button" onClick={onNewAgent}>
-        <Icon name="plus" size={14} />
-        New agent
-        <kbd>Ctrl N</kbd>
-      </button>
-    </div>
-  );
-}
-
-function LoadingFilesPane() {
-  return (
-    <div className="tool-pane files-pane">
-      <PaneHeader icon="folderTree" title="Files" />
-      <p className="files-hint">Loading the editor</p>
-    </div>
-  );
-}
-
-function LoadingState() {
-  return (
-    <div className="center-state">
-      <span className="empty-icon">
-        <Icon name="loader" size={20} />
-      </span>
-      <h1>Connecting to the local runtime</h1>
-      <p>Projects, worktrees, and agents appear once the runtime responds.</p>
-    </div>
-  );
-}
-
-function DisconnectedState() {
-  return (
-    <div className="center-state">
-      <span className="empty-icon">
-        <Icon name="alert" size={20} />
-      </span>
-      <h1>Start ZLI from the desktop app</h1>
-      <p>
-        This window has no runtime bridge. Run <code>pnpm --dir v2 desktop:dev</code> from the repository root.
-      </p>
-    </div>
-  );
-}
-
-/** A worktree that only this session uses, which deleting the agent may also delete. */
-function deletableWorktree(
-  projection: RuntimeProjection,
-  sessions: readonly AgentSession[],
-  session: AgentSession,
-): WorktreeProjection | undefined {
-  const worktree = projection.worktrees.find((entry) => entry.worktreeId === session.worktreeId);
-  if (!worktree || worktree.kind === "checkout") return undefined;
-  const shared = sessions.some(
-    (other) => other.sessionId !== session.sessionId && other.worktreeId === session.worktreeId,
-  );
-  return shared ? undefined : worktree;
-}
-
-function CloseAgentDialog({
-  title,
-  provider,
-  onStopAndClose,
-  onKeepRunning,
-  onCancel,
-}: {
-  title: string;
-  provider: string;
-  onStopAndClose(): void;
-  onKeepRunning(): void;
-  onCancel(): void;
-}) {
-  const stopRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    stopRef.current?.focus();
+/** The content width of an element, kept current as it resizes. */
+function useElementWidth<T extends HTMLElement>(): [(element: T | null) => void, number | undefined] {
+  const [width, setWidth] = useState<number>();
+  const ref = useCallback((element: T | null) => {
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setWidth(Math.round(entry.contentRect.width));
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
   }, []);
-  return (
-    <div className="palette-backdrop">
-      <button className="dialog-scrim" type="button" aria-label="Cancel" onClick={onCancel} />
-      <section
-        className="dialog confirm-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Close agent"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="dialog-header">
-          <div>
-            <h2>{provider} is still running</h2>
-            <p className="dialog-subtitle">
-              Stop "{title}" and close its tile, or keep it running in the background. A running agent stays in the
-              sidebar so you can reopen it.
-            </p>
-          </div>
-        </div>
-        <div className="dialog-form">
-          <div className="dialog-actions">
-            <button className="secondary-button" type="button" onClick={onCancel}>
-              Cancel
-            </button>
-            <button className="secondary-button" type="button" onClick={onKeepRunning}>
-              Keep running
-            </button>
-            <button className="primary-button" type="button" ref={stopRef} onClick={onStopAndClose}>
-              Stop and close
-            </button>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function DeleteAgentDialog({
-  title,
-  provider,
-  running,
-  worktree,
-  onDelete,
-  onCancel,
-}: {
-  title: string;
-  provider: string;
-  running: boolean;
-  worktree: WorktreeProjection | undefined;
-  onDelete(removeWorktree: boolean): void;
-  onCancel(): void;
-}) {
-  const [removeWorktree, setRemoveWorktree] = useState(false);
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
-  return (
-    <div className="palette-backdrop">
-      <button className="dialog-scrim" type="button" aria-label="Cancel" onClick={onCancel} />
-      <section
-        className="dialog confirm-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Delete agent"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="dialog-header">
-          <div>
-            <h2>Delete this agent?</h2>
-            <p className="dialog-subtitle">
-              {running ? `Stops ${provider} and removes` : "Removes"} "{title}" from ZLI, with its terminal output and
-              chat history. This cannot be undone.
-            </p>
-          </div>
-        </div>
-        <div className="dialog-form">
-          {worktree ? (
-            <label className="check-field">
-              <input
-                type="checkbox"
-                checked={removeWorktree}
-                onChange={(event) => setRemoveWorktree(event.target.checked)}
-              />
-              <span className="choice-copy">
-                <span className="choice-title">Also delete the worktree {worktree.branch}</span>
-                <span className="choice-detail" title={worktree.path}>
-                  Removes the folder {worktree.path}. Uncommitted changes there are lost.
-                </span>
-              </span>
-            </label>
-          ) : null}
-          <div className="dialog-actions">
-            <button className="secondary-button" type="button" ref={cancelRef} onClick={onCancel}>
-              Cancel
-            </button>
-            <button className="primary-button is-danger" type="button" onClick={() => onDelete(removeWorktree)}>
-              {removeWorktree ? "Delete agent and worktree" : "Delete agent"}
-            </button>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function WorktreeDialog({ onClose, onSubmit }: { onClose(): void; onSubmit(branch: string, baseRef: string): void }) {
-  const [branch, setBranch] = useState("");
-  const [baseRef, setBaseRef] = useState("");
-  const branchInputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    branchInputRef.current?.focus();
-  }, []);
-  return (
-    <div className="palette-backdrop">
-      <button className="dialog-scrim" type="button" aria-label="Close worktree dialog" onClick={onClose} />
-      <section
-        className="dialog worktree-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Create worktree"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="dialog-header">
-          <div>
-            <h2>New worktree</h2>
-            <p className="dialog-subtitle">A separate folder and branch, so agents never edit the same files.</p>
-          </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
-            <Icon name="x" size={15} />
-          </button>
-        </div>
-        <form
-          className="dialog-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSubmit(branch, baseRef);
-          }}
-        >
-          <label className="field">
-            <span className="field-label">Branch name</span>
-            <input
-              ref={branchInputRef}
-              value={branch}
-              onChange={(event) => setBranch(event.target.value)}
-              placeholder="feature/my-change"
-            />
-          </label>
-          <label className="field">
-            <span className="field-label">Start from</span>
-            <input value={baseRef} onChange={(event) => setBaseRef(event.target.value)} placeholder="HEAD" />
-            <span className="field-hint">Any ref or commit. Leave empty to use the current HEAD.</span>
-          </label>
-          <div className="dialog-actions">
-            <button className="secondary-button" type="button" onClick={onClose}>
-              Cancel
-            </button>
-            <button className="primary-button" type="submit" disabled={!branch.trim()}>
-              Create worktree
-            </button>
-          </div>
-        </form>
-      </section>
-    </div>
-  );
+  return [ref, width];
 }

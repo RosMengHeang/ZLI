@@ -1,6 +1,7 @@
 import type { ImageMimeType, PermissionMode, ProviderModelOption } from "@zli-v2/contracts";
 import { type ClipboardEvent, type DragEvent, type FormEvent, useEffect, useRef, useState } from "react";
 
+import { IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 
 export type ComposerAttachment = { name: string; mimeType: ImageMimeType; dataBase64: string };
@@ -160,14 +161,14 @@ export function Composer({
             <li className="composer-attachment" key={image.id}>
               {image.previewUrl ? <img src={image.previewUrl} alt="" /> : <Icon name="image" size={14} />}
               <span>{image.file.name || "image"}</span>
-              <button
+              <IconButton
                 className="composer-attachment-remove"
-                type="button"
-                aria-label={`Remove ${image.file.name || "image"}`}
+                label={`Remove ${image.file.name || "image"}`}
+                icon="x"
+                size="xs"
+                iconSize={11}
                 onClick={() => removeImage(image.id)}
-              >
-                <Icon name="x" size={11} />
-              </button>
+              />
             </li>
           ))}
         </ul>
@@ -187,15 +188,12 @@ export function Composer({
         rows={2}
       />
       <div className="composer-footer">
-        <button
-          className="composer-tool"
-          type="button"
-          aria-label="Attach images"
-          title="Attach images (or paste them)"
+        <IconButton
+          label="Attach images"
+          tooltip="Attach images, or paste them"
+          icon="paperclip"
           onClick={() => fileInputRef.current?.click()}
-        >
-          <Icon name="paperclip" size={14} />
-        </button>
+        />
         <input
           ref={fileInputRef}
           className="sr-only"
@@ -210,8 +208,8 @@ export function Composer({
           }}
         />
         <label
-          className="composer-select"
-          title={modelLocked ? `${displayName} keeps its model for the whole session` : "Model"}
+          className={`select-ghost composer-select${modelLocked ? " is-disabled" : ""}`}
+          data-tooltip={modelLocked ? `${displayName} keeps its model for the whole session` : "Model"}
         >
           <Icon name="cpu" size={13} />
           <span className="sr-only">Model</span>
@@ -232,7 +230,7 @@ export function Composer({
         </label>
         <span
           className={`composer-badge is-${permissionMode}`}
-          title={`${permissionLabel[permissionMode]}, set when the session starts`}
+          data-tooltip={`${permissionLabel[permissionMode]}, set when the session starts`}
         >
           <Icon name="shield" size={12} />
           {permissionLabel[permissionMode]}
@@ -242,7 +240,9 @@ export function Composer({
           className="send-button"
           type="submit"
           aria-label="Send"
-          title="Send (Enter)"
+          data-tooltip="Send"
+          data-shortcut="Enter"
+          aria-keyshortcuts="Enter"
           disabled={disabled || sending || (!draft.trim() && images.length === 0)}
         >
           <Icon name="arrowUp" size={15} />
@@ -250,6 +250,7 @@ export function Composer({
       </div>
       {error ? (
         <p className="composer-error" role="alert">
+          <Icon name="alert" size={12} />
           {error}
         </p>
       ) : null}

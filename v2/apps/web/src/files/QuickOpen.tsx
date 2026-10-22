@@ -1,5 +1,6 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
+import { Dialog } from "../ui/Dialog.js";
 import { Icon } from "../ui/Icon.js";
 import { useFileIndex } from "./FileIndex.js";
 import { FileStatusMark } from "./FileTreeView.js";
@@ -40,10 +41,6 @@ export function QuickOpen({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const parsed = parseQuickOpenQuery(query);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
 
   const results = useMemo(() => {
     const entries = index?.entries ?? [];
@@ -95,55 +92,56 @@ export function QuickOpen({
   };
 
   return (
-    <div className="palette-backdrop">
-      <button className="dialog-scrim" type="button" aria-label="Close go to file" onClick={onClose} />
-      <section
-        className="command-palette quick-open"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Go to file"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="palette-search">
-          <Icon name="file" size={15} />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setActiveIndex(0);
-            }}
-            onKeyDown={onKeyDown}
-            placeholder={`Go to file in ${branch}. Add :42 to jump to a line.`}
-            aria-label="File name"
-            spellCheck={false}
-          />
-        </div>
-        <div className="palette-section" ref={listRef}>
-          {!index ? (
-            <p className="palette-empty">Loading files</p>
-          ) : results.length === 0 ? (
-            <p className="palette-empty">No matching files.</p>
-          ) : (
-            results.map((result, position) => (
-              <button
-                className={`quick-open-row${position === activeIndex ? " is-active" : ""}`}
-                type="button"
-                key={result.path}
-                aria-label={result.path}
-                onClick={() => choose(result.path)}
-                onMouseMove={() => setActiveIndex(position)}
-              >
-                <Icon name="file" size={14} />
-                <span className="quick-open-name">{highlight(result.path, result.indices, true)}</span>
-                <span className="quick-open-dir">{highlight(result.path, result.indices, false)}</span>
-                <FileStatusMark status={statuses.get(result.path)} />
-              </button>
-            ))
-          )}
-        </div>
-      </section>
-    </div>
+    <Dialog
+      label="Go to file"
+      className="command-palette quick-open"
+      scrimLabel="Close go to file"
+      initialFocusRef={inputRef}
+      onClose={onClose}
+    >
+      <div className="palette-search">
+        <Icon name="file" size={15} />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setActiveIndex(0);
+          }}
+          onKeyDown={onKeyDown}
+          placeholder={`Go to file in ${branch}. Add :42 to jump to a line.`}
+          aria-label="File name"
+          spellCheck={false}
+        />
+        <kbd>Esc</kbd>
+      </div>
+      <div className="palette-list" ref={listRef}>
+        {!index ? (
+          <p className="palette-empty loading-line">
+            <span className="spinner" aria-hidden="true" />
+            Loading files
+          </p>
+        ) : results.length === 0 ? (
+          <p className="palette-empty">No files match "{parsed.text}".</p>
+        ) : (
+          results.map((result, position) => (
+            <button
+              className={`palette-item quick-open-row${position === activeIndex ? " is-active" : ""}`}
+              type="button"
+              key={result.path}
+              aria-label={result.path}
+              onClick={() => choose(result.path)}
+              onMouseMove={() => setActiveIndex(position)}
+            >
+              <Icon name="file" size={14} />
+              <span className="quick-open-name">{highlight(result.path, result.indices, true)}</span>
+              <span className="quick-open-dir">{highlight(result.path, result.indices, false)}</span>
+              <FileStatusMark status={statuses.get(result.path)} />
+            </button>
+          ))
+        )}
+      </div>
+    </Dialog>
   );
 }
 

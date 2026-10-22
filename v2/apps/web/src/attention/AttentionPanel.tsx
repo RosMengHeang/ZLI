@@ -1,6 +1,13 @@
 import type { AttentionProjection } from "@zli-v2/contracts";
 import { Icon } from "../ui/Icon.js";
 
+const kindLabel: Record<string, string> = {
+  approval: "Approval",
+  "user-input": "Needs input",
+  conflict: "Conflict",
+  failure: "Failed",
+};
+
 export function AttentionPanel({ items }: { items: readonly AttentionProjection[] }) {
   if (items.length === 0) return null;
   return (
@@ -14,7 +21,7 @@ export function AttentionPanel({ items }: { items: readonly AttentionProjection[
           <span className={`attention-mark attention-${item.kind}`} aria-hidden="true" />
           <div>
             <strong>{item.title}</strong>
-            <span>{item.kind.replace("-", " ")}</span>
+            <span className="attention-kind">{kindLabel[item.kind] ?? item.kind}</span>
           </div>
         </div>
       ))}

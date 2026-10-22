@@ -1,16 +1,27 @@
-import type { RuntimeProjection, ThreadId, ThreadProjection, WorktreeProjection } from "@zli-v2/contracts";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type {
+  RuntimeProjection,
+  ThreadId,
+  ThreadMessageProjection,
+  ThreadProjection,
+  WorktreeProjection,
+} from "@zli-v2/contracts";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
-import { useFileLinks } from "../files/FileIndex.js";
+import { type FileLinks, useFileLinks } from "../files/FileIndex.js";
 import { makeCommandId } from "../runtime/commandId.js";
-import { useRuntime } from "../runtime/RuntimeProvider.js";
-import { buildTimeline } from "../sessions/sessions.js";
+import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
+import { entriesForThread, shallowArrayEqual } from "../runtime/runtimeStore.js";
+import { buildTimeline, type TimelineItem } from "../sessions/sessions.js";
+import { Button } from "../ui/Button.js";
+import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
+import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { Composer, type ComposerAttachment } from "./Composer.js";
 import { Markdown } from "./Markdown.js";
 import { ChangedFiles, WorkLog } from "./WorkLog.js";
+import "./chat.css";
 
 export function ChatView({
   projection,
@@ -36,17 +47,35 @@ export function ChatView({
   const displayName = providerDisplayName(thread.provider, projection.providers);
   const discovery = projection.providers?.find((entry) => entry.provider === thread.provider);
   const models = discovery?.status === "found" ? discovery.models : undefined;
-  const messages = useMemo(
-    () => (projection.messages ?? []).filter((message) => message.threadId === thread.threadId),
-    [projection.messages, thread.threadId],
+  // The projection passed in skips chat-only updates, so this thread's chat state is read from the
+  // store. Each selector returns the same value while this thread is unchanged, even when another
+  // thread is streaming.
+  const threadId = thread.threadId;
+  const messages = useRuntimeSelector(
+    useCallback((value: RuntimeProjection | undefined) => entriesForThread(value?.messages, threadId), [threadId]),
+    shallowArrayEqual,
   );
-  const activities = useMemo(
-    () => (projection.activities ?? []).filter((activity) => activity.threadId === thread.threadId),
-    [projection.activities, thread.threadId],
+  const activities = useRuntimeSelector(
+    useCallback((value: RuntimeProjection | undefined) => entriesForThread(value?.activities, threadId), [threadId]),
+    shallowArrayEqual,
   );
-  const timeline = useMemo(() => buildTimeline(messages, activities), [messages, activities]);
+  const request = useRuntimeSelector(
+    useCallback(
+      (value: RuntimeProjection | undefined) => value?.requests?.find((candidate) => candidate.threadId === threadId),
+      [threadId],
+    ),
+  );
+  const previousTimeline = useRef<readonly TimelineItem[]>([]);
+  const timeline = useMemo(() => buildTimeline(messages, activities, previousTimeline.current), [messages, activities]);
+  useEffect(() => {
+    previousTimeline.current = timeline;
+  }, [timeline]);
   const fileLinks = useFileLinks(worktree?.worktreeId, messages.length);
-  const request = projection.requests?.find((candidate) => candidate.threadId === thread.threadId);
+  const latestOpenDiff = useRef(onOpenDiff);
+  useLayoutEffect(() => {
+    latestOpenDiff.current = onOpenDiff;
+  });
+  const openDiff = useCallback((...args: [path?: string]) => latestOpenDiff.current(...args), []);
   const ended = thread.status === "stopped" || thread.status === "failed";
   const working = thread.status === "working" || thread.status === "waiting";
   const peers = useMemo(() => {
@@ -143,7 +172,7 @@ export function ChatView({
   };
 
   const lastTurnRunning = working ? thread.activeTurnId : undefined;
-  const visibleError = error ?? (ended ? thread.errorMessage : undefined);
+  const visibleError = error;
 
   return (
     <div className="chat-view">
@@ -159,73 +188,40 @@ export function ChatView({
       >
         <div className="chat-column">
           {timeline.length === 0 ? (
-            <div className="chat-empty">
-              <ProviderMark provider={thread.provider} size={22} />
-              <p className="chat-empty-title">
-                {thread.status === "starting" ? `Starting ${displayName}` : `${displayName} is ready`}
-              </p>
-              <p className="chat-empty-detail">
-                Describe a task. {displayName} works in {worktree?.branch ?? "this worktree"}.
-              </p>
-            </div>
+            <EmptyState
+              className="chat-empty"
+              media={
+                thread.status === "starting" ? (
+                  <span className="spinner" aria-hidden="true" />
+                ) : (
+                  <ProviderMark provider={thread.provider} size={18} />
+                )
+              }
+              title={thread.status === "starting" ? `Starting ${displayName}` : `${displayName} is ready`}
+              detail={`Describe a task. ${displayName} works in ${worktree?.branch ?? "this worktree"}.`}
+            />
           ) : (
-            timeline.map((item) => {
-              if (item.kind === "work") {
-                return (
-                  <div className="chat-work" key={`work-${item.turnId}`}>
-                    <WorkLog activities={item.activities} running={item.turnId === lastTurnRunning} />
-                    {item.changedFiles.length > 0 ? (
-                      <ChangedFiles files={item.changedFiles} onOpenDiff={onOpenDiff} />
-                    ) : null}
-                  </div>
-                );
-              }
-              const message = item.message;
-              if (message.role === "user") {
-                return (
-                  <article className="chat-message chat-message-user" key={message.messageId}>
-                    {message.attachments && message.attachments.length > 0 ? (
-                      <ul className="chat-attachments">
-                        {message.attachments.map((attachment) => (
-                          <li key={attachment.path} title={attachment.path}>
-                            <Icon name="image" size={12} />
-                            {attachment.name}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                    <p>{message.text}</p>
-                  </article>
-                );
-              }
-              if (message.role === "agent") {
-                return (
-                  <article className="chat-message chat-message-peer" data-trust="untrusted" key={message.messageId}>
-                    <span className="chat-message-label">
-                      <Icon name="message" size={12} />
-                      {sourceLabel(projection, message.sourceThreadId)}
-                    </span>
-                    <p>{message.text}</p>
-                  </article>
-                );
-              }
-              if (message.role === "system") {
-                return (
-                  <p className="chat-system" key={message.messageId}>
-                    {message.text}
-                  </p>
-                );
-              }
-              return (
-                <article className="chat-message chat-message-assistant" key={message.messageId}>
-                  <Markdown text={message.text} links={fileLinks} />
-                </article>
-              );
-            })
+            timeline.map((item) =>
+              item.kind === "work" ? (
+                <ChatWork
+                  key={`work-${item.turnId}`}
+                  item={item}
+                  running={item.turnId === lastTurnRunning}
+                  onOpenDiff={openDiff}
+                />
+              ) : (
+                <ChatMessage
+                  key={item.message.messageId}
+                  message={item.message}
+                  links={fileLinks}
+                  source={item.message.role === "agent" ? sourceLabel(projection, item.message.sourceThreadId) : ""}
+                />
+              ),
+            )
           )}
           {thread.status === "working" ? (
             <p className="chat-working" role="status">
-              <span className="chat-working-mark" aria-hidden="true" />
+              <span className="spinner" aria-hidden="true" />
               {displayName} is working
             </p>
           ) : null}
@@ -245,9 +241,10 @@ export function ChatView({
               <pre>{JSON.stringify(request.payload, null, 2)}</pre>
               {request.kind === "approval" ? (
                 <div className="chat-request-actions">
-                  <button
-                    className="primary-button"
-                    type="button"
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon="check"
                     onClick={() =>
                       void run({
                         type: "thread.respond",
@@ -258,10 +255,9 @@ export function ChatView({
                     }
                   >
                     Approve
-                  </button>
-                  <button
-                    className="secondary-button"
-                    type="button"
+                  </Button>
+                  <Button
+                    size="sm"
                     onClick={() =>
                       void run({
                         type: "thread.respond",
@@ -272,19 +268,22 @@ export function ChatView({
                     }
                   >
                     Reject
-                  </button>
+                  </Button>
                 </div>
               ) : (
                 <>
                   <textarea
+                    className="textarea is-mono"
                     value={answers}
                     onChange={(event) => setAnswers(event.target.value)}
                     aria-label="Structured user input answers"
                     rows={3}
                   />
-                  <button className="primary-button" type="button" onClick={() => void submitAnswers()}>
-                    Submit answers
-                  </button>
+                  <div className="chat-request-actions">
+                    <Button variant="primary" size="sm" onClick={() => void submitAnswers()}>
+                      Submit answers
+                    </Button>
+                  </div>
                 </>
               )}
             </section>
@@ -295,14 +294,19 @@ export function ChatView({
             </p>
           ) : null}
           {ended ? (
-            <div className={`chat-ended${thread.status === "failed" ? " is-failed" : ""}`}>
-              <span>
-                {thread.status === "failed" ? `${displayName} failed.` : `${displayName} session ended.`} A new chat
-                starts fresh in the same worktree.
+            <div className={`chat-ended${thread.status === "failed" ? " is-failed" : ""}`} role="status">
+              <Icon name={thread.status === "failed" ? "alert" : "square"} size={13} />
+              <span className="chat-ended-copy">
+                <span className="chat-ended-title">
+                  {thread.status === "failed" ? `${displayName} failed` : `${displayName} session ended`}
+                </span>
+                <span className="chat-ended-detail">
+                  {thread.errorMessage ?? "A new chat starts fresh in the same worktree."}
+                </span>
               </span>
-              <button className="primary-button" type="button" onClick={onRestart}>
+              <Button variant="primary" size="sm" icon="plus" onClick={onRestart}>
                 New chat
-              </button>
+              </Button>
             </div>
           ) : (
             <Composer
@@ -330,7 +334,8 @@ export function ChatView({
                   void sendToPeer();
                 }}
               >
-                <select
+                <Select
+                  className="input-sm"
                   aria-label="Another thread in this project"
                   value={selectedPeerId}
                   onChange={(event) => setPeerTargetId(event.target.value)}
@@ -340,17 +345,18 @@ export function ChatView({
                       {peerOptionLabel(projection, peer.threadId)}
                     </option>
                   ))}
-                </select>
+                </Select>
                 <textarea
+                  className="textarea"
                   value={peerDraft}
                   onChange={(event) => setPeerDraft(event.target.value)}
                   placeholder="Message for that agent"
                   aria-label="Message for the other agent"
                   rows={2}
                 />
-                <button className="secondary-button" type="submit" disabled={!peerDraft.trim()}>
+                <Button size="sm" type="submit" disabled={!peerDraft.trim()}>
                   Send to agent
-                </button>
+                </Button>
               </form>
             </details>
           ) : null}
@@ -360,6 +366,67 @@ export function ChatView({
   );
 }
 
+const ChatWork = memo(function ChatWork({
+  item,
+  running,
+  onOpenDiff,
+}: {
+  item: Extract<TimelineItem, { kind: "work" }>;
+  running: boolean;
+  onOpenDiff(path?: string): void;
+}) {
+  return (
+    <div className="chat-work">
+      <WorkLog activities={item.activities} running={running} />
+      {item.changedFiles.length > 0 ? <ChangedFiles files={item.changedFiles} onOpenDiff={onOpenDiff} /> : null}
+    </div>
+  );
+});
+
+const ChatMessage = memo(function ChatMessage({
+  message,
+  links,
+  source,
+}: {
+  message: ThreadMessageProjection;
+  links: FileLinks | undefined;
+  source: string;
+}) {
+  if (message.role === "user") {
+    return (
+      <article className="chat-message chat-message-user">
+        {message.attachments && message.attachments.length > 0 ? (
+          <ul className="chat-attachments">
+            {message.attachments.map((attachment) => (
+              <li key={attachment.path} title={attachment.path}>
+                <Icon name="image" size={12} />
+                {attachment.name}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <p>{message.text}</p>
+      </article>
+    );
+  }
+  if (message.role === "agent") {
+    return (
+      <article className="chat-message chat-message-peer" data-trust="untrusted">
+        <span className="chat-message-label">
+          <Icon name="message" size={12} />
+          {source}
+        </span>
+        <p>{message.text}</p>
+      </article>
+    );
+  }
+  if (message.role === "system") return <p className="chat-system">{message.text}</p>;
+  return (
+    <article className="chat-message chat-message-assistant">
+      <Markdown text={message.text} links={links} />
+    </article>
+  );
+});
 function sourceLabel(projection: RuntimeProjection, sourceThreadId: ThreadId | undefined): string {
   const thread = projection.threads.find((candidate) => candidate.threadId === sourceThreadId);
   const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread?.worktreeId);

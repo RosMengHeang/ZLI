@@ -86,6 +86,17 @@ describe("ProjectionStore", () => {
     expect(store.current()?.lastSequence).toBe(3);
   });
 
+  it("tells listeners whether a projection was replaced or advanced by one event", () => {
+    const store = new ProjectionStore();
+    const changes: unknown[] = [];
+    store.subscribe((_projection, change) => changes.push(change));
+    store.replace(projection());
+    const event = envelope(1, { type: "browser.closed", browserTabId: id("21") });
+    store.apply(event);
+
+    expect(changes).toEqual([{ kind: "replace" }, { kind: "event", envelope: event }]);
+  });
+
   it("asks for a fresh projection when it cannot fold an event locally", () => {
     const store = new ProjectionStore();
     store.replace(projection());

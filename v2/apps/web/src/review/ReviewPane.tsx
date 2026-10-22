@@ -1,9 +1,11 @@
-import type { WorktreeProjection } from "@zli-v2/contracts";
+import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { useEffect, useMemo, useState } from "react";
 import { makeCommandId } from "../runtime/commandId.js";
-import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
+import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, PaneHeader } from "../ui/Pane.js";
+import "./review.css";
 
 export type ReviewFocus = { path: string; nonce: number };
 
@@ -16,6 +18,8 @@ export function worktreeRelativePath(root: string, path: string): string {
   return target.replace(/^\.\//u, "");
 }
 
+const selectReviews = (projection: RuntimeProjection | undefined) => projection?.reviews;
+
 export function ReviewPane({
   worktree,
   focus,
@@ -24,13 +28,14 @@ export function ReviewPane({
   /** A file to open, for example from a changed-files card. The nonce reopens the same path. */
   focus?: ReviewFocus | undefined;
 }) {
-  const { dispatch, projection } = useRuntime();
+  const { dispatch } = useRuntime();
+  const reviews = useRuntimeSelector(selectReviews);
   const [baseRef, setBaseRef] = useState("main");
   const [targetRef, setTargetRef] = useState("main");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const review = projection?.reviews?.find((candidate) => candidate.worktreeId === worktree?.worktreeId);
+  const review = reviews?.find((candidate) => candidate.worktreeId === worktree?.worktreeId);
   const totals = useMemo(
     () =>
       (review?.files ?? []).reduce(
@@ -75,7 +80,7 @@ export function ReviewPane({
   return (
     <div className="tool-pane review-pane">
       <PaneHeader icon="diff" title="Changes" detail={worktree?.branch}>
-        {review && fileCount > 0 ? (
+        {review && fileCount > 0 && totals.additions + totals.deletions > 0 ? (
           <span className="review-totals">
             <span className="diff-add">+{totals.additions}</span>
             <span className="diff-del">−{totals.deletions}</span>
@@ -84,7 +89,7 @@ export function ReviewPane({
       </PaneHeader>
       {worktree ? (
         <form
-          className="review-toolbar"
+          className="toolbar review-toolbar"
           onSubmit={(event) => {
             event.preventDefault();
             refresh();
@@ -92,12 +97,17 @@ export function ReviewPane({
         >
           <label className="inline-field">
             <span>Compare against</span>
-            <input value={baseRef} onChange={(event) => setBaseRef(event.target.value)} placeholder="main" />
+            <input
+              className="input input-sm is-mono"
+              value={baseRef}
+              onChange={(event) => setBaseRef(event.target.value)}
+              placeholder="main"
+              spellCheck={false}
+            />
           </label>
-          <button className="ghost-button" type="submit" disabled={busy || !baseRef.trim()}>
-            <Icon name="reload" size={13} />
-            {busy ? "Working" : "Refresh changes"}
-          </button>
+          <Button variant="ghost" size="sm" type="submit" icon="reload" loading={busy} disabled={!baseRef.trim()}>
+            Refresh changes
+          </Button>
         </form>
       ) : null}
       {!worktree ? (
@@ -109,8 +119,8 @@ export function ReviewPane({
       ) : !review ? (
         <EmptyState
           icon="diff"
-          title="No changes loaded"
-          detail="Refresh to load staged and unstaged changes from Git."
+          title="Changes not loaded yet"
+          detail="Choose a branch to compare against, then refresh to see staged and unstaged changes."
         />
       ) : (
         <div className="review-body">
@@ -153,7 +163,7 @@ export function ReviewPane({
                   <span className="file-stat">
                     {file.binary ? (
                       "binary"
-                    ) : (
+                    ) : file.additions + file.deletions === 0 ? null : (
                       <>
                         <span className="diff-add">+{file.additions}</span>
                         <span className="diff-del">−{file.deletions}</span>
@@ -173,7 +183,7 @@ export function ReviewPane({
               </div>
               <pre className="review-diff">
                 {review.diff.patch ? (
-                  review.diff.patch.split("\n").map((line, index) => (
+                  patchBody(review.diff.patch).map((line, index) => (
                     // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are positional and never reorder.
                     <span className={`diff-line ${diffLineClass(line)}`} key={index}>
                       {line || " "}
@@ -192,13 +202,15 @@ export function ReviewPane({
       )}
       {review?.errorMessage && (
         <p className="inline-error" role="alert">
-          {review.errorMessage}
+          <Icon name="alert" size={13} />
+          <span>{review.errorMessage}</span>
         </p>
       )}
       {worktree && review ? (
         <div className="review-actions">
           <div className="review-commit">
             <input
+              className="input input-sm"
               aria-label="Commit message"
               value={message}
               onChange={(event) => setMessage(event.target.value)}
@@ -210,50 +222,57 @@ export function ReviewPane({
                 }
               }}
             />
-            <button
-              className="primary-button"
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
+              icon="commit"
               disabled={busy || !message.trim() || review.state === "conflicted"}
               onClick={() =>
                 void run({ type: "review.commit", worktreeId: worktree.worktreeId, message: message.trim() })
               }
             >
-              <Icon name="commit" size={13} />
               Commit changes
-            </button>
+            </Button>
           </div>
           <div className="review-merge">
             <label className="inline-field">
               <span>Merge target</span>
-              <input value={targetRef} onChange={(event) => setTargetRef(event.target.value)} placeholder="main" />
+              <input
+                className="input input-sm is-mono"
+                value={targetRef}
+                onChange={(event) => setTargetRef(event.target.value)}
+                placeholder="main"
+                spellCheck={false}
+              />
             </label>
-            <button
-              className="secondary-button"
-              type="button"
+            <Button
+              size="sm"
+              icon="merge"
               disabled={busy || !targetRef.trim() || review.state === "conflicted"}
               onClick={() =>
                 void run({ type: "review.merge", worktreeId: worktree.worktreeId, targetRef: targetRef.trim() })
               }
             >
-              <Icon name="merge" size={13} />
               Merge into target
-            </button>
+            </Button>
             {(review.state === "conflicted" || review.errorMessage) && (
-              <button
-                className="ghost-button is-danger"
-                type="button"
+              <Button
+                variant="ghost"
+                size="sm"
+                className="is-danger"
                 disabled={busy}
                 onClick={() => void run({ type: "review.abortMerge", worktreeId: worktree.worktreeId })}
               >
                 Abort merge
-              </button>
+              </Button>
             )}
           </div>
         </div>
       ) : null}
       {error && (
         <p className="inline-error" role="alert">
-          {error}
+          <Icon name="alert" size={13} />
+          <span>{error}</span>
         </p>
       )}
     </div>
@@ -273,6 +292,13 @@ function kindLetter(kind: string): string {
     default:
       return "M";
   }
+}
+
+/** The lines of a patch from its first hunk on; the path header above the diff already names the file. */
+export function patchBody(patch: string): string[] {
+  const lines = patch.split("\n");
+  const firstHunk = lines.findIndex((line) => line.startsWith("@@"));
+  return firstHunk > 0 ? lines.slice(firstHunk) : lines;
 }
 
 function diffLineClass(line: string): string {

@@ -2,12 +2,15 @@ import {
   BROWSER_DEVICE_PRESETS,
   type BrowserTabProjection,
   type BrowserViewport,
+  type RuntimeProjection,
   type WorktreeProjection,
 } from "@zli-v2/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
+import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, PaneHeader } from "../ui/Pane.js";
+import "./browser.css";
 
 const DEFAULT_PROFILE_ID = "00000000-0000-4000-8000-000000000002";
 const DEFAULT_DEVICE_ID = "iphone-15";
@@ -25,8 +28,11 @@ type Props = {
   reveal?: BrowserReveal | undefined;
 };
 
+const selectBrowserTabs = (projection: RuntimeProjection | undefined) => projection?.browserTabs;
+
 export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
-  const { bridge, projection } = useRuntime();
+  const { bridge } = useRuntime();
+  const browserTabs = useRuntimeSelector(selectBrowserTabs);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const urlEditedRef = useRef(false);
@@ -45,8 +51,8 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
     obscuredRef.current = obscured;
   }, [obscured]);
   const worktreeTabs = useMemo(
-    () => projection?.browserTabs.filter((candidate) => candidate.worktreeId === worktreeId) ?? [],
-    [projection?.browserTabs, worktreeId],
+    () => browserTabs?.filter((candidate) => candidate.worktreeId === worktreeId) ?? [],
+    [browserTabs, worktreeId],
   );
   const restoredTab = worktreeTabs.find((candidate) => candidate.active) ?? worktreeTabs[0];
   const [handledRevealKey, setHandledRevealKey] = useState<number>();
@@ -163,7 +169,7 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
 
   useEffect(() => {
     if (!tab) return;
-    const next = projection?.browserTabs.find((candidate) => candidate.browserTabId === tab.browserTabId);
+    const next = browserTabs?.find((candidate) => candidate.browserTabId === tab.browserTabId);
     if (!next) {
       setTab(undefined);
       showUrl("");
@@ -181,7 +187,7 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
     const editing = urlEditedRef.current && document.activeElement === urlInputRef.current;
     if (next.url !== tab.url && !editing) showUrl(next.url);
     setTab(next);
-  }, [projection?.browserTabs, showUrl, tab]);
+  }, [browserTabs, showUrl, tab]);
 
   const run = async (
     operation: (activeBridge: NonNullable<typeof bridge>, activeTab: BrowserTabProjection) => Promise<unknown>,
@@ -296,28 +302,26 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
     <div className="tool-pane browser-pane">
       <PaneHeader icon="globe" title={tab?.title || "Browser"} detail={worktree?.branch}>
         {tab && worktreeTabs.length === 1 ? (
-          <button
-            className="icon-button"
-            type="button"
+          <IconButton
+            icon="x"
+            size="sm"
+            iconSize={14}
             onClick={() => void closeTab(tab)}
             disabled={busy}
-            aria-label={`Close ${tab.title || tab.url}`}
-            title="Close tab"
-          >
-            <Icon name="x" size={14} />
-          </button>
+            label={`Close ${tab.title || tab.url}`}
+            tooltip="Close tab"
+          />
         ) : null}
         {worktree ? (
-          <button
-            className="icon-button"
-            type="button"
+          <IconButton
+            icon="plus"
+            size="sm"
+            iconSize={15}
             onClick={() => void newTab()}
             disabled={busy}
-            aria-label="New browser tab"
-            title="New tab"
-          >
-            <Icon name="plus" size={15} />
-          </button>
+            label="New browser tab"
+            tooltip="New tab"
+          />
         ) : null}
       </PaneHeader>
       {worktree && worktreeTabs.length > 1 && (
@@ -337,50 +341,48 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
                 <Icon name="globe" size={12} />
                 <span>{candidate.title || candidate.url || "New tab"}</span>
               </button>
-              <button
+              <IconButton
                 className="browser-tab-close"
-                type="button"
+                icon="x"
+                size="xs"
+                iconSize={11}
                 onClick={() => void closeTab(candidate)}
-                aria-label={`Close ${candidate.title || candidate.url}`}
-              >
-                <Icon name="x" size={12} />
-              </button>
+                label={`Close ${candidate.title || candidate.url}`}
+                tooltip="Close tab"
+              />
             </div>
           ))}
         </div>
       )}
       <div className="browser-toolbar">
         <nav className="browser-controls" aria-label="Browser controls">
-          <button
-            className="icon-button"
-            type="button"
+          <IconButton
+            icon="arrowLeft"
+            size="sm"
+            iconSize={15}
             disabled={!tab}
             onClick={() => void run((activeBridge, activeTab) => activeBridge.browser.back(activeTab.browserTabId))}
-            aria-label="Back"
-            title="Back"
-          >
-            <Icon name="arrowLeft" size={15} />
-          </button>
-          <button
-            className="icon-button"
-            type="button"
+            label="Back"
+            tooltip="Back"
+          />
+          <IconButton
+            icon="arrowRight"
+            size="sm"
+            iconSize={15}
             disabled={!tab}
             onClick={() => void run((activeBridge, activeTab) => activeBridge.browser.forward(activeTab.browserTabId))}
-            aria-label="Forward"
-            title="Forward"
-          >
-            <Icon name="arrowRight" size={15} />
-          </button>
-          <button
-            className="icon-button"
-            type="button"
+            label="Forward"
+            tooltip="Forward"
+          />
+          <IconButton
+            icon="reload"
+            size="sm"
+            iconSize={14}
             disabled={!tab}
             onClick={() => void run((activeBridge, activeTab) => activeBridge.browser.reload(activeTab.browserTabId))}
-            aria-label="Reload"
-            title="Reload"
-          >
-            <Icon name="reload" size={14} />
-          </button>
+            label="Reload"
+            tooltip="Reload"
+          />
         </nav>
         <form className="browser-address" onSubmit={(event) => void openUrl(event)}>
           <span className="browser-address-icon">
@@ -396,37 +398,35 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
               setUrlState(event.target.value);
             }}
           />
-          <button className="primary-button" type="submit" disabled={!worktree || !url.trim() || busy}>
+          <Button variant="primary" size="sm" type="submit" disabled={!worktree || !url.trim() || busy}>
             {busy ? "Opening" : tab ? "Go" : "Open"}
-          </button>
+          </Button>
         </form>
-        <button
-          className={`icon-button${tab?.viewport ? " is-active" : ""}`}
-          type="button"
+        <IconButton
+          icon="smartphone"
+          size="sm"
+          iconSize={14}
           disabled={!tab}
           onClick={toggleDevice}
-          aria-pressed={Boolean(tab?.viewport)}
-          aria-label="Device size"
-          title={tab?.viewport ? "Back to full panel size" : "Preview at a device size"}
-        >
-          <Icon name="smartphone" size={15} />
-        </button>
-        <button
-          className="icon-button"
-          type="button"
+          pressed={Boolean(tab?.viewport)}
+          label="Device size"
+          tooltip={tab?.viewport ? "Back to full panel size" : "Preview at a device size"}
+        />
+        <IconButton
+          icon="code"
+          size="sm"
+          iconSize={14}
           disabled={!tab}
           onClick={() =>
             void run((activeBridge, activeTab) => activeBridge.browser.openDevTools(activeTab.browserTabId))
           }
-          aria-label="Open browser developer tools"
-          title="Open DevTools in a window"
-        >
-          <Icon name="code" size={15} />
-        </button>
+          label="Open browser developer tools"
+          tooltip="Open DevTools in a window"
+        />
       </div>
       {tab?.viewport ? (
         <div className="browser-device-bar">
-          <label className="composer-select" title="Device">
+          <label className="select-ghost" data-tooltip="Device">
             <select
               aria-label="Device"
               value={devicePreset?.id ?? CUSTOM_DEVICE}
@@ -450,32 +450,27 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
               ? ` · ${tab.viewport.deviceScaleFactor}x`
               : ""}
           </span>
-          <button
-            className="icon-button"
-            type="button"
+          <IconButton
+            icon="rotate"
+            size="sm"
+            iconSize={14}
             onClick={() => {
               const current = tab.viewport;
               if (current) setViewport({ ...current, width: current.height, height: current.width });
             }}
-            aria-label="Rotate"
-            title="Rotate"
-          >
-            <Icon name="rotate" size={14} />
-          </button>
-          <button
-            className="ghost-button"
-            type="button"
-            onClick={() => setViewport(null)}
-            title="Back to full panel size"
-          >
+            label="Rotate"
+            tooltip="Rotate"
+          />
+          <Button variant="ghost" size="sm" onClick={() => setViewport(null)} tooltip="Back to full panel size">
             Fit panel
-          </button>
+          </Button>
         </div>
       ) : null}
       {(error ?? tab?.loadError) && (
-        <p className="inline-error" role="alert">
-          {error ?? tab?.loadError}
-        </p>
+        <div className="banner banner-danger" role="alert">
+          <Icon name="alert" size={14} />
+          <span className="banner-message">{error ?? tab?.loadError}</span>
+        </div>
       )}
       <div className={`browser-surface${tab ? " has-tab" : ""}`} ref={surfaceRef}>
         {!worktree ? (
@@ -489,8 +484,8 @@ export function BrowserPane({ worktree, obscured = false, reveal }: Props) {
           <EmptyState
             className="browser-empty"
             icon="globe"
-            title="A browser that belongs to this worktree"
-            detail="Open a local dev server or any HTTP(S) page. Cookies stay isolated to this worktree."
+            title="Open a page in this worktree"
+            detail="Type a local dev server address or any HTTP(S) URL above. Cookies and storage stay separate for each worktree."
           />
         ) : null}
       </div>

@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { type EnvironmentDescriptor, EnvironmentId } from "@zli-v2/contracts";
+import { CommandId, type EnvironmentDescriptor, EnvironmentId } from "@zli-v2/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 
@@ -79,6 +79,37 @@ describe("authenticated local RPC server", () => {
       type: "projection",
       projection: { environment: { environmentId: environment.environmentId } },
     });
+    socket.close();
+  });
+
+  it("does not replay events the subscription snapshot already contains", async () => {
+    const database = new Database({ path: ":memory:" });
+    const engine = new Engine({ database, environment });
+    const server = new RpcServer({ engine, environment, token: "test-token" });
+    await server.start();
+    resources.push({ database, server });
+    for (const [index, path] of ["C:/workspace/a", "C:/workspace/b"].entries()) {
+      await engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`00000000-0000-4000-8000-00000000017${index}`),
+        command: { type: "project.register", path },
+      });
+    }
+    const socket = await connected(server);
+
+    socket.send(JSON.stringify({ type: "subscribe", afterSequence: 0 }));
+    await expect(nextMessage(socket)).resolves.toMatchObject({ type: "projection", projection: { lastSequence: 2 } });
+    socket.send(
+      JSON.stringify({
+        type: "command",
+        request: {
+          protocolVersion: 1,
+          commandId: "00000000-0000-4000-8000-000000000172",
+          command: { type: "project.register", path: "C:/workspace/c" },
+        },
+      }),
+    );
+    await expect(nextMessage(socket)).resolves.toMatchObject({ type: "event", envelope: { sequence: 3 } });
     socket.close();
   });
 
@@ -219,6 +250,37 @@ describe("authenticated local RPC server", () => {
           { provider: "droid", status: "found", path: "C:\\Users\\dev\\bin\\droid.exe" },
         ],
       },
+    });
+    socket.close();
+  });
+
+  it("sends the projection without waiting for slow discovery, then again with providers", async () => {
+    const database = new Database({ path: ":memory:" });
+    const engine = new Engine({ database, environment });
+    let finishDiscovery: (() => void) | undefined;
+    const server = new RpcServer({
+      engine,
+      environment,
+      token: "test-token",
+      discoverProviders: () =>
+        new Promise((resolve) => {
+          finishDiscovery = () =>
+            resolve([{ provider: "codex", displayName: "Codex", status: "found", path: "/bin/codex" }]);
+        }),
+    });
+    await server.start();
+    resources.push({ database, server });
+    const socket = await connected(server);
+
+    socket.send(JSON.stringify({ type: "subscribe", afterSequence: 0 }));
+    const first = await nextMessage(socket);
+    expect(first).toMatchObject({ type: "projection" });
+    expect(first.projection).not.toHaveProperty("providers");
+
+    finishDiscovery?.();
+    await expect(nextMessage(socket)).resolves.toMatchObject({
+      type: "projection",
+      projection: { providers: [{ provider: "codex", status: "found" }] },
     });
     socket.close();
   });

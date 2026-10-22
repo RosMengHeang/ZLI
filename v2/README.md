@@ -6,7 +6,7 @@ ZLI V2 is the clean Electron rebuild. The desktop shell owns the secure window, 
 
 From this directory:
 
-```powershell
+```sh
 pnpm install --frozen-lockfile
 pnpm run verify
 pnpm run build
@@ -19,11 +19,17 @@ The repository currently requires Node 24. The local Electron binary must be ins
 
 The Playwright suite covers the real desktop boundary: Git worktree creation, the deterministic structured-provider harness, embedded Chromium restoration, review commit/merge, runtime-process reconnect, and legacy snapshot import.
 
+Bash:
+
+```sh
+ZLI_RUN_E2E=1 pnpm run e2e
+```
+
+PowerShell:
+
 ```powershell
 $env:ZLI_RUN_E2E = "1"
 pnpm run e2e
 ```
 
 The integration workflow runs these journeys on Windows, macOS, and Linux before packaging. The mock provider and test-only runtime controls are enabled only by explicit `ZLI_TEST_*` environment variables and are never used by production startup.
-
-V2 is the default desktop entrypoint. The previous Vite/Tauri application remains available through the root `legacy:*` scripts for one transition cycle.

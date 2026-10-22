@@ -104,6 +104,28 @@ describe("ProviderService", () => {
     expect(adapter.calls).toEqual(["start:C:/workspace/tree"]);
   });
 
+  it("shares one discovery run between concurrent callers and caches its result", async () => {
+    let versionReads = 0;
+    const service = new ProviderService(new ProviderRegistry([new FakeAdapter()]), {
+      pathEntries: ["/tools"],
+      platform: "linux",
+      fileExists: (filePath) => filePath === "/tools/codex",
+      readVersion: async () => {
+        versionReads += 1;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return "codex 1.0.0";
+      },
+    });
+
+    const [first, second] = await Promise.all([service.discoverProviders(), service.discoverProviders()]);
+    const third = await service.discoverProviders();
+
+    expect(versionReads).toBe(1);
+    expect(second).toBe(first);
+    expect(third).toBe(first);
+    expect(first[0]).toMatchObject({ provider: "codex", status: "found", version: "codex 1.0.0" });
+  });
+
   it("discovers injected CLIs without starting a provider session", async () => {
     const adapter = new FakeAdapter();
     const service = new ProviderService(new ProviderRegistry([adapter]), {

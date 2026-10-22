@@ -44,10 +44,8 @@ test("browses, edits, finds, and searches files in a worktree", async () => {
     await expect
       .poll(async () => (await readFile(join(worktreePath, "README.md"), "utf8")).replaceAll("\r\n", "\n"))
       .toBe("# ZLI integration fixture\nEdited in ZLI\n");
-    await expect(panel.locator(".file-row", { hasText: "README.md" }).locator(".file-status-modified")).toHaveText(
-      "M",
-      { timeout: 10_000 },
-    );
+    // A narrow panel hides the file list while a file is open, so read the status from the open file's path bar.
+    await expect(panel.locator(".file-path-bar .file-status-modified")).toHaveText("M", { timeout: 10_000 });
 
     await writeFile(join(worktreePath, "README.md"), "# Changed by an agent\n", "utf8");
     await expect(editor).toContainText("Changed by an agent", { timeout: 10_000 });

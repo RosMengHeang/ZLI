@@ -111,6 +111,8 @@ export class ProviderService {
   private readonly listeners = new Set<(event: ProviderEvent) => void>();
   private readonly unsubscribers: Array<() => void> = [];
   private discoveryCache: { at: number; value: readonly ProviderDiscovery[] } | undefined;
+  /** Discovery spawns every installed CLI, so concurrent callers share one run. */
+  private discoveryInFlight: Promise<readonly ProviderDiscovery[]> | undefined;
 
   constructor(
     private readonly registry: ProviderRegistry,
@@ -124,9 +126,15 @@ export class ProviderService {
   async discoverProviders(): Promise<readonly ProviderDiscovery[]> {
     const cached = this.discoveryCache;
     if (cached && Date.now() - cached.at < DISCOVERY_TTL_MS) return cached.value;
-    const value = await discoverCliProviders(this.cliProbe);
-    this.discoveryCache = { at: Date.now(), value };
-    return value;
+    this.discoveryInFlight ??= discoverCliProviders(this.cliProbe)
+      .then((value) => {
+        this.discoveryCache = { at: Date.now(), value };
+        return value;
+      })
+      .finally(() => {
+        this.discoveryInFlight = undefined;
+      });
+    return this.discoveryInFlight;
   }
 
   async startSession(input: ProviderSessionStart & { provider: ProviderKind }): Promise<ProviderSession> {

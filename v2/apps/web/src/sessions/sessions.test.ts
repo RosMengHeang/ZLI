@@ -11,6 +11,7 @@ import {
   changedFiles,
   deriveSessions,
   gridColumns,
+  gridLayout,
   relativeTime,
   sessionStopCommands,
   sessionTitle,
@@ -116,6 +117,24 @@ describe("timeline", () => {
     expect(work?.kind === "work" ? work.changedFiles : []).toEqual(["a.ts", "b.ts"]);
   });
 
+  it("reuses earlier items so only the streaming message and the growing work log change", () => {
+    const user = { messageId: "m1", threadId, turnId: "t1", role: "user" as const, text: "fix it" };
+    const read = activity("read", "t1", "file-read", ["a.ts"]);
+    const first = buildTimeline([user] as never, [read]);
+    const reply = { messageId: "m2", threadId, turnId: "t1", role: "assistant" as const, text: "do" };
+    const second = buildTimeline([user, reply] as never, [read], first);
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).toBe(first[1]);
+    const third = buildTimeline(
+      [user, { ...reply, text: "done" }] as never,
+      [read, activity("edit", "t1", "file-edit", ["a.ts"])],
+      second,
+    );
+    expect(third[0]).toBe(first[0]);
+    expect(third[1]).not.toBe(second[1]);
+    expect(third[2]).not.toBe(second[2]);
+  });
+
   it("does not count failed edits as changed files", () => {
     expect(changedFiles([{ ...activity("edit", "t1", "file-edit", ["x.ts"]), status: "failed" }])).toEqual([]);
   });
@@ -138,6 +157,13 @@ describe("helpers", () => {
 
   it("chooses grid columns by tile count", () => {
     expect([1, 2, 4, 5, 9, 12].map(gridColumns)).toEqual([1, 2, 2, 3, 3, 4]);
+  });
+
+  it("stacks tiles into rows when the grid is too narrow for them side by side", () => {
+    expect(gridLayout(4, 1600)).toEqual({ columns: 2, rows: 2 });
+    expect(gridLayout(2, 700)).toEqual({ columns: 1, rows: 2 });
+    expect(gridLayout(9, 800)).toEqual({ columns: 2, rows: 5 });
+    expect(gridLayout(3, undefined)).toEqual({ columns: 2, rows: 2 });
   });
 
   it("stops both the agent CLI and the chat of a session", () => {

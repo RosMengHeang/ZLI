@@ -4,10 +4,12 @@ on:
   push:
     paths:
       - "v2/**"
+      - "package.json"
       - ".github/workflows/v2-desktop.yml"
   pull_request:
     paths:
       - "v2/**"
+      - "package.json"
       - ".github/workflows/v2-desktop.yml"
 
 jobs:

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createPreloadApi } from "./preloadApi.js";
 
@@ -36,6 +36,131 @@ describe("preload API", () => {
       "onEvent",
     ]);
     expect("send" in api).toBe(false);
+  });
+
+  it("keeps the projection current from forwarded events and refetches it after a gap", async () => {
+    const environmentId = "00000000-0000-4000-8000-000000000001";
+    const projectionAt = (lastSequence: number, browserTabs: unknown[] = []) => ({
+      environment: { environmentId, label: "Local", protocolVersion: 1, capabilities: {} },
+      projects: [],
+      worktrees: [],
+      threads: [],
+      terminals: [],
+      browserTabs,
+      attention: [],
+      lastSequence,
+    });
+    const tab = {
+      browserTabId: "00000000-0000-4000-8000-000000000010",
+      profileId: "00000000-0000-4000-8000-000000000002",
+      worktreeId: "00000000-0000-4000-8000-000000000011",
+      url: "about:blank",
+      title: "",
+      active: true,
+      status: "idle",
+    };
+    const event = (sequence: number, value: unknown) => ({
+      protocolVersion: 1,
+      sequence,
+      eventId: `00000000-0000-4000-8000-0000000009${String(sequence).padStart(2, "0")}`,
+      occurredAt: "2026-09-21T00:00:00.000Z",
+      event: value,
+    });
+    const invoked: string[] = [];
+    let mainProjection: unknown = projectionAt(5, [tab]);
+    const listeners = new Map<string, (event: unknown, value: unknown) => void>();
+    const api = createPreloadApi({
+      invoke: async (channel) => {
+        invoked.push(channel);
+        return mainProjection;
+      },
+      on: (channel, listener) => {
+        listeners.set(channel, listener);
+        return () => listeners.delete(channel);
+      },
+    });
+    const seen: Array<{ lastSequence: number; tabs: number }> = [];
+    const unsubscribe = api.runtime.onProjection((projection) =>
+      seen.push({ lastSequence: projection.lastSequence, tabs: projection.browserTabs.length }),
+    );
+
+    listeners.get("zli:runtime:projection")?.({}, projectionAt(1));
+    listeners.get("zli:runtime:projection-event")?.({}, event(2, { type: "browser.updated", tab }));
+    expect(seen).toEqual([
+      { lastSequence: 1, tabs: 0 },
+      { lastSequence: 2, tabs: 1 },
+    ]);
+    expect(invoked).toEqual([]);
+
+    listeners.get("zli:runtime:projection-event")?.({}, event(5, { type: "browser.updated", tab }));
+    await vi.waitFor(() => expect(seen.at(-1)).toEqual({ lastSequence: 5, tabs: 1 }));
+    expect(invoked).toEqual(["zli:runtime:projection"]);
+
+    mainProjection = projectionAt(6);
+    listeners.get("zli:runtime:projection-event")?.(
+      {},
+      event(6, { type: "browser.closed", browserTabId: tab.browserTabId }),
+    );
+    expect(seen.at(-1)).toEqual({ lastSequence: 6, tabs: 0 });
+    unsubscribe();
+    expect(listeners.has("zli:runtime:projection")).toBe(false);
+    expect(listeners.has("zli:runtime:projection-event")).toBe(false);
+  });
+
+  it("folds events onto the projection the renderer fetched first", async () => {
+    const environmentId = "00000000-0000-4000-8000-000000000001";
+    const projectionAt = (lastSequence: number) => ({
+      environment: { environmentId, label: "Local", protocolVersion: 1, capabilities: {} },
+      projects: [],
+      worktrees: [],
+      threads: [],
+      terminals: [],
+      browserTabs: [],
+      attention: [],
+      lastSequence,
+    });
+    const tab = {
+      browserTabId: "00000000-0000-4000-8000-000000000010",
+      profileId: "00000000-0000-4000-8000-000000000002",
+      worktreeId: "00000000-0000-4000-8000-000000000011",
+      url: "about:blank",
+      title: "",
+      active: true,
+      status: "idle",
+    };
+    let mainProjection: unknown = projectionAt(3);
+    const invoked: string[] = [];
+    const listeners = new Map<string, (event: unknown, value: unknown) => void>();
+    const api = createPreloadApi({
+      invoke: async (channel) => {
+        invoked.push(channel);
+        return mainProjection;
+      },
+      on: (channel, listener) => {
+        listeners.set(channel, listener);
+        return () => listeners.delete(channel);
+      },
+    });
+    const seen: number[] = [];
+    const unsubscribe = api.runtime.onProjection((projection) => seen.push(projection.lastSequence));
+
+    expect((await api.runtime.getProjection())?.lastSequence).toBe(3);
+    listeners.get("zli:runtime:projection-event")?.(
+      {},
+      {
+        protocolVersion: 1,
+        sequence: 4,
+        eventId: "00000000-0000-4000-8000-000000000904",
+        occurredAt: "2026-09-21T00:00:00.000Z",
+        event: { type: "browser.updated", tab },
+      },
+    );
+    expect(seen.at(-1)).toBe(4);
+    expect(invoked).toEqual(["zli:runtime:projection"]);
+
+    mainProjection = projectionAt(2);
+    expect((await api.runtime.getProjection())?.lastSequence).toBe(4);
+    unsubscribe();
   });
 
   it("exposes crash injection only through the test-mode API", async () => {

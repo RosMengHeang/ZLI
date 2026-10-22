@@ -109,6 +109,7 @@ describe("RemotePtyFactory", () => {
         chunk: { terminalId, sequence: 2, bytesBase64: Buffer.from("after\n").toString("base64") },
       },
     });
+    await Promise.resolve();
     connection.emit({ type: "terminal", message: { kind: "exit", terminalId, code: 0, signal: null } });
 
     expect(data).toEqual(["before\n", "after\n"]);
@@ -163,8 +164,93 @@ describe("RemotePtyFactory", () => {
       type: "terminal",
       message: { kind: "chunk", chunk: { terminalId, sequence: 3, bytesBase64: bytes.subarray(1).toString("base64") } },
     });
+    await Promise.resolve();
 
     expect(data.join("")).toBe("before\n€");
+  });
+
+  it("joins output parsed from one daemon read into a single data event", async () => {
+    const connection = new FakeConnection();
+    const factory = new RemotePtyFactory({ connect: async () => connection });
+    const pty = await factory.spawn({
+      terminalId,
+      worktreeId,
+      title: "shell",
+      cwd: "/workspace/tree",
+      shell: "/bin/sh",
+      cols: 120,
+      rows: 32,
+    });
+    const data: string[] = [];
+    pty.onData((value) => data.push(value));
+    for (let sequence = 2; sequence <= 40; sequence += 1) {
+      connection.emit({
+        type: "terminal",
+        message: {
+          kind: "chunk",
+          chunk: { terminalId, sequence, bytesBase64: Buffer.from(`line ${sequence}\n`).toString("base64") },
+        },
+      });
+    }
+
+    expect(data).toEqual(["before\n"]);
+    await Promise.resolve();
+    expect(data).toHaveLength(2);
+    expect(data[1]).toBe(Array.from({ length: 39 }, (_, index) => `line ${index + 2}\n`).join(""));
+  });
+
+  it("splits a large burst into bounded data events", async () => {
+    const connection = new FakeConnection();
+    const factory = new RemotePtyFactory({ connect: async () => connection });
+    const pty = await factory.spawn({
+      terminalId,
+      worktreeId,
+      title: "shell",
+      cwd: "/workspace/tree",
+      shell: "/bin/sh",
+      cols: 120,
+      rows: 32,
+    });
+    const data: string[] = [];
+    pty.onData((value) => data.push(value));
+    const line = `${"x".repeat(1023)}\n`;
+    for (let sequence = 2; sequence <= 41; sequence += 1) {
+      connection.emit({
+        type: "terminal",
+        message: { kind: "chunk", chunk: { terminalId, sequence, bytesBase64: Buffer.from(line).toString("base64") } },
+      });
+    }
+    await Promise.resolve();
+
+    expect(data.slice(1).map((value) => value.length)).toEqual([16 * 1024, 16 * 1024, 8 * 1024]);
+    expect(data.slice(1).join("")).toBe(line.repeat(40));
+  });
+
+  it("delivers pending output before the exit", async () => {
+    const connection = new FakeConnection();
+    const factory = new RemotePtyFactory({ connect: async () => connection });
+    const pty = await factory.spawn({
+      terminalId,
+      worktreeId,
+      title: "shell",
+      cwd: "/workspace/tree",
+      shell: "/bin/sh",
+      cols: 120,
+      rows: 32,
+    });
+    const order: string[] = [];
+    pty.onData((value) => order.push(value));
+    pty.onExit((event) => order.push(`exit ${event.code}`));
+    connection.emit({
+      type: "terminal",
+      message: {
+        kind: "chunk",
+        chunk: { terminalId, sequence: 2, bytesBase64: Buffer.from("bye\n").toString("base64") },
+      },
+    });
+    connection.emit({ type: "terminal", message: { kind: "exit", terminalId, code: 3, signal: null } });
+
+    expect(order).toEqual(["before\n", "bye\n", "exit 3"]);
   });
 
   it("attaches to a daemon-owned terminal after the environment server restarts", async () => {

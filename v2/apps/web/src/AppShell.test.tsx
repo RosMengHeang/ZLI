@@ -266,7 +266,7 @@ describe("AppShell", () => {
   it("shows running agent terminals as tiles and sidebar rows grouped under the project", async () => {
     const container = await render(makeBridge(withAgent));
     expect(container.querySelectorAll(".agent-tile")).toHaveLength(1);
-    expect(container.querySelector('[aria-label="Claude Code terminal"]')).not.toBeNull();
+    await vi.waitFor(() => expect(container.querySelector('[aria-label="Claude Code terminal"]')).not.toBeNull());
     expect(container.querySelector(".session-row")?.getAttribute("aria-label")).toBe("Claude Code, Claude Code, Ready");
     await act(async () => {
       button(container, "Close tile")?.click();

@@ -5,6 +5,12 @@ import type { PtyFactory, PtyProcess, PtySpawnInput } from "./TerminalService.js
 
 type Connection = Pick<DaemonConnection, "request" | "onMessage" | "onClose" | "close">;
 
+/**
+ * Upper bound for one joined output event. Terminal history is trimmed by whole chunks, so chunks
+ * much larger than this would make reattach replays lose more scrollback than they keep.
+ */
+const MAX_JOINED_OUTPUT_CHARS = 16 * 1024;
+
 type RemotePtyFactoryOptions = {
   connect(): Promise<Connection>;
 };
@@ -65,6 +71,8 @@ class RemotePtyProcess implements PtyProcess {
   private unsubscribeClose: (() => void) | undefined;
   private snapshotReady = false;
   private lastSequence = 0;
+  private pendingData = "";
+  private flushScheduled = false;
 
   constructor(
     private readonly connection: Connection,
@@ -134,13 +142,40 @@ class RemotePtyProcess implements PtyProcess {
     if (data.length > 0) this.acceptData(data);
   }
 
+  /**
+   * One socket read from the daemon can carry hundreds of output lines that are parsed synchronously.
+   * Delivered one by one, they become one stream frame each and overflow the bounded subscriber queues,
+   * which then force clients to resync from a snapshot. Output from the same read is joined instead.
+   */
   private acceptData(data: string): void {
+    if (this.dataListeners.size === 0) {
+      this.bufferedData.push(data);
+      return;
+    }
+    this.pendingData += data;
+    if (this.pendingData.length >= MAX_JOINED_OUTPUT_CHARS) {
+      this.flushData();
+      return;
+    }
+    if (this.flushScheduled) return;
+    this.flushScheduled = true;
+    queueMicrotask(() => {
+      this.flushScheduled = false;
+      this.flushData();
+    });
+  }
+
+  private flushData(): void {
+    const data = this.pendingData;
+    if (data.length === 0) return;
+    this.pendingData = "";
     if (this.dataListeners.size === 0) this.bufferedData.push(data);
     else for (const listener of this.dataListeners) listener(data);
   }
 
   private acceptExit(event: { code: number; signal: number | null }): void {
     if (this.exitEvent) return;
+    this.flushData();
     this.exitEvent = event;
     this.unsubscribe?.();
     this.unsubscribeClose?.();
