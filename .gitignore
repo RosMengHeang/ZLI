@@ -25,3 +25,11 @@ v2/**/*.tsbuildinfo
 *.njsproj
 *.sln
 *.sw?
+
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+id_rsa*
