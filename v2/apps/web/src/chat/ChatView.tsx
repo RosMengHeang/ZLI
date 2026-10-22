@@ -1,13 +1,14 @@
 import type {
   PermissionMode,
   RuntimeProjection,
+  ThreadCheckpoint,
   ThreadId,
   ThreadMessageProjection,
   ThreadProjection,
   ThreadQueuedMessage,
   WorktreeProjection,
 } from "@zli-v2/contracts";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
 import { type FileLinks, useFileLinks } from "../files/FileIndex.js";
@@ -24,6 +25,7 @@ import { latestContext } from "../usage/usage.js";
 import { Composer, type ComposerAttachment } from "./Composer.js";
 import { Markdown } from "./Markdown.js";
 import { RequestCard } from "./RequestCard.js";
+import { TurnChanges } from "./TurnChanges.js";
 import { ChangedFiles, WorkLog } from "./WorkLog.js";
 import "./chat.css";
 
@@ -91,6 +93,10 @@ export function ChatView({
     shallowArrayEqual,
   );
   const context = useMemo(() => latestContext(usage), [usage]);
+  const checkpoints = useRuntimeSelector(
+    useCallback((value: RuntimeProjection | undefined) => entriesForThread(value?.checkpoints, threadId), [threadId]),
+    shallowArrayEqual,
+  );
   const previousTimeline = useRef<readonly TimelineItem[]>([]);
   const timeline = useMemo(() => buildTimeline(messages, activities, previousTimeline.current), [messages, activities]);
   useEffect(() => {
@@ -115,6 +121,21 @@ export function ChatView({
     });
   }, [projection.threads, projection.worktrees, thread.threadId, worktree]);
   const selectedPeerId = peers.some((peer) => peer.threadId === peerTargetId) ? peerTargetId : peers[0]?.threadId;
+  const placedCheckpoints = useMemo(() => placeCheckpoints(timeline, checkpoints), [timeline, checkpoints]);
+  const worktreeBusy = projection.threads.some(
+    (candidate) =>
+      candidate.worktreeId === thread.worktreeId && (candidate.status === "working" || candidate.status === "waiting"),
+  );
+  const restoreBlocked = worktreeBusy ? "Wait for the agents in this worktree to finish their turns" : undefined;
+  const turnChanges = (checkpoint: ThreadCheckpoint) => (
+    <TurnChanges
+      key={checkpoint.checkpointId}
+      checkpoint={checkpoint}
+      displayName={displayName}
+      branch={worktree?.branch ?? "this worktree"}
+      restoreBlocked={restoreBlocked}
+    />
+  );
 
   useEffect(() => {
     const log = logRef.current;
@@ -208,24 +229,27 @@ export function ChatView({
               detail={`Describe a task. ${displayName} works in ${worktree?.branch ?? "this worktree"}.`}
             />
           ) : (
-            timeline.map((item) =>
-              item.kind === "work" ? (
-                <ChatWork
-                  key={`work-${item.turnId}`}
-                  item={item}
-                  running={item.turnId === lastTurnRunning}
-                  onOpenDiff={openDiff}
-                />
-              ) : (
-                <ChatMessage
-                  key={item.message.messageId}
-                  message={item.message}
-                  links={fileLinks}
-                  source={item.message.role === "agent" ? sourceLabel(projection, item.message.sourceThreadId) : ""}
-                />
-              ),
-            )
+            timeline.map((item, index) => (
+              <Fragment key={item.kind === "work" ? `work-${item.turnId}` : item.message.messageId}>
+                {item.kind === "work" ? (
+                  <ChatWork
+                    item={item}
+                    running={item.turnId === lastTurnRunning}
+                    showChangedFiles={!placedCheckpoints.turns.has(item.turnId)}
+                    onOpenDiff={openDiff}
+                  />
+                ) : (
+                  <ChatMessage
+                    message={item.message}
+                    links={fileLinks}
+                    source={item.message.role === "agent" ? sourceLabel(projection, item.message.sourceThreadId) : ""}
+                  />
+                )}
+                {placedCheckpoints.after.get(index)?.map(turnChanges)}
+              </Fragment>
+            ))
           )}
+          {placedCheckpoints.unplaced.map(turnChanges)}
           {thread.status === "working" ? (
             <p className="chat-working" role="status">
               <span className="spinner" aria-hidden="true" />
@@ -418,19 +442,50 @@ function QueuedMessages({
 const ChatWork = memo(function ChatWork({
   item,
   running,
+  showChangedFiles,
   onOpenDiff,
 }: {
   item: Extract<TimelineItem, { kind: "work" }>;
   running: boolean;
+  /** Off once the turn has a checkpoint, which lists the same files with their real diff. */
+  showChangedFiles: boolean;
   onOpenDiff(path?: string): void;
 }) {
   return (
     <div className="chat-work">
       <WorkLog activities={item.activities} running={running} />
-      {item.changedFiles.length > 0 ? <ChangedFiles files={item.changedFiles} onOpenDiff={onOpenDiff} /> : null}
+      {showChangedFiles && item.changedFiles.length > 0 ? (
+        <ChangedFiles files={item.changedFiles} onOpenDiff={onOpenDiff} />
+      ) : null}
     </div>
   );
 });
+
+/**
+ * Each turn's changes go after the last timeline item of that turn. A turn with no reply and no
+ * tool calls in the timeline, for example one stopped early, has nowhere to go and is listed last.
+ */
+export function placeCheckpoints(
+  timeline: readonly TimelineItem[],
+  checkpoints: readonly ThreadCheckpoint[],
+): { after: Map<number, ThreadCheckpoint[]>; unplaced: ThreadCheckpoint[]; turns: Set<string> } {
+  const lastIndex = new Map<string, number>();
+  timeline.forEach((item, index) => {
+    const turnId = item.kind === "work" ? item.turnId : item.message.turnId;
+    if (turnId) lastIndex.set(turnId, index);
+  });
+  const after = new Map<number, ThreadCheckpoint[]>();
+  const unplaced: ThreadCheckpoint[] = [];
+  for (const checkpoint of checkpoints) {
+    const index = lastIndex.get(checkpoint.turnId);
+    if (index === undefined) {
+      unplaced.push(checkpoint);
+      continue;
+    }
+    after.set(index, [...(after.get(index) ?? []), checkpoint]);
+  }
+  return { after, unplaced, turns: new Set(checkpoints.map((checkpoint) => checkpoint.turnId)) };
+}
 
 const ChatMessage = memo(function ChatMessage({
   message,

@@ -4,6 +4,8 @@ import type { AddressInfo } from "node:net";
 
 import {
   type AgentToolAccess,
+  CHECKPOINT_COMMAND_TYPES,
+  type CheckpointCommand,
   ClientWireMessage,
   type EnvironmentDescriptor,
   FILE_COMMAND_TYPES,
@@ -27,6 +29,7 @@ import {
 } from "@zli-v2/contracts";
 import { type RawData, WebSocket, WebSocketServer } from "ws";
 
+import { CheckpointError, type TurnCheckpoints } from "../checkpoints/TurnCheckpoints.js";
 import { errorCode, FileService, FileServiceError } from "../files/FileService.js";
 import type { Engine } from "../orchestration/Engine.js";
 import { unavailableProviderDiscovery } from "../providers/discoverCliProviders.js";
@@ -63,6 +66,8 @@ type RpcServerOptions = {
   /** Root for uploaded thread images. Without it, image uploads are rejected. */
   attachmentsDir?: string;
   pullRequestService?: PullRequestService;
+  /** Turn diffs and restores. Without it, checkpoint commands are answered as unavailable. */
+  checkpoints?: Pick<TurnCheckpoints, "run">;
   /** The MCP servers from Settings. Without it, MCP commands are answered as unavailable. */
   mcpServers?: {
     list(): McpListResult;
@@ -82,6 +87,7 @@ export class RpcServer {
   private readonly discoverProviders: RpcServerOptions["discoverProviders"];
   private readonly attachmentsDir: string | undefined;
   private readonly pullRequestService: PullRequestService;
+  private readonly checkpoints: RpcServerOptions["checkpoints"];
   private readonly mcpServers: RpcServerOptions["mcpServers"];
   private readonly host: string;
   private readonly port: number;
@@ -104,6 +110,7 @@ export class RpcServer {
     this.discoverProviders = options.discoverProviders;
     this.attachmentsDir = options.attachmentsDir;
     this.pullRequestService = options.pullRequestService ?? new PullRequestService();
+    this.checkpoints = options.checkpoints;
     this.mcpServers = options.mcpServers;
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
@@ -442,6 +449,36 @@ export class RpcServer {
     return true;
   }
 
+  /** Turn diffs and restores read and write the worktree with Git and answer directly. */
+  private async handleCheckpointCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isCheckpointCommand(command)) return false;
+    const reject = (message: string) =>
+      send(client, {
+        type: "response",
+        response: {
+          commandId: request.commandId,
+          accepted: false,
+          error: { code: "invalid_request", message, retryable: false },
+        },
+      });
+    if (!this.checkpoints) {
+      reject("Turn changes are not available in this runtime.");
+      return true;
+    }
+    try {
+      const result = await this.checkpoints.run(command);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch (error) {
+      reject(
+        error instanceof CheckpointError
+          ? error.message
+          : `The turn's changes could not be read: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
+      );
+    }
+    return true;
+  }
+
   /** Image bytes are written to disk before dispatch; the command that reaches the event log carries only paths. */
   private async storeAttachments(request: RpcRequest): Promise<RpcRequest> {
     const command = request.command;
@@ -519,6 +556,7 @@ export class RpcServer {
         if (this.terminalService && this.handleTerminalInput(client, message.data.request)) return;
         if (await this.handleFileCommand(client, message.data.request)) return;
         if (await this.handlePullRequestCommand(client, message.data.request)) return;
+        if (await this.handleCheckpointCommand(client, message.data.request)) return;
         if (await this.handleProjectConfig(client, message.data.request)) return;
         if (await this.handleMcpCommand(client, message.data.request)) return;
         try {
@@ -636,6 +674,10 @@ function isFileCommand(command: RpcRequest["command"]): command is FileCommand {
 
 function isPullRequestCommand(command: RpcRequest["command"]): command is PullRequestCommand {
   return (PULL_REQUEST_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
+function isCheckpointCommand(command: RpcRequest["command"]): command is CheckpointCommand {
+  return (CHECKPOINT_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
 function fileErrorMessage(command: FileCommand, error: unknown): string {

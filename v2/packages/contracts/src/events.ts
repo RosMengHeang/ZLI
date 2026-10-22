@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BrowserTabProjection } from "./browser.js";
+import { ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
 import { DiagnosticLog } from "./diagnostics.js";
 import {
@@ -98,6 +99,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("thread.queued"), message: ThreadQueuedMessage }),
   z.object({ type: z.literal("thread.usage.recorded"), record: ThreadUsageRecord }),
+  z.object({ type: z.literal("thread.checkpoint.recorded"), checkpoint: ThreadCheckpoint }),
   z.object({ type: z.literal("thread.queue.removed"), threadId: ThreadId, queueId: z.string().min(1).max(200) }),
   z.object({ type: z.literal("thread.queue.prioritized"), threadId: ThreadId, queueId: z.string().min(1).max(200) }),
   z.object({

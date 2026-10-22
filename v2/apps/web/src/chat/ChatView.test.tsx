@@ -47,13 +47,21 @@ function projectionWith(overrides: Partial<RuntimeProjection> = {}): RuntimeProj
   };
 }
 
-async function render(projection: RuntimeProjection, onOpenDiff = vi.fn()) {
+async function render(
+  projection: RuntimeProjection,
+  onOpenDiff = vi.fn(),
+  results: (command: Record<string, unknown>) => unknown = () => undefined,
+) {
   const dispatched: Array<{ command: Record<string, unknown> }> = [];
   const bridge = {
     runtime: {
       dispatch: async (request: { command: Record<string, unknown> }) => {
         dispatched.push(request);
-        return { commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"), accepted: true as const };
+        return {
+          commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"),
+          accepted: true as const,
+          result: results(request.command),
+        };
       },
       getProjection: async () => projection,
       onProjection: () => () => undefined,
@@ -117,6 +125,95 @@ describe("ChatView", () => {
     expect(onOpenDiff).toHaveBeenCalledWith();
     await act(async () => changed?.querySelector<HTMLButtonElement>("li button")?.click());
     expect(onOpenDiff).toHaveBeenLastCalledWith("src/helper.ts");
+  });
+
+  it("lists a turn's changed files with their diff and restores the files after confirming", async () => {
+    const turnId = "provider-turn-7";
+    const checkpointId = "00000000-0000-4000-8000-000000000777";
+    const patch = ["diff --git a/README.md b/README.md", "@@ -1 +1 @@", "-base", "+changed", ""].join("\n");
+    const { container, dispatched } = await render(
+      projectionWith({
+        threads: [{ ...thread, status: "idle" }],
+        messages: [
+          { messageId: "m1", threadId, role: "user", text: "Update the readme" },
+          { messageId: "m2", threadId, turnId, role: "assistant", text: "Updated it." },
+          { messageId: "m3", threadId, role: "user", text: "Thanks" },
+        ] as RuntimeProjection["messages"],
+        checkpoints: [
+          {
+            checkpointId,
+            threadId,
+            worktreeId,
+            turnId,
+            startTree: "a".repeat(40),
+            endTree: "b".repeat(40),
+            files: [
+              { path: "README.md", kind: "modified", additions: 1, deletions: 1, binary: false },
+              { path: "docs/new.md", kind: "added", additions: 4, deletions: 0, binary: false },
+            ],
+            fileCount: 2,
+            additions: 5,
+            deletions: 1,
+          },
+        ] as RuntimeProjection["checkpoints"],
+      }),
+      vi.fn(),
+      (command) =>
+        command.type === "checkpoint.diff"
+          ? { path: "README.md", binary: false, patch, truncated: false }
+          : { changedFiles: 2 },
+    );
+    const changes = container.querySelector<HTMLElement>('[aria-label="Changes in this turn"]');
+    expect(changes?.textContent).toContain("2 files changed");
+    // The card follows the turn's reply, before the next message.
+    const order = [...container.querySelectorAll(".chat-message, .turn-changes")].map((node) => node.className);
+    expect(order).toEqual([
+      "chat-message chat-message-user",
+      "chat-message chat-message-assistant",
+      "turn-changes",
+      "chat-message chat-message-user",
+    ]);
+    await act(async () => changes?.querySelector<HTMLButtonElement>(".turn-file")?.click());
+    expect(dispatched.at(-1)?.command).toEqual({ type: "checkpoint.diff", checkpointId, path: "README.md" });
+    const diff = container.querySelector('[aria-label="Diff for README.md"]');
+    expect([...(diff?.querySelectorAll(".turn-diff-line") ?? [])].map((line) => line.className)).toEqual([
+      "turn-diff-line is-hunk",
+      "turn-diff-line is-del",
+      "turn-diff-line is-add",
+    ]);
+
+    await act(async () => button(changes as HTMLElement, "Restore")?.click());
+    const dialog = document.querySelector('[role="dialog"][aria-label="Restore files"]');
+    expect(dialog?.textContent).toContain("This turn changed 2 files.");
+    await act(async () => button(dialog as HTMLElement, "Restore files")?.click());
+    expect(dispatched.at(-1)?.command).toEqual({ type: "checkpoint.restore", checkpointId });
+    expect(document.querySelector('[aria-label="Restore files"]')).toBeNull();
+  });
+
+  it("blocks restoring while an agent in the worktree is working", async () => {
+    const { container } = await render(
+      projectionWith({
+        threads: [{ ...thread, status: "working" }],
+        messages: [
+          { messageId: "m2", threadId, turnId: "t1", role: "assistant", text: "Done." },
+        ] as RuntimeProjection["messages"],
+        checkpoints: [
+          {
+            checkpointId: "00000000-0000-4000-8000-000000000778",
+            threadId,
+            worktreeId,
+            turnId: "t1",
+            startTree: "a".repeat(40),
+            endTree: "b".repeat(40),
+            files: [{ path: "a.ts", kind: "modified", additions: 1, deletions: 0, binary: false }],
+            fileCount: 1,
+            additions: 1,
+            deletions: 0,
+          },
+        ] as RuntimeProjection["checkpoints"],
+      }),
+    );
+    expect(button(container, "Restore")?.disabled).toBe(true);
   });
 
   it("answers an approval request", async () => {

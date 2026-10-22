@@ -588,4 +588,93 @@ describe("ProviderReactor usage", () => {
     });
     reactor.stop();
   });
+
+  it("snapshots files before each turn and records them when the turn ends or is steered away", async () => {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    let turns = 0;
+    const order: string[] = [];
+    const adapter = new (class extends FakeAdapter {
+      override async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
+        this.turnInputs.push(input);
+        turns += 1;
+        order.push(`send ${input.text}`);
+        return { turnId: `turn-${turns}` };
+      }
+    })();
+    const recorded: Array<[string, string, string]> = [];
+    const checkpoints = {
+      capture: async (id: string) => {
+        order.push("capture");
+        return {
+          worktreeId,
+          worktreePath: "C:\\workspace\\checkpoint-tree",
+          tree: `tree-${id.slice(-1)}-${turns + 1}`,
+        };
+      },
+      record: async (id: string, turnId: string, start: { tree: string }) => {
+        recorded.push([id, turnId, start.tree]);
+      },
+    };
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service, checkpoints);
+    let sequence = 0;
+    const dispatch = (command: Parameters<Engine["dispatchPromise"]>[0]["command"]) => {
+      sequence += 1;
+      return engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`30000000-0000-4000-8000-0000000009${String(sequence).padStart(2, "0")}`),
+        command,
+      });
+    };
+    await dispatch({ type: "project.register", path: "C:\\workspace\\checkpoint" });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    await dispatch({
+      type: "worktree.create",
+      worktreeId,
+      projectId: ProjectId.parse(project.projectId),
+      path: "C:\\workspace\\checkpoint-tree",
+      workspaceRoot: "C:\\workspace",
+      branch: "feature/checkpoint",
+    });
+    await dispatch({
+      type: "thread.start",
+      threadId,
+      worktreeId,
+      provider: "codex",
+      cwd: "C:\\workspace\\checkpoint-tree",
+    });
+    await reactor.waitForIdle();
+
+    await dispatch({ type: "thread.queue", queueId: "c1", threadId, text: "first" });
+    await reactor.waitForIdle();
+    expect(order).toEqual(["capture", "send first"]);
+    adapter.emit({ type: "turn.completed", threadId, turnId: "turn-1", status: "completed" });
+    await reactor.waitForIdle();
+    expect(recorded).toEqual([[threadId, "turn-1", "tree-4-1"]]);
+
+    await dispatch({ type: "thread.queue", queueId: "c2", threadId, text: "second" });
+    await reactor.waitForIdle();
+    await dispatch({ type: "thread.queue", queueId: "c3", threadId, text: "third" });
+    await dispatch({ type: "thread.steer", threadId, queueId: "c3" });
+    await reactor.waitForIdle();
+    expect(recorded).toEqual([
+      [threadId, "turn-1", "tree-4-1"],
+      [threadId, "turn-2", "tree-4-2"],
+    ]);
+    // The steered turn's late completion must not record it twice.
+    adapter.emit({ type: "turn.completed", threadId, turnId: "turn-2", status: "interrupted" });
+    adapter.emit({ type: "turn.completed", threadId, turnId: "turn-3", status: "completed" });
+    await reactor.waitForIdle();
+    expect(recorded.map(([, turnId, tree]) => `${turnId} ${tree}`)).toEqual([
+      "turn-1 tree-4-1",
+      "turn-2 tree-4-2",
+      "turn-3 tree-4-3",
+    ]);
+    reactor.stop();
+    await service.stopAll();
+    service.dispose();
+  });
 });

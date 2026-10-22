@@ -1,4 +1,5 @@
 import {
+  appendCheckpoint,
   appendThreadMessage,
   deriveSharedProjectContexts,
   pruneDevServers,
@@ -242,6 +243,16 @@ export class ProjectionStore {
             ...(current.queuedMessages ?? []).filter((queued) => queued.queueId !== event.message.queueId),
             { ...event.message, queuedAt: envelope.occurredAt },
           ],
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "thread.checkpoint.recorded":
+        this.#projection = {
+          ...current,
+          checkpoints: appendCheckpoint(current.checkpoints ?? [], {
+            ...event.checkpoint,
+            recordedAt: envelope.occurredAt,
+          }),
           lastSequence: envelope.sequence,
         };
         break;

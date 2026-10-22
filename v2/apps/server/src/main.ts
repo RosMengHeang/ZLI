@@ -11,6 +11,7 @@ import {
   syncUserMcpServers,
   type UserSettingsOutcome,
 } from "./browser-tool/userSettings.js";
+import { TurnCheckpoints } from "./checkpoints/TurnCheckpoints.js";
 import { DaemonSupervisor } from "./daemon/DaemonSupervisor.js";
 import { Database } from "./db/Database.js";
 import { DevServerReactor } from "./devservers/DevServerReactor.js";
@@ -127,7 +128,8 @@ export async function startRuntime(options: {
     ...(browserTool ? { browserTool } : {}),
     ...mcpOptions,
   });
-  const providerReactor = new ProviderReactor(engine, providerService);
+  const checkpoints = new TurnCheckpoints(engine, new GitProcess({ maxOutputBytes: 4 * 1024 * 1024 }));
+  const providerReactor = new ProviderReactor(engine, providerService, checkpoints);
   const agentMessageReactor = new AgentMessageReactor(engine);
   const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
   const legacyImportReactor = new LegacyImportReactor(engine);
@@ -139,6 +141,7 @@ export async function startRuntime(options: {
     terminalService,
     discoverProviders: () => providerService.discoverProviders(),
     attachmentsDir: join(dirname(databasePath), "attachments"),
+    checkpoints,
     mcpServers,
   });
   // Before the server accepts commands, so a setup started by a new request is never mistaken for a stale one.
@@ -183,6 +186,7 @@ export async function startRuntime(options: {
       await terminalReactor.waitForIdle();
       await reviewReactor.waitForIdle();
       await providerReactor.waitForIdle();
+      await checkpoints.waitForIdle();
       await agentMessageReactor.waitForIdle();
       await diagnosticsReactor.waitForIdle();
       await legacyImportReactor.waitForIdle();
@@ -191,6 +195,7 @@ export async function startRuntime(options: {
       terminalReactor.stop();
       reviewReactor.stop();
       providerReactor.stop();
+      checkpoints.stop();
       agentMessageReactor.stop();
       diagnosticsReactor.stop();
       legacyImportReactor.stop();

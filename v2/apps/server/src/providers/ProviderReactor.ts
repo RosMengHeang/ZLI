@@ -9,6 +9,7 @@ import {
   TurnId,
 } from "@zli-v2/contracts";
 
+import type { TurnCheckpoints, TurnStart } from "../checkpoints/TurnCheckpoints.js";
 import type { Engine } from "../orchestration/Engine.js";
 import type { ProviderEvent, ProviderService } from "./ProviderService.js";
 
@@ -44,12 +45,15 @@ export class ProviderReactor {
    * next queued message has started, and that late report must not mark the new turn idle.
    */
   private readonly endedTurns = new Map<string, string[]>();
+  /** The files before each running turn, keyed by thread and the provider's turn id. */
+  private readonly turnStarts = new Map<string, TurnStart>();
   private readonly unsubscribe: () => void;
   private readonly unsubscribeProvider: () => void;
 
   constructor(
     private readonly engine: Engine,
     private readonly service: ProviderService,
+    private readonly checkpoints?: Pick<TurnCheckpoints, "capture" | "record">,
   ) {
     this.unsubscribe = engine.subscribe((envelope) => this.onEvent(envelope));
     this.unsubscribeProvider = service.subscribe((event) => this.onProviderEvent(event));
@@ -141,6 +145,8 @@ export class ProviderReactor {
     const { threadId, text, model, permissionMode } = intent;
     const attachments = intent.attachments ?? [];
     await this.message(threadId, "user", text, undefined, attachments);
+    // Taken before the provider sees the message, so none of the turn's edits can land first.
+    const start = await this.checkpoints?.capture(threadId);
     try {
       const result = await this.service.sendTurn({
         threadId: ThreadId.parse(threadId),
@@ -149,7 +155,10 @@ export class ProviderReactor {
         ...(permissionMode ? { permissionMode } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
       });
-      if (!this.turnEnded(threadId, result.turnId)) {
+      if (start) this.turnStarts.set(turnKey(threadId, result.turnId), start);
+      if (this.turnEnded(threadId, result.turnId)) {
+        this.recordCheckpoint(threadId, result.turnId);
+      } else {
         this.activeTurns.set(threadId, result.turnId);
         await this.status(threadId, "working", { turnId: result.turnId });
       }
@@ -165,7 +174,10 @@ export class ProviderReactor {
     try {
       await this.service.interruptTurn({ threadId: ThreadId.parse(threadId), ...(turnId ? { turnId } : {}) });
       this.flushThreadDeltas(threadId);
-      if (active) this.endTurn(threadId, active);
+      if (active) {
+        this.endTurn(threadId, active);
+        this.recordCheckpoint(threadId, active);
+      }
       await this.status(threadId, "idle");
     } catch (error) {
       await this.fail(threadId, error, "Provider interruption failed.");
@@ -186,6 +198,7 @@ export class ProviderReactor {
     this.deleted.add(threadId);
     this.activeTurns.delete(threadId);
     this.endedTurns.delete(threadId);
+    for (const key of this.turnStarts.keys()) if (key.startsWith(`${threadId}\u0000`)) this.turnStarts.delete(key);
     for (const [key, pending] of this.pendingDeltas) {
       if (pending.threadId !== threadId) continue;
       clearTimeout(pending.timer);
@@ -226,6 +239,7 @@ export class ProviderReactor {
       this.flushThreadDeltas(event.threadId);
       if (this.turnEnded(event.threadId, event.turnId)) return;
       this.endTurn(event.threadId, event.turnId);
+      this.recordCheckpoint(event.threadId, event.turnId);
       this.track(this.status(event.threadId, "idle", { turnId: event.turnId }));
       return;
     }
@@ -241,6 +255,11 @@ export class ProviderReactor {
       );
       this.track(this.status(event.threadId, "waiting"));
       return;
+    }
+    if (event.threadId) {
+      // A session that ends mid-turn may still have changed files.
+      const active = this.activeTurns.get(event.threadId);
+      if (active) this.recordCheckpoint(event.threadId, active);
     }
     if (event.type === "session.closed") {
       this.flushThreadDeltas(event.threadId);
@@ -262,6 +281,14 @@ export class ProviderReactor {
     const ended = this.endedTurns.get(threadId) ?? [];
     ended.push(turnId);
     this.endedTurns.set(threadId, ended.slice(-MAX_ENDED_TURNS));
+  }
+
+  private recordCheckpoint(threadId: string, turnId: string): void {
+    const key = turnKey(threadId, turnId);
+    const start = this.turnStarts.get(key);
+    if (!start || !this.checkpoints || this.deleted.has(threadId)) return;
+    this.turnStarts.delete(key);
+    this.track(this.checkpoints.record(threadId, turnId, start));
   }
 
   /** The decider sends the next queued message only if the thread is still idle with nothing open. */
@@ -460,6 +487,10 @@ export class ProviderReactor {
       () => this.tasks.delete(task),
     );
   }
+}
+
+function turnKey(threadId: string, turnId: string): string {
+  return `${threadId}\u0000${turnId}`;
 }
 
 function errorText(error: unknown, fallback: string): string {

@@ -1,4 +1,5 @@
 import {
+  appendCheckpoint,
   appendThreadMessage,
   deriveSharedProjectContexts,
   type EnvironmentDescriptor,
@@ -233,6 +234,15 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
           ...(projection.queuedMessages ?? []).filter((queued) => queued.queueId !== event.message.queueId),
           { ...event.message, queuedAt: envelope.occurredAt },
         ],
+        lastSequence: envelope.sequence,
+      };
+    case "thread.checkpoint.recorded":
+      return {
+        ...projection,
+        checkpoints: appendCheckpoint(projection.checkpoints ?? [], {
+          ...event.checkpoint,
+          recordedAt: envelope.occurredAt,
+        }),
         lastSequence: envelope.sequence,
       };
     case "thread.usage.recorded":

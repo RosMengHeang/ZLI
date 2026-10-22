@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BrowserTabProjection } from "./browser.js";
+import { CheckpointCommand, ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
 import { DiagnosticLog } from "./diagnostics.js";
 import { RuntimeEventEnvelope } from "./events.js";
@@ -175,6 +176,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     turnId: z.string().min(1).max(200),
     usage: TurnUsage,
   }),
+  /** Reported by the runtime when a turn that changed files ends. */
+  z.object({ type: z.literal("thread.checkpoint"), checkpoint: ThreadCheckpoint.omit({ recordedAt: true }) }),
   z.object({ type: z.literal("thread.request"), request: ThreadRequestProjection }),
   z.object({ type: z.literal("thread.activity"), activity: ThreadActivityProjection }),
   z.object({ type: z.literal("thread.request.resolved"), threadId: ThreadId, requestId: z.string().min(1) }),
@@ -235,6 +238,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("devserver.stopped"), terminalId: TerminalId, port: DevServerProjection.shape.port }),
   ...FileCommand.options,
   ...PullRequestCommand.options,
+  ...CheckpointCommand.options,
   ...McpCommand.options,
   /** Reported by the runtime while it copies files and runs zli.json setup in a new worktree. */
   z.object({ type: z.literal("worktree.setup"), setup: WorktreeSetupProjection }),
