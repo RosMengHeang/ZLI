@@ -29,12 +29,20 @@ const LIVE_STATUSES = new Set<ThreadStatus>(["starting", "idle", "working", "wai
 const MAX_ACTIVITY_TITLE = 500;
 const MAX_ACTIVITY_DETAIL = 4_000;
 const MAX_ACTIVITY_ID = 200;
+const MAX_ENDED_TURNS = 20;
 
 export class ProviderReactor {
   private readonly tasks = new Set<Promise<void>>();
   private readonly pendingDeltas = new Map<string, PendingDelta>();
   /** Threads whose session was deleted. Late provider output for them has no record to land on. */
   private readonly deleted = new Set<string>();
+  /** The provider's id for each thread's current turn, as the provider reports it. */
+  private readonly activeTurns = new Map<string, string>();
+  /**
+   * Turns that already ended, per thread. An interrupted turn can still report completion after the
+   * next queued message has started, and that late report must not mark the new turn idle.
+   */
+  private readonly endedTurns = new Map<string, string[]>();
   private readonly unsubscribe: () => void;
   private readonly unsubscribeProvider: () => void;
 
@@ -89,6 +97,9 @@ export class ProviderReactor {
       case "thread.stop.requested":
         this.track(this.stopSession(envelope.event.threadId));
         return;
+      case "thread.status.changed":
+        if (envelope.event.status === "idle") this.track(this.flushQueue(envelope.event.threadId));
+        return;
       case "thread.respond.requested":
         this.track(this.respond(envelope.event.threadId, envelope.event.requestId, envelope.event.decision));
         return;
@@ -137,16 +148,23 @@ export class ProviderReactor {
         ...(permissionMode ? { permissionMode } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
       });
-      await this.status(threadId, "working", { turnId: result.turnId });
+      if (!this.turnEnded(threadId, result.turnId)) {
+        this.activeTurns.set(threadId, result.turnId);
+        await this.status(threadId, "working", { turnId: result.turnId });
+      }
     } catch (error) {
       await this.fail(threadId, error, "Provider turn failed.");
     }
   }
 
-  private async interrupt(threadId: string, turnId?: string): Promise<void> {
+  private async interrupt(threadId: string, projectedTurnId?: string): Promise<void> {
+    // The projection keeps a sanitized turn id, so the provider's own id is preferred when known.
+    const active = this.activeTurns.get(threadId);
+    const turnId = active ?? projectedTurnId;
     try {
       await this.service.interruptTurn({ threadId: ThreadId.parse(threadId), ...(turnId ? { turnId } : {}) });
       this.flushThreadDeltas(threadId);
+      if (active) this.endTurn(threadId, active);
       await this.status(threadId, "idle");
     } catch (error) {
       await this.fail(threadId, error, "Provider interruption failed.");
@@ -165,6 +183,8 @@ export class ProviderReactor {
 
   private async forget(threadId: string): Promise<void> {
     this.deleted.add(threadId);
+    this.activeTurns.delete(threadId);
+    this.endedTurns.delete(threadId);
     for (const [key, pending] of this.pendingDeltas) {
       if (pending.threadId !== threadId) continue;
       clearTimeout(pending.timer);
@@ -186,6 +206,8 @@ export class ProviderReactor {
       return;
     }
     if (event.type === "turn.started") {
+      if (this.turnEnded(event.threadId, event.turnId)) return;
+      this.activeTurns.set(event.threadId, event.turnId);
       this.track(this.status(event.threadId, "working", { turnId: event.turnId }));
       return;
     }
@@ -197,6 +219,8 @@ export class ProviderReactor {
     }
     if (event.type === "turn.completed") {
       this.flushThreadDeltas(event.threadId);
+      if (this.turnEnded(event.threadId, event.turnId)) return;
+      this.endTurn(event.threadId, event.turnId);
       this.track(this.status(event.threadId, "idle", { turnId: event.turnId }));
       return;
     }
@@ -222,6 +246,29 @@ export class ProviderReactor {
       this.flushThreadDeltas(event.threadId);
       this.track(this.status(event.threadId, "failed", { errorMessage: event.message }));
     }
+  }
+
+  private turnEnded(threadId: string, turnId: string): boolean {
+    return this.endedTurns.get(threadId)?.includes(turnId) ?? false;
+  }
+
+  private endTurn(threadId: string, turnId: string): void {
+    if (this.activeTurns.get(threadId) === turnId) this.activeTurns.delete(threadId);
+    const ended = this.endedTurns.get(threadId) ?? [];
+    ended.push(turnId);
+    this.endedTurns.set(threadId, ended.slice(-MAX_ENDED_TURNS));
+  }
+
+  /** The decider sends the next queued message only if the thread is still idle with nothing open. */
+  private flushQueue(threadId: string): Promise<void> {
+    if (this.deleted.has(threadId)) return Promise.resolve();
+    return this.engine
+      .dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        command: { type: "thread.queue.flush", threadId: ThreadId.parse(threadId) },
+      })
+      .then(() => undefined);
   }
 
   private bufferDelta(threadId: string, turnId: string, text: string): void {

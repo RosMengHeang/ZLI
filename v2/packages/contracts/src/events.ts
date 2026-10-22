@@ -23,6 +23,7 @@ import {
   ThreadAttachment,
   ThreadMessageProjection,
   ThreadProjection,
+  ThreadQueuedMessage,
   ThreadRequestProjection,
 } from "./provider.js";
 import { ReviewProjection } from "./review.js";
@@ -94,6 +95,9 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     permissionMode: PermissionMode.optional(),
     attachments: z.array(ThreadAttachment).max(8).optional(),
   }),
+  z.object({ type: z.literal("thread.queued"), message: ThreadQueuedMessage }),
+  z.object({ type: z.literal("thread.queue.removed"), threadId: ThreadId, queueId: z.string().min(1).max(200) }),
+  z.object({ type: z.literal("thread.queue.prioritized"), threadId: ThreadId, queueId: z.string().min(1).max(200) }),
   z.object({
     type: z.literal("thread.a2a.delivered"),
     projectId: ProjectId,

@@ -221,11 +221,44 @@ export class ProjectionStore {
         const { permissionMode } = event;
         this.#projection = {
           ...current,
-          threads: permissionMode
-            ? current.threads.map((thread) =>
-                thread.threadId === event.threadId ? { ...thread, permissionMode } : thread,
-              )
-            : current.threads,
+          threads: current.threads.map((thread) =>
+            thread.threadId === event.threadId
+              ? {
+                  ...thread,
+                  ...(thread.status === "idle" ? { status: "working" as const, updatedAt: envelope.occurredAt } : {}),
+                  ...(permissionMode ? { permissionMode } : {}),
+                }
+              : thread,
+          ),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      }
+      case "thread.queued":
+        this.#projection = {
+          ...current,
+          queuedMessages: [
+            ...(current.queuedMessages ?? []).filter((queued) => queued.queueId !== event.message.queueId),
+            { ...event.message, queuedAt: envelope.occurredAt },
+          ],
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "thread.queue.removed":
+        this.#projection = {
+          ...current,
+          queuedMessages: (current.queuedMessages ?? []).filter(
+            (queued) => !(queued.threadId === event.threadId && queued.queueId === event.queueId),
+          ),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "thread.queue.prioritized": {
+        const queue = current.queuedMessages ?? [];
+        const target = queue.find((queued) => queued.threadId === event.threadId && queued.queueId === event.queueId);
+        this.#projection = {
+          ...current,
+          ...(target ? { queuedMessages: [target, ...queue.filter((queued) => queued !== target)] } : {}),
           lastSequence: envelope.sequence,
         };
         break;

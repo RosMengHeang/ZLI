@@ -45,6 +45,7 @@ export function Composer({
   displayName,
   branch,
   disabled,
+  queues = false,
   models,
   model,
   modelLocked,
@@ -57,6 +58,8 @@ export function Composer({
   displayName: string;
   branch: string;
   disabled: boolean;
+  /** The agent is busy, so a submitted message waits in its queue. */
+  queues?: boolean;
   models: readonly ProviderModelOption[] | undefined;
   model: string | undefined;
   /** The provider cannot switch models inside a running session. */
@@ -329,8 +332,8 @@ export function Composer({
         <button
           className="send-button"
           type="submit"
-          aria-label="Send"
-          data-tooltip="Send"
+          aria-label={queues ? "Queue message" : "Send"}
+          data-tooltip={queues ? `Queue. ${displayName} gets it after the current turn` : "Send"}
           data-shortcut="Enter"
           aria-keyshortcuts="Enter"
           disabled={disabled || sending || (!draft.trim() && images.length === 0)}

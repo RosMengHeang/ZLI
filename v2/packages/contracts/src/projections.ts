@@ -9,6 +9,7 @@ import {
   ThreadActivityProjection,
   ThreadMessageProjection,
   ThreadProjection,
+  ThreadQueuedMessage,
   ThreadRequestProjection,
 } from "./provider.js";
 import { ReviewProjection } from "./review.js";
@@ -110,6 +111,7 @@ export const RuntimeProjection = z.object({
   providers: z.array(ProviderDiscovery).optional(),
   messages: z.array(ThreadMessageProjection).optional(),
   requests: z.array(ThreadRequestProjection).optional(),
+  queuedMessages: z.array(ThreadQueuedMessage).optional(),
   activities: z.array(ThreadActivityProjection).optional(),
   terminals: z.array(TerminalProjection),
   browserTabs: z.array(BrowserTabProjection),
@@ -150,6 +152,9 @@ export function removeSession(
       ? { activities: projection.activities.filter((activity) => !threads.has(activity.threadId)) }
       : {}),
     ...(projection.requests ? { requests: requests.filter((request) => !threads.has(request.threadId)) } : {}),
+    ...(projection.queuedMessages
+      ? { queuedMessages: projection.queuedMessages.filter((queued) => !threads.has(queued.threadId)) }
+      : {}),
     attention: projection.attention.filter((item) => !removedRequests.has(item.id)),
   };
 }

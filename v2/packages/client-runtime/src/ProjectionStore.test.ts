@@ -141,6 +141,26 @@ describe("ProjectionStore", () => {
     expect(store.current()?.lastSequence).toBe(events.length);
   });
 
+  it("keeps the message queue in order as messages are queued, moved up, and sent", () => {
+    const store = new ProjectionStore();
+    const threadId = id("31");
+    store.replace({
+      ...projection(),
+      threads: [{ threadId, worktreeId: id("11"), provider: "codex", status: "working", capabilities: {} }],
+    });
+    const queued = (queueId: string) => ({ type: "thread.queued", message: { queueId, threadId, text: queueId } });
+    const events = [
+      queued("q1"),
+      queued("q2"),
+      { type: "thread.queue.prioritized", threadId, queueId: "q2" },
+      { type: "thread.queue.removed", threadId, queueId: "q2" },
+    ];
+    expect(events.map((event, index) => store.apply(envelope(index + 1, event)))).toEqual(events.map(() => "applied"));
+    expect(store.current()?.queuedMessages).toEqual([
+      { queueId: "q1", threadId, text: "q1", queuedAt: "2026-09-21T00:00:00.000Z" },
+    ]);
+  });
+
   it("projects an agent-to-agent message onto the target thread", () => {
     const store = new ProjectionStore();
     store.replace(projection());

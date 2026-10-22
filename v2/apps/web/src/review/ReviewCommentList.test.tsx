@@ -233,7 +233,7 @@ describe("ReviewCommentList", () => {
     expect(dialog?.querySelector(".choice-detail")?.textContent).toBe("Droid chat · Ready");
     expect(dialog?.querySelector(".send-preview")?.textContent).toContain("src/app.ts:2\n```diff");
     await act(async () => dialog && button(dialog, "Send")?.click());
-    expect(dispatched.at(-1)?.command).toMatchObject({ type: "thread.send", threadId });
+    expect(dispatched.at(-1)?.command).toMatchObject({ type: "thread.queue", threadId });
     expect(String(dispatched.at(-1)?.command.text)).toContain("Rename this.");
     expect(container.querySelector('[aria-label="Review comments"]')).toBeNull();
     expect(onShowAgent).toHaveBeenCalledWith(threadId, "chat");

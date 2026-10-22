@@ -2,12 +2,18 @@ import { createHash } from "node:crypto";
 import { posix, win32 } from "node:path";
 
 import {
+  type PermissionMode,
   ProjectId,
   type ProjectProjection,
   parseDevServerUrl,
   type RuntimeCommand,
   type RuntimeEvent,
   type RuntimeProjection,
+  type ThreadAttachment,
+  type ThreadAttachmentUpload,
+  type ThreadId,
+  type ThreadProjection,
+  type ThreadQueuedMessage,
   threadOccupiesWorktree,
 } from "@zli-v2/contracts";
 
@@ -84,6 +90,9 @@ export type DomainDecision = Extract<
       | "terminal.status.changed"
       | "thread.start.requested"
       | "thread.send.requested"
+      | "thread.queued"
+      | "thread.queue.removed"
+      | "thread.queue.prioritized"
       | "thread.a2a.delivered"
       | "thread.interrupt.requested"
       | "thread.stop.requested"
@@ -301,31 +310,59 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     }
     case "thread.send": {
       assertThread(projection, command.threadId);
-      const thread = projection.threads.find((entry) => entry.threadId === command.threadId);
-      const permissionChanged =
-        command.permissionMode !== undefined && command.permissionMode !== (thread?.permissionMode ?? "full-access");
-      if (permissionChanged && thread?.capabilities.permissionSwitch !== "in-session") {
+      return [sendRequested(projection, { ...command, attachments: storedAttachments(command.attachments) })];
+    }
+    case "thread.queue": {
+      const thread = requireThread(projection, command.threadId);
+      if (thread.status === "stopped" || thread.status === "failed")
+        throw new DomainError("unsupported_command", "This agent has ended. Start a new chat to send it more.");
+      const queue = queuedFor(projection, command.threadId);
+      if (queue.some((queued) => queued.queueId === command.queueId)) return [];
+      if (queue.length >= MAX_QUEUED_PER_THREAD)
         throw new DomainError(
           "unsupported_command",
-          "This agent keeps its permission mode for the whole session. Start a new chat to change it.",
+          `An agent can hold up to ${MAX_QUEUED_PER_THREAD} queued messages.`,
         );
-      }
-      const attachments = (command.attachments ?? []).map((attachment) => {
-        // The RPC layer writes uploaded bytes to disk first, so the event log never stores image data.
-        if (!attachment.path)
-          throw new DomainError("unsupported_command", "Attachments must be stored before sending.");
-        return { name: attachment.name, mimeType: attachment.mimeType, path: attachment.path };
-      });
+      // Rejected now so a queued change does not fail later, when nobody is watching.
+      assertPermissionChange(thread, command.permissionMode);
+      const attachments = storedAttachments(command.attachments);
+      const message = {
+        queueId: command.queueId,
+        threadId: command.threadId,
+        text: command.text,
+        ...(command.model ? { model: command.model } : {}),
+        ...(command.permissionMode ? { permissionMode: command.permissionMode } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
+      };
+      if (!readyForNext(projection, thread)) return [{ type: "thread.queued", message }];
+      if (queue.length === 0) return [sendRequested(projection, message)];
+      return [{ type: "thread.queued", message }, ...sendQueued(projection, queue[0] as ThreadQueuedMessage)];
+    }
+    case "thread.queue.remove":
+      requireThread(projection, command.threadId);
+      if (!queuedFor(projection, command.threadId).some((queued) => queued.queueId === command.queueId)) return [];
+      return [{ type: "thread.queue.removed", threadId: command.threadId, queueId: command.queueId }];
+    case "thread.steer": {
+      const thread = requireThread(projection, command.threadId);
+      const queued = queuedFor(projection, command.threadId).find((entry) => entry.queueId === command.queueId);
+      if (!queued) throw new DomainError("unsupported_command", "That message is no longer queued.");
+      if (readyForNext(projection, thread)) return sendQueued(projection, queued);
+      if (thread.status !== "working")
+        throw new DomainError("unsupported_command", "Answer the agent's request first, then send this message.");
       return [
+        { type: "thread.queue.prioritized", threadId: command.threadId, queueId: command.queueId },
         {
-          type: "thread.send.requested",
+          type: "thread.interrupt.requested",
           threadId: command.threadId,
-          text: command.text,
-          ...(command.model ? { model: command.model } : {}),
-          ...(permissionChanged && command.permissionMode ? { permissionMode: command.permissionMode } : {}),
-          ...(attachments.length > 0 ? { attachments } : {}),
+          ...(thread.activeTurnId ? { turnId: thread.activeTurnId } : {}),
         },
       ];
+    }
+    case "thread.queue.flush": {
+      const thread = requireThread(projection, command.threadId);
+      const [next] = queuedFor(projection, command.threadId);
+      if (!next || !readyForNext(projection, thread)) return [];
+      return sendQueued(projection, next);
     }
     case "thread.a2a":
       return [deliverAgentMessage(projection, command)];
@@ -605,6 +642,78 @@ function threadProjectId(projection: RuntimeProjection, threadId: string): Proje
     throw new DomainError("worktree_missing", `Thread is not attached to a worktree: ${threadId}`);
   }
   return worktree.projectId;
+}
+
+const MAX_QUEUED_PER_THREAD = 20;
+
+function requireThread(projection: RuntimeProjection, threadId: string): ThreadProjection {
+  const thread = projection.threads.find((entry) => entry.threadId === threadId);
+  if (!thread) throw new DomainError("thread_missing", `Thread does not exist: ${threadId}`);
+  return thread;
+}
+
+function queuedFor(projection: RuntimeProjection, threadId: string): ThreadQueuedMessage[] {
+  return (projection.queuedMessages ?? []).filter((queued) => queued.threadId === threadId);
+}
+
+/** An agent takes its next message only between turns, with nothing waiting on the person. */
+function readyForNext(projection: RuntimeProjection, thread: ThreadProjection): boolean {
+  return (
+    thread.status === "idle" && !(projection.requests ?? []).some((request) => request.threadId === thread.threadId)
+  );
+}
+
+function permissionChanged(thread: ThreadProjection | undefined, mode: PermissionMode | undefined): boolean {
+  return mode !== undefined && mode !== (thread?.permissionMode ?? "full-access");
+}
+
+function assertPermissionChange(thread: ThreadProjection | undefined, mode: PermissionMode | undefined): void {
+  if (permissionChanged(thread, mode) && thread?.capabilities.permissionSwitch !== "in-session") {
+    throw new DomainError(
+      "unsupported_command",
+      "This agent keeps its permission mode for the whole session. Start a new chat to change it.",
+    );
+  }
+}
+
+/** The RPC layer writes uploaded bytes to disk first, so the event log never stores image data. */
+function storedAttachments(attachments: readonly ThreadAttachmentUpload[] | undefined): ThreadAttachment[] {
+  return (attachments ?? []).map((attachment) => {
+    if (!attachment.path) throw new DomainError("unsupported_command", "Attachments must be stored before sending.");
+    return { name: attachment.name, mimeType: attachment.mimeType, path: attachment.path };
+  });
+}
+
+function sendRequested(
+  projection: RuntimeProjection,
+  input: {
+    threadId: ThreadId;
+    text: string;
+    model?: string | undefined;
+    permissionMode?: PermissionMode | undefined;
+    attachments?: readonly ThreadAttachment[] | undefined;
+  },
+): Extract<DomainDecision, { type: "thread.send.requested" }> {
+  const thread = projection.threads.find((entry) => entry.threadId === input.threadId);
+  assertPermissionChange(thread, input.permissionMode);
+  const attachments = input.attachments ?? [];
+  return {
+    type: "thread.send.requested",
+    threadId: input.threadId,
+    text: input.text,
+    ...(input.model ? { model: input.model } : {}),
+    ...(permissionChanged(thread, input.permissionMode) && input.permissionMode
+      ? { permissionMode: input.permissionMode }
+      : {}),
+    ...(attachments.length > 0 ? { attachments: [...attachments] } : {}),
+  };
+}
+
+function sendQueued(projection: RuntimeProjection, queued: ThreadQueuedMessage): DomainDecision[] {
+  return [
+    { type: "thread.queue.removed", threadId: queued.threadId, queueId: queued.queueId },
+    sendRequested(projection, queued),
+  ];
 }
 
 function assertThread(projection: RuntimeProjection, threadId: string): void {

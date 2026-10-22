@@ -147,7 +147,47 @@ describe("ChatView", () => {
       textarea?.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => button(container, "Send")?.click());
-    expect(dispatched.at(-1)?.command).toEqual({ type: "thread.send", threadId, text: "run the tests" });
+    expect(dispatched.at(-1)?.command).toEqual({
+      type: "thread.queue",
+      queueId: expect.any(String),
+      threadId,
+      text: "run the tests",
+    });
+  });
+
+  it("queues messages while the agent works and can send one now or remove it", async () => {
+    const { container, dispatched } = await render(
+      projectionWith({
+        threads: [{ ...thread, status: "working" }],
+        queuedMessages: [
+          { queueId: "q1", threadId, text: "Then update the docs\nwith examples" },
+          { queueId: "q2", threadId, text: "Also bump the version" },
+        ] as RuntimeProjection["queuedMessages"],
+      }),
+    );
+    const queue = container.querySelector('[aria-label="Queued messages"]');
+    expect(queue?.textContent).toContain("2 queued messages");
+    expect([...(queue?.querySelectorAll(".chat-queue-text") ?? [])].map((item) => item.textContent)).toEqual([
+      "Then update the docs",
+      "Also bump the version",
+    ]);
+    expect(button(container, "Queue message")).toBeDefined();
+    await act(async () => button(container, "Send now: Also bump the version")?.click());
+    expect(dispatched.at(-1)?.command).toEqual({ type: "thread.steer", threadId, queueId: "q2" });
+    await act(async () => button(container, "Remove from queue: Then update the docs")?.click());
+    expect(dispatched.at(-1)?.command).toEqual({ type: "thread.queue.remove", threadId, queueId: "q1" });
+  });
+
+  it("holds Send now until the agent's request is answered", async () => {
+    const { container } = await render(
+      projectionWith({
+        requests: [
+          { requestId: "r1", threadId, kind: "approval", payload: {} },
+        ] as unknown as RuntimeProjection["requests"],
+        queuedMessages: [{ queueId: "q1", threadId, text: "next" }] as RuntimeProjection["queuedMessages"],
+      }),
+    );
+    expect(button(container, "Send now: next")?.disabled).toBe(true);
   });
 
   it("switches permission mode for the next message when the provider allows it", async () => {
@@ -170,7 +210,8 @@ describe("ChatView", () => {
     });
     await act(async () => button(container, "Send")?.click());
     expect(dispatched.at(-1)?.command).toEqual({
-      type: "thread.send",
+      type: "thread.queue",
+      queueId: expect.any(String),
       threadId,
       text: "go ahead",
       permissionMode: "full-access",

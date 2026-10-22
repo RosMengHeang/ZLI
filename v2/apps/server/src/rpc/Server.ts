@@ -41,7 +41,7 @@ import { readableTerminalText } from "../terminal/terminalText.js";
 import { readZliConfig } from "../worktrees/zliConfig.js";
 import { AttachmentError, storeThreadAttachments } from "./attachments.js";
 
-/** Fits thread.send with eight 10 MiB images as base64 (about 112 MB) plus the JSON envelope. */
+/** Fits thread.send or thread.queue with eight 10 MiB images as base64 (about 112 MB) plus the JSON envelope. */
 const MAX_FRAME_BYTES = 128 * 1024 * 1024;
 /** Before hello only a small handshake is expected, so large frames are dropped without parsing them. */
 const MAX_UNAUTHENTICATED_FRAME_BYTES = 64 * 1024;
@@ -445,7 +445,8 @@ export class RpcServer {
   /** Image bytes are written to disk before dispatch; the command that reaches the event log carries only paths. */
   private async storeAttachments(request: RpcRequest): Promise<RpcRequest> {
     const command = request.command;
-    if (command.type !== "thread.send" || !command.attachments || command.attachments.length === 0) return request;
+    if (command.type !== "thread.send" && command.type !== "thread.queue") return request;
+    if (!command.attachments || command.attachments.length === 0) return request;
     const attachments = await storeThreadAttachments(this.attachmentsDir, command.threadId, command.attachments);
     return { ...request, command: { ...command, attachments } };
   }
