@@ -2,6 +2,7 @@ import type { RuntimeProjection } from "@zli-v2/contracts";
 
 import { Button } from "../ui/Button.js";
 import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
+import { useShortcut } from "./keybindings.js";
 
 export function GridEmptyState({
   projection,
@@ -14,6 +15,7 @@ export function GridEmptyState({
   onOpenProject(): void;
   onNewAgent(): void;
 }) {
+  const newAgentShortcut = useShortcut("newAgent");
   if (projection.projects.length === 0) {
     return (
       <EmptyState
@@ -39,7 +41,7 @@ export function GridEmptyState({
           : "Start an agent in a terminal or a chat. Run several at once, each in its own worktree or in the current checkout."
       }
     >
-      <Button variant="primary" size="lg" icon="plus" shortcut="Mod+N" showShortcut onClick={onNewAgent}>
+      <Button variant="primary" size="lg" icon="plus" shortcut={newAgentShortcut} showShortcut onClick={onNewAgent}>
         New agent
       </Button>
     </EmptyState>

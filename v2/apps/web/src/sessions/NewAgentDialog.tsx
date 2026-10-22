@@ -12,6 +12,12 @@ import { permissionLabel } from "../chat/Composer.js";
 import { PromptList, usePromptPicker } from "../prompts/PromptPicker.js";
 import { combinePrompts, usePersonalPrompts } from "../prompts/prompts.js";
 import { useSharedPrompts } from "../prompts/useSharedPrompts.js";
+import {
+  branchFromTemplate,
+  type LaunchDefaults,
+  resolveLaunchDefaults,
+  useAppSettings,
+} from "../settings/appSettings.js";
 import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Select } from "../ui/Field.js";
@@ -24,25 +30,16 @@ import type { SessionMode } from "./sessions.js";
 
 const LAST_LAUNCH_KEY = "zli.lastLaunch.v1";
 
-type LastLaunch = { provider?: ListedProviderKind; mode?: SessionMode; permissionMode?: PermissionMode };
-
-function readLastLaunch(): LastLaunch {
+function readLastLaunch(): LaunchDefaults {
   try {
-    const value = JSON.parse(window.localStorage.getItem(LAST_LAUNCH_KEY) ?? "{}") as LastLaunch;
-    return typeof value === "object" && value !== null ? value : {};
+    const value = JSON.parse(window.localStorage.getItem(LAST_LAUNCH_KEY) ?? "{}") as LaunchDefaults;
+    if (typeof value !== "object" || value === null) return {};
+    // The last launch never pins a model; that only comes from Settings.
+    const { model: _model, ...rest } = value;
+    return rest;
   } catch {
     return {};
   }
-}
-
-const branchStems: Partial<Record<ListedProviderKind, string>> = {
-  "claude-code": "claude",
-  "cursor-agent": "cursor",
-};
-
-function suggestedBranch(provider: ListedProviderKind | undefined): string {
-  const stem = provider ? (branchStems[provider] ?? provider) : "agent";
-  return `${stem}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
 export type NewAgentRequest = LaunchOptions & {
@@ -74,16 +71,15 @@ export function NewAgentDialog({
   onClose(): void;
   onSubmit(request: NewAgentRequest): Promise<string | undefined>;
 }) {
+  const settings = useAppSettings();
   const last = useMemo(readLastLaunch, []);
   const listed = useMemo(() => listedDiscoveries(projection.providers), [projection.providers]);
   const [projectId, setProjectId] = useState(initialProject?.projectId ?? projection.projects[0]?.projectId);
-  const [provider, setProvider] = useState<ListedProviderKind | undefined>(() => {
-    const remembered = listed.find((entry) => entry.provider === last.provider && entry.status === "found");
-    return remembered?.provider ?? preferredProvider(listed);
-  });
-  const [mode, setMode] = useState<SessionMode>(last.mode ?? "terminal");
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>(last.permissionMode ?? "full-access");
-  const [model, setModel] = useState("");
+  const [initial] = useState(() => launchStart(listed, resolveLaunchDefaults(settings, projectId, last)));
+  const [provider, setProvider] = useState<ListedProviderKind | undefined>(initial.provider);
+  const [mode, setMode] = useState<SessionMode>(initial.mode ?? "terminal");
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(initial.permissionMode ?? "full-access");
+  const [model, setModel] = useState(initial.model ?? "");
   const [showMissing, setShowMissing] = useState(false);
   const installed = listed.filter((entry) => entry.status === "found");
   const missing = listed.filter((entry) => entry.status !== "found");
@@ -104,7 +100,7 @@ export function NewAgentDialog({
       ? "existing"
       : "new",
   );
-  const [branch, setBranch] = useState(() => suggestedBranch(provider));
+  const [branch, setBranch] = useState(() => branchFromTemplate(settings.branchTemplate, provider));
   const [branchEdited, setBranchEdited] = useState(false);
   const [baseRef, setBaseRef] = useState("");
   const [existingId, setExistingId] = useState<string | undefined>(
@@ -140,8 +136,22 @@ export function NewAgentDialog({
   const runAgents = Array.from({ length: runs }, (_, index) => runProviders[index] ?? provider);
 
   useEffect(() => {
-    if (!branchEdited) setBranch(suggestedBranch(provider));
-  }, [provider, branchEdited]);
+    if (!branchEdited) setBranch(branchFromTemplate(settings.branchTemplate, provider));
+  }, [provider, branchEdited, settings.branchTemplate]);
+
+  const chooseProject = (nextId: typeof projectId) => {
+    setProjectId(nextId);
+    // Moving to another project applies that project's own settings, and leaves other choices alone.
+    const override = nextId ? settings.projects[nextId] : undefined;
+    if (!override) return;
+    const start = launchStart(listed, override);
+    if (override.provider && start.provider === override.provider) {
+      setProvider(start.provider);
+      setModel(start.model ?? "");
+    }
+    if (override.mode) setMode(override.mode);
+    if (override.permissionMode) setPermissionMode(override.permissionMode);
+  };
 
   const ready =
     project !== undefined &&
@@ -266,7 +276,7 @@ export function NewAgentDialog({
                   className="input-sm"
                   aria-label="Project"
                   value={projectId}
-                  onChange={(event) => setProjectId(event.target.value as typeof projectId)}
+                  onChange={(event) => chooseProject(event.target.value as typeof projectId)}
                 >
                   {projection.projects.map((candidate) => (
                     <option key={candidate.projectId} value={candidate.projectId}>
@@ -532,8 +542,34 @@ export function NewAgentDialog({
   );
 }
 
-/** One labelled line of the launch form: the label sits to the left so the form stays short. */
-function LaunchRow({ label, hint, children }: { label: string; hint?: string | undefined; children: ReactNode }) {
+/**
+ * Turns the resolved defaults into the dialog's starting state: a default agent that is not installed falls
+ * back to the preferred one, and a default model is kept only if that agent still offers it.
+ */
+function launchStart(listed: ReturnType<typeof listedDiscoveries>, defaults: LaunchDefaults): LaunchDefaults {
+  const found = listed.find((entry) => entry.provider === defaults.provider && entry.status === "found");
+  const provider = found?.provider ?? preferredProvider(listed);
+  const models = found?.status === "found" ? (found.models ?? []) : [];
+  const model =
+    found && defaults.model && models.some((option) => option.id === defaults.model) ? defaults.model : undefined;
+  return {
+    ...(provider ? { provider } : {}),
+    ...(defaults.mode ? { mode: defaults.mode } : {}),
+    ...(defaults.permissionMode ? { permissionMode: defaults.permissionMode } : {}),
+    ...(model ? { model } : {}),
+  };
+}
+
+/** One labelled line of a form: the label sits to the left so the form stays short. */
+export function LaunchRow({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string | undefined;
+  children: ReactNode;
+}) {
   return (
     <div className="launch-row">
       <span className="launch-label">{label}</span>

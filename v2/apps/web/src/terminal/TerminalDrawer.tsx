@@ -6,6 +6,7 @@ import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { shellForPlatform } from "../sessions/launch.js";
 import { MIN_DRAWER_HEIGHT } from "../sessions/workbench.js";
+import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { LazyTerminalView } from "./LazyTerminalView.js";
@@ -44,6 +45,7 @@ export function TerminalDrawer({
   onClose(): void;
 }) {
   const { bridge, dispatch } = useRuntime();
+  const drawerShortcut = useShortcut("toggleDrawer");
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -119,7 +121,7 @@ export function TerminalDrawer({
     <IconButton
       label="Close terminal drawer"
       tooltip="Hide terminal"
-      shortcut="Mod+J"
+      shortcut={drawerShortcut}
       icon="x"
       size="sm"
       iconSize={14}

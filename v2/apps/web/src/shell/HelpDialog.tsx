@@ -1,6 +1,7 @@
 import { Dialog } from "../ui/Dialog.js";
 import { Icon } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
+import { shortcutActions, useShortcuts } from "./keybindings.js";
 
 type HelpDialogProps = {
   version?: string | undefined;
@@ -9,18 +10,7 @@ type HelpDialogProps = {
   onClose(): void;
 };
 
-const shortcutGroups: { title: string; items: [string, string][] }[] = [
-  {
-    title: "Workspace",
-    items: [
-      ["Command palette", "Mod+K"],
-      ["New agent", "Mod+N"],
-      ["Go to file", "Mod+P"],
-      ["Search in files", "Mod+Shift+F"],
-      ["Show or hide the sidebar", "Mod+B"],
-      ["Show or hide the terminal", "Mod+J"],
-    ],
-  },
+const fixedGroups: { title: string; items: [string, string][] }[] = [
   {
     title: "Messages and dialogs",
     items: [
@@ -32,6 +22,14 @@ const shortcutGroups: { title: string; items: [string, string][] }[] = [
 ];
 
 export function HelpDialog({ version, onSupportBundle, onImportLegacy, onClose }: HelpDialogProps) {
+  const shortcuts = useShortcuts();
+  const shortcutGroups = [
+    {
+      title: "Workspace",
+      items: shortcutActions.map((action): [string, string] => [action.label, shortcuts[action.id]]),
+    },
+    ...fixedGroups,
+  ];
   return (
     <Dialog
       label="Help and diagnostics"
