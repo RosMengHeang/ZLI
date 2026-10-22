@@ -1,15 +1,15 @@
 import {
-  RuntimeEvent,
   appendThreadMessage,
   deriveSharedProjectContexts,
+  type EnvironmentDescriptor,
   pruneDevServers,
+  RuntimeEvent,
+  type RuntimeEventEnvelope,
+  type RuntimeProjection,
   removeDevServer,
   removeSession,
   upsertDevServer,
   upsertThreadActivity,
-  type EnvironmentDescriptor,
-  type RuntimeEventEnvelope,
-  type RuntimeProjection,
 } from "@zli-v2/contracts";
 
 export function createEmptyProjection(environment: EnvironmentDescriptor): RuntimeProjection {
@@ -209,7 +209,17 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
     case "thread.respond.requested":
     case "thread.user-input.requested":
       return { ...projection, lastSequence: envelope.sequence };
-    case "thread.send.requested":
+    case "thread.send.requested": {
+      const { permissionMode } = event;
+      if (!permissionMode) return { ...projection, lastSequence: envelope.sequence };
+      return {
+        ...projection,
+        threads: projection.threads.map((thread) =>
+          thread.threadId === event.threadId ? { ...thread, permissionMode } : thread,
+        ),
+        lastSequence: envelope.sequence,
+      };
+    }
     case "thread.interrupt.requested":
     case "thread.stop.requested":
       return { ...projection, lastSequence: envelope.sequence };

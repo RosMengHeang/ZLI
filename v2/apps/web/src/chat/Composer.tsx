@@ -20,6 +20,11 @@ export const permissionLabel: Record<PermissionMode, string> = {
   supervised: "Supervised",
 };
 
+const permissionHint: Record<PermissionMode, string> = {
+  "full-access": "Full access: edits files and runs commands without asking. Applies from your next message.",
+  supervised: "Supervised: limits risky commands where the agent supports it. Applies from your next message.",
+};
+
 function isImageType(value: string): value is ImageMimeType {
   return (IMAGE_TYPES as readonly string[]).includes(value);
 }
@@ -45,6 +50,7 @@ export function Composer({
   modelLocked,
   onModelChange,
   permissionMode,
+  onPermissionModeChange,
   projectId,
   onSubmit,
 }: {
@@ -57,6 +63,8 @@ export function Composer({
   modelLocked: boolean;
   onModelChange(model: string | undefined): void;
   permissionMode: PermissionMode;
+  /** Absent when the provider keeps its permission mode for the whole session. */
+  onPermissionModeChange?: ((mode: PermissionMode) => void) | undefined;
   /** Where shared prompts come from. */
   projectId: string | undefined;
   onSubmit(text: string, attachments: ComposerAttachment[]): Promise<boolean>;
@@ -289,13 +297,34 @@ export function Composer({
           </select>
           <Icon name="chevronDown" size={12} />
         </label>
-        <span
-          className={`composer-badge is-${permissionMode}`}
-          data-tooltip={`${permissionLabel[permissionMode]}, set when the session starts`}
-        >
-          <Icon name="shield" size={12} />
-          {permissionLabel[permissionMode]}
-        </span>
+        {onPermissionModeChange ? (
+          <label
+            className={`select-ghost composer-select composer-permission is-${permissionMode}`}
+            data-tooltip={permissionHint[permissionMode]}
+          >
+            <Icon name="shield" size={13} />
+            <span className="sr-only">Permission mode</span>
+            <select
+              value={permissionMode}
+              onChange={(event) => onPermissionModeChange(event.target.value as PermissionMode)}
+            >
+              {(Object.keys(permissionLabel) as PermissionMode[]).map((mode) => (
+                <option key={mode} value={mode}>
+                  {permissionLabel[mode]}
+                </option>
+              ))}
+            </select>
+            <Icon name="chevronDown" size={12} />
+          </label>
+        ) : (
+          <span
+            className={`composer-badge is-${permissionMode}`}
+            data-tooltip={`${permissionLabel[permissionMode]}. ${displayName} keeps this for the whole chat.`}
+          >
+            <Icon name="shield" size={12} />
+            {permissionLabel[permissionMode]}
+          </span>
+        )}
         <span className="composer-spacer" />
         <button
           className="send-button"

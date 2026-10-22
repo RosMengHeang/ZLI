@@ -128,6 +128,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     threadId: ThreadId,
     text: z.string(),
     model: z.string().min(1).optional(),
+    /** Applies from this turn on. Only providers with permissionSwitch "in-session" accept a change. */
+    permissionMode: PermissionMode.optional(),
     attachments: z.array(ThreadAttachmentUpload).max(8).optional(),
   }),
   z.object({

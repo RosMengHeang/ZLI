@@ -51,6 +51,7 @@ describe("createProviderRegistry", () => {
       structuredUserInput: false,
       conversationRollback: false,
       modelSwitch: "in-session",
+      permissionSwitch: "in-session",
     });
     expect(registry.get("cursor-agent")?.capabilities).toEqual({
       exactResume: false,
@@ -58,6 +59,7 @@ describe("createProviderRegistry", () => {
       structuredUserInput: false,
       conversationRollback: false,
       modelSwitch: "in-session",
+      permissionSwitch: "in-session",
     });
   });
 

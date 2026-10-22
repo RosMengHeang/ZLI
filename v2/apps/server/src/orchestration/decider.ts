@@ -301,6 +301,15 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     }
     case "thread.send": {
       assertThread(projection, command.threadId);
+      const thread = projection.threads.find((entry) => entry.threadId === command.threadId);
+      const permissionChanged =
+        command.permissionMode !== undefined && command.permissionMode !== (thread?.permissionMode ?? "full-access");
+      if (permissionChanged && thread?.capabilities.permissionSwitch !== "in-session") {
+        throw new DomainError(
+          "unsupported_command",
+          "This agent keeps its permission mode for the whole session. Start a new chat to change it.",
+        );
+      }
       const attachments = (command.attachments ?? []).map((attachment) => {
         // The RPC layer writes uploaded bytes to disk first, so the event log never stores image data.
         if (!attachment.path)
@@ -313,6 +322,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           threadId: command.threadId,
           text: command.text,
           ...(command.model ? { model: command.model } : {}),
+          ...(permissionChanged && command.permissionMode ? { permissionMode: command.permissionMode } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
         },
       ];

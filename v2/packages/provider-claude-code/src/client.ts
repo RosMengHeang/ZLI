@@ -121,7 +121,9 @@ export class ClaudeCodeClient {
   private initRequestId = "";
   private initFailure: Error | undefined;
   private initGate: { resolve: () => void; reject: (error: Error) => void } | undefined;
-  private readonly pendingApprovals = new Map<string, Record<string, unknown>>();
+  private readonly pendingApprovals = new Map<string, { toolName: string; input: Record<string, unknown> }>();
+  /** Tools the person allowed for the rest of this session. Claude Code does not remember them for us. */
+  private readonly sessionAllowedTools = new Set<string>();
   private closed = false;
 
   private constructor(
@@ -196,14 +198,21 @@ export class ClaudeCodeClient {
     this.finishTurn("interrupted");
   }
 
-  /** Answers a can_use_tool request raised while the session runs supervised. */
-  async respondToApproval(requestId: string, allow: boolean): Promise<void> {
+  /**
+   * Answers a can_use_tool request raised while the session runs supervised. forSession also
+   * allows later calls of the same tool without asking.
+   */
+  async respondToApproval(requestId: string, allow: boolean, options: { forSession?: boolean } = {}): Promise<void> {
     this.assertOpen();
-    const input = this.pendingApprovals.get(requestId);
-    if (!input) throw new ClaudeProviderError("request_failed", `Claude Code approval request not found: ${requestId}`);
+    const pending = this.pendingApprovals.get(requestId);
+    if (!pending)
+      throw new ClaudeProviderError("request_failed", `Claude Code approval request not found: ${requestId}`);
     this.pendingApprovals.delete(requestId);
+    if (allow && options.forSession) this.sessionAllowedTools.add(pending.toolName);
     this.write(
-      allow ? allowToolRequest(requestId, input) : denyToolRequest(requestId, "The user declined this tool call."),
+      allow
+        ? allowToolRequest(requestId, pending.input)
+        : denyToolRequest(requestId, "The user declined this tool call."),
     );
   }
 
@@ -369,12 +378,17 @@ export class ClaudeCodeClient {
     try {
       if (subtype === "can_use_tool" && this.permissionMode === "supervised") {
         const input = message.input ?? {};
-        this.pendingApprovals.set(requestId, input);
+        const toolName = message.toolName ?? "Tool";
+        if (this.sessionAllowedTools.has(toolName)) {
+          this.write(allowToolRequest(requestId, input));
+          return;
+        }
+        this.pendingApprovals.set(requestId, { toolName, input });
         this.emit({
           type: "approval.requested",
           requestId,
           payload: {
-            toolName: message.toolName ?? "Tool",
+            toolName,
             input,
             ...(message.toolUseId ? { toolUseId: message.toolUseId } : {}),
           },

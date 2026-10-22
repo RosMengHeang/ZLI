@@ -109,7 +109,7 @@ export class DroidClient {
     private readonly command: string,
     private readonly spawnProcess: DroidClientOptions["spawnProcess"],
     private readonly baseEnv: NodeJS.ProcessEnv | undefined,
-    private readonly permissionMode: DroidPermissionMode,
+    private permissionMode: DroidPermissionMode,
     private readonly model: string | undefined,
   ) {}
 
@@ -139,10 +139,18 @@ export class DroidClient {
     return this.completed;
   }
 
-  /** Each turn is its own process, so a turn-level model simply replaces -m for that run. */
-  async sendTurn(input: { text: string; model?: string }): Promise<DroidTurnResult> {
+  /**
+   * Each turn is its own process, so a turn-level model simply replaces -m for that run. A
+   * permission mode applies to this turn and every later one.
+   */
+  async sendTurn(input: {
+    text: string;
+    model?: string;
+    permissionMode?: DroidPermissionMode;
+  }): Promise<DroidTurnResult> {
     this.assertOpen();
     if (this.active) throw new DroidProviderError("request_failed", "Droid CLI already has a turn in progress.");
+    if (input.permissionMode) this.permissionMode = input.permissionMode;
     const providerTurnId = randomUUID();
     const peer = this.spawnTurn(input.model?.trim() || this.model);
     this.active = { id: providerTurnId, text: "", sawText: false, tools: new Map() };

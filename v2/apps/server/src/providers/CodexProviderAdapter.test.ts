@@ -1,10 +1,8 @@
+import { ThreadId } from "@zli-v2/contracts";
+import type { CodexProviderEvent } from "@zli-v2/provider-codex";
 import { describe, expect, it } from "vitest";
 
-import { ThreadId } from "@zli-v2/contracts";
-
-import type { CodexProviderEvent } from "@zli-v2/provider-codex";
-
-import { CodexProviderAdapter, codexApprovalDecision } from "./CodexProviderAdapter.js";
+import { CodexProviderAdapter, codexApprovalDecision, codexUserInputAnswers } from "./CodexProviderAdapter.js";
 import type { ProviderEvent } from "./ProviderService.js";
 
 const threadId = ThreadId.parse("00000000-0000-4000-8000-000000000701");
@@ -112,5 +110,15 @@ describe("codexApprovalDecision", () => {
     expect(codexApprovalDecision({ approved: true })).toEqual({ decision: "accept" });
     expect(codexApprovalDecision({ approved: false })).toEqual({ decision: "decline" });
     expect(codexApprovalDecision({ decision: "cancel" })).toEqual({ decision: "cancel" });
+    expect(codexApprovalDecision({ approved: true, scope: "session" })).toEqual({ decision: "acceptForSession" });
+    expect(codexApprovalDecision({ decision: "acceptForSession" })).toEqual({ decision: "acceptForSession" });
+  });
+});
+
+describe("codexUserInputAnswers", () => {
+  it("keys each answer by question id as a list, the shape item/tool/requestUserInput expects", () => {
+    expect(codexUserInputAnswers({ q1: "Postgres", q2: "yes" })).toEqual({
+      answers: { q1: { answers: ["Postgres"] }, q2: { answers: ["yes"] } },
+    });
   });
 });

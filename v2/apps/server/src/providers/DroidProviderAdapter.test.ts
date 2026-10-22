@@ -54,6 +54,7 @@ describe("DroidProviderAdapter", () => {
       structuredUserInput: false,
       conversationRollback: false,
       modelSwitch: "in-session",
+      permissionSwitch: "in-session",
     });
     await expect(adapter.startSession({ threadId, cwd: "/work/tree" })).resolves.toMatchObject({
       threadId,

@@ -548,4 +548,36 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
     ]);
     await expect(client.respondToApproval("req-1", true)).rejects.toMatchObject({ code: "request_failed" });
   });
+
+  it("allows a tool for the rest of the session without asking again", async () => {
+    const peer = new FakePeer();
+    const pending = ClaudeCodeClient.start({ peer, cwd: "/work/tree", permissionMode: "supervised" });
+    peer.emit({ type: "system", subtype: "init", session_id: "sess-s" });
+    const client = await pending;
+    const events: ClaudeProviderEvent[] = [];
+    client.subscribe((event) => events.push(event));
+    await client.sendTurn({ text: "Run the tests" });
+    const ask = (requestId: string, toolName: string) =>
+      peer.emit({
+        type: "control_request",
+        request_id: requestId,
+        request: { subtype: "can_use_tool", tool_name: toolName, input: { command: "pnpm test" } },
+      });
+    ask("req-1", "Bash");
+    await client.respondToApproval("req-1", true, { forSession: true });
+    ask("req-2", "Bash");
+    ask("req-3", "Write");
+    expect(events.filter((event) => event.type === "approval.requested").map((event) => event.requestId)).toEqual([
+      "req-1",
+      "req-3",
+    ]);
+    expect(JSON.parse(peer.written.at(-1) ?? "{}")).toEqual({
+      type: "control_response",
+      response: {
+        subtype: "success",
+        request_id: "req-2",
+        response: { behavior: "allow", updatedInput: { command: "pnpm test" } },
+      },
+    });
+  });
 });

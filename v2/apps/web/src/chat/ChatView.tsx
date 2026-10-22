@@ -1,4 +1,5 @@
 import type {
+  PermissionMode,
   RuntimeProjection,
   ThreadId,
   ThreadMessageProjection,
@@ -20,6 +21,7 @@ import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { Composer, type ComposerAttachment } from "./Composer.js";
 import { Markdown } from "./Markdown.js";
+import { RequestCard } from "./RequestCard.js";
 import { ChangedFiles, WorkLog } from "./WorkLog.js";
 import "./chat.css";
 
@@ -38,8 +40,11 @@ export function ChatView({
 }) {
   const { dispatch } = useRuntime();
   const [error, setError] = useState<string>();
-  const [answers, setAnswers] = useState("{}");
   const [model, setModel] = useState<string | undefined>(thread.model);
+  const threadMode = thread.permissionMode ?? "full-access";
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(threadMode);
+  const permissionSwitch = thread.capabilities.permissionSwitch === "in-session";
+  useEffect(() => setPermissionMode(threadMode), [threadMode]);
   const [peerDraft, setPeerDraft] = useState("");
   const [peerTargetId, setPeerTargetId] = useState<string>();
   const logRef = useRef<HTMLDivElement>(null);
@@ -62,6 +67,13 @@ export function ChatView({
   const request = useRuntimeSelector(
     useCallback(
       (value: RuntimeProjection | undefined) => value?.requests?.find((candidate) => candidate.threadId === threadId),
+      [threadId],
+    ),
+  );
+  const waitingCount = useRuntimeSelector(
+    useCallback(
+      (value: RuntimeProjection | undefined) =>
+        (value?.requests ?? []).filter((candidate) => candidate.threadId === threadId).length,
       [threadId],
     ),
   );
@@ -106,6 +118,7 @@ export function ChatView({
           threadId: thread.threadId,
           text,
           ...(model ? { model } : {}),
+          ...(permissionSwitch && permissionMode !== threadMode ? { permissionMode } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
         },
       });
@@ -125,28 +138,6 @@ export function ChatView({
     setError(undefined);
     const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
     if (response?.accepted === false) setError(response.error.message);
-  };
-
-  const submitAnswers = async () => {
-    if (!request) return;
-    try {
-      const parsed = JSON.parse(answers) as unknown;
-      if (
-        !parsed ||
-        typeof parsed !== "object" ||
-        Array.isArray(parsed) ||
-        Object.values(parsed).some((value) => typeof value !== "string")
-      )
-        throw new Error("Answers must be a JSON object of strings.");
-      await run({
-        type: "thread.user-input",
-        threadId: thread.threadId,
-        requestId: request.requestId,
-        answers: parsed,
-      });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Answers must be a JSON object of strings.");
-    }
   };
 
   const sendToPeer = async () => {
@@ -230,63 +221,19 @@ export function ChatView({
       <div className="chat-dock">
         <div className="chat-column">
           {request ? (
-            <section
-              className="chat-request"
-              aria-label={request.kind === "approval" ? "Approval request" : "User input request"}
-            >
-              <span className="chat-request-title">
-                <Icon name="alert" size={14} />
-                {request.kind === "approval" ? "Approval required" : "Input required"}
-              </span>
-              <pre>{JSON.stringify(request.payload, null, 2)}</pre>
-              {request.kind === "approval" ? (
-                <div className="chat-request-actions">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    icon="check"
-                    onClick={() =>
-                      void run({
-                        type: "thread.respond",
-                        threadId: thread.threadId,
-                        requestId: request.requestId,
-                        decision: { approved: true },
-                      })
-                    }
-                  >
-                    Approve
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() =>
-                      void run({
-                        type: "thread.respond",
-                        threadId: thread.threadId,
-                        requestId: request.requestId,
-                        decision: { approved: false },
-                      })
-                    }
-                  >
-                    Reject
-                  </Button>
-                </div>
-              ) : (
-                <>
-                  <textarea
-                    className="textarea is-mono"
-                    value={answers}
-                    onChange={(event) => setAnswers(event.target.value)}
-                    aria-label="Structured user input answers"
-                    rows={3}
-                  />
-                  <div className="chat-request-actions">
-                    <Button variant="primary" size="sm" onClick={() => void submitAnswers()}>
-                      Submit answers
-                    </Button>
-                  </div>
-                </>
-              )}
-            </section>
+            <RequestCard
+              key={request.requestId}
+              request={request}
+              provider={thread.provider}
+              displayName={displayName}
+              waitingCount={waitingCount}
+              onRespond={(decision) =>
+                run({ type: "thread.respond", threadId: thread.threadId, requestId: request.requestId, decision })
+              }
+              onAnswer={(answers) =>
+                run({ type: "thread.user-input", threadId: thread.threadId, requestId: request.requestId, answers })
+              }
+            />
           ) : null}
           {visibleError ? (
             <p className="inline-error" role="alert">
@@ -317,7 +264,8 @@ export function ChatView({
               model={model}
               modelLocked={thread.capabilities.modelSwitch === "unsupported" && messages.length > 0}
               onModelChange={setModel}
-              permissionMode={thread.permissionMode ?? "full-access"}
+              permissionMode={permissionMode}
+              onPermissionModeChange={permissionSwitch ? setPermissionMode : undefined}
               projectId={worktree?.projectId}
               onSubmit={send}
             />

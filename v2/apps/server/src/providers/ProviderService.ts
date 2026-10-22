@@ -43,6 +43,8 @@ export type ProviderTurnInput = {
   threadId: ThreadId;
   text: string;
   model?: string;
+  /** Set only when the person changed it; adapters keep it for later turns. */
+  permissionMode?: PermissionMode;
   /** Stored images. Their paths are already listed in `text`; adapters may also pass them natively. */
   attachments?: readonly ThreadAttachment[];
 };

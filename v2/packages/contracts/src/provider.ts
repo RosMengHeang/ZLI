@@ -54,6 +54,8 @@ export const ProviderCapabilities = z.object({
   structuredUserInput: z.boolean().optional(),
   conversationRollback: z.boolean().optional(),
   modelSwitch: z.enum(["in-session", "unsupported"]).optional(),
+  /** in-session means a turn can run under a different permission mode than the last one. */
+  permissionSwitch: z.enum(["in-session", "unsupported"]).optional(),
 });
 export type ProviderCapabilities = z.infer<typeof ProviderCapabilities>;
 

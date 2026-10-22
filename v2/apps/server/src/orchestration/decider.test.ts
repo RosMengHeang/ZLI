@@ -321,3 +321,44 @@ describe("session delete", () => {
     ).toThrowError(expect.objectContaining({ code: "session_missing" }));
   });
 });
+
+describe("permission mode changes", () => {
+  const threadId = ThreadId.parse("00000000-0000-4000-8000-000000000420");
+
+  function withThread(permissionSwitch?: "in-session" | "unsupported"): RuntimeProjection {
+    return {
+      ...projection("/work/tree"),
+      threads: [
+        {
+          threadId,
+          worktreeId,
+          provider: "droid",
+          status: "idle",
+          permissionMode: "full-access",
+          capabilities: permissionSwitch ? { permissionSwitch } : {},
+        },
+      ],
+    };
+  }
+
+  function send(permissionMode?: "full-access" | "supervised"): RuntimeCommand {
+    return { type: "thread.send", threadId, text: "next", ...(permissionMode ? { permissionMode } : {}) };
+  }
+
+  it("records a new mode for providers that can switch, and the projection follows it", () => {
+    const state = withThread("in-session");
+    const events = decide(state, send("supervised"));
+    expect(events).toEqual([{ type: "thread.send.requested", threadId, text: "next", permissionMode: "supervised" }]);
+    const [first] = events;
+    if (!first) throw new Error("expected an event");
+    expect(projectEvent(state, envelope(first)).threads[0]?.permissionMode).toBe("supervised");
+  });
+
+  it("drops an unchanged mode and rejects a change the provider cannot make", () => {
+    expect(decide(withThread("unsupported"), send("full-access"))).toEqual([
+      { type: "thread.send.requested", threadId, text: "next" },
+    ]);
+    expect(() => decide(withThread("unsupported"), send("supervised"))).toThrow(DomainError);
+    expect(() => decide(withThread(), send("supervised"))).toThrow(/keeps its permission mode/u);
+  });
+});
