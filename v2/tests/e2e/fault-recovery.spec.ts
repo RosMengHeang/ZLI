@@ -11,6 +11,9 @@ import {
   type DesktopFixture,
 } from "./desktop-fixtures.js";
 
+// Two cold Electron launches plus a daemon stop take about a minute on Windows CI runners.
+const RELAUNCH_TIMEOUT_MS = 180_000;
+
 test("reconnects the Electron client after the local runtime process is restarted", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
   const { root, repo } = await createGitFixture();
@@ -52,6 +55,7 @@ test("reconnects the Electron client after the local runtime process is restarte
 
 test("restores the durable workspace after the Electron main process exits and relaunches", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
+  test.setTimeout(RELAUNCH_TIMEOUT_MS);
   const { root, repo } = await createGitFixture();
   let fixture: DesktopFixture | undefined;
   try {
@@ -71,6 +75,7 @@ test("restores the durable workspace after the Electron main process exits and r
 
 test("restores the durable workspace after an abrupt Electron main-process exit", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
+  test.setTimeout(RELAUNCH_TIMEOUT_MS);
   const { root, repo } = await createGitFixture();
   let fixture: DesktopFixture | undefined;
   try {
