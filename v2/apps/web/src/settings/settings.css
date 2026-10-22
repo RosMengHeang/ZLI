@@ -29,3 +29,18 @@
 
 .settings-switches { display: flex; flex-direction: column; }
 .settings-switches > .switch-row + .switch-row { border-top: 1px solid var(--zli-border); }
+
+.mcp-rows { margin: 0; padding: 0; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); list-style: none; }
+.mcp-row { display: flex; align-items: center; gap: var(--zli-space-2-5); min-height: 48px; padding: var(--zli-space-1-5) var(--zli-space-1-5) var(--zli-space-1-5) var(--zli-space-3); }
+.mcp-row + .mcp-row { border-top: 1px solid var(--zli-border); }
+.mcp-row > .switch { flex: 0 0 auto; }
+.mcp-row-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.mcp-row-copy strong { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.mcp-row-command { overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.mcp-row.is-off .mcp-row-copy strong { color: var(--zli-muted); }
+.mcp-editor { display: flex; flex-direction: column; gap: var(--zli-space-2-5); padding: var(--zli-space-3); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); }
+.mcp-editor .textarea.is-mono { font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
+.mcp-editor-actions { display: flex; justify-content: flex-end; gap: var(--zli-space-1-5); }
+.settings-panel .inline-error { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: 0; }
+.settings-panel .inline-error svg { flex: 0 0 auto; margin-top: 3px; }
+.mcp-settings-problems { display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0; padding: 0; color: var(--zli-amber); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); list-style: none; overflow-wrap: anywhere; }

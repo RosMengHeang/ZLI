@@ -865,6 +865,7 @@ function WorkspaceApp() {
       group: "App",
       action: () => openSettings("shortcuts"),
     },
+    { label: "MCP servers", icon: "wrench", group: "App", action: () => openSettings("mcp") },
     { label: "Help and diagnostics", icon: "help", group: "App", action: () => setHelpOpen(true) },
     ...notificationCommands(notifications.settings, (patch) => void notifications.update(patch)),
     ...devServerCommands(contextDevServers, openDevServer),

@@ -6,7 +6,11 @@ import { fileURLToPath } from "node:url";
 
 import { EnvironmentId } from "@zli-v2/contracts";
 import { type BrowserToolConfig, browserToolConfigFromEnv } from "./browser-tool/browserTool.js";
-import { registerBrowserToolInUserSettings, type UserSettingsOutcome } from "./browser-tool/userSettings.js";
+import {
+  registerBrowserToolInUserSettings,
+  syncUserMcpServers,
+  type UserSettingsOutcome,
+} from "./browser-tool/userSettings.js";
 import { DaemonSupervisor } from "./daemon/DaemonSupervisor.js";
 import { Database } from "./db/Database.js";
 import { DevServerReactor } from "./devservers/DevServerReactor.js";
@@ -14,6 +18,7 @@ import { DiagnosticsReactor } from "./diagnostics/DiagnosticsReactor.js";
 import { StructuredLogger } from "./diagnostics/StructuredLogger.js";
 import { GitProcess } from "./git/GitProcess.js";
 import { LegacyImportReactor } from "./import/LegacyImportReactor.js";
+import { McpServerStore } from "./mcp/McpServerStore.js";
 import { AgentMessageReactor } from "./orchestration/AgentMessageReactor.js";
 import { Engine } from "./orchestration/Engine.js";
 import { ProviderReactor } from "./providers/ProviderReactor.js";
@@ -44,6 +49,7 @@ export type RuntimeProcess = {
   diagnosticsReactor: DiagnosticsReactor;
   legacyImportReactor: LegacyImportReactor;
   devServerReactor: DevServerReactor;
+  mcpServers: McpServerStore;
   /** Settles once the browser tool is registered in agent user settings (empty when not configured). */
   browserToolRegistration: Promise<readonly UserSettingsOutcome[]>;
   token: string;
@@ -57,9 +63,9 @@ export async function startRuntime(options: {
   label?: string;
   /** Lets agents drive ZLI's browser. Absent in tests and CLI runs, which then inject nothing. */
   browserTool?: BrowserToolConfig;
-  /** Home directory whose agent settings receive the browser tool. Defaults to the user's home. */
+  /** Home directory whose agent settings receive the browser tool and MCP servers. Defaults to the user's home. */
   userHome?: string;
-  /** False keeps the browser tool out of agent user settings; per-launch wiring still applies. */
+  /** False keeps ZLI's MCP servers out of agent user settings; per-launch wiring still applies. */
   registerInUserSettings?: boolean;
 }): Promise<RuntimeProcess> {
   const databasePath = resolve(options.databasePath);
@@ -88,17 +94,38 @@ export async function startRuntime(options: {
   });
   const reviewReactor = new ReviewReactor(engine, new ReviewService(new GitProcess()));
   const browserTool = options.browserTool;
-  const providerService = new ProviderService(createProviderRegistry(process.env, browserTool ? { browserTool } : {}));
+  const userHome = options.userHome ?? homedir();
+  const writeUserSettings = options.registerInUserSettings !== false;
+  const mcpConfigDir = browserTool?.mcpConfigDir ?? join(dirname(databasePath), "mcp");
+  const mcpServers = new McpServerStore({
+    path: join(dirname(databasePath), "mcp-servers.json"),
+    ...(writeUserSettings
+      ? {
+          syncUserSettings: (specs, owned) =>
+            syncUserMcpServers(specs, owned, {
+              home: userHome,
+              isInstalled: async (provider): Promise<boolean> => (await resolveAgentCli(provider)) !== undefined,
+              log: (level, message, context) => logger.record(level, message, {}, context),
+            }),
+        }
+      : {}),
+  });
+  await mcpServers.load();
+  const mcpOptions = { mcpServers: () => mcpServers.specs(), mcpConfigDir };
+  const providerService = new ProviderService(
+    createProviderRegistry(process.env, { ...(browserTool ? { browserTool } : {}), ...mcpOptions }),
+  );
   // Started now so it overlaps server start and terminal restore; the first projection and the
   // browser tool registration below share this run.
   void providerService.discoverProviders().catch(() => undefined);
-  const resolveAgentCli = async (provider: string) => {
+  const resolveAgentCli = async (provider: string): Promise<string | undefined> => {
     const discovery = (await providerService.discoverProviders()).find((entry) => entry.provider === provider);
     return discovery?.status === "found" ? discovery.path : undefined;
   };
   const terminalReactor = new TerminalReactor(engine, terminalService, {
     resolveAgentCli,
     ...(browserTool ? { browserTool } : {}),
+    ...mcpOptions,
   });
   const providerReactor = new ProviderReactor(engine, providerService);
   const agentMessageReactor = new AgentMessageReactor(engine);
@@ -112,6 +139,7 @@ export async function startRuntime(options: {
     terminalService,
     discoverProviders: () => providerService.discoverProviders(),
     attachmentsDir: join(dirname(databasePath), "attachments"),
+    mcpServers,
   });
   // Before the server accepts commands, so a setup started by a new request is never mistaken for a stale one.
   await worktreeSetup.reconcile();
@@ -120,13 +148,15 @@ export async function startRuntime(options: {
   await providerReactor.reconcileOrphanedThreads();
   // Runs in the background: discovery can take seconds and agent settings are not needed to serve the UI.
   const browserToolRegistration: Promise<readonly UserSettingsOutcome[]> =
-    browserTool && options.registerInUserSettings !== false
+    browserTool && writeUserSettings
       ? registerBrowserToolInUserSettings(browserTool, {
-          home: options.userHome ?? homedir(),
+          home: userHome,
           isInstalled: async (provider) => (await resolveAgentCli(provider)) !== undefined,
           log: (level, message, context) => logger.record(level, message, {}, context),
         }).catch(() => [])
       : Promise.resolve([]);
+  // After the browser registration, which writes the same files. Picks up agents installed since the last save.
+  void browserToolRegistration.then(() => mcpServers.syncUserSettings()).catch(() => undefined);
   return {
     database,
     engine,
@@ -142,11 +172,13 @@ export async function startRuntime(options: {
     diagnosticsReactor,
     legacyImportReactor,
     devServerReactor,
+    mcpServers,
     browserToolRegistration,
     token,
     close: async () => {
       await server.stop();
       await browserToolRegistration;
+      await mcpServers.waitForIdle();
       await worktreeReactor.waitForIdle();
       await terminalReactor.waitForIdle();
       await reviewReactor.waitForIdle();

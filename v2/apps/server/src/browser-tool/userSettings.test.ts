@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { BrowserToolConfig } from "./browserTool.js";
-import { registerBrowserToolInUserSettings, type UserSettingsProvider } from "./userSettings.js";
+import { registerBrowserToolInUserSettings, syncUserMcpServers, type UserSettingsProvider } from "./userSettings.js";
 
 const config: BrowserToolConfig = {
   command: "C:\\ZLI\\ZLI.exe",
@@ -176,5 +176,54 @@ describe("registerBrowserToolInUserSettings", () => {
       ["gemini", "skipped-absent"],
       ["qwen", "skipped-absent"],
     ]);
+  });
+});
+describe("syncUserMcpServers", () => {
+  const github = { name: "github", command: "npx", args: ["-y", "gh-mcp"], env: { TOKEN: "t" } };
+  const linear = { name: "linear", command: "linear-mcp", args: [], env: {} };
+
+  it("adds every server, then removes only the ones ZLI added", async () => {
+    const dir = await home();
+    const path = join(dir, ".cursor", "mcp.json");
+    await mkdir(join(dir, ".cursor"));
+    const mine = { command: "my-linear", args: [] };
+    await writeFile(path, JSON.stringify({ mcpServers: { linear: mine } }), "utf8");
+    const options = { home: dir, env: {}, isInstalled: installed("cursor-agent") };
+
+    const first = await syncUserMcpServers([github, linear], {}, options);
+    expect(first.outcomes.find((outcome) => outcome.provider === "cursor-agent")?.status).toBe("updated");
+    expect(first.owned).toEqual({ [path]: ["github"] });
+    expect(await readJson(path)).toEqual({
+      mcpServers: {
+        linear: { command: "linear-mcp", args: [], env: {} },
+        github: { command: "npx", args: ["-y", "gh-mcp"], env: { TOKEN: "t" } },
+      },
+    });
+
+    const second = await syncUserMcpServers([], first.owned, options);
+    expect(second.owned).toEqual({});
+    // The person's own linear entry stays, with the fields ZLI last wrote.
+    expect(await readJson(path)).toEqual({ mcpServers: { linear: { command: "linear-mcp", args: [], env: {} } } });
+  });
+
+  it("writes Droid's stdio type, touches nothing when there is nothing to do, and keeps ownership after a failure", async () => {
+    const dir = await home();
+    const droid = join(dir, ".factory", "mcp.json");
+    const options = { home: dir, env: {}, isInstalled: installed("droid") };
+    const added = await syncUserMcpServers([github], {}, options);
+    expect(await readJson(droid)).toEqual({
+      mcpServers: { github: { type: "stdio", command: "npx", args: ["-y", "gh-mcp"], env: { TOKEN: "t" } } },
+    });
+    expect(added.owned).toEqual({ [droid]: ["github"] });
+
+    const empty = await home();
+    const idle = await syncUserMcpServers([], {}, { home: empty, env: {}, isInstalled: installed("droid") });
+    expect(idle.outcomes.every((outcome) => outcome.status === "unchanged")).toBe(true);
+    await expect(stat(join(empty, ".factory"))).rejects.toMatchObject({ code: "ENOENT" });
+
+    await writeFile(droid, "{ broken", "utf8");
+    const failed = await syncUserMcpServers([], added.owned, options);
+    expect(failed.outcomes.find((outcome) => outcome.provider === "droid")?.status).toBe("skipped-invalid");
+    expect(failed.owned).toEqual(added.owned);
   });
 });

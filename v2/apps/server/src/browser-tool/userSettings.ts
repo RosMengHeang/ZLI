@@ -7,6 +7,7 @@ import {
   BROWSER_MCP_SERVER,
   type BrowserToolConfig,
   isPlainObject,
+  type McpServerSpec,
   mcpServerSpec,
   writeFileAtomic,
 } from "./browserTool.js";
@@ -36,6 +37,29 @@ export type UserSettingsOptions = {
   log?: (level: "info" | "warn", message: string, context: Record<string, unknown>) => void;
 };
 
+/** Server names ZLI added, keyed by settings file path. */
+export type UserSettingsOwnership = Record<string, readonly string[]>;
+
+export function userSettingsFiles(
+  home: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Array<{ provider: UserSettingsProvider; path: string }> {
+  const kimiHome = env.KIMI_CODE_HOME?.trim() || join(home, ".kimi-code");
+  return [
+    { provider: "cursor-agent", path: join(home, ".cursor", "mcp.json") },
+    { provider: "droid", path: join(home, ".factory", "mcp.json") },
+    { provider: "kimi", path: join(kimiHome, "mcp.json") },
+    { provider: "gemini", path: join(home, ".gemini", "settings.json") },
+    { provider: "qwen", path: join(home, ".qwen", "settings.json") },
+  ];
+}
+
+/** The server entry in one agent's settings format. */
+export function userSettingsEntry(provider: UserSettingsProvider, spec: McpServerSpec): Record<string, unknown> {
+  const stdio = { command: spec.command, args: [...spec.args], env: { ...spec.env } };
+  return provider === "droid" ? { type: "stdio", ...stdio } : stdio;
+}
+
 export function userSettingsTargets(
   config: BrowserToolConfig,
   home: string,
@@ -43,15 +67,7 @@ export function userSettingsTargets(
 ): UserSettingsTarget[] {
   // A global entry cannot name one worktree; the tool falls back to matching its cwd.
   const spec = mcpServerSpec(config);
-  const stdio = { command: spec.command, args: spec.args, env: spec.env };
-  const kimiHome = env.KIMI_CODE_HOME?.trim() || join(home, ".kimi-code");
-  return [
-    { provider: "cursor-agent", path: join(home, ".cursor", "mcp.json"), entry: stdio },
-    { provider: "droid", path: join(home, ".factory", "mcp.json"), entry: { type: "stdio", ...stdio } },
-    { provider: "kimi", path: join(kimiHome, "mcp.json"), entry: stdio },
-    { provider: "gemini", path: join(home, ".gemini", "settings.json"), entry: stdio },
-    { provider: "qwen", path: join(home, ".qwen", "settings.json"), entry: stdio },
-  ];
+  return userSettingsFiles(home, env).map((file) => ({ ...file, entry: userSettingsEntry(file.provider, spec) }));
 }
 
 /**
@@ -65,13 +81,11 @@ export async function registerBrowserToolInUserSettings(
 ): Promise<UserSettingsOutcome[]> {
   const outcomes: UserSettingsOutcome[] = [];
   for (const target of userSettingsTargets(config, options.home, options.env)) {
-    const outcome = await registerTarget(target, options).catch(
-      (error: unknown): UserSettingsOutcome => ({
-        provider: target.provider,
-        path: target.path,
-        status: "failed",
-        message: error instanceof Error ? error.message : String(error),
-      }),
+    const { outcome } = await applySafely(
+      target.provider,
+      target.path,
+      { set: { [BROWSER_MCP_SERVER]: target.entry }, remove: [] },
+      options,
     );
     outcomes.push(outcome);
     if (outcome.status === "skipped-invalid" || outcome.status === "failed") {
@@ -83,16 +97,77 @@ export async function registerBrowserToolInUserSettings(
   return outcomes;
 }
 
-async function registerTarget(target: UserSettingsTarget, options: UserSettingsOptions): Promise<UserSettingsOutcome> {
-  const base = { provider: target.provider, path: target.path };
-  const installed = await options.isInstalled(target.provider).catch(() => false);
-  if (!installed && !(await isDirectory(dirname(target.path)))) return { ...base, status: "skipped-absent" };
+/**
+ * Makes each agent's user settings hold exactly the enabled servers from ZLI's list. A server is removed
+ * later only if ZLI added it, so an entry the person already had under the same name survives a delete.
+ * Returns the names ZLI now owns per file; persist it and pass it back on the next sync.
+ */
+export async function syncUserMcpServers(
+  specs: readonly McpServerSpec[],
+  owned: UserSettingsOwnership,
+  options: UserSettingsOptions,
+): Promise<{ outcomes: UserSettingsOutcome[]; owned: Record<string, string[]> }> {
+  const wanted = new Set(specs.map((spec) => spec.name));
+  const outcomes: UserSettingsOutcome[] = [];
+  const nextOwned: Record<string, string[]> = {};
+  for (const file of userSettingsFiles(options.home, options.env)) {
+    const previous = owned[file.path] ?? [];
+    const set = Object.fromEntries(specs.map((spec) => [spec.name, userSettingsEntry(file.provider, spec)]));
+    const remove = previous.filter((name) => !wanted.has(name));
+    const { outcome, created } = await applySafely(file.provider, file.path, { set, remove }, options);
+    outcomes.push(outcome);
+    const succeeded = outcome.status === "created" || outcome.status === "updated" || outcome.status === "unchanged";
+    const names = succeeded
+      ? [...new Set([...previous.filter((name) => wanted.has(name)), ...created])]
+      : [...previous];
+    if (names.length > 0) nextOwned[file.path] = names;
+    if (outcome.status === "skipped-invalid" || outcome.status === "failed") {
+      options.log?.("warn", "MCP servers were not copied to agent settings.", { ...outcome });
+    }
+  }
+  return { outcomes, owned: nextOwned };
+}
+
+type ServerChanges = { set: Record<string, Record<string, unknown>>; remove: readonly string[] };
+
+async function applySafely(
+  provider: UserSettingsProvider,
+  path: string,
+  changes: ServerChanges,
+  options: UserSettingsOptions,
+): Promise<{ outcome: UserSettingsOutcome; created: string[] }> {
+  try {
+    return await applyChanges(provider, path, changes, options);
+  } catch (error) {
+    return {
+      outcome: { provider, path, status: "failed", message: error instanceof Error ? error.message : String(error) },
+      created: [],
+    };
+  }
+}
+
+async function applyChanges(
+  provider: UserSettingsProvider,
+  path: string,
+  changes: ServerChanges,
+  options: UserSettingsOptions,
+): Promise<{ outcome: UserSettingsOutcome; created: string[] }> {
+  const base = { provider, path };
+  const nothing = Object.keys(changes.set).length === 0 && changes.remove.length === 0;
+  if (nothing) return { outcome: { ...base, status: "unchanged" }, created: [] };
+  const installed = await options.isInstalled(provider).catch(() => false);
+  if (!installed && !(await isDirectory(dirname(path)))) {
+    return { outcome: { ...base, status: "skipped-absent" }, created: [] };
+  }
 
   let text: string | undefined;
   try {
-    text = await readFile(target.path, "utf8");
+    text = await readFile(path, "utf8");
   } catch (error) {
     if (!isNotFound(error)) throw error;
+  }
+  if (text === undefined && Object.keys(changes.set).length === 0) {
+    return { outcome: { ...base, status: "unchanged" }, created: [] };
   }
 
   let root: Record<string, unknown> = {};
@@ -101,25 +176,45 @@ async function registerTarget(target: UserSettingsTarget, options: UserSettingsO
     try {
       parsed = JSON.parse(text.replace(/^\uFEFF/u, ""));
     } catch {
-      return { ...base, status: "skipped-invalid", message: "The file is not plain JSON." };
+      return { outcome: { ...base, status: "skipped-invalid", message: "The file is not plain JSON." }, created: [] };
     }
-    if (!isPlainObject(parsed))
-      return { ...base, status: "skipped-invalid", message: "The file is not a JSON object." };
+    if (!isPlainObject(parsed)) {
+      return {
+        outcome: { ...base, status: "skipped-invalid", message: "The file is not a JSON object." },
+        created: [],
+      };
+    }
     root = parsed;
   }
   const servers = root.mcpServers ?? {};
   if (!isPlainObject(servers)) {
-    return { ...base, status: "skipped-invalid", message: "mcpServers is not a JSON object." };
+    return {
+      outcome: { ...base, status: "skipped-invalid", message: "mcpServers is not a JSON object." },
+      created: [],
+    };
   }
 
-  const name = BROWSER_MCP_SERVER;
-  const existing = servers[name];
-  const next = { ...(isPlainObject(existing) ? existing : {}), ...target.entry };
-  if (isPlainObject(existing) && sameJson(existing, next)) return { ...base, status: "unchanged" };
+  const next: Record<string, unknown> = { ...servers };
+  const created: string[] = [];
+  let changed = false;
+  for (const name of changes.remove) {
+    if (!(name in next)) continue;
+    delete next[name];
+    changed = true;
+  }
+  for (const [name, entry] of Object.entries(changes.set)) {
+    const existing = next[name];
+    const merged = { ...(isPlainObject(existing) ? existing : {}), ...entry };
+    if (isPlainObject(existing) && sameJson(existing, merged)) continue;
+    if (existing === undefined) created.push(name);
+    next[name] = merged;
+    changed = true;
+  }
+  if (!changed) return { outcome: { ...base, status: "unchanged" }, created: [] };
 
-  const updated = { ...root, mcpServers: { ...servers, [name]: next } };
-  await writeFileAtomic(target.path, `${JSON.stringify(updated, null, indentOf(text))}\n`);
-  return { ...base, status: existing === undefined ? "created" : "updated" };
+  await writeFileAtomic(path, `${JSON.stringify({ ...root, mcpServers: next }, null, indentOf(text))}\n`);
+  const allNew = changes.remove.length === 0 && created.length === Object.keys(changes.set).length;
+  return { outcome: { ...base, status: allNew ? "created" : "updated" }, created };
 }
 
 function sameJson(left: unknown, right: unknown): boolean {

@@ -5,6 +5,7 @@ export * from "./events.js";
 export * from "./files.js";
 export * from "./ids.js";
 export * from "./import.js";
+export * from "./mcp.js";
 export * from "./projections.js";
 export * from "./provider.js";
 export * from "./pullRequest.js";

@@ -11,6 +11,10 @@ import {
   FileReadResult,
   FileSearchResult,
   FileWriteResult,
+  MCP_COMMAND_TYPES,
+  type McpCommand,
+  type McpListResult,
+  type McpServerConfig,
   type ProviderDiscovery,
   PULL_REQUEST_COMMAND_TYPES,
   type PullRequestCommand,
@@ -56,6 +60,8 @@ type RpcServerOptions = {
   /** Root for uploaded thread images. Without it, image uploads are rejected. */
   attachmentsDir?: string;
   pullRequestService?: PullRequestService;
+  /** The MCP servers from Settings. Without it, MCP commands are answered as unavailable. */
+  mcpServers?: { list(): McpListResult; save(servers: readonly McpServerConfig[]): Promise<McpListResult> };
   host?: string;
   port?: number;
 };
@@ -69,6 +75,7 @@ export class RpcServer {
   private readonly discoverProviders: RpcServerOptions["discoverProviders"];
   private readonly attachmentsDir: string | undefined;
   private readonly pullRequestService: PullRequestService;
+  private readonly mcpServers: RpcServerOptions["mcpServers"];
   private readonly host: string;
   private readonly port: number;
   private httpServer: HttpServer | undefined;
@@ -90,6 +97,7 @@ export class RpcServer {
     this.discoverProviders = options.discoverProviders;
     this.attachmentsDir = options.attachmentsDir;
     this.pullRequestService = options.pullRequestService ?? new PullRequestService();
+    this.mcpServers = options.mcpServers;
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
   }
@@ -323,6 +331,42 @@ export class RpcServer {
     return true;
   }
 
+  /** The server list lives in a file beside the database, outside the event log. */
+  private async handleMcpCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isMcpCommand(command)) return false;
+    const store = this.mcpServers;
+    if (!store) {
+      send(client, {
+        type: "response",
+        response: {
+          commandId: request.commandId,
+          accepted: false,
+          error: { code: "unavailable", message: "MCP servers are not available here.", retryable: false },
+        },
+      });
+      return true;
+    }
+    try {
+      const result = command.type === "mcp.list" ? store.list() : await store.save(command.servers);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch (error) {
+      send(client, {
+        type: "response",
+        response: {
+          commandId: request.commandId,
+          accepted: false,
+          error: {
+            code: "internal",
+            message: `MCP servers were not saved. ${error instanceof Error ? error.message : String(error)}`,
+            retryable: true,
+          },
+        },
+      });
+    }
+    return true;
+  }
+
   private async runFileCommand(root: string, command: FileCommand): Promise<unknown> {
     switch (command.type) {
       case "files.list":
@@ -451,6 +495,7 @@ export class RpcServer {
         if (await this.handleFileCommand(client, message.data.request)) return;
         if (await this.handlePullRequestCommand(client, message.data.request)) return;
         if (await this.handleProjectConfig(client, message.data.request)) return;
+        if (await this.handleMcpCommand(client, message.data.request)) return;
         try {
           let request: RpcRequest;
           try {
@@ -554,6 +599,10 @@ export class RpcServer {
         return;
     }
   }
+}
+
+function isMcpCommand(command: RpcRequest["command"]): command is McpCommand {
+  return (MCP_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
 function isFileCommand(command: RpcRequest["command"]): command is FileCommand {
