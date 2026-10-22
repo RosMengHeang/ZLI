@@ -271,6 +271,7 @@ export function ReviewPane({
             base={targetTouched ? targetRef.trim() || undefined : undefined}
             checkKey={prCheckKey}
             onCommitFirst={() => commitRef.current?.focus()}
+            onShowAgent={onShowAgent}
           />
         </div>
       ) : null}

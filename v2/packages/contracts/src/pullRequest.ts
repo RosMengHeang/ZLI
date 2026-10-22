@@ -9,6 +9,8 @@ export const PullRequestCommand = z.discriminatedUnion("type", [
   /** `base` is the branch the defaults are computed against; without it the repository default is used. */
   z.object({ type: z.literal("review.pr.status"), worktreeId: WorktreeId, base: BranchName.optional() }),
   z.object({ type: z.literal("review.pr.push"), worktreeId: WorktreeId }),
+  /** Reads the failed part of a GitHub Actions job log; `url` is the check's details link. */
+  z.object({ type: z.literal("review.pr.checkLog"), worktreeId: WorktreeId, url: z.string().url().max(2_000) }),
   z.object({
     type: z.literal("review.pr.create"),
     worktreeId: WorktreeId,
@@ -19,13 +21,36 @@ export const PullRequestCommand = z.discriminatedUnion("type", [
   }),
 ]);
 export type PullRequestCommand = z.infer<typeof PullRequestCommand>;
-export const PULL_REQUEST_COMMAND_TYPES = ["review.pr.status", "review.pr.push", "review.pr.create"] as const;
+export const PULL_REQUEST_COMMAND_TYPES = [
+  "review.pr.status",
+  "review.pr.push",
+  "review.pr.create",
+  "review.pr.checkLog",
+] as const;
+
+export const PullRequestCheckState = z.enum(["pending", "passed", "failed", "skipped"]);
+export type PullRequestCheckState = z.infer<typeof PullRequestCheckState>;
+
+/** One CI check on the pull request's latest commit, reduced to what ZLI shows. */
+export const PullRequestCheck = z.object({
+  name: z.string().min(1).max(300),
+  workflow: z.string().max(300).optional(),
+  state: PullRequestCheckState,
+  url: z.string().url().optional(),
+});
+export type PullRequestCheck = z.infer<typeof PullRequestCheck>;
+
+export const PullRequestReviewDecision = z.enum(["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"]);
+export type PullRequestReviewDecision = z.infer<typeof PullRequestReviewDecision>;
 
 export const PullRequestInfo = z.object({
   number: z.number().int().positive(),
   url: z.string().url(),
   state: z.enum(["OPEN", "CLOSED", "MERGED"]),
   isDraft: z.boolean(),
+  /** Absent when GitHub did not report checks, for example right after the pull request was created. */
+  checks: z.array(PullRequestCheck).max(200).optional(),
+  reviewDecision: PullRequestReviewDecision.optional(),
 });
 export type PullRequestInfo = z.infer<typeof PullRequestInfo>;
 
@@ -53,3 +78,11 @@ export type PullRequestPushResult = z.infer<typeof PullRequestPushResult>;
 
 export const PullRequestCreateResult = z.object({ pullRequest: PullRequestInfo });
 export type PullRequestCreateResult = z.infer<typeof PullRequestCreateResult>;
+
+export const PullRequestCheckLogResult = z.object({
+  /** The end of the failed step's output, without timestamps; empty when the log had no lines. */
+  excerpt: z.string().max(40_000),
+  /** True when earlier lines of the failed step were left out. */
+  truncated: z.boolean(),
+});
+export type PullRequestCheckLogResult = z.infer<typeof PullRequestCheckLogResult>;

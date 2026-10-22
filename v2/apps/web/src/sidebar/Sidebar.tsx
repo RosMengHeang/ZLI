@@ -3,6 +3,7 @@ import { threadOccupiesWorktree } from "@zli-v2/contracts";
 import { useEffect, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
+import { type PullRequestEntry, usePullRequestEntries } from "../review/pullRequestStore.js";
 import {
   type AgentSession,
   relativeTime,
@@ -22,6 +23,39 @@ import "./sidebar.css";
 export type WorktreeAction = "retry" | "cancel" | "remove";
 
 const inProgress = new Set<WorktreeProjection["status"]>(["queued", "fetching", "creating", "bootstrapping"]);
+
+/** A worktree's open or merged pull request, with a CI dot when the branch has checks. */
+function pullRequestBadge(
+  entry: PullRequestEntry | undefined,
+): { label: string; tone: string; title: string } | undefined {
+  const pullRequest = entry?.status?.pullRequest;
+  if (!pullRequest || pullRequest.state === "CLOSED") return undefined;
+  const state = pullRequest.state === "MERGED" ? "Merged" : pullRequest.isDraft ? "Draft" : "Open";
+  const checks = pullRequest.checks ?? [];
+  const failed = checks.filter((check) => check.state === "failed").length;
+  const pending = checks.filter((check) => check.state === "pending").length;
+  const tone = pullRequest.state === "MERGED" ? "info" : failed > 0 ? "danger" : pending > 0 ? "warning" : "success";
+  const detail =
+    checks.length === 0
+      ? state
+      : failed > 0
+        ? `${state}, ${failed} check${failed === 1 ? "" : "s"} failed`
+        : pending > 0
+          ? `${state}, checks running`
+          : `${state}, checks passed`;
+  return { label: `#${pullRequest.number}`, tone, title: `Pull request ${detail.toLowerCase()}` };
+}
+
+function WorktreePrBadge({ entry }: { entry: PullRequestEntry | undefined }) {
+  const badge = pullRequestBadge(entry);
+  if (!badge) return null;
+  return (
+    <span className={`worktree-pr is-${badge.tone}`} title={badge.title}>
+      <Icon name="pullRequest" size={10} />
+      {badge.label}
+    </span>
+  );
+}
 
 const worktreeStatusLabel: Record<WorktreeProjection["status"], string> = {
   queued: "Queued",
@@ -84,6 +118,7 @@ export function Sidebar({
   const [confirmRemoveId, setConfirmRemoveId] = useState<string>();
   const [collapsedWorktrees, setCollapsedWorktrees] = useState<string[]>([]);
   const [now, setNow] = useState(() => Date.now());
+  const prEntries = usePullRequestEntries();
   const projects = projection?.projects ?? [];
   const worktrees = projection?.worktrees ?? [];
   const threads = projection?.threads ?? [];
@@ -290,6 +325,7 @@ export function Sidebar({
                               <span className={`status-dot ${dotClass}`} aria-hidden="true" />
                               <span className="worktree-name">{worktree.branch}</span>
                               {checkout ? <span className="worktree-kind">checkout</span> : null}
+                              <WorktreePrBadge entry={prEntries.get(worktree.worktreeId)} />
                               <span
                                 className={`worktree-status${
                                   badge

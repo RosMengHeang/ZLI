@@ -1,4 +1,5 @@
 import {
+  PullRequestCheckLogResult,
   PullRequestCreateResult,
   PullRequestPushResult,
   PullRequestStatusResult,
@@ -41,6 +42,14 @@ export function pullRequestStatus(
 
 export function pushBranch(dispatch: Dispatch, worktreeId: string): Promise<PullRequestPushResult> {
   return request(dispatch, { type: "review.pr.push", worktreeId: WorktreeId.parse(worktreeId) }, PullRequestPushResult);
+}
+
+export function readCheckLog(dispatch: Dispatch, worktreeId: string, url: string): Promise<PullRequestCheckLogResult> {
+  return request(
+    dispatch,
+    { type: "review.pr.checkLog", worktreeId: WorktreeId.parse(worktreeId), url },
+    PullRequestCheckLogResult,
+  );
 }
 
 export function createPullRequest(
