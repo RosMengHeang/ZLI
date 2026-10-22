@@ -24,6 +24,7 @@ test("queues messages while an agent is busy, removes them, and steers with Send
     const queue = page.getByRole("region", { name: "Queued messages" });
     await composer.fill("Update the docs");
     await page.getByRole("button", { name: "Queue message", exact: true }).click();
+    await expect(queue.locator(".chat-queue-text")).toHaveText(["Update the docs"]);
     await composer.fill("Bump the version");
     await composer.press("Enter");
     await expect(queue.locator(".chat-queue-text")).toHaveText(["Update the docs", "Bump the version"]);
