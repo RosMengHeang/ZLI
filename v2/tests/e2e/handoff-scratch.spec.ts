@@ -43,11 +43,13 @@ test("hands a chat to another agent, starts a scratch chat, and attaches a windo
     await commands.getByRole("textbox", { name: "Search commands" }).fill("scratch");
     await commands.getByRole("textbox", { name: "Search commands" }).press("Enter");
     await expect(page.locator(".project-label", { hasText: "Scratch" })).toBeVisible({ timeout: 30_000 });
-    const scratch = page.getByRole("textbox", { name: "Message Codex" }).last();
     await expect(page.locator(".agent-tile")).toHaveCount(2);
+    // The scratch tile shows a placeholder until its chat starts, so its composer is looked up inside it.
+    const scratchTile = page.locator(".agent-tile").last();
+    const scratch = scratchTile.getByRole("textbox", { name: "Message Codex" });
     await expect(scratch).toBeEditable({ timeout: 30_000 });
     await scratch.fill("What does HTTP 418 mean?");
-    await expect(page.getByRole("button", { name: "Send", exact: true }).last()).toBeEnabled();
+    await expect(scratchTile.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
     await scratch.press("Enter");
     await expect(page.getByText(/Mock response: What does HTTP 418 mean\?/u)).toBeVisible({ timeout: 30_000 });
     const scratchPath = await page.evaluate(async () => {
@@ -58,7 +60,6 @@ test("hands a chat to another agent, starts a scratch chat, and attaches a windo
 
     // Other platforms need screen recording permission that CI runners cannot grant.
     if (process.platform === "win32") {
-      const scratchTile = page.locator(".agent-tile").last();
       await scratchTile.getByRole("button", { name: "Attach a window" }).click();
       const picker = scratchTile.getByRole("region", { name: "Attach a window" });
       const source = picker.locator(".capture-source").first();
