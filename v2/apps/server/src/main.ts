@@ -9,6 +9,7 @@ import { type BrowserToolConfig, browserToolConfigFromEnv } from "./browser-tool
 import { registerBrowserToolInUserSettings, type UserSettingsOutcome } from "./browser-tool/userSettings.js";
 import { DaemonSupervisor } from "./daemon/DaemonSupervisor.js";
 import { Database } from "./db/Database.js";
+import { DevServerReactor } from "./devservers/DevServerReactor.js";
 import { DiagnosticsReactor } from "./diagnostics/DiagnosticsReactor.js";
 import { StructuredLogger } from "./diagnostics/StructuredLogger.js";
 import { GitProcess } from "./git/GitProcess.js";
@@ -26,6 +27,7 @@ import { TerminalReactor } from "./terminal/TerminalReactor.js";
 import { TerminalService } from "./terminal/TerminalService.js";
 import { WorktreeReactor } from "./worktrees/WorktreeReactor.js";
 import { WorktreeService } from "./worktrees/WorktreeService.js";
+import { WorktreeSetupRunner } from "./worktrees/WorktreeSetup.js";
 
 export type RuntimeProcess = {
   database: Database;
@@ -41,6 +43,7 @@ export type RuntimeProcess = {
   reviewReactor: ReviewReactor;
   diagnosticsReactor: DiagnosticsReactor;
   legacyImportReactor: LegacyImportReactor;
+  devServerReactor: DevServerReactor;
   /** Settles once the browser tool is registered in agent user settings (empty when not configured). */
   browserToolRegistration: Promise<readonly UserSettingsOutcome[]>;
   token: string;
@@ -77,9 +80,12 @@ export async function startRuntime(options: {
   const database = new Database({ path: databasePath });
   const logger = new StructuredLogger();
   const engine = new Engine({ database, environment, logger });
-  const worktreeReactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()));
   const daemonSupervisor = new DaemonSupervisor({ endpointPath: `${databasePath}.daemon.json` });
   const terminalService = new TerminalService(new RemotePtyFactory({ connect: () => daemonSupervisor.connect() }));
+  const worktreeSetup = new WorktreeSetupRunner(engine, terminalService);
+  const worktreeReactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()), {
+    setup: (context) => worktreeSetup.run(context),
+  });
   const reviewReactor = new ReviewReactor(engine, new ReviewService(new GitProcess()));
   const browserTool = options.browserTool;
   const providerService = new ProviderService(createProviderRegistry(process.env, browserTool ? { browserTool } : {}));
@@ -98,6 +104,7 @@ export async function startRuntime(options: {
   const agentMessageReactor = new AgentMessageReactor(engine);
   const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
   const legacyImportReactor = new LegacyImportReactor(engine);
+  const devServerReactor = new DevServerReactor(engine, terminalService);
   const server = new RpcServer({
     engine,
     environment,
@@ -106,6 +113,8 @@ export async function startRuntime(options: {
     discoverProviders: () => providerService.discoverProviders(),
     attachmentsDir: join(dirname(databasePath), "attachments"),
   });
+  // Before the server accepts commands, so a setup started by a new request is never mistaken for a stale one.
+  await worktreeSetup.reconcile();
   await server.start();
   await terminalReactor.restore();
   await providerReactor.reconcileOrphanedThreads();
@@ -132,6 +141,7 @@ export async function startRuntime(options: {
     reviewReactor,
     diagnosticsReactor,
     legacyImportReactor,
+    devServerReactor,
     browserToolRegistration,
     token,
     close: async () => {
@@ -145,12 +155,15 @@ export async function startRuntime(options: {
       await diagnosticsReactor.waitForIdle();
       await legacyImportReactor.waitForIdle();
       worktreeReactor.stop();
+      worktreeSetup.stop();
       terminalReactor.stop();
       reviewReactor.stop();
       providerReactor.stop();
       agentMessageReactor.stop();
       diagnosticsReactor.stop();
       legacyImportReactor.stop();
+      devServerReactor.stop();
+      await devServerReactor.waitForIdle();
       await providerService.stopAll();
       providerService.dispose();
       await engine.flushProjection();

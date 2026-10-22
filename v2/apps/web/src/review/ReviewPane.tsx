@@ -1,10 +1,14 @@
 import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
+import type { SessionMode } from "../sessions/sessions.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, PaneHeader } from "../ui/Pane.js";
+import { DiffView } from "./DiffView.js";
+import { PullRequestSection } from "./PullRequestSection.js";
+import { ReviewCommentList } from "./ReviewCommentList.js";
 import "./review.css";
 
 export type ReviewFocus = { path: string; nonce: number };
@@ -23,15 +27,21 @@ const selectReviews = (projection: RuntimeProjection | undefined) => projection?
 export function ReviewPane({
   worktree,
   focus,
+  onShowAgent,
 }: {
   worktree: WorktreeProjection | undefined;
   /** A file to open, for example from a changed-files card. The nonce reopens the same path. */
   focus?: ReviewFocus | undefined;
+  /** Brings an agent's tile forward in the given view, after review comments are sent to it. */
+  onShowAgent?(sessionId: string, mode: SessionMode): void;
 }) {
   const { dispatch } = useRuntime();
   const reviews = useRuntimeSelector(selectReviews);
   const [baseRef, setBaseRef] = useState("main");
   const [targetRef, setTargetRef] = useState("main");
+  const [targetTouched, setTargetTouched] = useState(false);
+  const [prCheckKey, setPrCheckKey] = useState(0);
+  const commitRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -74,13 +84,14 @@ export function ReviewPane({
   }, [focus?.nonce, worktree?.worktreeId]);
   const refresh = () => {
     if (!worktree || !baseRef.trim()) return;
+    setPrCheckKey((key) => key + 1);
     void run({ type: "review.refresh", worktreeId: worktree.worktreeId, baseRef: baseRef.trim() });
   };
 
   return (
     <div className="tool-pane review-pane">
       <PaneHeader icon="diff" title="Changes" detail={worktree?.branch}>
-        {review && fileCount > 0 && totals.additions + totals.deletions > 0 ? (
+        {review && fileCount > 0 ? (
           <span className="review-totals">
             <span className="diff-add">+{totals.additions}</span>
             <span className="diff-del">−{totals.deletions}</span>
@@ -163,7 +174,7 @@ export function ReviewPane({
                   <span className="file-stat">
                     {file.binary ? (
                       "binary"
-                    ) : file.additions + file.deletions === 0 ? null : (
+                    ) : (
                       <>
                         <span className="diff-add">+{file.additions}</span>
                         <span className="diff-del">−{file.deletions}</span>
@@ -175,31 +186,15 @@ export function ReviewPane({
             </div>
           ) : null}
           {review.diff ? (
-            <section className="review-diff-panel" aria-label={`Diff for ${review.diff.path}`}>
-              <div className="review-diff-header">
-                <Icon name="file" size={12} />
-                <span className="review-diff-path">{review.diff.path}</span>
-                <span>{review.diff.binary ? "Binary file" : review.diff.truncated ? "Output truncated" : ""}</span>
-              </div>
-              <pre className="review-diff">
-                {review.diff.patch ? (
-                  patchBody(review.diff.patch).map((line, index) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are positional and never reorder.
-                    <span className={`diff-line ${diffLineClass(line)}`} key={index}>
-                      {line || " "}
-                      {"\n"}
-                    </span>
-                  ))
-                ) : (
-                  <span className="diff-line">No textual diff available for this file.</span>
-                )}
-              </pre>
-            </section>
+            <DiffView worktreeId={worktree.worktreeId} diff={review.diff} />
           ) : review.files.length > 0 ? (
             <p className="review-hint">Select a file to see its diff.</p>
           ) : null}
         </div>
       )}
+      {worktree && review ? (
+        <ReviewCommentList worktree={worktree} onOpenFile={(path) => void loadDiff(path)} onShowAgent={onShowAgent} />
+      ) : null}
       {review?.errorMessage && (
         <p className="inline-error" role="alert">
           <Icon name="alert" size={13} />
@@ -210,6 +205,7 @@ export function ReviewPane({
         <div className="review-actions">
           <div className="review-commit">
             <input
+              ref={commitRef}
               className="input input-sm"
               aria-label="Commit message"
               value={message}
@@ -240,7 +236,10 @@ export function ReviewPane({
               <input
                 className="input input-sm is-mono"
                 value={targetRef}
-                onChange={(event) => setTargetRef(event.target.value)}
+                onChange={(event) => {
+                  setTargetRef(event.target.value);
+                  setTargetTouched(true);
+                }}
                 placeholder="main"
                 spellCheck={false}
               />
@@ -267,6 +266,12 @@ export function ReviewPane({
               </Button>
             )}
           </div>
+          <PullRequestSection
+            worktree={worktree}
+            base={targetTouched ? targetRef.trim() || undefined : undefined}
+            checkKey={prCheckKey}
+            onCommitFirst={() => commitRef.current?.focus()}
+          />
         </div>
       ) : null}
       {error && (
@@ -292,20 +297,4 @@ function kindLetter(kind: string): string {
     default:
       return "M";
   }
-}
-
-/** The lines of a patch from its first hunk on; the path header above the diff already names the file. */
-export function patchBody(patch: string): string[] {
-  const lines = patch.split("\n");
-  const firstHunk = lines.findIndex((line) => line.startsWith("@@"));
-  return firstHunk > 0 ? lines.slice(firstHunk) : lines;
-}
-
-function diffLineClass(line: string): string {
-  if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ") || line.startsWith("index "))
-    return "is-meta";
-  if (line.startsWith("@@")) return "is-hunk";
-  if (line.startsWith("+")) return "is-add";
-  if (line.startsWith("-")) return "is-del";
-  return "";
 }

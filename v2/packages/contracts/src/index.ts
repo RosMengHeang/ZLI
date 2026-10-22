@@ -1,4 +1,5 @@
 export * from "./browser.js";
+export * from "./devServers.js";
 export * from "./diagnostics.js";
 export * from "./events.js";
 export * from "./files.js";
@@ -6,6 +7,8 @@ export * from "./ids.js";
 export * from "./import.js";
 export * from "./projections.js";
 export * from "./provider.js";
+export * from "./pullRequest.js";
 export * from "./review.js";
 export * from "./rpc.js";
 export * from "./terminal.js";
+export * from "./projectConfig.js";

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, WebContentsView } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, shell, WebContentsView } from "electron";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -35,8 +35,10 @@ import {
   type WakeableWebContents,
 } from "./browser/HiddenRendering.js";
 import { DesktopDiagnostics } from "./diagnostics/DesktopDiagnostics.js";
+import { registerAgentNotifications } from "./notifications/electronNotifications.js";
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
 import { ensureDesktopDaemon } from "./runtime/DesktopDaemon.js";
+import { shouldOpenExternal } from "./security/NavigationPolicy.js";
 import { resolveAppAsset } from "./window/ElectronProtocol.js";
 import { createMainWindow, type BrowserWindowConstructor } from "./window/ElectronWindow.js";
 
@@ -57,6 +59,8 @@ let browserManager: BrowserManager | undefined;
 let browserControl: BrowserControlServer | undefined;
 let mainWindow: BrowserWindow | undefined;
 let approvedSupportBundleRoot: string | undefined;
+/** Test launches record links instead of starting the system browser. */
+let lastExternalUrl: string | undefined;
 
 async function main(): Promise<void> {
   await app.whenReady();
@@ -97,6 +101,13 @@ async function main(): Promise<void> {
   );
   const electronWindow = window as unknown as BrowserWindow;
   mainWindow = electronWindow;
+  await registerAgentNotifications({
+    window: electronWindow,
+    runtime,
+    settingsPath: process.env.ZLI_DATABASE_PATH
+      ? `${databasePath}.notifications.json`
+      : join(app.getPath("userData"), "notification-settings.json"),
+  }).catch((error: unknown) => console.error("Agent notifications could not start", error));
   browserManager = new BrowserManager(
     {
       create: ({ session: browserSession }) =>
@@ -379,6 +390,20 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
   ipcMain.handle("zli:browser:network", (_event, input: unknown) =>
     browserManager?.networkEntries(BrowserTabIdInput.parse(input).browserTabId),
   );
+  ipcMain.handle("zli:app:open-external", async (_event, input: unknown) => {
+    const url = input && typeof input === "object" && "url" in input ? (input as { url: unknown }).url : undefined;
+    if (typeof url !== "string" || !shouldOpenExternal(url))
+      throw new Error("Only http and https links can be opened.");
+    if (process.env.ZLI_TEST_PROVIDER === "mock") lastExternalUrl = url;
+    else await shell.openExternal(url);
+    return { accepted: true };
+  });
+  ipcMain.handle("zli:test:take-external-url", () => {
+    if (process.env.ZLI_TEST_PROVIDER !== "mock") throw new Error("Test runtime controls are disabled.");
+    const url = lastExternalUrl ?? null;
+    lastExternalUrl = undefined;
+    return url;
+  });
 }
 
 function connectWebSocket(url: string): Promise<RuntimeTransport> {

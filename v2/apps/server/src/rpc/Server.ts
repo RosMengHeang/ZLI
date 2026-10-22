@@ -12,6 +12,8 @@ import {
   FileSearchResult,
   FileWriteResult,
   type ProviderDiscovery,
+  PULL_REQUEST_COMMAND_TYPES,
+  type PullRequestCommand,
   type RpcRequest,
   type RuntimeError,
   type RuntimeProjection,
@@ -22,7 +24,14 @@ import { type RawData, WebSocket, WebSocketServer } from "ws";
 import { errorCode, FileService, FileServiceError } from "../files/FileService.js";
 import type { Engine } from "../orchestration/Engine.js";
 import { unavailableProviderDiscovery } from "../providers/discoverCliProviders.js";
+import {
+  PullRequestError,
+  PullRequestService,
+  redactSecrets,
+  runPullRequestCommand,
+} from "../review/PullRequestService.js";
 import type { TerminalService, TerminalSubscription } from "../terminal/TerminalService.js";
+import { readZliConfig } from "../worktrees/zliConfig.js";
 import { AttachmentError, storeThreadAttachments } from "./attachments.js";
 
 /** Fits thread.send with eight 10 MiB images as base64 (about 112 MB) plus the JSON envelope. */
@@ -46,6 +55,7 @@ type RpcServerOptions = {
   discoverProviders?: () => Promise<readonly ProviderDiscovery[]>;
   /** Root for uploaded thread images. Without it, image uploads are rejected. */
   attachmentsDir?: string;
+  pullRequestService?: PullRequestService;
   host?: string;
   port?: number;
 };
@@ -58,6 +68,7 @@ export class RpcServer {
   private readonly fileService: FileService;
   private readonly discoverProviders: RpcServerOptions["discoverProviders"];
   private readonly attachmentsDir: string | undefined;
+  private readonly pullRequestService: PullRequestService;
   private readonly host: string;
   private readonly port: number;
   private httpServer: HttpServer | undefined;
@@ -78,6 +89,7 @@ export class RpcServer {
     this.fileService = options.fileService ?? new FileService();
     this.discoverProviders = options.discoverProviders;
     this.attachmentsDir = options.attachmentsDir;
+    this.pullRequestService = options.pullRequestService ?? new PullRequestService();
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
   }
@@ -289,6 +301,28 @@ export class RpcServer {
     return true;
   }
 
+  /** zli.json is read fresh from the project folder, so edits show up without a restart. */
+  private async handleProjectConfig(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (command.type !== "project.config") return false;
+    const projection = await this.engine.projection();
+    const project = projection.projects.find((candidate) => candidate.projectId === command.projectId);
+    if (!project) {
+      send(client, {
+        type: "response",
+        response: {
+          commandId: request.commandId,
+          accepted: false,
+          error: { code: "invalid_request", message: "Project does not exist.", retryable: false },
+        },
+      });
+      return true;
+    }
+    const result = await readZliConfig(project.path);
+    send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    return true;
+  }
+
   private async runFileCommand(root: string, command: FileCommand): Promise<unknown> {
     switch (command.type) {
       case "files.list":
@@ -314,6 +348,30 @@ export class RpcServer {
           }),
         );
     }
+  }
+
+  /** Pull request commands run git and gh in the worktree and answer directly, outside the event log. */
+  private async handlePullRequestCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isPullRequestCommand(command)) return false;
+    try {
+      const result = await runPullRequestCommand(this.pullRequestService, await this.engine.projection(), command);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch (error) {
+      const message =
+        error instanceof PullRequestError
+          ? error.message
+          : `The pull request command failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`;
+      send(client, {
+        type: "response",
+        response: {
+          commandId: request.commandId,
+          accepted: false,
+          error: { code: "invalid_request", message, retryable: false },
+        },
+      });
+    }
+    return true;
   }
 
   /** Image bytes are written to disk before dispatch; the command that reaches the event log carries only paths. */
@@ -391,6 +449,8 @@ export class RpcServer {
       case "command":
         if (this.terminalService && this.handleTerminalInput(client, message.data.request)) return;
         if (await this.handleFileCommand(client, message.data.request)) return;
+        if (await this.handlePullRequestCommand(client, message.data.request)) return;
+        if (await this.handleProjectConfig(client, message.data.request)) return;
         try {
           let request: RpcRequest;
           try {
@@ -498,6 +558,10 @@ export class RpcServer {
 
 function isFileCommand(command: RpcRequest["command"]): command is FileCommand {
   return (FILE_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
+function isPullRequestCommand(command: RpcRequest["command"]): command is PullRequestCommand {
+  return (PULL_REQUEST_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
 function fileErrorMessage(command: FileCommand, error: unknown): string {

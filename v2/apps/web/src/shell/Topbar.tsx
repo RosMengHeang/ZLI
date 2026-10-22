@@ -1,5 +1,6 @@
-import type { ProjectProjection, WorktreeProjection } from "@zli-v2/contracts";
+import type { DevServerProjection, ProjectProjection, WorktreeProjection } from "@zli-v2/contracts";
 
+import { DevServerChip } from "../devservers/DevServers.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
@@ -24,6 +25,8 @@ export function Topbar({
   onToggleDrawer,
   onToggleSidePane,
   onOpenPalette,
+  devServers = [],
+  onOpenDevServer,
 }: {
   sidebarOpen: boolean;
   project: ProjectProjection | undefined;
@@ -37,6 +40,9 @@ export function Topbar({
   onToggleDrawer(): void;
   onToggleSidePane(pane: SidePane): void;
   onOpenPalette(): void;
+  /** Servers the selected worktree's terminals are running, newest first. */
+  devServers?: readonly DevServerProjection[];
+  onOpenDevServer?(url: string): void;
 }) {
   return (
     <header className="topbar">
@@ -65,6 +71,7 @@ export function Topbar({
             {agentCount} {agentCount === 1 ? "agent" : "agents"}
           </span>
         ) : null}
+        {worktree && onOpenDevServer ? <DevServerChip devServers={devServers} onOpen={onOpenDevServer} /> : null}
       </div>
       <span className="topbar-spacer" />
       {sidebarOpen || !hasProjects ? null : (

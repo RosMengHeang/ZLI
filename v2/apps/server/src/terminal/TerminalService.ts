@@ -184,6 +184,7 @@ export class TerminalService {
   private readonly exitListeners = new Set<
     (terminalId: TerminalId, event: { code: number; signal: number | null }) => void
   >();
+  private readonly outputListeners = new Set<(terminalId: TerminalId, data: string) => void>();
   private readonly maxChunks: number;
   private readonly maxBytes: number;
   private readonly maxLines: number;
@@ -263,6 +264,12 @@ export class TerminalService {
   ): () => void {
     this.exitListeners.add(listener);
     return () => this.exitListeners.delete(listener);
+  }
+
+  /** Raw PTY output as it arrives, for watchers that read what a shell prints. */
+  subscribeOutput(listener: (terminalId: TerminalId, data: string) => void): () => void {
+    this.outputListeners.add(listener);
+    return () => this.outputListeners.delete(listener);
   }
 
   get(terminalId: TerminalId): TerminalProjection {
@@ -365,6 +372,7 @@ export class TerminalService {
       session.historyLines -= removed.lines;
     }
     for (const subscriber of session.subscribers) subscriber.push({ kind: "chunk", chunk });
+    for (const listener of this.outputListeners) listener(session.projection.terminalId, data);
   }
 
   private onExit(session: TerminalSession, event: { code: number; signal: number | null }): void {

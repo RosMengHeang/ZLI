@@ -27,6 +27,8 @@ export type PendingLaunch = {
   errorMessage?: string;
   /** The start command was accepted; the entry stays until the terminal or thread is projected. */
   started?: boolean;
+  /** First message for the agent, moved to the workbench's delivery queue once the agent starts. */
+  prompt?: string;
 };
 
 export type AgentSession = {

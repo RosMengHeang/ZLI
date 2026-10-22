@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BrowserTabProjection } from "./browser.js";
+import { DevServerProjection } from "./devServers.js";
 import { DiagnosticLog } from "./diagnostics.js";
 import {
   BrowserTabId,
@@ -13,6 +14,7 @@ import {
   WorktreeId,
 } from "./ids.js";
 import { LegacyImportPreview } from "./import.js";
+import { SetupDecision, WorktreeSetupProjection } from "./projectConfig.js";
 import { ProjectProjection, SupportBundleProjection, WorktreeProjection } from "./projections.js";
 import {
   ProviderCapabilities,
@@ -66,6 +68,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     shell: z.string().min(1),
     cols: z.number().int().positive(),
     rows: z.number().int().positive(),
+    args: z.array(z.string().max(8_000)).max(16).optional(),
   }),
   z.object({ type: z.literal("terminal.write.requested"), terminalId: TerminalId, data: z.string() }),
   z.object({
@@ -170,6 +173,20 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     lastSequence: z.number().int().nonnegative().optional(),
     errorMessage: z.string().min(1).optional(),
   }),
+  z.object({ type: z.literal("devserver.detected"), devServer: DevServerProjection.omit({ detectedAt: true }) }),
+  z.object({
+    type: z.literal("devserver.stopped"),
+    terminalId: TerminalId,
+    port: DevServerProjection.shape.port,
+  }),
+  z.object({ type: z.literal("worktree.setup.changed"), setup: WorktreeSetupProjection }),
+  z.object({
+    type: z.literal("worktree.setup.responded"),
+    worktreeId: WorktreeId,
+    commandsHash: z.string().min(1),
+    decision: SetupDecision,
+  }),
+  z.object({ type: z.literal("project.setup.trusted"), projectId: ProjectId, commandsHash: z.string().min(1) }),
 ]);
 export type RuntimeEvent = z.infer<typeof RuntimeEvent>;
 

@@ -6,6 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import type { RpcResponse } from "@zli-v2/contracts";
 import type { FileLinks } from "../files/FileIndex.js";
 import type { ZliBridge } from "../runtime/bridge.js";
+import { registerTerminalModes } from "./terminalModes.js";
 
 type Props = {
   bridge: ZliBridge;
@@ -123,6 +124,11 @@ export function TerminalView({
     // attach, so output is only drawn when it continues exactly from the last drawn sequence.
     let synced = false;
     let lastSequence = 0;
+    const unregisterModes = registerTerminalModes(terminalId, {
+      synced: () => synced,
+      bracketedPaste: () => terminal.modes.bracketedPasteMode,
+      flush: () => new Promise<void>((resolve) => terminal.write("", resolve)),
+    });
 
     let replaying = false;
     const attach = () => {
@@ -231,6 +237,7 @@ export function TerminalView({
       dataSubscription.dispose();
       linkProvider.dispose();
       focusSubscription?.();
+      unregisterModes();
       unsubscribe();
       terminalRef.current = undefined;
       terminal.dispose();

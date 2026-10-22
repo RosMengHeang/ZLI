@@ -6,6 +6,7 @@ import { ChatView } from "../chat/ChatView.js";
 import { useFileLinks } from "../files/FileIndex.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { setupProgress, worktreeSetup } from "../setup/setup.js";
 import { LazyTerminalView } from "../terminal/LazyTerminalView.js";
 import { Badge, type BadgeTone } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
@@ -13,6 +14,7 @@ import { Icon } from "../ui/Icon.js";
 import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { Segmented, type SegmentedOption } from "../ui/Segmented.js";
+import type { RunPosition } from "./bestOf.js";
 import {
   type AgentSession,
   type SessionMode,
@@ -62,6 +64,10 @@ export function AgentTile({
   onStart,
   onRetryPending,
   onDismissPending,
+  onReviewSetup,
+  onShowSetupOutput,
+  run,
+  onKeep,
 }: {
   projection: RuntimeProjection;
   session: AgentSession;
@@ -79,6 +85,11 @@ export function AgentTile({
   onStart(mode: SessionMode): Promise<string | undefined>;
   onRetryPending(): void;
   onDismissPending(): void;
+  onReviewSetup(): void;
+  onShowSetupOutput(): void;
+  /** Where this agent sits in a best-of run that is still being compared. */
+  run?: RunPosition | undefined;
+  onKeep(): void;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
@@ -90,6 +101,7 @@ export function AgentTile({
   const thread = session.thread;
   const terminalLive = terminal?.status === "running" || terminal?.status === "starting";
   const fileLinks = useFileLinks(mode === "terminal" ? worktree?.worktreeId : undefined);
+  const setup = worktree?.status === "bootstrapping" ? worktreeSetup(projection, worktree.worktreeId) : undefined;
 
   const send = useCallback(
     async (command: Record<string, unknown>): Promise<RpcResponse | undefined> => {
@@ -130,6 +142,7 @@ export function AgentTile({
   return (
     <section
       className={`agent-tile${active ? " is-active" : ""}`}
+      data-session-id={session.sessionId}
       aria-label={`${title}, ${displayName}`}
       onFocusCapture={onFocus}
       onMouseDown={onFocus}
@@ -145,6 +158,11 @@ export function AgentTile({
           <Icon name="branch" size={11} />
           <span>{branch}</span>
         </span>
+        {run ? (
+          <span className="tile-run" title={`Run ${run.index} of ${run.count} for ${run.group.label}`}>
+            Run {run.index} of {run.count}
+          </span>
+        ) : null}
         <Badge
           className="tile-status"
           tone={statusTone[status]}
@@ -162,6 +180,19 @@ export function AgentTile({
           </>
         )}
         <span className="tile-actions">
+          {run ? (
+            <Button
+              className="tile-keep"
+              size="xs"
+              variant="ghost"
+              icon="check"
+              aria-label="Keep this one"
+              tooltip="Keep this run and delete the others"
+              onClick={onKeep}
+            >
+              <span className="tile-keep-label">Keep this one</span>
+            </Button>
+          ) : null}
           {mode === "chat" && (thread?.status === "working" || thread?.status === "waiting") ? (
             <IconButton label="Interrupt" tooltip="Interrupt the turn" icon="pause" size="sm" onClick={interrupt} />
           ) : null}
@@ -204,6 +235,23 @@ export function AgentTile({
               <Button variant="ghost" onClick={onDismissPending}>
                 Dismiss
               </Button>
+            </EmptyState>
+          ) : setup ? (
+            <EmptyState
+              media={<span className="spinner" aria-hidden="true" />}
+              title={`Setting up ${branch}`}
+              detail={`${displayName} starts when setup finishes. ${setupProgress(setup)}`}
+            >
+              {setup.status === "waiting" ? (
+                <Button variant="primary" icon="check" onClick={onReviewSetup}>
+                  Review setup
+                </Button>
+              ) : null}
+              {setup.terminalId ? (
+                <Button icon="terminal" onClick={onShowSetupOutput}>
+                  Show output
+                </Button>
+              ) : null}
             </EmptyState>
           ) : (
             <EmptyState

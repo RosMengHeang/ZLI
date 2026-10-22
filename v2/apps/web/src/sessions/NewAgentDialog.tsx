@@ -5,15 +5,20 @@ import {
   type RuntimeProjection,
   worktreeHasLiveThread,
 } from "@zli-v2/contracts";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
 import { permissionLabel } from "../chat/Composer.js";
+import { PromptList, usePromptPicker } from "../prompts/PromptPicker.js";
+import { combinePrompts, usePersonalPrompts } from "../prompts/prompts.js";
+import { useSharedPrompts } from "../prompts/useSharedPrompts.js";
 import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Field, Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
+import { Segmented, type SegmentedOption } from "../ui/Segmented.js";
+import { MAX_RUNS, runBranches } from "./bestOf.js";
 import { checkoutWorktree, type LaunchOptions, type Placement } from "./launch.js";
 import type { SessionMode } from "./sessions.js";
 
@@ -40,7 +45,21 @@ function suggestedBranch(provider: ListedProviderKind | undefined): string {
   return `${stem}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-export type NewAgentRequest = LaunchOptions & { project: ProjectProjection; placement: Placement };
+export type NewAgentRequest = LaunchOptions & {
+  project: ProjectProjection;
+  placement: Placement;
+  /** The first message, sent once the agent is running. */
+  prompt?: string;
+  /** Agents for a best-of run, one per new worktree. Absent for a single agent. */
+  runs?: ListedProviderKind[];
+};
+
+type RunCount = "1" | "2" | "3" | "4";
+
+const runOptions: readonly SegmentedOption<RunCount>[] = Array.from({ length: MAX_RUNS }, (_, index) => {
+  const value = String(index + 1) as RunCount;
+  return { value, label: value, ariaLabel: index === 0 ? "1 run" : `${value} runs` };
+});
 
 export function NewAgentDialog({
   projection,
@@ -92,7 +111,21 @@ export function NewAgentDialog({
     projectWorktrees.find((worktree) => worktree.worktreeId === initialWorktreeId)?.worktreeId ??
       projectWorktrees[0]?.worktreeId,
   );
+  const [runCount, setRunCount] = useState<RunCount>("1");
+  const [runProviders, setRunProviders] = useState<Partial<Record<number, ListedProviderKind>>>({});
+  const [task, setTask] = useState("");
+  const taskId = useId();
+  const personalPrompts = usePersonalPrompts();
+  const sharedPrompts = useSharedPrompts(projectId);
+  const prompts = useMemo(
+    () => combinePrompts(sharedPrompts.prompts, personalPrompts),
+    [sharedPrompts.prompts, personalPrompts],
+  );
+  const picker = usePromptPicker({ draft: task, setDraft: setTask, prompts });
+  const taskRef = useRef<HTMLTextAreaElement>(null);
   const [busy, setBusy] = useState(false);
+  // `busy` state lags a render behind, so two quick Cmd/Ctrl+Enter presses would both see it false.
+  const launching = useRef(false);
   const [error, setError] = useState<string>();
   const submitRef = useRef<HTMLButtonElement>(null);
   const discovery = listed.find((entry) => entry.provider === provider);
@@ -102,6 +135,9 @@ export function NewAgentDialog({
   const sharedWorktreeId =
     placementKind === "checkout" ? checkout?.worktreeId : placementKind === "existing" ? existingId : undefined;
   const sharing = sharedWorktreeId !== undefined && worktreeHasLiveThread(projection.threads, sharedWorktreeId);
+  const runs = placementKind === "new" ? Number(runCount) : 1;
+  const branches = runBranches(branch, runs);
+  const runAgents = Array.from({ length: runs }, (_, index) => runProviders[index] ?? provider);
 
   useEffect(() => {
     if (!branchEdited) setBranch(suggestedBranch(provider));
@@ -110,11 +146,12 @@ export function NewAgentDialog({
   const ready =
     project !== undefined &&
     discovery?.status === "found" &&
-    (placementKind !== "new" || branch.trim().length > 0) &&
+    (placementKind !== "new" || branches.length > 0) &&
     (placementKind !== "existing" || existingId !== undefined);
 
   const submit = async () => {
-    if (!ready || !project || !provider) return;
+    if (launching.current || !ready || !project || !provider) return;
+    launching.current = true;
     const placement: Placement =
       placementKind === "new"
         ? { kind: "new", branch, baseRef }
@@ -128,15 +165,24 @@ export function NewAgentDialog({
     } catch {
       // Remembering the last choice is a convenience only.
     }
-    const failure = await onSubmit({
-      project,
-      placement,
-      provider,
-      mode,
-      permissionMode,
-      ...(model && !modelUnsupported ? { model } : {}),
-    });
-    setBusy(false);
+    let failure: string | undefined;
+    try {
+      failure = await onSubmit({
+        project,
+        placement,
+        provider,
+        mode,
+        permissionMode,
+        ...(model && !modelUnsupported ? { model } : {}),
+        ...(task.trim() ? { prompt: task.trim() } : {}),
+        ...(runs > 1 ? { runs: runAgents.map((agent) => agent ?? provider) } : {}),
+      });
+    } catch (cause) {
+      failure = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      launching.current = false;
+      setBusy(false);
+    }
     if (failure) setError(failure);
   };
 
@@ -254,6 +300,52 @@ export function NewAgentDialog({
             </div>
           </fieldset>
 
+          <div className="field">
+            <div className="prompt-label-row">
+              <label className="field-label" htmlFor={taskId}>
+                First message
+              </label>
+              <Button
+                variant="ghost"
+                size="xs"
+                icon="bookmark"
+                aria-pressed={picker.open}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  picker.toggle();
+                  taskRef.current?.focus();
+                }}
+              >
+                Saved prompts
+              </Button>
+            </div>
+            <div className="prompt-anchor is-inline">
+              <textarea
+                id={taskId}
+                ref={taskRef}
+                className="textarea"
+                rows={3}
+                value={task}
+                onChange={(event) => setTask(event.target.value)}
+                {...picker.inputProps}
+                onKeyDown={(event) => {
+                  if (picker.onKeyDown(event)) return;
+                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                    event.preventDefault();
+                    void submit();
+                  }
+                }}
+                placeholder="Optional. Type / to insert a saved prompt."
+              />
+              <PromptList
+                picker={picker}
+                emptyHint="No saved prompts yet. Add them from Saved prompts in the command palette."
+                sharedError={sharedPrompts.error}
+              />
+            </div>
+            <span className="field-hint">Sent to the agent as soon as it starts.</span>
+          </div>
+
           <fieldset className="field">
             <legend className="field-label">Where it runs</legend>
             <div className="placement-list" role="radiogroup" aria-label="Where it runs">
@@ -293,6 +385,44 @@ export function NewAgentDialog({
                       spellCheck={false}
                     />
                   </Field>
+                  <div className="field run-count">
+                    <span className="field-label">Runs</span>
+                    <Segmented<RunCount> label="Runs" value={runCount} options={runOptions} onChange={setRunCount} />
+                    <span className="field-hint">
+                      {runs > 1
+                        ? "Each run gets its own worktree and the same first message. Keep the best one."
+                        : "Start up to four agents on the same task to compare."}
+                    </span>
+                  </div>
+                  {runs > 1 ? (
+                    <div className="run-agents">
+                      {runAgents.map((agent, index) => (
+                        <Field
+                          // biome-ignore lint/suspicious/noArrayIndexKey: a run is its position.
+                          key={index}
+                          label={`Run ${index + 1}`}
+                          hint={branches[index]}
+                        >
+                          <Select
+                            aria-label={`Agent for run ${index + 1}`}
+                            value={agent}
+                            onChange={(event) =>
+                              setRunProviders((current) => ({
+                                ...current,
+                                [index]: event.target.value as ListedProviderKind,
+                              }))
+                            }
+                          >
+                            {installed.map((entry) => (
+                              <option key={entry.provider} value={entry.provider}>
+                                {entry.displayName}
+                              </option>
+                            ))}
+                          </Select>
+                        </Field>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               <label className="choice-card">
@@ -350,7 +480,16 @@ export function NewAgentDialog({
           </fieldset>
 
           <div className="field-row">
-            <Field label="Model" hint={modelUnsupported ? "Pick the model inside the Droid CLI." : undefined}>
+            <Field
+              label="Model"
+              hint={
+                modelUnsupported
+                  ? "Pick the model inside the Droid CLI."
+                  : runAgents.some((agent) => agent !== provider)
+                    ? "Runs with another agent use its default model."
+                    : undefined
+              }
+            >
               <Select
                 value={modelUnsupported ? "" : model}
                 disabled={modelUnsupported}
@@ -394,11 +533,15 @@ export function NewAgentDialog({
         </div>
         <div className="dialog-footer">
           <span className="dialog-footer-note">
-            {placementKind === "new" && branch.trim() ? `Creates branch ${branch.trim()}` : null}
+            {placementKind !== "new" || branches.length === 0
+              ? null
+              : branches.length === 1
+                ? `Creates branch ${branches[0]}`
+                : `Creates branches ${branches[0]} to ${branches.at(-1)}`}
           </span>
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" type="submit" ref={submitRef} disabled={!ready} loading={busy}>
-            {busy ? "Starting" : "Start agent"}
+            {busy ? "Starting" : runs > 1 ? `Start ${runs} agents` : "Start agent"}
           </Button>
         </div>
       </form>

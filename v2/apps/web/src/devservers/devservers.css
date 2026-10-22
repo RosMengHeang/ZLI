@@ -1,0 +1,20 @@
+/* ---------- Dev servers ---------- */
+.devserver-chip {
+  display: inline-flex; flex: 0 1 auto; min-width: 0; align-items: center; gap: var(--zli-space-1-5); height: 22px; padding: 0 var(--zli-space-2);
+  border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted);
+  cursor: pointer; font-family: var(--zli-mono); font-size: var(--zli-text-xs);
+  transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease);
+}
+.devserver-chip:hover { background: var(--zli-hover); color: var(--zli-text); }
+.devserver-chip:focus-visible { outline: 2px solid var(--zli-accent-line); outline-offset: 1px; }
+.devserver-chip .status-dot { width: 6px; height: 6px; flex-basis: 6px; }
+.devserver-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.devserver-chip-more { color: var(--zli-dim); font-variant-numeric: tabular-nums; }
+.devserver-bar {
+  display: flex; align-items: center; gap: var(--zli-space-2); height: var(--zli-toolbar); flex: 0 0 auto; padding: 0 var(--zli-space-1) 0 var(--zli-space-2-5);
+  border-bottom: 1px solid var(--zli-border); background: var(--zli-sidebar); color: var(--zli-muted); font-size: var(--zli-text-sm);
+}
+.devserver-bar .status-dot { width: 6px; height: 6px; flex-basis: 6px; }
+.devserver-bar-text { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.devserver-bar-address { color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
+.devserver-list { display: flex; flex-direction: column; gap: var(--zli-space-1-5); }

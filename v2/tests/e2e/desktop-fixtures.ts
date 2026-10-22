@@ -22,6 +22,8 @@ export type DesktopFixture = {
 
 export type DesktopLaunchOptions = {
   legacySnapshotPath?: string;
+  /** Extra environment for the app and the runtime it starts, such as a PATH with stand-in CLIs. */
+  env?: Record<string, string>;
 };
 
 export async function createGitFixture(): Promise<{ root: string; repo: string }> {
@@ -84,6 +86,7 @@ export async function launchDesktop(
         ZLI_TEST_PROJECT_PATH: repo,
         ZLI_TEST_PROVIDER: "mock",
         ZLI_TEST_LEGACY_SNAPSHOT_PATH: options.legacySnapshotPath,
+        ...options.env,
       },
       timeout: 30_000,
     });

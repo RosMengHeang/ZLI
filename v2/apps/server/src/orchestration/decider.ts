@@ -4,6 +4,7 @@ import { posix, win32 } from "node:path";
 import {
   ProjectId,
   type ProjectProjection,
+  parseDevServerUrl,
   type RuntimeCommand,
   type RuntimeEvent,
   type RuntimeProjection,
@@ -26,6 +27,7 @@ export type DomainErrorCode =
   | "worktree_occupied"
   | "a2a_cross_project"
   | "a2a_invalid_target"
+  | "setup_not_waiting"
   | "unsupported_command";
 
 export class DomainError extends Error {
@@ -92,7 +94,12 @@ export type DomainDecision = Extract<
       | "thread.activity.updated"
       | "thread.request.resolved"
       | "thread.respond.requested"
-      | "thread.user-input.requested";
+      | "thread.user-input.requested"
+      | "devserver.detected"
+      | "devserver.stopped"
+      | "worktree.setup.changed"
+      | "worktree.setup.responded"
+      | "project.setup.trusted";
   }
 >;
 
@@ -237,6 +244,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           shell: command.shell,
           cols: command.cols,
           rows: command.rows,
+          ...(command.args ? { args: command.args } : {}),
         },
       ];
     }
@@ -467,9 +475,66 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       return [{ type: "legacy.rollback.completed", batchId: command.batchId }];
     case "legacy.operation.failed":
       return [{ type: "legacy.operation.failed", batchId: command.batchId, message: command.message }];
+    case "devserver.detected": {
+      const terminal = projection.terminals.find((candidate) => candidate.terminalId === command.terminalId);
+      if (!terminal) throw new DomainError("terminal_missing", `Terminal does not exist: ${command.terminalId}`);
+      const parsed = parseDevServerUrl(command.url);
+      if (!parsed) throw new DomainError("unsupported_command", "Dev server URLs must be local http(s) addresses.");
+      if (terminal.status === "exited" || terminal.status === "failed") return [];
+      const known = (projection.devServers ?? []).find(
+        (devServer) => devServer.terminalId === command.terminalId && devServer.port === parsed.port,
+      );
+      // Servers reprint their address on every restart and rebuild; only a new address is an event.
+      if (known?.url === parsed.url) return [];
+      return [
+        {
+          type: "devserver.detected",
+          devServer: { worktreeId: terminal.worktreeId, terminalId: terminal.terminalId, ...parsed },
+        },
+      ];
+    }
+    case "devserver.stopped":
+      if (
+        !(projection.devServers ?? []).some(
+          (devServer) => devServer.terminalId === command.terminalId && devServer.port === command.port,
+        )
+      ) {
+        return [];
+      }
+      return [{ type: "devserver.stopped", terminalId: command.terminalId, port: command.port }];
+    case "worktree.setup":
+      assertWorktree(projection, command.setup.worktreeId);
+      return [{ type: "worktree.setup.changed", setup: command.setup }];
+    case "worktree.setup.respond":
+      return decideSetupResponse(projection, command);
     default:
       throw new DomainError("unsupported_command", `Command ${command.type} is not a domain mutation.`);
   }
+}
+
+function decideSetupResponse(
+  projection: RuntimeProjection,
+  command: Extract<RuntimeCommand, { type: "worktree.setup.respond" }>,
+): DomainDecision[] {
+  const setup = projection.worktreeSetups?.find((entry) => entry.worktreeId === command.worktreeId);
+  if (setup?.status !== "waiting") {
+    throw new DomainError("setup_not_waiting", "This worktree is not waiting for setup approval.");
+  }
+  // The hash pins the list the person read; a changed zli.json has to be shown again.
+  if (setup.commandsHash !== command.commandsHash) {
+    throw new DomainError("setup_not_waiting", "The setup commands changed. Review them again.");
+  }
+  return [
+    {
+      type: "worktree.setup.responded",
+      worktreeId: command.worktreeId,
+      commandsHash: command.commandsHash,
+      decision: command.decision,
+    },
+    ...(command.decision === "always"
+      ? [{ type: "project.setup.trusted" as const, projectId: setup.projectId, commandsHash: command.commandsHash }]
+      : []),
+  ];
 }
 
 function assertWorktree(projection: RuntimeProjection, worktreeId: string): void {

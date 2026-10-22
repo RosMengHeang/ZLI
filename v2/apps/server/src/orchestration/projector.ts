@@ -2,7 +2,10 @@ import {
   RuntimeEvent,
   appendThreadMessage,
   deriveSharedProjectContexts,
+  pruneDevServers,
+  removeDevServer,
   removeSession,
+  upsertDevServer,
   upsertThreadActivity,
   type EnvironmentDescriptor,
   type RuntimeEventEnvelope,
@@ -26,7 +29,11 @@ export function createEmptyProjection(environment: EnvironmentDescriptor): Runti
 
 export function projectEvent(projection: RuntimeProjection, envelope: RuntimeEventEnvelope): RuntimeProjection {
   const next = applyProjectionEvent(projection, envelope);
-  return { ...next, projectContexts: deriveSharedProjectContexts(next) };
+  return {
+    ...next,
+    projectContexts: deriveSharedProjectContexts(next),
+    ...(next.devServers ? { devServers: pruneDevServers(next) } : {}),
+  };
 }
 
 function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEventEnvelope): RuntimeProjection {
@@ -84,6 +91,9 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
       return {
         ...projection,
         worktrees: projection.worktrees.filter((worktree) => worktree.worktreeId !== event.worktreeId),
+        ...(projection.worktreeSetups
+          ? { worktreeSetups: projection.worktreeSetups.filter((setup) => setup.worktreeId !== event.worktreeId) }
+          : {}),
         lastSequence: envelope.sequence,
       };
     case "worktree.remove.requested":
@@ -337,6 +347,43 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
     case "runtime.ready":
     case "runtime.reactor.failed":
       return { ...projection, lastSequence: envelope.sequence };
+    case "devserver.detected":
+      return {
+        ...projection,
+        devServers: upsertDevServer(projection.devServers ?? [], {
+          ...event.devServer,
+          detectedAt: envelope.occurredAt,
+        }),
+        lastSequence: envelope.sequence,
+      };
+    case "devserver.stopped":
+      return {
+        ...projection,
+        devServers: removeDevServer(projection.devServers ?? [], event.terminalId, event.port),
+        lastSequence: envelope.sequence,
+      };
+    case "worktree.setup.changed":
+      return {
+        ...projection,
+        worktreeSetups: [
+          ...(projection.worktreeSetups ?? []).filter((setup) => setup.worktreeId !== event.setup.worktreeId),
+          event.setup,
+        ],
+        lastSequence: envelope.sequence,
+      };
+    case "worktree.setup.responded":
+      return { ...projection, lastSequence: envelope.sequence };
+    case "project.setup.trusted":
+      return {
+        ...projection,
+        setupTrust: [
+          ...(projection.setupTrust ?? []).filter(
+            (trust) => trust.projectId !== event.projectId || trust.commandsHash !== event.commandsHash,
+          ),
+          { projectId: event.projectId, commandsHash: event.commandsHash, trustedAt: envelope.occurredAt },
+        ],
+        lastSequence: envelope.sequence,
+      };
   }
 }
 

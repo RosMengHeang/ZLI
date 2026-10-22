@@ -9,7 +9,7 @@ import {
   type ReviewProjection as ReviewProjectionValue,
 } from "@zli-v2/contracts";
 
-import type { GitProcess } from "../git/GitProcess.js";
+import { type GitProcess, GitProcessError } from "../git/GitProcess.js";
 
 export type ReviewServiceInput = {
   worktreeId: WorktreeId;
@@ -24,13 +24,23 @@ export class ReviewService {
 
   async refresh(input: ReviewServiceInput): Promise<ReviewProjectionValue> {
     assertRef(input.baseRef);
-    const [branchResult, statusResult, diffResult] = await Promise.all([
+    const [branchResult, statusResult, mergeBase] = await Promise.all([
       this.git.run(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: input.worktreePath }),
       this.git.run(["status", "--porcelain=v1"], { cwd: input.worktreePath }),
-      this.git.run(["diff", "--numstat", "--find-renames", `${input.baseRef}...HEAD`], { cwd: input.worktreePath }),
+      this.mergeBase(input),
     ]);
+    // Against the working tree rather than `base...HEAD`, so uncommitted edits are counted too.
+    const diffResult = await this.git.run(["diff", "--numstat", "-z", "--find-renames", mergeBase], {
+      cwd: input.worktreePath,
+    });
     const statuses = parseStatus(statusResult.stdout);
-    const stats = parseNumstat(diffResult.stdout);
+    const stats = [
+      ...parseNumstat(diffResult.stdout),
+      ...(await countUntracked(
+        input.worktreePath,
+        statuses.filter((status) => status.xy === "??"),
+      )),
+    ];
     const files = mergeFiles(statuses, stats);
     const conflictFiles = statuses.filter((status) => isConflict(status.xy)).map((status) => status.path);
     return ReviewProjection.parse({
@@ -111,6 +121,18 @@ export class ReviewService {
     return this.refresh(input);
   }
 
+  private async mergeBase(input: ReviewServiceInput): Promise<string> {
+    try {
+      const result = await this.git.run(["merge-base", input.baseRef, "HEAD"], { cwd: input.worktreePath });
+      const sha = result.stdout.trim();
+      if (sha) return sha;
+    } catch (error) {
+      // merge-base exits 1 without output when the histories are unrelated.
+      if (!(error instanceof GitProcessError) || error.code !== 1 || error.stderr.trim()) throw error;
+    }
+    throw new Error(`${input.baseRef} and HEAD share no history, so there is nothing to compare against.`);
+  }
+
   private async targetConflictProjection(input: ReviewServiceInput): Promise<ReviewProjectionValue | undefined> {
     const result = await this.git.run(["status", "--porcelain=v1"], { cwd: input.repositoryPath });
     const statuses = parseStatus(result.stdout);
@@ -146,27 +168,60 @@ function parseStatus(stdout: string): StatusEntry[] {
     });
 }
 
-function parseNumstat(stdout: string): NumstatEntry[] {
-  return stdout
-    .split(/\r?\n/u)
-    .filter(Boolean)
-    .flatMap((line) => {
-      const match = /^(\d+|-)\s+(\d+|-)\s+(.+)$/u.exec(line);
-      if (!match) return [];
-      const additions = match[1] === "-" ? 0 : Number(match[1]);
-      const deletions = match[2] === "-" ? 0 : Number(match[2]);
-      const renamePath = match[3];
-      if (renamePath === undefined) return [];
-      const rename = parseRenamePath(renamePath);
-      const entry: NumstatEntry = {
-        path: rename.path,
-        additions,
-        deletions,
-        binary: match[1] === "-" || match[2] === "-",
-      };
-      if (rename.oldPath) entry.oldPath = rename.oldPath;
-      return [entry];
-    });
+/**
+ * Parses `git diff --numstat -z`. A record is `added\tdeleted\tpath\0`, or for a rename
+ * `added\tdeleted\t\0old\0new\0`; binary files report `-` for both counts.
+ */
+export function parseNumstat(stdout: string): NumstatEntry[] {
+  const fields = stdout.split("\0");
+  const entries: NumstatEntry[] = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    const match = /^(\d+|-)\t(\d+|-)\t(.*)$/su.exec(fields[index] ?? "");
+    if (!match) continue;
+    const binary = match[1] === "-" || match[2] === "-";
+    const entry: NumstatEntry = {
+      path: match[3] ?? "",
+      additions: match[1] === "-" ? 0 : Number(match[1]),
+      deletions: match[2] === "-" ? 0 : Number(match[2]),
+      binary,
+    };
+    if (!entry.path) {
+      const oldPath = fields[index + 1];
+      const path = fields[index + 2];
+      index += 2;
+      if (!oldPath || !path) continue;
+      entry.path = path;
+      entry.oldPath = oldPath;
+    }
+    entries.push(entry);
+  }
+  return entries;
+}
+
+const MAX_COUNTED_BYTES = 2 * 1024 * 1024;
+
+/** Git has no numstat for untracked files, so their lines are counted from disk as additions. */
+async function countUntracked(worktreePath: string, untracked: StatusEntry[]): Promise<NumstatEntry[]> {
+  return Promise.all(
+    untracked
+      .filter((status) => !status.path.endsWith("/"))
+      .map(async (status): Promise<NumstatEntry> => {
+        const empty = { path: status.path, additions: 0, deletions: 0, binary: false };
+        try {
+          const candidate = join(worktreePath, status.path);
+          const info = await lstat(candidate);
+          if (!info.isFile() || info.size > MAX_COUNTED_BYTES) return empty;
+          const bytes = await readFile(candidate);
+          if (bytes.subarray(0, 8_000).includes(0)) return { ...empty, binary: true };
+          let lines = 0;
+          for (const byte of bytes) if (byte === 10) lines += 1;
+          if (bytes.length > 0 && bytes[bytes.length - 1] !== 10) lines += 1;
+          return { ...empty, additions: lines };
+        } catch {
+          return empty;
+        }
+      }),
+  );
 }
 
 function mergeFiles(statuses: StatusEntry[], stats: NumstatEntry[]): ReviewFileProjection[] {
@@ -211,7 +266,7 @@ function isConflict(xy: string): boolean {
   return xy.includes("U") || xy === "AA" || xy === "DD";
 }
 
-function assertRef(value: string): void {
+export function assertRef(value: string): void {
   if (
     !value ||
     value.startsWith("-") ||

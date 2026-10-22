@@ -2,6 +2,44 @@
 
 ZLI V2 is the clean Electron rebuild. The desktop shell owns the secure window, embedded Chromium views, preload bridge, and local runtime process; the renderer communicates through typed contracts and the server owns durable projections, PTY sessions, Git worktrees/review, structured providers, and diagnostics.
 
+## Project file: zli.json
+
+Put a `zli.json` at the root of a repository to share worktree setup with the team. ZLI reads it from the project folder every time it creates a worktree, so edits apply to the next one without a restart.
+
+```json
+{
+  "version": 1,
+  "worktree": {
+    "copy": [".env", "apps/web/.env.local", "config/*.local.json"],
+    "setup": ["pnpm install --frozen-lockfile", "pnpm run db:migrate"]
+  }
+}
+```
+
+- `worktree.copy` lists files, folders, or globs, relative to the repository root, to copy from the main checkout into each new worktree. Typical use is ignored files such as `.env`. Paths must stay inside the repository: absolute paths, `..`, and `.git` are rejected, symbolic links are never copied, and a file that already exists in the worktree is left alone. Globs do not look inside `.git` or `node_modules`. At most 500 entries are copied.
+- `worktree.setup` lists commands that run in order inside the new worktree, each in its own terminal in the terminal drawer (`bash -lc` on macOS and Linux, `cmd.exe` on Windows, the same shell npm scripts use). Setup stops at the first command that exits with a non-zero code, and the sidebar shows which command failed and its exit code.
+
+Setup commands run with your permissions, so ZLI asks before running them. The dialog shows the exact commands and offers **Run once**, **Always run for this project**, or **Skip setup**. "Always" is remembered for that exact list of commands: if `zli.json` changes them, ZLI asks again. Until you answer, the worktree shows "Needs approval" and agents waiting for it do not start. After setup finishes, fails, or is skipped, the worktree is ready and its agents start.
+
+An invalid `zli.json` never blocks work. ZLI creates the worktree without copying or running anything and shows the problem, naming the field that failed. A `.worktreeinclude` file is still honored and is applied before `zli.json`.
+
+### Saved prompts
+
+`zli.json` can also share prompts with the team:
+
+```json
+{
+  "version": 1,
+  "prompts": [{ "name": "Review checklist", "prompt": "Review the diff for missing tests and unclear names." }]
+}
+```
+
+Type `/` at the start of a message, or of the first message in the New agent dialog, to pick one: the list narrows as you type, arrows move, Enter inserts it. The bookmark button next to the message box opens the same list. Prompts you keep for yourself are saved on this computer under **Saved prompts** in the command palette, where you can add, edit, and delete them; the prompts from `zli.json` are shown there read-only. A first message typed in the New agent dialog is sent as soon as the agent starts.
+
+## Best of N
+
+To compare agents on the same task, pick **New worktree** in the New agent dialog and set **Runs** to 2, 3, or 4. Each run gets its own worktree and branch, named `<branch>-1` to `<branch>-N`, and the same first message. Every run uses the agent picked above unless you choose another one for it. Tiles in the grid show "Run 2 of 3". **Keep this one** on a tile asks once, then deletes the other runs and removes their worktree folders, including uncommitted changes there. Their branches stay in the repository.
+
 ## Verify locally
 
 From this directory:

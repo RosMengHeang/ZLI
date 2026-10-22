@@ -1,36 +1,58 @@
-import { type ProjectProjection, WorktreeId, type WorktreeProjection } from "@zli-v2/contracts";
+import {
+  type ProjectProjection,
+  type SetupDecision,
+  WorktreeId,
+  type WorktreeProjection,
+  type WorktreeSetupProjection,
+  worktreeDevServers,
+} from "@zli-v2/contracts";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isSelectableProvider, providerDisplayName } from "../agent/providers.js";
 import { AttentionPanel } from "../attention/AttentionPanel.js";
-import { BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
+import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
+import { devServerCommands } from "../devservers/DevServers.js";
 import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
+import { PromptsDialog } from "../prompts/PromptsDialog.js";
+import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.js";
 import type { FilesFocus } from "../files/FilesPane.js";
 import { QuickOpen } from "../files/QuickOpen.js";
+import { useAgentNotifications } from "../notifications/useAgentNotifications.js";
 import { type ReviewFocus, ReviewPane } from "../review/ReviewPane.js";
-import { getBridge, type ZliBridge } from "../runtime/bridge.js";
+import { getBridge, type NotificationSettings, type ZliBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { RuntimeProvider, useRuntime, useShellProjection } from "../runtime/RuntimeProvider.js";
 import { AgentTile } from "../sessions/AgentTile.js";
-import { createWorktree, ensureCheckout, startSessionAgent } from "../sessions/launch.js";
+import { firstMessageStep, TERMINAL_FIRST_MESSAGE_DELAY_MS, terminalFirstMessage } from "../sessions/firstMessage.js";
+import { type RunGroup, runBranches, runPosition, withoutRun, worktreeInProgress } from "../sessions/bestOf.js";
+import { createWorktree, ensureCheckout, safeBranchName, startSessionAgent } from "../sessions/launch.js";
 import { NewAgentDialog, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
 import {
   type AgentSession,
   deriveSessions,
   gridLayout,
+  type PendingLaunch,
   type SessionMode,
   sessionStopCommands,
   sessionTitle,
 } from "../sessions/sessions.js";
 import { forgetSession, useWorkbenchState } from "../sessions/workbench.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
+import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
+import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
 import { Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
 import { IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { TooltipLayer } from "../ui/Tooltip.js";
 import { PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
-import { CloseAgentDialog, DeleteAgentDialog, deletableWorktree } from "./AgentDialogs.js";
+import {
+  CloseAgentDialog,
+  DeleteAgentDialog,
+  deletableWorktree,
+  discardedRuns,
+  KeepRunDialog,
+} from "./AgentDialogs.js";
 import { CommandPalette, type PaletteCommand } from "./CommandPalette.js";
 import { HelpDialog } from "./HelpDialog.js";
 import { DisconnectedState, GridEmptyState, LoadingFilesPane, RuntimeLoadingState } from "./ShellStates.js";
@@ -72,8 +94,13 @@ function WorkspaceApp() {
   const [deleteRequest, setDeleteRequest] = useState<AgentSession>();
   const [version, setVersion] = useState<string>();
   const [browserReveal, setBrowserReveal] = useState<BrowserReveal>();
+  const [browserOpen, setBrowserOpen] = useState<BrowserOpenRequest>();
   const [filesFocus, setFilesFocus] = useState<FilesFocus>();
   const [quickOpen, setQuickOpen] = useState(false);
+  /** Setup approvals the person closed without answering; they stay reachable from the sidebar. */
+  const [deferredSetups, setDeferredSetups] = useState<string[]>([]);
+  const [promptManager, setPromptManager] = useState<ManagerRequest>();
+  const setupApprovalRef = useRef<WorktreeSetupProjection>(undefined);
   const launching = useRef(new Set<string>());
   const projectionRef = useRef(projection);
   projectionRef.current = projection;
@@ -130,6 +157,36 @@ function WorkspaceApp() {
     [updateWorkbench],
   );
 
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const notifications = useAgentNotifications(
+    bridge,
+    useMemo(() => visibleTiles.map((session) => session.sessionId), [visibleTiles]),
+    (sessionId) => {
+      const session = sessionsRef.current.find((candidate) => candidate.sessionId === sessionId);
+      if (session) focusSession(session);
+    },
+  );
+
+  /** Brings an agent forward in one view and puts the cursor in its prompt. */
+  const showAgent = useCallback(
+    (sessionId: string, mode: SessionMode) => {
+      const session = sessions.find((candidate) => candidate.sessionId === sessionId);
+      if (!session) return;
+      focusSession(session);
+      updateWorkbench((state) =>
+        state.modes[sessionId] === mode ? state : { ...state, modes: { ...state.modes, [sessionId]: mode } },
+      );
+      requestAnimationFrame(() => {
+        const tile = document.querySelector(`.agent-tile[data-session-id="${CSS.escape(sessionId)}"]`);
+        tile
+          ?.querySelector<HTMLElement>(mode === "chat" ? 'textarea[aria-label^="Message"]' : ".xterm-helper-textarea")
+          ?.focus();
+      });
+    },
+    [sessions, focusSession, updateWorkbench],
+  );
+
   const tilesRef = useRef(tiles);
   tilesRef.current = tiles;
   /**
@@ -162,6 +219,20 @@ function WorkspaceApp() {
       focusWorktree(worktreeId);
     });
   }, [bridge, focusWorktree]);
+
+  const contextDevServers = useMemo(
+    () => worktreeDevServers(projection?.devServers, contextWorktree?.worktreeId),
+    [projection?.devServers, contextWorktree?.worktreeId],
+  );
+  const openDevServer = useCallback(
+    (url: string) => {
+      const worktreeId = contextWorktree?.worktreeId;
+      if (!worktreeId) return;
+      setBrowserOpen({ url, worktreeId, key: Date.now() });
+      setSidePane("browser");
+    },
+    [contextWorktree?.worktreeId],
+  );
 
   const openFile = useCallback(
     ({ worktreeId, path, line, column }: OpenFileRequest) => {
@@ -212,8 +283,19 @@ function WorkspaceApp() {
       setHelpOpen(false);
       setCloseRequest(undefined);
       setDeleteRequest(undefined);
+      setPromptManager(undefined);
+      const approval = setupApprovalRef.current;
+      if (approval) deferSetup(approval);
     },
   });
+  useEffect(
+    () =>
+      onPromptManagerRequest((request) => {
+        setPaletteOpen(false);
+        setPromptManager(request);
+      }),
+    [],
+  );
   // Agents wait for their worktree; start each one once its folder is ready.
   useEffect(() => {
     if (!projection) return;
@@ -257,19 +339,78 @@ function WorkspaceApp() {
         cwd: worktree.path,
       }).then((failure) => {
         launching.current.delete(launch.sessionId);
-        updateWorkbench((state) => ({
-          ...state,
-          pending: state.pending.map((entry) =>
-            entry.sessionId !== launch.sessionId
-              ? entry
-              : failure
-                ? { ...entry, errorMessage: failure }
-                : { ...entry, started: true },
-          ),
-        }));
+        updateWorkbench((state) => {
+          // The pending entry may already be gone because the session showed up in the projection first.
+          const prompt = failure ? undefined : launch.prompt;
+          return {
+            ...state,
+            pending: state.pending.map((candidate) => {
+              if (candidate.sessionId !== launch.sessionId) return candidate;
+              if (failure) return { ...candidate, errorMessage: failure };
+              const { prompt: _prompt, ...rest } = candidate;
+              return { ...rest, started: true };
+            }),
+            ...(prompt ? { firstMessages: { ...state.firstMessages, [launch.sessionId]: prompt } } : {}),
+          };
+        });
       });
     }
   }, [dispatch, projection, sessions, updateWorkbench, workbench.pending]);
+
+  // Runs deleted elsewhere, for example from another window, leave their group.
+  useEffect(() => {
+    if (!projection) return;
+    const known = new Set(sessions.map((session) => session.sessionId));
+    const gone = workbench.groups.flatMap((group) => group.sessionIds.filter((sessionId) => !known.has(sessionId)));
+    if (gone.length === 0) return;
+    updateWorkbench((state) => ({
+      ...state,
+      groups: gone.reduce((groups, sessionId) => withoutRun(groups, sessionId), state.groups),
+    }));
+  }, [projection, sessions, updateWorkbench, workbench.groups]);
+
+  // A first message goes out once its agent can take input: an idle chat, or a CLI that had time to draw.
+  const delivering = useRef(new Set<string>());
+  useEffect(() => {
+    const forget = (sessionId: string) =>
+      updateWorkbench((state) => {
+        const { [sessionId]: _sent, ...firstMessages } = state.firstMessages;
+        return { ...state, firstMessages };
+      });
+    const run = async (command: Record<string, unknown>) => {
+      try {
+        const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
+        if (response?.accepted === false) showError(response.error.message);
+      } catch (cause) {
+        showError(cause instanceof Error ? cause.message : "The first message could not be sent.");
+      }
+    };
+    for (const [sessionId, text] of Object.entries(workbench.firstMessages)) {
+      if (delivering.current.has(sessionId)) continue;
+      const step = firstMessageStep(sessions.find((session) => session.sessionId === sessionId));
+      if (step.kind === "wait") continue;
+      if (step.kind === "drop") {
+        forget(sessionId);
+        continue;
+      }
+      delivering.current.add(sessionId);
+      if (step.kind === "chat") {
+        forget(sessionId);
+        void run({ type: "thread.send", threadId: step.threadId, text }).finally(() =>
+          delivering.current.delete(sessionId),
+        );
+        continue;
+      }
+      const keys = terminalFirstMessage(text);
+      setTimeout(() => {
+        forget(sessionId);
+        void run({ type: "terminal.write", terminalId: step.terminalId, data: keys.body })
+          .then(() => new Promise((resolve) => setTimeout(resolve, 150)))
+          .then(() => run({ type: "terminal.write", terminalId: step.terminalId, data: keys.submit }))
+          .finally(() => delivering.current.delete(sessionId));
+      }, TERMINAL_FIRST_MESSAGE_DELAY_MS);
+    }
+  }, [dispatch, sessions, showError, updateWorkbench, workbench.firstMessages]);
 
   const openProject = async () => {
     if (!bridge) {
@@ -350,6 +491,32 @@ function WorkspaceApp() {
     if (message) showError(`Support bundle failed: ${message}`);
   }, [projection?.diagnostics?.lastError, showError]);
 
+  // Setup problems never block the worktree, so they are announced once as they happen.
+  const announcedSetups = useRef<Set<string>>(undefined);
+  const worktreeSetups = projection?.worktreeSetups;
+  const hasProjection = projection !== undefined;
+  useEffect(() => {
+    if (!hasProjection) return;
+    const problems = (worktreeSetups ?? []).filter((setup) => setup.status === "invalid" || setup.status === "failed");
+    const key = (setup: WorktreeSetupProjection) => `${setup.worktreeId}:${setup.status}:${setup.errorMessage ?? ""}`;
+    if (!announcedSetups.current) {
+      announcedSetups.current = new Set(problems.map(key));
+      return;
+    }
+    for (const setup of problems) {
+      if (announcedSetups.current.has(key(setup))) continue;
+      announcedSetups.current.add(key(setup));
+      const branch =
+        projectionRef.current?.worktrees.find((worktree) => worktree.worktreeId === setup.worktreeId)?.branch ??
+        "the new worktree";
+      showError(
+        setup.status === "invalid"
+          ? `${setup.errorMessage ?? "zli.json could not be read."} ${branch} was created without running setup.`
+          : `Setup failed in ${branch}. ${setup.errorMessage ?? ""}`.trim(),
+      );
+    }
+  }, [hasProjection, worktreeSetups, showError]);
+
   useEffect(() => {
     if (!helpOpen || !bridge) return;
     void bridge.app
@@ -385,47 +552,62 @@ function WorkspaceApp() {
 
   const submitNewAgent = async (request: NewAgentRequest): Promise<string | undefined> => {
     if (!projection) return "The runtime is not connected.";
-    let worktreeId: string;
+    const placements: { worktreeId: string; provider: string }[] = [];
+    let partialFailure: string | undefined;
     if (request.placement.kind === "new") {
-      const result = await createWorktree(
-        dispatch,
-        request.project,
-        request.placement.branch,
-        request.placement.baseRef,
-      );
-      if ("error" in result) return result.error;
-      worktreeId = result.worktreeId;
+      const agents = request.runs && request.runs.length > 1 ? request.runs : [request.provider];
+      const branches = runBranches(request.placement.branch, agents.length);
+      for (const [index, branch] of branches.entries()) {
+        const result = await createWorktree(dispatch, request.project, branch, request.placement.baseRef);
+        if ("error" in result) {
+          if (placements.length === 0) return result.error;
+          partialFailure = `Started ${placements.length} of ${branches.length} runs. ${branch}: ${result.error}`;
+          break;
+        }
+        placements.push({ worktreeId: result.worktreeId, provider: agents[index] ?? request.provider });
+      }
     } else if (request.placement.kind === "checkout") {
       const result = await ensureCheckout(dispatch, projection, request.project);
       if ("error" in result) return result.error;
-      worktreeId = result.worktreeId;
+      placements.push({ worktreeId: result.worktreeId, provider: request.provider });
     } else {
-      worktreeId = request.placement.worktreeId;
+      placements.push({ worktreeId: request.placement.worktreeId, provider: request.provider });
     }
-    const sessionId = makeCommandId();
+    const createdAt = new Date().toISOString();
+    const launches: PendingLaunch[] = placements.map((placement) => ({
+      sessionId: makeCommandId(),
+      worktreeId: placement.worktreeId,
+      provider: placement.provider,
+      mode: request.mode,
+      permissionMode: request.permissionMode,
+      // Model ids belong to one agent, so runs with another agent use their default.
+      ...(request.model && placement.provider === request.provider ? { model: request.model } : {}),
+      ...(request.prompt ? { prompt: request.prompt } : {}),
+      createdAt,
+    }));
+    const first = launches[0];
+    if (!first) return "No worktree could be created.";
+    const group: RunGroup | undefined =
+      launches.length > 1 && request.placement.kind === "new"
+        ? {
+            groupId: makeCommandId(),
+            label: safeBranchName(request.placement.branch),
+            sessionIds: launches.map((launch) => launch.sessionId),
+          }
+        : undefined;
     updateWorkbench((state) => ({
       ...state,
-      pending: [
-        ...state.pending,
-        {
-          sessionId,
-          worktreeId,
-          provider: request.provider,
-          mode: request.mode,
-          permissionMode: request.permissionMode,
-          ...(request.model ? { model: request.model } : {}),
-          createdAt: new Date().toISOString(),
-        },
-      ],
-      modes: { ...state.modes, [sessionId]: request.mode },
-      activeSessionId: sessionId,
+      pending: [...state.pending, ...launches],
+      modes: { ...state.modes, ...Object.fromEntries(launches.map((launch) => [launch.sessionId, request.mode])) },
+      ...(group ? { groups: [...state.groups, group] } : {}),
+      activeSessionId: first.sessionId,
       maximizedSessionId: undefined,
     }));
-    setSelectedWorktreeId(worktreeId);
+    setSelectedWorktreeId(first.worktreeId);
     setNewAgentProject(undefined);
+    if (partialFailure) showError(partialFailure);
     return undefined;
   };
-
   const send = async (command: Record<string, unknown>): Promise<boolean> => {
     try {
       const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
@@ -479,6 +661,40 @@ function WorkspaceApp() {
     if (removed && worktree.worktreeId === selectedWorktreeId) setSelectedWorktreeId(undefined);
   };
 
+  const [keepRequest, setKeepRequest] = useState<AgentSession>();
+
+  /** Keeps one best-of run: deletes the other runs and their worktrees, which the person confirmed. */
+  const keepingGroups = useRef(new Set<string>());
+  const keepRun = async (kept: AgentSession): Promise<void> => {
+    const position = runPosition(workbench.groups, kept.sessionId);
+    if (!position || !projection) return;
+    const { groupId } = position.group;
+    if (keepingGroups.current.has(groupId)) return;
+    keepingGroups.current.add(groupId);
+    const others = position.group.sessionIds
+      .filter((sessionId) => sessionId !== kept.sessionId)
+      .map((sessionId) => sessions.find((session) => session.sessionId === sessionId))
+      .filter((session): session is AgentSession => session !== undefined);
+    // The group is not dropped up front: each successful delete leaves it through forgetSession, so a run
+    // whose delete fails stays grouped with the kept one and can be kept or deleted again.
+    try {
+      await Promise.all(
+        others.map(async (session) => {
+          const worktree = deletableWorktree(projection, sessions, session);
+          if (worktree && worktreeInProgress(worktree.status)) {
+            // Cancelling stops the setup and removes the half-made folder.
+            await send({ type: "worktree.cancel", worktreeId: worktree.worktreeId });
+            await deleteSession(session, false);
+            return;
+          }
+          await deleteSession(session, worktree !== undefined);
+        }),
+      );
+    } finally {
+      keepingGroups.current.delete(groupId);
+    }
+    focusSession(kept);
+  };
   const closeTileNow = (session: AgentSession) =>
     updateWorkbench((state) => ({
       ...state,
@@ -520,6 +736,35 @@ function WorkspaceApp() {
       worktreeId: worktree.worktreeId,
       cwd: worktree.path,
     });
+  };
+
+  const deferSetup = (setup: WorktreeSetupProjection) =>
+    setDeferredSetups((current) => [...current, setupDeferKey(setup)]);
+  const reviewSetup = (worktreeId: string) =>
+    setDeferredSetups((current) => current.filter((key) => !key.startsWith(`${worktreeId}:`)));
+  const showSetupOutput = (worktreeId: string) => {
+    focusWorktree(worktreeId);
+    updateWorkbench((state) => ({ ...state, drawerOpen: true }));
+  };
+  const respondToSetup = async (
+    setup: WorktreeSetupProjection,
+    decision: SetupDecision,
+  ): Promise<string | undefined> => {
+    try {
+      const response = await dispatch({
+        protocolVersion: 1,
+        commandId: makeCommandId(),
+        command: {
+          type: "worktree.setup.respond",
+          worktreeId: setup.worktreeId,
+          commandsHash: setup.commandsHash,
+          decision,
+        },
+      });
+      return response?.accepted === false ? response.error.message : undefined;
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : "The answer could not be sent.";
+    }
   };
 
   const toggleSidePane = (next: SidePane) => setSidePane((current) => (current === next ? undefined : next));
@@ -578,6 +823,12 @@ function WorkspaceApp() {
           },
         ]
       : []),
+    {
+      label: "Saved prompts",
+      icon: "bookmark",
+      group: "Go to",
+      action: () => setPromptManager({ projectId: contextProject?.projectId }),
+    },
     { label: "Toggle terminal", icon: "terminal", group: "View", shortcut: "Mod+J", action: toggleDrawer },
     { label: "Focus files", icon: "folderTree", group: "View", action: () => setSidePane("files") },
     { label: "Focus browser", icon: "globe", group: "View", action: () => setSidePane("browser") },
@@ -592,8 +843,10 @@ function WorkspaceApp() {
     { label: "Export support bundle", icon: "download", group: "App", action: () => void exportSupportBundle() },
     { label: "Import legacy snapshot", icon: "upload", group: "App", action: () => void startLegacyImport() },
     { label: "Help and diagnostics", icon: "help", group: "App", action: () => setHelpOpen(true) },
+    ...notificationCommands(notifications.settings, (patch) => void notifications.update(patch)),
+    ...devServerCommands(contextDevServers, openDevServer),
   ];
-  const overlayOpen =
+  const otherOverlayOpen =
     paletteOpen ||
     quickOpen ||
     worktreeDialogProject !== undefined ||
@@ -601,8 +854,15 @@ function WorkspaceApp() {
     helpOpen ||
     closeRequest !== undefined ||
     deleteRequest !== undefined ||
+    keepRequest !== undefined ||
+    promptManager !== undefined ||
     (legacyImportBatchId !== undefined && projection !== undefined);
+  // Waits behind other dialogs so it never stacks on top of one.
+  const setupApproval = otherOverlayOpen ? undefined : nextSetupApproval(projection, deferredSetups);
+  setupApprovalRef.current = setupApproval;
+  const overlayOpen = otherOverlayOpen || setupApproval !== undefined;
   const { columns, rows } = gridLayout(visibleTiles.length, gridWidth);
+  const keepPosition = keepRequest ? runPosition(workbench.groups, keepRequest.sessionId) : undefined;
 
   return (
     <FileIndexProvider onOpenFile={openFile}>
@@ -629,6 +889,8 @@ function WorkspaceApp() {
               setWorktreeDialogProject(project ?? contextProject ?? projection?.projects[0])
             }
             onWorktreeAction={(worktree, action) => void worktreeAction(worktree, action)}
+            onReviewSetup={(worktree) => reviewSetup(worktree.worktreeId)}
+            onShowSetupOutput={(worktree) => showSetupOutput(worktree.worktreeId)}
             onOpenHelp={() => setHelpOpen(true)}
             onHideSidebar={() => updateWorkbench((state) => ({ ...state, sidebarOpen: false }))}
           />
@@ -647,6 +909,8 @@ function WorkspaceApp() {
             onToggleDrawer={toggleDrawer}
             onToggleSidePane={toggleSidePane}
             onOpenPalette={() => setPaletteOpen(true)}
+            devServers={contextDevServers}
+            onOpenDevServer={openDevServer}
           />
           {notice ? (
             <div className={`banner banner-${notice.tone}`} role={notice.tone === "danger" ? "alert" : "status"}>
@@ -714,6 +978,10 @@ function WorkspaceApp() {
                           onStart={(mode) => startInSession(session, mode)}
                           onRetryPending={() => retryPending(session)}
                           onDismissPending={() => closeTileNow(session)}
+                          onReviewSetup={() => reviewSetup(session.worktreeId)}
+                          onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
+                          run={runPosition(workbench.groups, session.sessionId)}
+                          onKeep={() => setKeepRequest(session)}
                         />
                       ))}
                     </div>
@@ -751,9 +1019,14 @@ function WorkspaceApp() {
                         />
                       </Suspense>
                     ) : sidePane === "browser" ? (
-                      <BrowserPane worktree={contextWorktree} obscured={overlayOpen} reveal={browserReveal} />
+                      <BrowserPane
+                        worktree={contextWorktree}
+                        obscured={overlayOpen}
+                        reveal={browserReveal}
+                        openRequest={browserOpen}
+                      />
                     ) : (
-                      <ReviewPane worktree={contextWorktree} focus={reviewFocus} />
+                      <ReviewPane worktree={contextWorktree} focus={reviewFocus} onShowAgent={showAgent} />
                     )}
                   </aside>
                 </>
@@ -825,6 +1098,20 @@ function WorkspaceApp() {
             onCancel={() => setDeleteRequest(undefined)}
           />
         )}
+        {keepRequest && keepPosition && projection ? (
+          <KeepRunDialog
+            index={keepPosition.index}
+            count={keepPosition.count}
+            branch={findWorktree(keepRequest.worktreeId)?.branch ?? keepPosition.group.label}
+            discarded={discardedRuns(projection, sessions, keepPosition.group, keepRequest.sessionId)}
+            onKeep={() => {
+              const session = keepRequest;
+              setKeepRequest(undefined);
+              void keepRun(session);
+            }}
+            onCancel={() => setKeepRequest(undefined)}
+          />
+        ) : null}
         {worktreeDialogProject && (
           <WorktreeDialog
             onClose={() => setWorktreeDialogProject(undefined)}
@@ -842,10 +1129,54 @@ function WorkspaceApp() {
             onSubmit={submitNewAgent}
           />
         )}
+        {promptManager && projection ? (
+          <PromptsDialog
+            project={
+              projection.projects.find((project) => project.projectId === promptManager.projectId) ?? contextProject
+            }
+            initialDraft={promptManager.draft}
+            onClose={() => setPromptManager(undefined)}
+          />
+        ) : null}
+        {setupApproval && projection ? (
+          <SetupApprovalDialog
+            key={setupDeferKey(setupApproval)}
+            setup={setupApproval}
+            project={projection.projects.find((project) => project.projectId === setupApproval.projectId)}
+            worktree={findWorktree(setupApproval.worktreeId)}
+            onRespond={(decision) => respondToSetup(setupApproval, decision)}
+            onDefer={() => deferSetup(setupApproval)}
+          />
+        ) : null}
         <TooltipLayer />
       </div>
     </FileIndexProvider>
   );
+}
+
+function notificationCommands(
+  settings: NotificationSettings | undefined,
+  update: (patch: Partial<NotificationSettings>) => void,
+): PaletteCommand[] {
+  if (!settings) return [];
+  return [
+    {
+      label: settings.enabled ? "Turn off agent notifications" : "Turn on agent notifications",
+      icon: "bell",
+      group: "App",
+      action: () => update({ enabled: !settings.enabled }),
+    },
+    ...(settings.enabled
+      ? [
+          {
+            label: settings.sound ? "Mute notification sound" : "Play a sound with notifications",
+            icon: "bell" as const,
+            group: "App" as const,
+            action: () => update({ sound: !settings.sound }),
+          },
+        ]
+      : []),
+  ];
 }
 
 /** The content width of an element, kept current as it resizes. */

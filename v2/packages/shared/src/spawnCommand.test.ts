@@ -31,6 +31,17 @@ describe("planSpawn", () => {
     );
   });
 
+  it("passes a pre-quoted cmd.exe /d /s /c line through verbatim", () => {
+    const line = '"echo one > out.txt && echo "two""';
+    expect(planSpawn("cmd.exe", ["/d", "/s", "/c", line], "win32")).toEqual({
+      command: "cmd.exe",
+      args: ["/d", "/s", "/c", line],
+      windowsVerbatimArguments: true,
+      wrapped: false,
+    });
+    expect(planSpawn("C:\\WINDOWS\\system32\\cmd.exe", ["/k"], "win32").windowsVerbatimArguments).toBe(false);
+  });
+
   it("runs .ps1 scripts through PowerShell", () => {
     const plan = planSpawn("C:\\Tools\\agent.ps1", ["-p"], "win32");
     expect(plan.command).toBe("powershell.exe");
