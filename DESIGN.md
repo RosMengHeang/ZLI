@@ -44,7 +44,7 @@ not cover, add it to the primitives instead of styling it locally.
   for disabled controls and decorative glyphs.
 - There is one accent, blue `oklch(.571 .21 264)`. It marks primary actions,
   keyboard focus, and the selected agent, and nothing else. Selected choice
-  cards use a neutral fill with a small accent radio mark, not a blue panel.
+  chips use a neutral raised fill with a small accent dot, not a blue panel.
 - Green, amber, and red mean process or Git state: running or ready, working
   or modified, failed or deleted. They are not decoration.
 
@@ -76,7 +76,8 @@ not cover, add it to the primitives instead of styling it locally.
 
 - The left sidebar is the home for projects, agents, and worktrees.
   Collapsing it removes it completely so the workbench gets the full width.
-  It is 256px wide, 236px under 1240px, and 216px under 1080px.
+  It is 256px wide, 236px under 1240px, and 216px under 1080px. New agent
+  and Add project sit at the top; Add project opens a folder picker.
 - Agent rows hang off their project on a guide line, with the provider mark.
   The selected agent gets an accent bar on that line. A row shows a status
   badge only when the agent needs attention or is starting. Otherwise it
@@ -103,6 +104,9 @@ not cover, add it to the primitives instead of styling it locally.
   window. Panels never float over the agent grid.
 - The terminal drawer starts closed. Opened without a shell, it is a single
   row with Start terminal; once a shell runs it takes its remembered height.
+- The New agent dialog puts the first message first, then one labelled row
+  per setting (project, agent, view, location, model, permissions) with
+  chips instead of cards, so it fits without scrolling.
 - Every panel starts with the same pane header: icon, title, context, then
   actions. Toolbars below it use the same height and control sizes.
 

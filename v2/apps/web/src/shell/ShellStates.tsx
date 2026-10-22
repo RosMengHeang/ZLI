@@ -19,11 +19,11 @@ export function GridEmptyState({
       <EmptyState
         size="large"
         icon="folderOpen"
-        title="Open a project to start"
-        detail="Pick a Git repository. Agents run side by side in it, each in its own terminal."
+        title="Add a project to start"
+        detail="Pick a Git repository folder. Agents run side by side in it, each in its own terminal."
       >
-        <Button variant="primary" size="lg" icon="folderOpen" onClick={onOpenProject}>
-          Open project
+        <Button variant="primary" size="lg" icon="folderPlus" onClick={onOpenProject}>
+          Add project
         </Button>
       </EmptyState>
     );

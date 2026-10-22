@@ -1,6 +1,6 @@
 # Third-party notices
 
-ZLI V2 was independently implemented against the architectural patterns recorded in [`UPSTREAM_SOURCES.md`](./UPSTREAM_SOURCES.md). The current V2 source tree does not intentionally contain verbatim copied source from the projects below; the ledger records the source paths that informed each boundary or behavior.
+ZLI V2 was independently implemented against the architectural patterns recorded in [`UPSTREAM_SOURCES.md`](./UPSTREAM_SOURCES.md). Apart from the agent product marks described under LobeHub Icons, the current V2 source tree does not intentionally contain verbatim copied source from the projects below; the ledger records the source paths that informed each boundary or behavior.
 
 ## T3 Code
 
@@ -19,6 +19,18 @@ ZLI V2 was independently implemented against the architectural patterns recorded
 - Copyright notice: Copyright (c) 2026 Lovecast Inc.
 - License text: [pinned MIT license](https://raw.githubusercontent.com/stablyai/orca/5b8ac36f41a5619a7a60a80df8ada20965fb260f/LICENSE)
 - Use in ZLI V2: architecture reference only, including worktree-first lifecycle, session restoration, browser isolation, and Git review behavior.
+
+## LobeHub Icons
+
+- Repository: [lobehub/lobe-icons](https://github.com/lobehub/lobe-icons), package `@lobehub/icons-static-svg` 1.97.0
+- License: MIT
+- Copyright notice: Copyright (c) 2023 LobeHub
+- License text: [MIT license](https://github.com/lobehub/lobe-icons/blob/master/LICENSE)
+- Use in ZLI V2: SVG path data for the Claude, Codex, Cursor, OpenCode, Gemini, GitHub Copilot, Kimi, Qwen, and Goose marks in `apps/web/src/ui/ProviderMark.tsx`.
+
+## Product marks
+
+The agent logos are trademarks of their owners and are shown only to identify each agent CLI. The Droid mark is the Factory logo published at `factory.ai/favicon.svg`.
 
 ## Attribution rule
 

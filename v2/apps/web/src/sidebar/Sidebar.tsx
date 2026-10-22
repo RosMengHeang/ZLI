@@ -96,7 +96,6 @@ export function Sidebar({
           <span className="wordmark">ZLI</span>
         </span>
         <span className="sidebar-top-actions">
-          <IconButton label="Open project" icon="folderOpen" onClick={onOpenProject} />
           <IconButton label="Hide sidebar" icon="panelLeft" shortcut="Mod+B" onClick={onHideSidebar} />
         </span>
       </div>
@@ -112,16 +111,17 @@ export function Sidebar({
           <span>New agent</span>
           <Kbd shortcut="Mod+N" />
         </button>
+        <button className="btn btn-ghost sidebar-add-project" type="button" onClick={onOpenProject}>
+          <Icon name="folderPlus" size={14} />
+          <span>Add project</span>
+        </button>
       </div>
       <div className="sidebar-scroll">
         {projects.length === 0 ? (
           <div className="sidebar-empty">
             <p>
-              Open a Git repository to start. Each agent gets its own terminal, and its own worktree if you want one.
+              Add a Git repository to start. Each agent gets its own terminal, and its own worktree if you want one.
             </p>
-            <Button variant="secondary" size="sm" icon="folderOpen" onClick={onOpenProject}>
-              Open a folder
-            </Button>
           </div>
         ) : (
           projects.map((project) => {
