@@ -18,7 +18,7 @@ import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
 import { updateAppSettings } from "../settings/appSettings.js";
 import { FileIndexProvider } from "./FileIndex.js";
-import { type FilesFocus, FilesPane } from "./FilesPane.js";
+import { type AskAgentTarget, type FilesFocus, FilesPane } from "./FilesPane.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -177,7 +177,11 @@ const settle = (ms = 0) =>
     await new Promise((resolve) => setTimeout(resolve, ms));
   });
 
-async function renderPane(bridge: ZliBridge, focus?: FilesFocus, options: { onOpenDiff?(path: string): void } = {}) {
+async function renderPane(
+  bridge: ZliBridge,
+  focus?: FilesFocus,
+  options: { onOpenDiff?(path: string): void; askAgent?: AskAgentTarget } = {},
+) {
   const container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -189,6 +193,7 @@ async function renderPane(bridge: ZliBridge, focus?: FilesFocus, options: { onOp
             <FilesPane
               worktree={worktree}
               focus={nextFocus}
+              askAgent={options.askAgent}
               onOpenDiff={options.onOpenDiff ?? (() => undefined)}
               onQuickOpen={() => undefined}
             />
@@ -678,5 +683,69 @@ describe("FilesPane changes", () => {
     await settle();
     expect(commands.some((command) => command.type === "checkpoint.diff")).toBe(false);
     expect(container.querySelector(".file-diff .empty-state")?.textContent).toContain("No uncommitted changes");
+  });
+});
+
+describe("FilesPane Ask agent", () => {
+  it("adds the selected lines with Mod+L or the button, and a whole file from the tree menu", async () => {
+    const disk: Disk = new Map([["src/app.ts", { content: "one\ntwo\nthree\n", version: "v1" }]]);
+    const { bridge } = fakeRuntime(disk);
+    const asked: unknown[] = [];
+    const askAgent: AskAgentTarget = { name: "Droid", ask: (reference) => asked.push(reference) };
+    const { container } = await renderPane(bridge, { kind: "open", path: "src/app.ts", nonce: 1 }, { askAgent });
+
+    const view = editorView(container);
+    act(() => view.dispatch({ selection: { anchor: 4, head: 13 } }));
+    act(() => {
+      view.contentDOM.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "l", code: "KeyL", ctrlKey: true, bubbles: true }),
+      );
+    });
+    const lines = { path: "src/app.ts", startLine: 2, endLine: 3, snippet: "two\nthree" };
+    expect(asked).toEqual([lines]);
+
+    act(() => button(container, "Ask Droid about this").click());
+    expect(asked.at(-1)).toEqual(lines);
+
+    const row = container.querySelector<HTMLElement>('[data-tree-row][data-path="src/app.ts"]:not([data-group])');
+    act(() => {
+      row?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 50 }));
+    });
+    const menu = document.querySelector<HTMLElement>(".files-menu");
+    expect(menu?.getAttribute("aria-label")).toBe("Actions for app.ts");
+    expect([...(menu?.querySelectorAll("[role=menuitem]") ?? [])].map((item) => item.textContent)).toEqual([
+      "Add to Droid chat",
+      "Open",
+      "Copy path",
+      "Copy full path",
+    ]);
+    act(() => button(document.body, "Add to Droid chat").click());
+    expect(asked.at(-1)).toEqual({ path: "src/app.ts" });
+    expect(document.querySelector(".files-menu")).toBeNull();
+  });
+
+  it("explains why asking is unavailable without an agent chat", async () => {
+    const disk: Disk = new Map([["src/app.ts", { content: "one\n", version: "v1" }]]);
+    const { bridge } = fakeRuntime(disk);
+    const { container } = await renderPane(bridge, { kind: "open", path: "src/app.ts", nonce: 1 });
+
+    const ask = button(container, "Ask an agent about this");
+    expect(ask.disabled).toBe(true);
+    expect(ask.dataset.tooltip).toBe("Start a chat with an agent in this worktree to ask about code");
+
+    const host = container.querySelector<HTMLElement>(".file-editor-host");
+    act(() => {
+      host?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
+    });
+    const editorMenu = document.querySelector<HTMLElement>(".files-menu");
+    if (!editorMenu) throw new Error("No menu");
+    const [item] = editorMenu.querySelectorAll<HTMLElement>("[role=menuitem]");
+    expect(item?.firstElementChild?.textContent).toBe("Ask an agent about this");
+    expect(item?.getAttribute("aria-disabled")).toBe("true");
+    expect(item?.title).toBe("Start a chat with an agent in this worktree to ask about code");
+    act(() => {
+      editorMenu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(document.querySelector(".files-menu")).toBeNull();
   });
 });

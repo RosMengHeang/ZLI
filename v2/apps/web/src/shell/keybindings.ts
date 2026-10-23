@@ -24,6 +24,7 @@ const reserved = new Map<string, string>([
   ["Mod+Shift+Z", "redo"],
   ["Mod+Y", "redo"],
   ["Mod+S", "saving files"],
+  ["Mod+L", "asking an agent about code"],
   ["Mod+F", "find"],
   ["Mod+Enter", "sending"],
 ]);

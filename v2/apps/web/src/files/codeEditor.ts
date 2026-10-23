@@ -37,6 +37,8 @@ export type CodeEditorOptions = {
   /** Called for every change to the text, including ones applied with `setDoc`. */
   onDocChange?: () => void;
   onSave?: () => void;
+  /** Mod+L. Returns false to leave the key to the editor, which selects the line. */
+  onAskAgent?: () => boolean;
 };
 
 export type CodeEditorHandle = {
@@ -47,6 +49,8 @@ export type CodeEditorHandle = {
   setDoc(doc: string): void;
   setPath(path: string): Promise<void>;
   revealLine(line: number, column?: number): void;
+  /** The main selection with the lines it covers, or undefined when nothing is selected. */
+  selection(): { startLine: number; endLine: number; text: string } | undefined;
   focus(): void;
   setReadOnly(readOnly: boolean): void;
   openSearch(): void;
@@ -422,6 +426,7 @@ export function createCodeEditor(options: CodeEditorOptions): CodeEditorHandle {
         return true;
       },
     },
+    { key: "Mod-l", run: () => options.onAskAgent?.() ?? false },
   ]);
 
   const state = EditorState.create({
@@ -523,6 +528,16 @@ export function createCodeEditor(options: CodeEditorOptions): CodeEditorHandle {
         effects: EditorView.scrollIntoView(pos, { y: "center" }),
       });
       view.focus();
+    },
+    selection() {
+      const range = view.state.selection.main;
+      if (range.empty) return undefined;
+      const doc = view.state.doc;
+      const startLine = doc.lineAt(range.from).number;
+      const last = doc.lineAt(range.to);
+      // A selection that ends at the start of a line does not cover that line.
+      const endLine = last.from === range.to && last.number > startLine ? last.number - 1 : last.number;
+      return { startLine, endLine, text: view.state.sliceDoc(range.from, range.to) };
     },
     focus: () => view.focus(),
     setReadOnly(readOnly) {

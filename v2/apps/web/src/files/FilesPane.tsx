@@ -7,6 +7,7 @@ import type {
 } from "@zli-v2/contracts";
 import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import type { CodeReference } from "../chat/codeReferences.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { useAppSettings } from "../settings/appSettings.js";
 import { useShortcut } from "../shell/keybindings.js";
@@ -17,6 +18,7 @@ import { type CodeEditorHandle, createCodeEditor, languageLabel } from "./codeEd
 import { type DiffSource, FileDiffPanel, latestTurnFor } from "./FileDiffPanel.js";
 import { useFileIndex, useFileIndexContext } from "./FileIndex.js";
 import { FileSearchView, type SearchSettings } from "./FileSearchView.js";
+import { type ContextMenuRequest, FilesContextMenu } from "./FilesContextMenu.js";
 import { FilesDivider } from "./FilesDivider.js";
 import { FileStatusMark, FileTreeView, LineCounts } from "./FileTreeView.js";
 import { readFile, writeFile } from "./fileClient.js";
@@ -29,6 +31,13 @@ import type { PreviewHandle } from "./MarkdownPreview.js";
 const MarkdownPreview = lazy(() =>
   import("./MarkdownPreview.js").then((module) => ({ default: module.MarkdownPreview })),
 );
+
+/** The chat that file and line references go to. */
+export type AskAgentTarget = { name: string; ask(reference: Omit<CodeReference, "id">): void };
+
+/** Longer selections go out as a file and line range only; the agent can read the lines itself. */
+const MAX_SNIPPET_CHARS = 12_000;
+const NO_CHAT_HINT = "Start a chat with an agent in this worktree to ask about code";
 
 export type FilesFocus =
   | { kind: "open"; path: string; line?: number | undefined; column?: number | undefined; nonce: number }
@@ -68,11 +77,14 @@ function isMissing(message: string): boolean {
 export function FilesPane({
   worktree,
   focus,
+  askAgent,
   onOpenDiff,
   onQuickOpen,
 }: {
   worktree: WorktreeProjection | undefined;
   focus?: FilesFocus | undefined;
+  /** Absent when no agent chat in this worktree can take a reference. */
+  askAgent?: AskAgentTarget | undefined;
   onOpenDiff(path: string): void;
   onQuickOpen(): void;
 }) {
@@ -97,6 +109,7 @@ export function FilesPane({
       key={worktree.worktreeId}
       worktree={worktree}
       focus={focus}
+      askAgent={askAgent}
       onOpenDiff={onOpenDiff}
       onQuickOpen={onQuickOpen}
     />
@@ -106,11 +119,13 @@ export function FilesPane({
 function FilesWorkspace({
   worktree,
   focus,
+  askAgent,
   onOpenDiff,
   onQuickOpen,
 }: {
   worktree: WorktreeProjection;
   focus: FilesFocus | undefined;
+  askAgent: AskAgentTarget | undefined;
   onOpenDiff(path: string): void;
   onQuickOpen(): void;
 }) {
@@ -131,6 +146,12 @@ function FilesWorkspace({
   /** The open file whose diff is showing in place of its contents. */
   const [diffPath, setDiffPath] = useState<string>();
   const checkpoints = useRuntimeSelector(selectCheckpoints);
+  const [menu, setMenu] = useState<ContextMenuRequest>();
+  const closeMenu = useCallback(() => setMenu(undefined), []);
+  const askAgentRef = useRef(askAgent);
+  askAgentRef.current = askAgent;
+  /** Whether the editor of the active file is on screen, so its selection is what the person sees. */
+  const editorVisible = useRef(false);
   const [search, setSearch] = useState<SearchSettings>(session.search);
   const [tabData, setTabData] = useState<ReadonlyMap<string, TabData>>(new Map());
   const [dirty, setDirty] = useState<ReadonlySet<string>>(() => new Set(session.drafts.keys()));
@@ -463,6 +484,79 @@ function FilesWorkspace({
   const activeIsText = active?.status === "ready" && active.file.content !== undefined;
   const viewMode = activeKind && activeIsText ? viewModes[activeKind] : undefined;
   const diffRevision = `${activeStatus ?? ""}:${activeChange?.additions ?? ""}:${activeChange?.deletions ?? ""}:${active?.status === "ready" ? active.file.version : ""}`;
+  editorVisible.current = !showDiff && viewMode !== "preview";
+
+  /** Sends the selected lines of `path`, or the whole file when nothing is selected, to the agent's composer. */
+  const askAbout = useCallback((path: string, useSelection: boolean): boolean => {
+    const target = askAgentRef.current;
+    if (!target) return false;
+    const editor = editorRef.current;
+    const picked =
+      useSelection && editor?.path === path && editorVisible.current ? editor.handle.selection() : undefined;
+    target.ask(
+      picked
+        ? {
+            path,
+            startLine: picked.startLine,
+            endLine: picked.endLine,
+            ...(picked.text.length <= MAX_SNIPPET_CHARS ? { snippet: picked.text } : {}),
+          }
+        : { path },
+    );
+    return true;
+  }, []);
+
+  const copyText = (value: string) => void navigator.clipboard?.writeText(value).catch(() => undefined);
+  const fullPath = (path: string) => {
+    const separator = worktree.path.includes("\\") ? "\\" : "/";
+    return `${worktree.path.replace(/[\\/]+$/u, "")}${separator}${path.replaceAll("/", separator)}`;
+  };
+  const openRowMenu = (path: string, kind: "file" | "directory", at: { x: number; y: number }) =>
+    setMenu({
+      ...at,
+      label: `Actions for ${baseName(path)}`,
+      items: [
+        {
+          label: askAgent ? `Add to ${askAgent.name} chat` : "Add to chat",
+          disabled: !askAgent,
+          title: askAgent ? undefined : NO_CHAT_HINT,
+          run: () => askAbout(path, false),
+        },
+        ...(kind === "file" ? [{ label: "Open", run: () => openPath({ path }) }] : []),
+        { label: "Copy path", run: () => copyText(path) },
+        { label: "Copy full path", run: () => copyText(fullPath(path)) },
+      ],
+    });
+  const openEditorMenu = useCallback(
+    (path: string, at: { x: number; y: number }) => {
+      const selected = editorRef.current?.path === path ? editorRef.current.handle.selection() : undefined;
+      const target = askAgentRef.current;
+      setMenu({
+        ...at,
+        label: "Editor actions",
+        items: [
+          {
+            label: target ? `Ask ${target.name} about this` : "Ask an agent about this",
+            shortcut: "Mod+L",
+            disabled: !target,
+            title: target ? undefined : NO_CHAT_HINT,
+            run: () => askAbout(path, true),
+          },
+          {
+            label: "Copy",
+            shortcut: "Mod+C",
+            disabled: !selected,
+            run: () => {
+              if (selected) void navigator.clipboard?.writeText(selected.text).catch(() => undefined);
+            },
+          },
+          { label: "Copy path", run: () => void navigator.clipboard?.writeText(path).catch(() => undefined) },
+        ],
+      });
+    },
+    [askAbout],
+  );
+
   const changeViewMode = (mode: FileViewMode) => {
     if (activeKind) setViewMode(activeKind, mode);
   };
@@ -533,6 +627,7 @@ function FilesWorkspace({
             }
             onToggle={toggleFolder}
             onOpen={(path) => openPath({ path })}
+            onRowMenu={openRowMenu}
           />
           {index.truncated ? (
             <p className="files-hint">This worktree has more files than ZLI lists. Use Search to find the rest.</p>
@@ -600,6 +695,15 @@ function FilesWorkspace({
                 {languageLabel(activePath)} · {active.file.lineEnding === "crlf" ? "CRLF" : "LF"}
               </span>
             ) : null}
+            <IconButton
+              icon="message"
+              size="sm"
+              label={askAgent ? `Ask ${askAgent.name} about this` : "Ask an agent about this"}
+              tooltip={askAgent ? `Ask ${askAgent.name} about this file, or about the selected lines` : NO_CHAT_HINT}
+              shortcut="Mod+L"
+              disabled={!askAgent}
+              onClick={() => askAbout(activePath, true)}
+            />
             {canDiff || showDiff ? (
               <Button
                 variant="ghost"
@@ -692,6 +796,8 @@ function FilesWorkspace({
               onDispose={onEditorDispose}
               onChange={onEditorChange}
               onSave={(path) => void save(path)}
+              onAskAgent={(path) => askAbout(path, true)}
+              onEditorMenu={openEditorMenu}
               onRetry={() => void loadFile(activePath)}
               onOpenDiff={() => setDiffPath(activePath)}
               onClose={() => closeTab(activePath, true)}
@@ -740,6 +846,7 @@ function FilesWorkspace({
           onClick={toggleTree}
         />
       </PaneHeader>
+      {menu ? <FilesContextMenu request={menu} onClose={closeMenu} /> : null}
       <div className={`files-body${wide ? " is-split" : ""}${treeOnRight ? " is-tree-right" : ""}`}>
         {treeOnRight ? (
           <>
@@ -909,6 +1016,8 @@ type FileViewProps = {
   onSave(path: string): void;
   onOpenFile(location: FileLocation): void;
   onViewModeChange(mode: FileViewMode): void;
+  onAskAgent(path: string): boolean;
+  onEditorMenu(path: string, at: { x: number; y: number }): void;
 };
 
 function FileBody({
@@ -1025,6 +1134,8 @@ function TextFileView({
   onSave,
   onOpenFile,
   onViewModeChange,
+  onAskAgent,
+  onEditorMenu,
 }: Omit<FileViewProps, "path"> & { path: string; doc: string; lineSeparator: "\n" | "\r\n" }) {
   const handleRef = useRef<CodeEditorHandle | undefined>(undefined);
   const previewRef = useRef<PreviewHandle | undefined>(undefined);
@@ -1128,6 +1239,8 @@ function TextFileView({
         onChange={onChange}
         onDocChange={docChanged}
         onSave={onSave}
+        onAskAgent={onAskAgent}
+        onMenu={onEditorMenu}
       />
       {showPreview ? (
         <Suspense fallback={<LoadingState label="Rendering preview" />}>
@@ -1159,11 +1272,15 @@ function EditorSurface({
   onChange,
   onDocChange,
   onSave,
+  onAskAgent,
+  onMenu,
 }: {
   path: string;
   doc: string;
   lineSeparator: "\n" | "\r\n";
   hidden?: boolean;
+  onAskAgent(path: string): boolean;
+  onMenu(path: string, at: { x: number; y: number }): void;
   onReady(path: string, handle: CodeEditorHandle): void;
   onDispose(path: string, handle: CodeEditorHandle): void;
   onChange(path: string): void;
@@ -1172,8 +1289,8 @@ function EditorSurface({
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const initial = useRef({ doc, lineSeparator });
-  const callbacks = useRef({ onReady, onDispose, onChange, onDocChange, onSave });
-  callbacks.current = { onReady, onDispose, onChange, onDocChange, onSave };
+  const callbacks = useRef({ onReady, onDispose, onChange, onDocChange, onSave, onAskAgent });
+  callbacks.current = { onReady, onDispose, onChange, onDocChange, onSave, onAskAgent };
 
   useEffect(() => {
     const parent = hostRef.current;
@@ -1186,6 +1303,7 @@ function EditorSurface({
       onChange: () => callbacks.current.onChange(path),
       onDocChange: () => callbacks.current.onDocChange?.(),
       onSave: () => callbacks.current.onSave(path),
+      onAskAgent: () => callbacks.current.onAskAgent(path),
     });
     callbacks.current.onReady(path, handle);
     return () => {
@@ -1194,5 +1312,17 @@ function EditorSurface({
     };
   }, [path]);
 
-  return <div className="file-editor-host" ref={hostRef} data-path={path} hidden={hidden} />;
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: the editor inside is the interactive element; this only opens its menu.
+    <div
+      className="file-editor-host"
+      ref={hostRef}
+      data-path={path}
+      hidden={hidden}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onMenu(path, { x: event.clientX, y: event.clientY });
+      }}
+    />
+  );
 }

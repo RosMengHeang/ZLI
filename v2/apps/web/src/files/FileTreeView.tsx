@@ -1,5 +1,5 @@
 import type { FileChangeStatus, FileListEntry } from "@zli-v2/contracts";
-import { type KeyboardEvent, useEffect, useMemo, useRef } from "react";
+import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef } from "react";
 
 import { Icon } from "../ui/Icon.js";
 import { buildFileTree, visibleTreeRows } from "./fileTree.js";
@@ -70,6 +70,7 @@ export function FileTreeView({
   changedGroup,
   onToggle,
   onOpen,
+  onRowMenu,
 }: {
   entries: readonly FileListEntry[];
   expanded: ReadonlySet<string>;
@@ -80,6 +81,8 @@ export function FileTreeView({
   changedGroup?: { open: boolean; onToggle(): void } | undefined;
   onToggle(path: string): void;
   onOpen(path: string): void;
+  /** Right-click, or the context menu key, on a file or folder row. */
+  onRowMenu?(path: string, kind: "file" | "directory", at: { x: number; y: number }): void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const tree = useMemo(() => buildFileTree(entries), [entries]);
@@ -128,6 +131,21 @@ export function FileTreeView({
     }
   };
 
+  const rowMenu = (path: string, kind: "file" | "directory") =>
+    onRowMenu
+      ? (event: MouseEvent<HTMLButtonElement>) => {
+          event.preventDefault();
+          // The context menu key reports no pointer position, so the menu opens at the row.
+          const rect = event.currentTarget.getBoundingClientRect();
+          const keyboard = event.clientX === 0 && event.clientY === 0;
+          onRowMenu(
+            path,
+            kind,
+            keyboard ? { x: rect.left + 24, y: rect.bottom } : { x: event.clientX, y: event.clientY },
+          );
+        }
+      : undefined;
+
   if (entries.length === 0) return <p className="files-hint">No files to show.</p>;
 
   return (
@@ -162,6 +180,7 @@ export function FileTreeView({
                     style={{ paddingLeft: 22 }}
                     title={entry.path}
                     onClick={() => onOpen(entry.path)}
+                    onContextMenu={rowMenu(entry.path, "file")}
                   >
                     <span className="file-row-name file-row-name-short">{entry.path.slice(split + 1)}</span>
                     {split > 0 ? <span className="file-row-dir">{entry.path.slice(0, split)}</span> : null}
@@ -188,6 +207,7 @@ export function FileTreeView({
             style={{ paddingLeft: 6 + row.depth * 12 }}
             title={row.path}
             onClick={() => onToggle(row.path)}
+            onContextMenu={rowMenu(row.path, "directory")}
           >
             <Icon name="chevronRight" size={12} className={`file-row-chevron${row.expanded ? " is-open" : ""}`} />
             <Icon name={row.expanded ? "folderOpen" : "folder"} size={13} className="file-row-icon" />
@@ -213,6 +233,7 @@ export function FileTreeView({
             style={{ paddingLeft: 6 + row.depth * 12 + 16 }}
             title={row.path}
             onClick={() => onOpen(row.path)}
+            onContextMenu={rowMenu(row.path, "file")}
           >
             <Icon name="file" size={13} className="file-row-icon" />
             <span className="file-row-name">{row.name}</span>

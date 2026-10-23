@@ -188,6 +188,16 @@
 .search-match-preview { min-width: 0; overflow: hidden; font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: pre; }
 .search-match mark { border-radius: 2px; background: var(--zli-accent-soft); color: var(--zli-text); }
 
+/* ---------- Right-click menu ---------- */
+.files-menu { position: fixed; z-index: calc(var(--zli-z-dialog) + 1); min-width: 200px; max-width: 320px; padding: var(--zli-space-1); border-radius: var(--zli-radius-md); background: var(--zli-overlay); box-shadow: var(--zli-shadow-pop); }
+.files-menu-item { display: flex; width: 100%; align-items: center; gap: var(--zli-space-3); height: 28px; padding: 0 var(--zli-space-2); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-text); cursor: pointer; font-size: var(--zli-text-sm); text-align: left; }
+.files-menu-item > span:first-child { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.files-menu-item:hover, .files-menu-item:focus-visible { background: var(--zli-hover); outline: none; }
+.files-menu-item:focus-visible { box-shadow: inset 0 0 0 1px var(--zli-accent-line); }
+.files-menu-item[aria-disabled="true"] { color: var(--zli-dim); cursor: default; }
+.files-menu-item[aria-disabled="true"]:hover { background: transparent; }
+.files-menu-shortcut { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+
 /* ---------- Go to file ---------- */
 .quick-open-row .quick-open-name { flex: 0 0 auto; font-size: var(--zli-text-base); }
 .quick-open-row .quick-open-dir { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }

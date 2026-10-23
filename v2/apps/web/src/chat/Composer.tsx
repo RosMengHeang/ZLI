@@ -18,6 +18,7 @@ import type { ZliBridge } from "../runtime/bridge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { formatTokens } from "../usage/usage.js";
+import { type CodeReference, referenceLabel, withReferences } from "./codeReferences.js";
 import {
   attachmentOnlyMessage,
   isLongPaste,
@@ -97,6 +98,9 @@ export function Composer({
   projectId,
   context,
   capture,
+  references = [],
+  onRemoveReference,
+  onReferencesSent,
   onSubmit,
 }: {
   displayName: string;
@@ -118,6 +122,10 @@ export function Composer({
   context?: { tokens: number; window?: number } | undefined;
   /** Window capture from the desktop app. Absent where it is not available. */
   capture?: ZliBridge["capture"] | undefined;
+  /** Files and lines picked in the Files panel. They go out ahead of the next message. */
+  references?: readonly CodeReference[] | undefined;
+  onRemoveReference?(id: string): void;
+  onReferencesSent?(): void;
   onSubmit(text: string, attachments: ComposerAttachment[]): Promise<boolean>;
 }) {
   const [draft, setDraft] = useState("");
@@ -215,7 +223,7 @@ export function Composer({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const text = draft.trim();
-    if ((!text && images.length === 0) || disabled || sending) return;
+    if ((!text && images.length === 0 && references.length === 0) || disabled || sending) return;
     setSending(true);
     setError(undefined);
     try {
@@ -233,8 +241,10 @@ export function Composer({
       );
       setDraft("");
       const texts = images.filter((image) => image.kind === "text").length;
-      const sent = await onSubmit(text || attachmentOnlyMessage(images.length - texts, texts), attachments);
+      const message = text || (images.length > 0 ? attachmentOnlyMessage(images.length - texts, texts) : "");
+      const sent = await onSubmit(withReferences(references, message), attachments);
       if (sent) {
+        if (references.length > 0) onReferencesSent?.();
         for (const image of images)
           if (image.kind === "image" && image.previewUrl) URL.revokeObjectURL(image.previewUrl);
         setImages([]);
@@ -292,8 +302,35 @@ export function Composer({
           />
         </Suspense>
       ) : null}
-      {images.length > 0 ? (
+      {images.length > 0 || references.length > 0 ? (
         <ul className="composer-attachments" aria-label="Attachments">
+          {references.map((reference) => {
+            const label = referenceLabel(reference);
+            const folder = reference.path.slice(0, Math.max(0, reference.path.lastIndexOf("/")));
+            return (
+              <li
+                className="composer-attachment is-text"
+                key={reference.id}
+                title={reference.snippet ? reference.snippet.slice(0, 400) : reference.path}
+              >
+                <span className="composer-attachment-icon" aria-hidden="true">
+                  <Icon name="code" size={14} />
+                </span>
+                <span className="composer-attachment-label">
+                  <span className="is-mono">{label}</span>
+                  <span className="composer-attachment-meta">{folder || "Worktree root"}</span>
+                </span>
+                <IconButton
+                  label={`Remove ${label}`}
+                  tooltip="Remove"
+                  icon="x"
+                  size="xs"
+                  iconSize={11}
+                  onClick={() => onRemoveReference?.(reference.id)}
+                />
+              </li>
+            );
+          })}
           {images.map((image) =>
             image.kind === "text" ? (
               <li className="composer-attachment is-text" key={image.id} title={image.text.slice(0, 400)}>
@@ -488,7 +525,7 @@ export function Composer({
           data-tooltip={queues ? `Queue. ${displayName} gets it after the current turn` : "Send"}
           data-shortcut="Enter"
           aria-keyshortcuts="Enter"
-          disabled={disabled || sending || (!draft.trim() && images.length === 0)}
+          disabled={disabled || sending || (!draft.trim() && images.length === 0 && references.length === 0)}
         >
           <Icon name="arrowUp" size={15} />
         </button>
