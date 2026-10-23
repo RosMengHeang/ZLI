@@ -24,6 +24,8 @@ test("browses, edits, finds, and searches files in a worktree", async () => {
     await mkdir(join(worktreePath, "src"), { recursive: true });
     await writeFile(join(worktreePath, "src", "app.ts"), "export const greeting = 'hello fixture';\n", "utf8");
 
+    // Views picked in earlier runs are remembered, and this test starts from the default one.
+    await page.evaluate(() => window.localStorage.removeItem("zli.files.viewModes.v1"));
     await page.getByRole("button", { name: "Files", exact: true }).click();
     const panel = page.getByRole("complementary", { name: "Files panel" });
     const folder = panel.getByRole("button", { name: /^src 1 changed$/u });
@@ -33,6 +35,11 @@ test("browses, edits, finds, and searches files in a worktree", async () => {
     await expect(panel.locator(".file-row", { hasText: "app.ts" }).locator(".file-status-untracked")).toHaveText("U");
 
     await panel.locator(".file-row", { hasText: "README.md" }).click();
+    // Markdown opens rendered; the Code tab shows the editor.
+    await expect(panel.getByRole("region", { name: "Preview of README.md" }).locator("h1")).toHaveText(
+      "ZLI integration fixture",
+    );
+    await panel.getByRole("tab", { name: "Code", exact: true }).click();
     const editor = panel.locator(".cm-content");
     await expect(editor).toContainText("ZLI integration fixture");
     await editor.click();

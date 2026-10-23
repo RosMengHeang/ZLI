@@ -10,6 +10,7 @@ import {
   type EnvironmentDescriptor,
   FILE_COMMAND_TYPES,
   type FileCommand,
+  FileDataResult,
   FileListResult,
   FileReadResult,
   FileSearchResult,
@@ -404,6 +405,8 @@ export class RpcServer {
         return FileListResult.parse(await this.fileService.list(root));
       case "files.read":
         return FileReadResult.parse(await this.fileService.read(root, command.path));
+      case "files.readData":
+        return FileDataResult.parse(await this.fileService.readData(root, command.path));
       case "files.write":
         return FileWriteResult.parse(
           await this.fileService.write(root, {
@@ -692,7 +695,7 @@ function fileErrorMessage(command: FileCommand, error: unknown): string {
   const action =
     command.type === "files.write"
       ? "save"
-      : command.type === "files.read"
+      : command.type === "files.read" || command.type === "files.readData"
         ? "open"
         : command.type === "files.search"
           ? "search"

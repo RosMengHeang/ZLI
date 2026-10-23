@@ -1,5 +1,5 @@
 import type { FileChangeStatus, FileReadResult, WorktreeProjection } from "@zli-v2/contracts";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { useAppSettings } from "../settings/appSettings.js";
@@ -16,6 +16,12 @@ import { readFile, writeFile } from "./fileClient.js";
 import { baseName, dirName, type FileLocation } from "./filePaths.js";
 import { clampTreeWidth, maxTreeWidth, TREE_DEFAULT_WIDTH, TREE_MIN_WIDTH, useFilesLayout } from "./filesLayout.js";
 import { ancestorDirectories } from "./fileTree.js";
+import { FILE_VIEW_MODES, type FileViewMode, previewKind, useFileViewModes } from "./fileViewModes.js";
+import type { PreviewHandle } from "./MarkdownPreview.js";
+
+const MarkdownPreview = lazy(() =>
+  import("./MarkdownPreview.js").then((module) => ({ default: module.MarkdownPreview })),
+);
 
 export type FilesFocus =
   | { kind: "open"; path: string; line?: number | undefined; column?: number | undefined; nonce: number }
@@ -121,6 +127,10 @@ function FilesWorkspace({
   const wide = paneWidth === undefined || paneWidth >= SPLIT_MIN_WIDTH;
   const [browseOpen, setBrowseOpen] = useState(session.tabs.length === 0);
   const [layout, updateLayout] = useFilesLayout();
+  const [viewModes, setViewMode] = useFileViewModes();
+  const [previewReveal, setPreviewReveal] = useState<{ path: string; line: number; nonce: number }>();
+  const viewTabsId = useId();
+  const filePanelId = useId();
   const treeHidden = layout.treeHidden;
   const treeOnRight = useAppSettings().fileTreePosition !== "left";
   const browserId = useId();
@@ -227,6 +237,10 @@ function FilesWorkspace({
       setBrowseOpen(false);
       setCloseRequest(undefined);
       pendingReveal.current = location.line ? location : undefined;
+      if (location.line) {
+        const line = location.line;
+        setPreviewReveal((current) => ({ path, line, nonce: (current?.nonce ?? 0) + 1 }));
+      }
       const editor = editorRef.current;
       if (editor?.path === path && location.line) {
         editor.handle.revealLine(location.line, location.column);
@@ -421,6 +435,12 @@ function FilesWorkspace({
 
   const active = activePath ? tabData.get(activePath) : undefined;
   const activeStatus = activePath ? statuses.get(activePath) : undefined;
+  const activeKind = activePath ? previewKind(activePath) : undefined;
+  const activeIsText = active?.status === "ready" && active.file.content !== undefined;
+  const viewMode = activeKind && activeIsText ? viewModes[activeKind] : undefined;
+  const changeViewMode = (mode: FileViewMode) => {
+    if (activeKind) setViewMode(activeKind, mode);
+  };
   const showTree = wide ? !treeHidden : browseOpen || tabs.length === 0;
   const showEditor = wide || !showTree;
   const changedCount = statuses.size;
@@ -543,6 +563,9 @@ function FilesWorkspace({
             </span>
             <FileStatusMark status={activeStatus} />
             <span className="file-path-spacer" />
+            {viewMode ? (
+              <ViewModeTabs mode={viewMode} idBase={viewTabsId} panelId={filePanelId} onChange={changeViewMode} />
+            ) : null}
             {active?.status === "ready" && active.file.content !== undefined ? (
               <span className="file-meta">
                 {languageLabel(activePath)} · {active.file.lineEnding === "crlf" ? "CRLF" : "LF"}
@@ -606,10 +629,17 @@ function FilesWorkspace({
           ) : null}
           <FileBody
             key={`${activePath}:${generation}`}
+            worktreeId={worktreeId}
             path={activePath}
             data={active}
             status={activeStatus}
             draft={session.drafts.get(activePath)}
+            viewMode={viewMode}
+            panelId={filePanelId}
+            labelledBy={viewMode ? `${viewTabsId}-${viewMode}` : undefined}
+            reveal={previewReveal?.path === activePath ? previewReveal : undefined}
+            onOpenFile={openPath}
+            onViewModeChange={changeViewMode}
             onReady={onEditorReady}
             onDispose={onEditorDispose}
             onChange={onEditorChange}
@@ -755,27 +785,96 @@ function FileBanners({
   return null;
 }
 
+const VIEW_MODE_LABELS: Record<FileViewMode, string> = { preview: "Preview", code: "Code", split: "Split" };
+
+/** Preview, Code, and Split as one tab list; arrow keys move between them. */
+function ViewModeTabs({
+  mode,
+  idBase,
+  panelId,
+  onChange,
+}: {
+  mode: FileViewMode;
+  idBase: string;
+  panelId: string;
+  onChange(mode: FileViewMode): void;
+}) {
+  const buttons = useRef<(HTMLButtonElement | null)[]>([]);
+  const move = (event: React.KeyboardEvent, index: number) => {
+    const last = FILE_VIEW_MODES.length - 1;
+    const next =
+      event.key === "ArrowRight"
+        ? index === last
+          ? 0
+          : index + 1
+        : event.key === "ArrowLeft"
+          ? index === 0
+            ? last
+            : index - 1
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? last
+              : undefined;
+    const target = next === undefined ? undefined : FILE_VIEW_MODES[next];
+    if (next === undefined || !target) return;
+    event.preventDefault();
+    onChange(target);
+    buttons.current[next]?.focus();
+  };
+  return (
+    <div className="file-view-tabs" role="tablist" aria-label="Show the file as">
+      {FILE_VIEW_MODES.map((value, index) => (
+        <button
+          key={value}
+          ref={(element) => {
+            buttons.current[index] = element;
+          }}
+          id={`${idBase}-${value}`}
+          className={value === mode ? "is-active" : undefined}
+          type="button"
+          role="tab"
+          aria-selected={value === mode}
+          aria-controls={panelId}
+          tabIndex={value === mode ? 0 : -1}
+          onClick={() => onChange(value)}
+          onKeyDown={(event) => move(event, index)}
+        >
+          {VIEW_MODE_LABELS[value]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+type FileViewProps = {
+  worktreeId: string;
+  path: string;
+  viewMode: FileViewMode | undefined;
+  panelId: string;
+  labelledBy: string | undefined;
+  reveal: { line: number; nonce: number } | undefined;
+  onReady(path: string, handle: CodeEditorHandle): void;
+  onDispose(path: string, handle: CodeEditorHandle): void;
+  onChange(path: string): void;
+  onSave(path: string): void;
+  onOpenFile(location: FileLocation): void;
+  onViewModeChange(mode: FileViewMode): void;
+};
+
 function FileBody({
   path,
   data,
   status,
   draft,
-  onReady,
-  onDispose,
-  onChange,
-  onSave,
   onRetry,
   onOpenDiff,
   onClose,
-}: {
-  path: string;
+  ...view
+}: FileViewProps & {
   data: TabData | undefined;
   status: FileChangeStatus | undefined;
   draft: string | undefined;
-  onReady(path: string, handle: CodeEditorHandle): void;
-  onDispose(path: string, handle: CodeEditorHandle): void;
-  onChange(path: string): void;
-  onSave(path: string): void;
   onRetry(): void;
   onOpenDiff(): void;
   onClose(): void;
@@ -825,15 +924,178 @@ function FileBody({
     );
   }
   return (
-    <EditorSurface
+    <TextFileView
+      {...view}
       path={path}
       doc={draft ?? file.content}
       lineSeparator={file.lineEnding === "crlf" ? "\r\n" : "\n"}
-      onReady={onReady}
-      onDispose={onDispose}
-      onChange={onChange}
-      onSave={onSave}
     />
+  );
+}
+
+/** The source line, possibly fractional, at the top of an editor. */
+function editorTopLine(view: CodeEditorHandle["view"]): number {
+  const offset = view.scrollDOM.scrollTop - view.documentPadding.top;
+  const block = view.lineBlockAtHeight(Math.max(0, offset));
+  const line = view.state.doc.lineAt(block.from).number;
+  return line + Math.min(1, Math.max(0, (offset - block.top) / Math.max(1, block.height)));
+}
+
+function scrollEditorToLine(view: CodeEditorHandle["view"], line: number): void {
+  const whole = Math.min(Math.max(1, Math.floor(line)), view.state.doc.lines);
+  const block = view.lineBlockAt(view.state.doc.line(whole).from);
+  view.scrollDOM.scrollTop = block.top + view.documentPadding.top + (line - whole) * block.height;
+}
+
+/** How long a programmatic scroll on one side of Split keeps the other side from echoing it back. */
+const SCROLL_ECHO_MS = 120;
+
+type ScrollEcho = { from: "editor" | "preview"; until: number } | undefined;
+
+/** True while a scroll on `side` is most likely the echo of syncing from the other side. */
+function isEcho(echo: ScrollEcho, side: "editor" | "preview"): boolean {
+  return echo !== undefined && echo.from !== side && performance.now() < echo.until;
+}
+
+/**
+ * The editor, plus the rendered preview for Markdown. The editor stays mounted while only the
+ * preview shows, so undo history and unsaved edits survive switching views.
+ */
+function TextFileView({
+  worktreeId,
+  path,
+  doc,
+  lineSeparator,
+  viewMode,
+  panelId,
+  labelledBy,
+  reveal,
+  onReady,
+  onDispose,
+  onChange,
+  onSave,
+  onOpenFile,
+  onViewModeChange,
+}: Omit<FileViewProps, "path"> & { path: string; doc: string; lineSeparator: "\n" | "\r\n" }) {
+  const handleRef = useRef<CodeEditorHandle | undefined>(undefined);
+  const previewRef = useRef<PreviewHandle | undefined>(undefined);
+  const [liveText, setLiveText] = useState(doc);
+  const liveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const lastLine = useRef<number | undefined>(undefined);
+  const pendingEditLine = useRef<number | undefined>(undefined);
+  const echo = useRef<ScrollEcho>(undefined);
+  const previousMode = useRef(viewMode);
+  const showPreview = viewMode === "preview" || viewMode === "split";
+
+  useEffect(() => () => clearTimeout(liveTimer.current), []);
+
+  const ready = useCallback(
+    (readyPath: string, handle: CodeEditorHandle) => {
+      handleRef.current = handle;
+      onReady(readyPath, handle);
+    },
+    [onReady],
+  );
+  const dispose = useCallback(
+    (disposedPath: string, handle: CodeEditorHandle) => {
+      if (handleRef.current === handle) handleRef.current = undefined;
+      onDispose(disposedPath, handle);
+    },
+    [onDispose],
+  );
+  const docChanged = useCallback(() => {
+    clearTimeout(liveTimer.current);
+    liveTimer.current = setTimeout(() => {
+      const handle = handleRef.current;
+      if (handle) setLiveText(handle.getDoc());
+    }, 60);
+  }, []);
+  const previewReady = useCallback((handle: PreviewHandle | undefined) => {
+    previewRef.current = handle;
+  }, []);
+
+  // In Split, scrolling the editor scrolls the preview to the same source line.
+  useEffect(() => {
+    const handle = handleRef.current;
+    if (!viewMode || !handle) return;
+    const scroller = handle.view.scrollDOM;
+    const onScroll = () => {
+      if (scroller.offsetParent === null) return;
+      lastLine.current = editorTopLine(handle.view);
+      if (viewMode !== "split" || isEcho(echo.current, "editor")) return;
+      echo.current = { from: "editor", until: performance.now() + SCROLL_ECHO_MS };
+      previewRef.current?.scrollToLine(lastLine.current);
+    };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    return () => scroller.removeEventListener("scroll", onScroll);
+  }, [viewMode]);
+
+  const previewScrolled = () => {
+    const line = previewRef.current?.topLine();
+    if (line === undefined) return;
+    lastLine.current = line;
+    const handle = handleRef.current;
+    if (viewMode !== "split" || !handle || isEcho(echo.current, "preview")) return;
+    echo.current = { from: "preview", until: performance.now() + SCROLL_ECHO_MS };
+    scrollEditorToLine(handle.view, line);
+  };
+
+  // Switching views keeps the same part of the document on screen.
+  useLayoutEffect(() => {
+    const previous = previousMode.current;
+    previousMode.current = viewMode;
+    const handle = handleRef.current;
+    if (previous !== "preview" || viewMode === "preview" || !handle) return;
+    const editLine = pendingEditLine.current;
+    pendingEditLine.current = undefined;
+    const line = lastLine.current;
+    const frame = requestAnimationFrame(() => {
+      if (editLine) handle.revealLine(editLine);
+      else if (line) scrollEditorToLine(handle.view, line);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [viewMode]);
+
+  const editLine = (line: number) => {
+    if (viewMode === "preview") {
+      pendingEditLine.current = line;
+      onViewModeChange("code");
+    } else handleRef.current?.revealLine(line);
+  };
+
+  return (
+    <div
+      className={`file-view${viewMode ? ` is-${viewMode}` : ""}`}
+      id={panelId}
+      {...(viewMode ? { role: "tabpanel", "aria-labelledby": labelledBy } : {})}
+    >
+      <EditorSurface
+        path={path}
+        doc={doc}
+        lineSeparator={lineSeparator}
+        hidden={viewMode === "preview"}
+        onReady={ready}
+        onDispose={dispose}
+        onChange={onChange}
+        onDocChange={docChanged}
+        onSave={onSave}
+      />
+      {showPreview ? (
+        <Suspense fallback={<LoadingState label="Rendering preview" />}>
+          <MarkdownPreview
+            worktreeId={worktreeId}
+            path={path}
+            source={liveText}
+            initialLine={lastLine.current}
+            reveal={reveal}
+            onOpenFile={onOpenFile}
+            onEditLine={editLine}
+            onReady={previewReady}
+            onUserScroll={previewScrolled}
+          />
+        </Suspense>
+      ) : null}
+    </div>
   );
 }
 
@@ -842,23 +1104,27 @@ function EditorSurface({
   path,
   doc,
   lineSeparator,
+  hidden,
   onReady,
   onDispose,
   onChange,
+  onDocChange,
   onSave,
 }: {
   path: string;
   doc: string;
   lineSeparator: "\n" | "\r\n";
+  hidden?: boolean;
   onReady(path: string, handle: CodeEditorHandle): void;
   onDispose(path: string, handle: CodeEditorHandle): void;
   onChange(path: string): void;
+  onDocChange?(): void;
   onSave(path: string): void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const initial = useRef({ doc, lineSeparator });
-  const callbacks = useRef({ onReady, onDispose, onChange, onSave });
-  callbacks.current = { onReady, onDispose, onChange, onSave };
+  const callbacks = useRef({ onReady, onDispose, onChange, onDocChange, onSave });
+  callbacks.current = { onReady, onDispose, onChange, onDocChange, onSave };
 
   useEffect(() => {
     const parent = hostRef.current;
@@ -869,6 +1135,7 @@ function EditorSurface({
       path,
       lineSeparator: initial.current.lineSeparator,
       onChange: () => callbacks.current.onChange(path),
+      onDocChange: () => callbacks.current.onDocChange?.(),
       onSave: () => callbacks.current.onSave(path),
     });
     callbacks.current.onReady(path, handle);
@@ -878,5 +1145,5 @@ function EditorSurface({
     };
   }, [path]);
 
-  return <div className="file-editor-host" ref={hostRef} data-path={path} />;
+  return <div className="file-editor-host" ref={hostRef} data-path={path} hidden={hidden} />;
 }

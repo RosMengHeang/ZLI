@@ -1,4 +1,5 @@
 import {
+  FileDataResult,
   FileListResult,
   FileReadResult,
   FileSearchResult,
@@ -34,6 +35,10 @@ export function listFiles(dispatch: Dispatch, worktreeId: string): Promise<FileL
 
 export function readFile(dispatch: Dispatch, worktreeId: string, path: string): Promise<FileReadResult> {
   return request(dispatch, { type: "files.read", worktreeId: WorktreeId.parse(worktreeId), path }, FileReadResult);
+}
+
+export function readFileData(dispatch: Dispatch, worktreeId: string, path: string): Promise<FileDataResult> {
+  return request(dispatch, { type: "files.readData", worktreeId: WorktreeId.parse(worktreeId), path }, FileDataResult);
 }
 
 export function writeFile(

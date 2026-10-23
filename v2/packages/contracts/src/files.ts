@@ -21,12 +21,52 @@ export type WorktreeFilePath = z.infer<typeof WorktreeFilePath>;
 /** Text files larger than this are listed but not opened in the editor. */
 export const MAX_EDITABLE_FILE_BYTES = 2 * 1024 * 1024;
 export const MAX_LISTED_FILES = 50_000;
+/** Images and PDFs up to this size can be previewed. */
+export const MAX_PREVIEW_FILE_BYTES = 10 * 1024 * 1024;
+
+/** File types the Files panel previews from their bytes, by lowercase extension. */
+export const PREVIEW_MIME_TYPES = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  bmp: "image/bmp",
+  ico: "image/x-icon",
+  svg: "image/svg+xml",
+  pdf: "application/pdf",
+} as const;
+export const PreviewMimeType = z.enum([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+  "image/bmp",
+  "image/x-icon",
+  "image/svg+xml",
+  "application/pdf",
+]);
+export type PreviewMimeType = z.infer<typeof PreviewMimeType>;
+
+/** The preview type for a path, or undefined when ZLI does not preview that kind of file. */
+export function previewMimeType(path: string): PreviewMimeType | undefined {
+  const dot = path.lastIndexOf(".");
+  if (dot < 0 || dot < path.lastIndexOf("/")) return undefined;
+  const extension = path.slice(dot + 1).toLowerCase();
+  return Object.hasOwn(PREVIEW_MIME_TYPES, extension)
+    ? PREVIEW_MIME_TYPES[extension as keyof typeof PREVIEW_MIME_TYPES]
+    : undefined;
+}
 export const MAX_SEARCH_RESULTS = 2_000;
 
 /** Handled directly by the runtime server; none of these reach the event log. */
 export const FileCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("files.list"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("files.read"), worktreeId: WorktreeId, path: WorktreeFilePath }),
+  /** The bytes of an image or PDF, for previews. */
+  z.object({ type: z.literal("files.readData"), worktreeId: WorktreeId, path: WorktreeFilePath }),
   z.object({
     type: z.literal("files.write"),
     worktreeId: WorktreeId,
@@ -49,7 +89,13 @@ export const FileCommand = z.discriminatedUnion("type", [
   }),
 ]);
 export type FileCommand = z.infer<typeof FileCommand>;
-export const FILE_COMMAND_TYPES = ["files.list", "files.read", "files.write", "files.search"] as const;
+export const FILE_COMMAND_TYPES = [
+  "files.list",
+  "files.read",
+  "files.readData",
+  "files.write",
+  "files.search",
+] as const;
 
 /** Uncommitted state from `git status`; absent for unchanged files. */
 export const FileChangeStatus = z.enum(["modified", "added", "deleted", "renamed", "untracked", "conflicted"]);
@@ -82,6 +128,15 @@ export const FileReadResult = z.object({
   lineEnding: z.enum(["lf", "crlf"]),
 });
 export type FileReadResult = z.infer<typeof FileReadResult>;
+
+export const FileDataResult = z.object({
+  path: z.string(),
+  size: z.number().int().nonnegative(),
+  version: z.string(),
+  mimeType: PreviewMimeType,
+  dataBase64: z.string(),
+});
+export type FileDataResult = z.infer<typeof FileDataResult>;
 
 export const FileWriteResult = z.discriminatedUnion("status", [
   z.object({ status: z.literal("saved"), path: z.string(), version: z.string(), size: z.number().int().nonnegative() }),

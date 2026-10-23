@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { MAX_EDITABLE_FILE_BYTES } from "@zli-v2/contracts";
+import { MAX_EDITABLE_FILE_BYTES, MAX_PREVIEW_FILE_BYTES } from "@zli-v2/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { GitProcess } from "../git/GitProcess.js";
@@ -146,6 +146,26 @@ describe("FileService.read", () => {
       service.write(root, { path: "link.txt", content: "x", expectedVersion: "new", overwrite: true }),
     ).rejects.toThrow("That file is outside the worktree.");
     expect(await readFile(outside, "utf8")).toBe("secret");
+  });
+});
+
+describe("FileService.readData", () => {
+  it("returns the bytes of images and PDFs with their type", async () => {
+    const root = await repository();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+    await writeFile(join(root, "src", "logo.PNG"), png);
+    const result = await new FileService().readData(root, "src/logo.PNG");
+    expect(result).toMatchObject({ path: "src/logo.PNG", size: png.length, mimeType: "image/png" });
+    expect(Buffer.from(result.dataBase64, "base64").equals(png)).toBe(true);
+  });
+
+  it("refuses other file types, oversized files, and paths outside the worktree", async () => {
+    const root = await repository();
+    const service = new FileService();
+    await expect(service.readData(root, "src/app.ts")).rejects.toThrow("ZLI previews images and PDFs only");
+    await writeFile(join(root, "huge.pdf"), Buffer.alloc(MAX_PREVIEW_FILE_BYTES + 1));
+    await expect(service.readData(root, "huge.pdf")).rejects.toThrow("too large to preview");
+    await expect(service.readData(root, "../outside.png")).rejects.toThrow("That file is outside the worktree.");
   });
 });
 

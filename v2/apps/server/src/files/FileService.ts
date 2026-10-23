@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 
 import {
   type FileChangeStatus,
+  type FileDataResult,
   type FileListResult,
   type FileReadResult,
   type FileSearchMatch,
@@ -12,7 +13,9 @@ import {
   type FileWriteResult,
   MAX_EDITABLE_FILE_BYTES,
   MAX_LISTED_FILES,
+  MAX_PREVIEW_FILE_BYTES,
   MAX_SEARCH_RESULTS,
+  previewMimeType,
   WorktreeFilePath,
 } from "@zli-v2/contracts";
 
@@ -98,6 +101,20 @@ export class FileService {
       bom,
       lineEnding: firstBreak > 0 && content[firstBreak - 1] === "\r" ? "crlf" : "lf",
     };
+  }
+
+  /** Reads an image or PDF for a preview. Other file types are refused. */
+  async readData(root: string, path: string): Promise<FileDataResult> {
+    const mimeType = previewMimeType(path);
+    if (!mimeType) throw new FileServiceError(`ZLI previews images and PDFs only: ${path}`);
+    const target = await resolveExisting(root, path);
+    const info = await stat(target);
+    if (info.isDirectory()) throw new FileServiceError(`That path is a folder: ${path}`);
+    if (info.size > MAX_PREVIEW_FILE_BYTES) {
+      throw new FileServiceError(`${path} is too large to preview. ZLI previews files up to 10 MB.`);
+    }
+    const bytes = await readFile(target);
+    return { path, size: bytes.length, version: sha256(bytes), mimeType, dataBase64: bytes.toString("base64") };
   }
 
   async write(root: string, input: FileWriteInput): Promise<FileWriteResult> {

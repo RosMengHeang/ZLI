@@ -55,10 +55,13 @@ const projection: RuntimeProjection = {
 };
 
 type Disk = Map<string, { content: string; version: string; lineEnding?: "lf" | "crlf" }>;
+/** A one-pixel PNG. */
+const PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 type Command = { type: string; path?: string; content?: string; expectedVersion?: string; overwrite?: boolean };
 
 function fakeRuntime(disk: Disk, options: { conflictOnce?: boolean } = {}) {
   const commands: Command[] = [];
+  const openedLinks: string[] = [];
   let conflictOnce = options.conflictOnce ?? false;
   let revision = 10;
   const reply = (result: unknown): RpcResponse => ({
@@ -97,6 +100,10 @@ function fakeRuntime(disk: Disk, options: { conflictOnce?: boolean } = {}) {
       };
       return reply(result);
     }
+    if (command.type === "files.readData") {
+      if (!path.endsWith(".png")) throw new Error(`unexpected readData ${path}`);
+      return reply({ path, size: 68, version: "img1", mimeType: "image/png", dataBase64: PIXEL });
+    }
     if (command.type === "files.write") {
       if (conflictOnce && !command.overwrite) {
         conflictOnce = false;
@@ -117,8 +124,13 @@ function fakeRuntime(disk: Disk, options: { conflictOnce?: boolean } = {}) {
       attachTerminal: async () => ({ accepted: true }),
       onTerminal: () => () => undefined,
     },
+    app: {
+      openExternal: async (url: string) => {
+        openedLinks.push(url);
+      },
+    },
   } as unknown as ZliBridge;
-  return { bridge, commands };
+  return { bridge, commands, openedLinks };
 }
 
 let root: Root | undefined;
@@ -392,5 +404,132 @@ describe("FilesPane layout", () => {
     const second = await renderPane(bridge, { kind: "open", path: "src/app.ts", nonce: 2 });
     expect(second.container.querySelector(".files-browser")).toBeNull();
     expect(button(second.container, "Show file list")).toBeDefined();
+  });
+});
+
+describe("FilesPane Markdown preview", () => {
+  afterEach(() => window.localStorage.clear());
+
+  /** The preview loads in its own chunk, which takes a few turns of the event loop. */
+  const settlePreview = async () => {
+    for (let turn = 0; turn < 6; turn += 1) await settle(20);
+  };
+  const tab = (container: HTMLElement, label: string) => {
+    const match = [...container.querySelectorAll<HTMLButtonElement>(".file-view-tabs [role=tab]")].find(
+      (candidate) => candidate.textContent === label,
+    );
+    if (!match) throw new Error(`No tab ${label}`);
+    return match;
+  };
+  const editorHost = (container: HTMLElement) => container.querySelector<HTMLElement>(".file-editor-host");
+
+  it("opens Markdown rendered and remembers the view picked for Markdown files", async () => {
+    const disk: Disk = new Map([["README.md", { content: "# Demo\n\nHello **there**.\n", version: "r1" }]]);
+    const { bridge } = fakeRuntime(disk);
+    const first = await renderPane(bridge, { kind: "open", path: "README.md", nonce: 1 });
+    await settlePreview();
+
+    expect(first.container.querySelector(".file-md h1")?.textContent).toBe("Demo");
+    expect(tab(first.container, "Preview").getAttribute("aria-selected")).toBe("true");
+    expect(editorHost(first.container)?.hidden).toBe(true);
+
+    act(() => tab(first.container, "Code").click());
+    expect(first.container.querySelector(".file-md")).toBeNull();
+    expect(editorHost(first.container)?.hidden).toBe(false);
+    expect(JSON.parse(window.localStorage.getItem("zli.files.viewModes.v1") ?? "{}")).toEqual({ markdown: "code" });
+
+    act(() => root?.unmount());
+    root = undefined;
+    document.body.replaceChildren();
+    const second = await renderPane(bridge, { kind: "open", path: "README.md", nonce: 2 });
+    expect(tab(second.container, "Code").getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("moves between views with the arrow keys", async () => {
+    const disk: Disk = new Map([["README.md", { content: "# Demo\n", version: "r1" }]]);
+    const { bridge } = fakeRuntime(disk);
+    const { container } = await renderPane(bridge, { kind: "open", path: "README.md", nonce: 1 });
+
+    act(() => {
+      tab(container, "Preview").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    });
+    expect(tab(container, "Split").getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(tab(container, "Split"));
+    expect(container.querySelector("[role=tabpanel]")?.getAttribute("aria-labelledby")).toBe(
+      tab(container, "Split").id,
+    );
+  });
+
+  it("shows unsaved edits in the preview while typing in Split", async () => {
+    const disk: Disk = new Map([["README.md", { content: "# Demo\n", version: "r1" }]]);
+    const { bridge } = fakeRuntime(disk);
+    const { container } = await renderPane(bridge, { kind: "open", path: "README.md", nonce: 1 });
+    act(() => tab(container, "Split").click());
+    await settlePreview();
+
+    const view = editorView(container);
+    act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: "\n## Draft\n" } }));
+    await settle(100);
+    await settle(200);
+    expect(container.querySelector(".file-md h2")?.textContent).toBe("Draft");
+    expect(container.querySelector(".file-tab-dirty")).not.toBeNull();
+  });
+
+  it("opens worktree links in a tab and web links in the browser", async () => {
+    const disk: Disk = new Map([
+      ["docs/README.md", { content: "[Guide](guide.md) and [site](https://example.com/docs)\n", version: "r1" }],
+      ["docs/guide.md", { content: "# Guide\n", version: "g1" }],
+    ]);
+    const { bridge, openedLinks } = fakeRuntime(disk);
+    const { container } = await renderPane(bridge, { kind: "open", path: "docs/README.md", nonce: 1 });
+    await settlePreview();
+
+    act(() => container.querySelector<HTMLAnchorElement>("a[href='https://example.com/docs']")?.click());
+    await settle();
+    expect(openedLinks).toEqual(["https://example.com/docs"]);
+
+    act(() => container.querySelector<HTMLAnchorElement>("a[href='guide.md']")?.click());
+    await settlePreview();
+    expect(container.querySelector(".file-path")?.textContent).toBe("docs/guide.md");
+    expect(container.querySelector(".file-md h1")?.textContent).toBe("Guide");
+  });
+
+  it("loads images from the worktree and holds web images until asked", async () => {
+    const disk: Disk = new Map([
+      [
+        "docs/README.md",
+        { content: "![Logo](../img/logo.png)\n\n![Badge](https://example.com/b.svg)\n", version: "r1" },
+      ],
+    ]);
+    const { bridge, commands } = fakeRuntime(disk);
+    const { container } = await renderPane(bridge, { kind: "open", path: "docs/README.md", nonce: 1 });
+    await settlePreview();
+
+    expect(commands.find((command) => command.type === "files.readData")?.path).toBe("img/logo.png");
+    expect(container.querySelector<HTMLImageElement>("img[alt=Logo]")?.getAttribute("src")).toBe(
+      `data:image/png;base64,${PIXEL}`,
+    );
+    const badge = () => container.querySelector<HTMLImageElement>("img[alt=Badge]");
+    expect(badge()?.getAttribute("src")).toBeNull();
+    expect(container.querySelector(".file-md-notice")?.textContent).toContain("1 web image is not loaded");
+
+    act(() => button(container, "Load web images").click());
+    expect(badge()?.getAttribute("src")).toBe("https://example.com/b.svg");
+  });
+
+  it("jumps to the source line in Code when a block is double-clicked", async () => {
+    const disk: Disk = new Map([["README.md", { content: "# Demo\n\nFirst\n\nSecond\n", version: "r1" }]]);
+    const { bridge } = fakeRuntime(disk);
+    const { container } = await renderPane(bridge, { kind: "open", path: "README.md", nonce: 1 });
+    await settlePreview();
+
+    const second = [...container.querySelectorAll<HTMLElement>(".file-md p")].find((p) => p.textContent === "Second");
+    act(() => {
+      second?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    await settle(50);
+    expect(tab(container, "Code").getAttribute("aria-selected")).toBe("true");
+    const view = editorView(container);
+    expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(5);
   });
 });
