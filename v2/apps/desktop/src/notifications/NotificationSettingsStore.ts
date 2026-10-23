@@ -1,6 +1,6 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 
+import { writeJsonFile } from "../storage/writeJsonFile.js";
 import {
   DEFAULT_NOTIFICATION_SETTINGS,
   type NotificationSettings,
@@ -32,30 +32,9 @@ export class NotificationSettingsStore {
     this.settings = parseNotificationSettings(patch, this.settings);
     const snapshot = this.current();
     // Two quick toggles share one temporary file, so writes go one at a time.
-    const write = this.writing.then(() => this.write(snapshot));
+    const write = this.writing.then(() => writeJsonFile(this.path, snapshot));
     this.writing = write.catch(() => undefined);
     await write;
     return snapshot;
-  }
-
-  private async write(settings: NotificationSettings): Promise<void> {
-    await mkdir(dirname(this.path), { recursive: true });
-    const temporary = `${this.path}.${process.pid}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
-    await renameWithRetry(temporary, this.path);
-  }
-}
-
-/** Antivirus and the search indexer briefly lock new files on Windows, which makes rename fail. */
-async function renameWithRetry(from: string, to: string): Promise<void> {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      await rename(from, to);
-      return;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (attempt >= 9 || (code !== "EPERM" && code !== "EACCES" && code !== "EBUSY")) throw error;
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 20 * (attempt + 1)));
-    }
   }
 }

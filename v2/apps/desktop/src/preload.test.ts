@@ -215,6 +215,52 @@ describe("preload API", () => {
     expect(listeners.has("zli:notifications:activate")).toBe(false);
   });
 
+  it("validates update status from main and sends only a boolean auto-install setting", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const listeners = new Map<string, (event: unknown, value: unknown) => void>();
+    const status = {
+      state: { status: "ready", version: "0.2.0", notes: "Faster startup" },
+      currentVersion: "0.1.9",
+      autoInstall: true,
+      channel: "stable",
+    };
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        if (channel === "zli:updates:install") return true;
+        if (channel === "zli:updates:whats-new") return { version: "0.2.0", releaseUrl: "not a url" };
+        return status;
+      },
+      on: (channel, listener) => {
+        listeners.set(channel, listener);
+        return () => listeners.delete(channel);
+      },
+    });
+
+    expect(await api.updates.getStatus()).toEqual(status);
+    await api.updates.setAutoInstall("yes" as never);
+    expect(await api.updates.quitAndInstall()).toBe(true);
+    expect(await api.updates.whatsNew()).toBeUndefined();
+    expect(calls.map((call) => call.channel)).toEqual([
+      "zli:updates:get-status",
+      "zli:updates:set-auto-install",
+      "zli:updates:install",
+      "zli:updates:whats-new",
+    ]);
+    expect(calls[1]?.payload).toEqual({ autoInstall: false });
+
+    const received: unknown[] = [];
+    const unsubscribe = api.updates.onStatus((next) => received.push(next));
+    listeners.get("zli:updates:status")?.(
+      {},
+      { ...status, state: { status: "downloading", version: "0.2.0", percent: 40 } },
+    );
+    listeners.get("zli:updates:status")?.({}, { state: { status: "exploded" } });
+    expect(received).toHaveLength(1);
+    unsubscribe();
+    expect(listeners.has("zli:updates:status")).toBe(false);
+  });
+
   it("hides native browser views through a dedicated channel", async () => {
     const calls: Array<{ channel: string; payload: unknown }> = [];
     const api = createPreloadApi({

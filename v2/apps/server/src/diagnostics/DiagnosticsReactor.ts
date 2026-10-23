@@ -42,9 +42,11 @@ export class DiagnosticsReactor {
       const events = await this.engine.eventsAfter(Math.max(0, projection.lastSequence - 200));
       const request = events.at(-1)?.event;
       const desktopLogs = request?.type === "diagnostics.bundle.requested" ? (request.desktopLogs ?? []) : [];
+      const desktopApp = request?.type === "diagnostics.bundle.requested" ? request.desktopApp : undefined;
       const result = await createSupportBundle({
         destinationPath,
         ...(allowedRoot ? { allowedRoot } : {}),
+        ...(desktopApp ? { app: desktopApp } : {}),
         projection,
         events,
         logs: [...this.logger.snapshot(), ...desktopLogs],

@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
 
-import type { RuntimeEventEnvelope, RuntimeProjection } from "@zli-v2/contracts";
+import type { DesktopAppInfo, RuntimeEventEnvelope, RuntimeProjection } from "@zli-v2/contracts";
 
 const MAX_BUNDLE_BYTES = 5 * 1024 * 1024;
 const REDACTED = "[REDACTED]";
@@ -21,6 +21,8 @@ export type SupportBundleInput = {
   projection: RuntimeProjection;
   events?: readonly RuntimeEventEnvelope[];
   logs?: readonly SupportLog[];
+  /** The desktop build that asked for the bundle. */
+  app?: DesktopAppInfo;
 };
 
 export class SupportBundleError extends Error {
@@ -34,7 +36,7 @@ export class SupportBundleError extends Error {
 }
 
 export function buildSupportEntries(
-  input: Pick<SupportBundleInput, "projection" | "events" | "logs">,
+  input: Pick<SupportBundleInput, "projection" | "events" | "logs" | "app">,
 ): Readonly<Record<string, string>> {
   const projection = input.projection;
   const runtime = {
@@ -130,6 +132,7 @@ export function buildSupportEntries(
       {
         schemaVersion: 1,
         generatedAt: new Date().toISOString(),
+        ...(input.app ? { app: safeAppInfo(input.app) } : {}),
         entries: ["runtime.json", "logs.jsonl", "events.jsonl"],
         redaction: "allowlist-v1",
         note: "Runtime identifiers and operational metadata only; paths, URLs, prompts, cookies, credentials, and file contents are excluded.",
@@ -193,6 +196,16 @@ function isInsideDirectory(root: string, target: string): boolean {
   const fold = (value: string) => (process.platform === "win32" ? value.toLowerCase() : value);
   const child = relative(fold(root), fold(target));
   return child !== "" && child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
+}
+
+function safeAppInfo(app: DesktopAppInfo): DesktopAppInfo {
+  return {
+    version: redactSensitiveText(app.version),
+    platform: redactSensitiveText(app.platform),
+    arch: redactSensitiveText(app.arch),
+    ...(app.electron ? { electron: redactSensitiveText(app.electron) } : {}),
+    ...(app.packaged === undefined ? {} : { packaged: app.packaged }),
+  };
 }
 
 function safeLogContext(context: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
