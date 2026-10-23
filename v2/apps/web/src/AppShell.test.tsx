@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ZliBridge } from "./runtime/bridge.js";
+import { DEFAULT_SETTINGS, updateAppSettings } from "./settings/appSettings.js";
 import { AppShell } from "./shell/AppShell.js";
 
 vi.mock("@xterm/xterm", () => ({
@@ -342,6 +343,119 @@ describe("AppShell", () => {
     expect(sent).toContainEqual({ type: "worktree.remove", worktreeId, force: true });
     expect(sent.findIndex((command) => command.type === "session.delete")).toBeLessThan(
       sent.findIndex((command) => command.type === "worktree.remove"),
+    );
+  });
+});
+
+describe("Settings", () => {
+  const setValue = async (element: HTMLInputElement | HTMLSelectElement, value: string) => {
+    const prototype = element instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(element, value);
+      element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }));
+    });
+  };
+  const press = async (target: EventTarget, init: KeyboardEventInit) => {
+    await act(async () => {
+      target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
+    });
+  };
+  const dialog = (name: string) => document.querySelector<HTMLElement>(`[role="dialog"][aria-label="${name}"]`);
+  const openSettings = async (container: HTMLElement, tab?: string) => {
+    await act(async () => {
+      button(container, "Settings")?.click();
+    });
+    const settings = dialog("Settings");
+    if (!settings) throw new Error("Settings did not open.");
+    if (tab) {
+      await act(async () => {
+        [...settings.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+          .find((entry) => entry.textContent === tab)
+          ?.click();
+      });
+    }
+    return settings;
+  };
+
+  afterEach(() => {
+    updateAppSettings(() => structuredClone(DEFAULT_SETTINGS));
+  });
+
+  it("rebinds a shortcut, refuses one that is taken, and runs the new keys", async () => {
+    const container = await render(makeBridge(discovered));
+    const settings = await openSettings(container, "Shortcuts");
+    const newAgent = button(settings, "New agent, Ctrl+N. Change shortcut");
+    if (!newAgent) throw new Error("The New agent shortcut is missing.");
+    await act(async () => {
+      newAgent.click();
+    });
+    await press(newAgent, { key: "k", code: "KeyK", ctrlKey: true });
+    expect(settings.querySelector('[role="alert"]')?.textContent).toBe("Ctrl+K: Already used by Command palette.");
+    expect(dialog("Settings")).not.toBeNull();
+    await press(newAgent, { key: "N", code: "KeyN", ctrlKey: true, shiftKey: true });
+    expect(settings.querySelector('[role="alert"]')).toBeNull();
+    expect(button(settings, "New agent, Ctrl+Shift+N. Change shortcut")).not.toBeUndefined();
+    expect(container.querySelector(".sidebar-new-agent")?.getAttribute("aria-keyshortcuts")).toBe("Control+Shift+N");
+
+    await press(window, { key: "Escape", code: "Escape" });
+    expect(dialog("Settings")).toBeNull();
+    await press(window, { key: "n", code: "KeyN", ctrlKey: true });
+    expect(dialog("New agent")).toBeNull();
+    await press(window, { key: "N", code: "KeyN", ctrlKey: true, shiftKey: true });
+    expect(dialog("New agent")).not.toBeNull();
+  });
+
+  it("starts New agent with the saved defaults and branch template", async () => {
+    const container = await render(makeBridge(discovered));
+    const agents = await openSettings(container);
+    const mode = agents.querySelector<HTMLSelectElement>('select[aria-label="Work in"]');
+    if (!mode) throw new Error("The Work in setting is missing.");
+    await setValue(mode, "chat");
+    await act(async () => {
+      [...agents.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+        .find((entry) => entry.textContent === "Worktrees")
+        ?.click();
+    });
+    const template = agents.querySelector<HTMLInputElement>('input[aria-label="Branch name template"]');
+    if (!template) throw new Error("The branch template field is missing.");
+    await setValue(template, "zli/{agent}-{random}");
+    expect(agents.textContent).toContain("zli/claude-k3f9");
+
+    await press(window, { key: "Escape", code: "Escape" });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".sidebar-new-agent")?.click();
+    });
+    const newAgent = dialog("New agent");
+    const chat = [...(newAgent?.querySelectorAll<HTMLInputElement>('input[name="agent-mode"]') ?? [])].find(
+      (input) => input.closest("label")?.textContent === "Chat",
+    );
+    expect(chat?.checked).toBe(true);
+    await act(async () => {
+      [...(newAgent?.querySelectorAll<HTMLInputElement>('input[name="agent-placement"]') ?? [])]
+        .find((input) => input.closest("label")?.textContent === "New worktree")
+        ?.click();
+    });
+    expect(newAgent?.querySelector<HTMLInputElement>('input[aria-label="Branch name"]')?.value).toMatch(
+      /^zli\/claude-[a-z0-9]{4}$/u,
+    );
+  });
+
+  it("lets a project override the agent defaults", async () => {
+    updateAppSettings((current) => ({ ...current, defaults: { permissionMode: "full-access" } }));
+    const container = await render(makeBridge(discovered));
+    const settings = await openSettings(container, "Projects");
+    const permissions = settings.querySelector<HTMLSelectElement>('select[aria-label="Permissions"]');
+    if (!permissions) throw new Error("The project permission setting is missing.");
+    expect(permissions.value).toBe("");
+    await setValue(permissions, "supervised");
+    expect(button(settings, "Clear repo settings")).not.toBeUndefined();
+
+    await press(window, { key: "Escape", code: "Escape" });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".sidebar-new-agent")?.click();
+    });
+    expect(dialog("New agent")?.querySelector<HTMLSelectElement>('select[aria-label="Permissions"]')?.value).toBe(
+      "supervised",
     );
   });
 });

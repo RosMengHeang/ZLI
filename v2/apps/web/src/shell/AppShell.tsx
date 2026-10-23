@@ -38,6 +38,7 @@ import {
 } from "../sessions/sessions.js";
 import { forgetSession, useWorkbenchState } from "../sessions/workbench.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
+import { SettingsDialog, type SettingsSection } from "../settings/SettingsDialog.js";
 import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
 import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
 import { Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
@@ -55,6 +56,7 @@ import {
 } from "./AgentDialogs.js";
 import { CommandPalette, type PaletteCommand } from "./CommandPalette.js";
 import { HelpDialog } from "./HelpDialog.js";
+import { useShortcuts } from "./keybindings.js";
 import { DisconnectedState, GridEmptyState, LoadingFilesPane, RuntimeLoadingState } from "./ShellStates.js";
 import { type SidePane, sidePaneLabel, Topbar } from "./Topbar.js";
 import { useGlobalShortcuts } from "./useGlobalShortcuts.js";
@@ -90,6 +92,7 @@ function WorkspaceApp() {
   const showError = useCallback((message: string) => setNotice({ message, tone: "danger" }), []);
   const [legacyImportBatchId, setLegacyImportBatchId] = useState<string>();
   const [helpOpen, setHelpOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>();
   const [closeRequest, setCloseRequest] = useState<AgentSession>();
   const [deleteRequest, setDeleteRequest] = useState<AgentSession>();
   const [version, setVersion] = useState<string>();
@@ -267,20 +270,27 @@ function WorkspaceApp() {
 
   const toggleSidebar = () => updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
   const toggleDrawer = () => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }));
+  const openSettings = (section: SettingsSection = "agents") => {
+    setPaletteOpen(false);
+    setSettingsSection(section);
+  };
+  const shortcuts = useShortcuts();
   useGlobalShortcuts({
-    onPalette: () => setPaletteOpen(true),
-    onNewAgent: () => openNewAgent(),
-    onQuickOpen: openQuickOpen,
-    onSearchFiles: searchInFiles,
-    onToggleSidebar: toggleSidebar,
-    onToggleDrawer: toggleDrawer,
-    onEscape: () => {
+    palette: () => setPaletteOpen(true),
+    newAgent: () => openNewAgent(),
+    quickOpen: openQuickOpen,
+    searchFiles: searchInFiles,
+    toggleSidebar,
+    toggleDrawer,
+    settings: () => openSettings(),
+    escape: () => {
       setPaletteOpen(false);
       setQuickOpen(false);
       setWorktreeDialogProject(undefined);
       setNewAgentProject(undefined);
       setLegacyImportBatchId(undefined);
       setHelpOpen(false);
+      setSettingsSection(undefined);
       setCloseRequest(undefined);
       setDeleteRequest(undefined);
       setPromptManager(undefined);
@@ -775,7 +785,7 @@ function WorkspaceApp() {
             label: "New agent",
             icon: "plus" as const,
             group: "Create" as const,
-            shortcut: "Mod+N",
+            shortcut: shortcuts.newAgent,
             action: () => openNewAgent(),
           },
         ]
@@ -811,14 +821,14 @@ function WorkspaceApp() {
             label: "Go to file",
             icon: "file" as const,
             group: "Go to" as const,
-            shortcut: "Mod+P",
+            shortcut: shortcuts.quickOpen,
             action: openQuickOpen,
           },
           {
             label: "Search in files",
             icon: "search" as const,
             group: "Go to" as const,
-            shortcut: "Mod+Shift+F",
+            shortcut: shortcuts.searchFiles,
             action: searchInFiles,
           },
         ]
@@ -829,7 +839,13 @@ function WorkspaceApp() {
       group: "Go to",
       action: () => setPromptManager({ projectId: contextProject?.projectId }),
     },
-    { label: "Toggle terminal", icon: "terminal", group: "View", shortcut: "Mod+J", action: toggleDrawer },
+    {
+      label: "Toggle terminal",
+      icon: "terminal",
+      group: "View",
+      shortcut: shortcuts.toggleDrawer,
+      action: toggleDrawer,
+    },
     { label: "Focus files", icon: "folderTree", group: "View", action: () => setSidePane("files") },
     { label: "Focus browser", icon: "globe", group: "View", action: () => setSidePane("browser") },
     { label: "Focus changes", icon: "diff", group: "View", action: () => setSidePane("review") },
@@ -837,11 +853,18 @@ function WorkspaceApp() {
       label: workbench.sidebarOpen ? "Hide sidebar" : "Show sidebar",
       icon: "panelLeft",
       group: "View",
-      shortcut: "Mod+B",
+      shortcut: shortcuts.toggleSidebar,
       action: toggleSidebar,
     },
     { label: "Export support bundle", icon: "download", group: "App", action: () => void exportSupportBundle() },
     { label: "Import legacy snapshot", icon: "upload", group: "App", action: () => void startLegacyImport() },
+    { label: "Settings", icon: "settings", group: "App", shortcut: shortcuts.settings, action: () => openSettings() },
+    {
+      label: "Keyboard shortcuts",
+      icon: "command",
+      group: "App",
+      action: () => openSettings("shortcuts"),
+    },
     { label: "Help and diagnostics", icon: "help", group: "App", action: () => setHelpOpen(true) },
     ...notificationCommands(notifications.settings, (patch) => void notifications.update(patch)),
     ...devServerCommands(contextDevServers, openDevServer),
@@ -852,6 +875,7 @@ function WorkspaceApp() {
     worktreeDialogProject !== undefined ||
     newAgentProject !== undefined ||
     helpOpen ||
+    settingsSection !== undefined ||
     closeRequest !== undefined ||
     deleteRequest !== undefined ||
     keepRequest !== undefined ||
@@ -892,6 +916,7 @@ function WorkspaceApp() {
             onReviewSetup={(worktree) => reviewSetup(worktree.worktreeId)}
             onShowSetupOutput={(worktree) => showSetupOutput(worktree.worktreeId)}
             onOpenHelp={() => setHelpOpen(true)}
+            onOpenSettings={() => openSettings()}
             onHideSidebar={() => updateWorkbench((state) => ({ ...state, sidebarOpen: false }))}
           />
         ) : null}
@@ -1066,6 +1091,15 @@ function WorkspaceApp() {
             onClose={() => setHelpOpen(false)}
           />
         )}
+        {settingsSection ? (
+          <SettingsDialog
+            projection={projection}
+            initialProjectId={contextProject?.projectId}
+            initialSection={settingsSection}
+            notifications={{ settings: notifications.settings, update: (patch) => void notifications.update(patch) }}
+            onClose={() => setSettingsSection(undefined)}
+          />
+        ) : null}
         {closeRequest && projection && (
           <CloseAgentDialog
             title={sessionTitle(closeRequest, projection.messages, projection.providers)}

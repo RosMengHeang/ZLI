@@ -19,11 +19,11 @@ comes from real project, process, or Git state.
 - `v2/packages/ui/src/tokens.css` holds every color, size, radius, shadow,
   duration, and z-index. Component CSS uses these variables, not raw values.
 - `v2/packages/ui/src/primitives.css` styles the shared building blocks:
-  buttons, key caps, fields, badges, status dots, segmented controls,
-  tooltips, dialogs, pane headers, toolbars, banners, empty states, and
-  spinners.
+  buttons, key caps, fields, switches, badges, status dots, segmented
+  controls, tooltips, dialogs, pane headers, toolbars, banners, empty states,
+  and spinners.
 - `v2/apps/web/src/ui` has the React side of those primitives: `Button`,
-  `IconButton`, `Kbd`, `Tooltip`, `Dialog`, `Segmented`, `Badge`, `Field`,
+  `IconButton`, `Kbd`, `Tooltip`, `Dialog`, `Segmented`, `Switch`, `Badge`, `Field`,
   `Select`, `PaneHeader`, `EmptyState`, and `LoadingState`.
 - Each feature keeps its own stylesheet next to its components, for example
   `sidebar/sidebar.css`, `sessions/tile.css`, `chat/chat.css`, and
@@ -77,7 +77,8 @@ not cover, add it to the primitives instead of styling it locally.
 - The left sidebar is the home for projects, agents, and worktrees.
   Collapsing it removes it completely so the workbench gets the full width.
   It is 256px wide, 236px under 1240px, and 216px under 1080px. New agent
-  and Add project sit at the top; Add project opens a folder picker.
+  and Add project sit at the top; Add project opens a folder picker. The
+  footer holds the runtime status, Settings, and Help.
 - Agent rows hang off their project on a guide line, with the provider mark.
   The selected agent gets an accent bar on that line. A row shows a status
   badge only when the agent needs attention or is starting. Otherwise it
@@ -117,8 +118,13 @@ not cover, add it to the primitives instead of styling it locally.
 - Shortcuts appear as key caps in the command palette, on buttons, in empty
   states, and in the help dialog. Ctrl and Cmd both work. The main ones are
   Mod+K for the command palette, Mod+N for a new agent, Mod+P to go to a file,
-  Mod+Shift+F to search in files, Mod+B for the sidebar, and Mod+J for the
-  terminal drawer.
+  Mod+Shift+F to search in files, Mod+B for the sidebar, Mod+J for the
+  terminal drawer, and Mod+, for Settings. People can change these in
+  Settings, and every key cap and tooltip shows the current binding.
+- Settings is one dialog with a section list on the left (New agents,
+  Projects, Worktrees, Shortcuts, Notifications) and a fixed-height panel so
+  switching sections does not resize it. Switches are square-cornered and
+  neutral: on is a light track, not the accent.
 - Every control has hover, active, focus-visible, and disabled states. All
   focusable elements share one focus ring; text fields replace it with an
   accent border and a soft glow.

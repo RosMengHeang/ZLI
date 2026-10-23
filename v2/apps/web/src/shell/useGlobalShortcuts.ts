@@ -1,38 +1,28 @@
 import { useEffect, useRef } from "react";
 
-type Handlers = {
-  onPalette(): void;
-  onNewAgent(): void;
-  onQuickOpen(): void;
-  onSearchFiles(): void;
-  onToggleSidebar(): void;
-  onToggleDrawer(): void;
-  onEscape(): void;
-};
+import type { ShortcutId } from "../settings/appSettings.js";
+import { currentShortcuts, matchesShortcut, shortcutActions } from "./keybindings.js";
 
-/** The window-wide keyboard shortcuts. Ctrl and Cmd both work so the same keys apply on every platform. */
+type Handlers = Record<ShortcutId, () => void> & { escape(): void };
+
+/**
+ * The window-wide keyboard shortcuts, read from Settings on every key press so a change applies at once.
+ * Ctrl and Cmd both count as Mod so the same keys work on every platform.
+ */
 export function useGlobalShortcuts(handlers: Handlers) {
   const ref = useRef(handlers);
   ref.current = handlers;
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const mod = event.ctrlKey || event.metaKey;
-      const key = event.key.toLowerCase();
-      const current = ref.current;
-      let handler: (() => void) | undefined;
-      if (mod && key === "k") handler = current.onPalette;
-      else if (mod && key === "n" && !event.shiftKey) handler = current.onNewAgent;
-      else if (mod && key === "p" && !event.shiftKey) handler = current.onQuickOpen;
-      else if (mod && event.shiftKey && key === "f") handler = current.onSearchFiles;
-      else if (mod && key === "b") handler = current.onToggleSidebar;
-      else if (mod && key === "j") handler = current.onToggleDrawer;
-      else if (event.key === "Escape") {
-        current.onEscape();
+      if (event.key === "Escape") {
+        ref.current.escape();
         return;
       }
-      if (!handler) return;
+      const bindings = currentShortcuts();
+      const action = shortcutActions.find((candidate) => matchesShortcut(event, bindings[candidate.id]));
+      if (!action) return;
       event.preventDefault();
-      handler();
+      ref.current[action.id]();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

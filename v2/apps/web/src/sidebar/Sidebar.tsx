@@ -11,6 +11,7 @@ import {
   sessionTitle,
 } from "../sessions/sessions.js";
 import { setupBadge, worktreeSetup } from "../setup/setup.js";
+import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
@@ -51,6 +52,7 @@ type Props = {
   onReviewSetup(worktree: WorktreeProjection): void;
   onShowSetupOutput(worktree: WorktreeProjection): void;
   onOpenHelp(): void;
+  onOpenSettings(): void;
   onHideSidebar(): void;
 };
 
@@ -71,8 +73,12 @@ export function Sidebar({
   onReviewSetup,
   onShowSetupOutput,
   onOpenHelp,
+  onOpenSettings,
   onHideSidebar,
 }: Props) {
+  const newAgentShortcut = useShortcut("newAgent");
+  const sidebarShortcut = useShortcut("toggleSidebar");
+  const settingsShortcut = useShortcut("settings");
   const [confirmRemoveId, setConfirmRemoveId] = useState<string>();
   const [collapsedWorktrees, setCollapsedWorktrees] = useState<string[]>([]);
   const [now, setNow] = useState(() => Date.now());
@@ -96,7 +102,7 @@ export function Sidebar({
           <span className="wordmark">ZLI</span>
         </span>
         <span className="sidebar-top-actions">
-          <IconButton label="Hide sidebar" icon="panelLeft" shortcut="Mod+B" onClick={onHideSidebar} />
+          <IconButton label="Hide sidebar" icon="panelLeft" shortcut={sidebarShortcut} onClick={onHideSidebar} />
         </span>
       </div>
       <div className="sidebar-primary">
@@ -105,11 +111,11 @@ export function Sidebar({
           type="button"
           onClick={() => onNewAgent()}
           disabled={projects.length === 0}
-          aria-keyshortcuts={ariaShortcut("Mod+N")}
+          aria-keyshortcuts={ariaShortcut(newAgentShortcut)}
         >
           <Icon name="plus" size={14} />
           <span>New agent</span>
-          <Kbd shortcut="Mod+N" />
+          <Kbd shortcut={newAgentShortcut} />
         </button>
         <button className="btn btn-ghost sidebar-add-project" type="button" onClick={onOpenProject}>
           <Icon name="folderPlus" size={14} />
@@ -402,6 +408,13 @@ export function Sidebar({
       <div className="sidebar-footer">
         <span className={`connection-dot${projection ? " is-connected" : ""}`} aria-hidden="true" />
         <span>{projection ? "Local runtime" : "Waiting for runtime"}</span>
+        <IconButton
+          className="sidebar-settings"
+          label="Settings"
+          icon="settings"
+          shortcut={settingsShortcut}
+          onClick={onOpenSettings}
+        />
         <IconButton
           className="sidebar-help"
           label="Help"

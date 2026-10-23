@@ -2,6 +2,7 @@ import type { FileChangeStatus, FileReadResult, WorktreeProjection } from "@zli-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
@@ -96,6 +97,7 @@ function FilesWorkspace({
   onQuickOpen(): void;
 }) {
   const { dispatch } = useRuntime();
+  const quickOpenShortcut = useShortcut("quickOpen");
   const context = useFileIndexContext();
   if (!context) throw new Error("FilesPane must be used inside FileIndexProvider.");
   const worktreeId = worktree.worktreeId;
@@ -425,7 +427,7 @@ function FilesWorkspace({
           label={showTree ? "Hide file list" : "Show file list"}
           onClick={() => (wide ? setTreeHidden((value) => !value) : setBrowseOpen((value) => !value))}
         />
-        <IconButton icon="search" size="sm" label="Go to file" shortcut="Mod+P" onClick={onQuickOpen} />
+        <IconButton icon="search" size="sm" label="Go to file" shortcut={quickOpenShortcut} onClick={onQuickOpen} />
         <IconButton
           icon="reload"
           size="sm"
@@ -546,7 +548,7 @@ function FilesWorkspace({
                 icon="file"
                 title="Open a file"
                 detail="Pick one in the file list, or click a file path in an agent's reply or terminal."
-                hint={{ label: "Find a file by name", shortcut: "Mod+P" }}
+                hint={{ label: "Find a file by name", shortcut: quickOpenShortcut }}
               />
             ) : (
               <>

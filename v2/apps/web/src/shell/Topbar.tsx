@@ -5,6 +5,7 @@ import { Button, IconButton } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
 import { ariaShortcut, shortcutText } from "../ui/shortcuts.js";
+import { useShortcuts } from "./keybindings.js";
 
 export type SidePane = "files" | "browser" | "review";
 
@@ -44,10 +45,11 @@ export function Topbar({
   devServers?: readonly DevServerProjection[];
   onOpenDevServer?(url: string): void;
 }) {
+  const shortcuts = useShortcuts();
   return (
     <header className="topbar">
       {sidebarOpen ? null : (
-        <IconButton label="Show sidebar" icon="panelLeft" shortcut="Mod+B" onClick={onShowSidebar} />
+        <IconButton label="Show sidebar" icon="panelLeft" shortcut={shortcuts.toggleSidebar} onClick={onShowSidebar} />
       )}
       <div className="topbar-context">
         {worktree ? (
@@ -75,12 +77,18 @@ export function Topbar({
       </div>
       <span className="topbar-spacer" />
       {sidebarOpen || !hasProjects ? null : (
-        <Button variant="ghost" size="sm" icon="plus" shortcut="Mod+N" onClick={onNewAgent}>
+        <Button variant="ghost" size="sm" icon="plus" shortcut={shortcuts.newAgent} onClick={onNewAgent}>
           New agent
         </Button>
       )}
       <fieldset className="topbar-tools" aria-label="Panels">
-        <ToolToggle label="Terminal" icon="panelBottom" shortcut="Mod+J" active={drawerOpen} onClick={onToggleDrawer} />
+        <ToolToggle
+          label="Terminal"
+          icon="panelBottom"
+          shortcut={shortcuts.toggleDrawer}
+          active={drawerOpen}
+          onClick={onToggleDrawer}
+        />
         <span className="toolbar-divider" aria-hidden="true" />
         {(["files", "browser", "review"] as const).map((pane) => (
           <ToolToggle
@@ -97,11 +105,11 @@ export function Topbar({
         type="button"
         onClick={onOpenPalette}
         aria-label="Open command palette"
-        aria-keyshortcuts={ariaShortcut("Mod+K")}
+        aria-keyshortcuts={ariaShortcut(shortcuts.palette)}
       >
         <Icon name="search" size={13} />
         <span className="command-trigger-label">Search</span>
-        <Kbd shortcut="Mod+K" />
+        <Kbd shortcut={shortcuts.palette} />
       </button>
     </header>
   );
