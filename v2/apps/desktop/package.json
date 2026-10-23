@@ -8,8 +8,9 @@
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
-    "pack": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml",
-    "pack:dir": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml --dir"
+    "pack": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml --publish never",
+    "pack:dir": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml --dir --publish never",
+    "release": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml --publish always"
   },
   "dependencies": {
     "@zli-v2/client-runtime": "workspace:*",

@@ -14,6 +14,7 @@
     "format:check": "biome format .",
     "desktop:pack": "pnpm --filter @zli-v2/desktop run pack",
     "desktop:dir": "pnpm --filter @zli-v2/desktop run pack:dir",
+    "desktop:release": "pnpm --filter @zli-v2/desktop run release",
     "desktop:dev": "pnpm run build && pnpm exec electron apps/desktop/dist/main.js",
     "e2e": "playwright test",
     "build": "node scripts/build.mjs && pnpm run web:build",
