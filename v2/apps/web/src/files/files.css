@@ -87,6 +87,13 @@
 
 .file-editor-host { position: relative; min-height: 0; flex: 1; overflow: hidden; }
 .file-editor-host > .cm-editor { height: 100%; }
+.file-image { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.file-image-stage { display: grid; min-height: 0; flex: 1; place-items: center; overflow: auto; padding: var(--zli-space-4); }
+.file-image-stage > img { max-width: 100%; max-height: 100%; object-fit: contain; image-rendering: auto; }
+.file-image-stage.is-actual { place-items: start; }
+.file-image-stage.is-actual > img { max-width: none; max-height: none; }
+.file-image-bar { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: var(--zli-space-2); height: 32px; padding: 0 var(--zli-space-2) 0 var(--zli-space-3); border-top: 1px solid var(--zli-border); }
+.file-image-meta { color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
 
 /* ---------- Markdown preview ---------- */
 .file-view-tabs { display: flex; flex: 0 0 auto; gap: 1px; padding: 2px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); }

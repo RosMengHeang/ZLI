@@ -54,7 +54,7 @@ const projection: RuntimeProjection = {
   lastSequence: 1,
 };
 
-type Disk = Map<string, { content: string; version: string; lineEnding?: "lf" | "crlf" }>;
+type Disk = Map<string, { content: string; version: string; lineEnding?: "lf" | "crlf"; binary?: boolean }>;
 /** A one-pixel PNG. */
 const PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 type Command = {
@@ -124,8 +124,8 @@ function fakeRuntime(disk: Disk, options: FakeOptions = {}) {
         path,
         size: file.content.length,
         version: file.version,
-        content: file.content,
-        binary: false,
+        ...(file.binary ? {} : { content: file.content }),
+        binary: file.binary ?? false,
         tooLarge: false,
         bom: false,
         lineEnding: file.lineEnding ?? "lf",
@@ -683,6 +683,28 @@ describe("FilesPane changes", () => {
     await settle();
     expect(commands.some((command) => command.type === "checkpoint.diff")).toBe(false);
     expect(container.querySelector(".file-diff .empty-state")?.textContent).toContain("No uncommitted changes");
+  });
+});
+
+describe("FilesPane image preview", () => {
+  it("shows an image file with its size, and switches between fitted and actual size", async () => {
+    const disk: Disk = new Map([["img/logo.png", { content: "", version: "img1", binary: true }]]);
+    const { bridge, commands } = fakeRuntime(disk);
+    const { container } = await renderPane(bridge, { kind: "open", path: "img/logo.png", nonce: 1 });
+
+    const image = container.querySelector<HTMLImageElement>(".file-image img");
+    expect(image?.getAttribute("src")).toBe(`data:image/png;base64,${PIXEL}`);
+    expect(image?.alt).toBe("logo.png");
+    expect(commands.filter((command) => command.type === "files.readData").map((command) => command.path)).toEqual([
+      "img/logo.png",
+    ]);
+    expect(container.querySelector(".file-image-meta")?.textContent).toBe("68 bytes");
+
+    const toggle = button(container, "Actual size");
+    act(() => toggle.click());
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(toggle.textContent).toBe("Fit to panel");
+    expect(container.querySelector(".file-image-stage")?.classList.contains("is-actual")).toBe(true);
   });
 });
 

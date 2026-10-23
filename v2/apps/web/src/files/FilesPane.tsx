@@ -1,9 +1,11 @@
-import type {
-  FileChangeStatus,
-  FileListEntry,
-  FileReadResult,
-  RuntimeProjection,
-  WorktreeProjection,
+import {
+  type FileChangeStatus,
+  type FileListEntry,
+  type FileReadResult,
+  MAX_PREVIEW_FILE_BYTES,
+  previewMimeType,
+  type RuntimeProjection,
+  type WorktreeProjection,
 } from "@zli-v2/contracts";
 import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
@@ -26,6 +28,7 @@ import { baseName, dirName, type FileLocation } from "./filePaths.js";
 import { clampTreeWidth, maxTreeWidth, TREE_DEFAULT_WIDTH, TREE_MIN_WIDTH, useFilesLayout } from "./filesLayout.js";
 import { ancestorDirectories } from "./fileTree.js";
 import { FILE_VIEW_MODES, type FileViewMode, previewKind, useFileViewModes } from "./fileViewModes.js";
+import { ImagePreview } from "./ImagePreview.js";
 import type { PreviewHandle } from "./MarkdownPreview.js";
 
 const MarkdownPreview = lazy(() =>
@@ -1067,6 +1070,10 @@ function FileBody({
     );
   }
   const { file } = data;
+  const mimeType = previewMimeType(path);
+  if (file.content === undefined && mimeType?.startsWith("image/") && file.size <= MAX_PREVIEW_FILE_BYTES) {
+    return <ImagePreview key={file.version} worktreeId={view.worktreeId} path={path} version={file.version} />;
+  }
   if (file.content === undefined) {
     const megabytes = (file.size / (1024 * 1024)).toFixed(1);
     return (
