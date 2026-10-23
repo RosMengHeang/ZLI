@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import {
   type CheckpointCommand,
   CheckpointDiffResult,
+  CheckpointForkResult,
   CheckpointRestoreResult,
   CommandId,
   MAX_CHECKPOINT_FILES,
@@ -116,6 +117,8 @@ export class TurnCheckpoints {
         return this.diff(command.checkpointId, command.path);
       case "checkpoint.restore":
         return this.restore(command.checkpointId);
+      case "checkpoint.fork":
+        return this.fork(command);
     }
   }
 
@@ -156,38 +159,15 @@ export class TurnCheckpoints {
    */
   async restore(checkpointId: string): Promise<CheckpointRestoreResult> {
     const { checkpoint, worktreePath: cwd, projection } = await this.lookup(checkpointId);
-    const busy = projection.threads.some(
-      (thread) => thread.worktreeId === checkpoint.worktreeId && BUSY_STATUSES.has(thread.status),
-    );
-    if (busy) {
+    if (worktreeBusy(projection, checkpoint.worktreeId)) {
       throw new CheckpointError("An agent is working in this worktree. Wait for its turn to end, then restore.");
     }
     const current = await this.snapshot(cwd);
     if (current === checkpoint.startTree) return { changedFiles: 0 };
-    const diff = await this.readTrees(() =>
-      this.git.run(["diff-tree", "-r", "-z", "--no-renames", "--name-status", current, checkpoint.startTree], {
-        cwd,
-      }),
-    );
     await this.git.run(["update-ref", `${REF_ROOT}/${checkpoint.threadId}/${checkpointId}/before-restore`, current], {
       cwd,
     });
-    const changes = parseNameStatus(diff.stdout);
-    for (const change of changes.filter((entry) => entry.status === "D")) {
-      await rm(join(cwd, change.path), { force: true });
-      await removeEmptyParents(cwd, change.path);
-    }
-    const written = changes.filter((entry) => entry.status !== "D").map((entry) => entry.path);
-    if (written.length > 0) {
-      await this.withIndex(async (env) => {
-        await this.git.run(["read-tree", checkpoint.startTree], { cwd, env });
-        for (let index = 0; index < written.length; index += CHECKOUT_BATCH) {
-          const batch = written.slice(index, index + CHECKOUT_BATCH);
-          await this.git.run(["checkout-index", "--force", "--", ...batch], { cwd, env });
-        }
-      });
-    }
-    const count = changes.length;
+    const count = await this.writeTree(cwd, current, checkpoint.startTree);
     await this.engine.dispatchPromise({
       protocolVersion: 1,
       commandId: CommandId.parse(randomUUID()),
@@ -202,6 +182,60 @@ export class TurnCheckpoints {
       },
     });
     return CheckpointRestoreResult.parse({ changedFiles: count });
+  }
+
+  /**
+   * Copies files into a new worktree from another worktree as it is now (including changes that are
+   * not committed) or from the start of a saved turn. Git worktrees of one project share their
+   * objects, so a tree saved in one can be written out in another.
+   */
+  async fork(command: Extract<CheckpointCommand, { type: "checkpoint.fork" }>): Promise<CheckpointForkResult> {
+    const projection = await this.engine.projection();
+    const target = projection.worktrees.find((candidate) => candidate.worktreeId === command.worktreeId);
+    if (!target) throw new CheckpointError("The new worktree was not found.");
+    if (target.status !== "ready") throw new CheckpointError("The new worktree is not ready.");
+    if (worktreeBusy(projection, target.worktreeId)) {
+      throw new CheckpointError("An agent is already working in the new worktree.");
+    }
+    let tree: string;
+    if (command.from.kind === "checkpoint") {
+      const { checkpointId } = command.from;
+      const checkpoint = projection.checkpoints?.find((candidate) => candidate.checkpointId === checkpointId);
+      if (!checkpoint) throw new CheckpointError("This turn's changes are no longer saved.");
+      tree = checkpoint.startTree;
+    } else {
+      const { worktreeId } = command.from;
+      const source = projection.worktrees.find((candidate) => candidate.worktreeId === worktreeId);
+      if (!source) throw new CheckpointError("The worktree to copy from was removed.");
+      if (source.status !== "ready") throw new CheckpointError("The worktree to copy from is not ready.");
+      tree = await this.snapshot(source.path);
+    }
+    const current = await this.snapshot(target.path);
+    if (current === tree) return { changedFiles: 0 };
+    return CheckpointForkResult.parse({ changedFiles: await this.writeTree(target.path, current, tree) });
+  }
+
+  /** Makes the files in `cwd` (snapshot `current`) match `tree`. Returns how many files changed. */
+  private async writeTree(cwd: string, current: string, tree: string): Promise<number> {
+    const diff = await this.readTrees(() =>
+      this.git.run(["diff-tree", "-r", "-z", "--no-renames", "--name-status", current, tree], { cwd }),
+    );
+    const changes = parseNameStatus(diff.stdout);
+    for (const change of changes.filter((entry) => entry.status === "D")) {
+      await rm(join(cwd, change.path), { force: true });
+      await removeEmptyParents(cwd, change.path);
+    }
+    const written = changes.filter((entry) => entry.status !== "D").map((entry) => entry.path);
+    if (written.length > 0) {
+      await this.withIndex(async (env) => {
+        await this.git.run(["read-tree", tree], { cwd, env });
+        for (let index = 0; index < written.length; index += CHECKOUT_BATCH) {
+          const batch = written.slice(index, index + CHECKOUT_BATCH);
+          await this.git.run(["checkout-index", "--force", "--", ...batch], { cwd, env });
+        }
+      });
+    }
+    return changes.length;
   }
 
   private async lookup(checkpointId: string): Promise<{
@@ -334,6 +368,10 @@ export function parseNameStatus(stdout: string): NameStatus[] {
     if (path) entries.push({ status, path });
   }
   return entries;
+}
+
+function worktreeBusy(projection: RuntimeProjection, worktreeId: string): boolean {
+  return projection.threads.some((thread) => thread.worktreeId === worktreeId && BUSY_STATUSES.has(thread.status));
 }
 
 function fileKind(status: string): TurnCheckpointFile["kind"] {

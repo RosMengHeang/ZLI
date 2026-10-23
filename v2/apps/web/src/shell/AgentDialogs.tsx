@@ -111,3 +111,62 @@ export function DeleteAgentDialog({
     </Dialog>
   );
 }
+
+export function KeepRunDialog({
+  index,
+  count,
+  branch,
+  discarded,
+  onKeep,
+  onCancel,
+}: {
+  index: number;
+  count: number;
+  branch: string;
+  /** The other runs: their agent name and the worktree branch deleted with them, if any. */
+  discarded: { title: string; branch: string | undefined }[];
+  onKeep(): void;
+  onCancel(): void;
+}) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const others = discarded.length === 1 ? "the other run" : `the other ${discarded.length} runs`;
+  const removed = discarded.flatMap((run) => (run.branch ? [run.branch] : []));
+  return (
+    <Dialog
+      label="Keep this run"
+      size="sm"
+      title={`Keep run ${index} of ${count}?`}
+      subtitle={`Keeps the agent in ${branch} and deletes ${others}, with their chat history. This cannot be undone.`}
+      scrimLabel="Cancel"
+      showClose={false}
+      initialFocusRef={cancelRef}
+      onClose={onCancel}
+    >
+      <div className="dialog-body">
+        <ul className="keep-run-list" aria-label="Runs to delete">
+          {discarded.map((run, position) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: the list is fixed while the dialog is open.
+            <li key={position}>
+              {run.branch ? <code>{run.branch}</code> : null}
+              <span>{run.title}</span>
+            </li>
+          ))}
+        </ul>
+        {removed.length > 0 ? (
+          <p className="field-hint">
+            {removed.length === 1 ? "Its worktree folder and branch are" : "Their worktree folders and branches are"}{" "}
+            deleted. Uncommitted changes and commits that exist only there are lost.
+          </p>
+        ) : null}
+      </div>
+      <div className="dialog-footer">
+        <Button ref={cancelRef} onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button variant="danger" onClick={onKeep}>
+          Keep this one
+        </Button>
+      </div>
+    </Dialog>
+  );
+}

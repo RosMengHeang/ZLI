@@ -65,7 +65,13 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("worktree.cancel"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("worktree.retry"), worktreeId: WorktreeId }),
-  z.object({ type: z.literal("worktree.remove"), worktreeId: WorktreeId, force: z.boolean().optional() }),
+  z.object({
+    type: z.literal("worktree.remove"),
+    worktreeId: WorktreeId,
+    force: z.boolean().optional(),
+    /** Also deletes the worktree's branch. With `force`, a branch with unmerged commits is deleted too. */
+    deleteBranch: z.boolean().optional(),
+  }),
   z.object({ type: z.literal("worktree.archive"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("worktree.removed"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("worktree.archived"), worktreeId: WorktreeId }),

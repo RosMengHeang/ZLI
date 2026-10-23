@@ -15,11 +15,15 @@ import { PromptList, usePromptPicker } from "../prompts/PromptPicker.js";
 import { combinePrompts, requestPromptManager, slashQuery, usePersonalPrompts } from "../prompts/prompts.js";
 import { useSharedPrompts } from "../prompts/useSharedPrompts.js";
 import type { ZliBridge } from "../runtime/bridge.js";
+import type { RunAgent } from "../sessions/bestOf.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { Kbd } from "../ui/Kbd.js";
 import { DEFAULT_MODEL, ModelMark, modelOptions } from "../ui/ModelMark.js";
 import { Picker } from "../ui/Picker.js";
+import { ariaShortcut } from "../ui/shortcuts.js";
 import { formatTokens } from "../usage/usage.js";
+import { type BestOfAgentOption, BestOfPopover } from "./BestOfPopover.js";
 import { type CodeReference, referenceLabel, withReferences } from "./codeReferences.js";
 import {
   attachmentOnlyMessage,
@@ -34,6 +38,19 @@ import { permissionHint, permissionIcon, permissionLabel, permissionOptions } fr
 const CapturePicker = lazy(() => import("./CapturePicker.js").then((module) => ({ default: module.CapturePicker })));
 
 export type ComposerAttachment = { name: string; mimeType: AttachmentMimeType; dataBase64: string };
+
+export const BEST_OF_SHORTCUT = "Mod+Shift+Enter";
+
+/** Starting several runs of one message. Absent where the chat cannot start runs. */
+export type ComposerBestOf = {
+  agents: readonly BestOfAgentOption[];
+  current: RunAgent;
+  /** Try N ways on an earlier message: the popover opens for that message instead of the draft. */
+  retry?: { key: string; text: string } | undefined;
+  onRetryClose(): void;
+  /** Resolves with a message when the runs could not start. */
+  onStart(input: { text: string; runs: RunAgent[]; retry: boolean }): Promise<string | undefined>;
+};
 
 type Draft =
   | { kind: "image"; id: string; file: File; mimeType: ImageMimeType; previewUrl: string }
@@ -95,6 +112,7 @@ export function Composer({
   onRemoveReference,
   onReferencesSent,
   onSubmit,
+  bestOf,
 }: {
   displayName: string;
   branch: string;
@@ -120,12 +138,18 @@ export function Composer({
   onRemoveReference?(id: string): void;
   onReferencesSent?(): void;
   onSubmit(text: string, attachments: ComposerAttachment[]): Promise<boolean>;
+  bestOf?: ComposerBestOf | undefined;
 }) {
   const [draft, setDraft] = useState("");
   const [images, setImages] = useState<Draft[]>([]);
   const [error, setError] = useState<string>();
   const [sending, setSending] = useState(false);
   const [capturing, setCapturing] = useState(false);
+  const [sendMenuOpen, setSendMenuOpen] = useState(false);
+  const [bestOfOpen, setBestOfOpen] = useState(false);
+  const [bestOfStarting, setBestOfStarting] = useState(false);
+  const [bestOfError, setBestOfError] = useState<string>();
+  const sendSplitRef = useRef<HTMLSpanElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const personalPrompts = usePersonalPrompts();
@@ -252,6 +276,72 @@ export function Composer({
     }
   };
 
+  useEffect(() => {
+    if (!sendMenuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!(event.target instanceof Node) || !sendSplitRef.current?.contains(event.target)) setSendMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [sendMenuOpen]);
+
+  const openBestOf = () => {
+    setSendMenuOpen(false);
+    if (!bestOf) return;
+    bestOf.onRetryClose();
+    setBestOfError(undefined);
+    setBestOfOpen(true);
+  };
+
+  const closeBestOf = () => {
+    setBestOfOpen(false);
+    setBestOfError(undefined);
+    bestOf?.onRetryClose();
+    textareaRef.current?.focus();
+  };
+
+  /** Every run gets the draft as its first message. Pasted text goes inline; images cannot be copied to runs. */
+  const startBestOf = async (runs: RunAgent[]) => {
+    if (!bestOf || bestOfStarting) return;
+    const retry = bestOf.retry;
+    let text: string;
+    if (retry) text = retry.text;
+    else {
+      if (images.some((image) => image.kind === "image")) {
+        setBestOfError("Runs start from text only. Remove the images, or send them as a normal message.");
+        return;
+      }
+      const pasted = images.flatMap((image) => (image.kind === "text" ? [image.text] : []));
+      const message = [draft.trim(), ...pasted].filter(Boolean).join("\n\n");
+      if (!message && references.length === 0) {
+        setBestOfError("Type the message every run starts with.");
+        return;
+      }
+      text = withReferences(references, message);
+    }
+    setBestOfStarting(true);
+    setBestOfError(undefined);
+    try {
+      const failure = await bestOf.onStart({ text, runs, retry: retry !== undefined });
+      if (failure) {
+        setBestOfError(failure);
+        return;
+      }
+      if (retry) bestOf.onRetryClose();
+      else {
+        setDraft("");
+        if (references.length > 0) onReferencesSent?.();
+        setImages([]);
+      }
+      setBestOfOpen(false);
+    } catch (cause) {
+      setBestOfError(cause instanceof Error ? cause.message : "The runs could not start.");
+    } finally {
+      setBestOfStarting(false);
+    }
+  };
+  const bestOfVisible = bestOf !== undefined && (bestOf.retry !== undefined || bestOfOpen);
+
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = [...event.clipboardData.files].filter((file) => file.type.startsWith("image/"));
     if (files.length > 0) {
@@ -281,6 +371,18 @@ export function Composer({
       }}
       onDrop={onDrop}
     >
+      {bestOfVisible && bestOf ? (
+        <BestOfPopover
+          key={bestOf.retry?.key ?? "draft"}
+          agents={bestOf.agents}
+          current={bestOf.current}
+          retryText={bestOf.retry?.text}
+          starting={bestOfStarting}
+          error={bestOfError}
+          onStart={(runs) => void startBestOf(runs)}
+          onClose={closeBestOf}
+        />
+      ) : null}
       {capturing && capture ? (
         <Suspense fallback={null}>
           <CapturePicker
@@ -413,6 +515,17 @@ export function Composer({
         {...picker.inputProps}
         onKeyDown={(event) => {
           if (picker.onKeyDown(event)) return;
+          if (
+            bestOf &&
+            event.key === "Enter" &&
+            event.shiftKey &&
+            (event.metaKey || event.ctrlKey) &&
+            !event.nativeEvent.isComposing
+          ) {
+            event.preventDefault();
+            openBestOf();
+            return;
+          }
           if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault();
             event.currentTarget.form?.requestSubmit();
@@ -498,17 +611,63 @@ export function Composer({
         )}
         <span className="composer-spacer" />
         {context ? <ContextMeter tokens={context.tokens} window={context.window} /> : null}
-        <button
-          className="send-button"
-          type="submit"
-          aria-label={queues ? "Queue message" : "Send"}
-          data-tooltip={queues ? `Queue. ${displayName} gets it after the current turn` : "Send"}
-          data-shortcut="Enter"
-          aria-keyshortcuts="Enter"
-          disabled={disabled || sending || (!draft.trim() && images.length === 0 && references.length === 0)}
-        >
-          <Icon name="arrowUp" size={15} />
-        </button>
+        <span className={`send-split${bestOf ? " has-menu" : ""}`} ref={sendSplitRef}>
+          <button
+            className="send-button"
+            type="submit"
+            aria-label={queues ? "Queue message" : "Send"}
+            data-tooltip={queues ? `Queue. ${displayName} gets it after the current turn` : "Send"}
+            data-shortcut="Enter"
+            aria-keyshortcuts="Enter"
+            disabled={disabled || sending || (!draft.trim() && images.length === 0 && references.length === 0)}
+          >
+            <Icon name="arrowUp" size={15} />
+          </button>
+          {bestOf ? (
+            <button
+              className="send-more"
+              type="button"
+              aria-label="More ways to send"
+              aria-haspopup="menu"
+              aria-expanded={sendMenuOpen}
+              data-tooltip={sendMenuOpen ? undefined : "More ways to send"}
+              disabled={disabled}
+              onClick={() => setSendMenuOpen((open) => !open)}
+            >
+              <Icon name="chevronDown" size={12} />
+            </button>
+          ) : null}
+          {sendMenuOpen ? (
+            <div
+              className="send-menu"
+              role="menu"
+              aria-label="Send options"
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                event.preventDefault();
+                event.stopPropagation();
+                setSendMenuOpen(false);
+              }}
+            >
+              <button
+                className="send-menu-item"
+                type="button"
+                role="menuitem"
+                aria-keyshortcuts={ariaShortcut(BEST_OF_SHORTCUT)}
+                // biome-ignore lint/a11y/noAutofocus: the menu opens from a click and its one item takes focus.
+                autoFocus
+                onClick={openBestOf}
+              >
+                <Icon name="split" size={14} />
+                <span className="send-menu-label">
+                  <span>Send as Best of N</span>
+                  <span className="send-menu-hint">Run this message several ways, then keep one</span>
+                </span>
+                <Kbd shortcut={BEST_OF_SHORTCUT} />
+              </button>
+            </div>
+          ) : null}
+        </span>
       </div>
       {error ? (
         <p className="composer-error" role="alert">

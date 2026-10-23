@@ -36,6 +36,17 @@ An invalid `zli.json` never blocks work. ZLI creates the worktree without copyin
 
 Type `/` at the start of a message to pick one: the list narrows as you type, arrows move, Enter inserts it. The bookmark button next to the message box opens the same list. Prompts you keep for yourself are saved on this computer under **Saved prompts** in the command palette, where you can add, edit, and delete them; the prompts from `zli.json` are shown there read-only.
 
+## Best of N
+
+Best of N sends one message to several agents at once, each in its own worktree, so you can compare what they did and keep one.
+
+- **Send as Best of N**: type a message, then open the menu on the Send button (the chevron) or press Ctrl+Shift+Enter (Cmd+Shift+Enter on macOS). Pick 2, 3, or 4 runs (3 by default) and, if you like, a different agent or model per run; every run starts as the chat's own agent and model. **Start runs** creates one worktree per run from the chat's worktree as it is now, including uncommitted changes, and sends the message to each.
+- **Try N ways**: hover a message you already sent and pick **Try N ways**. The runs start from the files as they were before that message, then send it again.
+
+Each run gets a branch named after the chat's branch, `<branch>-run1` to `<branch>-runN` (with a number added if those names are taken). In the sidebar the runs are listed under the chat they came from, with a Run badge and a live Running, Done, or Failed status. When every run has finished, the group shows **Compare** and a notice appears.
+
+Compare shows the runs side by side: agent and model, status, files changed with added and removed lines, the checks the agent ran (tests, lint, type checks), cost when the agent reports it, and time. **View diff** opens that run's changes. **Keep this one** asks once, then deletes the other runs together with their worktree folders and branches, including uncommitted changes and commits that exist only there. The kept run becomes an ordinary chat.
+
 ## Verify locally
 
 From this directory:

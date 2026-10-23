@@ -25,6 +25,9 @@ export type ShortcutId =
   | "searchFiles"
   | "toggleSidebar"
   | "toggleDrawer"
+  | "toggleFiles"
+  | "toggleBrowser"
+  | "toggleChanges"
   | "settings";
 
 /** Which side of the Files panel the folder tree sits on when there is room for both. */
@@ -57,6 +60,9 @@ const shortcutIds: readonly ShortcutId[] = [
   "searchFiles",
   "toggleSidebar",
   "toggleDrawer",
+  "toggleFiles",
+  "toggleBrowser",
+  "toggleChanges",
   "settings",
 ];
 

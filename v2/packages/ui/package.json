@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "exports": {
+    "./colors": "./src/colors.ts",
     "./tokens.css": "./src/tokens.css",
     "./primitives.css": "./src/primitives.css"
   }

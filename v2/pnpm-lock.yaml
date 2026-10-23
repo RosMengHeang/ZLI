@@ -49,6 +49,9 @@ importers:
       '@zli-v2/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@zli-v2/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       node-pty:
         specifier: 1.1.0
         version: 1.1.0

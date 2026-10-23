@@ -2,7 +2,7 @@ import type { RpcResponse, RuntimeProjection, WorktreeProjection } from "@zli-v2
 import { useCallback, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
-import { ChatView } from "../chat/ChatView.js";
+import { ChatView, type StartRunsRequest } from "../chat/ChatView.js";
 import { useFileLinks } from "../files/FileIndex.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
@@ -14,6 +14,7 @@ import { Icon } from "../ui/Icon.js";
 import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { Segmented, type SegmentedOption } from "../ui/Segmented.js";
+import type { RunPosition } from "./bestOf.js";
 import {
   type AgentSession,
   type SessionMode,
@@ -66,6 +67,8 @@ export function AgentTile({
   onReviewSetup,
   onShowSetupOutput,
   onHandoff,
+  run,
+  onStartRuns,
 }: {
   projection: RuntimeProjection;
   session: AgentSession;
@@ -85,9 +88,11 @@ export function AgentTile({
   onDismissPending(): void;
   onReviewSetup(): void;
   onShowSetupOutput(): void;
-
   /** Absent when the chat has nothing to hand over yet. */
   onHandoff?: (() => void) | undefined;
+  /** Where this agent sits in a best-of run that is still being compared. */
+  run?: RunPosition | undefined;
+  onStartRuns?: ((request: StartRunsRequest) => Promise<string | undefined>) | undefined;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
@@ -156,7 +161,11 @@ export function AgentTile({
           <Icon name="branch" size={11} />
           <span>{branch}</span>
         </span>
-
+        {run ? (
+          <span className="tile-run" title={`Run ${run.index} of ${run.count} for ${run.group.label}`}>
+            Run {run.index}
+          </span>
+        ) : null}
         <Badge
           className="tile-status"
           tone={statusTone[status]}
@@ -300,6 +309,7 @@ export function AgentTile({
             onOpenDiff={onOpenDiff}
             onRestart={() => void start("chat")}
             onHandoff={onHandoff}
+            onStartRuns={onStartRuns}
           />
         ) : (
           <EmptyState

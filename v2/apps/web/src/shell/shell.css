@@ -14,8 +14,7 @@
 /* The resizer is the gutter itself; its line only appears while it is in use. */
 .panel-resizer { position: relative; z-index: 1; flex: 0 0 var(--zli-gutter); cursor: col-resize; touch-action: none; }
 .panel-resizer::after { position: absolute; top: var(--zli-space-3); bottom: var(--zli-space-3); left: calc(50% - 1px); width: 2px; border-radius: 1px; background: transparent; content: ""; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
-.panel-resizer:hover::after { background: var(--zli-border-hover); }
-.panel-resizer:focus-visible::after, .panel-resizer.is-dragging::after { background: var(--zli-accent); }
+.panel-resizer:hover::after, .panel-resizer:focus-visible::after, .panel-resizer.is-dragging::after { background: var(--zli-accent); }
 .panel-resizer:focus-visible { outline: none; }
 
 /* ---------- Top bar ---------- */

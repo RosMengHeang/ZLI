@@ -213,7 +213,14 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       return [{ type: "worktree.status.changed", worktreeId: command.worktreeId, status: "queued" }];
     case "worktree.remove":
       assertWorktree(projection, command.worktreeId);
-      return [{ type: "worktree.remove.requested", worktreeId: command.worktreeId, force: command.force ?? false }];
+      return [
+        {
+          type: "worktree.remove.requested",
+          worktreeId: command.worktreeId,
+          force: command.force ?? false,
+          ...(command.deleteBranch ? { deleteBranch: true } : {}),
+        },
+      ];
     case "worktree.archive":
       assertWorktree(projection, command.worktreeId);
       return [{ type: "worktree.archive.requested", worktreeId: command.worktreeId }];

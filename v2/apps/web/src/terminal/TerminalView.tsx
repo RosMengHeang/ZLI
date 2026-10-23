@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
 
 import type { RpcResponse } from "@zli-v2/contracts";
+import { themeColors } from "@zli-v2/ui/colors";
 import type { FileLinks } from "../files/FileIndex.js";
 import type { ZliBridge } from "../runtime/bridge.js";
 import { registerTerminalModes } from "./terminalModes.js";
@@ -28,10 +29,10 @@ const ATTACH_ATTEMPTS = 30;
 
 /** The background matches --zli-terminal so output sits on its tile without a seam. */
 export const terminalTheme: ITheme = {
-  background: "#141416",
+  background: themeColors.terminal,
   foreground: "#dcdcdc",
   cursor: "rgb(180, 203, 255)",
-  cursorAccent: "#141416",
+  cursorAccent: themeColors.terminal,
   selectionBackground: "rgba(180, 203, 255, 0.25)",
   black: "#1f1f1f",
   red: "#d77c7c",

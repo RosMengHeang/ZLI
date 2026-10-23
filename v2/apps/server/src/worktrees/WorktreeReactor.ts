@@ -67,7 +67,7 @@ export class WorktreeReactor {
         if (envelope.event.worktree.kind === "checkout") this.track(this.runCheckoutPlacement(envelope.event.worktree));
         return;
       case "worktree.remove.requested":
-        this.startRemove(envelope.event.worktreeId, envelope.event.force);
+        this.startRemove(envelope.event.worktreeId, envelope.event.force, envelope.event.deleteBranch ?? false);
         return;
       case "worktree.archive.requested":
         this.startArchive(envelope.event.worktreeId);
@@ -170,8 +170,8 @@ export class WorktreeReactor {
     );
   }
 
-  private startRemove(worktreeId: string, force: boolean): void {
-    const task = this.runRemove(worktreeId, force);
+  private startRemove(worktreeId: string, force: boolean, deleteBranch: boolean): void {
+    const task = this.runRemove(worktreeId, force, deleteBranch);
     this.tasks.add(task);
     void task.then(
       () => this.tasks.delete(task),
@@ -179,7 +179,7 @@ export class WorktreeReactor {
     );
   }
 
-  private async runRemove(worktreeId: string, force: boolean): Promise<void> {
+  private async runRemove(worktreeId: string, force: boolean, deleteBranch: boolean): Promise<void> {
     const projection = await this.engine.projection();
     const worktree = projection.worktrees.find((entry) => entry.worktreeId === worktreeId);
     const project = worktree ? projection.projects.find((entry) => entry.projectId === worktree.projectId) : undefined;
@@ -198,6 +198,7 @@ export class WorktreeReactor {
         worktreePath: worktree.path,
         branch: worktree.branch,
         force,
+        deleteBranch,
       });
       await this.dispatchCompletion("worktree.removed", worktreeId);
     } catch (error) {

@@ -19,8 +19,8 @@ export const permissionIcon: Record<PermissionMode, IconName> = {
 };
 
 export const permissionHint: Record<PermissionMode, string> = {
-  "read-only": "Reads and plans without changing files, where the agent supports it.",
-  supervised: "Edits files and asks before risky commands, where the agent supports it.",
+  "read-only": "Reads and plans, never changes files.",
+  supervised: "Edits files without asking, asks before commands.",
   "full-access": "Edits files and runs commands without asking.",
 };
 

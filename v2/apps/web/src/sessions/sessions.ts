@@ -9,6 +9,7 @@ import type {
 
 import { providerDisplayName } from "../agent/providers.js";
 import { shallowArrayEqual } from "../runtime/runtimeStore.js";
+import type { RunStart } from "./bestOf.js";
 import type { FirstMessageFile } from "./handoff.js";
 
 export type SessionMode = "terminal" | "chat";
@@ -32,6 +33,8 @@ export type PendingLaunch = {
   prompt?: string;
   /** Text that goes with the first message: attached in a chat, pasted after it in a terminal. */
   promptFile?: FirstMessageFile;
+  /** A best-of run copies these files into its new worktree before the agent starts. */
+  fork?: RunStart;
 };
 
 export type AgentSession = {

@@ -14,6 +14,7 @@
   "dependencies": {
     "@zli-v2/client-runtime": "workspace:*",
     "@zli-v2/contracts": "workspace:*",
+    "@zli-v2/ui": "workspace:*",
     "node-pty": "1.1.0",
     "ws": "8.21.3"
   },

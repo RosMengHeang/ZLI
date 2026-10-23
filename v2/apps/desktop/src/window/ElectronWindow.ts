@@ -1,3 +1,5 @@
+import { themeColors } from "@zli-v2/ui/colors";
+
 import { isAllowedMainNavigation, isAllowedSubframeNavigation } from "../security/NavigationPolicy.js";
 
 export type BrowserWindowLike = {
@@ -31,8 +33,7 @@ export function secureWebPreferences(preloadPath: string, partition?: string): R
   };
 }
 
-/** The renderer's canvas color and top bar height, so the native chrome matches the app around it. */
-const CANVAS = "#0a0a0b";
+/** The renderer's top bar height, so the native chrome lines up with the app around it. */
 const TITLE_BAR_HEIGHT = 44;
 
 /**
@@ -46,7 +47,7 @@ export function titleBarOptions(platform: NodeJS.Platform): Record<string, unkno
   }
   return {
     titleBarStyle: "hidden",
-    titleBarOverlay: { color: CANVAS, symbolColor: "#a3a3a3", height: TITLE_BAR_HEIGHT },
+    titleBarOverlay: { color: themeColors.canvas, symbolColor: themeColors.muted, height: TITLE_BAR_HEIGHT },
   };
 }
 
@@ -63,7 +64,7 @@ export function createMainWindow(
     minWidth: 960,
     minHeight: 640,
     show: false,
-    backgroundColor: CANVAS,
+    backgroundColor: themeColors.canvas,
     ...titleBarOptions(platform),
     webPreferences: secureWebPreferences(preloadPath),
   });

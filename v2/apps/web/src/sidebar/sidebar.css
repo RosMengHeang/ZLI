@@ -100,3 +100,15 @@
   .sidebar { width: 216px; flex-basis: 216px; }
   .session-time { display: none; }
 }
+
+/* Best-of runs sit under the chat they started from. */
+.run-group { min-width: 0; margin: 1px 0 var(--zli-space-1) var(--zli-space-6); padding: 0 0 0 var(--zli-space-2); border: 0; border-left: 1px solid var(--zli-border); }
+.run-group-head { display: flex; align-items: center; gap: var(--zli-space-1-5); height: 24px; padding: 0 var(--zli-space-1) 0 var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.run-group-title { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-muted); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.run-group-progress { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.run-group-compare { color: var(--zli-accent); }
+.run-list { display: flex; flex-direction: column; gap: 1px; }
+.session-entry.is-run .session-row { height: 28px; padding-left: var(--zli-space-1); }
+.run-badge { flex: 0 0 auto; padding: 1px var(--zli-space-1-5); border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-muted); font-size: var(--zli-text-2xs); font-weight: 500; font-variant-numeric: tabular-nums; }
+.session-entry.is-run .session-title { font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
+.session-status.is-done { color: var(--zli-green); }

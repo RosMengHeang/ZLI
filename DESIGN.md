@@ -109,7 +109,8 @@ not cover, add it to the primitives instead of styling it locally.
 - The top bar has the breadcrumb (project, then branch in mono) on the left,
   then icon-only panel toggles with Terminal split from Files, Browser, and
   Changes, then the command palette trigger. Each toggle's name is its
-  accessible label and its tooltip says what it will do.
+  accessible label and its tooltip says what it will do and shows its
+  shortcut.
 - The center is a grid of agent tiles. Columns follow the agent count (one,
   two, three, then four) but drop before a tile would fall under 380px, so a
   narrow grid stacks agents into rows of at least 260px and scrolls past
@@ -131,6 +132,30 @@ not cover, add it to the primitives instead of styling it locally.
   alert). Each option carries a one-line description, and the chip stays
   neutral because the mode is a choice, not a process state. Agents that keep
   one mode for the whole chat show it as a static label instead.
+- Send is a split button: the arrow sends, and a narrow chevron beside it
+  opens a one-item menu, Send as Best of N (Mod+Shift+Enter). That opens a
+  compact dark popover anchored above the composer, not a dialog: a title
+  row with a 2, 3, 4 run switch (3 by default), one row per run with the
+  same agent and model pickers as the composer (each starts as the chat's
+  own agent and model, and runs can mix), and a footer that says how many
+  worktrees it creates beside the Start runs button. The typed message is
+  the prompt for every run.
+- Hovering a sent user message shows a quiet Try N ways button to its left.
+  It opens the same popover with the message quoted, and the runs start from
+  the files as they were before that message.
+- Runs list under the chat they came from in the sidebar, behind a thin rule
+  and a Best of N heading. Each row has a Run N badge, the run's branch in
+  mono, and its live status: Running in blue, Done in green, Failed in red.
+  The heading counts finished runs, then turns into a Compare button when
+  every run has stopped, and a notice says the runs are ready. Tiles carry
+  the same Run N badge next to the branch.
+- Compare puts the runs side by side as equal columns on the well surface:
+  run number and status, agent and model with their marks, branch, then a
+  short list of files changed with +/− lines, checks (or No checks run),
+  cost, and time. Each column ends with View diff, which opens Changes for
+  that run, and Keep this one. Keeping asks once, names the branches it
+  deletes, then removes the other runs with their worktrees and branches,
+  and the kept run becomes an ordinary chat.
 - Terminal, Files, Browser, and Changes open from the top bar. Files,
   Browser, and Changes share one resizable column on the right, and each
   remembers its own width. Files opens at 640px so the tree fits beside the
@@ -164,8 +189,10 @@ not cover, add it to the primitives instead of styling it locally.
   the help dialog. Buttons do not print key caps inside them. Ctrl and Cmd both work. The main ones are
   Mod+K for the command palette, Mod+N for a new agent, Mod+P to go to a file,
   Mod+Shift+F to search in files, Mod+B for the sidebar, Mod+J for the
-  terminal drawer, and Mod+, for Settings. People can change these in
-  Settings, and every key cap and tooltip shows the current binding.
+  terminal drawer, Mod+Shift+E for Files, Mod+Shift+B for Browser,
+  Mod+Shift+G for Changes, and Mod+, for Settings. People can change these in
+  Settings, and every key cap and tooltip shows the current binding. In the
+  composer, Enter sends and Mod+Shift+Enter opens Send as Best of N.
 - Settings is one dialog with a section list on the left (New agents,
   Projects, Worktrees, MCP servers, Shortcuts, Notifications) and a
   fixed-height panel so switching sections does not resize it. Each section
@@ -177,7 +204,9 @@ not cover, add it to the primitives instead of styling it locally.
   command line sits under the name in mono because it is what people check.
 - Every control has hover, active, focus-visible, and disabled states. All
   focusable elements share one focus ring; text fields replace it with an
-  accent border and a soft glow.
+  accent border and a soft glow. The composer as a whole lifts to the overlay
+  fill and takes the same glow while anything inside it has focus. Panel
+  resize handles show an accent line on hover.
 - Dialogs trap Tab, give focus back when they close, and close on Escape or a
   click outside.
 - Pickers open above their trigger when there is room, focus the selected
@@ -203,4 +232,6 @@ Motion is limited to hover and focus feedback, a slight press on buttons,
 resizing, chevrons, status spinners, and one entrance: dialogs and the command
 palette fade in and rise 4px over 150ms so they read as part of the same
 window. Durations stay between 100 and 160ms. There are no decorative loops.
-With reduced motion turned on, transitions and animations are switched off.
+With reduced motion turned on, transitions and animations are switched off,
+and entrances land straight on their final state. Status spinners keep
+turning, slowly, because they carry meaning.

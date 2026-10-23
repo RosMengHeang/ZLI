@@ -460,7 +460,7 @@ describe("Settings", () => {
         ?.click(),
     );
     expect(trigger?.getAttribute("aria-label")).toBe("Permissions: Read only");
-    expect(dialog("New agent")?.textContent).toContain("Reads and plans without changing files");
+    expect(dialog("New agent")?.textContent).toContain("Reads and plans, never changes files");
   });
 
   it("lets a project override the agent defaults", async () => {

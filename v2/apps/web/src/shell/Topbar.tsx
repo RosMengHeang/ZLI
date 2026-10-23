@@ -1,6 +1,7 @@
 import type { DevServerProjection, ProjectProjection, WorktreeProjection } from "@zli-v2/contracts";
 
 import { DevServerChip } from "../devservers/DevServers.js";
+import type { ShortcutId } from "../settings/appSettings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
@@ -12,6 +13,12 @@ export type SidePane = "files" | "browser" | "review";
 export const sidePaneLabel: Record<SidePane, string> = { files: "Files", browser: "Browser", review: "Changes" };
 
 const sidePaneIcon: Record<SidePane, IconName> = { files: "folderTree", browser: "globe", review: "diff" };
+
+export const sidePaneShortcut = {
+  files: "toggleFiles",
+  browser: "toggleBrowser",
+  review: "toggleChanges",
+} as const satisfies Record<SidePane, ShortcutId>;
 
 export function Topbar({
   sidebarOpen,
@@ -88,6 +95,7 @@ export function Topbar({
             key={pane}
             label={sidePaneLabel[pane]}
             icon={sidePaneIcon[pane]}
+            shortcut={shortcuts[sidePaneShortcut[pane]]}
             active={sidePane === pane}
             onClick={() => onToggleSidePane(pane)}
           />

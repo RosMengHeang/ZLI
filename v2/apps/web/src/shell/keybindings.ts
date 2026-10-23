@@ -11,6 +11,9 @@ export const shortcutActions: readonly ShortcutAction[] = [
   { id: "searchFiles", label: "Search in files", shortcut: "Mod+Shift+F" },
   { id: "toggleSidebar", label: "Show or hide the sidebar", shortcut: "Mod+B" },
   { id: "toggleDrawer", label: "Show or hide the terminal", shortcut: "Mod+J" },
+  { id: "toggleFiles", label: "Show or hide files", shortcut: "Mod+Shift+E" },
+  { id: "toggleBrowser", label: "Show or hide the browser", shortcut: "Mod+Shift+B" },
+  { id: "toggleChanges", label: "Show or hide changes", shortcut: "Mod+Shift+G" },
   { id: "settings", label: "Settings", shortcut: "Mod+," },
 ];
 
