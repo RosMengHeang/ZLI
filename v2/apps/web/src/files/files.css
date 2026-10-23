@@ -107,6 +107,13 @@
 @container (max-width: 520px) {
   .file-path-bar > .file-meta { display: none; }
 }
+/* Too narrow for the path and every control on one line: the controls move to a second, right-aligned row. */
+@container (max-width: 460px) {
+  .file-path-bar { flex-wrap: wrap; height: auto; min-height: 32px; row-gap: var(--zli-space-1); padding-block: var(--zli-space-1); }
+  .file-path-bar > .file-path-spacer { flex-basis: 100%; height: 0; }
+  .file-path-bar > .file-path-spacer + :not(.file-meta),
+  .file-path-bar > .file-path-spacer + .file-meta + * { margin-left: auto; }
+}
 .file-view { display: flex; min-width: 0; min-height: 0; flex: 1; }
 .file-view > .file-editor-host, .file-view > .file-md-pane, .file-view > .empty-state { min-width: 0; flex: 1 1 0; }
 .file-view.is-split > .file-md-pane, .file-view.is-split > .empty-state { border-left: 1px solid var(--zli-border); }
