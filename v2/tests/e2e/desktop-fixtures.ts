@@ -185,10 +185,11 @@ export async function stopDesktopDaemon(root: string): Promise<void> {
 
 export async function closeApp(
   fixture: DesktopFixture,
-  options: { stopTerminals?: boolean; processTree?: number[] } = {},
+  options: { stopTerminals?: boolean; processTree?: number[]; child?: ChildProcess } = {},
 ): Promise<void> {
   if (options.stopTerminals !== false) await stopTerminals(fixture.page);
-  const child = fixture.app.process();
+  // Playwright drops its handle to the main process once it exits, so a crashed app must pass the child it captured.
+  const child = options.child ?? fixture.app.process();
   const processTree = options.processTree ?? (await captureProcessTree(child.pid));
   await closeChildProcess(fixture.app.close.bind(fixture.app), child, async () => {
     if (process.platform === "win32") {

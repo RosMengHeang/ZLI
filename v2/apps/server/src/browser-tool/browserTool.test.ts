@@ -11,6 +11,7 @@ import {
   browserToolConfigFromEnv,
   claudeMcpConfig,
   codexMcpArgs,
+  codexServerConfig,
   codexThreadConfig,
   copilotMcpConfig,
   gooseExtension,
@@ -140,6 +141,20 @@ describe("MCP server definitions", () => {
     });
   });
 
+  it("lists every server in one config file", () => {
+    const spec = mcpServerSpec(config, WORKTREE);
+    const github = { name: "github", command: "npx", args: ["-y", "gh-mcp"], env: { TOKEN: "t" } };
+    expect(Object.keys(JSON.parse(claudeMcpConfig([spec, github])).mcpServers)).toEqual(["zli-browser", "github"]);
+    expect(JSON.parse(copilotMcpConfig([github])).mcpServers.github).toEqual({
+      type: "local",
+      command: "npx",
+      args: ["-y", "gh-mcp"],
+      env: { TOKEN: "t" },
+      tools: ["*"],
+    });
+    expect(Object.keys(JSON.parse(opencodeConfigContent([spec, github]) ?? "").mcp)).toEqual(["zli-browser", "github"]);
+  });
+
   it("merges into the user's OPENCODE_CONFIG_CONTENT and gives up on one it cannot read", () => {
     const spec = mcpServerSpec(config, WORKTREE);
     const local = { type: "local", command: [spec.command, ...spec.args], environment: spec.env, enabled: true };
@@ -202,6 +217,12 @@ describe("Codex -c overrides", () => {
         ZLI_BROWSER_CONTROL_FILE: config.controlFile,
         ZLI_WORKTREE_ID: WORKTREE,
       },
+    });
+  });
+
+  it("adds a whole server per thread", () => {
+    expect(codexServerConfig({ name: "github", command: "npx", args: ["-y"], env: { TOKEN: "t" } })).toEqual({
+      "mcp_servers.github": { command: "npx", args: ["-y"], env: { TOKEN: "t" } },
     });
   });
 });

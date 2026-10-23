@@ -122,9 +122,12 @@ not cover, add it to the primitives instead of styling it locally.
   terminal drawer, and Mod+, for Settings. People can change these in
   Settings, and every key cap and tooltip shows the current binding.
 - Settings is one dialog with a section list on the left (New agents,
-  Projects, Worktrees, Shortcuts, Notifications) and a fixed-height panel so
-  switching sections does not resize it. Switches are square-cornered and
-  neutral: on is a light track, not the accent.
+  Projects, Worktrees, MCP servers, Shortcuts, Notifications) and a
+  fixed-height panel so switching sections does not resize it. Switches are
+  square-cornered and neutral: on is a light track, not the accent.
+- MCP servers are one list shared by every agent. Each row leads with its
+  switch so a server can be turned off without losing its setup, and the
+  command line sits under the name in mono because it is what people check.
 - Every control has hover, active, focus-visible, and disabled states. All
   focusable elements share one focus ring; text fields replace it with an
   accent border and a soft glow.

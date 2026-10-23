@@ -72,6 +72,7 @@ describe("ReviewService", () => {
     ]);
   });
 
+  // A real repository needs about a dozen git processes, which can exceed the default timeout on Windows runners.
   it("counts added and removed lines of uncommitted, committed, and untracked changes", async () => {
     const fixture = await createRepository();
     try {
@@ -97,7 +98,7 @@ describe("ReviewService", () => {
     } finally {
       await rm(fixture.directory, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it("loads a bounded on-demand patch for a reviewed file", async () => {
     const service = new ReviewService({

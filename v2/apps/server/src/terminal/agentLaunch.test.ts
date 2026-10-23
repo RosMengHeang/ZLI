@@ -4,9 +4,9 @@ import { codexMcpArgs, gooseExtension, mcpServerSpec } from "../browser-tool/bro
 import {
   AgentLaunchError,
   agentCliMissingMessage,
-  browserToolArgs,
-  browserToolConfigFileKind,
   buildAgentArgs,
+  mcpConfigFileKind,
+  mcpLaunchArgs,
 } from "./agentLaunch.js";
 
 describe("buildAgentArgs", () => {
@@ -102,7 +102,7 @@ describe("buildAgentArgs", () => {
   });
 });
 
-describe("browserToolArgs", () => {
+describe("mcpLaunchArgs", () => {
   const spec = mcpServerSpec(
     {
       command: "C:\\ZLI\\ZLI.exe",
@@ -113,32 +113,45 @@ describe("browserToolArgs", () => {
     },
     "00000000-0000-4000-8000-000000000302",
   );
+  const added = { name: "github", command: "npx", args: ["-y", "gh-mcp"], env: { TOKEN: "t" } };
+  const specs = [spec];
 
   it("registers the MCP server per launch with each CLI's own flag", () => {
-    expect(browserToolArgs("codex", { spec })).toEqual(codexMcpArgs(spec));
-    expect(browserToolArgs("claude-code", { spec, configFile: "C:\\ZLI\\data\\mcp\\claude-wt.json" })).toEqual([
+    expect(mcpLaunchArgs("codex", { specs })).toEqual(codexMcpArgs(spec));
+    expect(mcpLaunchArgs("claude-code", { specs, configFile: "C:\\ZLI\\data\\mcp\\claude-wt.json" })).toEqual([
       "--mcp-config",
       "C:\\ZLI\\data\\mcp\\claude-wt.json",
     ]);
-    expect(browserToolArgs("copilot", { spec, configFile: "C:\\ZLI\\data\\mcp\\copilot-wt.json" })).toEqual([
+    expect(mcpLaunchArgs("copilot", { specs, configFile: "C:\\ZLI\\data\\mcp\\copilot-wt.json" })).toEqual([
       "--additional-mcp-config",
       "@C:\\ZLI\\data\\mcp\\copilot-wt.json",
     ]);
-    expect(browserToolArgs("cursor-agent", { spec })).toEqual(["--approve-mcps"]);
-    expect(browserToolArgs("goose", { spec }, "win32")).toEqual(["--with-extension", gooseExtension(spec, "win32")]);
+    expect(mcpLaunchArgs("cursor-agent", { specs })).toEqual(["--approve-mcps"]);
+    expect(mcpLaunchArgs("goose", { specs }, "win32")).toEqual(["--with-extension", gooseExtension(spec, "win32")]);
+  });
+
+  it("repeats per-server flags for every server", () => {
+    expect(mcpLaunchArgs("codex", { specs: [spec, added] })).toEqual([...codexMcpArgs(spec), ...codexMcpArgs(added)]);
+    expect(mcpLaunchArgs("goose", { specs: [spec, added] }, "linux")).toEqual([
+      "--with-extension",
+      gooseExtension(spec, "linux"),
+      "--with-extension",
+      gooseExtension(added, "linux"),
+    ]);
   });
 
   it("adds nothing for CLIs that read user settings or the environment, or when the config file is missing", () => {
     for (const provider of ["droid", "opencode", "gemini", "kimi", "qwen"] as const) {
-      expect(browserToolArgs(provider, { spec })).toEqual([]);
+      expect(mcpLaunchArgs(provider, { specs })).toEqual([]);
     }
-    expect(browserToolArgs("claude-code", { spec })).toEqual([]);
-    expect(browserToolArgs("copilot", { spec })).toEqual([]);
+    expect(mcpLaunchArgs("claude-code", { specs })).toEqual([]);
+    expect(mcpLaunchArgs("copilot", { specs })).toEqual([]);
+    expect(mcpLaunchArgs("cursor-agent", { specs: [] })).toEqual([]);
   });
 
   it("asks for a config file only from Claude Code and Copilot", () => {
-    expect(browserToolConfigFileKind("claude-code")).toBe("claude");
-    expect(browserToolConfigFileKind("copilot")).toBe("copilot");
-    expect(browserToolConfigFileKind("codex")).toBeUndefined();
+    expect(mcpConfigFileKind("claude-code")).toBe("claude");
+    expect(mcpConfigFileKind("copilot")).toBe("copilot");
+    expect(mcpConfigFileKind("codex")).toBeUndefined();
   });
 });

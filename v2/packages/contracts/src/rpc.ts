@@ -16,6 +16,7 @@ import {
   WorktreeId,
 } from "./ids.js";
 import { LegacyImportPreview } from "./import.js";
+import { McpCommand } from "./mcp.js";
 import { SetupDecision, WorktreeSetupProjection } from "./projectConfig.js";
 import {
   EnvironmentDescriptor,
@@ -203,6 +204,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("devserver.stopped"), terminalId: TerminalId, port: DevServerProjection.shape.port }),
   ...FileCommand.options,
   ...PullRequestCommand.options,
+  ...McpCommand.options,
   /** Reported by the runtime while it copies files and runs zli.json setup in a new worktree. */
   z.object({ type: z.literal("worktree.setup"), setup: WorktreeSetupProjection }),
   /** The person's answer to running zli.json setup commands; the hash pins the exact list they saw. */

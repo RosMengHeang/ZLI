@@ -1,7 +1,13 @@
 import type { ProviderCapabilities, ProviderKind, ThreadId } from "@zli-v2/contracts";
 import { AcpClient, type AcpProviderEvent, AcpProviderError, type AcpToolUpdate } from "@zli-v2/provider-acp";
 
-import { acpMcpServer, agentEnv, type BrowserToolConfig, mcpServerSpec } from "../browser-tool/browserTool.js";
+import {
+  acpMcpServer,
+  agentEnv,
+  type BrowserToolConfig,
+  type McpServerSpec,
+  mcpServerSpec,
+} from "../browser-tool/browserTool.js";
 import { approvalAllowed } from "./ClaudeCodeProviderAdapter.js";
 import type {
   ProviderAdapter,
@@ -24,6 +30,8 @@ export type AcpProviderConfig = {
   authHint: string;
   /** Offered to every session as an MCP server, with its shell shim on PATH. */
   browserTool?: BrowserToolConfig;
+  /** MCP servers added in Settings, read when each session starts. */
+  mcpServers?: () => readonly McpServerSpec[];
 };
 
 type AcpSessionClient = Pick<
@@ -62,18 +70,18 @@ export class AcpProviderAdapter implements ProviderAdapter {
       options.createClient ??
       (async ({ worktreeId, ...input }) => {
         const browserTool = config.browserTool;
+        const specs = [
+          ...(browserTool ? [mcpServerSpec(browserTool, worktreeId)] : []),
+          ...(config.mcpServers?.() ?? []),
+        ];
         return AcpClient.start({
           ...input,
           command: await config.resolveCommand(),
           args: config.acpArgs,
           displayName: config.displayName,
           authHint: config.authHint,
-          ...(browserTool
-            ? {
-                env: agentEnv(browserTool, worktreeId),
-                mcpServers: [acpMcpServer(mcpServerSpec(browserTool, worktreeId))],
-              }
-            : {}),
+          ...(browserTool ? { env: agentEnv(browserTool, worktreeId) } : {}),
+          ...(specs.length > 0 ? { mcpServers: specs.map(acpMcpServer) } : {}),
         });
       });
   }

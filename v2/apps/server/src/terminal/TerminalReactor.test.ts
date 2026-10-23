@@ -9,7 +9,7 @@ import {
 } from "@zli-v2/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { BrowserToolConfig } from "../browser-tool/browserTool.js";
+import { type BrowserToolConfig, codexMcpArgs } from "../browser-tool/browserTool.js";
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
 import { TerminalReactor, type TerminalReactorOptions } from "./TerminalReactor.js";
@@ -367,6 +367,60 @@ describe("TerminalReactor", () => {
       "running",
       "running",
     ]);
+  });
+  it("hands MCP servers from Settings to agents even without the browser tool", async () => {
+    const spawned: PtySpawnInput[] = [];
+    const written: Array<{ dir: string; kind: string; names: string[] }> = [];
+    const github = { name: "github", command: "npx", args: ["-y", "gh-mcp"], env: { TOKEN: "t" } };
+    let servers = [github];
+    const { engine, reactor, worktreeId } = await setup(
+      {
+        spawn: async (input) => {
+          spawned.push(input);
+          return new FakePty();
+        },
+      },
+      {
+        resolveAgentCli: async (provider) => `C:\\bin\\${provider}.exe`,
+        mcpServers: () => servers,
+        mcpConfigDir: "C:\\ZLI\\data\\mcp",
+        env: {},
+        writeMcpConfig: async (dir, kind, id, specs) => {
+          written.push({ dir, kind, names: specs.map((spec) => spec.name) });
+          return `${dir}\\${kind}-${id}.json`;
+        },
+      },
+    );
+    const create = (n: number, agent: Record<string, unknown>) =>
+      engine.dispatchPromise(
+        command("terminal.create", {
+          terminalId: TerminalId.parse(`00000000-0000-4000-8000-00000000033${n}`),
+          worktreeId,
+          cwd: "C:/workspace/project-tree",
+          shell: "powershell.exe",
+          title: "Terminal",
+          cols: 120,
+          rows: 32,
+          agent,
+        }),
+      );
+    await create(1, { provider: "claude-code" });
+    await create(2, { provider: "codex" });
+    await reactor.waitForIdle();
+    servers = [];
+    await create(3, { provider: "codex" });
+    await reactor.waitForIdle();
+
+    expect(written).toEqual([{ dir: "C:\\ZLI\\data\\mcp", kind: "claude", names: ["github"] }]);
+    expect(spawned[0]?.args).toEqual([
+      "--dangerously-skip-permissions",
+      "--mcp-config",
+      `C:\\ZLI\\data\\mcp\\claude-${worktreeId}.json`,
+    ]);
+    expect(spawned[0]?.pathPrepend).toBeUndefined();
+    expect(spawned[1]?.args).toEqual(["--dangerously-bypass-approvals-and-sandbox", ...codexMcpArgs(github)]);
+    // A server removed in Settings is gone from the next launch.
+    expect(spawned[2]?.args).toEqual(["--dangerously-bypass-approvals-and-sandbox"]);
   });
 
   it("projects a PTY exit once", async () => {

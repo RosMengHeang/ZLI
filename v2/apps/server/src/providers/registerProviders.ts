@@ -8,9 +8,11 @@ import {
   agentEnv,
   type BrowserToolConfig,
   codexMcpArgs,
+  codexServerConfig,
   codexThreadConfig,
+  type McpServerSpec,
   mcpServerSpec,
-  writeMcpConfigFile,
+  writeAgentMcpConfig,
 } from "../browser-tool/browserTool.js";
 import { type AcpProviderConfig, AcpProviderAdapter, type AcpProviderKind } from "./AcpProviderAdapter.js";
 import { ClaudeCodeProviderAdapter } from "./ClaudeCodeProviderAdapter.js";
@@ -122,7 +124,11 @@ export async function resolveAcpCommand(
 export type ProviderRegistryOptions = {
   /** When set, every chat agent gets the zli-browser MCP server and shell command. */
   browserTool?: BrowserToolConfig;
-  writeMcpConfig?: typeof writeMcpConfigFile;
+  /** MCP servers added in Settings, read when each chat starts. */
+  mcpServers?: () => readonly McpServerSpec[];
+  /** Where per-chat MCP config files go when there is no browser tool. */
+  mcpConfigDir?: string;
+  writeMcpConfig?: typeof writeAgentMcpConfig;
 };
 
 export function createProviderRegistry(
@@ -131,16 +137,39 @@ export function createProviderRegistry(
 ): ProviderRegistry {
   if (env.ZLI_TEST_PROVIDER === "mock") return new ProviderRegistry([new MockProviderAdapter()]);
   const browserTool = options.browserTool;
-  const writeMcpConfig = options.writeMcpConfig ?? writeMcpConfigFile;
+  const writeMcpConfig = options.writeMcpConfig ?? writeAgentMcpConfig;
+  const mcpConfigDir = browserTool?.mcpConfigDir ?? options.mcpConfigDir;
+  const addedServers = (): readonly McpServerSpec[] => {
+    try {
+      return options.mcpServers?.() ?? [];
+    } catch {
+      return [];
+    }
+  };
+  const allServers = (worktreeId: string | undefined) => [
+    ...(browserTool ? [mcpServerSpec(browserTool, worktreeId)] : []),
+    ...addedServers(),
+  ];
   const browserEnv = (worktreeId: string | undefined) =>
     browserTool ? { env: agentEnv(browserTool, worktreeId, env) } : {};
   const claudeMcpConfig = async (worktreeId: string | undefined) => {
-    if (!browserTool) return {};
+    const specs = allServers(worktreeId);
+    if (!mcpConfigDir || specs.length === 0) return {};
     try {
-      return { mcpConfig: await writeMcpConfig(browserTool, "claude", worktreeId) };
+      return { mcpConfig: await writeMcpConfig(mcpConfigDir, "claude", worktreeId, specs) };
     } catch {
       return {};
     }
+  };
+  // One app server serves every Codex thread, so servers from Settings join per thread and edits
+  // reach the next thread without restarting it.
+  const codexThreadOverrides = (worktreeId: string | undefined) => {
+    const config = Object.assign(
+      {},
+      browserTool ? codexThreadConfig(mcpServerSpec(browserTool, worktreeId)) : {},
+      ...addedServers().map(codexServerConfig),
+    );
+    return Object.keys(config).length > 0 ? config : undefined;
   };
   return new ProviderRegistry([
     new CodexProviderAdapter({
@@ -150,9 +179,7 @@ export function createProviderRegistry(
           command: await resolveCodexCommand(),
           ...(browserTool ? { args: codexMcpArgs(mcpServerSpec(browserTool)), ...browserEnv(undefined) } : {}),
         }),
-      ...(browserTool
-        ? { threadConfig: (input) => codexThreadConfig(mcpServerSpec(browserTool, input.worktreeId)) }
-        : {}),
+      ...(browserTool || options.mcpServers ? { threadConfig: (input) => codexThreadOverrides(input.worktreeId) } : {}),
     }),
     new ClaudeCodeProviderAdapter({
       createClient: async ({ worktreeId, ...input }) =>
@@ -169,7 +196,7 @@ export function createProviderRegistry(
           ...input,
           command: await resolveCursorCommand(),
           ...browserEnv(worktreeId),
-          ...(browserTool ? { approveMcps: true } : {}),
+          ...(allServers(worktreeId).length > 0 ? { approveMcps: true } : {}),
         }),
     }),
     new DroidProviderAdapter({
@@ -182,6 +209,7 @@ export function createProviderRegistry(
           ...config,
           resolveCommand: () => resolveAcpCommand(config.provider),
           ...(browserTool ? { browserTool } : {}),
+          ...(options.mcpServers ? { mcpServers: addedServers } : {}),
         }),
     ),
   ]);

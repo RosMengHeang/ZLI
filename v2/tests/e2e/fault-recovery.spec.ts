@@ -93,7 +93,7 @@ test("restores the durable workspace after an abrupt Electron main-process exit"
     expect(exitResult).toBeDefined();
 
     fixture = undefined;
-    await closeApp(firstRun, { stopTerminals: false, processTree });
+    await closeApp(firstRun, { stopTerminals: false, processTree, child: mainProcess });
     await stopDesktopDaemon(root);
     fixture = await launchDesktop(repo, root);
     await expect(fixture.page.locator(".project-label")).toContainText("repo");

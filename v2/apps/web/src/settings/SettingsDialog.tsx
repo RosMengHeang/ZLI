@@ -1,5 +1,5 @@
 import type { PermissionMode, RuntimeProjection } from "@zli-v2/contracts";
-import { type KeyboardEvent, type ReactNode, useId, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, useId, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
 import { permissionLabel } from "../chat/Composer.js";
@@ -23,14 +23,17 @@ import {
   updateAppSettings,
   useAppSettings,
 } from "./appSettings.js";
+import { McpServersSection } from "./McpServersSection.js";
+import { SectionHeader } from "./SectionHeader.js";
 import "./settings.css";
 
-export type SettingsSection = "agents" | "projects" | "worktrees" | "shortcuts" | "notifications";
+export type SettingsSection = "agents" | "projects" | "worktrees" | "mcp" | "shortcuts" | "notifications";
 
 const sections: { id: SettingsSection; label: string }[] = [
   { id: "agents", label: "New agents" },
   { id: "projects", label: "Projects" },
   { id: "worktrees", label: "Worktrees" },
+  { id: "mcp", label: "MCP servers" },
   { id: "shortcuts", label: "Shortcuts" },
   { id: "notifications", label: "Notifications" },
 ];
@@ -119,20 +122,12 @@ export function SettingsDialog({
             <ProjectDefaults projection={projection} initialProjectId={initialProjectId} />
           ) : null}
           {section === "worktrees" ? <WorktreeSettings projection={projection} /> : null}
+          {section === "mcp" ? <McpServersSection /> : null}
           {section === "shortcuts" ? <ShortcutSettings /> : null}
           {section === "notifications" ? <NotificationSection {...notifications} /> : null}
         </section>
       </div>
     </Dialog>
-  );
-}
-
-function SectionHeader({ title, children }: { title: string; children?: ReactNode }) {
-  return (
-    <header className="settings-section-header">
-      <h3 className="settings-section-title">{title}</h3>
-      {children ? <p className="settings-section-note">{children}</p> : null}
-    </header>
   );
 }
 

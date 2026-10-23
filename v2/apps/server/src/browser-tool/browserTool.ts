@@ -113,26 +113,30 @@ export function acpMcpServer(spec: McpServerSpec): {
   };
 }
 
+function specList(specs: McpServerSpec | readonly McpServerSpec[]): readonly McpServerSpec[] {
+  return Array.isArray(specs) ? specs : [specs as McpServerSpec];
+}
+
 /** Claude Code `--mcp-config` file contents. */
-export function claudeMcpConfig(spec: McpServerSpec): string {
-  return `${JSON.stringify(
-    { mcpServers: { [spec.name]: { type: "stdio", command: spec.command, args: spec.args, env: spec.env } } },
-    null,
-    2,
-  )}\n`;
+export function claudeMcpConfig(specs: McpServerSpec | readonly McpServerSpec[]): string {
+  const mcpServers = Object.fromEntries(
+    specList(specs).map((spec) => [
+      spec.name,
+      { type: "stdio", command: spec.command, args: spec.args, env: spec.env },
+    ]),
+  );
+  return `${JSON.stringify({ mcpServers }, null, 2)}\n`;
 }
 
 /** GitHub Copilot CLI `--additional-mcp-config` file contents. */
-export function copilotMcpConfig(spec: McpServerSpec): string {
-  return `${JSON.stringify(
-    {
-      mcpServers: {
-        [spec.name]: { type: "local", command: spec.command, args: spec.args, env: spec.env, tools: ["*"] },
-      },
-    },
-    null,
-    2,
-  )}\n`;
+export function copilotMcpConfig(specs: McpServerSpec | readonly McpServerSpec[]): string {
+  const mcpServers = Object.fromEntries(
+    specList(specs).map((spec) => [
+      spec.name,
+      { type: "local", command: spec.command, args: spec.args, env: spec.env, tools: ["*"] },
+    ]),
+  );
+  return `${JSON.stringify({ mcpServers }, null, 2)}\n`;
 }
 
 /**
@@ -171,8 +175,16 @@ export function codexThreadConfig(spec: McpServerSpec): Record<string, unknown> 
   return { [`mcp_servers.${spec.name}.env`]: { ...spec.env } };
 }
 
+/** Per-thread Codex config override that adds a whole server, so edits apply to the next thread. */
+export function codexServerConfig(spec: McpServerSpec): Record<string, unknown> {
+  return { [`mcp_servers.${spec.name}`]: { command: spec.command, args: [...spec.args], env: { ...spec.env } } };
+}
+
 /** OpenCode inline config, merged into any OPENCODE_CONFIG_CONTENT the user already set. */
-export function opencodeConfigContent(spec: McpServerSpec, existing?: string): string | undefined {
+export function opencodeConfigContent(
+  specs: McpServerSpec | readonly McpServerSpec[],
+  existing?: string,
+): string | undefined {
   let base: Record<string, unknown> = {};
   if (existing?.trim()) {
     try {
@@ -184,13 +196,13 @@ export function opencodeConfigContent(spec: McpServerSpec, existing?: string): s
     }
   }
   const mcp = isPlainObject(base.mcp) ? base.mcp : {};
-  return JSON.stringify({
-    ...base,
-    mcp: {
-      ...mcp,
-      [spec.name]: { type: "local", command: [spec.command, ...spec.args], environment: spec.env, enabled: true },
-    },
-  });
+  const added = Object.fromEntries(
+    specList(specs).map((spec) => [
+      spec.name,
+      { type: "local", command: [spec.command, ...spec.args], environment: spec.env, enabled: true },
+    ]),
+  );
+  return JSON.stringify({ ...base, mcp: { ...mcp, ...added } });
 }
 
 /**
@@ -233,15 +245,26 @@ export async function writeFileIfChanged(path: string, contents: string): Promis
   await writeFileAtomic(path, contents);
 }
 
+export type McpConfigFileKind = "claude" | "copilot";
+
+/** Per-worktree MCP config file holding every server, for CLIs that take one on the command line. */
+export async function writeAgentMcpConfig(
+  dir: string,
+  kind: McpConfigFileKind,
+  worktreeId: string | undefined,
+  specs: readonly McpServerSpec[],
+): Promise<string> {
+  const key = (worktreeId ?? "shared").replace(/[^A-Za-z0-9_-]/gu, "_");
+  const path = join(dir, `${kind}-${key}.json`);
+  await writeFileIfChanged(path, kind === "claude" ? claudeMcpConfig(specs) : copilotMcpConfig(specs));
+  return path;
+}
+
 /** Per-worktree MCP config file for CLIs that take one on the command line. */
 export async function writeMcpConfigFile(
   config: BrowserToolConfig,
-  kind: "claude" | "copilot",
+  kind: McpConfigFileKind,
   worktreeId: string | undefined,
 ): Promise<string> {
-  const spec = mcpServerSpec(config, worktreeId);
-  const key = (worktreeId ?? "shared").replace(/[^A-Za-z0-9_-]/gu, "_");
-  const path = join(config.mcpConfigDir, `${kind}-${key}.json`);
-  await writeFileIfChanged(path, kind === "claude" ? claudeMcpConfig(spec) : copilotMcpConfig(spec));
-  return path;
+  return writeAgentMcpConfig(config.mcpConfigDir, kind, worktreeId, [mcpServerSpec(config, worktreeId)]);
 }

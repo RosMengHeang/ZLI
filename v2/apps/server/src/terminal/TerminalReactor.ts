@@ -11,18 +11,19 @@ import {
 import {
   type BrowserToolConfig,
   browserToolEnv,
+  type McpServerSpec,
   mcpServerSpec,
   opencodeConfigContent,
-  writeMcpConfigFile,
+  writeAgentMcpConfig,
 } from "../browser-tool/browserTool.js";
 import type { Engine } from "../orchestration/Engine.js";
 import {
   AGENT_PTY_ENV,
   AgentLaunchError,
   agentCliMissingMessage,
-  browserToolArgs,
-  browserToolConfigFileKind,
   buildAgentArgs,
+  mcpConfigFileKind,
+  mcpLaunchArgs,
 } from "./agentLaunch.js";
 import type { TerminalService } from "./TerminalService.js";
 
@@ -35,7 +36,11 @@ export type TerminalReactorOptions = {
   resolveAgentCli?: AgentCliResolver;
   /** When set, every terminal can run `zli-browser` and agent CLIs get it as an MCP server. */
   browserTool?: BrowserToolConfig;
-  writeMcpConfig?: typeof writeMcpConfigFile;
+  /** MCP servers added in Settings, read at each launch so a change applies to the next agent. */
+  mcpServers?: () => readonly McpServerSpec[];
+  /** Where per-launch MCP config files go when there is no browser tool. */
+  mcpConfigDir?: string;
+  writeMcpConfig?: typeof writeAgentMcpConfig;
   /** The environment agent settings such as OPENCODE_CONFIG_CONTENT are merged with. */
   env?: NodeJS.ProcessEnv;
 };
@@ -214,33 +219,45 @@ export class TerminalReactor {
       file = undefined;
     }
     if (!file) throw new AgentLaunchError(agentCliMissingMessage(agent.provider));
-    if (!this.options.browserTool) return { file, args, env: {} };
-    const browser = await this.browserLaunch(this.options.browserTool, agent, worktreeId);
-    return { file, args: [...args, ...browser.args], env: browser.env };
+    const specs = this.mcpSpecs(worktreeId);
+    if (specs.length === 0) return { file, args, env: {} };
+    const mcp = await this.mcpLaunch(specs, agent, worktreeId);
+    return { file, args: [...args, ...mcp.args], env: mcp.env };
   }
 
-  /** The browser tool is an extra; a failure to prepare it never blocks the agent from starting. */
-  private async browserLaunch(
-    config: BrowserToolConfig,
+  private mcpSpecs(worktreeId: string): McpServerSpec[] {
+    const browserTool = this.options.browserTool;
+    let added: readonly McpServerSpec[] = [];
+    try {
+      added = this.options.mcpServers?.() ?? [];
+    } catch {
+      added = [];
+    }
+    return [...(browserTool ? [mcpServerSpec(browserTool, worktreeId)] : []), ...added];
+  }
+
+  /** MCP servers are extras; a failure to prepare them never blocks the agent from starting. */
+  private async mcpLaunch(
+    specs: readonly McpServerSpec[],
     agent: TerminalAgentLaunch,
     worktreeId: string,
   ): Promise<{ args: string[]; env: Record<string, string> }> {
-    const spec = mcpServerSpec(config, worktreeId);
-    const kind = browserToolConfigFileKind(agent.provider);
+    const kind = mcpConfigFileKind(agent.provider);
+    const dir = this.options.browserTool?.mcpConfigDir ?? this.options.mcpConfigDir;
     let configFile: string | undefined;
-    if (kind) {
+    if (kind && dir) {
       try {
-        configFile = await (this.options.writeMcpConfig ?? writeMcpConfigFile)(config, kind, worktreeId);
+        configFile = await (this.options.writeMcpConfig ?? writeAgentMcpConfig)(dir, kind, worktreeId, specs);
       } catch {
         configFile = undefined;
       }
     }
     const env: Record<string, string> = {};
     if (agent.provider === "opencode") {
-      const content = opencodeConfigContent(spec, (this.options.env ?? process.env).OPENCODE_CONFIG_CONTENT);
+      const content = opencodeConfigContent(specs, (this.options.env ?? process.env).OPENCODE_CONFIG_CONTENT);
       if (content) env.OPENCODE_CONFIG_CONTENT = content;
     }
-    return { args: browserToolArgs(agent.provider, { spec, ...(configFile ? { configFile } : {}) }), env };
+    return { args: mcpLaunchArgs(agent.provider, { specs, ...(configFile ? { configFile } : {}) }), env };
   }
 
   private async worktreePath(worktreeId: string): Promise<string | undefined> {
