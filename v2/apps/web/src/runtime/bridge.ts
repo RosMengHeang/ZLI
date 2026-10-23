@@ -5,6 +5,8 @@ import type {
   RuntimeProjection,
   TerminalAttachSnapshot,
   TerminalStreamMessage,
+  UpdateStatus,
+  WhatsNew,
 } from "@zli-v2/contracts";
 
 export type ZliBridge = {
@@ -64,6 +66,17 @@ export type ZliBridge = {
     setSettings(patch: Partial<NotificationSettings>): Promise<NotificationSettings>;
     setViewing(sessionIds: readonly string[]): Promise<unknown>;
     onActivate(listener: (event: { sessionId: string }) => void): () => void;
+  };
+  updates?: {
+    getStatus(): Promise<UpdateStatus>;
+    onStatus(listener: (status: UpdateStatus) => void): () => void;
+    check(): Promise<UpdateStatus>;
+    download(): Promise<UpdateStatus>;
+    quitAndInstall(): Promise<boolean>;
+    openReleasePage(): Promise<void>;
+    setAutoInstall(autoInstall: boolean): Promise<UpdateStatus>;
+    whatsNew(): Promise<WhatsNew | undefined>;
+    dismissWhatsNew(): Promise<void>;
   };
 };
 

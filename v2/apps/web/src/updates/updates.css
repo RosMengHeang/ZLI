@@ -1,0 +1,18 @@
+.update-pill {
+  display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1-5); height: 22px; padding: 0 var(--zli-space-2-5);
+  border: 1px solid var(--zli-accent-line); border-radius: var(--zli-radius-pill); background: var(--zli-accent-soft); color: var(--zli-text);
+  cursor: pointer; font-size: var(--zli-text-xs); font-weight: 550; white-space: nowrap;
+  transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease);
+}
+.update-pill:hover { border-color: var(--zli-accent); background: oklch(.571 .21 264 / .24); }
+.update-pill > svg { color: var(--zli-blue); }
+
+.update-status { display: flex; flex-direction: column; gap: var(--zli-space-1-5); }
+.update-status-text { margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.update-checked { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.update-progress { width: 100%; max-width: 300px; height: 4px; accent-color: var(--zli-accent); }
+.update-actions { display: flex; flex-wrap: wrap; gap: var(--zli-space-1-5); margin-top: var(--zli-space-1); }
+
+.whats-new-dialog { width: min(640px, 100%); }
+.whats-new-body { max-height: min(60vh, 520px); overflow: auto; }
+.file-md.whats-new-notes { padding: 0; font-size: var(--zli-text-base); }

@@ -1,6 +1,14 @@
 // @vitest-environment jsdom
 
-import { CommandId, EnvironmentId, ProjectId, type RuntimeProjection, WorktreeId } from "@zli-v2/contracts";
+import {
+  CommandId,
+  EnvironmentId,
+  ProjectId,
+  type RuntimeProjection,
+  type UpdateStatus,
+  type WhatsNew,
+  WorktreeId,
+} from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -457,5 +465,179 @@ describe("Settings", () => {
     expect(dialog("New agent")?.querySelector<HTMLSelectElement>('select[aria-label="Permissions"]')?.value).toBe(
       "supervised",
     );
+  });
+});
+
+describe("Updates", () => {
+  const ready: UpdateStatus = {
+    state: { status: "ready", version: "0.2.0", notes: "Faster startup" },
+    currentVersion: "0.1.0",
+    autoInstall: true,
+    channel: "stable",
+  };
+  const working: RuntimeProjection = {
+    ...withAgent,
+    threads: [
+      {
+        threadId: "00000000-0000-4000-8000-000000000401",
+        worktreeId,
+        provider: "claude-code",
+        status: "working",
+        capabilities: {},
+        sessionId: agentSessionId,
+      } as RuntimeProjection["threads"][number],
+    ],
+  };
+  const withUpdates = (base: ZliBridge, status: UpdateStatus, whatsNew?: WhatsNew) => {
+    const calls: string[] = [];
+    let listener: ((next: UpdateStatus) => void) | undefined;
+    const bridge: ZliBridge = {
+      ...base,
+      updates: {
+        getStatus: async () => status,
+        onStatus: (next) => {
+          listener = next;
+          return () => {
+            listener = undefined;
+          };
+        },
+        check: async () => {
+          calls.push("check");
+          return status;
+        },
+        download: async () => {
+          calls.push("download");
+          return status;
+        },
+        quitAndInstall: async () => {
+          calls.push("install");
+          return true;
+        },
+        openReleasePage: async () => {
+          calls.push("open-release");
+        },
+        setAutoInstall: async (autoInstall) => {
+          calls.push(`auto-install:${autoInstall}`);
+          return { ...status, autoInstall };
+        },
+        whatsNew: async () => whatsNew,
+        dismissWhatsNew: async () => {
+          calls.push("dismiss-whats-new");
+        },
+      },
+    };
+    return { bridge, calls, push: (next: UpdateStatus) => listener?.(next) };
+  };
+  const dialog = (name: string) => document.querySelector<HTMLElement>(`[role="dialog"][aria-label="${name}"]`);
+
+  it("restarts into a downloaded update from the title bar, asking first while an agent works", async () => {
+    const { bridge, calls } = withUpdates(makeBridge(working), ready);
+    const container = await render(bridge);
+    const pill = button(container, "Restart to update to v0.2.0");
+    expect(pill).not.toBeUndefined();
+
+    await act(async () => {
+      pill?.click();
+    });
+    const confirm = dialog("Restart to update");
+    expect(confirm?.textContent).toContain("An agent is still working");
+    expect(calls).toEqual([]);
+    await act(async () => {
+      [...(confirm?.querySelectorAll("button") ?? [])].find((entry) => entry.textContent === "Restart anyway")?.click();
+    });
+    expect(calls).toEqual(["install"]);
+    expect(dialog("Restart to update")).toBeNull();
+  });
+
+  it("restarts at once when no agent is mid-turn", async () => {
+    const { bridge, calls } = withUpdates(makeBridge(withAgent), ready);
+    const container = await render(bridge);
+    await act(async () => {
+      button(container, "Restart to update to v0.2.0")?.click();
+    });
+    expect(dialog("Restart to update")).toBeNull();
+    expect(calls).toEqual(["install"]);
+  });
+
+  it("links unsigned macOS builds to the release page and follows pushed status", async () => {
+    const idle: UpdateStatus = { ...ready, state: { status: "idle" } };
+    const { bridge, calls, push } = withUpdates(makeBridge(projection), idle);
+    const container = await render(bridge);
+    expect(container.querySelector(".update-pill")).toBeNull();
+
+    await act(async () => {
+      push({
+        ...idle,
+        state: {
+          status: "available",
+          version: "0.3.0",
+          releaseUrl: "https://github.com/RosMengHeang/ZLI/releases/tag/v0.3.0",
+          canAutoInstall: false,
+        },
+      });
+    });
+    await act(async () => {
+      button(container, "Update available: v0.3.0")?.click();
+    });
+    expect(calls).toEqual(["open-release"]);
+  });
+
+  it("shows the version, status, channel, and automatic install switch in Settings", async () => {
+    const status: UpdateStatus = { ...ready, state: { status: "idle" }, lastCheckedAt: "2025-01-02T03:04:05.000Z" };
+    const { bridge, calls } = withUpdates(makeBridge(projection), status);
+    const container = await render(bridge);
+    await act(async () => {
+      button(container, "Settings")?.click();
+    });
+    const settings = dialog("Settings");
+    await act(async () => {
+      [...(settings?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [])]
+        .find((entry) => entry.textContent === "Updates")
+        ?.click();
+    });
+    expect(settings?.textContent).toContain("0.1.0");
+    expect(settings?.textContent).toContain("ZLI is up to date.");
+    expect(settings?.textContent).toContain("Last checked");
+    const channel = settings?.querySelector<HTMLSelectElement>('select[aria-label="Update channel"]');
+    expect(channel?.disabled).toBe(true);
+    expect(channel?.value).toBe("stable");
+
+    await act(async () => {
+      button(settings ?? container, "Check for updates")?.click();
+    });
+    const toggle = settings?.querySelector<HTMLInputElement>('input[role="switch"]');
+    expect(toggle?.checked).toBe(true);
+    await act(async () => {
+      toggle?.click();
+    });
+    expect(calls).toEqual(["check", "auto-install:false"]);
+    expect(toggle?.checked).toBe(false);
+  });
+
+  it("shows What's new once and records it when closed", async () => {
+    const { bridge, calls } = withUpdates(
+      makeBridge(projection),
+      { ...ready, state: { status: "idle" } },
+      {
+        version: "0.1.0",
+        notes: "## Fixes\n\n- Faster startup",
+        releaseUrl: "https://github.com/RosMengHeang/ZLI/releases/tag/v0.1.0",
+      },
+    );
+    await render(bridge);
+    // The dialog loads lazily, so wait for its module.
+    for (let attempt = 0; attempt < 100 && !dialog("What's new"); attempt += 1) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+    }
+    const whatsNew = dialog("What's new");
+    expect(whatsNew?.textContent).toContain("What's new in v0.1.0");
+    expect(whatsNew?.querySelector("li")?.textContent).toBe("Faster startup");
+    await act(async () => {
+      [...(whatsNew?.querySelectorAll("button") ?? [])].find((entry) => entry.textContent === "Done")?.click();
+    });
+    expect(dialog("What's new")).toBeNull();
+    expect(calls).toEqual(["dismiss-whats-new"]);
   });
 });

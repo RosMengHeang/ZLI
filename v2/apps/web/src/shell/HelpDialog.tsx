@@ -1,3 +1,4 @@
+import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Icon } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
@@ -7,6 +8,8 @@ type HelpDialogProps = {
   version?: string | undefined;
   onSupportBundle(): void;
   onImportLegacy(): void;
+  /** Opens Settings at Updates; the button is hidden without it. */
+  onOpenUpdates?: (() => void) | undefined;
   onClose(): void;
 };
 
@@ -21,7 +24,7 @@ const fixedGroups: { title: string; items: [string, string][] }[] = [
   },
 ];
 
-export function HelpDialog({ version, onSupportBundle, onImportLegacy, onClose }: HelpDialogProps) {
+export function HelpDialog({ version, onSupportBundle, onImportLegacy, onOpenUpdates, onClose }: HelpDialogProps) {
   const shortcuts = useShortcuts();
   const shortcutGroups = [
     {
@@ -77,6 +80,11 @@ export function HelpDialog({ version, onSupportBundle, onImportLegacy, onClose }
       </div>
       <div className="dialog-footer">
         <span className="dialog-footer-note help-version">ZLI {version ?? "development"}</span>
+        {onOpenUpdates ? (
+          <Button size="sm" variant="ghost" icon="reload" onClick={onOpenUpdates}>
+            Check for updates
+          </Button>
+        ) : null}
       </div>
     </Dialog>
   );
