@@ -3,8 +3,8 @@
 ## Design read
 
 ZLI is a local workspace for developers who run several coding agents at once.
-The style is a near-black window with work islands on it, close to desktop
-tools such as T3 Code, the ChatGPT desktop app, and Orca. Dials: ENERGY 1,
+The style is a near-black window with work islands on it, in the manner of a
+focused desktop tool. Dials: ENERGY 1,
 RHYTHM 2, MOTION 2. The interface stays quiet so agent output, diffs, and
 terminal text carry the contrast. Regions are told apart by tone and spacing,
 not by lines, so the chrome has very few borders.
@@ -97,7 +97,7 @@ not cover, add it to the primitives instead of styling it locally.
   Collapsing it removes it completely so the workbench gets the full width.
   It is 256px wide, 236px under 1240px, and 216px under 1080px. Add project
   (folder with a plus) and New agent (pen on a square) are plain rows at the
-  top, in that order, like New chat in ChatGPT; the New agent shortcut appears
+  top, in that order; the New agent shortcut appears
   when the row is hovered or focused. The footer
   holds the runtime status, Usage, Settings, and Help.
 - Agent rows are single lines indented under their project, with the
@@ -119,15 +119,13 @@ not cover, add it to the primitives instead of styling it locally.
   and the status, then the view switch and the window actions. The header and
   the body share one surface with no rule between them. The active tile gets
   an accent edge because that is where typing goes.
-- Chats follow Codex and T3 Code: user messages are right-aligned bubbles,
+- In chats, user messages are right-aligned bubbles,
   replies are plain text in a centered column, and the log fades out above
   the composer. Tiles under 520px use smaller gutters and 13px text.
 - The composer footer holds attach, window capture, and saved prompts, then
   the Model and Permissions pickers. Both open a dark popover list instead of
   a native select, whose option list follows the system's light theme. Each
-  model shows its maker's logo (Claude, OpenAI, Gemini, xAI, Z.ai, Kimi, Qwen,
-  DeepSeek, Mistral, Meta, MiniMax, Cursor) in the list and in the closed
-  chip; the default or an unknown model shows a neutral chip glyph.
+  model shows its maker's logo in the list and in the closed chip; the default or an unknown model shows a neutral chip glyph.
 - Permissions have three levels, from least to most an agent may do alone:
   Read only (eye), Auto (shield with a check), and Full access (shield with an
   alert). Each option carries a one-line description, and the chip stays
