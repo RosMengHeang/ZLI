@@ -189,9 +189,12 @@ async function main(): Promise<void> {
       window.webContents.send("zli:runtime:terminal", message);
     }
   });
+  // ready-to-show can fire before loadURL resolves, so the listener goes first. A window that misses it
+  // stays hidden and Chromium stops drawing frames for it.
+  window.once?.("ready-to-show", () => window.show?.());
   const rendererUrl = process.env.ZLI_RENDERER_URL ?? `${APP_ORIGIN}/index.html`;
   if (window.loadURL) await window.loadURL(rendererUrl);
-  window.once?.("ready-to-show", () => window.show?.());
+  if (window.isVisible?.() === false) window.show?.();
 }
 
 /**

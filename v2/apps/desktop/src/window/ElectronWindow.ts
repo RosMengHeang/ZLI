@@ -18,6 +18,7 @@ export type BrowserWindowLike = {
   loadURL?(url: string): Promise<void>;
   once?(event: "ready-to-show", listener: () => void): void;
   show?(): void;
+  isVisible?(): boolean;
 };
 
 export type BrowserWindowConstructor = new (options: Record<string, unknown>) => BrowserWindowLike;
