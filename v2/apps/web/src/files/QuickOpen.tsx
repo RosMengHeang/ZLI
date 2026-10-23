@@ -3,7 +3,7 @@ import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useStat
 import { Dialog } from "../ui/Dialog.js";
 import { Icon } from "../ui/Icon.js";
 import { useFileIndex } from "./FileIndex.js";
-import { FileStatusMark } from "./FileTreeView.js";
+import { FileStatusMark } from "./FileMarks.js";
 import { baseName, dirName, type FileLocation } from "./filePaths.js";
 import { rankFiles } from "./fuzzy.js";
 

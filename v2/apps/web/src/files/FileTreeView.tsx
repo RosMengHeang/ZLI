@@ -1,55 +1,12 @@
-import type { FileChangeStatus, FileListEntry } from "@zli-v2/contracts";
+import type { FileListEntry } from "@zli-v2/contracts";
 import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef } from "react";
 
 import { Icon } from "../ui/Icon.js";
+import { FileStatusMark, LineCounts } from "./FileMarks.js";
 import { buildFileTree, visibleTreeRows } from "./fileTree.js";
 
 /** Rendering every row of a fully expanded monorepo would stall the panel. */
 const MAX_ROWS = 4_000;
-
-export const statusLetter: Record<FileChangeStatus, string> = {
-  modified: "M",
-  added: "A",
-  untracked: "U",
-  deleted: "D",
-  renamed: "R",
-  conflicted: "!",
-};
-
-export const statusLabel: Record<FileChangeStatus, string> = {
-  modified: "Modified",
-  added: "Added",
-  untracked: "New, not tracked by Git",
-  deleted: "Deleted",
-  renamed: "Renamed",
-  conflicted: "Merge conflict",
-};
-
-export function FileStatusMark({ status }: { status: FileChangeStatus | undefined }) {
-  if (!status) return null;
-  return (
-    <span className={`file-status file-status-${status}`} title={statusLabel[status]}>
-      {statusLetter[status]}
-    </span>
-  );
-}
-
-/** Lines added and removed, for example `+12 −3`. Renders nothing when Git gave no counts. */
-export function LineCounts({
-  additions,
-  deletions,
-}: {
-  additions?: number | undefined;
-  deletions?: number | undefined;
-}) {
-  if (additions === undefined || deletions === undefined) return null;
-  return (
-    <span className="file-counts" role="img" aria-label={`${additions} added, ${deletions} removed`}>
-      <span className="is-add">+{additions}</span>
-      <span className="is-del">−{deletions}</span>
-    </span>
-  );
-}
 
 /** The tree row for `path`; rows in the Changed group are copies and are skipped. */
 function findRow(container: HTMLElement, path: string): HTMLElement | undefined {
