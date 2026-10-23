@@ -97,7 +97,7 @@ export class CursorAgentClient {
     private readonly command: string,
     private readonly spawnProcess: CursorAgentClientOptions["spawnProcess"],
     private readonly baseEnv: NodeJS.ProcessEnv | undefined,
-    private readonly permissionMode: CursorPermissionMode,
+    private permissionMode: CursorPermissionMode,
     private readonly model: string | undefined,
     private readonly approveMcps: boolean,
   ) {}
@@ -129,10 +129,18 @@ export class CursorAgentClient {
     return this.completed;
   }
 
-  /** Each turn is its own process, so a turn-level model simply replaces --model for that run. */
-  async sendTurn(input: { text: string; model?: string }): Promise<CursorTurnResult> {
+  /**
+   * Each turn is its own process, so a turn-level model simply replaces --model for that run. A
+   * permission mode applies to this turn and every later one.
+   */
+  async sendTurn(input: {
+    text: string;
+    model?: string;
+    permissionMode?: CursorPermissionMode;
+  }): Promise<CursorTurnResult> {
     this.assertOpen();
     if (this.active) throw new CursorProviderError("request_failed", "Cursor CLI already has a turn in progress.");
+    if (input.permissionMode) this.permissionMode = input.permissionMode;
     const providerTurnId = randomUUID();
     const peer = this.spawnTurn(input.model?.trim() || this.model);
     this.active = { id: providerTurnId, text: "", sawPartial: false, sawText: false };

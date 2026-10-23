@@ -70,7 +70,9 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
     if (!context.client.respondToApproval) {
       throw new ClaudeProviderError("unsupported", "Claude Code adapter does not handle structured approvals.");
     }
-    await context.client.respondToApproval(input.requestId, approvalAllowed(input.decision));
+    await context.client.respondToApproval(input.requestId, approvalAllowed(input.decision), {
+      forSession: approvalForSession(input.decision),
+    });
   }
 
   async respondToUserInput(input: {
@@ -192,5 +194,17 @@ export function approvalAllowed(decision: unknown): boolean {
   if (!decision || typeof decision !== "object" || Array.isArray(decision)) return false;
   const record = decision as Record<string, unknown>;
   if (typeof record.approved === "boolean") return record.approved;
-  return record.decision === "accept" || record.decision === "allow" || record.decision === "approved";
+  return (
+    record.decision === "accept" ||
+    record.decision === "acceptForSession" ||
+    record.decision === "allow" ||
+    record.decision === "approved"
+  );
+}
+
+/** { approved: true, scope: "session" } or Codex-style "acceptForSession" keeps allowing the same tool. */
+export function approvalForSession(decision: unknown): boolean {
+  if (!approvalAllowed(decision) || !decision || typeof decision !== "object") return false;
+  const record = decision as Record<string, unknown>;
+  return record.scope === "session" || record.decision === "acceptForSession";
 }

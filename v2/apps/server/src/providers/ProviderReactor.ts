@@ -126,7 +126,7 @@ export class ProviderReactor {
   }
 
   private async send(intent: SendIntent): Promise<void> {
-    const { threadId, text, model } = intent;
+    const { threadId, text, model, permissionMode } = intent;
     const attachments = intent.attachments ?? [];
     await this.message(threadId, "user", text, undefined, attachments);
     try {
@@ -134,6 +134,7 @@ export class ProviderReactor {
         threadId: ThreadId.parse(threadId),
         text: promptWithAttachments(text, attachments),
         ...(model ? { model } : {}),
+        ...(permissionMode ? { permissionMode } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
       });
       await this.status(threadId, "working", { turnId: result.turnId });

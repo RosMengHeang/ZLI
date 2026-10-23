@@ -96,7 +96,7 @@ export class CodexProviderAdapter implements ProviderAdapter {
     answers: Record<string, string>;
   }): Promise<void> {
     this.context(input.threadId);
-    await (await this.ensureClient()).respondToRequest(input.requestId, { answers: input.answers });
+    await (await this.ensureClient()).respondToRequest(input.requestId, codexUserInputAnswers(input.answers));
   }
 
   async stopSession(input: { threadId: ThreadId }): Promise<void> {
@@ -229,11 +229,23 @@ export class CodexProviderAdapter implements ProviderAdapter {
   }
 }
 
+/** Codex app-server keys each answer by question id and takes a list of strings per question. */
+export function codexUserInputAnswers(answers: Record<string, string>): {
+  answers: Record<string, { answers: string[] }>;
+} {
+  return {
+    answers: Object.fromEntries(
+      Object.entries(answers).map(([questionId, answer]) => [questionId, { answers: [answer] }]),
+    ),
+  };
+}
+
 /** The UI answers approvals with { approved }; Codex app-server expects { decision }. */
 export function codexApprovalDecision(decision: unknown): unknown {
   if (!decision || typeof decision !== "object" || Array.isArray(decision)) return decision;
   const record = decision as Record<string, unknown>;
   if (typeof record.decision === "string") return { decision: record.decision };
+  if (record.approved === true && record.scope === "session") return { decision: "acceptForSession" };
   if (typeof record.approved === "boolean") return { decision: record.approved ? "accept" : "decline" };
   return decision;
 }

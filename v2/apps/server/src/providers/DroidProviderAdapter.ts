@@ -22,6 +22,7 @@ export class DroidProviderAdapter implements ProviderAdapter {
     structuredUserInput: false,
     conversationRollback: false,
     modelSwitch: "in-session",
+    permissionSwitch: "in-session",
   };
 
   private readonly sessions = new Map<
@@ -55,6 +56,7 @@ export class DroidProviderAdapter implements ProviderAdapter {
     const result = await context.client.sendTurn({
       text: input.text,
       ...(input.model ? { model: input.model } : {}),
+      ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
     });
     return { turnId: result.providerTurnId };
   }

@@ -106,6 +106,41 @@ describe("ProjectionStore", () => {
     expect(store.current()?.lastSequence).toBe(0);
   });
 
+  it("follows a chat turn with an approval without asking for a fresh projection", () => {
+    const store = new ProjectionStore();
+    const threadId = id("31");
+    const statuses: string[] = [];
+    store.subscribe((next) => {
+      const status = next.threads[0]?.status;
+      if (status && statuses.at(-1) !== status) statuses.push(status);
+    });
+    store.replace({
+      ...projection(),
+      threads: [{ threadId, worktreeId: id("11"), provider: "codex", status: "idle", capabilities: {} }],
+    });
+    const request = { requestId: "r1", threadId, kind: "approval", payload: { command: "npm test" } };
+    const events = [
+      { type: "thread.send.requested", threadId, text: "Run the tests", permissionMode: "supervised" },
+      { type: "thread.status.changed", threadId, status: "working", turnId: id("41") },
+      { type: "thread.request.requested", request },
+      { type: "thread.respond.requested", threadId, requestId: "r1", decision: "accept" },
+      { type: "thread.request.resolved", threadId, requestId: "r1" },
+      { type: "thread.status.changed", threadId, status: "idle" },
+    ];
+    events.forEach((event, index) => {
+      expect(store.apply(envelope(index + 1, event))).toBe("applied");
+      if (event.type === "thread.request.requested") {
+        expect(store.current()?.requests).toEqual([request]);
+        expect(store.current()?.attention.map((item) => item.id)).toEqual(["thread-request:r1"]);
+      }
+    });
+    expect(statuses).toEqual(["idle", "working", "idle"]);
+    expect(store.current()?.threads[0]?.permissionMode).toBe("supervised");
+    expect(store.current()?.requests).toEqual([]);
+    expect(store.current()?.attention).toEqual([]);
+    expect(store.current()?.lastSequence).toBe(events.length);
+  });
+
   it("projects an agent-to-agent message onto the target thread", () => {
     const store = new ProjectionStore();
     store.replace(projection());

@@ -573,4 +573,22 @@ describe("CursorAgentClient tool activity", () => {
     await client.sendTurn({ text: "Hi" });
     expect(calls[0]).toEqual([...printArgs.slice(0, 6), "--approve-mcps", ...printArgs.slice(6)]);
   });
+
+  it("switches permission mode from the turn that asks and keeps it for later turns", async () => {
+    const calls: Array<readonly string[]> = [];
+    const client = await CursorAgentClient.start({
+      command: "/usr/bin/cursor-agent",
+      cwd: "/work/tree",
+      spawnProcess: (_command, args) => {
+        calls.push(args);
+        return new FakeProcess();
+      },
+    });
+    await client.sendTurn({ text: "One" });
+    await client.interruptTurn();
+    await client.sendTurn({ text: "Two", permissionMode: "supervised" });
+    await client.interruptTurn();
+    await client.sendTurn({ text: "Three" });
+    expect(calls.map((args) => args.includes("--force"))).toEqual([true, false, false]);
+  });
 });

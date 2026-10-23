@@ -17,6 +17,7 @@ import { LegacyImportPreview } from "./import.js";
 import { SetupDecision, WorktreeSetupProjection } from "./projectConfig.js";
 import { ProjectProjection, SupportBundleProjection, WorktreeProjection } from "./projections.js";
 import {
+  PermissionMode,
   ProviderCapabilities,
   ThreadActivityProjection,
   ThreadAttachment,
@@ -90,6 +91,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     threadId: ThreadId,
     text: z.string(),
     model: z.string().min(1).optional(),
+    permissionMode: PermissionMode.optional(),
     attachments: z.array(ThreadAttachment).max(8).optional(),
   }),
   z.object({

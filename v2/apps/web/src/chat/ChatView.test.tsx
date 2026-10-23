@@ -149,4 +149,105 @@ describe("ChatView", () => {
     await act(async () => button(container, "Send")?.click());
     expect(dispatched.at(-1)?.command).toEqual({ type: "thread.send", threadId, text: "run the tests" });
   });
+
+  it("switches permission mode for the next message when the provider allows it", async () => {
+    const { container, dispatched } = await render(
+      projectionWith({ threads: [{ ...thread, status: "idle", capabilities: { permissionSwitch: "in-session" } }] }),
+    );
+    expect(container.querySelector(".composer-badge")).toBeNull();
+    const select = container.querySelector<HTMLSelectElement>(".composer-permission select");
+    expect(select?.value).toBe("supervised");
+    await act(async () => {
+      if (!select) return;
+      select.value = "full-access";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const textarea = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Droid"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(textarea, "go ahead");
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => button(container, "Send")?.click());
+    expect(dispatched.at(-1)?.command).toEqual({
+      type: "thread.send",
+      threadId,
+      text: "go ahead",
+      permissionMode: "full-access",
+    });
+  });
+
+  it("shows a Claude tool request in plain words and can allow the tool for the chat", async () => {
+    const { container, dispatched } = await render(
+      projectionWith({
+        threads: [{ ...thread, provider: "claude-code" }],
+        requests: [
+          {
+            requestId: "r2",
+            threadId,
+            kind: "approval",
+            payload: { toolName: "Bash", input: { command: "pnpm test", description: "Run the tests" } },
+          },
+          { requestId: "r3", threadId, kind: "approval", payload: { toolName: "Write", input: {} } },
+        ] as unknown as RuntimeProjection["requests"],
+      }),
+    );
+    const card = container.querySelector('[aria-label="Approval request"]');
+    expect(card?.querySelector(".chat-request-heading")?.textContent).toBe("Run a command");
+    expect(card?.textContent).toContain("pnpm test");
+    expect(card?.textContent).toContain("1 more waiting");
+    await act(async () => button(container, "Allow Bash for this chat")?.click());
+    expect(dispatched.at(-1)?.command).toEqual({
+      type: "thread.respond",
+      threadId,
+      requestId: "r2",
+      decision: { approved: true, scope: "session" },
+    });
+  });
+
+  it("answers structured questions with option picks and typed text", async () => {
+    const { container, dispatched } = await render(
+      projectionWith({
+        threads: [{ ...thread, provider: "codex" }],
+        requests: [
+          {
+            requestId: "r4",
+            threadId,
+            kind: "user-input",
+            payload: {
+              questions: [
+                {
+                  id: "db",
+                  header: "Database",
+                  question: "Which database?",
+                  options: [{ label: "Postgres", description: "Recommended" }, { label: "SQLite" }],
+                },
+                { id: "name", header: "Name", question: "Project name?" },
+              ],
+            },
+          },
+        ] as unknown as RuntimeProjection["requests"],
+      }),
+    );
+    const send = () => button(container, "Send answers");
+    expect(send()?.disabled).toBe(true);
+    await act(async () => {
+      const radio = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')][0];
+      radio?.click();
+    });
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="Project name?"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, "atlas");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(send()?.disabled).toBe(false);
+    await act(async () => send()?.click());
+    expect(dispatched.at(-1)?.command).toEqual({
+      type: "thread.user-input",
+      threadId,
+      requestId: "r4",
+      answers: { db: "Postgres", name: "atlas" },
+    });
+  });
 });

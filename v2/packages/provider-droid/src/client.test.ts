@@ -473,4 +473,23 @@ describe("DroidClient tool activity", () => {
       "claude-opus-5-5",
     ]);
   });
+
+  it("switches permission mode from the turn that asks and keeps it for later turns", async () => {
+    const calls: Array<readonly string[]> = [];
+    const client = await DroidClient.start({
+      command: "/usr/bin/droid",
+      cwd: "/work/tree",
+      spawnProcess: (_command, args) => {
+        calls.push(args);
+        return new FakeProcess();
+      },
+    });
+    await client.sendTurn({ text: "One" });
+    await client.interruptTurn();
+    await client.sendTurn({ text: "Two", permissionMode: "supervised" });
+    await client.interruptTurn();
+    await client.sendTurn({ text: "Three" });
+    expect(calls.map((args) => args.includes("--skip-permissions-unsafe"))).toEqual([true, false, false]);
+    expect(calls.map((args) => args.includes("low"))).toEqual([false, true, true]);
+  });
 });
