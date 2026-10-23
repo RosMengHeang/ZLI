@@ -8,7 +8,7 @@ import {
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
-import { permissionHint, permissionLabel, permissionModes } from "../chat/permissions.js";
+import { permissionHint, permissionIcon, permissionLabel, permissionOptions } from "../chat/permissions.js";
 import {
   branchFromTemplate,
   type LaunchDefaults,
@@ -20,6 +20,8 @@ import { type ChoiceOption, ChoiceSegmented, FormSection, ProviderOptions } from
 import { Dialog } from "../ui/Dialog.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
+import { ModelMark, modelOptions } from "../ui/ModelMark.js";
+import { Picker } from "../ui/Picker.js";
 import { checkoutWorktree, type LaunchOptions, type Placement, safeBranchName } from "./launch.js";
 import type { SessionMode } from "./sessions.js";
 
@@ -110,6 +112,9 @@ export function NewAgentDialog({
   const discovery = listed.find((entry) => entry.provider === provider);
   const models = discovery?.status === "found" ? (discovery.models ?? []) : [];
   const modelUnsupported = mode === "terminal" && provider === "droid";
+  const modelChoices = useMemo(() => modelOptions(models, model || undefined), [models, model]);
+  const shownModel = modelUnsupported ? "" : model;
+  const modelLabel = modelChoices.find((option) => option.value === shownModel)?.label ?? shownModel;
   const checkout = project ? checkoutWorktree(projection, project) : undefined;
   const sharedWorktreeId =
     placementKind === "checkout" ? checkout?.worktreeId : placementKind === "existing" ? existingId : undefined;
@@ -345,34 +350,31 @@ export function NewAgentDialog({
               htmlFor={`${ids}-model`}
               hint={modelUnsupported ? "Droid picks its model inside the CLI." : undefined}
             >
-              <Select
+              <Picker
+                variant="field"
                 id={`${ids}-model`}
-                aria-label="Model"
-                value={modelUnsupported ? "" : model}
+                label="Model"
+                value={shownModel}
+                options={modelChoices}
                 disabled={modelUnsupported}
-                onChange={(event) => setModel(event.target.value)}
+                onChange={setModel}
               >
-                <option value="">Default model</option>
-                {models.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
+                <ModelMark id={shownModel || undefined} label={modelLabel} size={15} />
+                <span className="picker-trigger-label">{modelLabel}</span>
+              </Picker>
             </FormSection>
             <FormSection label="Permissions" htmlFor={`${ids}-permissions`} hint={permissionHint[permissionMode]}>
-              <Select
+              <Picker<PermissionMode>
+                variant="field"
                 id={`${ids}-permissions`}
-                aria-label="Permissions"
+                label="Permissions"
                 value={permissionMode}
-                onChange={(event) => setPermissionMode(event.target.value as PermissionMode)}
+                options={permissionOptions}
+                onChange={setPermissionMode}
               >
-                {permissionModes.map((option) => (
-                  <option key={option} value={option}>
-                    {permissionLabel[option]}
-                  </option>
-                ))}
-              </Select>
+                <Icon name={permissionIcon[permissionMode]} size={15} />
+                <span className="picker-trigger-label">{permissionLabel[permissionMode]}</span>
+              </Picker>
             </FormSection>
           </div>
 

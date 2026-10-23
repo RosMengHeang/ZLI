@@ -148,8 +148,10 @@ not cover, add it to the primitives instead of styling it locally.
   where and how the agent runs, and the person types to the agent once it
   starts. Its sections are Project (only with more than one), Agent as cards
   with the provider mark and installed version, View and Workspace as
-  segmented controls, then Model and Permissions side by side. The footer
-  shows the branch a new worktree will create.
+  segmented controls, then Model and Permissions side by side. Those two are
+  field-style pickers that open the same dark list as the composer, with the
+  maker's logo beside each model and an icon and description for each
+  permission level. The footer shows the branch a new worktree will create.
 - Usage leads with four metric cards (turns, input, output, estimated cost),
   a period switch, and bordered tables by agent and by chat. Help lays its
   shortcuts out in two columns and ends with support actions as cards.

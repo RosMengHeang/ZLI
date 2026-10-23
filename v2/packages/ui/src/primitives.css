@@ -83,11 +83,20 @@ kbd {
 .select-ghost.is-disabled { cursor: not-allowed; opacity: .55; }
 
 /* ---------- Picker: a toolbar trigger with a dark list of choices ---------- */
-.picker-trigger { flex: 0 1 auto; border: 0; background: transparent; line-height: 1; white-space: nowrap; }
-.picker-trigger:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
-.picker-trigger[aria-expanded="true"] { background: var(--zli-active); color: var(--zli-text); }
+.picker-trigger { flex: 0 1 auto; line-height: 1; white-space: nowrap; }
+.select-ghost.picker-trigger { border: 0; background: transparent; }
+.select-ghost.picker-trigger:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+.select-ghost.picker-trigger[aria-expanded="true"] { background: var(--zli-active); color: var(--zli-text); }
 .picker-trigger-label { min-width: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 .picker-chevron { color: var(--zli-dim); }
+.picker-field { display: flex; align-items: center; gap: var(--zli-space-2); padding-right: var(--zli-space-3); color: var(--zli-text); text-align: left; }
+.picker-field:focus-visible { outline: none; }
+.picker-field[aria-expanded="true"] { border-color: var(--zli-border-hover); background: var(--zli-raised); }
+.picker-field .picker-trigger-label { flex: 1; max-width: none; }
+.picker-field > svg:not(.picker-chevron) { color: var(--zli-muted); }
+.picker-field .picker-chevron { margin-left: auto; }
+.picker-field.is-disabled { cursor: not-allowed; opacity: .5; }
+.picker-field.is-disabled:hover { border-color: var(--zli-border-strong); }
 .picker-menu {
   position: fixed; z-index: calc(var(--zli-z-dialog) + 1); display: flex; flex-direction: column;
   min-width: 232px; max-width: min(340px, calc(100vw - 16px)); padding: var(--zli-space-1);

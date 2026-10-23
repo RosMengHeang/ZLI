@@ -440,6 +440,29 @@ describe("Settings", () => {
     );
   });
 
+  it("picks permissions in the New agent dialog, and Escape closes only the open list", async () => {
+    const container = await render(makeBridge(discovered));
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".sidebar-new-agent")?.click();
+    });
+    const trigger = dialog("New agent")?.querySelector<HTMLButtonElement>('button[aria-label^="Permissions"]');
+    await act(async () => trigger?.click());
+    const list = () => document.querySelector('[role="listbox"][aria-label="Permissions"]');
+    expect(list()).not.toBeNull();
+    await press(document.activeElement ?? window, { key: "Escape", code: "Escape" });
+    expect(list()).toBeNull();
+    expect(dialog("New agent")).not.toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    await act(async () => trigger?.click());
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+        .find((option) => option.textContent?.startsWith("Read only"))
+        ?.click(),
+    );
+    expect(trigger?.getAttribute("aria-label")).toBe("Permissions: Read only");
+    expect(dialog("New agent")?.textContent).toContain("Reads and plans without changing files");
+  });
+
   it("lets a project override the agent defaults", async () => {
     updateAppSettings((current) => ({ ...current, defaults: { permissionMode: "full-access" } }));
     const container = await render(makeBridge(discovered));
@@ -454,8 +477,9 @@ describe("Settings", () => {
     await act(async () => {
       container.querySelector<HTMLButtonElement>(".sidebar-new-agent")?.click();
     });
-    expect(dialog("New agent")?.querySelector<HTMLSelectElement>('select[aria-label="Permissions"]')?.value).toBe(
-      "supervised",
+    const permissionPicker = dialog("New agent")?.querySelector(
+      'button[aria-haspopup="listbox"][aria-label^="Permissions"]',
     );
+    expect(permissionPicker?.getAttribute("aria-label")).toBe("Permissions: Auto");
   });
 });

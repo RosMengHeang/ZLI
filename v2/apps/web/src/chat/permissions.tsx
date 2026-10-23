@@ -1,6 +1,7 @@
 import type { PermissionMode } from "@zli-v2/contracts";
 
-import type { IconName } from "../ui/Icon.js";
+import { Icon, type IconName } from "../ui/Icon.js";
+import type { PickerOption } from "../ui/Picker.js";
 
 /** Ordered from the least to the most an agent may do on its own. */
 export const permissionModes: readonly PermissionMode[] = ["read-only", "supervised", "full-access"];
@@ -22,3 +23,10 @@ export const permissionHint: Record<PermissionMode, string> = {
   supervised: "Edits files and asks before risky commands, where the agent supports it.",
   "full-access": "Edits files and runs commands without asking.",
 };
+
+export const permissionOptions: readonly PickerOption<PermissionMode>[] = permissionModes.map((mode) => ({
+  value: mode,
+  label: permissionLabel[mode],
+  description: permissionHint[mode],
+  icon: <Icon name={permissionIcon[mode]} size={15} />,
+}));

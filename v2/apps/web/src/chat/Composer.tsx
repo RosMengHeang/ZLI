@@ -17,8 +17,8 @@ import { useSharedPrompts } from "../prompts/useSharedPrompts.js";
 import type { ZliBridge } from "../runtime/bridge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { ModelMark } from "../ui/ModelMark.js";
-import { Picker, type PickerOption } from "../ui/Picker.js";
+import { DEFAULT_MODEL, ModelMark, modelOptions } from "../ui/ModelMark.js";
+import { Picker } from "../ui/Picker.js";
 import { formatTokens } from "../usage/usage.js";
 import { type CodeReference, referenceLabel, withReferences } from "./codeReferences.js";
 import {
@@ -29,7 +29,7 @@ import {
   textBase64,
   textByteLength,
 } from "./pastedText.js";
-import { permissionHint, permissionIcon, permissionLabel, permissionModes } from "./permissions.js";
+import { permissionHint, permissionIcon, permissionLabel, permissionOptions } from "./permissions.js";
 
 const CapturePicker = lazy(() => import("./CapturePicker.js").then((module) => ({ default: module.CapturePicker })));
 
@@ -42,16 +42,6 @@ type Draft =
 const IMAGE_TYPES: readonly ImageMimeType[] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 const MAX_ATTACHMENTS = 8;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-
-/** The picker's value for the agent's own default model; real model ids are never empty. */
-const DEFAULT_MODEL = "";
-
-const permissionOptions: readonly PickerOption<PermissionMode>[] = permissionModes.map((mode) => ({
-  value: mode,
-  label: permissionLabel[mode],
-  description: permissionHint[mode],
-  icon: <Icon name={permissionIcon[mode]} size={15} />,
-}));
 
 function ContextMeter({ tokens, window }: { tokens: number; window?: number | undefined }) {
   const detail = window
@@ -147,22 +137,8 @@ export function Composer({
   const picker = usePromptPicker({ draft, setDraft, prompts });
   const imagesRef = useRef(images);
   imagesRef.current = images;
-  const modelOptions = useMemo((): PickerOption<string>[] => {
-    const listed = models ?? [];
-    const options: PickerOption<string>[] = [
-      { value: DEFAULT_MODEL, label: "Default model", icon: <ModelMark id={undefined} size={15} /> },
-    ];
-    if (model && !listed.some((option) => option.id === model))
-      options.push({ value: model, label: model, icon: <ModelMark id={model} size={15} /> });
-    for (const option of listed)
-      options.push({
-        value: option.id,
-        label: option.label,
-        icon: <ModelMark id={option.id} label={option.label} size={15} />,
-      });
-    return options;
-  }, [models, model]);
-  const modelLabel = modelOptions.find((option) => option.value === (model ?? DEFAULT_MODEL))?.label ?? model;
+  const modelChoices = useMemo(() => modelOptions(models, model), [models, model]);
+  const modelLabel = modelChoices.find((option) => option.value === (model ?? DEFAULT_MODEL))?.label ?? model;
 
   useEffect(
     () => () => {
@@ -490,7 +466,7 @@ export function Composer({
           label="Model"
           className="composer-model"
           value={model ?? DEFAULT_MODEL}
-          options={modelOptions}
+          options={modelChoices}
           onChange={(next) => onModelChange(next || undefined)}
           disabled={modelLocked}
           tooltip={modelLocked ? `${displayName} keeps its model for the whole session` : "Model"}

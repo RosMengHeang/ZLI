@@ -10,14 +10,15 @@ export type PickerOption<T extends string> = {
   icon?: ReactNode;
 };
 
-type Placement = { left: number; maxHeight: number } & ({ top: number } | { bottom: number });
+type Placement = { left: number; maxHeight: number; minWidth: number } & ({ top: number } | { bottom: number });
 
 const GAP = 6;
 const EDGE = 8;
 
 /**
- * A compact trigger that opens a dark list of choices above or below it. It replaces native selects,
- * whose option lists follow the operating system's light theme. Arrow keys, Home, End, and typing a
+ * A trigger that opens a dark list of choices. It replaces native selects, whose option lists follow
+ * the operating system's light theme. The ghost variant sits in toolbars and opens upward when it fits;
+ * the field variant sits in forms, looks like a text field, and opens downward like a select. Arrow keys, Home, End, and typing a
  * letter move through the options; Enter picks one; Escape, Tab, or a click elsewhere closes the list.
  */
 export function Picker<T extends string>({
@@ -30,6 +31,8 @@ export function Picker<T extends string>({
   disabled = false,
   className,
   footer,
+  variant = "ghost",
+  id,
 }: {
   /** Names the trigger and the list for assistive technology. */
   label: string;
@@ -43,6 +46,9 @@ export function Picker<T extends string>({
   disabled?: boolean;
   className?: string | undefined;
   footer?: ReactNode;
+  variant?: "ghost" | "field";
+  /** Lets a form label point at the trigger. */
+  id?: string | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const [placement, setPlacement] = useState<Placement>();
@@ -50,6 +56,7 @@ export function Picker<T extends string>({
   const menuRef = useRef<HTMLDivElement>(null);
   const listId = useId();
   const current = options.find((option) => option.value === value);
+  const withIcons = options.some((option) => option.icon !== undefined);
 
   const close = (returnFocus: boolean) => {
     setOpen(false);
@@ -64,13 +71,17 @@ export function Picker<T extends string>({
     if (!anchor || !menu) return;
     const above = anchor.top - GAP - EDGE;
     const below = window.innerHeight - anchor.bottom - GAP - EDGE;
-    const left = Math.max(EDGE, Math.min(anchor.left, window.innerWidth - menu.offsetWidth - EDGE));
+    const minWidth = variant === "field" ? anchor.width : 0;
+    const width = Math.max(menu.offsetWidth, minWidth);
+    const left = Math.max(EDGE, Math.min(anchor.left, window.innerWidth - width - EDGE));
+    const height = menu.offsetHeight;
+    const up = variant === "field" ? height > below && above > below : height <= above || above >= below;
     setPlacement(
-      menu.offsetHeight <= above || above >= below
-        ? { left, bottom: window.innerHeight - anchor.top + GAP, maxHeight: above }
-        : { left, top: anchor.bottom + GAP, maxHeight: below },
+      up
+        ? { left, minWidth, bottom: window.innerHeight - anchor.top + GAP, maxHeight: above }
+        : { left, minWidth, top: anchor.bottom + GAP, maxHeight: below },
     );
-  }, [open]);
+  }, [open, variant]);
 
   // The list is measured while hidden, and hidden elements cannot take focus, so focus waits for placement.
   const placed = placement !== undefined;
@@ -140,8 +151,9 @@ export function Picker<T extends string>({
     <>
       <button
         ref={triggerRef}
+        id={id}
         type="button"
-        className={`select-ghost picker-trigger${disabled ? " is-disabled" : ""}${className ? ` ${className}` : ""}`}
+        className={`${variant === "field" ? "select picker-field" : "select-ghost"} picker-trigger${disabled ? " is-disabled" : ""}${className ? ` ${className}` : ""}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
@@ -192,7 +204,7 @@ export function Picker<T extends string>({
                       }}
                       onClick={() => pick(option.value)}
                     >
-                      {option.icon ? (
+                      {withIcons ? (
                         <span className="picker-option-icon" aria-hidden="true">
                           {option.icon}
                         </span>
