@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { type DroidChild, DroidClient, type DroidProviderEvent, type DroidSpawnOptions } from "./client.js";
+import { droidTurnArgs } from "./protocol.js";
 
 class FakeStream extends EventEmitter {
   setEncoding(): void {}
@@ -518,5 +519,12 @@ describe("DroidClient usage", () => {
       providerTurnId: turn.providerTurnId,
       usage: { inputTokens: 2_530, cachedInputTokens: 2_000, outputTokens: 12 },
     });
+  });
+});
+
+describe("droidTurnArgs", () => {
+  it("passes no autonomy flag in read-only mode, which is exec's read-only default", () => {
+    const args = droidTurnArgs({ cwd: "/work/tree", permissionMode: "read-only" });
+    expect(args).toEqual(["exec", "-o", "stream-json", "--cwd", "/work/tree"]);
   });
 });

@@ -1,4 +1,4 @@
-export type ClaudePermissionMode = "full-access" | "supervised";
+export type ClaudePermissionMode = "read-only" | "supervised" | "full-access";
 
 const BASE_ARGS = [
   "-p",
@@ -17,16 +17,24 @@ const BASE_ARGS = [
 // user has not pre-allowed.
 export const CLAUDE_SESSION_ARGS = [...BASE_ARGS, "--permission-mode", "bypassPermissions"] as const;
 
-// Supervised: the default permission mode with "stdio" as the prompt tool makes
-// Claude ask over stdout with can_use_tool control requests instead of denying.
+// Supervised accepts file edits and, with "stdio" as the prompt tool, asks over stdout
+// with can_use_tool control requests before anything else instead of denying it.
+// Read only is Claude's plan mode: it researches and proposes, and asks the same way
+// before it leaves plan mode.
 // --mcp-config adds servers for this process only and keeps the user's own; it is variadic,
 // so it goes last where no positional argument can be mistaken for another config.
 export function claudeSessionArgs(
   input: { permissionMode?: ClaudePermissionMode; model?: string; mcpConfig?: string } = {},
 ): string[] {
   const args: string[] =
-    input.permissionMode === "supervised"
-      ? [...BASE_ARGS, "--permission-mode", "default", "--permission-prompt-tool", "stdio"]
+    input.permissionMode === "supervised" || input.permissionMode === "read-only"
+      ? [
+          ...BASE_ARGS,
+          "--permission-mode",
+          input.permissionMode === "read-only" ? "plan" : "acceptEdits",
+          "--permission-prompt-tool",
+          "stdio",
+        ]
       : [...CLAUDE_SESSION_ARGS];
   if (input.model) args.push("--model", input.model);
   if (input.mcpConfig) args.push("--mcp-config", input.mcpConfig);

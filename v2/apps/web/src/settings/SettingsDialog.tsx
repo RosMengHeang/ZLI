@@ -1,10 +1,9 @@
-import type { PermissionMode, RuntimeProjection } from "@zli-v2/contracts";
+import type { RuntimeProjection } from "@zli-v2/contracts";
 import { type KeyboardEvent, useId, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
-import { permissionLabel } from "../chat/Composer.js";
+import { permissionHint, permissionLabel, permissionModes } from "../chat/permissions.js";
 import type { NotificationSettings } from "../runtime/bridge.js";
-import { permissionHint } from "../sessions/NewAgentDialog.js";
 import type { SessionMode } from "../sessions/sessions.js";
 import { defaultShortcut, shortcutActions, shortcutFromEvent, shortcutProblem } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
@@ -221,7 +220,7 @@ function LaunchFields({
           onChange={(event) => set({ permissionMode: event.target.value })}
         >
           <option value="">{inheritLabel}</option>
-          {(Object.keys(permissionLabel) as PermissionMode[]).map((mode) => (
+          {permissionModes.map((mode) => (
             <option key={mode} value={mode}>
               {permissionLabel[mode]}
             </option>

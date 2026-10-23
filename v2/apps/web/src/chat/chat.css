@@ -58,7 +58,6 @@
 .chat-request-raw[open] > summary svg { transform: rotate(90deg); }
 .chat-request-raw > summary:hover { color: var(--zli-muted); }
 .chat-request-raw pre { max-height: 160px; margin: var(--zli-space-2) 0 0; padding: var(--zli-space-2) var(--zli-space-2-5); overflow: auto; border-radius: var(--zli-radius-sm); background: var(--zli-well); color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-xs); white-space: pre-wrap; }
-.composer-permission.is-supervised { color: var(--zli-amber); }
 .chat-ended { display: flex; align-items: center; gap: var(--zli-space-3); padding: var(--zli-space-2-5) var(--zli-space-2-5) var(--zli-space-2-5) var(--zli-space-4); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-raised); }
 .chat-ended > svg { color: var(--zli-dim); }
 .chat-ended.is-failed { border-color: var(--zli-red-line); }
@@ -205,6 +204,8 @@
 .composer-footer { display: flex; align-items: center; gap: var(--zli-space-1); margin-left: -6px; padding-top: var(--zli-space-1-5); }
 .composer-badge { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; height: var(--zli-control-md); padding: 0 var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-sm); white-space: nowrap; }
 .composer-badge.is-full-access { color: var(--zli-muted); }
+.composer-footer .picker-trigger { min-width: 0; }
+.composer-model .picker-trigger-label { max-width: 200px; }
 .composer-spacer { flex: 1; }
 .composer-context { padding: 0 var(--zli-space-1-5); color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .composer-context.is-full { color: var(--zli-amber); }
@@ -221,6 +222,10 @@
   .chat-message p, .markdown, .composer textarea { font-size: var(--zli-text-base); }
   .chat-message-user { max-width: 92%; }
 }
+@container tile (max-width: 520px) {
+  .composer-model .picker-trigger-label { max-width: 120px; }
+}
 @container tile (max-width: 400px) {
   .composer-badge { padding: 0 var(--zli-space-1); font-size: 0; gap: 0; }
+  .composer-permission .picker-trigger-label { display: none; }
 }

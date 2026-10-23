@@ -8,7 +8,7 @@ import {
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
-import { permissionLabel } from "../chat/Composer.js";
+import { permissionHint, permissionLabel, permissionModes } from "../chat/permissions.js";
 import {
   branchFromTemplate,
   type LaunchDefaults,
@@ -50,11 +50,6 @@ export const viewOptions: readonly ChoiceOption<SessionMode>[] = [
 export const viewHint: Record<SessionMode, string> = {
   terminal: "Runs the agent's own CLI inside the tile.",
   chat: "Shows messages, a work log, and changed files.",
-};
-
-export const permissionHint: Record<PermissionMode, string> = {
-  "full-access": "Edits files and runs commands without asking.",
-  supervised: "Asks before risky commands, where the agent supports it.",
 };
 
 export function NewAgentDialog({
@@ -372,7 +367,7 @@ export function NewAgentDialog({
                 value={permissionMode}
                 onChange={(event) => setPermissionMode(event.target.value as PermissionMode)}
               >
-                {(Object.keys(permissionLabel) as PermissionMode[]).map((option) => (
+                {permissionModes.map((option) => (
                   <option key={option} value={option}>
                     {permissionLabel[option]}
                   </option>

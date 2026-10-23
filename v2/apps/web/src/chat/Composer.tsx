@@ -17,6 +17,8 @@ import { useSharedPrompts } from "../prompts/useSharedPrompts.js";
 import type { ZliBridge } from "../runtime/bridge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { ModelMark } from "../ui/ModelMark.js";
+import { Picker, type PickerOption } from "../ui/Picker.js";
 import { formatTokens } from "../usage/usage.js";
 import { type CodeReference, referenceLabel, withReferences } from "./codeReferences.js";
 import {
@@ -27,6 +29,7 @@ import {
   textBase64,
   textByteLength,
 } from "./pastedText.js";
+import { permissionHint, permissionIcon, permissionLabel, permissionModes } from "./permissions.js";
 
 const CapturePicker = lazy(() => import("./CapturePicker.js").then((module) => ({ default: module.CapturePicker })));
 
@@ -40,15 +43,15 @@ const IMAGE_TYPES: readonly ImageMimeType[] = ["image/png", "image/jpeg", "image
 const MAX_ATTACHMENTS = 8;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
-export const permissionLabel: Record<PermissionMode, string> = {
-  "full-access": "Full access",
-  supervised: "Supervised",
-};
+/** The picker's value for the agent's own default model; real model ids are never empty. */
+const DEFAULT_MODEL = "";
 
-const permissionHint: Record<PermissionMode, string> = {
-  "full-access": "Full access: edits files and runs commands without asking. Applies from your next message.",
-  supervised: "Supervised: limits risky commands where the agent supports it. Applies from your next message.",
-};
+const permissionOptions: readonly PickerOption<PermissionMode>[] = permissionModes.map((mode) => ({
+  value: mode,
+  label: permissionLabel[mode],
+  description: permissionHint[mode],
+  icon: <Icon name={permissionIcon[mode]} size={15} />,
+}));
 
 function ContextMeter({ tokens, window }: { tokens: number; window?: number | undefined }) {
   const detail = window
@@ -144,6 +147,22 @@ export function Composer({
   const picker = usePromptPicker({ draft, setDraft, prompts });
   const imagesRef = useRef(images);
   imagesRef.current = images;
+  const modelOptions = useMemo((): PickerOption<string>[] => {
+    const listed = models ?? [];
+    const options: PickerOption<string>[] = [
+      { value: DEFAULT_MODEL, label: "Default model", icon: <ModelMark id={undefined} size={15} /> },
+    ];
+    if (model && !listed.some((option) => option.id === model))
+      options.push({ value: model, label: model, icon: <ModelMark id={model} size={15} /> });
+    for (const option of listed)
+      options.push({
+        value: option.id,
+        label: option.label,
+        icon: <ModelMark id={option.id} label={option.label} size={15} />,
+      });
+    return options;
+  }, [models, model]);
+  const modelLabel = modelOptions.find((option) => option.value === (model ?? DEFAULT_MODEL))?.label ?? model;
 
   useEffect(
     () => () => {
@@ -467,52 +486,37 @@ export function Composer({
             textareaRef.current?.focus();
           }}
         />
-        <label
-          className={`select-ghost composer-select${modelLocked ? " is-disabled" : ""}`}
-          data-tooltip={modelLocked ? `${displayName} keeps its model for the whole session` : "Model"}
+        <Picker
+          label="Model"
+          className="composer-model"
+          value={model ?? DEFAULT_MODEL}
+          options={modelOptions}
+          onChange={(next) => onModelChange(next || undefined)}
+          disabled={modelLocked}
+          tooltip={modelLocked ? `${displayName} keeps its model for the whole session` : "Model"}
         >
-          <Icon name="cpu" size={13} />
-          <span className="sr-only">Model</span>
-          <select
-            value={model ?? ""}
-            disabled={modelLocked}
-            onChange={(event) => onModelChange(event.target.value || undefined)}
-          >
-            <option value="">Default model</option>
-            {model && !models?.some((option) => option.id === model) ? <option value={model}>{model}</option> : null}
-            {(models ?? []).map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <Icon name="chevronDown" size={12} />
-        </label>
+          <ModelMark id={model} label={modelLabel} size={13} />
+          <span className="picker-trigger-label">{modelLabel}</span>
+        </Picker>
         {onPermissionModeChange ? (
-          <label
-            className={`select-ghost composer-select composer-permission is-${permissionMode}`}
-            data-tooltip={permissionHint[permissionMode]}
+          <Picker
+            label="Permissions"
+            className={`composer-permission is-${permissionMode}`}
+            value={permissionMode}
+            options={permissionOptions}
+            onChange={onPermissionModeChange}
+            tooltip={`${permissionHint[permissionMode]} Applies from your next message.`}
+            footer="Applies from your next message."
           >
-            <Icon name="shield" size={13} />
-            <span className="sr-only">Permission mode</span>
-            <select
-              value={permissionMode}
-              onChange={(event) => onPermissionModeChange(event.target.value as PermissionMode)}
-            >
-              {(Object.keys(permissionLabel) as PermissionMode[]).map((mode) => (
-                <option key={mode} value={mode}>
-                  {permissionLabel[mode]}
-                </option>
-              ))}
-            </select>
-            <Icon name="chevronDown" size={12} />
-          </label>
+            <Icon name={permissionIcon[permissionMode]} size={13} />
+            <span className="picker-trigger-label">{permissionLabel[permissionMode]}</span>
+          </Picker>
         ) : (
           <span
             className={`composer-badge is-${permissionMode}`}
-            data-tooltip={`${permissionLabel[permissionMode]}. ${displayName} keeps this for the whole chat.`}
+            data-tooltip={`${permissionHint[permissionMode]} ${displayName} keeps this for the whole chat.`}
           >
-            <Icon name="shield" size={12} />
+            <Icon name={permissionIcon[permissionMode]} size={12} />
             {permissionLabel[permissionMode]}
           </span>
         )}

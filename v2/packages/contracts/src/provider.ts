@@ -21,7 +21,8 @@ export const ListedProviderKind = ProviderKind;
 export type ListedProviderKind = z.infer<typeof ListedProviderKind>;
 
 /** How much an agent may do without asking. Full access is the default for every launch. */
-export const PermissionMode = z.enum(["full-access", "supervised"]);
+/** read-only plans without changing files, supervised edits but asks or refuses before risky commands. */
+export const PermissionMode = z.enum(["read-only", "supervised", "full-access"]);
 export type PermissionMode = z.infer<typeof PermissionMode>;
 
 export const ProviderModelOption = z.object({

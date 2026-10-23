@@ -34,6 +34,19 @@ describe("buildAgentArgs", () => {
     expect(buildAgentArgs({ provider: "goose", permissionMode: "supervised" })).toEqual(["session"]);
   });
 
+  it("uses each CLI's plan or read-only mode in read-only mode", () => {
+    const readOnly = (provider: Parameters<typeof buildAgentArgs>[0]["provider"]) =>
+      buildAgentArgs({ provider, permissionMode: "read-only" });
+    expect(readOnly("codex")).toEqual(["--sandbox", "read-only", "--ask-for-approval", "on-request"]);
+    expect(readOnly("claude-code")).toEqual(["--permission-mode", "plan"]);
+    expect(readOnly("cursor-agent")).toEqual(["--mode", "plan", "--trust"]);
+    expect(readOnly("droid")).toEqual(["--use-spec"]);
+    expect(readOnly("opencode")).toEqual(["--agent", "plan"]);
+    expect(readOnly("kimi")).toEqual(["--plan"]);
+    for (const provider of ["gemini", "qwen", "copilot"] as const) expect(readOnly(provider)).toEqual([]);
+    expect(readOnly("goose")).toEqual(["session"]);
+  });
+
   it("passes the model with each CLI's own flag", () => {
     expect(buildAgentArgs({ provider: "codex", model: "gpt-5.1-codex" })).toEqual([
       "--dangerously-bypass-approvals-and-sandbox",

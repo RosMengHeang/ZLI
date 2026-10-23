@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { CursorAgentClient, type CursorChild, type CursorProviderEvent, type CursorSpawnOptions } from "./client.js";
+import { cursorTurnArgs } from "./protocol.js";
 import { CURSOR_TOOL_DENY_MESSAGE } from "./schema.js";
 
 class FakeStream extends EventEmitter {
@@ -590,5 +591,14 @@ describe("CursorAgentClient tool activity", () => {
     await client.interruptTurn();
     await client.sendTurn({ text: "Three" });
     expect(calls.map((args) => args.includes("--force"))).toEqual([true, false, false]);
+  });
+});
+
+describe("cursorTurnArgs", () => {
+  it("runs plan mode without --force in read-only mode", () => {
+    const args = cursorTurnArgs({ cwd: "/work/tree", permissionMode: "read-only" });
+    expect(args).toContain("plan");
+    expect(args[args.indexOf("plan") - 1]).toBe("--mode");
+    expect(args).not.toContain("--force");
   });
 });

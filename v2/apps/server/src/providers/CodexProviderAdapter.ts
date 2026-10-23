@@ -48,13 +48,16 @@ export class CodexProviderAdapter implements ProviderAdapter {
     const client = await this.ensureClient();
     const config = this.options.threadConfig?.(input);
     // Full access keeps Codex's own configured policy, as before supervised mode existed.
+    // The other two match Codex's own Read only and Auto presets.
     const started = await client.startSession({
       cwd: input.cwd,
       ...(config ? { config } : {}),
       ...(input.model ? { model: input.model } : {}),
       ...(input.permissionMode === "supervised"
         ? { approvalPolicy: "on-request", sandboxPolicy: "workspace-write" }
-        : {}),
+        : input.permissionMode === "read-only"
+          ? { approvalPolicy: "on-request", sandboxPolicy: "read-only" }
+          : {}),
     });
     const session: ProviderSession = {
       threadId: input.threadId,

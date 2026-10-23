@@ -7,7 +7,7 @@ import { ListedProviderKind, PermissionMode } from "./provider.js";
  * The terminal daemon outlives the app, so a newer app would otherwise adopt an older daemon that
  * rejects requests it does not understand. Bump this whenever daemon request handling changes.
  */
-export const TERMINAL_DAEMON_VERSION = "zli-v2-daemon/3";
+export const TERMINAL_DAEMON_VERSION = "zli-v2-daemon/4";
 
 export const TerminalStatus = z.enum(["starting", "running", "exited", "failed"]);
 export type TerminalStatus = z.infer<typeof TerminalStatus>;

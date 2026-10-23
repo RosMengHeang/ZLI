@@ -26,7 +26,8 @@ comes from real project, process, or Git state.
   and spinners.
 - `v2/apps/web/src/ui` has the React side of those primitives: `Button`,
   `IconButton`, `Kbd`, `Tooltip`, `Dialog`, `Segmented`, `Switch`, `Badge`, `Field`,
-  `Select`, `PaneHeader`, `EmptyState`, and `LoadingState`.
+  `Select`, `Picker`, `ProviderMark`, `ModelMark`, `PaneHeader`, `EmptyState`, and
+  `LoadingState`.
 - Each feature keeps its own stylesheet next to its components, for example
   `sidebar/sidebar.css`, `sessions/tile.css`, `chat/chat.css`, and
   `files/files.css`.
@@ -121,6 +122,17 @@ not cover, add it to the primitives instead of styling it locally.
 - Chats follow Codex and T3 Code: user messages are right-aligned bubbles,
   replies are plain text in a centered column, and the log fades out above
   the composer. Tiles under 520px use smaller gutters and 13px text.
+- The composer footer holds attach, window capture, and saved prompts, then
+  the Model and Permissions pickers. Both open a dark popover list instead of
+  a native select, whose option list follows the system's light theme. Each
+  model shows its maker's logo (Claude, OpenAI, Gemini, xAI, Z.ai, Kimi, Qwen,
+  DeepSeek, Mistral, Meta, MiniMax, Cursor) in the list and in the closed
+  chip; the default or an unknown model shows a neutral chip glyph.
+- Permissions have three levels, from least to most an agent may do alone:
+  Read only (eye), Auto (shield with a check), and Full access (shield with an
+  alert). Each option carries a one-line description, and the chip stays
+  neutral because the mode is a choice, not a process state. Agents that keep
+  one mode for the whole chat show it as a static label instead.
 - Terminal, Files, Browser, and Changes open from the top bar. Files,
   Browser, and Changes share one resizable column on the right, and each
   remembers its own width. Files opens at 640px so the tree fits beside the
@@ -168,6 +180,9 @@ not cover, add it to the primitives instead of styling it locally.
   accent border and a soft glow.
 - Dialogs trap Tab, give focus back when they close, and close on Escape or a
   click outside.
+- Pickers open above their trigger when there is room, focus the selected
+  option, move with the arrow keys, Home, End, or a typed letter, and close on
+  Escape, Tab, a pick, or a click outside, giving focus back to the trigger.
 
 ## States
 

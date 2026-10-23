@@ -618,6 +618,18 @@ describe("AcpClient agent requests", () => {
     expect(agent.responseTo(202)?.result).toEqual({ outcome: { outcome: "cancelled" } });
   });
 
+  it("allows reading tools and rejects everything else in read-only mode without asking", async () => {
+    const { client, agent, events } = await harness(new FakeAgent(), { permissionMode: "read-only" });
+    await client.sendTurn({ text: "go" });
+    agent.send(permission(400));
+    const read = permission(401);
+    read.params.toolCall = { toolCallId: "call-10", title: "Read README.md", kind: "read", rawInput: { command: "" } };
+    agent.send(read);
+    expect(agent.responseTo(400)?.result).toEqual({ outcome: { outcome: "selected", optionId: "no" } });
+    expect(agent.responseTo(401)?.result).toEqual({ outcome: { outcome: "selected", optionId: "once" } });
+    expect(events.some((event) => event.type === "approval.requested")).toBe(false);
+  });
+
   it("cancels a permission request that arrives with no turn running", async () => {
     const { agent } = await harness(new FakeAgent(), { permissionMode: "supervised" });
     agent.send(permission(300));
