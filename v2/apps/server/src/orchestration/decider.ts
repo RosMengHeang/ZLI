@@ -93,6 +93,7 @@ export type DomainDecision = Extract<
       | "thread.send.requested"
       | "thread.queued"
       | "thread.usage.recorded"
+      | "thread.checkpoint.recorded"
       | "thread.queue.removed"
       | "thread.queue.prioritized"
       | "thread.a2a.delivered"
@@ -417,6 +418,9 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       return [{ type: "thread.message.appended", message: command.message }];
     case "thread.usage":
       return decideUsage(projection, command);
+    case "thread.checkpoint":
+      assertThread(projection, command.checkpoint.threadId);
+      return [{ type: "thread.checkpoint.recorded", checkpoint: command.checkpoint }];
     case "thread.request":
       assertThread(projection, command.request.threadId);
       return [{ type: "thread.request.requested", request: command.request }];

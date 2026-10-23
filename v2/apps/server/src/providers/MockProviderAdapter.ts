@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import type { ProviderCapabilities, ThreadId } from "@zli-v2/contracts";
 
@@ -69,6 +71,15 @@ export class MockProviderAdapter implements ProviderAdapter {
         return;
       }
       this.emit({ type: "turn.started", threadId: input.threadId, turnId });
+      // "[write notes.md]" writes that file in the worktree, standing in for an agent's edit.
+      const write = /\[write (\w[\w.-]*)\]/u.exec(input.text)?.[1];
+      if (write) {
+        try {
+          writeFileSync(join(session.cwd, write), `Written by the mock agent: ${input.text}\n`);
+        } catch {
+          // The harness only checks the reply when the folder cannot be written.
+        }
+      }
       this.emit({ type: "assistant.delta", threadId: input.threadId, turnId, text: `Mock response: ${input.text}` });
       if (input.text.includes("[usage]")) {
         this.emit({

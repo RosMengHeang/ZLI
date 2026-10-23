@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BrowserTabProjection } from "./browser.js";
+import { ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
 import { EnvironmentId, ProjectId, ThreadId, WorktreeId } from "./ids.js";
 import { LegacyImportProjection } from "./import.js";
@@ -114,6 +115,7 @@ export const RuntimeProjection = z.object({
   requests: z.array(ThreadRequestProjection).optional(),
   queuedMessages: z.array(ThreadQueuedMessage).optional(),
   usage: z.array(ThreadUsageRecord).optional(),
+  checkpoints: z.array(ThreadCheckpoint).optional(),
   activities: z.array(ThreadActivityProjection).optional(),
   terminals: z.array(TerminalProjection),
   browserTabs: z.array(BrowserTabProjection),
@@ -157,6 +159,9 @@ export function removeSession(
     ...(projection.queuedMessages
       ? { queuedMessages: projection.queuedMessages.filter((queued) => !threads.has(queued.threadId)) }
       : {}),
+    ...(projection.checkpoints
+      ? { checkpoints: projection.checkpoints.filter((checkpoint) => !threads.has(checkpoint.threadId)) }
+      : {}),
     attention: projection.attention.filter((item) => !removedRequests.has(item.id)),
   };
 }
@@ -179,6 +184,17 @@ export function appendThreadMessage(
   }
   return [...messages.filter((candidate) => candidate.messageId !== message.messageId), message].slice(
     -MAX_PROJECTED_MESSAGES,
+  );
+}
+
+const MAX_PROJECTED_CHECKPOINTS = 400;
+
+export function appendCheckpoint(
+  checkpoints: readonly ThreadCheckpoint[],
+  checkpoint: ThreadCheckpoint,
+): ThreadCheckpoint[] {
+  return [...checkpoints.filter((candidate) => candidate.checkpointId !== checkpoint.checkpointId), checkpoint].slice(
+    -MAX_PROJECTED_CHECKPOINTS,
   );
 }
 

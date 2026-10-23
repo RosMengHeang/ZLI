@@ -10,6 +10,8 @@ export type GitRunOptions = {
   cwd: string;
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** Added to the inherited environment, for example GIT_INDEX_FILE. */
+  env?: Readonly<Record<string, string>>;
 };
 
 export type GitExecutor = (args: readonly string[], options: GitRunOptions) => Promise<GitResult>;
@@ -69,6 +71,7 @@ async function executeGit(args: readonly string[], options: GitRunOptions): Prom
       cwd: options.cwd,
       windowsHide: true,
       shell: false,
+      ...(options.env ? { env: { ...process.env, ...options.env } } : {}),
     });
     let stdout = "";
     let stderr = "";
