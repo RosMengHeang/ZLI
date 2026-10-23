@@ -3,8 +3,15 @@
 .files-body { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .files-body.is-split { flex-direction: row; }
 .files-browser { display: flex; min-height: 0; flex: 1; flex-direction: column; background: var(--zli-sidebar); }
-.files-body.is-split .files-browser { width: clamp(180px, 34%, 280px); flex: 0 0 auto; border-right: 1px solid var(--zli-border); }
+.files-body.is-split .files-browser { min-width: 0; flex: 0 0 auto; }
 .files-editor { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; background: var(--zli-canvas); }
+.files-body.is-split .files-editor { min-width: 280px; }
+
+/* The divider draws the pane boundary itself, so neither side needs a border. */
+.files-divider { position: relative; z-index: 1; flex: 0 0 7px; margin: 0 -3px; cursor: col-resize; touch-action: none; }
+.files-divider::after { position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: var(--zli-border); content: ""; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.files-divider:hover::after, .files-divider:focus-visible::after, .files-divider.is-dragging::after { left: 2.5px; width: 2px; background: var(--zli-accent); }
+.files-divider:focus-visible { outline: none; }
 
 .files-modes { display: flex; align-items: center; gap: 2px; height: var(--zli-toolbar); flex: 0 0 auto; padding: 0 var(--zli-space-2); border-bottom: 1px solid var(--zli-border); }
 .files-modes > button { height: var(--zli-control-sm); padding: 0 var(--zli-space-2); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-dim); cursor: pointer; font-size: var(--zli-text-sm); font-weight: 500; transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }

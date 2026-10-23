@@ -27,6 +27,9 @@ export type ShortcutId =
   | "toggleDrawer"
   | "settings";
 
+/** Which side of the Files panel the folder tree sits on when there is room for both. */
+export type FileTreePosition = "right" | "left";
+
 export type AppSettings = {
   defaults: LaunchDefaults;
   /** Per-project overrides, keyed by project id. */
@@ -34,6 +37,7 @@ export type AppSettings = {
   branchTemplate: string;
   /** Only the shortcuts the person changed. */
   shortcuts: Partial<Record<ShortcutId, string>>;
+  fileTreePosition: FileTreePosition;
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -41,6 +45,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   projects: {},
   branchTemplate: DEFAULT_BRANCH_TEMPLATE,
   shortcuts: {},
+  fileTreePosition: "right",
 };
 
 const modes: readonly SessionMode[] = ["terminal", "chat"];
@@ -101,7 +106,13 @@ export function parseAppSettings(raw: string | null): AppSettings {
     typeof value.branchTemplate === "string" && value.branchTemplate.trim()
       ? value.branchTemplate.trim().slice(0, MAX_BRANCH_TEMPLATE)
       : DEFAULT_BRANCH_TEMPLATE;
-  return { defaults: parseDefaults(value.defaults), projects, branchTemplate: template, shortcuts };
+  return {
+    defaults: parseDefaults(value.defaults),
+    projects,
+    branchTemplate: template,
+    shortcuts,
+    fileTreePosition: value.fileTreePosition === "left" ? "left" : "right",
+  };
 }
 
 let cache: AppSettings | undefined;

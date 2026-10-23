@@ -21,6 +21,7 @@ describe("app settings", () => {
           projects: { a: { model: "orphan" }, b: { permissionMode: "supervised" } },
           branchTemplate: "   ",
           shortcuts: { newAgent: "Mod+Shift+N", unknown: "Mod+U", palette: 3 },
+          fileTreePosition: "top",
         }),
       ),
     ).toEqual({
@@ -28,7 +29,14 @@ describe("app settings", () => {
       projects: { b: { permissionMode: "supervised" } },
       branchTemplate: "{agent}-{random}",
       shortcuts: { newAgent: "Mod+Shift+N" },
+      fileTreePosition: "right",
     });
+  });
+
+  it("keeps the file tree on the right unless left was chosen", () => {
+    expect(DEFAULT_SETTINGS.fileTreePosition).toBe("right");
+    expect(parseAppSettings(JSON.stringify({ fileTreePosition: "left" })).fileTreePosition).toBe("left");
+    expect(parseAppSettings(JSON.stringify({ fileTreePosition: "right" })).fileTreePosition).toBe("right");
   });
 
   it("prefers project settings, then general defaults, then the last launch", () => {

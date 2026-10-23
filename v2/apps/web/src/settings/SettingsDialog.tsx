@@ -17,6 +17,7 @@ import {
   type AppSettings,
   branchFromTemplate,
   DEFAULT_BRANCH_TEMPLATE,
+  type FileTreePosition,
   type LaunchDefaults,
   MAX_BRANCH_TEMPLATE,
   type ShortcutId,
@@ -27,12 +28,13 @@ import { McpServersSection } from "./McpServersSection.js";
 import { SectionHeader } from "./SectionHeader.js";
 import "./settings.css";
 
-export type SettingsSection = "agents" | "projects" | "worktrees" | "mcp" | "shortcuts" | "notifications";
+export type SettingsSection = "agents" | "projects" | "worktrees" | "files" | "mcp" | "shortcuts" | "notifications";
 
 const sections: { id: SettingsSection; label: string }[] = [
   { id: "agents", label: "New agents" },
   { id: "projects", label: "Projects" },
   { id: "worktrees", label: "Worktrees" },
+  { id: "files", label: "Files" },
   { id: "mcp", label: "MCP servers" },
   { id: "shortcuts", label: "Shortcuts" },
   { id: "notifications", label: "Notifications" },
@@ -122,6 +124,7 @@ export function SettingsDialog({
             <ProjectDefaults projection={projection} initialProjectId={initialProjectId} />
           ) : null}
           {section === "worktrees" ? <WorktreeSettings projection={projection} /> : null}
+          {section === "files" ? <FilesSettings /> : null}
           {section === "mcp" ? <McpServersSection /> : null}
           {section === "shortcuts" ? <ShortcutSettings /> : null}
           {section === "notifications" ? <NotificationSection {...notifications} /> : null}
@@ -362,6 +365,40 @@ function WorktreeSettings({ projection }: { projection: RuntimeProjection | unde
               Without {"{random}"} every new branch gets the same name, so you will rename it each time.
             </span>
           )}
+        </LaunchRow>
+      </div>
+    </>
+  );
+}
+
+const treePositionLabel: Record<FileTreePosition, string> = { right: "Right", left: "Left" };
+
+function FilesSettings() {
+  const settings = useAppSettings();
+  return (
+    <>
+      <SectionHeader title="Files">
+        How the Files panel is laid out when it is wide enough for the tree and a file.
+      </SectionHeader>
+      <div className="launch-rows">
+        <LaunchRow label="File tree position" hint="The open file takes the other side.">
+          <Select
+            className="input-sm"
+            aria-label="File tree position"
+            value={settings.fileTreePosition}
+            onChange={(event) =>
+              updateAppSettings((current) => ({
+                ...current,
+                fileTreePosition: event.target.value === "left" ? "left" : "right",
+              }))
+            }
+          >
+            {(Object.keys(treePositionLabel) as FileTreePosition[]).map((position) => (
+              <option key={position} value={position}>
+                {treePositionLabel[position]}
+              </option>
+            ))}
+          </Select>
         </LaunchRow>
       </div>
     </>

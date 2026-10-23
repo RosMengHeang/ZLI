@@ -1,7 +1,8 @@
 import type { FileChangeStatus, FileReadResult, WorktreeProjection } from "@zli-v2/contracts";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { useAppSettings } from "../settings/appSettings.js";
 import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
@@ -9,9 +10,11 @@ import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
 import { type CodeEditorHandle, createCodeEditor, languageLabel } from "./codeEditor.js";
 import { useFileIndex, useFileIndexContext } from "./FileIndex.js";
 import { FileSearchView, type SearchSettings } from "./FileSearchView.js";
+import { FilesDivider } from "./FilesDivider.js";
 import { FileStatusMark, FileTreeView } from "./FileTreeView.js";
 import { readFile, writeFile } from "./fileClient.js";
 import { baseName, dirName, type FileLocation } from "./filePaths.js";
+import { clampTreeWidth, maxTreeWidth, TREE_DEFAULT_WIDTH, TREE_MIN_WIDTH, useFilesLayout } from "./filesLayout.js";
 import { ancestorDirectories } from "./fileTree.js";
 
 export type FilesFocus =
@@ -114,9 +117,14 @@ function FilesWorkspace({
   const [revealKey, setRevealKey] = useState(0);
   const [searchFocusKey, setSearchFocusKey] = useState(0);
   const [closeRequest, setCloseRequest] = useState<string>();
-  const [wide, setWide] = useState(true);
+  const [paneWidth, setPaneWidth] = useState<number>();
+  const wide = paneWidth === undefined || paneWidth >= SPLIT_MIN_WIDTH;
   const [browseOpen, setBrowseOpen] = useState(session.tabs.length === 0);
-  const [treeHidden, setTreeHidden] = useState(false);
+  const [layout, updateLayout] = useFilesLayout();
+  const treeHidden = layout.treeHidden;
+  const treeOnRight = useAppSettings().fileTreePosition !== "left";
+  const browserId = useId();
+  const browserRef = useRef<HTMLDivElement>(null);
   const [generation, setGeneration] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<{ path: string; handle: CodeEditorHandle } | undefined>(undefined);
@@ -241,7 +249,7 @@ function FilesWorkspace({
     if (focus.kind === "open") openPath(focus);
     else {
       setMode("search");
-      setTreeHidden(false);
+      updateLayout({ treeHidden: false });
       setBrowseOpen(true);
       setSearchFocusKey((key) => key + 1);
     }
@@ -251,7 +259,7 @@ function FilesWorkspace({
     const root = rootRef.current;
     if (!root || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(([entry]) => {
-      if (entry) setWide(entry.contentRect.width >= SPLIT_MIN_WIDTH);
+      if (entry) setPaneWidth(entry.contentRect.width);
     });
     observer.observe(root);
     return () => observer.disconnect();
@@ -416,17 +424,224 @@ function FilesWorkspace({
   const showTree = wide ? !treeHidden : browseOpen || tabs.length === 0;
   const showEditor = wide || !showTree;
   const changedCount = statuses.size;
+  const treeWidth = clampTreeWidth(layout.treeWidth, paneWidth);
+  const toggleTree = () => (wide ? updateLayout({ treeHidden: !treeHidden }) : setBrowseOpen((value) => !value));
+
+  const browser = showTree ? (
+    <div className="files-browser" id={browserId} ref={browserRef} style={wide ? { width: treeWidth } : undefined}>
+      <div className="files-modes" role="tablist" aria-label="File list mode">
+        <button
+          className={mode === "tree" ? "is-active" : undefined}
+          type="button"
+          role="tab"
+          aria-selected={mode === "tree"}
+          onClick={() => setMode("tree")}
+        >
+          Files
+        </button>
+        <button
+          className={mode === "search" ? "is-active" : undefined}
+          type="button"
+          role="tab"
+          aria-selected={mode === "search"}
+          onClick={() => {
+            setMode("search");
+            setSearchFocusKey((key) => key + 1);
+          }}
+        >
+          Search
+        </button>
+        <span className="files-modes-spacer" />
+        {mode === "tree" ? (
+          <button
+            className={`files-filter${changedOnly ? " is-active" : ""}`}
+            type="button"
+            aria-pressed={changedOnly}
+            title="Show only files with uncommitted changes"
+            onClick={() => setChangedOnly((value) => !value)}
+          >
+            Changed{changedCount > 0 ? ` ${changedCount}` : ""}
+          </button>
+        ) : null}
+      </div>
+      {mode === "search" ? (
+        <FileSearchView
+          worktreeId={worktreeId}
+          settings={search}
+          focusKey={searchFocusKey}
+          onSettingsChange={setSearch}
+          onOpen={openPath}
+        />
+      ) : !index ? (
+        <LoadingState label="Loading files" />
+      ) : changedOnly && treeEntries.length === 0 ? (
+        <p className="files-hint">No uncommitted changes in this worktree.</p>
+      ) : (
+        <>
+          <FileTreeView
+            entries={treeEntries}
+            expanded={treeExpanded}
+            selectedPath={activePath}
+            revealKey={revealKey}
+            onToggle={toggleFolder}
+            onOpen={(path) => openPath({ path })}
+          />
+          {index.truncated ? (
+            <p className="files-hint">This worktree has more files than ZLI lists. Use Search to find the rest.</p>
+          ) : null}
+        </>
+      )}
+    </div>
+  ) : null;
+
+  const editor = showEditor ? (
+    <div className="files-editor">
+      {tabs.length > 0 ? (
+        <div className="file-tabs" role="tablist" aria-label="Open files">
+          {tabs.map((path) => (
+            <div className={`file-tab${path === activePath ? " is-active" : ""}`} key={path} title={path}>
+              <button
+                className="file-tab-label"
+                type="button"
+                role="tab"
+                aria-selected={path === activePath}
+                onClick={() => openPath({ path })}
+                onAuxClick={(event) => {
+                  if (event.button === 1) closeTab(path);
+                }}
+              >
+                <span className={`file-tab-name${statuses.get(path) === "deleted" ? " is-deleted" : ""}`}>
+                  {baseName(path)}
+                </span>
+                {dirty.has(path) ? <span className="file-tab-dirty" role="img" aria-label="Unsaved changes" /> : null}
+              </button>
+              <button
+                className="file-tab-close"
+                type="button"
+                aria-label={`Close ${baseName(path)}`}
+                onClick={() => closeTab(path)}
+              >
+                <Icon name="x" size={11} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {!activePath ? (
+        <EmptyState
+          icon="file"
+          title="Open a file"
+          detail="Pick one in the file list, or click a file path in an agent's reply or terminal."
+          hint={{ label: "Find a file by name", shortcut: quickOpenShortcut }}
+        />
+      ) : (
+        <>
+          <div className="file-path-bar">
+            <span className="file-path" title={activePath}>
+              {dirName(activePath) ? <span className="file-path-dir">{dirName(activePath)}/</span> : null}
+              <span className="file-path-name">{baseName(activePath)}</span>
+            </span>
+            <FileStatusMark status={activeStatus} />
+            <span className="file-path-spacer" />
+            {active?.status === "ready" && active.file.content !== undefined ? (
+              <span className="file-meta">
+                {languageLabel(activePath)} · {active.file.lineEnding === "crlf" ? "CRLF" : "LF"}
+              </span>
+            ) : null}
+            {activeStatus ? (
+              <Button variant="ghost" size="sm" icon="diff" onClick={() => onOpenDiff(activePath)}>
+                Diff
+              </Button>
+            ) : null}
+            {active?.status === "ready" && active.file.content !== undefined ? (
+              <Button
+                variant={dirty.has(activePath) ? "primary" : "ghost"}
+                size="sm"
+                disabled={!dirty.has(activePath) || active.saving}
+                tooltip={dirty.has(activePath) ? "Save" : "No unsaved changes"}
+                shortcut="Mod+S"
+                onClick={() => void save(activePath)}
+              >
+                {active.saving ? "Saving" : dirty.has(activePath) ? "Save" : "Saved"}
+              </Button>
+            ) : null}
+          </div>
+          {closeRequest === activePath ? (
+            <FileBanner
+              tone="warning"
+              message={`${baseName(activePath)} has unsaved changes.`}
+              actions={[
+                {
+                  label: "Save and close",
+                  primary: true,
+                  run: () =>
+                    void save(activePath).then(() => {
+                      if (!session.drafts.has(activePath)) closeTab(activePath, true);
+                    }),
+                },
+                { label: "Discard changes", run: () => closeTab(activePath, true) },
+                { label: "Cancel", run: () => setCloseRequest(undefined) },
+              ]}
+            />
+          ) : null}
+          {active?.status === "ready" ? (
+            <FileBanners
+              path={activePath}
+              data={active}
+              onOverwrite={() => void save(activePath, { overwrite: true })}
+              onReload={() => void reloadFromDisk(activePath)}
+              onKeepMine={() =>
+                updateTab(activePath, (current) =>
+                  current?.status === "ready"
+                    ? { ...current, dismissedVersion: current.diskChange?.version, diskChange: undefined }
+                    : current,
+                )
+              }
+              onDismissError={() =>
+                updateTab(activePath, (current) =>
+                  current?.status === "ready" ? { ...current, saveError: undefined } : current,
+                )
+              }
+            />
+          ) : null}
+          <FileBody
+            key={`${activePath}:${generation}`}
+            path={activePath}
+            data={active}
+            status={activeStatus}
+            draft={session.drafts.get(activePath)}
+            onReady={onEditorReady}
+            onDispose={onEditorDispose}
+            onChange={onEditorChange}
+            onSave={(path) => void save(path)}
+            onRetry={() => void loadFile(activePath)}
+            onOpenDiff={() => onOpenDiff(activePath)}
+            onClose={() => closeTab(activePath, true)}
+          />
+        </>
+      )}
+    </div>
+  ) : null;
+
+  const divider =
+    wide && showTree ? (
+      <FilesDivider
+        width={treeWidth}
+        min={TREE_MIN_WIDTH}
+        max={maxTreeWidth(paneWidth)}
+        treeSide={treeOnRight ? "right" : "left"}
+        controls={browserId}
+        onPreview={(width) => {
+          if (browserRef.current) browserRef.current.style.width = `${width}px`;
+        }}
+        onCommit={(width) => updateLayout({ treeWidth: width })}
+        onReset={() => updateLayout({ treeWidth: TREE_DEFAULT_WIDTH })}
+      />
+    ) : null;
 
   return (
     <div className="tool-pane files-pane" ref={rootRef}>
       <PaneHeader icon="folderTree" title="Files" detail={worktree.branch}>
-        <IconButton
-          icon="panelLeft"
-          size="sm"
-          pressed={showTree}
-          label={showTree ? "Hide file list" : "Show file list"}
-          onClick={() => (wide ? setTreeHidden((value) => !value) : setBrowseOpen((value) => !value))}
-        />
         <IconButton icon="search" size="sm" label="Go to file" shortcut={quickOpenShortcut} onClick={onQuickOpen} />
         <IconButton
           icon="reload"
@@ -438,206 +653,28 @@ function FilesWorkspace({
             void checkActiveFile();
           }}
         />
+        <IconButton
+          icon={treeOnRight ? "panelRight" : "panelLeft"}
+          size="sm"
+          pressed={showTree}
+          label={showTree ? "Hide file list" : "Show file list"}
+          onClick={toggleTree}
+        />
       </PaneHeader>
-      <div className={`files-body${wide ? " is-split" : ""}`}>
-        {showTree ? (
-          <div className="files-browser">
-            <div className="files-modes" role="tablist" aria-label="File list mode">
-              <button
-                className={mode === "tree" ? "is-active" : undefined}
-                type="button"
-                role="tab"
-                aria-selected={mode === "tree"}
-                onClick={() => setMode("tree")}
-              >
-                Files
-              </button>
-              <button
-                className={mode === "search" ? "is-active" : undefined}
-                type="button"
-                role="tab"
-                aria-selected={mode === "search"}
-                onClick={() => {
-                  setMode("search");
-                  setSearchFocusKey((key) => key + 1);
-                }}
-              >
-                Search
-              </button>
-              <span className="files-modes-spacer" />
-              {mode === "tree" ? (
-                <button
-                  className={`files-filter${changedOnly ? " is-active" : ""}`}
-                  type="button"
-                  aria-pressed={changedOnly}
-                  title="Show only files with uncommitted changes"
-                  onClick={() => setChangedOnly((value) => !value)}
-                >
-                  Changed{changedCount > 0 ? ` ${changedCount}` : ""}
-                </button>
-              ) : null}
-            </div>
-            {mode === "search" ? (
-              <FileSearchView
-                worktreeId={worktreeId}
-                settings={search}
-                focusKey={searchFocusKey}
-                onSettingsChange={setSearch}
-                onOpen={openPath}
-              />
-            ) : !index ? (
-              <LoadingState label="Loading files" />
-            ) : changedOnly && treeEntries.length === 0 ? (
-              <p className="files-hint">No uncommitted changes in this worktree.</p>
-            ) : (
-              <>
-                <FileTreeView
-                  entries={treeEntries}
-                  expanded={treeExpanded}
-                  selectedPath={activePath}
-                  revealKey={revealKey}
-                  onToggle={toggleFolder}
-                  onOpen={(path) => openPath({ path })}
-                />
-                {index.truncated ? (
-                  <p className="files-hint">
-                    This worktree has more files than ZLI lists. Use Search to find the rest.
-                  </p>
-                ) : null}
-              </>
-            )}
-          </div>
-        ) : null}
-        {showEditor ? (
-          <div className="files-editor">
-            {tabs.length > 0 ? (
-              <div className="file-tabs" role="tablist" aria-label="Open files">
-                {tabs.map((path) => (
-                  <div className={`file-tab${path === activePath ? " is-active" : ""}`} key={path} title={path}>
-                    <button
-                      className="file-tab-label"
-                      type="button"
-                      role="tab"
-                      aria-selected={path === activePath}
-                      onClick={() => openPath({ path })}
-                      onAuxClick={(event) => {
-                        if (event.button === 1) closeTab(path);
-                      }}
-                    >
-                      <span className={`file-tab-name${statuses.get(path) === "deleted" ? " is-deleted" : ""}`}>
-                        {baseName(path)}
-                      </span>
-                      {dirty.has(path) ? (
-                        <span className="file-tab-dirty" role="img" aria-label="Unsaved changes" />
-                      ) : null}
-                    </button>
-                    <button
-                      className="file-tab-close"
-                      type="button"
-                      aria-label={`Close ${baseName(path)}`}
-                      onClick={() => closeTab(path)}
-                    >
-                      <Icon name="x" size={11} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            {!activePath ? (
-              <EmptyState
-                icon="file"
-                title="Open a file"
-                detail="Pick one in the file list, or click a file path in an agent's reply or terminal."
-                hint={{ label: "Find a file by name", shortcut: quickOpenShortcut }}
-              />
-            ) : (
-              <>
-                <div className="file-path-bar">
-                  <span className="file-path" title={activePath}>
-                    {dirName(activePath) ? <span className="file-path-dir">{dirName(activePath)}/</span> : null}
-                    <span className="file-path-name">{baseName(activePath)}</span>
-                  </span>
-                  <FileStatusMark status={activeStatus} />
-                  <span className="file-path-spacer" />
-                  {active?.status === "ready" && active.file.content !== undefined ? (
-                    <span className="file-meta">
-                      {languageLabel(activePath)} · {active.file.lineEnding === "crlf" ? "CRLF" : "LF"}
-                    </span>
-                  ) : null}
-                  {activeStatus ? (
-                    <Button variant="ghost" size="sm" icon="diff" onClick={() => onOpenDiff(activePath)}>
-                      Diff
-                    </Button>
-                  ) : null}
-                  {active?.status === "ready" && active.file.content !== undefined ? (
-                    <Button
-                      variant={dirty.has(activePath) ? "primary" : "ghost"}
-                      size="sm"
-                      disabled={!dirty.has(activePath) || active.saving}
-                      tooltip={dirty.has(activePath) ? "Save" : "No unsaved changes"}
-                      shortcut="Mod+S"
-                      onClick={() => void save(activePath)}
-                    >
-                      {active.saving ? "Saving" : dirty.has(activePath) ? "Save" : "Saved"}
-                    </Button>
-                  ) : null}
-                </div>
-                {closeRequest === activePath ? (
-                  <FileBanner
-                    tone="warning"
-                    message={`${baseName(activePath)} has unsaved changes.`}
-                    actions={[
-                      {
-                        label: "Save and close",
-                        primary: true,
-                        run: () =>
-                          void save(activePath).then(() => {
-                            if (!session.drafts.has(activePath)) closeTab(activePath, true);
-                          }),
-                      },
-                      { label: "Discard changes", run: () => closeTab(activePath, true) },
-                      { label: "Cancel", run: () => setCloseRequest(undefined) },
-                    ]}
-                  />
-                ) : null}
-                {active?.status === "ready" ? (
-                  <FileBanners
-                    path={activePath}
-                    data={active}
-                    onOverwrite={() => void save(activePath, { overwrite: true })}
-                    onReload={() => void reloadFromDisk(activePath)}
-                    onKeepMine={() =>
-                      updateTab(activePath, (current) =>
-                        current?.status === "ready"
-                          ? { ...current, dismissedVersion: current.diskChange?.version, diskChange: undefined }
-                          : current,
-                      )
-                    }
-                    onDismissError={() =>
-                      updateTab(activePath, (current) =>
-                        current?.status === "ready" ? { ...current, saveError: undefined } : current,
-                      )
-                    }
-                  />
-                ) : null}
-                <FileBody
-                  key={`${activePath}:${generation}`}
-                  path={activePath}
-                  data={active}
-                  status={activeStatus}
-                  draft={session.drafts.get(activePath)}
-                  onReady={onEditorReady}
-                  onDispose={onEditorDispose}
-                  onChange={onEditorChange}
-                  onSave={(path) => void save(path)}
-                  onRetry={() => void loadFile(activePath)}
-                  onOpenDiff={() => onOpenDiff(activePath)}
-                  onClose={() => closeTab(activePath, true)}
-                />
-              </>
-            )}
-          </div>
-        ) : null}
+      <div className={`files-body${wide ? " is-split" : ""}${treeOnRight ? " is-tree-right" : ""}`}>
+        {treeOnRight ? (
+          <>
+            {editor}
+            {divider}
+            {browser}
+          </>
+        ) : (
+          <>
+            {browser}
+            {divider}
+            {editor}
+          </>
+        )}
       </div>
     </div>
   );

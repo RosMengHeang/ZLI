@@ -16,6 +16,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
+import { updateAppSettings } from "../settings/appSettings.js";
 import { FileIndexProvider } from "./FileIndex.js";
 import { type FilesFocus, FilesPane } from "./FilesPane.js";
 
@@ -327,5 +328,69 @@ describe("FilesPane", () => {
 
     expect(editorView(container).state.doc.toString()).toBe("draft one\n");
     expect(container.querySelector(".file-tab-dirty")).not.toBeNull();
+  });
+});
+
+describe("FilesPane layout", () => {
+  afterEach(() => {
+    window.localStorage.clear();
+    updateAppSettings((current) => ({ ...current, fileTreePosition: "right" }));
+  });
+
+  const order = (container: HTMLElement) =>
+    [...(container.querySelector(".files-body")?.children ?? [])].map((element) => element.className.split(" ")[0]);
+
+  it("puts the open file on the left and the tree on the right by default", async () => {
+    const disk: Disk = new Map([["src/app.ts", { content: "one\n", version: "v1" }]]);
+    const { bridge } = fakeRuntime(disk);
+    const { container } = await renderPane(bridge, { kind: "open", path: "src/app.ts", nonce: 1 });
+
+    expect(order(container)).toEqual(["files-editor", "files-divider", "files-browser"]);
+    const actions = [...container.querySelectorAll(".pane-actions button")];
+    expect(actions.at(-1)?.getAttribute("aria-label")).toBe("Hide file list");
+  });
+
+  it("moves the tree to the left when the setting says so", async () => {
+    updateAppSettings((current) => ({ ...current, fileTreePosition: "left" }));
+    const disk: Disk = new Map([["src/app.ts", { content: "one\n", version: "v1" }]]);
+    const { bridge } = fakeRuntime(disk);
+    const { container } = await renderPane(bridge, { kind: "open", path: "src/app.ts", nonce: 1 });
+
+    expect(order(container)).toEqual(["files-browser", "files-divider", "files-editor"]);
+  });
+
+  it("resizes the tree from the keyboard, remembers the width, and resets on double-click", async () => {
+    const disk: Disk = new Map([["src/app.ts", { content: "one\n", version: "v1" }]]);
+    const { bridge } = fakeRuntime(disk);
+    const { container } = await renderPane(bridge);
+    const divider = () => container.querySelector<HTMLElement>("[role=separator]");
+    expect(divider()?.getAttribute("aria-valuenow")).toBe("260");
+
+    act(() => {
+      divider()?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    });
+    expect(divider()?.getAttribute("aria-valuenow")).toBe("276");
+    expect(container.querySelector<HTMLElement>(".files-browser")?.style.width).toBe("276px");
+    expect(JSON.parse(window.localStorage.getItem("zli.files.layout.v1") ?? "{}")).toMatchObject({ treeWidth: 276 });
+
+    act(() => {
+      divider()?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    expect(divider()?.getAttribute("aria-valuenow")).toBe("260");
+  });
+
+  it("remembers that the tree was hidden", async () => {
+    const disk: Disk = new Map([["src/app.ts", { content: "one\n", version: "v1" }]]);
+    const { bridge } = fakeRuntime(disk);
+    const first = await renderPane(bridge, { kind: "open", path: "src/app.ts", nonce: 1 });
+    act(() => button(first.container, "Hide file list").click());
+    expect(first.container.querySelector(".files-browser")).toBeNull();
+    act(() => root?.unmount());
+    root = undefined;
+    document.body.replaceChildren();
+
+    const second = await renderPane(bridge, { kind: "open", path: "src/app.ts", nonce: 2 });
+    expect(second.container.querySelector(".files-browser")).toBeNull();
+    expect(button(second.container, "Show file list")).toBeDefined();
   });
 });
