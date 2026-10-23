@@ -20,6 +20,15 @@
 .chat-dock::before { position: absolute; right: 0; bottom: 100%; left: 0; height: var(--zli-space-5); background: linear-gradient(to bottom, transparent, var(--zli-surface)); content: ""; pointer-events: none; }
 .chat-dock .chat-column { display: flex; flex-direction: column; gap: var(--zli-space-2); }
 .chat-dock .inline-error { margin: 0 var(--zli-space-1); }
+.chat-queue { display: flex; flex-direction: column; gap: var(--zli-space-1); padding: var(--zli-space-2) var(--zli-space-2) var(--zli-space-1-5); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-surface); }
+.chat-queue-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--zli-space-2); margin: 0; padding: 0 var(--zli-space-1); color: var(--zli-text); font-size: var(--zli-text-xs); font-weight: 600; }
+.chat-queue-head span { overflow: hidden; color: var(--zli-muted); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.chat-queue-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.chat-queue-item { display: flex; align-items: center; gap: var(--zli-space-2); min-height: var(--zli-control-md); padding: 0 0 0 var(--zli-space-1); border-radius: var(--zli-radius-md); }
+.chat-queue-item:hover, .chat-queue-item:focus-within { background: var(--zli-raised); }
+.chat-queue-index { flex: 0 0 auto; min-width: 12px; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-align: right; }
+.chat-queue-text { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.chat-queue-meta { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 3px; color: var(--zli-muted); font-size: var(--zli-text-xs); }
 .chat-request { padding: var(--zli-space-3) var(--zli-space-4); border: 1px solid var(--zli-amber-line); border-radius: var(--zli-radius-lg); background: var(--zli-amber-soft); }
 .chat-request-title { display: inline-flex; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-amber); font-size: var(--zli-text-sm); font-weight: 600; }
 .chat-request { display: flex; flex-direction: column; gap: var(--zli-space-2-5); }

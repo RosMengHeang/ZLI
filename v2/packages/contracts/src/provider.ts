@@ -119,6 +119,18 @@ export const ThreadRequestProjection = z.object({
 });
 export type ThreadRequestProjection = z.infer<typeof ThreadRequestProjection>;
 
+/** A message waiting for its agent to finish the current turn. Sent in order, oldest first. */
+export const ThreadQueuedMessage = z.object({
+  queueId: z.string().min(1).max(200),
+  threadId: ThreadId,
+  text: z.string().min(1),
+  model: z.string().min(1).max(200).optional(),
+  permissionMode: PermissionMode.optional(),
+  attachments: z.array(ThreadAttachment).max(8).optional(),
+  queuedAt: z.string().datetime({ offset: true }).optional(),
+});
+export type ThreadQueuedMessage = z.infer<typeof ThreadQueuedMessage>;
+
 export const ThreadActivityKind = z.enum(["command", "file-read", "file-edit", "search", "web", "tool"]);
 export type ThreadActivityKind = z.infer<typeof ThreadActivityKind>;
 

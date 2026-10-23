@@ -4,6 +4,7 @@ import type {
   ThreadId,
   ThreadMessageProjection,
   ThreadProjection,
+  ThreadQueuedMessage,
   WorktreeProjection,
 } from "@zli-v2/contracts";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -14,7 +15,7 @@ import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { entriesForThread, shallowArrayEqual } from "../runtime/runtimeStore.js";
 import { buildTimeline, type TimelineItem } from "../sessions/sessions.js";
-import { Button } from "../ui/Button.js";
+import { Button, IconButton } from "../ui/Button.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState } from "../ui/Pane.js";
@@ -77,6 +78,13 @@ export function ChatView({
       [threadId],
     ),
   );
+  const queued = useRuntimeSelector(
+    useCallback(
+      (value: RuntimeProjection | undefined) => entriesForThread(value?.queuedMessages, threadId),
+      [threadId],
+    ),
+    shallowArrayEqual,
+  );
   const previousTimeline = useRef<readonly TimelineItem[]>([]);
   const timeline = useMemo(() => buildTimeline(messages, activities, previousTimeline.current), [messages, activities]);
   useEffect(() => {
@@ -90,6 +98,7 @@ export function ChatView({
   const openDiff = useCallback((...args: [path?: string]) => latestOpenDiff.current(...args), []);
   const ended = thread.status === "stopped" || thread.status === "failed";
   const working = thread.status === "working" || thread.status === "waiting";
+  const busy = working || queued.length > 0;
   const peers = useMemo(() => {
     if (!worktree) return [];
     return projection.threads.filter((candidate) => {
@@ -114,7 +123,8 @@ export function ChatView({
         protocolVersion: 1,
         commandId: makeCommandId(),
         command: {
-          type: "thread.send",
+          type: "thread.queue",
+          queueId: makeCommandId(),
           threadId: thread.threadId,
           text,
           ...(model ? { model } : {}),
@@ -235,6 +245,16 @@ export function ChatView({
               }
             />
           ) : null}
+          {queued.length > 0 ? (
+            <QueuedMessages
+              queued={queued}
+              displayName={displayName}
+              canSteer={!ended && thread.status !== "starting"}
+              waiting={thread.status === "waiting" || waitingCount > 0}
+              onSteer={(queueId) => run({ type: "thread.steer", threadId: thread.threadId, queueId })}
+              onRemove={(queueId) => run({ type: "thread.queue.remove", threadId: thread.threadId, queueId })}
+            />
+          ) : null}
           {visibleError ? (
             <p className="inline-error" role="alert">
               {visibleError}
@@ -260,6 +280,7 @@ export function ChatView({
               displayName={displayName}
               branch={worktree?.branch ?? "this worktree"}
               disabled={thread.status === "starting"}
+              queues={busy}
               models={models}
               model={model}
               modelLocked={thread.capabilities.modelSwitch === "unsupported" && messages.length > 0}
@@ -312,6 +333,78 @@ export function ChatView({
         </div>
       </div>
     </div>
+  );
+}
+
+function QueuedMessages({
+  queued,
+  displayName,
+  canSteer,
+  waiting,
+  onSteer,
+  onRemove,
+}: {
+  queued: readonly ThreadQueuedMessage[];
+  displayName: string;
+  canSteer: boolean;
+  waiting: boolean;
+  onSteer(queueId: string): void;
+  onRemove(queueId: string): void;
+}) {
+  return (
+    <section className="chat-queue" aria-label="Queued messages">
+      <p className="chat-queue-head">
+        {queued.length === 1 ? "1 queued message" : `${queued.length} queued messages`}
+        <span>{canSteer ? `Sent in order after ${displayName}'s current turn` : "Not sent"}</span>
+      </p>
+      <ol className="chat-queue-list">
+        {queued.map((message, index) => {
+          const preview = message.text.trim().split(/\r?\n/u)[0] ?? "";
+          const images = message.attachments?.length ?? 0;
+          return (
+            <li className="chat-queue-item" key={message.queueId}>
+              <span className="chat-queue-index" aria-hidden="true">
+                {index + 1}
+              </span>
+              <span className="chat-queue-text" title={message.text}>
+                {preview}
+              </span>
+              {images > 0 ? (
+                <span className="chat-queue-meta">
+                  <Icon name="image" size={11} />
+                  {images}
+                </span>
+              ) : null}
+              {canSteer ? (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  icon="arrowUp"
+                  disabled={waiting}
+                  tooltip={
+                    waiting
+                      ? `Answer ${displayName}'s request first`
+                      : `Stop the current turn and send this to ${displayName} now`
+                  }
+                  aria-label={`Send now: ${preview}`}
+                  onClick={() => onSteer(message.queueId)}
+                >
+                  Send now
+                </Button>
+              ) : null}
+              <IconButton
+                label={`Remove from queue: ${preview}`}
+                tooltip="Remove from queue"
+                icon="x"
+                size="xs"
+                iconSize={11}
+                onClick={() => onRemove(message.queueId)}
+              />
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }
 

@@ -20,6 +20,8 @@ export class MockProviderAdapter implements ProviderAdapter {
 
   private readonly sessions = new Map<string, ProviderSession>();
   private readonly turns = new Map<string, unknown[]>();
+  /** Turns paused on an approval or question, finished once the person answers. */
+  private readonly pausedTurns = new Map<string, string>();
   private readonly listeners = new Set<(event: ProviderEvent) => void>();
 
   async startSession(input: { threadId: ThreadId; cwd: string }): Promise<ProviderSession> {
@@ -40,8 +42,13 @@ export class MockProviderAdapter implements ProviderAdapter {
     session.status = "working";
     setTimeout(() => {
       if (!this.sessions.has(input.threadId)) return;
+      if (input.text.includes("[hold]")) {
+        this.emit({ type: "turn.started", threadId: input.threadId, turnId });
+        return;
+      }
       if (input.text.includes("[approval]")) {
         session.status = "waiting";
+        this.pausedTurns.set(input.threadId, turnId);
         this.emit({
           type: "approval.requested",
           threadId: input.threadId,
@@ -52,6 +59,7 @@ export class MockProviderAdapter implements ProviderAdapter {
       }
       if (input.text.includes("[input]")) {
         session.status = "waiting";
+        this.pausedTurns.set(input.threadId, turnId);
         this.emit({
           type: "user-input.requested",
           threadId: input.threadId,
@@ -73,7 +81,7 @@ export class MockProviderAdapter implements ProviderAdapter {
   }
 
   async respondToRequest(input: { threadId: ThreadId; requestId: string; decision: unknown }): Promise<void> {
-    this.context(input.threadId).status = "idle";
+    this.finishPausedTurn(input.threadId);
   }
 
   async respondToUserInput(input: {
@@ -81,7 +89,7 @@ export class MockProviderAdapter implements ProviderAdapter {
     requestId: string;
     answers: Record<string, string>;
   }): Promise<void> {
-    this.context(input.threadId).status = "idle";
+    this.finishPausedTurn(input.threadId);
   }
 
   async stopSession(input: { threadId: ThreadId }): Promise<void> {
@@ -126,6 +134,18 @@ export class MockProviderAdapter implements ProviderAdapter {
     const session = this.sessions.get(threadId);
     if (!session) throw new Error(`Mock provider session does not exist: ${threadId}`);
     return session;
+  }
+
+  private finishPausedTurn(threadId: ThreadId): void {
+    const session = this.context(threadId);
+    const turnId = this.pausedTurns.get(threadId);
+    this.pausedTurns.delete(threadId);
+    session.status = "idle";
+    if (!turnId) return;
+    setTimeout(() => {
+      if (!this.sessions.has(threadId)) return;
+      this.emit({ type: "turn.completed", threadId, turnId, status: "completed" });
+    }, 5);
   }
 
   private emit(event: ProviderEvent): void {

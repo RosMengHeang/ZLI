@@ -132,6 +132,21 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     permissionMode: PermissionMode.optional(),
     attachments: z.array(ThreadAttachmentUpload).max(8).optional(),
   }),
+  /** Sends when the agent finishes its turn and has no open request. Sent right away when it is idle. */
+  z.object({
+    type: z.literal("thread.queue"),
+    threadId: ThreadId,
+    queueId: z.string().min(1).max(200),
+    text: z.string().min(1),
+    model: z.string().min(1).optional(),
+    permissionMode: PermissionMode.optional(),
+    attachments: z.array(ThreadAttachmentUpload).max(8).optional(),
+  }),
+  z.object({ type: z.literal("thread.queue.remove"), threadId: ThreadId, queueId: z.string().min(1).max(200) }),
+  /** Moves a queued message to the front and interrupts the running turn so it goes next. */
+  z.object({ type: z.literal("thread.steer"), threadId: ThreadId, queueId: z.string().min(1).max(200) }),
+  /** Internal: sends the oldest queued message if the agent is idle. */
+  z.object({ type: z.literal("thread.queue.flush"), threadId: ThreadId }),
   z.object({
     type: z.literal("thread.a2a"),
     messageId: z.string().min(1).max(200),

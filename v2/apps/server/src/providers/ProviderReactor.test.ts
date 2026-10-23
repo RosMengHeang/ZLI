@@ -91,6 +91,84 @@ afterEach(() => {
 });
 
 describe("ProviderReactor", () => {
+  it("sends queued messages one turn at a time and steers by interrupting", async () => {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    let turns = 0;
+    const adapter = new (class extends FakeAdapter {
+      interrupted: (string | undefined)[] = [];
+      override async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
+        this.turnInputs.push(input);
+        turns += 1;
+        return { turnId: `turn-${turns}` };
+      }
+      override async interruptTurn(input?: { turnId?: string }): Promise<void> {
+        this.interrupted.push(input?.turnId);
+      }
+    })();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service);
+    let sequence = 0;
+    const dispatch = (command: Parameters<Engine["dispatchPromise"]>[0]["command"]) => {
+      sequence += 1;
+      return engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`10000000-0000-4000-8000-0000000009${String(sequence).padStart(2, "0")}`),
+        command,
+      });
+    };
+    const state = async () => {
+      const projection = await engine.projection();
+      return { status: projection.threads[0]?.status, queued: (projection.queuedMessages ?? []).map((q) => q.text) };
+    };
+    const sent = () => adapter.turnInputs.map((input) => input.text);
+
+    await dispatch({ type: "project.register", path: "C:\\workspace\\queue" });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    await dispatch({
+      type: "worktree.create",
+      worktreeId,
+      projectId: ProjectId.parse(project.projectId),
+      path: "C:\\workspace\\queue-tree",
+      workspaceRoot: "C:\\workspace",
+      branch: "feature/queue",
+    });
+    await dispatch({ type: "thread.start", threadId, worktreeId, provider: "codex", cwd: "C:\\workspace\\queue-tree" });
+    await reactor.waitForIdle();
+
+    await dispatch({ type: "thread.queue", queueId: "q1", threadId, text: "first" });
+    await dispatch({ type: "thread.queue", queueId: "q2", threadId, text: "second" });
+    await reactor.waitForIdle();
+    expect(sent()).toEqual(["first"]);
+    expect(await state()).toEqual({ status: "working", queued: ["second"] });
+
+    adapter.emit({ type: "turn.completed", threadId, turnId: "turn-1", status: "completed" });
+    await reactor.waitForIdle();
+    expect(sent()).toEqual(["first", "second"]);
+    expect(await state()).toEqual({ status: "working", queued: [] });
+
+    await dispatch({ type: "thread.queue", queueId: "q3", threadId, text: "third" });
+    await dispatch({ type: "thread.steer", threadId, queueId: "q3" });
+    await reactor.waitForIdle();
+    expect(adapter.interrupted).toEqual(["turn-2"]);
+    expect(sent()).toEqual(["first", "second", "third"]);
+    expect(await state()).toEqual({ status: "working", queued: [] });
+
+    // The interrupted turn reports completion after the steered message has started.
+    adapter.emit({ type: "turn.completed", threadId, turnId: "turn-2", status: "interrupted" });
+    await reactor.waitForIdle();
+    expect((await state()).status).toBe("working");
+    adapter.emit({ type: "turn.completed", threadId, turnId: "turn-3", status: "completed" });
+    await reactor.waitForIdle();
+    expect((await state()).status).toBe("idle");
+
+    reactor.stop();
+    await service.stopAll();
+    service.dispose();
+  });
+
   it("turns durable thread intents into provider sessions and projected messages", async () => {
     const database = new Database({ path: ":memory:" });
     databases.push(database);

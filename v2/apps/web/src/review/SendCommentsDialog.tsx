@@ -90,7 +90,7 @@ export function SendCommentsDialog({
     try {
       let command: Record<string, unknown>;
       if (selected.mode === "chat") {
-        command = { type: "thread.send", threadId: selected.threadId, text: message };
+        command = { type: "thread.queue", queueId: makeCommandId(), threadId: selected.threadId, text: message };
       } else {
         // Showing the terminal mounts its view, which knows whether the program reads bracketed paste.
         onShowAgent?.(selected.sessionId, "terminal");

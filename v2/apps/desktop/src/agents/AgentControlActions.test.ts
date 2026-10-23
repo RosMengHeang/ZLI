@@ -142,7 +142,8 @@ describe("agent control", () => {
     const { dispatch, sent } = harness();
     await dispatch("agentsend", { cwd: "/work/app", agent: PEER, text: "Please rebase on main." });
     expect(sent[0]).toEqual({
-      type: "thread.send",
+      type: "thread.queue",
+      queueId: expect.any(String),
       threadId: PEER,
       text: `Message from another agent in ZLI, working on branch main (agent id ${ME}):\n\nPlease rebase on main.`,
     });
@@ -153,8 +154,8 @@ describe("agent control", () => {
     ]);
   });
 
-  it("refuses to message itself or an agent in the middle of a turn", async () => {
-    const { dispatch, update, state } = harness();
+  it("refuses to message itself and queues a message for an agent in the middle of a turn", async () => {
+    const { dispatch, update, state, sent } = harness();
     await expect(dispatch("agentsend", { cwd: "/work/app", agent: ME, text: "hi" })).rejects.toThrow(
       "That agent is you.",
     );
@@ -162,9 +163,11 @@ describe("agent control", () => {
       ...state(),
       threads: state().threads.map((entry) => (entry.threadId === PEER ? { ...entry, status: "working" } : entry)),
     });
-    await expect(dispatch("agentsend", { cwd: "/work/app", agent: PEER, text: "hi" })).rejects.toThrow(
-      "in the middle of a turn",
-    );
+    await expect(dispatch("agentsend", { cwd: "/work/app", agent: PEER, text: "hi" })).resolves.toMatchObject({
+      delivered: false,
+      queued: true,
+    });
+    expect(sent.at(-1)).toMatchObject({ type: "thread.queue", threadId: PEER });
     await expect(dispatch("agentsend", { cwd: "/work/app", agent: "nope", text: "hi" })).rejects.toThrow(
       "no running agent nope",
     );

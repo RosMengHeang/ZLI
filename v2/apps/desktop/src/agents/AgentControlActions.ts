@@ -16,8 +16,8 @@ import {
 } from "@zli-v2/contracts";
 
 import {
-  BrowserControlError,
   type BrowserControlDispatch,
+  BrowserControlError,
   resolveBrowserControlWorktree,
 } from "../browser/BrowserControlActions.js";
 
@@ -254,11 +254,6 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
       await typeIntoTerminal(agent.id, text);
       return { delivered: true, agent: summary(agent) };
     }
-    if (agent.status === "working" || agent.status === "waiting")
-      throw new BrowserControlError(
-        `That agent is ${agent.status === "working" ? "in the middle of a turn" : "waiting for the person to answer it"}. Try again when list_agents shows it idle.`,
-        409,
-      );
     if (agent.status === "failed") throw new BrowserControlError("That agent failed and cannot take messages.", 409);
     if (agent.status === "starting")
       await waitFor((next) => {
@@ -267,8 +262,11 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
           throw new BrowserControlError("That agent stopped before it could take the message.", 409);
         return thread?.status === "idle" ? true : undefined;
       }, "Waiting for that agent to start");
-    await run({ type: "thread.send", threadId: agent.id, text });
-    return { delivered: true, agent: summary(agent) };
+    const busy = agent.status === "working" || agent.status === "waiting";
+    await run({ type: "thread.queue", queueId: newId(), threadId: agent.id, text });
+    return busy
+      ? { delivered: false, queued: true, agent: summary(agent) }
+      : { delivered: true, agent: summary(agent) };
   };
 
   const start = async (raw: unknown) => {

@@ -362,3 +362,115 @@ describe("permission mode changes", () => {
     expect(() => decide(withThread(), send("supervised"))).toThrow(/keeps its permission mode/u);
   });
 });
+
+describe("queued messages", () => {
+  const threadId = ThreadId.parse("00000000-0000-4000-8000-000000000430");
+  const turnId = "00000000-0000-4000-8000-000000000431";
+
+  function withThread(status: "idle" | "working" | "waiting" | "stopped"): RuntimeProjection {
+    return {
+      ...projection("/work/tree"),
+      threads: [{ threadId, worktreeId, provider: "codex", status, activeTurnId: turnId, capabilities: {} }],
+    } as RuntimeProjection;
+  }
+
+  function next(state: RuntimeProjection, event: RuntimeEvent): RuntimeProjection {
+    return projectEvent(state, { ...envelope(event), sequence: state.lastSequence + 1 });
+  }
+
+  function apply(state: RuntimeProjection, command: RuntimeCommand): RuntimeProjection {
+    return decide(state, command).reduce(next, state);
+  }
+
+  const queue = (queueId: string, text = queueId): RuntimeCommand => ({
+    type: "thread.queue",
+    queueId,
+    threadId,
+    text,
+  });
+
+  it("sends at once to an idle agent and marks it working so the next message waits", () => {
+    const state = withThread("idle");
+    expect(decide(state, queue("q1", "first"))).toEqual([{ type: "thread.send.requested", threadId, text: "first" }]);
+    const next = apply(state, queue("q1", "first"));
+    expect(next.threads[0]?.status).toBe("working");
+    expect(decide(next, queue("q2", "second"))).toEqual([
+      { type: "thread.queued", message: { queueId: "q2", threadId, text: "second" } },
+    ]);
+  });
+
+  it("holds messages while the agent works and sends the oldest when it goes idle", () => {
+    let state = apply(apply(withThread("working"), queue("q1")), queue("q2"));
+    expect(state.queuedMessages?.map((entry) => entry.queueId)).toEqual(["q1", "q2"]);
+    expect(decide(state, queue("q1"))).toEqual([]);
+    expect(decide(state, { type: "thread.queue.flush", threadId })).toEqual([]);
+
+    state = apply(state, { type: "thread.status", threadId, status: "idle" });
+    expect(decide(state, { type: "thread.queue.flush", threadId })).toEqual([
+      { type: "thread.queue.removed", threadId, queueId: "q1" },
+      { type: "thread.send.requested", threadId, text: "q1" },
+    ]);
+    state = apply(state, { type: "thread.queue.flush", threadId });
+    expect(state.queuedMessages?.map((entry) => entry.queueId)).toEqual(["q2"]);
+    expect(state.threads[0]?.status).toBe("working");
+  });
+
+  it("removes a queued message, and does nothing for one already gone", () => {
+    const state = apply(withThread("working"), queue("q1"));
+    const removed = apply(state, { type: "thread.queue.remove", threadId, queueId: "q1" });
+    expect(removed.queuedMessages).toEqual([]);
+    expect(decide(removed, { type: "thread.queue.remove", threadId, queueId: "q1" })).toEqual([]);
+  });
+
+  it("steers by moving a message to the front and interrupting the current turn", () => {
+    const state = apply(apply(withThread("working"), queue("q1")), queue("q2"));
+    expect(decide(state, { type: "thread.steer", threadId, queueId: "q2" })).toEqual([
+      { type: "thread.queue.prioritized", threadId, queueId: "q2" },
+      { type: "thread.interrupt.requested", threadId, turnId },
+    ]);
+    const steered = apply(state, { type: "thread.steer", threadId, queueId: "q2" });
+    expect(steered.queuedMessages?.map((entry) => entry.queueId)).toEqual(["q2", "q1"]);
+  });
+
+  it("steers an idle agent by sending the message straight away", () => {
+    const working = apply(withThread("working"), queue("q1"));
+    const idle = apply(working, { type: "thread.status", threadId, status: "idle" });
+    expect(decide(idle, { type: "thread.steer", threadId, queueId: "q1" })).toEqual([
+      { type: "thread.queue.removed", threadId, queueId: "q1" },
+      { type: "thread.send.requested", threadId, text: "q1" },
+    ]);
+  });
+
+  it("will not steer past an open request or a message that is gone", () => {
+    const waiting = apply(apply(withThread("waiting"), queue("q1")), {
+      type: "thread.request",
+      request: { requestId: "r1", threadId, kind: "approval", payload: {} },
+    });
+    expect(decide(waiting, { type: "thread.queue.flush", threadId })).toEqual([]);
+    expect(() => decide(waiting, { type: "thread.steer", threadId, queueId: "q1" })).toThrow(/Answer the agent/u);
+    expect(() => decide(waiting, { type: "thread.steer", threadId, queueId: "q9" })).toThrow(/no longer queued/u);
+  });
+
+  it("rejects messages for an ended agent, past the queue limit, or with a mode the agent cannot take", () => {
+    expect(() => decide(withThread("stopped"), queue("q1"))).toThrow(/has ended/u);
+    let state = withThread("working");
+    for (let index = 0; index < 20; index += 1) state = apply(state, queue(`q${index}`));
+    expect(() => decide(state, queue("q20"))).toThrow(/up to 20/u);
+    expect(() =>
+      decide(withThread("working"), {
+        type: "thread.queue",
+        queueId: "q1",
+        threadId,
+        text: "x",
+        permissionMode: "supervised",
+      }),
+    ).toThrow(/keeps its permission mode/u);
+  });
+
+  it("drops the queue with the session", () => {
+    const state = apply(withThread("working"), queue("q1"));
+    const sessionId = SessionId.parse("00000000-0000-4000-8000-000000000432");
+    const deleted = next(state, { type: "session.deleted", sessionId, terminalIds: [], threadIds: [threadId] });
+    expect(deleted.queuedMessages).toEqual([]);
+  });
+});

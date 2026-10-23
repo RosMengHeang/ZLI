@@ -211,12 +211,44 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
       return { ...projection, lastSequence: envelope.sequence };
     case "thread.send.requested": {
       const { permissionMode } = event;
-      if (!permissionMode) return { ...projection, lastSequence: envelope.sequence };
       return {
         ...projection,
-        threads: projection.threads.map((thread) =>
-          thread.threadId === event.threadId ? { ...thread, permissionMode } : thread,
+        threads: projection.threads.map((thread) => {
+          if (thread.threadId !== event.threadId) return thread;
+          // Working from the moment a message is accepted, so a second message queues instead of racing it.
+          return {
+            ...thread,
+            ...(thread.status === "idle" ? { status: "working" as const, updatedAt: envelope.occurredAt } : {}),
+            ...(permissionMode ? { permissionMode } : {}),
+          };
+        }),
+        lastSequence: envelope.sequence,
+      };
+    }
+    case "thread.queued":
+      return {
+        ...projection,
+        queuedMessages: [
+          ...(projection.queuedMessages ?? []).filter((queued) => queued.queueId !== event.message.queueId),
+          { ...event.message, queuedAt: envelope.occurredAt },
+        ],
+        lastSequence: envelope.sequence,
+      };
+    case "thread.queue.removed":
+      return {
+        ...projection,
+        queuedMessages: (projection.queuedMessages ?? []).filter(
+          (queued) => !(queued.threadId === event.threadId && queued.queueId === event.queueId),
         ),
+        lastSequence: envelope.sequence,
+      };
+    case "thread.queue.prioritized": {
+      const queue = projection.queuedMessages ?? [];
+      const target = queue.find((queued) => queued.threadId === event.threadId && queued.queueId === event.queueId);
+      if (!target) return { ...projection, lastSequence: envelope.sequence };
+      return {
+        ...projection,
+        queuedMessages: [target, ...queue.filter((queued) => queued !== target)],
         lastSequence: envelope.sequence,
       };
     }

@@ -45,7 +45,7 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
     title: "Message agent",
     action: "agentsend",
     description:
-      "Send a message to another agent in your project. It arrives as that agent's next prompt, labeled with your branch, so say exactly what you need. Chat agents must be idle; terminal agents get it typed into their CLI.",
+      "Send a message to another agent in your project. It arrives as that agent's next prompt, labeled with your branch, so say exactly what you need. A busy chat agent gets it after its current turn (the result says queued); terminal agents get it typed into their CLI.",
     properties: {
       agent: AGENT_REF,
       text: { type: "string", description: "The message, up to 8000 characters." },

@@ -142,7 +142,13 @@ export function entriesForThread<T extends { threadId: string }>(
   return index.get(threadId) ?? EMPTY;
 }
 
-const SHELL_IGNORED = new Set<keyof RuntimeProjection>(["messages", "activities", "requests", "lastSequence"]);
+const SHELL_IGNORED = new Set<keyof RuntimeProjection>([
+  "messages",
+  "activities",
+  "requests",
+  "queuedMessages",
+  "lastSequence",
+]);
 
 /**
  * Equality for the workspace shell. Chat views read messages, activities, and requests themselves,
