@@ -93,6 +93,7 @@ export async function launchDesktop(
             }),
         ZLI_TEST_PROJECT_PATH: repo,
         ZLI_TEST_PROVIDER: "mock",
+        ZLI_REDUCED_MOTION: "1",
         ZLI_TEST_LEGACY_SNAPSHOT_PATH: options.legacySnapshotPath,
         ...options.env,
       },
@@ -103,6 +104,8 @@ export async function launchDesktop(
         throw new WindowTimeout(error);
       });
       await page.waitForLoadState("domcontentloaded");
+      // The app also forces reduced motion through ZLI_REDUCED_MOTION; this covers a page loaded before it applied.
+      await page.emulateMedia({ reducedMotion: "reduce" });
       const runtime = page.getByText("Local runtime");
       const showSidebar = page.getByRole("button", { name: "Show sidebar" });
       await runtime.or(showSidebar).first().waitFor({ state: "visible" });

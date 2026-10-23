@@ -102,10 +102,10 @@ kbd {
   min-width: 232px; max-width: min(340px, calc(100vw - 16px)); padding: var(--zli-space-1);
   border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-overlay);
   box-shadow: var(--zli-shadow-pop); color: var(--zli-text); transform-origin: bottom left;
-  animation: picker-in var(--zli-duration-base) var(--zli-ease);
+  animation: picker-in var(--zli-duration-base) var(--zli-ease) both;
 }
 .picker-menu[data-side="bottom"] { transform-origin: top left; }
-@keyframes picker-in { from { opacity: 0; transform: scale(.97); } }
+@keyframes picker-in { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
 .picker-list { display: flex; min-height: 0; flex-direction: column; gap: 1px; overflow-y: auto; overscroll-behavior: contain; }
 .picker-option {
   display: flex; width: 100%; flex: 0 0 auto; align-items: flex-start; gap: var(--zli-space-2-5); padding: 7px var(--zli-space-2);
@@ -182,18 +182,21 @@ kbd {
 .dialog-backdrop {
   position: fixed; z-index: var(--zli-z-dialog); inset: 0; display: flex; align-items: flex-start; justify-content: center; padding: 12vh var(--zli-space-4) var(--zli-space-4);
   background: rgba(0, 0, 0, .52); backdrop-filter: blur(3px); -webkit-app-region: no-drag;
-  animation: zli-fade-in var(--zli-duration-enter) var(--zli-ease);
+  animation: zli-fade-in var(--zli-duration-enter) var(--zli-ease) both;
 }
 .dialog-scrim { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: default; }
 .dialog-scrim:focus-visible { outline: none; }
 .dialog {
   position: relative; z-index: 1; display: flex; width: min(480px, 100%); max-height: calc(100vh - 12vh - var(--zli-space-6)); flex-direction: column;
   border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-xl); background: var(--zli-raised); box-shadow: var(--zli-highlight), var(--zli-shadow-dialog); overflow: hidden;
-  animation: zli-pop-in var(--zli-duration-enter) var(--zli-ease);
+  animation: zli-pop-in var(--zli-duration-enter) var(--zli-ease) both;
 }
-/* Entrances only: a dialog appearing in place reads as the same window, not a new screen. */
-@keyframes zli-fade-in { from { opacity: 0; } }
-@keyframes zli-pop-in { from { opacity: 0; transform: translateY(4px) scale(.985); } }
+/*
+ * Entrances only: a dialog appearing in place reads as the same window, not a new screen. Each one ends
+ * on no transform, so nothing clickable stays offset or scaled once it has arrived.
+ */
+@keyframes zli-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes zli-pop-in { from { opacity: 0; transform: translateY(4px) scale(.985); } to { opacity: 1; transform: none; } }
 .dialog-sm { width: min(420px, 100%); }
 .dialog-lg { width: min(600px, 100%); }
 .dialog-header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: var(--zli-space-4); padding: var(--zli-space-5) var(--zli-space-4) var(--zli-space-2) var(--zli-space-6); }

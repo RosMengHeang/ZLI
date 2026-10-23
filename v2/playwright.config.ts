@@ -7,6 +7,7 @@ export default defineConfig({
   workers: 1,
   reporter: [["list"]],
   use: {
+    reducedMotion: "reduce",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",

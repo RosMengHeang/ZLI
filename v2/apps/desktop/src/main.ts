@@ -67,6 +67,9 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
+// Integration tests turn motion off so a click never lands on a dialog that is still animating in.
+if (process.env.ZLI_REDUCED_MOTION === "1") app.commandLine.appendSwitch("force-prefers-reduced-motion");
+
 let environment: EnvironmentProcess | undefined;
 let runtime: RuntimeClient | undefined;
 let browserManager: BrowserManager | undefined;

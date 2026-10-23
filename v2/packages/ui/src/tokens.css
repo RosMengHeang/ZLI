@@ -158,6 +158,12 @@ code, kbd, pre, samp { font-variant-ligatures: none; }
 /* One focus ring for everything that takes keyboard focus. Fields replace it with their own border ring. */
 :focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
 
+/*
+ * Reduced motion turns movement off rather than shortening it: entrances are skipped, so a dialog or
+ * menu is in place and fully opaque from its first frame. Spinners keep turning because they report
+ * that work is still running.
+ */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+  *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+  .spinner { animation: zli-spin 1.6s linear infinite !important; }
 }
