@@ -312,6 +312,27 @@ export class TerminalService {
     }
   }
 
+  /** The newest output still in memory, decoded, up to about `maxBytes` characters. */
+  recentOutput(terminalId: TerminalId, maxBytes: number): { data: string; truncated: boolean } {
+    const session = this.session(terminalId);
+    const oldest = session.history[0]?.chunk.sequence ?? session.projection.lastSequence + 1;
+    const parts: string[] = [];
+    let size = 0;
+    for (let index = session.history.length - 1; index >= 0 && size < maxBytes; index -= 1) {
+      const entry = session.history[index];
+      if (!entry) continue;
+      const text = Buffer.from(entry.chunk.bytesBase64, "base64").toString("utf8");
+      parts.unshift(text);
+      size += text.length;
+    }
+    const data = parts.join("");
+    const cut = data.length > maxBytes;
+    return {
+      data: cut ? data.slice(-maxBytes) : data,
+      truncated: cut || oldest > 1 || parts.length < session.history.length,
+    };
+  }
+
   attach(terminalId: TerminalId, afterSequence = 0): TerminalAttachment {
     const session = this.session(terminalId);
     const oldestSequence = session.history[0]?.chunk.sequence ?? session.projection.lastSequence + 1;

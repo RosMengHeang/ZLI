@@ -4,11 +4,15 @@ import { dirname, isAbsolute, join } from "node:path";
 
 /** MCP server name every agent sees. Codex, Kimi, and Droid accept `-` in server names. */
 export const BROWSER_MCP_SERVER = "zli-browser";
+/** MCP server that lets agents see, read, start, and message the other agents in their project. */
+export const AGENT_MCP_SERVER = "zli";
 
 export type BrowserToolConfig = {
   /** Electron executable that runs the tool script with ELECTRON_RUN_AS_NODE. */
   command: string;
   script: string;
+  /** The bundled `zli` agent tool script, run the same way. */
+  agentScript?: string;
   /** Endpoint file the tool reads to reach the browser control service. */
   controlFile: string;
   /** Directory holding the `zli-browser` shell shims. */
@@ -32,7 +36,15 @@ export function browserToolConfigFromEnv(env: NodeJS.ProcessEnv = process.env): 
   const shimDir = env.ZLI_BROWSER_SHIM_DIR?.trim();
   if (!command || !script || !controlFile || !shimDir) return undefined;
   if (![command, script, controlFile, shimDir].every((value) => isAbsolute(value))) return undefined;
-  return { command, script, controlFile, shimDir, mcpConfigDir: join(dirname(controlFile), "mcp") };
+  const agentScript = env.ZLI_AGENT_TOOL_SCRIPT?.trim();
+  return {
+    command,
+    script,
+    ...(agentScript && isAbsolute(agentScript) ? { agentScript } : {}),
+    controlFile,
+    shimDir,
+    mcpConfigDir: join(dirname(controlFile), "mcp"),
+  };
 }
 
 /** Global registrations omit the worktree id; the tool then resolves the worktree from its cwd. */
@@ -47,6 +59,17 @@ export function mcpServerSpec(config: BrowserToolConfig, worktreeId?: string): M
       ...(worktreeId ? { ZLI_WORKTREE_ID: worktreeId } : {}),
     },
   };
+}
+
+export function agentMcpServerSpec(config: BrowserToolConfig, worktreeId?: string): McpServerSpec | undefined {
+  if (!config.agentScript) return undefined;
+  return { ...mcpServerSpec(config, worktreeId), name: AGENT_MCP_SERVER, args: [config.agentScript, "mcp"] };
+}
+
+/** Every MCP server ZLI itself provides: the browser, and the agent tool when it was bundled. */
+export function zliMcpServerSpecs(config: BrowserToolConfig, worktreeId?: string): McpServerSpec[] {
+  const agent = agentMcpServerSpec(config, worktreeId);
+  return [mcpServerSpec(config, worktreeId), ...(agent ? [agent] : [])];
 }
 
 /**
@@ -266,5 +289,5 @@ export async function writeMcpConfigFile(
   kind: McpConfigFileKind,
   worktreeId: string | undefined,
 ): Promise<string> {
-  return writeAgentMcpConfig(config.mcpConfigDir, kind, worktreeId, [mcpServerSpec(config, worktreeId)]);
+  return writeAgentMcpConfig(config.mcpConfigDir, kind, worktreeId, zliMcpServerSpecs(config, worktreeId));
 }

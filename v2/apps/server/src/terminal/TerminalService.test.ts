@@ -288,3 +288,17 @@ describe("TerminalService", () => {
     expect(service.list().map((terminal) => terminal.terminalId)).toEqual([nestedId]);
   });
 });
+
+describe("TerminalService recent output", () => {
+  it("returns the newest output and says when older output was left out", async () => {
+    const pty = new FakePty();
+    const service = await createService(pty);
+    pty.emit("first line\r\n");
+    pty.emit("second line\r\n");
+    expect(service.recentOutput(terminalId, 1_000)).toEqual({
+      data: "first line\r\nsecond line\r\n",
+      truncated: false,
+    });
+    expect(service.recentOutput(terminalId, 8)).toEqual({ data: "d line\r\n", truncated: true });
+  });
+});

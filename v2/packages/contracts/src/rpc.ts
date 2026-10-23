@@ -101,6 +101,12 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     terminalId: TerminalId,
     afterSequence: z.number().int().nonnegative(),
   }),
+  /** Recent output for agent tools. Answered by the server; never stored in the event log. */
+  z.object({
+    type: z.literal("terminal.read"),
+    terminalId: TerminalId,
+    maxBytes: z.number().int().min(1).max(262_144).optional(),
+  }),
   z.object({ type: z.literal("terminal.stop"), terminalId: TerminalId }),
   z.object({ type: z.literal("terminal.list") }),
   z.object({ type: z.literal("browser.updated"), tab: BrowserTabProjection }),

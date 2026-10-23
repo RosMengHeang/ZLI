@@ -90,18 +90,23 @@ function button(container: HTMLElement, text: string): HTMLButtonElement {
 describe("McpServersSection", () => {
   it("adds, turns off, and removes servers through the runtime", async () => {
     let servers: McpServerConfig[] = [];
+    let agentAccess = "full";
     const saves: McpServerConfig[][] = [];
     const bridge = {
       runtime: {
-        dispatch: async (request: { commandId: string; command: { type: string; servers?: McpServerConfig[] } }) => {
+        dispatch: async (request: {
+          commandId: string;
+          command: { type: string; servers?: McpServerConfig[]; access?: string };
+        }) => {
           if (request.command.type === "mcp.save") {
             servers = request.command.servers ?? [];
             saves.push(servers);
           }
+          if (request.command.type === "mcp.agentAccess") agentAccess = request.command.access ?? agentAccess;
           return {
             commandId: CommandId.parse(request.commandId),
             accepted: true as const,
-            result: { servers, userSettings: { enabled: true, outcomes: [] } },
+            result: { servers, agentAccess, userSettings: { enabled: true, outcomes: [] } },
           };
         },
         getProjection: async () => undefined,
@@ -118,6 +123,16 @@ describe("McpServersSection", () => {
       );
     });
     expect(container.textContent).toContain("No servers yet.");
+    const access = container.querySelector<HTMLSelectElement>(
+      'select[aria-label="What agents may do with other agents"]',
+    ) as HTMLSelectElement;
+    expect(access.value).toBe("full");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(access, "read");
+      access.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(agentAccess).toBe("read");
+    expect(access.value).toBe("read");
 
     await act(async () => button(container, "Add server").click());
     const form = container.querySelector("form") as HTMLFormElement;
@@ -159,7 +174,7 @@ describe("McpServersSection", () => {
             : {
                 commandId: CommandId.parse(request.commandId),
                 accepted: true as const,
-                result: { servers: [github], userSettings: { enabled: false, outcomes: [] } },
+                result: { servers: [github], agentAccess: "full", userSettings: { enabled: false, outcomes: [] } },
               };
         },
         getProjection: async () => undefined,
@@ -177,7 +192,11 @@ describe("McpServersSection", () => {
     });
     expect(container.querySelector('[role="alert"]')?.textContent).toBe("MCP servers are not available here.");
     await act(async () => button(container, "Try again").click());
-    expect(container.querySelector(".mcp-row strong")?.textContent).toBe("github");
+    expect([...container.querySelectorAll(".mcp-row strong")].map((node) => node.textContent)).toEqual([
+      "zli",
+      "zli-browser",
+      "github",
+    ]);
     expect(container.textContent).toContain("this ZLI is set not to change those files");
   });
 });

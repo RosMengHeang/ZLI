@@ -21,6 +21,7 @@ import {
   TerminalId,
 } from "@zli-v2/contracts";
 
+import { createAgentControlActions, isAgentControlAction } from "./agents/AgentControlActions.js";
 import { BrowserManager } from "./browser/BrowserManager.js";
 import { BrowserAutomation } from "./browser/BrowserAutomation.js";
 import { createBrowserControlActions } from "./browser/BrowserControlActions.js";
@@ -188,18 +189,27 @@ async function startBrowserControl(databasePath: string): Promise<BrowserToolPat
       : join(userData, "browser-control.json"),
     command: process.execPath,
     script: join(DESKTOP_DIST, "zli-browser.js"),
+    agentScript: join(DESKTOP_DIST, "zli.js"),
     shimDir: process.env.ZLI_DATABASE_PATH ? `${databasePath}.bin` : join(userData, "bin"),
   };
+  const browserActions = createBrowserControlActions({
+    manager: () => browserManager,
+    worktrees: () => runtime?.projection()?.worktrees ?? [],
+    reveal: (event) => {
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send("zli:browser:reveal", event);
+    },
+  });
+  const agentActions = createAgentControlActions({
+    projection: () => runtime?.projection(),
+    subscribe: (listener) => runtime?.subscribe(() => listener()) ?? (() => undefined),
+    command: (request) =>
+      runtime ? runtime.command(request) : Promise.reject(new Error("ZLI's runtime is still starting.")),
+  });
+  // The zli agent tool shares this service and endpoint file with zli-browser, so agents need one variable.
   browserControl = new BrowserControlServer({
     endpointPath: paths.controlFile,
-    dispatch: createBrowserControlActions({
-      manager: () => browserManager,
-      worktrees: () => runtime?.projection()?.worktrees ?? [],
-      reveal: (event) => {
-        if (mainWindow && !mainWindow.webContents.isDestroyed())
-          mainWindow.webContents.send("zli:browser:reveal", event);
-      },
-    }),
+    dispatch: (action, input) =>
+      isAgentControlAction(action) ? agentActions(action, input) : browserActions(action, input),
   });
   try {
     await browserControl.start();

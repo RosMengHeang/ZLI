@@ -26,13 +26,27 @@ describe("McpServerStore", () => {
     const path = await storePath();
     const store = new McpServerStore({ path });
     await store.load();
-    expect(store.list()).toEqual({ servers: [], userSettings: { enabled: false, outcomes: [] } });
+    expect(store.list()).toEqual({ servers: [], agentAccess: "full", userSettings: { enabled: false, outcomes: [] } });
 
     await store.save([github, linear]);
     const reloaded = new McpServerStore({ path });
     await reloaded.load();
     expect(reloaded.list().servers).toEqual([github, linear]);
     expect(reloaded.specs()).toEqual([{ name: "github", command: "npx", args: ["-y", "gh-mcp"], env: { TOKEN: "t" } }]);
+  });
+
+  it("keeps the agent tool access beside the servers", async () => {
+    const path = await storePath();
+    const store = new McpServerStore({ path });
+    await store.load();
+    await store.save([github]);
+    expect((await store.setAgentAccess("read")).agentAccess).toBe("read");
+    const reloaded = new McpServerStore({ path });
+    await reloaded.load();
+    expect(reloaded.agentAccess()).toBe("read");
+    expect(reloaded.list().servers).toEqual([github]);
+    await expect(store.setAgentAccess("everything" as never)).rejects.toThrow();
+    expect(store.agentAccess()).toBe("read");
   });
 
   it("passes what ZLI owns to each sync and stores the new ownership", async () => {

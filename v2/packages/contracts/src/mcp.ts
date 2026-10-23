@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { AgentToolAccess } from "./agentControl.js";
+
 /** Server names agents accept in every config format: Codex TOML keys, Claude tool prefixes, JSON keys. */
 export const MCP_SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/u;
 /** Names ZLI uses for its own servers. */
@@ -39,9 +41,10 @@ export const McpServerList = z
 export const McpCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("mcp.list") }),
   z.object({ type: z.literal("mcp.save"), servers: McpServerList }),
+  z.object({ type: z.literal("mcp.agentAccess"), access: AgentToolAccess }),
 ]);
 export type McpCommand = z.infer<typeof McpCommand>;
-export const MCP_COMMAND_TYPES = ["mcp.list", "mcp.save"] as const;
+export const MCP_COMMAND_TYPES = ["mcp.list", "mcp.save", "mcp.agentAccess"] as const;
 
 /** What happened to one agent's user settings file when ZLI copied the servers into it. */
 export const McpSettingsOutcome = z.object({
@@ -54,6 +57,8 @@ export type McpSettingsOutcome = z.infer<typeof McpSettingsOutcome>;
 
 export const McpListResult = z.object({
   servers: z.array(McpServerConfig),
+  /** What the built-in `zli` server lets agents do with other agents. */
+  agentAccess: AgentToolAccess,
   /** Cursor, Droid, Gemini, Kimi, and Qwen read MCP servers only from their own settings files. */
   userSettings: z.object({
     enabled: z.boolean(),
