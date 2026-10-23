@@ -6,6 +6,7 @@ import { combinePrompts, requestPromptManager, slashQuery, usePersonalPrompts } 
 import { useSharedPrompts } from "../prompts/useSharedPrompts.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { formatTokens } from "../usage/usage.js";
 
 export type ComposerAttachment = { name: string; mimeType: ImageMimeType; dataBase64: string };
 
@@ -24,6 +25,24 @@ const permissionHint: Record<PermissionMode, string> = {
   "full-access": "Full access: edits files and runs commands without asking. Applies from your next message.",
   supervised: "Supervised: limits risky commands where the agent supports it. Applies from your next message.",
 };
+
+function ContextMeter({ tokens, window }: { tokens: number; window?: number | undefined }) {
+  const detail = window
+    ? `${formatTokens(tokens)} of ${formatTokens(window)} tokens in context after the last turn`
+    : `${formatTokens(tokens)} tokens in context after the last turn`;
+  const percent = window ? Math.min(100, Math.round((tokens / window) * 100)) : undefined;
+  return (
+    <span
+      className={`composer-context${percent !== undefined && percent >= 80 ? " is-full" : ""}`}
+      data-tooltip={detail}
+    >
+      <span aria-hidden="true">
+        {percent === undefined ? `${formatTokens(tokens)} context` : `${percent}% context`}
+      </span>
+      <span className="sr-only">{percent === undefined ? detail : `${percent}% of context used. ${detail}`}</span>
+    </span>
+  );
+}
 
 function isImageType(value: string): value is ImageMimeType {
   return (IMAGE_TYPES as readonly string[]).includes(value);
@@ -53,6 +72,7 @@ export function Composer({
   permissionMode,
   onPermissionModeChange,
   projectId,
+  context,
   onSubmit,
 }: {
   displayName: string;
@@ -70,6 +90,8 @@ export function Composer({
   onPermissionModeChange?: ((mode: PermissionMode) => void) | undefined;
   /** Where shared prompts come from. */
   projectId: string | undefined;
+  /** How full the context window was after the agent's latest turn, when it reports that. */
+  context?: { tokens: number; window?: number } | undefined;
   onSubmit(text: string, attachments: ComposerAttachment[]): Promise<boolean>;
 }) {
   const [draft, setDraft] = useState("");
@@ -329,6 +351,7 @@ export function Composer({
           </span>
         )}
         <span className="composer-spacer" />
+        {context ? <ContextMeter tokens={context.tokens} window={context.window} /> : null}
         <button
           className="send-button"
           type="submit"

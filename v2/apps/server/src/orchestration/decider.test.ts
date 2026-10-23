@@ -474,3 +474,59 @@ describe("queued messages", () => {
     expect(deleted.queuedMessages).toEqual([]);
   });
 });
+
+describe("turn usage", () => {
+  const threadId = ThreadId.parse("00000000-0000-4000-8000-000000000440");
+
+  function withThread(): RuntimeProjection {
+    return {
+      ...projection("/work/tree"),
+      threads: [{ threadId, worktreeId, provider: "claude-code", status: "working", capabilities: {}, model: "opus" }],
+    } as RuntimeProjection;
+  }
+
+  function apply(state: RuntimeProjection, command: RuntimeCommand): RuntimeProjection {
+    return decide(state, command).reduce(
+      (current, event) => projectEvent(current, { ...envelope(event), sequence: current.lastSequence + 1 }),
+      state,
+    );
+  }
+
+  const usage = (outputTokens: number): RuntimeCommand => ({
+    type: "thread.usage",
+    threadId,
+    turnId: "turn-1",
+    usage: { inputTokens: 100, outputTokens },
+  });
+
+  it("records the thread's provider, project, and model, and replaces the turn's earlier report", () => {
+    let state = apply(withThread(), usage(10));
+    expect(decide(state, usage(10))).toEqual([]);
+    state = apply(state, usage(25));
+    expect(state.usage).toEqual([
+      {
+        usageId: `${threadId}:turn-1`,
+        threadId,
+        turnId: "turn-1",
+        provider: "claude-code",
+        projectId: "00000000-0000-4000-8000-000000000403",
+        model: "opus",
+        recordedAt: "2026-09-23T12:00:00.000Z",
+        usage: { inputTokens: 100, outputTokens: 25 },
+      },
+    ]);
+  });
+
+  it("keeps usage after the session is deleted", () => {
+    const state = apply(apply(withThread(), usage(10)), {
+      type: "session.delete",
+      sessionId: SessionId.parse(threadId),
+    });
+    expect(state.threads).toEqual([]);
+    expect(state.usage).toHaveLength(1);
+  });
+
+  it("rejects usage for an unknown thread", () => {
+    expect(() => decide(projection("/work/tree"), usage(10))).toThrow(DomainError);
+  });
+});

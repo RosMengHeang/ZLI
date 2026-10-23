@@ -152,6 +152,9 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
       case "turn.failed":
         this.emit({ type: "provider.error", threadId, message: event.message });
         return;
+      case "usage.updated":
+        this.emit({ type: "usage", threadId, turnId: event.providerTurnId, usage: event.usage });
+        return;
       case "tool.updated":
         this.emit({
           type: "activity",

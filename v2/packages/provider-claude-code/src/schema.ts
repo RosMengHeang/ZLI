@@ -1,7 +1,9 @@
+import { costAmount, sumCounts, tokenCount } from "@zli-v2/shared";
+
 export type ClaudeInbound =
   | { kind: "init"; sessionId: string }
   | { kind: "text"; text: string; partial: boolean; subagent: boolean }
-  | { kind: "result"; isError: boolean; text?: string; subtype?: string }
+  | { kind: "result"; isError: boolean; text?: string; subtype?: string; usage?: ClaudeResultUsage }
   | {
       kind: "control_request";
       requestId: string;
@@ -13,6 +15,16 @@ export type ClaudeInbound =
   | { kind: "control_response"; requestId: string; ok: boolean; error?: string }
   | { kind: "ignore" }
   | { kind: "invalid"; reason: "init" | "message" };
+
+/** Counts from a result record. Claude's input_tokens leaves out cache reads and writes, so they are added back. */
+export type ClaudeResultUsage = {
+  inputTokens?: number;
+  cachedInputTokens?: number;
+  outputTokens?: number;
+  /** Running total for the whole session, not this turn. */
+  totalCostUsd?: number;
+  contextWindow?: number;
+};
 
 export function userTurnMessage(
   text: string,
@@ -186,16 +198,62 @@ export function classifyClaudeMessage(value: unknown): ClaudeInbound {
   if (record.type === "result") {
     const subtype = typeof record.subtype === "string" ? record.subtype : undefined;
     const text = typeof record.result === "string" ? record.result : undefined;
+    const usage = resultUsage(record);
     return {
       kind: "result",
       isError: record.is_error === true || (subtype?.startsWith("error") ?? false),
       ...(text === undefined ? {} : { text }),
       ...(subtype === undefined ? {} : { subtype }),
+      ...(usage ? { usage } : {}),
     };
   }
   if (record.type === "control_request") return classifyControlRequest(record);
   if (record.type === "control_response") return classifyControlResponse(record);
   return { kind: "ignore" };
+}
+
+function resultUsage(record: Record<string, unknown>): ClaudeResultUsage | undefined {
+  const usage = asRecord(record.usage);
+  const cacheRead = tokenCount(usage?.cache_read_input_tokens);
+  const windows = Object.values(asRecord(record.modelUsage) ?? {})
+    .map((entry) => tokenCount(asRecord(entry)?.contextWindow))
+    .filter((value): value is number => value !== undefined && value > 0);
+  return compactClaudeUsage({
+    inputTokens: sumCounts(tokenCount(usage?.input_tokens), tokenCount(usage?.cache_creation_input_tokens), cacheRead),
+    cachedInputTokens: cacheRead,
+    outputTokens: tokenCount(usage?.output_tokens),
+    totalCostUsd: costAmount(record.total_cost_usd),
+    contextWindow: windows.length > 0 ? Math.max(...windows) : undefined,
+  });
+}
+
+function compactClaudeUsage(
+  usage: {
+    [K in keyof ClaudeResultUsage]: number | undefined;
+  },
+): ClaudeResultUsage | undefined {
+  const result: ClaudeResultUsage = {};
+  for (const [key, value] of Object.entries(usage) as Array<[keyof ClaudeResultUsage, number | undefined]>) {
+    if (value !== undefined) result[key] = value;
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+/**
+ * The prompt size of the model's latest call in the main conversation, which is how full its
+ * context window is. Subagents have their own context and are left out.
+ */
+export function claudeContextTokens(value: unknown): number | undefined {
+  const record = asRecord(value);
+  if (record?.type !== "assistant" || isSubagent(record)) return undefined;
+  const usage = asRecord(asRecord(record.message)?.usage);
+  if (!usage) return undefined;
+  return sumCounts(
+    tokenCount(usage.input_tokens),
+    tokenCount(usage.cache_creation_input_tokens),
+    tokenCount(usage.cache_read_input_tokens),
+    tokenCount(usage.output_tokens),
+  );
 }
 
 function classifyControlRequest(record: Record<string, unknown>): ClaudeInbound {

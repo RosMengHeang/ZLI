@@ -1,6 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 
-import { spawnCli } from "@zli-v2/shared";
+import { compactUsage, growth, type ProviderUsage, spawnCli, sumCounts, tokenCount } from "@zli-v2/shared";
 
 import { decodeJsonRpc, encodeJsonRpc, JsonRpcId, JsonRpcMessage, JsonRpcResponse } from "./protocol.js";
 import {
@@ -26,6 +26,7 @@ export type CodexProviderEvent =
   | { type: "assistant.delta"; providerThreadId: string; providerTurnId: string; text: string }
   | { type: "turn.completed"; providerThreadId: string; providerTurnId: string; status: string }
   | { type: "tool.updated"; providerThreadId: string; providerTurnId: string; tool: CodexToolUpdate }
+  | { type: "usage.updated"; providerThreadId: string; providerTurnId: string; usage: ProviderUsage }
   | {
       type: "approval.requested";
       requestId: string;
@@ -84,6 +85,8 @@ export class CodexProviderError extends Error {
 export class CodexAppServerClient {
   private readonly eventListeners = new Set<(event: CodexProviderEvent) => void>();
   private readonly serverRequestIds = new Map<string, JsonRpcId>();
+  /** Codex reports a running total per thread; a turn's usage is the growth since the previous turn ended. */
+  private readonly tokenTotals = new Map<string, { turnId: string; before?: TokenBreakdown; latest: TokenBreakdown }>();
   private readonly unsubscribeMessage: () => void;
   private readonly unsubscribeClose: () => void;
   private closed = false;
@@ -224,11 +227,37 @@ export class CodexAppServerClient {
       }
       return;
     }
+    if (method === "thread/tokenUsage/updated") {
+      const usage = this.turnUsage(params);
+      if (usage) this.emit(usage);
+      return;
+    }
     const event = normalizeNotification(method, params);
     if (event) this.emit(event);
     else if (isKnownNotificationMethod(method))
       this.emit({ type: "protocol.error", message: "Malformed Codex server message." });
     else this.emit({ type: "protocol.notification", method, payload: parsed.data.params });
+  }
+
+  private turnUsage(params: Record<string, unknown> | undefined): CodexProviderEvent | undefined {
+    const threadId = params?.threadId;
+    const turnId = params?.turnId;
+    const tokenUsage = asRecord(params?.tokenUsage);
+    if (typeof threadId !== "string" || typeof turnId !== "string" || !tokenUsage) return undefined;
+    const total = tokenBreakdown(tokenUsage.total);
+    if (!total) return undefined;
+    const previous = this.tokenTotals.get(threadId);
+    const before = previous?.turnId === turnId ? previous.before : previous?.latest;
+    this.tokenTotals.set(threadId, { turnId, ...(before ? { before } : {}), latest: total });
+    const last = tokenBreakdown(tokenUsage.last);
+    const usage = compactUsage({
+      inputTokens: growth(total.inputTokens, before?.inputTokens),
+      cachedInputTokens: growth(total.cachedInputTokens, before?.cachedInputTokens),
+      outputTokens: growth(total.outputTokens, before?.outputTokens),
+      contextTokens: last?.totalTokens ?? sumCounts(last?.inputTokens, last?.outputTokens),
+      contextWindow: tokenCount(tokenUsage.modelContextWindow),
+    });
+    return usage ? { type: "usage.updated", providerThreadId: threadId, providerTurnId: turnId, usage } : undefined;
   }
 
   private emit(event: CodexProviderEvent): void {
@@ -387,6 +416,24 @@ function normalizeNotification(
       status: String(params.status ?? turn?.status ?? "completed"),
     };
   return undefined;
+}
+
+type TokenBreakdown = {
+  totalTokens?: number;
+  inputTokens?: number;
+  cachedInputTokens?: number;
+  outputTokens?: number;
+};
+
+function tokenBreakdown(value: unknown): TokenBreakdown | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const breakdown: TokenBreakdown = {};
+  for (const key of ["totalTokens", "inputTokens", "cachedInputTokens", "outputTokens"] as const) {
+    const count = tokenCount(record[key]);
+    if (count !== undefined) breakdown[key] = count;
+  }
+  return Object.keys(breakdown).length > 0 ? breakdown : undefined;
 }
 
 function isKnownNotificationMethod(method: string): boolean {

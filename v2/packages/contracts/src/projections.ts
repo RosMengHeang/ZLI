@@ -11,6 +11,7 @@ import {
   ThreadProjection,
   ThreadQueuedMessage,
   ThreadRequestProjection,
+  ThreadUsageRecord,
 } from "./provider.js";
 import { ReviewProjection } from "./review.js";
 import { TerminalProjection } from "./terminal.js";
@@ -112,6 +113,7 @@ export const RuntimeProjection = z.object({
   messages: z.array(ThreadMessageProjection).optional(),
   requests: z.array(ThreadRequestProjection).optional(),
   queuedMessages: z.array(ThreadQueuedMessage).optional(),
+  usage: z.array(ThreadUsageRecord).optional(),
   activities: z.array(ThreadActivityProjection).optional(),
   terminals: z.array(TerminalProjection),
   browserTabs: z.array(BrowserTabProjection),
@@ -178,6 +180,18 @@ export function appendThreadMessage(
   return [...messages.filter((candidate) => candidate.messageId !== message.messageId), message].slice(
     -MAX_PROJECTED_MESSAGES,
   );
+}
+
+const MAX_PROJECTED_USAGE = 10_000;
+
+/** A turn reports usage as it goes; the latest report for a turn replaces the earlier one. */
+export function upsertUsageRecord(
+  records: readonly ThreadUsageRecord[],
+  record: ThreadUsageRecord,
+): ThreadUsageRecord[] {
+  const index = records.findIndex((candidate) => candidate.usageId === record.usageId);
+  if (index === -1) return [...records, record].slice(-MAX_PROJECTED_USAGE);
+  return [...records.slice(0, index), record, ...records.slice(index + 1)];
 }
 
 /** A later update for the same tool call replaces it in place so the work log keeps its order. */

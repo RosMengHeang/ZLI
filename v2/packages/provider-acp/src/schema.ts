@@ -1,3 +1,4 @@
+import { compactUsage, costAmount, type ProviderUsage, tokenCount } from "@zli-v2/shared";
 import { z } from "zod";
 
 import { parseConfigOptions, type SessionConfigOption } from "./protocol.js";
@@ -28,6 +29,8 @@ export type AcpSessionUpdate =
   | { kind: "text"; text: string }
   | { kind: "tool"; toolCallId: string; fields: AcpToolFields }
   | { kind: "config"; configOptions: SessionConfigOption[] }
+  /** totalCostUsd is the session's running total, not this turn's. */
+  | { kind: "usage"; usage: ProviderUsage; totalCostUsd?: number }
   | { kind: "ignore" }
   | { kind: "invalid" };
 
@@ -65,9 +68,32 @@ export function classifySessionUpdate(update: Record<string, unknown>): AcpSessi
     }
     case "config_option_update":
       return { kind: "config", configOptions: parseConfigOptions(update.configOptions) };
+    case "usage_update": {
+      const cost = asRecord(update.cost);
+      const totalCostUsd =
+        typeof cost?.currency === "string" && cost.currency.toUpperCase() === "USD"
+          ? costAmount(cost.amount)
+          : undefined;
+      const usage = compactUsage({ contextTokens: tokenCount(update.used), contextWindow: tokenCount(update.size) });
+      if (!usage && totalCostUsd === undefined) return { kind: "ignore" };
+      return { kind: "usage", usage: usage ?? {}, ...(totalCostUsd === undefined ? {} : { totalCostUsd }) };
+    }
     default:
       return { kind: "ignore" };
   }
+}
+
+/** Token counts some agents add to a session/prompt response. Cache reads are part of the input. */
+export function promptUsage(result: unknown): ProviderUsage | undefined {
+  const usage = asRecord(asRecord(result)?.usage);
+  if (!usage) return undefined;
+  const inputTokens = tokenCount(usage.inputTokens);
+  const cached = tokenCount(usage.cachedReadTokens);
+  return compactUsage({
+    inputTokens,
+    cachedInputTokens: cached === undefined || inputTokens === undefined ? cached : Math.min(cached, inputTokens),
+    outputTokens: tokenCount(usage.outputTokens),
+  });
 }
 
 export function toolFields(update: Record<string, unknown>): AcpToolFields {

@@ -10,6 +10,7 @@ import {
   removeSession,
   upsertDevServer,
   upsertThreadActivity,
+  upsertUsageRecord,
 } from "@zli-v2/contracts";
 
 export function createEmptyProjection(environment: EnvironmentDescriptor): RuntimeProjection {
@@ -232,6 +233,12 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
           ...(projection.queuedMessages ?? []).filter((queued) => queued.queueId !== event.message.queueId),
           { ...event.message, queuedAt: envelope.occurredAt },
         ],
+        lastSequence: envelope.sequence,
+      };
+    case "thread.usage.recorded":
+      return {
+        ...projection,
+        usage: upsertUsageRecord(projection.usage ?? [], { ...event.record, recordedAt: envelope.occurredAt }),
         lastSequence: envelope.sequence,
       };
     case "thread.queue.removed":

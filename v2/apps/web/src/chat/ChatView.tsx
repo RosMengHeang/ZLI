@@ -20,6 +20,7 @@ import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
+import { latestContext } from "../usage/usage.js";
 import { Composer, type ComposerAttachment } from "./Composer.js";
 import { Markdown } from "./Markdown.js";
 import { RequestCard } from "./RequestCard.js";
@@ -85,6 +86,11 @@ export function ChatView({
     ),
     shallowArrayEqual,
   );
+  const usage = useRuntimeSelector(
+    useCallback((value: RuntimeProjection | undefined) => entriesForThread(value?.usage, threadId), [threadId]),
+    shallowArrayEqual,
+  );
+  const context = useMemo(() => latestContext(usage), [usage]);
   const previousTimeline = useRef<readonly TimelineItem[]>([]);
   const timeline = useMemo(() => buildTimeline(messages, activities, previousTimeline.current), [messages, activities]);
   useEffect(() => {
@@ -288,6 +294,7 @@ export function ChatView({
               permissionMode={permissionMode}
               onPermissionModeChange={permissionSwitch ? setPermissionMode : undefined}
               projectId={worktree?.projectId}
+              context={context}
               onSubmit={send}
             />
           )}

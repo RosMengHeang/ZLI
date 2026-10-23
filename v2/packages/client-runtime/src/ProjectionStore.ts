@@ -10,6 +10,7 @@ import {
   removeSession,
   upsertDevServer,
   upsertThreadActivity,
+  upsertUsageRecord,
 } from "@zli-v2/contracts";
 
 function touchThread(
@@ -241,6 +242,13 @@ export class ProjectionStore {
             ...(current.queuedMessages ?? []).filter((queued) => queued.queueId !== event.message.queueId),
             { ...event.message, queuedAt: envelope.occurredAt },
           ],
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "thread.usage.recorded":
+        this.#projection = {
+          ...current,
+          usage: upsertUsageRecord(current.usage ?? [], { ...event.record, recordedAt: envelope.occurredAt }),
           lastSequence: envelope.sequence,
         };
         break;

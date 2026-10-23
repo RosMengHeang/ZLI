@@ -2,7 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { accessSync, constants, statSync } from "node:fs";
 
-import { spawnCli } from "@zli-v2/shared";
+import { type ProviderUsage, spawnCli } from "@zli-v2/shared";
 
 import { type DroidPermissionMode, decodeDroidLine, droidTurnArgs, MAX_DROID_LINE_CHARS } from "./protocol.js";
 import { classifyDroidMessage } from "./schema.js";
@@ -16,6 +16,7 @@ export type DroidProviderEvent =
   | { type: "turn.completed"; providerTurnId: string; status: string }
   | { type: "turn.failed"; providerTurnId: string; message: string }
   | { type: "tool.updated"; providerTurnId: string; tool: DroidToolUpdate }
+  | { type: "usage.updated"; providerTurnId: string; usage: ProviderUsage }
   | { type: "protocol.error"; message: string }
   | { type: "session.closed"; reason: string };
 
@@ -307,11 +308,12 @@ export class DroidClient {
     });
   }
 
-  private onCompletion(message: { isError: boolean; text?: string }): void {
+  private onCompletion(message: { isError: boolean; text?: string; usage?: ProviderUsage }): void {
     if (!this.active) {
       void this.stopPeer();
       return;
     }
+    if (message.usage) this.emit({ type: "usage.updated", providerTurnId: this.active.id, usage: message.usage });
     if (message.isError) {
       this.finishTurn("error", message.text?.trim() || "Droid CLI turn failed.");
       void this.stopPeer();

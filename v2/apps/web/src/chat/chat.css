@@ -138,6 +138,8 @@
 .composer-badge { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; height: var(--zli-control-md); padding: 0 var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-sm); white-space: nowrap; }
 .composer-badge.is-full-access { color: var(--zli-muted); }
 .composer-spacer { flex: 1; }
+.composer-context { padding: 0 var(--zli-space-1-5); color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.composer-context.is-full { color: var(--zli-amber); }
 .composer-error { display: flex; align-items: center; gap: var(--zli-space-1-5); margin: var(--zli-space-1-5) 0 0; color: var(--zli-red); font-size: var(--zli-text-sm); }
 .send-button { display: inline-grid; place-items: center; width: var(--zli-control-md); height: var(--zli-control-md); flex: 0 0 auto; padding: 0; border: 0; border-radius: var(--zli-radius-md); background: var(--zli-accent); color: var(--zli-accent-ink); cursor: pointer; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
 .send-button:hover:not(:disabled) { background: var(--zli-accent-hover); }

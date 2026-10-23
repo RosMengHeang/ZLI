@@ -33,6 +33,7 @@ import {
   ThreadMessageProjection,
   ThreadProjection,
   ThreadRequestProjection,
+  TurnUsage,
 } from "./provider.js";
 import { PullRequestCommand } from "./pullRequest.js";
 import { ReviewProjection } from "./review.js";
@@ -167,6 +168,13 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     errorMessage: z.string().min(1).optional(),
   }),
   z.object({ type: z.literal("thread.message"), message: ThreadMessageProjection }),
+  /** Reported by the runtime as a provider counts a turn's tokens. */
+  z.object({
+    type: z.literal("thread.usage"),
+    threadId: ThreadId,
+    turnId: z.string().min(1).max(200),
+    usage: TurnUsage,
+  }),
   z.object({ type: z.literal("thread.request"), request: ThreadRequestProjection }),
   z.object({ type: z.literal("thread.activity"), activity: ThreadActivityProjection }),
   z.object({ type: z.literal("thread.request.resolved"), threadId: ThreadId, requestId: z.string().min(1) }),

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { accessSync, constants, statSync } from "node:fs";
 
-import { spawnCli } from "@zli-v2/shared";
+import { compactUsage, growth, type ProviderUsage, spawnCli } from "@zli-v2/shared";
 
 import {
   type ClaudePermissionMode,
@@ -12,7 +12,9 @@ import {
 } from "./protocol.js";
 import {
   allowToolRequest,
+  type ClaudeResultUsage,
   classifyClaudeMessage,
+  claudeContextTokens,
   claudeToolBlocks,
   denyToolRequest,
   initializeRequest,
@@ -30,6 +32,7 @@ export type ClaudeProviderEvent =
   | { type: "turn.completed"; providerTurnId: string; status: string }
   | { type: "turn.failed"; providerTurnId: string; message: string }
   | { type: "tool.updated"; providerTurnId: string; tool: ClaudeToolUpdate }
+  | { type: "usage.updated"; providerTurnId: string; usage: ProviderUsage }
   | { type: "approval.requested"; requestId: string; payload: Record<string, unknown> }
   | { type: "protocol.error"; message: string }
   | { type: "session.closed"; reason: string };
@@ -109,6 +112,7 @@ type ActiveTurn = {
   sawPartial: boolean;
   sawText: boolean;
   tools: Map<string, { name: string; input?: Record<string, unknown> }>;
+  contextTokens?: number;
 };
 
 export class ClaudeCodeClient {
@@ -124,6 +128,8 @@ export class ClaudeCodeClient {
   private readonly pendingApprovals = new Map<string, { toolName: string; input: Record<string, unknown> }>();
   /** Tools the person allowed for the rest of this session. Claude Code does not remember them for us. */
   private readonly sessionAllowedTools = new Set<string>();
+  /** Claude reports cost as a running session total, so each turn's cost is the change since the last result. */
+  private sessionCostUsd: number | undefined;
   private closed = false;
 
   private constructor(
@@ -255,6 +261,8 @@ export class ClaudeCodeClient {
       return;
     }
     this.handleToolBlocks(raw);
+    const contextTokens = claudeContextTokens(raw);
+    if (contextTokens !== undefined && this.active) this.active.contextTokens = contextTokens;
     const message = classifyClaudeMessage(raw);
     switch (message.kind) {
       case "init":
@@ -300,8 +308,9 @@ export class ClaudeCodeClient {
     }
   }
 
-  private onResult(message: { isError: boolean; text?: string; subtype?: string }): void {
+  private onResult(message: { isError: boolean; text?: string; subtype?: string; usage?: ClaudeResultUsage }): void {
     if (!this.active) return;
+    this.emitUsage(this.active, message.usage);
     if (message.isError) {
       const detail =
         message.text?.trim() ||
@@ -311,6 +320,20 @@ export class ClaudeCodeClient {
     }
     if (!this.active.sawText && message.text?.trim()) this.emitText(message.text, false);
     this.finishTurn("completed");
+  }
+
+  private emitUsage(active: ActiveTurn, reported: ClaudeResultUsage | undefined): void {
+    const costUsd = growth(reported?.totalCostUsd, this.sessionCostUsd);
+    if (reported?.totalCostUsd !== undefined) this.sessionCostUsd = reported.totalCostUsd;
+    const usage = compactUsage({
+      inputTokens: reported?.inputTokens,
+      cachedInputTokens: reported?.cachedInputTokens,
+      outputTokens: reported?.outputTokens,
+      costUsd,
+      contextTokens: active.contextTokens,
+      contextWindow: reported?.contextWindow,
+    });
+    if (usage) this.emit({ type: "usage.updated", providerTurnId: active.id, usage });
   }
 
   private emitText(text: string, partial: boolean): void {
