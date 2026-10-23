@@ -18,7 +18,8 @@ import { QuickOpen } from "../files/QuickOpen.js";
 import { useAgentNotifications } from "../notifications/useAgentNotifications.js";
 import { PromptsDialog } from "../prompts/PromptsDialog.js";
 import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.js";
-import { type ReviewFocus, ReviewPane } from "../review/ReviewPane.js";
+import { usePullRequestPolling } from "../review/pullRequestStore.js";
+import type { ReviewFocus } from "../review/ReviewPane.js";
 import { getBridge, type NotificationSettings, type ZliBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { RuntimeProvider, useRuntime, useShellProjection } from "../runtime/RuntimeProvider.js";
@@ -45,6 +46,7 @@ import { Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
 import { IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { LoadingState } from "../ui/Pane.js";
 import { TooltipLayer } from "../ui/Tooltip.js";
 import { PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
 import {
@@ -68,6 +70,8 @@ import "../files/files.css";
 // The editor is large, so it loads the first time the Files panel opens instead of at startup.
 const FilesPane = lazy(() => import("../files/FilesPane.js").then((module) => ({ default: module.FilesPane })));
 const UsageDialog = lazy(() => import("../usage/UsageDialog.js").then((module) => ({ default: module.UsageDialog })));
+// The diff viewer and pull request tools load the first time the Changes panel opens.
+const ReviewPane = lazy(() => import("../review/ReviewPane.js").then((module) => ({ default: module.ReviewPane })));
 
 export function AppShell({ bridge = getBridge() }: { bridge?: ZliBridge } = {}) {
   return (
@@ -114,6 +118,16 @@ function WorkspaceApp() {
     () => (projection ? deriveSessions(projection, workbench.pending) : []),
     [projection, workbench.pending],
   );
+  const readyWorktreeIds = useMemo(
+    () =>
+      (projection?.worktrees ?? [])
+        .filter((worktree) => worktree.status === "ready")
+        .map((worktree) => worktree.worktreeId)
+        .sort(),
+    [projection?.worktrees],
+  );
+  // Keeps the sidebar's pull request and CI badges current; checks still running are revisited sooner.
+  usePullRequestPolling(dispatch, readyWorktreeIds);
   const tiles = useMemo(
     () => sessions.filter((session) => !workbench.closed.includes(session.sessionId)),
     [sessions, workbench.closed],
@@ -1062,7 +1076,9 @@ function WorkspaceApp() {
                         openRequest={browserOpen}
                       />
                     ) : (
-                      <ReviewPane worktree={contextWorktree} focus={reviewFocus} onShowAgent={showAgent} />
+                      <Suspense fallback={<LoadingState label="Loading the changes" />}>
+                        <ReviewPane worktree={contextWorktree} focus={reviewFocus} onShowAgent={showAgent} />
+                      </Suspense>
                     )}
                   </aside>
                 </>

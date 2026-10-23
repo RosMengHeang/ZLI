@@ -1,4 +1,7 @@
 import {
+  type PullRequestCheck,
+  PullRequestCheckLogResult,
+  type PullRequestCheckState,
   type PullRequestCommand,
   PullRequestCreateResult,
   PullRequestInfo,
@@ -17,7 +20,7 @@ export type ProcessResult = { code: number; stdout: string; stderr: string };
 export type ProcessRunner = (
   command: "git" | "gh",
   args: readonly string[],
-  options: { cwd: string; timeoutMs: number },
+  options: { cwd: string; timeoutMs: number; maxOutputBytes?: number },
 ) => Promise<ProcessResult>;
 
 /** A failure the person can act on; the message is shown as is. */
@@ -34,17 +37,27 @@ export type PullRequestInput = {
 const GIT_TIMEOUT_MS = 30_000;
 const PUSH_TIMEOUT_MS = 120_000;
 const GH_TIMEOUT_MS = 60_000;
+const LOG_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_BYTES = 256 * 1024;
+// Whole job logs come back even with --log-failed, and the failed step is near the end.
+const MAX_LOG_BYTES = 16 * 1024 * 1024;
+const MAX_LOG_LINES = 150;
+const MAX_LOG_CHARS = 30_000;
 const MAX_BODY_SUBJECTS = 50;
-const PR_FIELDS = "url,state,isDraft,number";
+const GH_READY_MS = 5 * 60_000;
+const PR_FIELDS = "url,state,isDraft,number,statusCheckRollup,reviewDecision";
 
 const GH_MISSING =
   "GitHub CLI (gh) is not installed or not on PATH. Install it from https://cli.github.com, then check again.";
 const GH_SIGNED_OUT = "GitHub CLI is not signed in. Run gh auth login in a terminal, then check again.";
 const NO_ORIGIN = "This repository has no origin remote. Add one with git remote add origin <url>, then check again.";
 const DETACHED = "This worktree is not on a branch. Check out a branch to open a pull request from it.";
+const NOT_ACTIONS = "ZLI can read logs only for GitHub Actions checks. Open the check on GitHub to see why it failed.";
 
 export class PullRequestService {
+  /** Status is checked often, so a working GitHub CLI is trusted for a while instead of asked every time. */
+  private ghReadyUntil = 0;
+
   constructor(private readonly runner: ProcessRunner = runProcess) {}
 
   async status(input: PullRequestInput, requestedBase?: string): Promise<PullRequestStatusResult> {
@@ -134,12 +147,32 @@ export class PullRequestService {
     return PullRequestCreateResult.parse({ pullRequest });
   }
 
+  async checkLog(input: PullRequestInput, url: string): Promise<PullRequestCheckLogResult> {
+    const job = actionsJob(url);
+    if (!job) throw new PullRequestError(NOT_ACTIONS);
+    const cwd = input.worktreePath;
+    const problem = await this.ghProblem(cwd);
+    if (problem) throw new PullRequestError(problem.message);
+    const result = await this.gh(["run", "view", "--repo", job.repo, "--job", job.jobId, "--log-failed"], cwd, {
+      timeoutMs: LOG_TIMEOUT_MS,
+      maxOutputBytes: MAX_LOG_BYTES,
+    });
+    if (result.code !== 0) {
+      if (/in progress|still running/iu.test(result.stderr)) {
+        throw new PullRequestError("This check is still running. Its log can be read once it finishes.");
+      }
+      throw new PullRequestError(ghFailure("could not read the check log", result));
+    }
+    return PullRequestCheckLogResult.parse(failedLogExcerpt(result.stdout));
+  }
+
   private async view(cwd: string, target: string): Promise<PullRequestInfo | undefined> {
     const view = await this.gh(["pr", "view", target, "--json", PR_FIELDS], cwd);
     return view.code === 0 ? parsePullRequest(view.stdout) : undefined;
   }
 
   private async ghProblem(cwd: string): Promise<PullRequestProblem | undefined> {
+    if (Date.now() < this.ghReadyUntil) return undefined;
     let version: ProcessResult;
     try {
       version = await this.runner("gh", ["--version"], { cwd, timeoutMs: GH_TIMEOUT_MS });
@@ -150,12 +183,21 @@ export class PullRequestService {
     if (version.code !== 0) return { code: "gh_missing", message: GH_MISSING };
     const auth = await this.gh(["auth", "status"], cwd);
     if (auth.code !== 0) return { code: "gh_unauthenticated", message: GH_SIGNED_OUT };
+    this.ghReadyUntil = Date.now() + GH_READY_MS;
     return undefined;
   }
 
-  private async gh(args: readonly string[], cwd: string): Promise<ProcessResult> {
+  private async gh(
+    args: readonly string[],
+    cwd: string,
+    options: { timeoutMs?: number; maxOutputBytes?: number } = {},
+  ): Promise<ProcessResult> {
     try {
-      return await this.runner("gh", args, { cwd, timeoutMs: GH_TIMEOUT_MS });
+      return await this.runner("gh", args, {
+        cwd,
+        timeoutMs: options.timeoutMs ?? GH_TIMEOUT_MS,
+        ...(options.maxOutputBytes ? { maxOutputBytes: options.maxOutputBytes } : {}),
+      });
     } catch (error) {
       if (isMissingProgram(error)) throw new PullRequestError(GH_MISSING);
       throw error;
@@ -224,6 +266,8 @@ export async function runPullRequestCommand(
       return service.status(input, command.base);
     case "review.pr.push":
       return service.push(input);
+    case "review.pr.checkLog":
+      return service.checkLog(input, command.url);
     case "review.pr.create":
       return service.create(input, {
         title: command.title,
@@ -283,12 +327,148 @@ function pushFailure(branch: string, result: ProcessResult): string {
 }
 
 function parsePullRequest(stdout: string): PullRequestInfo | undefined {
+  let raw: unknown;
   try {
-    const parsed = PullRequestInfo.safeParse(JSON.parse(stdout));
-    return parsed.success ? parsed.data : undefined;
+    raw = JSON.parse(stdout);
   } catch {
     return undefined;
   }
+  if (!raw || typeof raw !== "object") return undefined;
+  const { statusCheckRollup, reviewDecision, ...rest } = raw as Record<string, unknown>;
+  const checks = summarizeChecks(statusCheckRollup);
+  const parsed = PullRequestInfo.safeParse({
+    ...rest,
+    ...(checks ? { checks } : {}),
+    ...(reviewDecision === "APPROVED" || reviewDecision === "CHANGES_REQUESTED" || reviewDecision === "REVIEW_REQUIRED"
+      ? { reviewDecision }
+      : {}),
+  });
+  return parsed.success ? parsed.data : undefined;
+}
+
+const CHECK_ORDER: Record<PullRequestCheckState, number> = { failed: 0, pending: 1, passed: 2, skipped: 3 };
+
+/**
+ * Reduces `gh pr view --json statusCheckRollup` to one entry per check. A workflow that runs for both
+ * push and pull_request reports the same check twice; the most recently started one is kept.
+ */
+export function summarizeChecks(rollup: unknown): PullRequestCheck[] | undefined {
+  if (!Array.isArray(rollup)) return undefined;
+  const latest = new Map<string, { check: PullRequestCheck; startedAt: string }>();
+  for (const item of rollup) {
+    if (!item || typeof item !== "object") continue;
+    const entry = item as Record<string, unknown>;
+    const name = stringField(entry.name) ?? stringField(entry.context);
+    if (!name) continue;
+    const workflow = stringField(entry.workflowName);
+    const url = httpUrl(stringField(entry.detailsUrl) ?? stringField(entry.targetUrl));
+    const startedAt = stringField(entry.startedAt) ?? "";
+    const key = `${workflow ?? ""}\0${name}`;
+    const previous = latest.get(key);
+    if (previous && previous.startedAt > startedAt) continue;
+    const check: PullRequestCheck = {
+      name: name.slice(0, 300),
+      ...(workflow ? { workflow: workflow.slice(0, 300) } : {}),
+      state: checkState(entry),
+      ...(url ? { url } : {}),
+    };
+    latest.set(key, { check, startedAt });
+  }
+  return [...latest.values()]
+    .map((value) => value.check)
+    .sort((left, right) => CHECK_ORDER[left.state] - CHECK_ORDER[right.state] || left.name.localeCompare(right.name))
+    .slice(0, 200);
+}
+
+function checkState(entry: Record<string, unknown>): PullRequestCheckState {
+  const outcome = (stringField(entry.conclusion) ?? stringField(entry.state) ?? "").toUpperCase();
+  if (outcome === "SUCCESS") return "passed";
+  if (["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"].includes(outcome)) {
+    return "failed";
+  }
+  if (["SKIPPED", "NEUTRAL", "STALE"].includes(outcome)) return "skipped";
+  return "pending";
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function httpUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const REPO_PART = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/u;
+
+/** The repository and job of a GitHub Actions job link, or undefined for any other link. */
+export function actionsJob(value: string): { repo: string; jobId: string } | undefined {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== "https:" || url.username || url.password) return undefined;
+  const match = /^\/([^/]+)\/([^/]+)\/actions\/runs\/\d+\/job\/(\d+)\/?$/u.exec(url.pathname);
+  const [, owner, repo, jobId] = match ?? [];
+  if (!owner || !repo || !jobId || !REPO_PART.test(owner) || !REPO_PART.test(repo)) return undefined;
+  const host = url.hostname.toLowerCase();
+  if (!/^[a-z0-9.-]+$/u.test(host)) return undefined;
+  return { repo: host === "github.com" ? `${owner}/${repo}` : `${host}/${owner}/${repo}`, jobId };
+}
+
+// `gh run view --log` lines are "job<TAB>step<TAB>timestamp text".
+const LOG_PREFIX = /^[^\t]*\t[^\t]*\t/u;
+const LOG_TIMESTAMP = /^\uFEFF?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z ?/u;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI color codes are what is removed.
+const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/gu;
+
+/**
+ * The output of the step that failed, ending at the first error GitHub Actions recorded. Without an
+ * error marker the end of the job before its cleanup is used.
+ */
+export function failedLogExcerpt(log: string): { excerpt: string; truncated: boolean } {
+  const lines = log
+    .split(/\r?\n/u)
+    .map((line) => line.replace(LOG_PREFIX, "").replace(LOG_TIMESTAMP, "").replace(ANSI, "").trimEnd());
+  const errorAt = lines.findIndex((line) => line.startsWith("##[error]"));
+  let start = 0;
+  let end = lines.length;
+  if (errorAt >= 0) {
+    end = errorAt + 1;
+    for (let index = errorAt; index >= 0; index -= 1) {
+      if (lines[index]?.startsWith("##[group]Run ")) {
+        start = index;
+        break;
+      }
+    }
+  } else {
+    const cleanup = lines.findIndex((line) => line.startsWith("Post job cleanup."));
+    if (cleanup >= 0) end = cleanup;
+  }
+  let picked = lines
+    .slice(start, end)
+    .filter((line) => line !== "##[endgroup]")
+    .map((line) => line.replace(/^##\[group\]/u, "").replace(/^##\[(error|warning)\]/u, "$1: "));
+  while (picked.length > 0 && !picked.at(-1)) picked.pop();
+  let truncated = false;
+  if (picked.length > MAX_LOG_LINES) {
+    picked = picked.slice(-MAX_LOG_LINES);
+    truncated = true;
+  }
+  let excerpt = redactSecrets(picked.join("\n"));
+  if (excerpt.length > MAX_LOG_CHARS) {
+    const tail = excerpt.slice(-MAX_LOG_CHARS);
+    excerpt = tail.slice(tail.indexOf("\n") + 1);
+    truncated = true;
+  }
+  return { excerpt, truncated };
 }
 
 function fromUrl(url: string | undefined, draft: boolean): PullRequestInfo | undefined {
@@ -335,8 +515,9 @@ export const runProcess: ProcessRunner = (command, args, options) =>
       clearTimeout(timer);
       callback();
     };
+    const limit = options.maxOutputBytes ?? MAX_OUTPUT_BYTES;
     const append = (current: string, chunk: Buffer) =>
-      current.length >= MAX_OUTPUT_BYTES ? current : current + chunk.toString("utf8");
+      current.length >= limit ? current : current + chunk.toString("utf8");
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout = append(stdout, chunk);
     });

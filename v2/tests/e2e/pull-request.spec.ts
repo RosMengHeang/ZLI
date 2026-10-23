@@ -3,7 +3,7 @@ import { delimiter, join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, git, launchDesktop, type DesktopFixture } from "./desktop-fixtures.js";
+import { closeDesktop, createGitFixture, type DesktopFixture, git, launchDesktop } from "./desktop-fixtures.js";
 
 const PR_URL = "https://github.com/zli/fixture/pull/7";
 
@@ -27,6 +27,12 @@ case "$1" in
         echo "${PR_URL}"
         exit 0 ;;
     esac ;;
+  run)
+    printf '%s\n' \
+      'test	UNKNOWN STEP	2026-01-01T00:00:00.0000000Z ##[group]Run pnpm test' \
+      'test	UNKNOWN STEP	2026-01-01T00:00:01.0000000Z boom: expected true to be false' \
+      'test	UNKNOWN STEP	2026-01-01T00:00:02.0000000Z ##[error]Process completed with exit code 1.'
+    exit 0 ;;
 esac
 echo "unexpected gh $*" >&2
 exit 2
@@ -106,6 +112,96 @@ test("creates a draft pull request from the Changes panel and opens it", async (
     await expect(section.getByRole("button", { name: "Create PR" })).toHaveCount(0);
     await section.getByRole("button", { name: "View PR" }).click();
     await expect.poll(() => page.evaluate(() => window.zli?.test?.takeExternalUrl?.())).toBe(PR_URL);
+  } finally {
+    if (fixture) await closeDesktop(fixture);
+  }
+});
+
+test("shows a pull request's checks and sends a failed check's log to an agent", async () => {
+  test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
+  test.skip(process.platform === "win32", "The stand-in GitHub CLI is a POSIX shell script.");
+  const { root, repo } = await createGitFixture();
+  const origin = join(root, "origin.git");
+  await git(root, ["init", "--bare", origin]);
+  await git(repo, ["remote", "add", "origin", origin]);
+  await git(repo, ["push", "-u", "origin", "main"]);
+  const binDir = join(root, "bin");
+  const ghState = join(root, "gh-state");
+  await mkdir(binDir, { recursive: true });
+  await mkdir(ghState, { recursive: true });
+  await writeFile(join(binDir, "gh"), FAKE_GH, "utf8");
+  await chmod(join(binDir, "gh"), 0o755);
+  await writeFile(
+    join(ghState, "pr.json"),
+    JSON.stringify({
+      url: PR_URL,
+      state: "OPEN",
+      isDraft: false,
+      number: 7,
+      reviewDecision: "CHANGES_REQUESTED",
+      statusCheckRollup: [
+        {
+          __typename: "CheckRun",
+          name: "test",
+          workflowName: "CI",
+          status: "COMPLETED",
+          conclusion: "FAILURE",
+          detailsUrl: "https://github.com/zli/fixture/actions/runs/5/job/9",
+        },
+        {
+          __typename: "CheckRun",
+          name: "build",
+          workflowName: "CI",
+          status: "COMPLETED",
+          conclusion: "SUCCESS",
+          detailsUrl: "https://github.com/zli/fixture/actions/runs/5/job/8",
+        },
+      ],
+    }),
+    "utf8",
+  );
+
+  let fixture: DesktopFixture | undefined;
+  try {
+    fixture = await launchDesktop(repo, root, {
+      env: { PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`, ZLI_FAKE_GH_STATE: ghState },
+    });
+    const page = fixture.page;
+    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    const createWorktree = page.getByRole("dialog", { name: "Create worktree" });
+    await createWorktree.getByLabel("Branch").fill("checks");
+    await createWorktree.getByRole("button", { name: "Create worktree" }).click();
+    const worktree = page.getByRole("button", { name: /checks/iu }).first();
+    await expect(worktree).toContainText("Ready", { timeout: 30_000 });
+    await worktree.click();
+
+    await page.locator(".sidebar-new-agent").click();
+    const newAgent = page.getByRole("dialog", { name: "New agent" });
+    await newAgent.getByText("Codex", { exact: true }).click();
+    await newAgent.getByText("Chat", { exact: true }).click();
+    await newAgent.getByRole("button", { name: "Start agent" }).click();
+    await expect(page.getByRole("textbox", { name: "Message Codex" })).toBeEnabled({ timeout: 20_000 });
+
+    await page.getByRole("button", { name: "Changes", exact: true }).click();
+    await page.getByRole("button", { name: "Refresh changes" }).click();
+    const section = page.getByRole("group", { name: "Pull request" });
+    await expect(section).toContainText("#7", { timeout: 30_000 });
+    await expect(section).toContainText("Changes requested");
+    await expect(section).toContainText("1 check failed");
+    await expect(section.getByRole("list", { name: "Checks" })).toContainText("build");
+
+    await section.getByRole("button", { name: "Send to agent" }).click();
+    const send = page.getByRole("dialog", { name: "Send failed check" });
+    await expect(send.getByLabel("Message preview")).toContainText("boom: expected true to be false", {
+      timeout: 30_000,
+    });
+    await expect(send.getByLabel("Message preview")).toContainText("pull request #7");
+    await send.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(send).toHaveCount(0);
+    await expect(page.getByText(/Mock response: The CI check/u)).toBeVisible({ timeout: 20_000 });
+
+    // The sidebar shows the same pull request next to the worktree.
+    await expect(worktree).toContainText("#7");
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

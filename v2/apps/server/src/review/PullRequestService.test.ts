@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  actionsJob,
+  failedLogExcerpt,
   formatBody,
   type ProcessResult,
   type ProcessRunner,
   PullRequestError,
   PullRequestService,
   redactSecrets,
+  summarizeChecks,
 } from "./PullRequestService.js";
 
 type Call = { command: "git" | "gh"; args: string[]; cwd: string };
@@ -75,7 +78,46 @@ describe("PullRequestService.status", () => {
       state: "OPEN",
       isDraft: true,
     });
-    expect(calls.at(-1)?.args).toEqual(["pr", "view", "feature/pr", "--json", "url,state,isDraft,number"]);
+    expect(calls.at(-1)?.args).toEqual([
+      "pr",
+      "view",
+      "feature/pr",
+      "--json",
+      "url,state,isDraft,number,statusCheckRollup,reviewDecision",
+    ]);
+  });
+
+  it("reports checks and the review decision of the pull request", async () => {
+    const view = JSON.stringify({
+      ...JSON.parse(PR_JSON),
+      reviewDecision: "CHANGES_REQUESTED",
+      statusCheckRollup: [
+        {
+          __typename: "CheckRun",
+          name: "test",
+          workflowName: "CI",
+          status: "COMPLETED",
+          conclusion: "FAILURE",
+          detailsUrl: "https://github.com/acme/app/actions/runs/5/job/9",
+        },
+        { __typename: "StatusContext", context: "deploy/preview", state: "PENDING", targetUrl: "https://ci.example/1" },
+      ],
+    });
+    const { runner } = fakeRunner(({ command, args }) => (command === "gh" && args[0] === "pr" ? ok(view) : undefined));
+    const status = await new PullRequestService(runner).status(INPUT);
+    expect(status.pullRequest?.reviewDecision).toBe("CHANGES_REQUESTED");
+    expect(status.pullRequest?.checks).toEqual([
+      { name: "test", workflow: "CI", state: "failed", url: "https://github.com/acme/app/actions/runs/5/job/9" },
+      { name: "deploy/preview", state: "pending", url: "https://ci.example/1" },
+    ]);
+  });
+
+  it("asks GitHub CLI whether it is signed in only once in a while", async () => {
+    const { runner, calls } = fakeRunner();
+    const service = new PullRequestService(runner);
+    await service.status(INPUT);
+    await service.status(INPUT);
+    expect(calls.filter((call) => call.args.join(" ") === "auth status")).toHaveLength(1);
   });
 
   it("uses the requested base and falls back to the local branch when origin lacks it", async () => {
@@ -250,7 +292,84 @@ describe("PullRequestService.create", () => {
   });
 });
 
+describe("PullRequestService.checkLog", () => {
+  const url = "https://github.com/acme/app/actions/runs/5/job/9";
+
+  it("reads the failed part of a GitHub Actions job log", async () => {
+    const log = [
+      "test\tUNKNOWN STEP\t\uFEFF2026-01-01T00:00:00.0000000Z Current runner version: '2.338.0'",
+      "test\tUNKNOWN STEP\t2026-01-01T00:00:01.0000000Z ##[group]Run pnpm test",
+      "test\tUNKNOWN STEP\t2026-01-01T00:00:01.1000000Z pnpm test",
+      "test\tUNKNOWN STEP\t2026-01-01T00:00:01.2000000Z ##[endgroup]",
+      "test\tUNKNOWN STEP\t2026-01-01T00:00:02.0000000Z \u001b[31mFAIL\u001b[0m src/app.test.ts > adds",
+      "test\tUNKNOWN STEP\t2026-01-01T00:00:03.0000000Z ##[error]Process completed with exit code 1.",
+      "test\tUNKNOWN STEP\t2026-01-01T00:00:04.0000000Z Post job cleanup.",
+    ].join("\n");
+    const { runner, calls } = fakeRunner(({ args }) => (args[0] === "run" ? ok(log) : undefined));
+    const result = await new PullRequestService(runner).checkLog(INPUT, url);
+    expect(result).toEqual({
+      excerpt: "Run pnpm test\npnpm test\nFAIL src/app.test.ts > adds\nerror: Process completed with exit code 1.",
+      truncated: false,
+    });
+    expect(calls.at(-1)?.args).toEqual(["run", "view", "--repo", "acme/app", "--job", "9", "--log-failed"]);
+  });
+
+  it("explains that only GitHub Actions logs can be read", async () => {
+    const { runner, calls } = fakeRunner();
+    await expect(new PullRequestService(runner).checkLog(INPUT, "https://ci.example/1")).rejects.toThrow(
+      "only for GitHub Actions checks",
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("explains a check that is still running", async () => {
+    const { runner } = fakeRunner(({ args }) =>
+      args[0] === "run" ? fail("job 9 is still in progress; logs will be available when it is complete") : undefined,
+    );
+    await expect(new PullRequestService(runner).checkLog(INPUT, url)).rejects.toThrow("still running");
+  });
+});
+
 describe("helpers", () => {
+  it("keeps the latest run of a check reported twice and lists failures first", () => {
+    const checks = summarizeChecks([
+      { name: "build", workflowName: "CI", conclusion: "SUCCESS", startedAt: "2026-01-01T00:00:00Z" },
+      { name: "build", workflowName: "CI", conclusion: "FAILURE", startedAt: "2026-01-01T00:05:00Z" },
+      { name: "lint", workflowName: "CI", conclusion: "SKIPPED" },
+      { name: "e2e", workflowName: "CI", status: "IN_PROGRESS", conclusion: "" },
+      { context: "", state: "SUCCESS" },
+      { name: "docs", conclusion: "SUCCESS", detailsUrl: "javascript:alert(1)" },
+    ]);
+    expect(checks).toEqual([
+      { name: "build", workflow: "CI", state: "failed" },
+      { name: "e2e", workflow: "CI", state: "pending" },
+      { name: "docs", state: "passed" },
+      { name: "lint", workflow: "CI", state: "skipped" },
+    ]);
+    expect(summarizeChecks(undefined)).toBeUndefined();
+  });
+
+  it("reads only GitHub Actions job links", () => {
+    expect(actionsJob("https://github.com/acme/app/actions/runs/5/job/9")).toEqual({ repo: "acme/app", jobId: "9" });
+    expect(actionsJob("https://ghe.example.com/acme/app/actions/runs/5/job/9")).toEqual({
+      repo: "ghe.example.com/acme/app",
+      jobId: "9",
+    });
+    expect(actionsJob("https://github.com/-x/app/actions/runs/5/job/9")).toBeUndefined();
+    expect(actionsJob("https://user:pw@github.com/acme/app/actions/runs/5/job/9")).toBeUndefined();
+    expect(actionsJob("http://github.com/acme/app/actions/runs/5/job/9")).toBeUndefined();
+    expect(actionsJob("https://github.com/acme/app/pull/3")).toBeUndefined();
+  });
+
+  it("keeps the end of a long failed step and the end of a job without an error marker", () => {
+    const long = ["##[group]Run make", ...Array.from({ length: 200 }, (_, index) => `line ${index}`), "##[error]boom"];
+    const result = failedLogExcerpt(long.join("\n"));
+    expect(result.truncated).toBe(true);
+    expect(result.excerpt.split("\n")).toHaveLength(150);
+    expect(result.excerpt.endsWith("line 199\nerror: boom")).toBe(true);
+    expect(failedLogExcerpt("one\ntwo\nPost job cleanup.\nthree")).toEqual({ excerpt: "one\ntwo", truncated: false });
+  });
+
   it("formats commit subjects as a list and caps it", () => {
     expect(formatBody(["One", "Two"])).toBe("- One\n- Two");
     const many = Array.from({ length: 52 }, (_, index) => `Commit ${index}`);
