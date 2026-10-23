@@ -197,6 +197,6 @@ describe("McpServersSection", () => {
       "zli-browser",
       "github",
     ]);
-    expect(container.textContent).toContain("this ZLI is set not to change those files");
+    expect(container.textContent).toContain("ZLI is set to leave those files alone");
   });
 });

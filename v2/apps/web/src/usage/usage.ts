@@ -4,8 +4,8 @@ export type UsagePeriod = "today" | "week" | "month" | "all";
 
 export const usagePeriods: { id: UsagePeriod; label: string }[] = [
   { id: "today", label: "Today" },
-  { id: "week", label: "Last 7 days" },
-  { id: "month", label: "Last 30 days" },
+  { id: "week", label: "7 days" },
+  { id: "month", label: "30 days" },
   { id: "all", label: "All time" },
 ];
 

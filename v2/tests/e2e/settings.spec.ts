@@ -20,7 +20,7 @@ test("changes New agent defaults, branch names, and shortcuts from Settings", as
     await page.getByRole("button", { name: "Settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
     await settings.getByRole("combobox", { name: "Agent" }).selectOption("codex");
-    await settings.getByRole("combobox", { name: "Work in" }).selectOption("chat");
+    await settings.getByRole("combobox", { name: "View" }).selectOption("chat");
 
     await settings.getByRole("tab", { name: "Worktrees" }).click();
     await settings.getByLabel("Branch name template").fill("task/{agent}-{random}");
@@ -32,11 +32,11 @@ test("changes New agent defaults, branch names, and shortcuts from Settings", as
     await expect(settings.getByRole("button", { name: /^New agent, .+Y\. Change shortcut$/u })).toBeVisible();
 
     await settings.getByRole("tab", { name: "Notifications" }).click();
-    const notify = settings.getByRole("switch", { name: /Notify when an agent finishes/u });
+    const notify = settings.getByRole("switch", { name: /^Desktop notifications/u });
     await expect(notify).toBeChecked();
     await notify.click();
     await expect(notify).not.toBeChecked();
-    await expect(settings.getByRole("switch", { name: "Play a sound" })).toBeDisabled();
+    await expect(settings.getByRole("switch", { name: /^Sound/u })).toBeDisabled();
     await notify.click();
 
     await page.keyboard.press("Escape");
@@ -84,7 +84,7 @@ test("keeps MCP servers added in Settings for every agent", async () => {
     await form.getByRole("button", { name: "Add server" }).click();
     await expect(form).toHaveCount(0);
     await expect(settings.locator(".mcp-row-command")).toHaveText("npx -y @modelcontextprotocol/server-github");
-    await expect(settings).toContainText("this ZLI is set not to change those files");
+    await expect(settings).toContainText("ZLI is set to leave those files alone");
 
     const saved = JSON.parse(await readFile(join(root, "mcp-servers.json"), "utf8"));
     expect(saved.servers).toEqual([

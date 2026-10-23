@@ -52,9 +52,9 @@ not cover, add it to the primitives instead of styling it locally.
   (4.5:1) on every surface, including the overlay. The disabled color is only
   for disabled controls and decorative glyphs.
 - There is one accent, blue `oklch(.571 .21 264)`. It marks primary actions,
-  keyboard focus, and the selected agent, and nothing else. Selected choice
-  chips use a neutral raised fill with a small accent dot, and selected choice
-  cards get an accent edge, not a blue panel.
+  keyboard focus, and the selected agent, and nothing else. Selected
+  segments use a neutral raised fill, and selected choice cards get an accent
+  edge, not a blue panel.
 - Green, amber, and red mean process or Git state: running or ready, working
   or modified, failed or deleted. They are not decoration.
 
@@ -94,9 +94,10 @@ not cover, add it to the primitives instead of styling it locally.
   right edge so the window controls never cover the search trigger.
 - The left sidebar is the home for projects, agents, and worktrees.
   Collapsing it removes it completely so the workbench gets the full width.
-  It is 256px wide, 236px under 1240px, and 216px under 1080px. New agent
-  and Add project are plain rows at the top, like New chat in ChatGPT; the
-  New agent shortcut appears when the row is hovered or focused. The footer
+  It is 256px wide, 236px under 1240px, and 216px under 1080px. Add project
+  (folder with a plus) and New agent (pen on a square) are plain rows at the
+  top, in that order, like New chat in ChatGPT; the New agent shortcut appears
+  when the row is hovered or focused. The footer
   holds the runtime status, Usage, Settings, and Help.
 - Agent rows are single lines indented under their project, with the
   provider mark and the title. The selected agent gets a fill, not a stripe.
@@ -130,9 +131,16 @@ not cover, add it to the primitives instead of styling it locally.
   shell runs it takes its remembered height.
 - Notices and the attention bar take the island shape above the workbench
   instead of running edge to edge across the window.
-- The New agent dialog puts the first message first, then one labelled row
-  per setting (project, agent, view, location, model, permissions) with
-  chips instead of cards, so it fits without scrolling.
+- Dialog forms stack labelled sections: the label sits above its control and
+  a one-line hint below it. The New agent dialog has no message box; it picks
+  where and how the agent runs, and the person types to the agent once it
+  starts. Its sections are Project (only with more than one), Agent as cards
+  with the provider mark and installed version, View and Workspace as
+  segmented controls, then Model and Permissions side by side. The footer
+  shows the branch a new worktree will create.
+- Usage leads with four metric cards (turns, input, output, estimated cost),
+  a period switch, and bordered tables by agent and by chat. Help lays its
+  shortcuts out in two columns and ends with support actions as cards.
 - Every panel starts with the same pane header: icon, title, context, then
   actions. Toolbars below it use the same height and control sizes.
 
@@ -148,7 +156,9 @@ not cover, add it to the primitives instead of styling it locally.
   Settings, and every key cap and tooltip shows the current binding.
 - Settings is one dialog with a section list on the left (New agents,
   Projects, Worktrees, MCP servers, Shortcuts, Notifications) and a
-  fixed-height panel so switching sections does not resize it. Switches are
+  fixed-height panel so switching sections does not resize it. Each section
+  is a grouped list of setting rows: the label and a short description on the
+  left, the control on the right. Switches are
   square-cornered and neutral: on is a light track, not the accent.
 - MCP servers are one list shared by every agent. Each row leads with its
   switch so a server can be turned off without losing its setup, and the

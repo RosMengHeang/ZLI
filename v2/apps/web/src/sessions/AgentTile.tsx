@@ -14,7 +14,6 @@ import { Icon } from "../ui/Icon.js";
 import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { Segmented, type SegmentedOption } from "../ui/Segmented.js";
-import type { RunPosition } from "./bestOf.js";
 import {
   type AgentSession,
   type SessionMode,
@@ -66,8 +65,6 @@ export function AgentTile({
   onDismissPending,
   onReviewSetup,
   onShowSetupOutput,
-  run,
-  onKeep,
   onHandoff,
 }: {
   projection: RuntimeProjection;
@@ -88,9 +85,7 @@ export function AgentTile({
   onDismissPending(): void;
   onReviewSetup(): void;
   onShowSetupOutput(): void;
-  /** Where this agent sits in a best-of run that is still being compared. */
-  run?: RunPosition | undefined;
-  onKeep(): void;
+
   /** Absent when the chat has nothing to hand over yet. */
   onHandoff?: (() => void) | undefined;
 }) {
@@ -161,11 +156,7 @@ export function AgentTile({
           <Icon name="branch" size={11} />
           <span>{branch}</span>
         </span>
-        {run ? (
-          <span className="tile-run" title={`Run ${run.index} of ${run.count} for ${run.group.label}`}>
-            Run {run.index} of {run.count}
-          </span>
-        ) : null}
+
         <Badge
           className="tile-status"
           tone={statusTone[status]}
@@ -183,19 +174,6 @@ export function AgentTile({
           </>
         )}
         <span className="tile-actions">
-          {run ? (
-            <Button
-              className="tile-keep"
-              size="xs"
-              variant="ghost"
-              icon="check"
-              aria-label="Keep this one"
-              tooltip="Keep this run and delete the others"
-              onClick={onKeep}
-            >
-              <span className="tile-keep-label">Keep this one</span>
-            </Button>
-          ) : null}
           {mode === "chat" && onHandoff ? (
             <IconButton
               label="Continue with another agent"

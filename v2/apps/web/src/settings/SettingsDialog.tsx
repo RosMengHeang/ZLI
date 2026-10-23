@@ -4,12 +4,13 @@ import { type KeyboardEvent, useId, useMemo, useRef, useState } from "react";
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
 import { permissionLabel } from "../chat/Composer.js";
 import type { NotificationSettings } from "../runtime/bridge.js";
-import { LaunchRow } from "../sessions/NewAgentDialog.js";
+import { permissionHint } from "../sessions/NewAgentDialog.js";
 import type { SessionMode } from "../sessions/sessions.js";
 import { defaultShortcut, shortcutActions, shortcutFromEvent, shortcutProblem } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Select } from "../ui/Field.js";
+import { Icon, type IconName } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
 import { Switch } from "../ui/Switch.js";
 import { shortcutText } from "../ui/shortcuts.js";
@@ -25,27 +26,22 @@ import {
   useAppSettings,
 } from "./appSettings.js";
 import { McpServersSection } from "./McpServersSection.js";
-import { SectionHeader } from "./SectionHeader.js";
+import { SectionHeader, SettingRow } from "./SectionHeader.js";
 import "./settings.css";
 
 export type SettingsSection = "agents" | "projects" | "worktrees" | "files" | "mcp" | "shortcuts" | "notifications";
 
-const sections: { id: SettingsSection; label: string }[] = [
-  { id: "agents", label: "New agents" },
-  { id: "projects", label: "Projects" },
-  { id: "worktrees", label: "Worktrees" },
-  { id: "files", label: "Files" },
-  { id: "mcp", label: "MCP servers" },
-  { id: "shortcuts", label: "Shortcuts" },
-  { id: "notifications", label: "Notifications" },
+const sections: { id: SettingsSection; label: string; icon: IconName }[] = [
+  { id: "agents", label: "New agents", icon: "squarePen" },
+  { id: "projects", label: "Projects", icon: "folder" },
+  { id: "worktrees", label: "Worktrees", icon: "branch" },
+  { id: "files", label: "Files", icon: "fileText" },
+  { id: "mcp", label: "MCP servers", icon: "wrench" },
+  { id: "shortcuts", label: "Shortcuts", icon: "command" },
+  { id: "notifications", label: "Notifications", icon: "bell" },
 ];
 
 const modeLabel: Record<SessionMode, string> = { terminal: "Terminal", chat: "Chat" };
-
-const permissionHint: Record<PermissionMode, string> = {
-  "full-access": "Edits files and runs commands without asking.",
-  supervised: "Asks before risky commands where the agent supports it.",
-};
 
 type Props = {
   projection: RuntimeProjection | undefined;
@@ -109,7 +105,8 @@ export function SettingsDialog({
               tabIndex={section === entry.id ? 0 : -1}
               onClick={() => setSection(entry.id)}
             >
-              {entry.label}
+              <Icon name={entry.icon} size={15} />
+              <span>{entry.label}</span>
             </button>
           ))}
         </div>
@@ -146,6 +143,7 @@ function LaunchFields({
   inheritLabel: string;
   onChange(next: LaunchDefaults): void;
 }) {
+  const ids = useId();
   const listed = useMemo(() => listedDiscoveries(projection?.providers), [projection?.providers]);
   const choices = listed.filter((entry) => entry.status === "found" || entry.provider === value.provider);
   const discovery = listed.find((entry) => entry.provider === value.provider);
@@ -156,10 +154,10 @@ function LaunchFields({
     onChange(next as LaunchDefaults);
   };
   return (
-    <div className="launch-rows">
-      <LaunchRow label="Agent">
+    <>
+      <SettingRow label="Agent" description="The CLI selected when the dialog opens." htmlFor={`${ids}-agent`}>
         <Select
-          className="input-sm"
+          id={`${ids}-agent`}
           aria-label="Agent"
           value={value.provider ?? ""}
           onChange={(event) => set({ provider: event.target.value, model: "" })}
@@ -172,11 +170,11 @@ function LaunchFields({
             </option>
           ))}
         </Select>
-      </LaunchRow>
+      </SettingRow>
       {value.provider && models.length > 0 ? (
-        <LaunchRow label="Model">
+        <SettingRow label="Model" description="Used when the agent lets you choose one." htmlFor={`${ids}-model`}>
           <Select
-            className="input-sm"
+            id={`${ids}-model`}
             aria-label="Model"
             value={value.model ?? ""}
             onChange={(event) => set({ model: event.target.value })}
@@ -188,12 +186,16 @@ function LaunchFields({
               </option>
             ))}
           </Select>
-        </LaunchRow>
+        </SettingRow>
       ) : null}
-      <LaunchRow label="Work in">
+      <SettingRow
+        label="View"
+        description="Terminal runs the agent's CLI. Chat shows messages and changes."
+        htmlFor={`${ids}-view`}
+      >
         <Select
-          className="input-sm"
-          aria-label="Work in"
+          id={`${ids}-view`}
+          aria-label="View"
           value={value.mode ?? ""}
           onChange={(event) => set({ mode: event.target.value })}
         >
@@ -204,10 +206,16 @@ function LaunchFields({
             </option>
           ))}
         </Select>
-      </LaunchRow>
-      <LaunchRow label="Permissions" hint={value.permissionMode ? permissionHint[value.permissionMode] : undefined}>
+      </SettingRow>
+      <SettingRow
+        label="Permissions"
+        description={
+          value.permissionMode ? permissionHint[value.permissionMode] : "What the agent may do without asking."
+        }
+        htmlFor={`${ids}-permissions`}
+      >
         <Select
-          className="input-sm"
+          id={`${ids}-permissions`}
           aria-label="Permissions"
           value={value.permissionMode ?? ""}
           onChange={(event) => set({ permissionMode: event.target.value })}
@@ -219,8 +227,8 @@ function LaunchFields({
             </option>
           ))}
         </Select>
-      </LaunchRow>
-    </div>
+      </SettingRow>
+    </>
   );
 }
 
@@ -229,14 +237,16 @@ function AgentDefaults({ projection }: { projection: RuntimeProjection | undefin
   return (
     <>
       <SectionHeader title="New agents">
-        New agent opens with these choices. Fields left on Last used keep whatever you picked the time before.
+        What the New agent dialog starts with. Fields set to Last used repeat your previous choice.
       </SectionHeader>
-      <LaunchFields
-        projection={projection}
-        value={settings.defaults}
-        inheritLabel="Last used"
-        onChange={(defaults) => updateAppSettings((current) => ({ ...current, defaults }))}
-      />
+      <div className="setting-list">
+        <LaunchFields
+          projection={projection}
+          value={settings.defaults}
+          inheritLabel="Last used"
+          onChange={(defaults) => updateAppSettings((current) => ({ ...current, defaults }))}
+        />
+      </div>
     </>
   );
 }
@@ -249,6 +259,7 @@ function ProjectDefaults({
   initialProjectId: string | undefined;
 }) {
   const settings = useAppSettings();
+  const projectSelectId = useId();
   const projects = projection?.projects ?? [];
   const [projectId, setProjectId] = useState(
     projects.find((project) => project.projectId === initialProjectId)?.projectId ?? projects[0]?.projectId,
@@ -258,7 +269,7 @@ function ProjectDefaults({
     return (
       <>
         <SectionHeader title="Projects" />
-        <p className="settings-empty">Add a project to give it its own agent and permission choices.</p>
+        <p className="settings-empty">Add a project to give it its own agent and permission defaults.</p>
       </>
     );
   }
@@ -271,13 +282,17 @@ function ProjectDefaults({
   return (
     <>
       <SectionHeader title="Projects">
-        Choices made here win over New agents whenever an agent starts in this project.
+        Defaults for one project. They take priority over New agents when an agent starts there.
       </SectionHeader>
-      <div className="launch-rows">
-        <LaunchRow label="Project">
+      <div className="setting-list">
+        <SettingRow
+          label="Project"
+          description={<span className="setting-path">{project.path}</span>}
+          htmlFor={projects.length > 1 ? projectSelectId : undefined}
+        >
           {projects.length > 1 ? (
             <Select
-              className="input-sm"
+              id={projectSelectId}
               aria-label="Project"
               value={project.projectId}
               onChange={(event) => setProjectId(event.target.value as typeof projectId)}
@@ -289,23 +304,21 @@ function ProjectDefaults({
               ))}
             </Select>
           ) : (
-            <span className="settings-value" title={project.path}>
-              {project.name}
-            </span>
+            <span className="settings-value">{project.name}</span>
           )}
-        </LaunchRow>
+        </SettingRow>
+        <LaunchFields
+          key={project.projectId}
+          projection={projection}
+          value={override}
+          inheritLabel="Same as New agents"
+          onChange={setOverride}
+        />
       </div>
-      <LaunchFields
-        key={project.projectId}
-        projection={projection}
-        value={override}
-        inheritLabel="Same as New agents"
-        onChange={setOverride}
-      />
       {Object.keys(override).length > 0 ? (
         <div className="settings-actions">
-          <Button size="sm" variant="ghost" onClick={() => setOverride({})}>
-            Clear {project.name} settings
+          <Button size="sm" variant="ghost" icon="rotate" onClick={() => setOverride({})}>
+            Reset {project.name} to New agents
           </Button>
         </div>
       ) : null}
@@ -317,7 +330,6 @@ function WorktreeSettings({ projection }: { projection: RuntimeProjection | unde
   const settings = useAppSettings();
   const [draft, setDraft] = useState(settings.branchTemplate);
   const inputId = useId();
-  const hintId = useId();
   const provider = useMemo(() => {
     const listed = listedDiscoveries(projection?.providers);
     return settings.defaults.provider ?? preferredProvider(listed);
@@ -330,15 +342,23 @@ function WorktreeSettings({ projection }: { projection: RuntimeProjection | unde
   };
   return (
     <>
-      <SectionHeader title="Worktrees">Names for the branch each new worktree starts on.</SectionHeader>
-      <div className="launch-rows">
-        <LaunchRow label="Branch name">
-          <div className="launch-inline">
+      <SectionHeader title="Worktrees">How ZLI names the branch for each new worktree.</SectionHeader>
+      <div className="setting-list">
+        <SettingRow
+          label="Branch name"
+          htmlFor={inputId}
+          description={
+            <>
+              <code>{"{agent}"}</code> is the agent, <code>{"{random}"}</code> four random characters, and{" "}
+              <code>{"{date}"}</code> today as YYYYMMDD.
+            </>
+          }
+        >
+          <div className="setting-inline">
             <input
               id={inputId}
-              className="input input-sm is-mono settings-template"
+              className="input is-mono"
               aria-label="Branch name template"
-              aria-describedby={hintId}
               value={draft}
               maxLength={MAX_BRANCH_TEMPLATE}
               spellCheck={false}
@@ -348,24 +368,27 @@ function WorktreeSettings({ projection }: { projection: RuntimeProjection | unde
               }}
             />
             {settings.branchTemplate !== DEFAULT_BRANCH_TEMPLATE ? (
-              <Button size="sm" variant="ghost" onClick={() => save(DEFAULT_BRANCH_TEMPLATE)}>
-                Reset
-              </Button>
+              <IconButton
+                label="Reset branch name"
+                tooltip="Reset to the default"
+                icon="rotate"
+                size="sm"
+                onClick={() => save(DEFAULT_BRANCH_TEMPLATE)}
+              />
             ) : null}
           </div>
-          <span className="launch-hint" id={hintId}>
-            <code>{"{agent}"}</code> is the agent name, <code>{"{random}"}</code> four random characters, and{" "}
-            <code>{"{date}"}</code> today as YYYYMMDD.
-          </span>
-        </LaunchRow>
-        <LaunchRow label="Example">
+        </SettingRow>
+        <SettingRow
+          label="Preview"
+          description={
+            template.includes("{random}")
+              ? "The next new worktree gets a name like this."
+              : "Without {random}, every new branch gets the same name."
+          }
+          descriptionTone={template.includes("{random}") ? undefined : "warning"}
+        >
           <span className="settings-value is-mono">{preview}</span>
-          {template.includes("{random}") ? null : (
-            <span className="launch-hint is-warning">
-              Without {"{random}"} every new branch gets the same name, so you will rename it each time.
-            </span>
-          )}
-        </LaunchRow>
+        </SettingRow>
       </div>
     </>
   );
@@ -375,15 +398,16 @@ const treePositionLabel: Record<FileTreePosition, string> = { right: "Right", le
 
 function FilesSettings() {
   const settings = useAppSettings();
+  const selectId = useId();
   return (
     <>
       <SectionHeader title="Files">
-        How the Files panel is laid out when it is wide enough for the tree and a file.
+        Layout of the Files panel when it is wide enough for the tree and a file.
       </SectionHeader>
-      <div className="launch-rows">
-        <LaunchRow label="File tree position" hint="The open file takes the other side.">
+      <div className="setting-list">
+        <SettingRow label="Tree position" description="The open file takes the other side." htmlFor={selectId}>
           <Select
-            className="input-sm"
+            id={selectId}
             aria-label="File tree position"
             value={settings.fileTreePosition}
             onChange={(event) =>
@@ -399,7 +423,7 @@ function FilesSettings() {
               </option>
             ))}
           </Select>
-        </LaunchRow>
+        </SettingRow>
       </div>
     </>
   );
@@ -443,9 +467,9 @@ function ShortcutSettings() {
   return (
     <>
       <SectionHeader title="Shortcuts">
-        Click a shortcut, then press the new keys. Esc cancels. Ctrl and Cmd both count as the first key.
+        Select a shortcut, then press the new keys. Esc cancels. Ctrl and Cmd count as the same key.
       </SectionHeader>
-      <ul className="shortcut-list">
+      <ul className="setting-list shortcut-list">
         {shortcutActions.map((action) => {
           const current = settings.shortcuts[action.id] ?? action.shortcut;
           const isRecording = recording === action.id;
@@ -453,6 +477,21 @@ function ShortcutSettings() {
           return (
             <li className="shortcut-row" key={action.id}>
               <span className="shortcut-label">{action.label}</span>
+              <span className="shortcut-reset">
+                {changed ? (
+                  <IconButton
+                    label={`Reset ${action.label} to ${shortcutText(action.shortcut)}`}
+                    tooltip={`Reset to ${shortcutText(action.shortcut)}`}
+                    icon="rotate"
+                    size="xs"
+                    iconSize={12}
+                    onClick={() => {
+                      setProblem(undefined);
+                      assign(action.id, undefined);
+                    }}
+                  />
+                ) : null}
+              </span>
               <button
                 className={`shortcut-key${isRecording ? " is-recording" : ""}`}
                 type="button"
@@ -472,21 +511,6 @@ function ShortcutSettings() {
               >
                 {isRecording ? <span className="shortcut-waiting">Press keys</span> : <Kbd shortcut={current} />}
               </button>
-              <span className="shortcut-reset">
-                {changed ? (
-                  <IconButton
-                    label={`Reset ${action.label} to ${shortcutText(action.shortcut)}`}
-                    tooltip={`Reset to ${shortcutText(action.shortcut)}`}
-                    icon="rotate"
-                    size="xs"
-                    iconSize={12}
-                    onClick={() => {
-                      setProblem(undefined);
-                      assign(action.id, undefined);
-                    }}
-                  />
-                ) : null}
-              </span>
               {problem?.id === action.id ? (
                 <p className="shortcut-problem" role="alert">
                   {problem.message}
@@ -501,6 +525,7 @@ function ShortcutSettings() {
           <Button
             size="sm"
             variant="ghost"
+            icon="rotate"
             onClick={() => {
               setProblem(undefined);
               updateAppSettings((current: AppSettings) => ({ ...current, shortcuts: {} }));
@@ -525,24 +550,25 @@ function NotificationSection({
     return (
       <>
         <SectionHeader title="Notifications" />
-        <p className="settings-empty">Notifications are only available in the ZLI desktop app.</p>
+        <p className="settings-empty">Notifications are available in the ZLI desktop app only.</p>
       </>
     );
   }
   return (
     <>
       <SectionHeader title="Notifications">
-        Agents already on screen do not notify while the ZLI window has focus.
+        Agents already on screen stay quiet while the ZLI window has focus.
       </SectionHeader>
-      <div className="settings-switches">
+      <div className="setting-list">
         <Switch
-          label="Notify when an agent finishes or needs you"
-          hint="Also shows the count of waiting agents on the taskbar or dock icon."
+          label="Desktop notifications"
+          hint="Notify when an agent finishes or needs input, and badge the taskbar or dock icon."
           checked={settings.enabled}
           onChange={(enabled) => update({ enabled })}
         />
         <Switch
-          label="Play a sound"
+          label="Sound"
+          hint="Play a sound with each notification."
           checked={settings.sound}
           disabled={!settings.enabled}
           onChange={(sound) => update({ sound })}

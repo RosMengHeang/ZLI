@@ -6,7 +6,9 @@ import { useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { relativeTime } from "../sessions/sessions.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Select } from "../ui/Field.js";
+import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
+import { Segmented, type SegmentedOption } from "../ui/Segmented.js";
 import {
   filterUsage,
   formatCost,
@@ -22,6 +24,10 @@ import "./usage.css";
 
 const EMPTY: readonly ThreadUsageRecord[] = [];
 const MAX_CHAT_ROWS = 50;
+const periodOptions: readonly SegmentedOption<UsagePeriod>[] = usagePeriods.map((entry) => ({
+  value: entry.id,
+  label: entry.label,
+}));
 
 type Props = {
   projection: RuntimeProjection | undefined;
@@ -53,43 +59,46 @@ export function UsageDialog({ projection, initialProjectId, onClose }: Props) {
   );
 
   return (
-    <Dialog label="Usage" title="Usage" size="lg" className="usage-dialog" scrimLabel="Close usage" onClose={onClose}>
-      <div className="usage-body">
-        <div className="usage-filters">
+    <Dialog
+      label="Usage"
+      title="Usage"
+      subtitle="Tokens and estimated cost, as reported by agents in chat view."
+      size="lg"
+      className="usage-dialog"
+      scrimLabel="Close usage"
+      onClose={onClose}
+    >
+      <div className="usage-toolbar">
+        <Segmented<UsagePeriod> label="Period" value={period} options={periodOptions} onChange={setPeriod} />
+        {projects.length > 1 ? (
           <Select
             className="input-sm"
-            aria-label="Period"
-            value={period}
-            onChange={(event) => setPeriod(event.target.value as UsagePeriod)}
+            aria-label="Project"
+            value={projectId ?? ""}
+            onChange={(event) => setProjectId((event.target.value || undefined) as typeof projectId)}
           >
-            {usagePeriods.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.label}
+            <option value="">All projects</option>
+            {projects.map((project) => (
+              <option key={project.projectId} value={project.projectId}>
+                {project.name}
               </option>
             ))}
           </Select>
-          {projects.length > 1 ? (
-            <Select
-              className="input-sm"
-              aria-label="Project"
-              value={projectId ?? ""}
-              onChange={(event) => setProjectId((event.target.value || undefined) as typeof projectId)}
-            >
-              <option value="">All projects</option>
-              {projects.map((project) => (
-                <option key={project.projectId} value={project.projectId}>
-                  {project.name}
-                </option>
-              ))}
-            </Select>
-          ) : null}
-        </div>
+        ) : null}
+      </div>
+      <div className="usage-body">
         {records.length === 0 ? (
-          <p className="usage-empty">
-            No usage yet. Agents in chat view report their tokens after each turn, and the totals show up here.
-          </p>
+          <EmptyState
+            icon="gauge"
+            title="No usage yet"
+            detail="Agents in chat view report tokens after each turn. Totals appear here."
+          />
         ) : visible.length === 0 ? (
-          <p className="usage-empty">No agent turns in this period.</p>
+          <EmptyState
+            icon="gauge"
+            title="Nothing in this period"
+            detail="Choose a longer period to see earlier turns."
+          />
         ) : (
           <>
             <UsageSummary totals={totals} />
@@ -144,8 +153,8 @@ export function UsageDialog({ projection, initialProjectId, onClose }: Props) {
           </>
         )}
         <p className="usage-note">
-          Numbers come from what each agent reports, and cost is the agent's own estimate, not your bill. Agents in
-          terminal view are not counted.
+          Figures are what each agent reports. Cost is the agent's own estimate, not your bill. Agents in terminal view
+          are not counted.
           {silentOnCost.length > 0
             ? ` ${listNames(silentOnCost.map(providerName))} ${silentOnCost.length === 1 ? "does" : "do"} not report cost.`
             : ""}
@@ -159,11 +168,11 @@ export function UsageDialog({ projection, initialProjectId, onClose }: Props) {
 function UsageSummary({ totals }: { totals: UsageTotals }) {
   return (
     <dl className="usage-summary">
-      <div>
+      <div className="usage-metric">
         <dt>Turns</dt>
         <dd>{totals.turns.toLocaleString()}</dd>
       </div>
-      <div>
+      <div className="usage-metric">
         <dt>Input tokens</dt>
         <dd>
           {formatTokens(totals.inputTokens)}
@@ -172,11 +181,11 @@ function UsageSummary({ totals }: { totals: UsageTotals }) {
           ) : null}
         </dd>
       </div>
-      <div>
+      <div className="usage-metric">
         <dt>Output tokens</dt>
         <dd>{formatTokens(totals.outputTokens)}</dd>
       </div>
-      <div>
+      <div className="usage-metric">
         <dt>Estimated cost</dt>
         <dd>
           {totals.costedTurns > 0 ? formatCost(totals.costUsd) : "Not reported"}

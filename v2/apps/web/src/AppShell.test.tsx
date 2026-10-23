@@ -408,8 +408,8 @@ describe("Settings", () => {
   it("starts New agent with the saved defaults and branch template", async () => {
     const container = await render(makeBridge(discovered));
     const agents = await openSettings(container);
-    const mode = agents.querySelector<HTMLSelectElement>('select[aria-label="Work in"]');
-    if (!mode) throw new Error("The Work in setting is missing.");
+    const mode = agents.querySelector<HTMLSelectElement>('select[aria-label="View"]');
+    if (!mode) throw new Error("The View setting is missing.");
     await setValue(mode, "chat");
     await act(async () => {
       [...agents.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
@@ -448,7 +448,7 @@ describe("Settings", () => {
     if (!permissions) throw new Error("The project permission setting is missing.");
     expect(permissions.value).toBe("");
     await setValue(permissions, "supervised");
-    expect(button(settings, "Clear repo settings")).not.toBeUndefined();
+    expect(button(settings, "Reset repo to New agents")).not.toBeUndefined();
 
     await press(window, { key: "Escape", code: "Escape" });
     await act(async () => {

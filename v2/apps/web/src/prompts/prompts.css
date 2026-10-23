@@ -7,8 +7,6 @@
   box-shadow: var(--zli-shadow-pop);
 }
 /* Inside a scrolling dialog the list opens in the flow, so it is never clipped. */
-.prompt-anchor.is-inline .prompt-picker { position: static; margin-top: var(--zli-space-1-5); box-shadow: none; }
-.prompt-label-row { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-2); }
 .prompt-options { display: flex; max-height: 260px; flex-direction: column; padding: var(--zli-space-1); overflow: auto; }
 .prompt-group { margin: var(--zli-space-1-5) var(--zli-space-2) var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 600; }
 .prompt-option {

@@ -1,6 +1,12 @@
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, type DesktopFixture, launchDesktop } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  createGitFixture,
+  type DesktopFixture,
+  launchDesktop,
+  sendChatMessage,
+} from "./desktop-fixtures.js";
 
 test("queues messages while an agent is busy, removes them, and steers with Send now", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
@@ -15,8 +21,8 @@ test("queues messages while an agent is busy, removes them, and steers with Send
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();
-    await newAgent.getByLabel("First message").fill("[approval] clean the build folder");
     await newAgent.getByRole("button", { name: "Start agent" }).click();
+    await sendChatMessage(page, "[approval] clean the build folder");
     const approval = page.getByRole("region", { name: "Approval request" });
     await expect(approval).toBeVisible({ timeout: 30_000 });
 

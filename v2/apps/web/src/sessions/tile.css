@@ -19,8 +19,6 @@
 .tile-title { min-width: 40px; flex: 0 1 auto; overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-base); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .agent-tile.is-active .tile-title { color: var(--zli-text); }
 .tile-branch { display: inline-flex; min-width: 0; flex: 0 100 auto; align-items: center; gap: var(--zli-space-1); overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); white-space: nowrap; }
-.tile-run { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.tile-keep { margin-right: var(--zli-space-1); }
 .tile-divider { height: 14px; margin: 0 var(--zli-space-0-5); }
 .tile-branch span { overflow: hidden; text-overflow: ellipsis; }
 .tile-spacer { flex: 1; }
@@ -39,12 +37,10 @@
 
 @container tile (max-width: 560px) {
   .tile-branch { display: none; }
-  .tile-keep-label { display: none; }
   .tile-modes .segmented-label { display: none; }
 }
 @container tile (max-width: 400px) {
   .tile-status .badge-label { display: none; }
-  .tile-run { display: none; }
 }
 @media (max-width: 1240px) {
   .tile-branch { display: none; }

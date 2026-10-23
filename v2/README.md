@@ -34,11 +34,7 @@ An invalid `zli.json` never blocks work. ZLI creates the worktree without copyin
 }
 ```
 
-Type `/` at the start of a message, or of the first message in the New agent dialog, to pick one: the list narrows as you type, arrows move, Enter inserts it. The bookmark button next to the message box opens the same list. Prompts you keep for yourself are saved on this computer under **Saved prompts** in the command palette, where you can add, edit, and delete them; the prompts from `zli.json` are shown there read-only. A first message typed in the New agent dialog is sent as soon as the agent starts.
-
-## Best of N
-
-To compare agents on the same task, pick **New worktree** in the New agent dialog and set **Runs** to 2, 3, or 4. Each run gets its own worktree and branch, named `<branch>-1` to `<branch>-N`, and the same first message. Every run uses the agent picked above unless you choose another one for it. Tiles in the grid show "Run 2 of 3". **Keep this one** on a tile asks once, then deletes the other runs and removes their worktree folders, including uncommitted changes there. Their branches stay in the repository.
+Type `/` at the start of a message to pick one: the list narrows as you type, arrows move, Enter inserts it. The bookmark button next to the message box opens the same list. Prompts you keep for yourself are saved on this computer under **Saved prompts** in the command palette, where you can add, edit, and delete them; the prompts from `zli.json` are shown there read-only.
 
 ## Verify locally
 

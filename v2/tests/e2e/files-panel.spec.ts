@@ -3,7 +3,13 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, type DesktopFixture, launchDesktop } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  createGitFixture,
+  type DesktopFixture,
+  launchDesktop,
+  sendChatMessage,
+} from "./desktop-fixtures.js";
 
 test("browses, edits, finds, and searches files in a worktree", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
@@ -101,8 +107,8 @@ test("adds selected lines to the agent chat and sends them with the next message
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();
-    await newAgent.getByLabel("First message").fill("Look at the code");
     await newAgent.getByRole("button", { name: "Start agent" }).click();
+    await sendChatMessage(page, "Look at the code");
     await expect(page.getByText(/Mock response: Look at the code/u)).toBeVisible({ timeout: 30_000 });
 
     const worktreePath = await page.evaluate(async () => {

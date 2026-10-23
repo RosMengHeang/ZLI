@@ -31,45 +31,63 @@
 .choice-detail { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); text-overflow: ellipsis; }
 .choice-card.is-compact .choice-detail { white-space: nowrap; }
 
-/* ---------- New agent ---------- */
-/* Labels sit to the left of compact controls so the whole form fits without scrolling. */
-.launch-rows { display: flex; flex-direction: column; gap: var(--zli-space-2-5); }
-.launch-row { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: start; gap: var(--zli-space-3); }
-.launch-label { padding-top: 6px; color: var(--zli-muted); font-size: var(--zli-text-sm); font-weight: 500; }
-.launch-control { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-1); }
-.launch-control > .select-wrap { max-width: 300px; }
-.launch-hint { color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
-.launch-inline { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-2); }
-.launch-branch { min-width: 120px; flex: 1 1 0; }
-.launch-base { flex: 0 0 104px; width: 104px; }
-.launch-joiner { color: var(--zli-dim); font-size: var(--zli-text-sm); }
-.launch-path { overflow: hidden; padding-top: 6px; color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
-.chip-group { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1-5); }
-.chip-choice {
-  position: relative; display: inline-flex; align-items: center; gap: 6px; height: var(--zli-control-md); padding: 0 var(--zli-space-2-5);
-  border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: var(--zli-well);
-  color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-sm); font-weight: 500; white-space: nowrap;
-  transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease);
-}
-.chip-choice input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
-.chip-choice > svg { flex: 0 0 auto; }
-.chip-choice > svg:not(.provider-mark) { color: var(--zli-dim); }
-.chip-choice:hover { border-color: var(--zli-border-hover); color: var(--zli-text); }
-/* The mark keeps its space when unselected so choosing a chip never shifts the row. */
-.chip-choice::after { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: transparent; content: ""; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
-.chip-choice:has(input:checked) { border-color: var(--zli-border-hover); background: var(--zli-overlay); box-shadow: var(--zli-highlight); color: var(--zli-text); }
-.chip-choice:has(input:checked)::after { background: var(--zli-accent); }
-.chip-choice:has(input:checked) > svg:not(.provider-mark) { color: var(--zli-text); }
-.chip-choice:has(input:focus-visible) { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
-.chip-choice:has(input:disabled) { cursor: default; opacity: .45; }
-.chip-choice:has(input:disabled):hover { border-color: var(--zli-border-strong); color: var(--zli-muted); }
-.chip-more { height: var(--zli-control-md); padding: 0 var(--zli-space-2); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-dim); cursor: pointer; font-size: var(--zli-text-sm); }
-.chip-more:hover { color: var(--zli-text); }
-.run-agents { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--zli-space-2); }
-.keep-run-list { display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0; padding: 0; list-style: none; }
-.keep-run-list li { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-2); padding: var(--zli-space-1-5) var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); color: var(--zli-muted); font-size: var(--zli-text-sm); }
-.keep-run-list code { overflow: hidden; color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+/* ---------- Dialog forms ---------- */
+/* Labels sit above their controls, so long hints wrap under the control instead of squeezing it. */
+.form-section { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-2); }
+.form-section-label { color: var(--zli-muted); font-size: var(--zli-text-sm); font-weight: 500; }
+.form-section-hint { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.form-section-hint.is-warning { color: var(--zli-amber); }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: var(--zli-space-3); }
+.form-grid .input, .form-grid .select { width: 100%; }
+.form-link { align-self: flex-start; padding: 0; border: 0; border-radius: var(--zli-radius-xs); background: none; color: var(--zli-dim); cursor: pointer; font-size: var(--zli-text-xs); transition: color var(--zli-duration-fast) var(--zli-ease); }
+.form-link:hover { color: var(--zli-text); }
 
+.choice-segmented { display: flex; gap: 2px; padding: 3px; border-radius: var(--zli-radius-md); background: var(--zli-well); box-shadow: inset 0 0 0 1px var(--zli-border); }
+.choice-segment {
+  position: relative; display: inline-flex; min-width: 0; flex: 1 1 0; align-items: center; justify-content: center; gap: var(--zli-space-1-5); height: 28px; padding: 0 var(--zli-space-3);
+  border-radius: var(--zli-radius-sm); color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-sm); font-weight: 500; white-space: nowrap;
+  transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease);
+}
+.choice-segment input, .provider-option input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.choice-segment > svg { flex: 0 0 auto; color: var(--zli-dim); }
+.choice-segment > span { overflow: hidden; text-overflow: ellipsis; }
+.choice-segment:hover { color: var(--zli-text); }
+.choice-segment:has(input:checked) { background: var(--zli-overlay); color: var(--zli-text); box-shadow: var(--zli-highlight), 0 1px 2px rgba(0, 0, 0, .35); }
+.choice-segment:has(input:checked) > svg { color: var(--zli-text); }
+.choice-segment:has(input:focus-visible) { outline: 2px solid var(--zli-focus); outline-offset: -1px; }
+
+.provider-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); gap: var(--zli-space-2); }
+.provider-option {
+  position: relative; display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2-5); min-height: 48px; padding: var(--zli-space-2) var(--zli-space-3);
+  border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-well); cursor: pointer;
+  transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease);
+}
+.provider-option > .provider-mark { flex: 0 0 auto; }
+.provider-option-copy { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
+.provider-option-name, .provider-option-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-option-name { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
+.provider-option-meta { color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); }
+.provider-option:hover { border-color: var(--zli-border-hover); background: var(--zli-hover); }
+/* The selected agent is one of the few places the accent appears, so the choice reads at a glance. */
+.provider-option:has(input:checked) { border-color: var(--zli-accent-edge); background: var(--zli-overlay); box-shadow: var(--zli-highlight); }
+.provider-option:has(input:focus-visible) { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+.provider-option:has(input:disabled) { cursor: default; opacity: .45; }
+.provider-option:has(input:disabled):hover { border-color: var(--zli-border); background: var(--zli-well); }
+
+/* ---------- New agent ---------- */
+.new-agent-body { gap: var(--zli-space-5); padding-top: var(--zli-space-4); }
+.workspace-detail { display: flex; flex-direction: column; margin-top: var(--zli-space-1); }
+.workspace-path {
+  display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); height: var(--zli-control-lg); margin: 0; padding: 0 var(--zli-space-3);
+  border-radius: var(--zli-radius-md); background: var(--zli-well); box-shadow: inset 0 0 0 1px var(--zli-border); color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs);
+}
+.workspace-path > svg { flex: 0 0 auto; color: var(--zli-dim); }
+.workspace-path > span:first-of-type { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-branch { flex: 0 0 auto; color: var(--zli-text); }
+.dialog-footer-note code { padding: 0; background: none; color: var(--zli-muted); font-size: var(--zli-text-xs); }
+@media (max-width: 560px) {
+  .form-grid { grid-template-columns: minmax(0, 1fr); }
+}
 /* ---------- Handoff ---------- */
 .handoff-dialog .is-mono { font-family: var(--zli-mono); font-size: .95em; }
 .handoff-preview { max-height: 140px; margin: 0; padding: var(--zli-space-2) var(--zli-space-2-5); overflow: auto; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); background: var(--zli-well); color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: 1.55; }
@@ -87,19 +105,26 @@
 
 /* ---------- Help ---------- */
 .help-body { gap: var(--zli-space-5); }
-.help-section { display: flex; flex-direction: column; gap: var(--zli-space-1-5); }
-.help-section-title { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 600; }
-.help-shortcuts { display: flex; flex-direction: column; margin: 0; }
-.help-shortcuts > div { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-4); height: 30px; }
-.help-shortcuts > div + div { border-top: 1px solid var(--zli-border); }
-.help-shortcuts dt { color: var(--zli-text); font-size: var(--zli-text-base); }
-.help-shortcuts dd { margin: 0; }
-.help-actions { display: flex; flex-direction: column; gap: 2px; margin: 0 calc(var(--zli-space-2-5) * -1); }
-.menu-item { display: flex; align-items: center; gap: var(--zli-space-3); width: 100%; padding: var(--zli-space-2) var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-text); cursor: pointer; font-size: var(--zli-text-base); text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
-.menu-item:hover { background: var(--zli-hover); }
-.menu-item svg { flex: 0 0 auto; color: var(--zli-muted); }
-.menu-item span { display: flex; flex-direction: column; gap: 1px; }
-.menu-item small { color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.help-section { display: flex; flex-direction: column; gap: var(--zli-space-2); }
+.help-section-title { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 600; }
+.help-shortcuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--zli-space-6); margin: 0; }
+.help-shortcuts > div { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: var(--zli-space-3); height: 34px; border-bottom: 1px solid var(--zli-border); }
+.help-shortcuts dt { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); text-overflow: ellipsis; white-space: nowrap; }
+.help-shortcuts dd { flex: 0 0 auto; margin: 0; }
+.help-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--zli-space-2); }
+.help-action { display: flex; min-width: 0; align-items: flex-start; gap: var(--zli-space-3); padding: var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-text); cursor: pointer; font: inherit; text-align: left; transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
+.help-action:hover { border-color: var(--zli-border-hover); background: var(--zli-hover); }
+.help-action:focus-visible { outline: 2px solid var(--zli-accent-line); outline-offset: 1px; }
+.help-action-icon { display: grid; flex: 0 0 auto; width: 30px; height: 30px; place-items: center; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); background: var(--zli-raised); color: var(--zli-muted); }
+.help-action-text { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.help-action-title { font-size: var(--zli-text-base); font-weight: 550; }
+.help-action-detail { color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.help-dialog .dialog-footer { justify-content: space-between; gap: var(--zli-space-4); }
+.help-dialog .help-version { flex: 0 0 auto; }
+.help-dialog .help-version + .dialog-footer-note { text-align: right; }
+@media (max-width: 640px) {
+  .help-shortcuts, .help-actions { grid-template-columns: minmax(0, 1fr); }
+}
 .help-version { font-family: var(--zli-mono); }
 
 /* ---------- Legacy import ---------- */

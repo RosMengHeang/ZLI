@@ -143,6 +143,10 @@ export function Sidebar({
         </span>
       </div>
       <div className="sidebar-primary">
+        <button className="btn btn-ghost sidebar-add-project" type="button" onClick={onOpenProject}>
+          <Icon name="folderPlus" size={15} />
+          <span>Add project</span>
+        </button>
         <button
           className="btn btn-ghost sidebar-new-agent"
           type="button"
@@ -150,13 +154,9 @@ export function Sidebar({
           disabled={projects.length === 0}
           aria-keyshortcuts={ariaShortcut(newAgentShortcut)}
         >
-          <Icon name="plus" size={14} />
+          <Icon name="squarePen" size={15} />
           <span>New agent</span>
           <Kbd shortcut={newAgentShortcut} />
-        </button>
-        <button className="btn btn-ghost sidebar-add-project" type="button" onClick={onOpenProject}>
-          <Icon name="folderPlus" size={14} />
-          <span>Add project</span>
         </button>
       </div>
       <div className="sidebar-scroll">

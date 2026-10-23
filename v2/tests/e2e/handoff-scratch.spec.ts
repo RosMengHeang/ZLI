@@ -1,6 +1,12 @@
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, type DesktopFixture, launchDesktop } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  createGitFixture,
+  type DesktopFixture,
+  launchDesktop,
+  sendChatMessage,
+} from "./desktop-fixtures.js";
 
 test("hands a chat to another agent, starts a scratch chat, and attaches a window", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
@@ -16,18 +22,18 @@ test("hands a chat to another agent, starts a scratch chat, and attaches a windo
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();
-    await newAgent.getByLabel("First message").fill("Fix the login form");
     await newAgent.getByRole("button", { name: "Start agent" }).click();
+    await sendChatMessage(page, "Fix the login form");
     await expect(page.getByText(/Mock response: Fix the login form/u)).toBeVisible({ timeout: 30_000 });
 
     const firstTile = page.locator(".agent-tile").first();
     await firstTile.getByRole("button", { name: "Continue with another agent" }).click();
     const handoff = page.getByRole("dialog", { name: "Continue with another agent" });
-    await expect(handoff.getByRole("region", { name: "First message preview" })).toContainText(
+    await expect(handoff.getByRole("region", { name: "Opening message preview" })).toContainText(
       "Continue: Fix the login form",
     );
     await expect(handoff).toContainText("handoff-conversation.md");
-    await handoff.getByLabel("What to do next").fill("Add a test for the empty password case.");
+    await handoff.getByLabel("Next step").fill("Add a test for the empty password case.");
     await expect(handoff.getByRole("switch", { name: /Stop Codex and close its tile/u })).toBeChecked();
     await handoff.getByRole("button", { name: "Continue with Codex" }).click();
     await expect(handoff).toHaveCount(0);

@@ -1,5 +1,5 @@
 import { Dialog } from "../ui/Dialog.js";
-import { Icon } from "../ui/Icon.js";
+import { Icon, type IconName } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
 import { shortcutActions, useShortcuts } from "./keybindings.js";
 
@@ -33,8 +33,9 @@ export function HelpDialog({ version, onSupportBundle, onImportLegacy, onClose }
   return (
     <Dialog
       label="Help and diagnostics"
-      title="Help and diagnostics"
-      subtitle="Agents, terminals, and browser tabs run in a local runtime. Each worktree keeps its own sessions."
+      title="Help"
+      subtitle="Keyboard shortcuts and support tools. You can change shortcuts in Settings."
+      size="lg"
       className="help-dialog"
       scrimLabel="Close help dialog"
       onClose={onClose}
@@ -55,29 +56,52 @@ export function HelpDialog({ version, onSupportBundle, onImportLegacy, onClose }
             </dl>
           </section>
         ))}
-        <section className="help-section" aria-label="Diagnostics">
-          <h3 className="help-section-title">Diagnostics</h3>
+        <section className="help-section" aria-label="Support">
+          <h3 className="help-section-title">Support</h3>
           <div className="help-actions">
-            <button className="menu-item" type="button" onClick={onSupportBundle}>
-              <Icon name="download" size={15} />
-              <span>
-                Export redacted support bundle
-                <small>Logs and state with secrets removed</small>
-              </span>
-            </button>
-            <button className="menu-item" type="button" onClick={onImportLegacy}>
-              <Icon name="upload" size={15} />
-              <span>
-                Import legacy snapshot
-                <small>Bring projects over from the previous ZLI app</small>
-              </span>
-            </button>
+            <HelpAction
+              icon="download"
+              title="Export support bundle"
+              detail="Logs and app state with secrets removed. Attach it to a bug report."
+              onClick={onSupportBundle}
+            />
+            <HelpAction
+              icon="upload"
+              title="Import legacy snapshot"
+              detail="Move projects over from the previous ZLI app."
+              onClick={onImportLegacy}
+            />
           </div>
         </section>
       </div>
       <div className="dialog-footer">
         <span className="dialog-footer-note help-version">ZLI {version ?? "development"}</span>
+        <span className="dialog-footer-note">Runs locally. Each worktree keeps its own agents and terminals.</span>
       </div>
     </Dialog>
+  );
+}
+
+function HelpAction({
+  icon,
+  title,
+  detail,
+  onClick,
+}: {
+  icon: IconName;
+  title: string;
+  detail: string;
+  onClick(): void;
+}) {
+  return (
+    <button className="help-action" type="button" onClick={onClick}>
+      <span className="help-action-icon" aria-hidden="true">
+        <Icon name={icon} size={15} />
+      </span>
+      <span className="help-action-text">
+        <span className="help-action-title">{title}</span>
+        <span className="help-action-detail">{detail}</span>
+      </span>
+    </button>
   );
 }
