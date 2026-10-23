@@ -6,12 +6,15 @@ import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import {
   type FileChangeStatus,
   type FileDataResult,
+  type FileDiffResult,
+  type FileListEntry,
   type FileListResult,
   type FileReadResult,
   type FileSearchMatch,
   type FileSearchResult,
   type FileWriteResult,
   MAX_EDITABLE_FILE_BYTES,
+  MAX_FILE_DIFF_CHARS,
   MAX_LISTED_FILES,
   MAX_PREVIEW_FILE_BYTES,
   MAX_SEARCH_RESULTS,
@@ -54,17 +57,32 @@ export class FileService {
 
   /** Every listed file, with its uncommitted state. Files deleted from disk stay listed as `deleted`. */
   async list(root: string): Promise<FileListResult> {
-    const [listed, changes, prefix] = await Promise.all([
+    const [listed, changes, prefix, numstat] = await Promise.all([
       runGitNullList(root, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]),
       runGitNullList(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames", "--", "."]),
       runGitNullList(root, ["rev-parse", "--show-prefix"]),
+      // A repository without commits has no HEAD to count against; the files still list without counts.
+      runGitNullList(root, [
+        "diff",
+        "--numstat",
+        "-z",
+        "--no-renames",
+        "--no-ext-diff",
+        "--relative",
+        "HEAD",
+        "--",
+        ".",
+      ]).catch(() => ({ entries: [], truncated: false })),
     ]);
     const statuses = parseStatus(changes.entries, prefix.entries[0]?.trim() ?? "");
+    const counts = parseNumstat(numstat.entries);
     const paths = [...new Set([...listed.entries, ...statuses.keys()])].sort(comparePaths);
     return {
-      files: paths.slice(0, MAX_LISTED_FILES).map((path) => {
+      files: paths.slice(0, MAX_LISTED_FILES).map((path): FileListEntry => {
         const status = statuses.get(path);
-        return status ? { path, status } : { path };
+        if (!status) return { path };
+        const count = counts.get(path);
+        return count ? { path, status, ...count } : { path, status };
       }),
       truncated: listed.truncated || changes.truncated || paths.length > MAX_LISTED_FILES,
     };
@@ -115,6 +133,40 @@ export class FileService {
     }
     const bytes = await readFile(target);
     return { path, size: bytes.length, version: sha256(bytes), mimeType, dataBase64: bytes.toString("base64") };
+  }
+
+  /** The uncommitted changes to one file against HEAD. Untracked files show every line as added. */
+  async diff(root: string, path: string): Promise<FileDiffResult> {
+    assertSafePath(path);
+    const tracked = await runGitText(root, [
+      "--literal-pathspecs",
+      "diff",
+      "--no-ext-diff",
+      "--no-color",
+      "--unified=3",
+      "HEAD",
+      "--",
+      path,
+    ]);
+    if (tracked.ok && tracked.text) {
+      if (!tracked.text.includes("\n@@") && /^Binary files /mu.test(tracked.text)) {
+        return { path, binary: true, patch: "", truncated: false };
+      }
+      return { path, binary: false, patch: tracked.text, truncated: tracked.truncated };
+    }
+    if (tracked.ok) {
+      const untracked = await runGitNullList(root, [
+        "--literal-pathspecs",
+        "ls-files",
+        "-z",
+        "--others",
+        "--exclude-standard",
+        "--",
+        path,
+      ]);
+      if (untracked.entries.length === 0) return { path, binary: false, patch: "", truncated: false };
+    }
+    return newFilePatch(root, path);
   }
 
   async write(root: string, input: FileWriteInput): Promise<FileWriteResult> {
@@ -181,6 +233,25 @@ export class FileService {
     }
     return { matches, truncated: overflow || result.timedOut };
   }
+}
+
+/** A diff that adds every line of a file Git has no earlier version of. */
+async function newFilePatch(root: string, path: string): Promise<FileDiffResult> {
+  const target = await resolveExisting(root, path);
+  const info = await stat(target);
+  if (info.isDirectory()) throw new FileServiceError(`That path is a folder: ${path}`);
+  if (info.size > MAX_EDITABLE_FILE_BYTES) return { path, binary: false, patch: "", truncated: true };
+  const bytes = await readFile(target);
+  const body = bytes.subarray(0, 3).equals(UTF8_BOM) ? bytes.subarray(3) : bytes;
+  const content = body.subarray(0, BINARY_SNIFF_BYTES).includes(0) ? undefined : decodeUtf8(body);
+  if (content === undefined) return { path, binary: true, patch: "", truncated: false };
+  const lines = content.split(/\r?\n/u);
+  if (lines.at(-1) === "") lines.pop();
+  if (lines.length === 0) return { path, binary: false, patch: "", truncated: false };
+  const patch = `@@ -0,0 +1,${lines.length} @@\n${lines.map((line) => `+${line}`).join("\n")}\n`;
+  return patch.length > MAX_FILE_DIFF_CHARS
+    ? { path, binary: false, patch: patch.slice(0, MAX_FILE_DIFF_CHARS), truncated: true }
+    : { path, binary: false, patch, truncated: false };
 }
 
 async function writeChecked(target: string, input: FileWriteInput): Promise<FileWriteResult> {
@@ -360,6 +431,16 @@ function searchFailure(stderr: string, regex: boolean): string {
   return `Search failed${detail ? `: ${detail.slice(0, 200)}` : "."}`;
 }
 
+/** Reads `git diff --numstat -z --no-renames` output. Binary files report "-" and get no counts. */
+export function parseNumstat(entries: readonly string[]): Map<string, { additions: number; deletions: number }> {
+  const counts = new Map<string, { additions: number; deletions: number }>();
+  for (const entry of entries) {
+    const match = /^(\d+)\t(\d+)\t(.+)$/su.exec(entry);
+    if (match?.[3]) counts.set(match[3], { additions: Number(match[1]), deletions: Number(match[2]) });
+  }
+  return counts;
+}
+
 const CONFLICT_CODES = new Set(["DD", "AU", "UD", "UA", "DU", "AA", "UU"]);
 
 /**
@@ -414,6 +495,25 @@ async function runGitNullList(root: string, args: string[]): Promise<{ entries: 
   // A stopped stream ends mid-entry, so the last piece is dropped.
   if (result.stopped || output.at(-1) === "") output.pop();
   return { entries: output.filter((entry) => entry.length > 0), truncated: result.stopped };
+}
+
+/** Collects git's stdout as text, keeping at most MAX_FILE_DIFF_CHARS. `ok` is false when git failed. */
+async function runGitText(root: string, args: string[]): Promise<{ ok: boolean; text: string; truncated: boolean }> {
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  const limit = MAX_FILE_DIFF_CHARS * 4;
+  const result = await runGit(root, args, {
+    timeoutMs: LIST_TIMEOUT_MS,
+    onStdout: (chunk) => {
+      chunks.push(chunk);
+      bytes += chunk.length;
+      return bytes < limit;
+    },
+  });
+  if (result.timedOut) throw new FileServiceError("Reading the diff took too long.");
+  const text = Buffer.concat(chunks).toString("utf8");
+  const truncated = result.stopped || text.length > MAX_FILE_DIFF_CHARS;
+  return { ok: result.stopped || result.code === 0, text: text.slice(0, MAX_FILE_DIFF_CHARS), truncated };
 }
 
 type GitStreamResult = { code: number; stderr: string; stopped: boolean; timedOut: boolean };

@@ -9,11 +9,16 @@ export type FileTreeDirectory = {
   /** Number of changed files anywhere below this folder. */
   changed: number;
 };
-export type FileTreeFile = { kind: "file"; name: string; path: string; status?: FileChangeStatus | undefined };
+type FileChange = {
+  status?: FileChangeStatus | undefined;
+  additions?: number | undefined;
+  deletions?: number | undefined;
+};
+export type FileTreeFile = { kind: "file"; name: string; path: string } & FileChange;
 
 export type FileTreeRow =
   | { kind: "directory"; name: string; path: string; depth: number; expanded: boolean; changed: number }
-  | { kind: "file"; name: string; path: string; depth: number; status?: FileChangeStatus | undefined };
+  | ({ kind: "file"; name: string; path: string; depth: number } & FileChange);
 
 export function buildFileTree(entries: readonly FileListEntry[]): FileTreeDirectory {
   const root: FileTreeDirectory = { kind: "directory", name: "", path: "", directories: [], files: [], changed: 0 };
@@ -39,7 +44,14 @@ export function buildFileTree(entries: readonly FileListEntry[]): FileTreeDirect
     const split = entry.path.lastIndexOf("/");
     const parentPath = split === -1 ? "" : entry.path.slice(0, split);
     const parent = directoryFor(parentPath);
-    parent.files.push({ kind: "file", name: entry.path.slice(split + 1), path: entry.path, status: entry.status });
+    parent.files.push({
+      kind: "file",
+      name: entry.path.slice(split + 1),
+      path: entry.path,
+      status: entry.status,
+      additions: entry.additions,
+      deletions: entry.deletions,
+    });
     if (entry.status) {
       for (let path: string | undefined = parentPath; path !== undefined; ) {
         const directory = directories.get(path);
@@ -80,7 +92,7 @@ export function visibleTreeRows(root: FileTreeDirectory, expanded: ReadonlySet<s
       if (open) walk(child, depth + 1);
     }
     for (const file of directory.files) {
-      rows.push({ kind: "file", name: file.name, path: file.path, depth, status: file.status });
+      rows.push({ ...file, depth });
     }
   };
   walk(root, 0);

@@ -50,11 +50,11 @@ describe("FileService.list", () => {
     expect(result).toEqual({
       files: [
         { path: ".gitignore" },
-        { path: "README.md", status: "deleted" },
-        { path: "src/app.ts", status: "modified" },
+        { path: "README.md", status: "deleted", additions: 0, deletions: 2 },
+        { path: "src/app.ts", status: "modified", additions: 1, deletions: 2 },
         { path: "src/new file.ts", status: "untracked" },
         { path: "src/ünïcode.ts", status: "untracked" },
-        { path: "staged.ts", status: "added" },
+        { path: "staged.ts", status: "added", additions: 1, deletions: 0 },
       ],
       truncated: false,
     });
@@ -67,7 +67,54 @@ describe("FileService.list", () => {
 
     const result = await new FileService().list(join(root, "src"));
 
-    expect(result.files).toEqual([{ path: "app.ts", status: "modified" }]);
+    expect(result.files).toEqual([{ path: "app.ts", status: "modified", additions: 1, deletions: 2 }]);
+  });
+
+  it("lists files without line counts in a repository that has no commits yet", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "zli-files-"));
+    directories.push(directory);
+    await new GitProcess().run(["init", "-q"], { cwd: directory });
+    await writeFile(join(directory, "first.ts"), "x\n");
+
+    const result = await new FileService().list(directory);
+
+    expect(result.files).toEqual([{ path: "first.ts", status: "untracked" }]);
+  });
+});
+
+describe("FileService.diff", () => {
+  it("shows uncommitted changes against HEAD", async () => {
+    const root = await repository();
+    await writeFile(join(root, "src", "app.ts"), "export const greeting = 'hi';\nconsole.log(greeting);\n");
+
+    const result = await new FileService().diff(root, "src/app.ts");
+
+    expect(result).toMatchObject({ path: "src/app.ts", binary: false, truncated: false });
+    expect(result.patch).toContain("-export const greeting = 'hello';");
+    expect(result.patch).toContain("+export const greeting = 'hi';");
+  });
+
+  it("shows every line of an untracked file as added, and nothing for an unchanged file", async () => {
+    const root = await repository();
+    await writeFile(join(root, "src", "[new].ts"), "one\r\ntwo\r\n");
+    const service = new FileService();
+
+    expect((await service.diff(root, "src/[new].ts")).patch).toBe("@@ -0,0 +1,2 @@\n+one\n+two\n");
+    expect(await service.diff(root, "README.md")).toEqual({
+      path: "README.md",
+      binary: false,
+      patch: "",
+      truncated: false,
+    });
+  });
+
+  it("reports binary changes without a patch and refuses paths outside the worktree", async () => {
+    const root = await repository();
+    await writeFile(join(root, "blob.bin"), Buffer.from([0, 1, 2, 3]));
+    const service = new FileService();
+
+    expect(await service.diff(root, "blob.bin")).toMatchObject({ binary: true, patch: "" });
+    await expect(service.diff(root, "../outside.ts")).rejects.toThrow("That file is outside the worktree.");
   });
 });
 

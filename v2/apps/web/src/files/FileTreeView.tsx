@@ -34,10 +34,32 @@ export function FileStatusMark({ status }: { status: FileChangeStatus | undefine
   );
 }
 
+/** Lines added and removed, for example `+12 −3`. Renders nothing when Git gave no counts. */
+export function LineCounts({
+  additions,
+  deletions,
+}: {
+  additions?: number | undefined;
+  deletions?: number | undefined;
+}) {
+  if (additions === undefined || deletions === undefined) return null;
+  return (
+    <span className="file-counts" role="img" aria-label={`${additions} added, ${deletions} removed`}>
+      <span className="is-add">+{additions}</span>
+      <span className="is-del">−{deletions}</span>
+    </span>
+  );
+}
+
+/** The tree row for `path`; rows in the Changed group are copies and are skipped. */
 function findRow(container: HTMLElement, path: string): HTMLElement | undefined {
-  for (const row of container.querySelectorAll<HTMLElement>("[data-tree-row]"))
+  for (const row of container.querySelectorAll<HTMLElement>("[data-tree-row]:not([data-group])"))
     if (row.dataset.path === path) return row;
   return undefined;
+}
+
+function compareChanged(left: FileListEntry, right: FileListEntry): number {
+  return left.path.localeCompare(right.path, undefined, { sensitivity: "base", numeric: true });
 }
 
 export function FileTreeView({
@@ -45,6 +67,7 @@ export function FileTreeView({
   expanded,
   selectedPath,
   revealKey,
+  changedGroup,
   onToggle,
   onOpen,
 }: {
@@ -53,6 +76,8 @@ export function FileTreeView({
   selectedPath: string | undefined;
   /** Changes when the selected file should scroll into view. */
   revealKey: number;
+  /** Lists changed files in a group above the tree. */
+  changedGroup?: { open: boolean; onToggle(): void } | undefined;
   onToggle(path: string): void;
   onOpen(path: string): void;
 }) {
@@ -60,6 +85,11 @@ export function FileTreeView({
   const tree = useMemo(() => buildFileTree(entries), [entries]);
   const rows = useMemo(() => visibleTreeRows(tree, expanded), [tree, expanded]);
   const shown = rows.length > MAX_ROWS ? rows.slice(0, MAX_ROWS) : rows;
+  const changed = useMemo(
+    () => (changedGroup ? entries.filter((entry) => entry.status).sort(compareChanged) : []),
+    [changedGroup, entries],
+  );
+  const showGroup = changedGroup !== undefined && changed.length > 0;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: only a reveal request should scroll.
   useEffect(() => {
@@ -75,18 +105,23 @@ export function FileTreeView({
     const all = [...listRef.current.querySelectorAll<HTMLElement>("[data-tree-row]")];
     const index = all.indexOf(row);
     const path = row.dataset.path ?? "";
-    const isDirectory = row.dataset.kind === "directory";
+    const isGroup = row.dataset.kind === "group";
+    const isDirectory = isGroup || row.dataset.kind === "directory";
+    const isOpen = row.getAttribute("aria-expanded") === "true";
+    const toggle = () => (isGroup ? changedGroup?.onToggle() : onToggle(path));
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       all[index + (event.key === "ArrowDown" ? 1 : -1)]?.focus();
     } else if (event.key === "ArrowRight" && isDirectory) {
       event.preventDefault();
-      if (!expanded.has(path)) onToggle(path);
+      if (!isOpen) toggle();
       else all[index + 1]?.focus();
     } else if (event.key === "ArrowLeft") {
       event.preventDefault();
-      if (isDirectory && expanded.has(path)) onToggle(path);
-      else {
+      if (isDirectory && isOpen) toggle();
+      else if (row.dataset.group !== undefined) {
+        listRef.current.querySelector<HTMLElement>("[data-kind=group]")?.focus();
+      } else {
         const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
         if (parent) findRow(listRef.current, parent)?.focus();
       }
@@ -98,6 +133,48 @@ export function FileTreeView({
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move focus between the row buttons inside.
     <div className="file-tree" ref={listRef} onKeyDown={onKeyDown}>
+      {showGroup ? (
+        <>
+          <button
+            className="file-row is-directory file-group-header"
+            type="button"
+            data-tree-row=""
+            data-kind="group"
+            aria-expanded={changedGroup.open}
+            onClick={changedGroup.onToggle}
+          >
+            <Icon name="chevronRight" size={12} className={`file-row-chevron${changedGroup.open ? " is-open" : ""}`} />
+            <span className="file-row-name">Changed</span>
+            <span className="file-group-count">{changed.length}</span>
+          </button>
+          {changedGroup.open
+            ? changed.map((entry) => {
+                const split = entry.path.lastIndexOf("/");
+                return (
+                  <button
+                    className={`file-row${entry.path === selectedPath ? " is-selected" : ""}${entry.status === "deleted" ? " is-deleted" : ""}`}
+                    type="button"
+                    key={`c:${entry.path}`}
+                    data-tree-row=""
+                    data-kind="file"
+                    data-group="changed"
+                    data-path={entry.path}
+                    style={{ paddingLeft: 22 }}
+                    title={entry.path}
+                    onClick={() => onOpen(entry.path)}
+                  >
+                    <span className="file-row-name file-row-name-short">{entry.path.slice(split + 1)}</span>
+                    {split > 0 ? <span className="file-row-dir">{entry.path.slice(0, split)}</span> : null}
+                    <span className="file-row-fill" />
+                    <LineCounts additions={entry.additions} deletions={entry.deletions} />
+                    <FileStatusMark status={entry.status} />
+                  </button>
+                );
+              })
+            : null}
+          <p className="file-tree-label">All files</p>
+        </>
+      ) : null}
       {shown.map((row) =>
         row.kind === "directory" ? (
           <button
@@ -139,6 +216,7 @@ export function FileTreeView({
           >
             <Icon name="file" size={13} className="file-row-icon" />
             <span className="file-row-name">{row.name}</span>
+            <LineCounts additions={row.additions} deletions={row.deletions} />
             <FileStatusMark status={row.status} />
           </button>
         ),

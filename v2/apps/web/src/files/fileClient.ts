@@ -1,5 +1,6 @@
 import {
   FileDataResult,
+  FileDiffResult,
   FileListResult,
   FileReadResult,
   FileSearchResult,
@@ -39,6 +40,10 @@ export function readFile(dispatch: Dispatch, worktreeId: string, path: string): 
 
 export function readFileData(dispatch: Dispatch, worktreeId: string, path: string): Promise<FileDataResult> {
   return request(dispatch, { type: "files.readData", worktreeId: WorktreeId.parse(worktreeId), path }, FileDataResult);
+}
+
+export function readFileDiff(dispatch: Dispatch, worktreeId: string, path: string): Promise<FileDiffResult> {
+  return request(dispatch, { type: "files.diff", worktreeId: WorktreeId.parse(worktreeId), path }, FileDiffResult);
 }
 
 export function writeFile(

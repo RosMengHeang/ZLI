@@ -1,17 +1,24 @@
-import type { FileChangeStatus, FileReadResult, WorktreeProjection } from "@zli-v2/contracts";
+import type {
+  FileChangeStatus,
+  FileListEntry,
+  FileReadResult,
+  RuntimeProjection,
+  WorktreeProjection,
+} from "@zli-v2/contracts";
 import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { useAppSettings } from "../settings/appSettings.js";
 import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
 import { type CodeEditorHandle, createCodeEditor, languageLabel } from "./codeEditor.js";
+import { type DiffSource, FileDiffPanel, latestTurnFor } from "./FileDiffPanel.js";
 import { useFileIndex, useFileIndexContext } from "./FileIndex.js";
 import { FileSearchView, type SearchSettings } from "./FileSearchView.js";
 import { FilesDivider } from "./FilesDivider.js";
-import { FileStatusMark, FileTreeView } from "./FileTreeView.js";
+import { FileStatusMark, FileTreeView, LineCounts } from "./FileTreeView.js";
 import { readFile, writeFile } from "./fileClient.js";
 import { baseName, dirName, type FileLocation } from "./filePaths.js";
 import { clampTreeWidth, maxTreeWidth, TREE_DEFAULT_WIDTH, TREE_MIN_WIDTH, useFilesLayout } from "./filesLayout.js";
@@ -26,6 +33,8 @@ const MarkdownPreview = lazy(() =>
 export type FilesFocus =
   | { kind: "open"; path: string; line?: number | undefined; column?: number | undefined; nonce: number }
   | { kind: "search"; nonce: number };
+
+const selectCheckpoints = (projection: RuntimeProjection | undefined) => projection?.checkpoints;
 
 /** How often the open file and the change markers are checked against the disk. */
 const POLL_MS = 4_000;
@@ -117,6 +126,11 @@ function FilesWorkspace({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(session.expanded);
   const [mode, setMode] = useState(session.mode);
   const [changedOnly, setChangedOnly] = useState(session.changedOnly);
+  const [changedOpen, setChangedOpen] = useState(session.changedOpen);
+  const [diffSource, setDiffSource] = useState<DiffSource>(session.diffSource);
+  /** The open file whose diff is showing in place of its contents. */
+  const [diffPath, setDiffPath] = useState<string>();
+  const checkpoints = useRuntimeSelector(selectCheckpoints);
   const [search, setSearch] = useState<SearchSettings>(session.search);
   const [tabData, setTabData] = useState<ReadonlyMap<string, TabData>>(new Map());
   const [dirty, setDirty] = useState<ReadonlySet<string>>(() => new Set(session.drafts.keys()));
@@ -151,14 +165,17 @@ function FilesWorkspace({
     session.expanded = new Set(expanded);
     session.mode = mode;
     session.changedOnly = changedOnly;
+    session.changedOpen = changedOpen;
+    session.diffSource = diffSource;
     session.search = search;
-  }, [session, tabs, activePath, expanded, mode, changedOnly, search]);
+  }, [session, tabs, activePath, expanded, mode, changedOnly, changedOpen, diffSource, search]);
 
-  const statuses = useMemo(() => {
-    const map = new Map<string, FileChangeStatus>();
-    for (const entry of index?.entries ?? []) if (entry.status) map.set(entry.path, entry.status);
+  const changes = useMemo(() => {
+    const map = new Map<string, FileListEntry & { status: FileChangeStatus }>();
+    for (const entry of index?.entries ?? []) if (entry.status) map.set(entry.path, { ...entry, status: entry.status });
     return map;
   }, [index]);
+  const statuses = useMemo(() => new Map([...changes].map(([path, entry]) => [path, entry.status])), [changes]);
   const treeEntries = useMemo(
     () => (changedOnly ? (index?.entries ?? []).filter((entry) => entry.status) : (index?.entries ?? [])),
     [changedOnly, index],
@@ -434,10 +451,18 @@ function FilesWorkspace({
   );
 
   const active = activePath ? tabData.get(activePath) : undefined;
-  const activeStatus = activePath ? statuses.get(activePath) : undefined;
+  const activeChange = activePath ? changes.get(activePath) : undefined;
+  const activeStatus = activeChange?.status;
+  const activeTurn = useMemo(
+    () => (activePath ? latestTurnFor(checkpoints, worktreeId, activePath) : undefined),
+    [activePath, checkpoints, worktreeId],
+  );
+  const showDiff = activePath !== undefined && diffPath === activePath;
+  const canDiff = activeStatus !== undefined || activeTurn !== undefined;
   const activeKind = activePath ? previewKind(activePath) : undefined;
   const activeIsText = active?.status === "ready" && active.file.content !== undefined;
   const viewMode = activeKind && activeIsText ? viewModes[activeKind] : undefined;
+  const diffRevision = `${activeStatus ?? ""}:${activeChange?.additions ?? ""}:${activeChange?.deletions ?? ""}:${active?.status === "ready" ? active.file.version : ""}`;
   const changeViewMode = (mode: FileViewMode) => {
     if (activeKind) setViewMode(activeKind, mode);
   };
@@ -503,6 +528,9 @@ function FilesWorkspace({
             expanded={treeExpanded}
             selectedPath={activePath}
             revealKey={revealKey}
+            changedGroup={
+              changedOnly ? undefined : { open: changedOpen, onToggle: () => setChangedOpen((value) => !value) }
+            }
             onToggle={toggleFolder}
             onOpen={(path) => openPath({ path })}
           />
@@ -562,8 +590,9 @@ function FilesWorkspace({
               <span className="file-path-name">{baseName(activePath)}</span>
             </span>
             <FileStatusMark status={activeStatus} />
+            <LineCounts additions={activeChange?.additions} deletions={activeChange?.deletions} />
             <span className="file-path-spacer" />
-            {viewMode ? (
+            {viewMode && !showDiff ? (
               <ViewModeTabs mode={viewMode} idBase={viewTabsId} panelId={filePanelId} onChange={changeViewMode} />
             ) : null}
             {active?.status === "ready" && active.file.content !== undefined ? (
@@ -571,8 +600,15 @@ function FilesWorkspace({
                 {languageLabel(activePath)} · {active.file.lineEnding === "crlf" ? "CRLF" : "LF"}
               </span>
             ) : null}
-            {activeStatus ? (
-              <Button variant="ghost" size="sm" icon="diff" onClick={() => onOpenDiff(activePath)}>
+            {canDiff || showDiff ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon="diff"
+                aria-pressed={showDiff}
+                tooltip={showDiff ? "Show the file" : "Show what changed in this file"}
+                onClick={() => setDiffPath(showDiff ? undefined : activePath)}
+              >
                 Diff
               </Button>
             ) : null}
@@ -627,27 +663,40 @@ function FilesWorkspace({
               }
             />
           ) : null}
-          <FileBody
-            key={`${activePath}:${generation}`}
-            worktreeId={worktreeId}
-            path={activePath}
-            data={active}
-            status={activeStatus}
-            draft={session.drafts.get(activePath)}
-            viewMode={viewMode}
-            panelId={filePanelId}
-            labelledBy={viewMode ? `${viewTabsId}-${viewMode}` : undefined}
-            reveal={previewReveal?.path === activePath ? previewReveal : undefined}
-            onOpenFile={openPath}
-            onViewModeChange={changeViewMode}
-            onReady={onEditorReady}
-            onDispose={onEditorDispose}
-            onChange={onEditorChange}
-            onSave={(path) => void save(path)}
-            onRetry={() => void loadFile(activePath)}
-            onOpenDiff={() => onOpenDiff(activePath)}
-            onClose={() => closeTab(activePath, true)}
-          />
+          {showDiff ? (
+            <FileDiffPanel
+              worktreeId={worktreeId}
+              path={activePath}
+              revision={diffRevision}
+              turn={activeTurn}
+              source={diffSource}
+              onSourceChange={setDiffSource}
+              onOpenChanges={() => onOpenDiff(activePath)}
+            />
+          ) : null}
+          <div className="file-body-host" hidden={showDiff}>
+            <FileBody
+              key={`${activePath}:${generation}`}
+              worktreeId={worktreeId}
+              path={activePath}
+              data={active}
+              status={activeStatus}
+              draft={session.drafts.get(activePath)}
+              viewMode={viewMode}
+              panelId={filePanelId}
+              labelledBy={viewMode ? `${viewTabsId}-${viewMode}` : undefined}
+              reveal={previewReveal?.path === activePath ? previewReveal : undefined}
+              onOpenFile={openPath}
+              onViewModeChange={changeViewMode}
+              onReady={onEditorReady}
+              onDispose={onEditorDispose}
+              onChange={onEditorChange}
+              onSave={(path) => void save(path)}
+              onRetry={() => void loadFile(activePath)}
+              onOpenDiff={() => setDiffPath(activePath)}
+              onClose={() => closeTab(activePath, true)}
+            />
+          </div>
         </>
       )}
     </div>

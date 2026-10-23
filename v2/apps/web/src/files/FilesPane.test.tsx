@@ -57,9 +57,23 @@ const projection: RuntimeProjection = {
 type Disk = Map<string, { content: string; version: string; lineEnding?: "lf" | "crlf" }>;
 /** A one-pixel PNG. */
 const PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
-type Command = { type: string; path?: string; content?: string; expectedVersion?: string; overwrite?: boolean };
+type Command = {
+  type: string;
+  path?: string;
+  content?: string;
+  expectedVersion?: string;
+  overwrite?: boolean;
+  checkpointId?: string;
+};
+type FakeOptions = {
+  conflictOnce?: boolean;
+  /** Replaces the default change state, where only src/app.ts is modified. */
+  listEntries?: { path: string; status?: string; additions?: number; deletions?: number }[];
+  diffs?: Record<string, string>;
+  projection?: RuntimeProjection;
+};
 
-function fakeRuntime(disk: Disk, options: { conflictOnce?: boolean } = {}) {
+function fakeRuntime(disk: Disk, options: FakeOptions = {}) {
   const commands: Command[] = [];
   const openedLinks: string[] = [];
   let conflictOnce = options.conflictOnce ?? false;
@@ -74,7 +88,25 @@ function fakeRuntime(disk: Disk, options: { conflictOnce?: boolean } = {}) {
     commands.push(command);
     if (command.type === "files.list") {
       return reply({
-        files: [...disk.keys()].sort().map((path) => (path === "src/app.ts" ? { path, status: "modified" } : { path })),
+        files:
+          options.listEntries ??
+          [...disk.keys()].sort().map((path) => (path === "src/app.ts" ? { path, status: "modified" } : { path })),
+        truncated: false,
+      });
+    }
+    if (command.type === "files.diff") {
+      return reply({
+        path: command.path,
+        binary: false,
+        patch: options.diffs?.[command.path ?? ""] ?? "",
+        truncated: false,
+      });
+    }
+    if (command.type === "checkpoint.diff") {
+      return reply({
+        path: command.path,
+        binary: false,
+        patch: options.diffs?.[`turn:${command.path}`] ?? "",
         truncated: false,
       });
     }
@@ -119,7 +151,7 @@ function fakeRuntime(disk: Disk, options: { conflictOnce?: boolean } = {}) {
   const bridge = {
     runtime: {
       dispatch,
-      getProjection: async () => projection,
+      getProjection: async () => options.projection ?? projection,
       onProjection: () => () => undefined,
       attachTerminal: async () => ({ accepted: true }),
       onTerminal: () => () => undefined,
@@ -145,7 +177,7 @@ const settle = (ms = 0) =>
     await new Promise((resolve) => setTimeout(resolve, ms));
   });
 
-async function renderPane(bridge: ZliBridge, focus?: FilesFocus) {
+async function renderPane(bridge: ZliBridge, focus?: FilesFocus, options: { onOpenDiff?(path: string): void } = {}) {
   const container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -157,7 +189,7 @@ async function renderPane(bridge: ZliBridge, focus?: FilesFocus) {
             <FilesPane
               worktree={worktree}
               focus={nextFocus}
-              onOpenDiff={() => undefined}
+              onOpenDiff={options.onOpenDiff ?? (() => undefined)}
               onQuickOpen={() => undefined}
             />
           </FileIndexProvider>
@@ -531,5 +563,120 @@ describe("FilesPane Markdown preview", () => {
     expect(tab(container, "Code").getAttribute("aria-selected")).toBe("true");
     const view = editorView(container);
     expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(5);
+  });
+});
+
+describe("FilesPane changes", () => {
+  const changedEntries = [
+    { path: "README.md" },
+    { path: "src/app.ts", status: "modified", additions: 2, deletions: 1 },
+    { path: "src/new.ts", status: "untracked" },
+  ];
+
+  it("lists changed files in a group above the tree, with line counts", async () => {
+    const disk: Disk = new Map([
+      ["README.md", { content: "# Demo\n", version: "r1" }],
+      ["src/app.ts", { content: "const a = 2;\n", version: "v1" }],
+      ["src/new.ts", { content: "new\n", version: "n1" }],
+    ]);
+    const { bridge } = fakeRuntime(disk, { listEntries: changedEntries });
+    const { container } = await renderPane(bridge);
+
+    const header = container.querySelector<HTMLButtonElement>(".file-group-header");
+    expect(header?.textContent).toBe("Changed2");
+    expect(header?.getAttribute("aria-expanded")).toBe("true");
+    const grouped = () => [...container.querySelectorAll<HTMLButtonElement>("[data-group=changed]")];
+    expect(grouped().map((row) => row.dataset.path)).toEqual(["src/app.ts", "src/new.ts"]);
+    expect(grouped()[0]?.querySelector(".file-counts")?.getAttribute("aria-label")).toBe("2 added, 1 removed");
+    expect(grouped()[1]?.querySelector(".file-counts")).toBeNull();
+
+    act(() => grouped()[0]?.click());
+    await settle();
+    await settle();
+    expect(editorView(container).state.doc.toString()).toBe("const a = 2;\n");
+    expect(container.querySelector(".file-path-bar .file-counts")?.textContent).toBe("+2−1");
+
+    act(() => header?.click());
+    expect(grouped()).toHaveLength(0);
+    act(() => button(container, "Changed 2").click());
+    expect(container.querySelector(".file-group-header")).toBeNull();
+  });
+
+  it("shows the file's diff in place of its contents and switches to the last agent turn", async () => {
+    const disk: Disk = new Map([["src/app.ts", { content: "const a = 2;\n", version: "v1" }]]);
+    const checkpointId = "00000000-0000-4000-8000-000000000077";
+    const { bridge, commands } = fakeRuntime(disk, {
+      listEntries: [{ path: "src/app.ts", status: "modified", additions: 1, deletions: 1 }],
+      diffs: {
+        "src/app.ts": "@@ -1 +1 @@\n-const a = 1;\n+const a = 2;\n",
+        "turn:src/app.ts": "@@ -1 +1 @@\n-const a = 0;\n+const a = 1;\n",
+      },
+      projection: {
+        ...projection,
+        checkpoints: [
+          {
+            checkpointId,
+            threadId: "00000000-0000-4000-8000-000000000033",
+            worktreeId: worktree.worktreeId,
+            turnId: "turn-1",
+            startTree: "a".repeat(40),
+            endTree: "b".repeat(40),
+            files: [{ path: "src/app.ts", kind: "modified", additions: 1, deletions: 1, binary: false }],
+            fileCount: 1,
+            additions: 1,
+            deletions: 1,
+          },
+        ] as RuntimeProjection["checkpoints"],
+      },
+    });
+    const opened: string[] = [];
+    const { container } = await renderPane(
+      bridge,
+      { kind: "open", path: "src/app.ts", nonce: 1 },
+      { onOpenDiff: (path) => opened.push(path) },
+    );
+
+    act(() => button(container, "Diff").click());
+    await settle();
+    await settle();
+    expect(commands.find((command) => command.type === "files.diff")?.path).toBe("src/app.ts");
+    const diffText = () => container.querySelector(".file-diff .diff-lines")?.textContent ?? "";
+    expect(diffText()).toContain("+const a = 2;");
+    expect(container.querySelector(".file-body-host")?.hasAttribute("hidden")).toBe(true);
+    expect(button(container, "Diff").getAttribute("aria-pressed")).toBe("true");
+
+    act(() => button(container, "Last turn").click());
+    await settle();
+    await settle();
+    expect(commands.find((command) => command.type === "checkpoint.diff")).toMatchObject({
+      checkpointId,
+      path: "src/app.ts",
+    });
+    expect(diffText()).toContain("+const a = 1;");
+
+    act(() => button(container, "Open in Changes").click());
+    expect(opened).toEqual(["src/app.ts"]);
+
+    act(() => button(container, "Diff").click());
+    expect(container.querySelector(".file-diff")).toBeNull();
+    expect(editorView(container).state.doc.toString()).toBe("const a = 2;\n");
+  });
+
+  it("keeps Last turn unavailable when no agent turn changed the file", async () => {
+    const disk: Disk = new Map([["src/app.ts", { content: "const a = 2;\n", version: "v1" }]]);
+    const { bridge, commands } = fakeRuntime(disk, {
+      listEntries: [{ path: "src/app.ts", status: "modified", additions: 1, deletions: 1 }],
+    });
+    const { container } = await renderPane(bridge, { kind: "open", path: "src/app.ts", nonce: 1 });
+
+    act(() => button(container, "Diff").click());
+    await settle();
+    await settle();
+    const lastTurn = button(container, "Last turn");
+    expect(lastTurn.getAttribute("aria-disabled")).toBe("true");
+    act(() => lastTurn.click());
+    await settle();
+    expect(commands.some((command) => command.type === "checkpoint.diff")).toBe(false);
+    expect(container.querySelector(".file-diff .empty-state")?.textContent).toContain("No uncommitted changes");
   });
 });

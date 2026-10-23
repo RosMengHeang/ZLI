@@ -34,6 +34,19 @@
 .file-row-icon { flex: 0 0 auto; color: var(--zli-dim); }
 .file-row-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-row-changed { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--zli-amber); }
+.file-row-name-short { flex: 0 1 auto; }
+.file-row-dir { min-width: 0; flex: 0 1 auto; overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.file-row-fill { flex: 1; }
+.file-group-count { flex: 0 0 auto; min-width: 18px; padding: 0 5px; border-radius: var(--zli-radius-pill); background: var(--zli-amber-soft); color: var(--zli-amber); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; line-height: 16px; text-align: center; }
+.file-tree-label { margin: var(--zli-space-2) 0 var(--zli-space-1); padding: 0 var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-2xs); font-weight: 600; letter-spacing: .02em; }
+
+.file-counts { display: inline-flex; flex: 0 0 auto; gap: 4px; font-family: var(--zli-mono); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.file-counts .is-add { color: var(--zli-green-ink); }
+.file-counts .is-del { color: var(--zli-red-ink); }
+.files-browser { container-type: inline-size; }
+@container (max-width: 210px) {
+  .file-row > .file-counts, .file-row > .file-row-dir { display: none; }
+}
 
 .file-status { flex: 0 0 auto; min-width: 12px; font-family: var(--zli-mono); font-size: var(--zli-text-2xs); font-weight: 700; text-align: center; }
 .file-status-modified, .file-status-renamed { color: var(--zli-amber); }
@@ -59,6 +72,18 @@
 .file-path-name { flex: 0 0 auto; color: var(--zli-muted); }
 .file-path-spacer { flex: 1; }
 .file-meta { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); white-space: nowrap; }
+
+.file-path-bar .btn[aria-pressed="true"] { background: var(--zli-active); color: var(--zli-text); }
+.file-body-host { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.file-body-host[hidden] { display: none; }
+
+.file-diff { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.file-diff-bar { display: flex; align-items: center; gap: var(--zli-space-2); height: 36px; flex: 0 0 auto; padding: 0 var(--zli-space-2) 0 var(--zli-space-3); border-bottom: 1px solid var(--zli-border); background: var(--zli-surface); }
+.file-diff-label { color: var(--zli-dim); font-size: var(--zli-text-xs); white-space: nowrap; }
+.file-view-tabs > button[aria-disabled="true"] { color: var(--zli-dim); cursor: not-allowed; opacity: .5; }
+.file-view-tabs > button[aria-disabled="true"]:hover { background: transparent; }
+.file-diff-body { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.file-diff-body > .review-diff-panel { margin: 0; border: 0; border-radius: 0; }
 
 .file-editor-host { position: relative; min-height: 0; flex: 1; overflow: hidden; }
 .file-editor-host > .cm-editor { height: 100%; }

@@ -11,6 +11,7 @@ import {
   FILE_COMMAND_TYPES,
   type FileCommand,
   FileDataResult,
+  FileDiffResult,
   FileListResult,
   FileReadResult,
   FileSearchResult,
@@ -407,6 +408,8 @@ export class RpcServer {
         return FileReadResult.parse(await this.fileService.read(root, command.path));
       case "files.readData":
         return FileDataResult.parse(await this.fileService.readData(root, command.path));
+      case "files.diff":
+        return FileDiffResult.parse(await this.fileService.diff(root, command.path));
       case "files.write":
         return FileWriteResult.parse(
           await this.fileService.write(root, {
@@ -697,9 +700,11 @@ function fileErrorMessage(command: FileCommand, error: unknown): string {
       ? "save"
       : command.type === "files.read" || command.type === "files.readData"
         ? "open"
-        : command.type === "files.search"
-          ? "search"
-          : "list";
+        : command.type === "files.diff"
+          ? "read the diff of"
+          : command.type === "files.search"
+            ? "search"
+            : "list";
   return `Could not ${action}${path ? ` ${path}` : " files"}: ${detail}`;
 }
 

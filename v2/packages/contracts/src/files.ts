@@ -67,6 +67,8 @@ export const FileCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("files.read"), worktreeId: WorktreeId, path: WorktreeFilePath }),
   /** The bytes of an image or PDF, for previews. */
   z.object({ type: z.literal("files.readData"), worktreeId: WorktreeId, path: WorktreeFilePath }),
+  /** The file's uncommitted changes against HEAD, as a unified diff. */
+  z.object({ type: z.literal("files.diff"), worktreeId: WorktreeId, path: WorktreeFilePath }),
   z.object({
     type: z.literal("files.write"),
     worktreeId: WorktreeId,
@@ -93,6 +95,7 @@ export const FILE_COMMAND_TYPES = [
   "files.list",
   "files.read",
   "files.readData",
+  "files.diff",
   "files.write",
   "files.search",
 ] as const;
@@ -105,6 +108,9 @@ export const FileListEntry = z.object({
   path: z.string(),
   size: z.number().int().nonnegative().optional(),
   status: FileChangeStatus.optional(),
+  /** Lines added and removed against HEAD. Absent for untracked and binary files. */
+  additions: z.number().int().nonnegative().optional(),
+  deletions: z.number().int().nonnegative().optional(),
 });
 export type FileListEntry = z.infer<typeof FileListEntry>;
 
@@ -137,6 +143,17 @@ export const FileDataResult = z.object({
   dataBase64: z.string(),
 });
 export type FileDataResult = z.infer<typeof FileDataResult>;
+
+export const MAX_FILE_DIFF_CHARS = 200_000;
+
+export const FileDiffResult = z.object({
+  path: z.string(),
+  binary: z.boolean(),
+  /** Empty when the file has no uncommitted changes. New files show every line as added. */
+  patch: z.string().max(MAX_FILE_DIFF_CHARS),
+  truncated: z.boolean(),
+});
+export type FileDiffResult = z.infer<typeof FileDiffResult>;
 
 export const FileWriteResult = z.discriminatedUnion("status", [
   z.object({ status: z.literal("saved"), path: z.string(), version: z.string(), size: z.number().int().nonnegative() }),
