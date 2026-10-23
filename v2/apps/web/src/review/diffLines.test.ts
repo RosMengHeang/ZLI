@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { anchorCovers, anchorFor, formatLocation, parseDiffLines, patchBody } from "./diffLines.js";
+import {
+  anchorCovers,
+  anchorFor,
+  findInLines,
+  formatLocation,
+  parseDiffLines,
+  patchBody,
+  splitOnMatches,
+} from "./diffLines.js";
 
 describe("patchBody", () => {
   it("starts a patch at its first hunk", () => {
@@ -79,5 +87,31 @@ describe("anchors", () => {
   it("matches the lines an anchor covers", () => {
     const covered = lines.filter((line) => anchorCovers({ side: "new", start: 2, end: 4 }, line));
     expect(covered.map((line) => line.index)).toEqual([3, 4, 5]);
+  });
+});
+
+describe("find in diff", () => {
+  const lines = parseDiffLines(["@@ -1,2 +1,2 @@", "-const Total = 1;", "+const total = 2;", " return total;"]);
+
+  it("finds every line containing the query regardless of case", () => {
+    expect(findInLines(lines, "total")).toEqual([1, 2, 3]);
+    expect(findInLines(lines, "= 2")).toEqual([2]);
+    expect(findInLines(lines, "")).toEqual([]);
+    expect(findInLines(lines, "missing")).toEqual([]);
+  });
+
+  it("splits a line into plain and matching runs", () => {
+    expect(splitOnMatches("aXbxc", "x")).toEqual([
+      { text: "a", match: false },
+      { text: "X", match: true },
+      { text: "b", match: false },
+      { text: "x", match: true },
+      { text: "c", match: false },
+    ]);
+    expect(splitOnMatches("abc", "")).toEqual([{ text: "abc", match: false }]);
+    expect(splitOnMatches("aaaa", "aa")).toEqual([
+      { text: "aa", match: true },
+      { text: "aa", match: true },
+    ]);
   });
 });

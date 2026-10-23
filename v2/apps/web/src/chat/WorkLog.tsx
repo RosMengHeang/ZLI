@@ -1,5 +1,5 @@
 import type { ThreadActivityProjection } from "@zli-v2/contracts";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Badge } from "../ui/Badge.js";
 import { Button } from "../ui/Button.js";
@@ -35,19 +35,103 @@ export function workSummary(activities: readonly ThreadActivityProjection[]): st
   return sentence ? sentence.charAt(0).toUpperCase() + sentence.slice(1) : "No tool calls";
 }
 
-export function WorkLog({
-  activities,
-  running,
-}: {
-  activities: readonly ThreadActivityProjection[];
-  running: boolean;
-}) {
+type Activity = ThreadActivityProjection;
+
+/** Consecutive lookups of one kind fold into a single row; edits and commands always stay visible. */
+const GROUPABLE = new Set<Activity["kind"]>(["file-read", "search", "web"]);
+
+export type WorkRow =
+  | { kind: "entry"; key: string; entry: Activity }
+  | { kind: "group"; key: string; activityKind: Activity["kind"]; entries: Activity[] };
+
+export function groupActivities(activities: readonly Activity[]): WorkRow[] {
+  const rows: WorkRow[] = [];
+  let run: Activity[] = [];
+  const flush = () => {
+    const first = run[0];
+    if (!first) return;
+    if (run.length === 1) rows.push({ kind: "entry", key: first.activityId, entry: first });
+    else rows.push({ kind: "group", key: `group-${first.activityId}`, activityKind: first.kind, entries: run });
+    run = [];
+  };
+  for (const entry of activities) {
+    if (GROUPABLE.has(entry.kind) && (run.length === 0 || run[0]?.kind === entry.kind)) {
+      run.push(entry);
+      continue;
+    }
+    flush();
+    if (GROUPABLE.has(entry.kind)) run.push(entry);
+    else rows.push({ kind: "entry", key: entry.activityId, entry });
+  }
+  flush();
+  return rows;
+}
+
+export function groupLabel(kind: Activity["kind"], count: number): string {
+  if (kind === "file-read") return `Read ${count} files`;
+  if (kind === "web") return `${count} web lookups`;
+  return `${count} searches`;
+}
+
+function groupStatus(entries: readonly Activity[]): Activity["status"] {
+  if (entries.some((entry) => entry.status === "running")) return "running";
+  if (entries.some((entry) => entry.status === "failed")) return "failed";
+  return "completed";
+}
+
+function StatusMark({ status }: { status: Activity["status"] }) {
+  return (
+    <span className="work-entry-status">
+      {status === "running" ? (
+        <span className="spinner" role="img" aria-label="Running" />
+      ) : status === "failed" ? (
+        <Icon name="x" size={12} aria-label="Failed" />
+      ) : (
+        <Icon name="check" size={12} aria-label="Done" />
+      )}
+    </span>
+  );
+}
+
+export function WorkLog({ activities, running }: { activities: readonly Activity[]; running: boolean }) {
   const [expanded, setExpanded] = useState<boolean>();
   const [openDetail, setOpenDetail] = useState<string>();
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
   const open = expanded ?? running;
   const failed = activities.filter((entry) => entry.status === "failed").length;
-  const visible = open ? activities : activities.slice(-COLLAPSED_VISIBLE);
-  const hidden = activities.length - visible.length;
+  const rows = useMemo(() => groupActivities(activities), [activities]);
+  const visible = open ? rows : rows.slice(-COLLAPSED_VISIBLE);
+  const hidden = rows.length - visible.length;
+
+  const toggleGroup = (key: string) =>
+    setOpenGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const renderEntry = (entry: Activity) => {
+    const detailOpen = openDetail === entry.activityId;
+    return (
+      <li className={`work-entry is-${entry.status}`} key={entry.activityId}>
+        <button
+          className="work-entry-row"
+          type="button"
+          aria-expanded={entry.detail ? detailOpen : undefined}
+          disabled={!entry.detail}
+          onClick={() => setOpenDetail(detailOpen ? undefined : entry.activityId)}
+          title={entry.title}
+        >
+          <Icon name={kindIcon[entry.kind]} size={13} className="work-entry-icon" />
+          <span className={`work-entry-title${entry.kind === "command" ? " is-mono" : ""}`}>{entry.title}</span>
+          <StatusMark status={entry.status} />
+        </button>
+        {detailOpen && entry.detail ? <pre className="work-entry-detail">{entry.detail}</pre> : null}
+      </li>
+    );
+  };
+
   return (
     <section className={`work-log${running ? " is-running" : ""}`} aria-label="Work log">
       <button className="work-log-header" type="button" aria-expanded={open} onClick={() => setExpanded(!open)}>
@@ -65,31 +149,28 @@ export function WorkLog({
               </button>
             </li>
           ) : null}
-          {visible.map((entry) => {
-            const detailOpen = openDetail === entry.activityId;
+          {visible.map((row) => {
+            if (row.kind === "entry") return renderEntry(row.entry);
+            const groupOpen = openGroups.has(row.key);
+            const status = groupStatus(row.entries);
             return (
-              <li className={`work-entry is-${entry.status}`} key={entry.activityId}>
+              <li className={`work-entry work-group is-${status}`} key={row.key}>
                 <button
                   className="work-entry-row"
                   type="button"
-                  aria-expanded={entry.detail ? detailOpen : undefined}
-                  disabled={!entry.detail}
-                  onClick={() => setOpenDetail(detailOpen ? undefined : entry.activityId)}
-                  title={entry.title}
+                  aria-expanded={groupOpen}
+                  onClick={() => toggleGroup(row.key)}
+                  title={row.entries.map((entry) => entry.title).join("\n")}
                 >
-                  <Icon name={kindIcon[entry.kind]} size={13} className="work-entry-icon" />
-                  <span className={`work-entry-title${entry.kind === "command" ? " is-mono" : ""}`}>{entry.title}</span>
-                  <span className="work-entry-status">
-                    {entry.status === "running" ? (
-                      <span className="spinner" role="img" aria-label="Running" />
-                    ) : entry.status === "failed" ? (
-                      <Icon name="x" size={12} aria-label="Failed" />
-                    ) : (
-                      <Icon name="check" size={12} aria-label="Done" />
-                    )}
+                  <Icon name={kindIcon[row.activityKind]} size={13} className="work-entry-icon" />
+                  <span className="work-entry-title">
+                    {groupLabel(row.activityKind, row.entries.length)}
+                    <span className="work-group-preview">{groupPreview(row.entries)}</span>
                   </span>
+                  <Icon name="chevronRight" size={11} className="work-group-chevron" />
+                  <StatusMark status={status} />
                 </button>
-                {detailOpen && entry.detail ? <pre className="work-entry-detail">{entry.detail}</pre> : null}
+                {groupOpen ? <ol className="work-group-list">{row.entries.map(renderEntry)}</ol> : null}
               </li>
             );
           })}
@@ -99,6 +180,16 @@ export function WorkLog({
   );
 }
 
+/** The last part of each title, so a folded row still hints at which files or queries it holds. */
+function groupPreview(entries: readonly Activity[]): string {
+  return entries
+    .slice(0, 4)
+    .map((entry) => {
+      const file = entry.kind === "file-read" ? entry.files?.[0]?.replaceAll("\\", "/") : undefined;
+      return file ? file.slice(file.lastIndexOf("/") + 1) : entry.title;
+    })
+    .join(", ");
+}
 export function ChangedFiles({ files, onOpenDiff }: { files: readonly string[]; onOpenDiff(path?: string): void }) {
   return (
     <section className="changed-files" aria-label="Changed files">

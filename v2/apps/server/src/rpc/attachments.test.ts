@@ -83,12 +83,12 @@ describe("storeThreadAttachments", () => {
     await writeFile(outside, PNG);
     await expect(
       storeThreadAttachments(root, threadId, [{ name: "outside.png", mimeType: "image/png", path: outside }]),
-    ).rejects.toThrow("must be an image stored for this thread");
+    ).rejects.toThrow("must be a file stored for this thread");
     await expect(
       storeThreadAttachments(root, threadId, [
         { name: "escape.png", mimeType: "image/png", path: join(root, threadId, "..", "outside.png") },
       ]),
-    ).rejects.toThrow("must be an image stored for this thread");
+    ).rejects.toThrow("must be a file stored for this thread");
 
     const otherThread = join(root, "00000000-0000-4000-8000-000000000702");
     await mkdir(otherThread, { recursive: true });
@@ -97,7 +97,27 @@ describe("storeThreadAttachments", () => {
       storeThreadAttachments(root, threadId, [
         { name: "other.png", mimeType: "image/png", path: join(otherThread, "other.png") },
       ]),
-    ).rejects.toThrow("must be an image stored for this thread");
+    ).rejects.toThrow("must be a file stored for this thread");
+  });
+
+  it("stores pasted UTF-8 text as a .txt file and rejects binary data sent as text", async () => {
+    const root = await tempRoot();
+    const pasted = "const caf\u00e9 = 1;\nconsole.log(caf\u00e9);\n";
+    const [stored] = await storeThreadAttachments(root, threadId, [
+      { name: "pasted-text-1.txt", mimeType: "text/plain", dataBase64: Buffer.from(pasted).toString("base64") },
+    ]);
+    expect(stored).toMatchObject({ name: "pasted-text-1.txt", mimeType: "text/plain" });
+    expect(stored?.path.endsWith(".txt")).toBe(true);
+    expect(await readFile(stored?.path ?? "", "utf8")).toBe(pasted);
+    await expect(
+      storeThreadAttachments(root, threadId, [{ name: "again.txt", mimeType: "text/plain", path: stored?.path ?? "" }]),
+    ).resolves.toMatchObject([{ name: "again.txt", path: stored?.path }]);
+
+    await expect(
+      storeThreadAttachments(root, threadId, [
+        { name: "image.txt", mimeType: "text/plain", dataBase64: PNG.toString("base64") },
+      ]),
+    ).rejects.toThrow("Attachment image.txt is not plain UTF-8 text.");
   });
 
   it("rejects uploads when the runtime has no attachment directory", async () => {
@@ -116,5 +136,8 @@ describe("matchesMimeType", () => {
     expect(matchesMimeType(Buffer.from("RIFF\x10\x00\x00\x00WEBPVP8 "), "image/webp")).toBe(true);
     expect(matchesMimeType(Buffer.from("RIFF\x10\x00\x00\x00WAVEfmt "), "image/webp")).toBe(false);
     expect(matchesMimeType(Buffer.from([0x89, 0x50]), "image/png")).toBe(false);
+    expect(matchesMimeType(Buffer.from("plain words"), "text/plain")).toBe(true);
+    expect(matchesMimeType(Buffer.from([0x66, 0x00, 0x6f]), "text/plain")).toBe(false);
+    expect(matchesMimeType(Buffer.from([0xc3, 0x28]), "text/plain")).toBe(false);
   });
 });

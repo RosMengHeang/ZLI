@@ -38,6 +38,12 @@
 .diff-mark > svg { opacity: 0; }
 .diff-line[tabindex]:hover .diff-mark > svg, .diff-line:focus-visible .diff-mark > svg, .diff-line.is-commented .diff-mark > svg { opacity: 1; }
 .diff-text { flex: 1 0 auto; white-space: pre; }
+.diff-find { display: flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); height: 34px; padding: 0 var(--zli-space-1) 0 var(--zli-space-2-5); border-bottom: 1px solid var(--zli-border); background: var(--zli-raised); color: var(--zli-dim); }
+.diff-find-input { flex: 1; min-width: 0; height: 24px; padding: 0 var(--zli-space-1-5); border: 0; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); outline: none; }
+.diff-find-input::-webkit-search-cancel-button { display: none; }
+.diff-find-count { flex: 0 0 auto; min-width: 64px; color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; text-align: right; }
+.diff-find-hit { border-radius: 2px; background: var(--zli-amber-soft); color: inherit; box-shadow: 0 0 0 1px var(--zli-amber-line); }
+.diff-line.is-find-current .diff-find-hit { background: var(--zli-amber); color: var(--zli-canvas); }
 .diff-empty { margin: 0; padding: 0 var(--zli-space-3); }
 .diff-composer { display: flex; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-2); padding: var(--zli-space-2-5) var(--zli-space-3); border-top: 1px solid var(--zli-border); background: var(--zli-sidebar); }
 .diff-composer-label { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-muted); font-size: var(--zli-text-sm); }

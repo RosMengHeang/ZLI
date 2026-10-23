@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode } from "react";
 
 import type { FileLinks } from "../files/FileIndex.js";
+import { CodeBlock } from "./CodeBlock.js";
 
 type Block =
   | { kind: "code"; lang: string; text: string }
@@ -151,7 +152,10 @@ export function renderInline(text: string, links?: FileLinks): ReactNode[] {
   return nodes;
 }
 
-/** Renders agent replies as React elements. No HTML from the agent reaches the DOM. */
+/**
+ * Renders agent replies as React elements. No HTML from the agent reaches the app's DOM; HTML and
+ * SVG blocks preview inside a sandboxed frame with scripts and network requests off.
+ */
 export function Markdown({ text, links }: { text: string; links?: FileLinks | undefined }) {
   const blocks = parseMarkdown(text);
   return (
@@ -160,11 +164,7 @@ export function Markdown({ text, links }: { text: string; links?: FileLinks | un
         const key = `${block.kind}-${index}`;
         switch (block.kind) {
           case "code":
-            return (
-              <pre className="md-code" key={key} data-lang={block.lang || undefined}>
-                <code>{block.text}</code>
-              </pre>
-            );
+            return <CodeBlock key={key} lang={block.lang} text={block.text} />;
           case "heading":
             return (
               <p className={`md-heading md-h${Math.min(block.level, 3)}`} key={key}>

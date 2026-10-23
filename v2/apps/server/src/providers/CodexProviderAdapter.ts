@@ -1,4 +1,4 @@
-import type { ProviderCapabilities, ThreadId } from "@zli-v2/contracts";
+import { isImageMimeType, type ProviderCapabilities, type ThreadId } from "@zli-v2/contracts";
 import type { CodexAppServerClient, CodexProviderEvent } from "@zli-v2/provider-codex";
 
 import type {
@@ -69,7 +69,9 @@ export class CodexProviderAdapter implements ProviderAdapter {
   async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
     const context = this.context(input.threadId);
     const client = await this.ensureClient();
-    const imagePaths = (input.attachments ?? []).map((attachment) => attachment.path);
+    const imagePaths = (input.attachments ?? [])
+      .filter((attachment) => isImageMimeType(attachment.mimeType))
+      .map((attachment) => attachment.path);
     const result = await client.sendTurn({
       providerThreadId: context.providerThreadId,
       text: input.text,

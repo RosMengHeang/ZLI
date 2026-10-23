@@ -87,6 +87,13 @@
 .markdown .md-h3 { font-size: var(--zli-text-md); }
 .markdown pre, .markdown .md-code { margin: 0 0 var(--zli-space-2-5); padding: var(--zli-space-2-5) var(--zli-space-3); overflow: auto; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-canvas); font-family: var(--zli-mono); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); white-space: pre; }
 .markdown pre code { padding: 0; background: none; }
+.markdown .md-code-block { margin: 0 0 var(--zli-space-2-5); overflow: hidden; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-canvas); }
+.markdown .md-code-block > .md-code { margin: 0; border: 0; border-radius: 0; }
+.md-code-head { display: flex; align-items: center; gap: var(--zli-space-1); height: 30px; padding: 0 var(--zli-space-1) 0 var(--zli-space-3); border-bottom: 1px solid var(--zli-border); color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.md-code-lang { flex: 1; min-width: 0; overflow: hidden; font-family: var(--zli-mono); text-overflow: ellipsis; white-space: nowrap; }
+/* Height is fixed because a frame with scripts off cannot report its content size; people can drag it taller. */
+.md-preview { display: block; width: 100%; height: 260px; min-height: 120px; max-height: 80vh; border: 0; background: #fff; resize: vertical; }
+.markdown .md-preview-note { margin: 0; white-space: normal; padding: var(--zli-space-1) var(--zli-space-3); border-top: 1px solid var(--zli-border); color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .markdown .md-link { color: var(--zli-blue); text-decoration: underline; text-underline-offset: 2px; }
 .markdown blockquote { margin: 0 0 var(--zli-space-2-5); padding-left: var(--zli-space-3); border-left: 2px solid var(--zli-border-strong); color: var(--zli-muted); }
 
@@ -110,9 +117,14 @@
 .work-entry-title.is-mono { font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
 .work-entry-status { display: inline-flex; flex: 0 0 auto; color: var(--zli-dim); }
 .work-entry-status .spinner { width: 10px; height: 10px; flex-basis: 10px; }
-.work-entry.is-completed .work-entry-status { color: var(--zli-green); }
-.work-entry.is-failed .work-entry-status, .work-entry.is-failed .work-entry-title { color: var(--zli-red); }
-.work-entry.is-running .work-entry-status { color: var(--zli-blue); }
+/* Child combinators keep a folded group's status from coloring the entries inside it. */
+.work-entry.is-completed > .work-entry-row .work-entry-status { color: var(--zli-green); }
+.work-entry.is-failed > .work-entry-row .work-entry-status, .work-entry.is-failed > .work-entry-row .work-entry-title { color: var(--zli-red); }
+.work-entry.is-running > .work-entry-row .work-entry-status { color: var(--zli-blue); }
+.work-group-preview { margin-left: var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.work-group-chevron { flex: 0 0 auto; color: var(--zli-dim); transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.work-group > .work-entry-row[aria-expanded="true"] .work-group-chevron { transform: rotate(90deg); }
+.work-group-list { margin: 0 0 var(--zli-space-1) var(--zli-space-4); padding: 0 0 0 var(--zli-space-1-5); border-left: 1px solid var(--zli-border); list-style: none; }
 .work-entry-detail { max-height: 220px; margin: 2px var(--zli-space-1-5) var(--zli-space-1-5) 27px; padding: var(--zli-space-2) var(--zli-space-2-5); overflow: auto; border-radius: var(--zli-radius-sm); background: var(--zli-surface); color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); white-space: pre-wrap; }
 .changed-files-header { display: flex; align-items: center; gap: var(--zli-space-2); height: 34px; padding: 0 var(--zli-space-1-5) 0 var(--zli-space-3); border-bottom: 1px solid var(--zli-border); color: var(--zli-dim); font-size: var(--zli-text-sm); }
 .changed-files-header span { flex: 1; color: var(--zli-text); font-weight: 500; }
@@ -167,6 +179,11 @@
 .composer-attachment img { width: 28px; height: 28px; border-radius: var(--zli-radius-xs); object-fit: cover; }
 .composer-attachment span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-attachment-remove { position: absolute; top: 50%; right: var(--zli-space-1); transform: translateY(-50%); }
+.composer-attachment.is-text { gap: var(--zli-space-1); max-width: 260px; padding-right: var(--zli-space-1); }
+.composer-attachment-icon { display: inline-grid; flex: 0 0 auto; place-items: center; width: 28px; height: 28px; border-radius: var(--zli-radius-xs); background: var(--zli-overlay); color: var(--zli-muted); }
+.composer-attachment-label { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; margin-right: var(--zli-space-1); line-height: 1.25; }
+.composer-attachment-label > span:first-child { color: var(--zli-text); }
+.composer-attachment-meta { color: var(--zli-dim); font-variant-numeric: tabular-nums; }
 .composer-footer { display: flex; align-items: center; gap: var(--zli-space-1); margin-left: -6px; padding-top: var(--zli-space-1-5); }
 .composer-badge { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; height: var(--zli-control-md); padding: 0 var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-sm); white-space: nowrap; }
 .composer-badge.is-full-access { color: var(--zli-muted); }

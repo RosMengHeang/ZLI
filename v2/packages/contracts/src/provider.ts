@@ -78,11 +78,19 @@ export type ThreadProjection = z.infer<typeof ThreadProjection>;
 export const ImageMimeType = z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 export type ImageMimeType = z.infer<typeof ImageMimeType>;
 
-/** Image bytes as sent by a client. The runtime stores them on disk before the command is recorded. */
+/** Images, plus plain text for long pastes that would bury the message they belong to. */
+export const AttachmentMimeType = z.enum([...ImageMimeType.options, "text/plain"]);
+export type AttachmentMimeType = z.infer<typeof AttachmentMimeType>;
+
+export function isImageMimeType(value: string): value is ImageMimeType {
+  return (ImageMimeType.options as readonly string[]).includes(value);
+}
+
+/** File bytes as sent by a client. The runtime stores them on disk before the command is recorded. */
 export const ThreadAttachmentUpload = z
   .object({
     name: z.string().min(1).max(255),
-    mimeType: ImageMimeType,
+    mimeType: AttachmentMimeType,
     dataBase64: z.string().min(1).max(14_000_000).optional(),
     path: z.string().min(1).max(4_000).optional(),
   })
@@ -91,10 +99,10 @@ export const ThreadAttachmentUpload = z
   });
 export type ThreadAttachmentUpload = z.infer<typeof ThreadAttachmentUpload>;
 
-/** A stored image the agent can read from disk. */
+/** A stored file the agent can read from disk. */
 export const ThreadAttachment = z.object({
   name: z.string().min(1).max(255),
-  mimeType: ImageMimeType,
+  mimeType: AttachmentMimeType,
   path: z.string().min(1).max(4_000),
 });
 export type ThreadAttachment = z.infer<typeof ThreadAttachment>;

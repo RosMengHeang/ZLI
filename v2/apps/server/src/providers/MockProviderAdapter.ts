@@ -80,7 +80,38 @@ export class MockProviderAdapter implements ProviderAdapter {
           // The harness only checks the reply when the folder cannot be written.
         }
       }
+      // "[reads]" stands in for an agent looking around: several file reads, then one command.
+      if (input.text.includes("[reads]")) {
+        for (const file of ["src/app.ts", "src/routes.ts", "package.json"]) {
+          this.emit({
+            type: "activity",
+            threadId: input.threadId,
+            turnId,
+            activity: {
+              activityId: randomUUID(),
+              kind: "file-read",
+              title: `Read ${file}`,
+              status: "completed",
+              files: [file],
+            },
+          });
+        }
+        this.emit({
+          type: "activity",
+          threadId: input.threadId,
+          turnId,
+          activity: { activityId: randomUUID(), kind: "command", title: "npm test", status: "completed" },
+        });
+      }
       this.emit({ type: "assistant.delta", threadId: input.threadId, turnId, text: `Mock response: ${input.text}` });
+      if (input.text.includes("[html]")) {
+        this.emit({
+          type: "assistant.delta",
+          threadId: input.threadId,
+          turnId,
+          text: '\n\n```html\n<!doctype html>\n<html><body><h1 style="color:#2563eb">Mock card</h1></body></html>\n```\n',
+        });
+      }
       if (input.text.includes("[usage]")) {
         this.emit({
           type: "usage",
