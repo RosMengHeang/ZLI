@@ -2,15 +2,8 @@
 .dialog-form { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }
 .dialog-body > .inline-error { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: 0; }
 .dialog-body > .inline-error > svg { flex: 0 0 auto; margin-top: 2px; }
-.field-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--zli-space-3); }
-.field-toggle { align-self: flex-start; margin-left: calc(var(--zli-space-1-5) * -1); color: var(--zli-dim); }
-.field-toggle svg { transition: transform var(--zli-duration-fast) var(--zli-ease); }
-.field-toggle svg.is-open { transform: rotate(90deg); }
 
 /* ---------- Choice cards ---------- */
-.choice-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--zli-space-1-5); }
-.choice-grid.is-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.placement-list { display: flex; flex-direction: column; gap: var(--zli-space-1-5); }
 .choice-card {
   position: relative; display: flex; align-items: flex-start; gap: var(--zli-space-2-5); min-width: 0;
   padding: var(--zli-space-2-5) var(--zli-space-8) var(--zli-space-2-5) var(--zli-space-3);
@@ -37,15 +30,45 @@
 .choice-title { color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 550; }
 .choice-detail { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); text-overflow: ellipsis; }
 .choice-card.is-compact .choice-detail { white-space: nowrap; }
-.placement-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--zli-space-2-5); margin: var(--zli-space-1) 0 var(--zli-space-2) var(--zli-space-8); }
-.placement-fields .field:only-child { grid-column: 1 / -1; }
-.run-count, .run-agents { grid-column: 1 / -1; }
-.run-count .segmented { align-self: flex-start; }
-.run-agents { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--zli-space-2-5); }
+
+/* ---------- New agent ---------- */
+/* Labels sit to the left of compact controls so the whole form fits without scrolling. */
+.launch-rows { display: flex; flex-direction: column; gap: var(--zli-space-2-5); }
+.launch-row { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: start; gap: var(--zli-space-3); }
+.launch-label { padding-top: 6px; color: var(--zli-muted); font-size: var(--zli-text-sm); font-weight: 500; }
+.launch-control { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-1); }
+.launch-control > .select-wrap { max-width: 300px; }
+.launch-hint { color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.launch-inline { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-2); }
+.launch-branch { min-width: 120px; flex: 1 1 0; }
+.launch-base { flex: 0 0 104px; width: 104px; }
+.launch-joiner { color: var(--zli-dim); font-size: var(--zli-text-sm); }
+.launch-path { overflow: hidden; padding-top: 6px; color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.chip-group { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1-5); }
+.chip-choice {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; height: var(--zli-control-md); padding: 0 var(--zli-space-2-5);
+  border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: var(--zli-canvas);
+  color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-sm); font-weight: 500; white-space: nowrap;
+  transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease);
+}
+.chip-choice input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.chip-choice > svg { flex: 0 0 auto; }
+.chip-choice > svg:not(.provider-mark) { color: var(--zli-dim); }
+.chip-choice:hover { border-color: var(--zli-border-hover); color: var(--zli-text); }
+/* The mark keeps its space when unselected so choosing a chip never shifts the row. */
+.chip-choice::after { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: transparent; content: ""; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.chip-choice:has(input:checked) { border-color: var(--zli-border-hover); background: var(--zli-raised); color: var(--zli-text); }
+.chip-choice:has(input:checked)::after { background: var(--zli-accent); }
+.chip-choice:has(input:checked) > svg:not(.provider-mark) { color: var(--zli-text); }
+.chip-choice:has(input:focus-visible) { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+.chip-choice:has(input:disabled) { cursor: default; opacity: .45; }
+.chip-choice:has(input:disabled):hover { border-color: var(--zli-border-strong); color: var(--zli-muted); }
+.chip-more { height: var(--zli-control-md); padding: 0 var(--zli-space-2); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-dim); cursor: pointer; font-size: var(--zli-text-sm); }
+.chip-more:hover { color: var(--zli-text); }
+.run-agents { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--zli-space-2); }
 .keep-run-list { display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0; padding: 0; list-style: none; }
 .keep-run-list li { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-2); padding: var(--zli-space-1-5) var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); color: var(--zli-muted); font-size: var(--zli-text-sm); }
 .keep-run-list code { overflow: hidden; color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
-.run-agents .field-hint { overflow: hidden; font-family: var(--zli-mono); text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- Confirmations ---------- */
 .check-field { display: flex; align-items: flex-start; gap: var(--zli-space-2-5); padding: var(--zli-space-2-5) var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); cursor: pointer; transition: border-color var(--zli-duration-fast) var(--zli-ease); }

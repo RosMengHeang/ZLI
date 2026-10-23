@@ -13,18 +13,18 @@ import { AttentionPanel } from "../attention/AttentionPanel.js";
 import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
 import { devServerCommands } from "../devservers/DevServers.js";
 import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
-import { PromptsDialog } from "../prompts/PromptsDialog.js";
-import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.js";
 import type { FilesFocus } from "../files/FilesPane.js";
 import { QuickOpen } from "../files/QuickOpen.js";
 import { useAgentNotifications } from "../notifications/useAgentNotifications.js";
+import { PromptsDialog } from "../prompts/PromptsDialog.js";
+import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.js";
 import { type ReviewFocus, ReviewPane } from "../review/ReviewPane.js";
 import { getBridge, type NotificationSettings, type ZliBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { RuntimeProvider, useRuntime, useShellProjection } from "../runtime/RuntimeProvider.js";
 import { AgentTile } from "../sessions/AgentTile.js";
-import { firstMessageStep, TERMINAL_FIRST_MESSAGE_DELAY_MS, terminalFirstMessage } from "../sessions/firstMessage.js";
 import { type RunGroup, runBranches, runPosition, withoutRun, worktreeInProgress } from "../sessions/bestOf.js";
+import { firstMessageStep, TERMINAL_FIRST_MESSAGE_DELAY_MS, terminalFirstMessage } from "../sessions/firstMessage.js";
 import { createWorktree, ensureCheckout, safeBranchName, startSessionAgent } from "../sessions/launch.js";
 import { NewAgentDialog, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
 import {
@@ -790,7 +790,7 @@ function WorkspaceApp() {
           },
         ]
       : []),
-    { label: "Open project", icon: "folderOpen", group: "Create", action: () => void openProject() },
+    { label: "Add project", icon: "folderPlus", group: "Create", action: () => void openProject() },
     ...(tiles.length > 0
       ? [
           {

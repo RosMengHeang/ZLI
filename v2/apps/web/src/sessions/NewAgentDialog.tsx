@@ -5,7 +5,7 @@ import {
   type RuntimeProjection,
   worktreeHasLiveThread,
 } from "@zli-v2/contracts";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
 import { permissionLabel } from "../chat/Composer.js";
@@ -14,7 +14,7 @@ import { combinePrompts, usePersonalPrompts } from "../prompts/prompts.js";
 import { useSharedPrompts } from "../prompts/useSharedPrompts.js";
 import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
-import { Field, Select } from "../ui/Field.js";
+import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { Segmented, type SegmentedOption } from "../ui/Segmented.js";
@@ -186,12 +186,21 @@ export function NewAgentDialog({
     if (failure) setError(failure);
   };
 
+  const permissionHint =
+    permissionMode === "full-access"
+      ? "Edits files and runs commands without asking."
+      : "Asks before risky commands where the agent supports it.";
+  const modelHint = modelUnsupported
+    ? "Pick the model inside the Droid CLI."
+    : runAgents.some((agent) => agent !== provider)
+      ? "Runs with another agent use its default model."
+      : undefined;
+
   return (
     <Dialog
       label="New agent"
       size="lg"
       title="New agent"
-      subtitle="Pick the agent, how you want to work with it, and where it runs."
       className="new-agent-dialog"
       scrimLabel="Close new agent dialog"
       initialFocusRef={submitRef}
@@ -204,102 +213,7 @@ export function NewAgentDialog({
           void submit();
         }}
       >
-        <div className="dialog-body">
-          {projection.projects.length > 1 ? (
-            <Field label="Project">
-              <Select value={projectId} onChange={(event) => setProjectId(event.target.value as typeof projectId)}>
-                {projection.projects.map((candidate) => (
-                  <option key={candidate.projectId} value={candidate.projectId}>
-                    {candidate.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          ) : null}
-
-          <fieldset className="field">
-            <legend className="field-label">Agent</legend>
-            {projection.providers === undefined ? (
-              <p className="loading-line">
-                <span className="spinner" aria-hidden="true" />
-                Checking which agent CLIs are installed
-              </p>
-            ) : listed.length === 0 ? (
-              <p className="field-hint">No agent CLIs could be listed.</p>
-            ) : (
-              <div className="choice-grid" role="radiogroup" aria-label="Agent">
-                {shownProviders.map((entry) => (
-                  <label
-                    className={`choice-card is-compact${entry.status === "missing" ? " is-missing" : ""}`}
-                    key={entry.provider}
-                    title={
-                      entry.status === "found"
-                        ? entry.version
-                          ? `${entry.path} (${entry.version})`
-                          : entry.path
-                        : entry.reason
-                    }
-                  >
-                    <input
-                      type="radio"
-                      name="agent-provider"
-                      value={entry.provider}
-                      checked={provider === entry.provider}
-                      disabled={entry.status === "missing"}
-                      onChange={() => {
-                        setProvider(entry.provider);
-                        setModel("");
-                      }}
-                    />
-                    <ProviderMark provider={entry.provider} size={16} />
-                    <span className="choice-copy">
-                      <span className="choice-title">{entry.displayName}</span>
-                      <span className="choice-detail">{entry.status === "found" ? "Installed" : "Not found"}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            )}
-            {installed.length > 0 && missing.length > 0 ? (
-              <button
-                className="btn btn-ghost btn-xs field-toggle"
-                type="button"
-                aria-expanded={showMissing}
-                onClick={() => setShowMissing((value) => !value)}
-              >
-                <Icon name="chevronRight" size={11} className={showMissing ? "is-open" : undefined} />
-                {showMissing ? "Hide agents that are not installed" : `Show ${missing.length} not installed`}
-              </button>
-            ) : null}
-          </fieldset>
-
-          <fieldset className="field">
-            <legend className="field-label">Work in</legend>
-            <div className="choice-grid is-two" role="radiogroup" aria-label="Mode">
-              <label className="choice-card">
-                <input
-                  type="radio"
-                  name="agent-mode"
-                  checked={mode === "terminal"}
-                  onChange={() => setMode("terminal")}
-                />
-                <Icon name="terminal" size={15} />
-                <span className="choice-copy">
-                  <span className="choice-title">Terminal</span>
-                  <span className="choice-detail">The agent's own CLI, full screen in a tile</span>
-                </span>
-              </label>
-              <label className="choice-card">
-                <input type="radio" name="agent-mode" checked={mode === "chat"} onChange={() => setMode("chat")} />
-                <Icon name="message" size={15} />
-                <span className="choice-copy">
-                  <span className="choice-title">Chat</span>
-                  <span className="choice-detail">Messages with a work log and changed files</span>
-                </span>
-              </label>
-            </div>
-          </fieldset>
-
+        <div className="dialog-body new-agent-body">
           <div className="field">
             <div className="prompt-label-row">
               <label className="field-label" htmlFor={taskId}>
@@ -335,7 +249,7 @@ export function NewAgentDialog({
                     void submit();
                   }
                 }}
-                placeholder="Optional. Type / to insert a saved prompt."
+                placeholder="Optional. Sent as soon as the agent starts. Type / for a saved prompt."
               />
               <PromptList
                 picker={picker}
@@ -343,154 +257,221 @@ export function NewAgentDialog({
                 sharedError={sharedPrompts.error}
               />
             </div>
-            <span className="field-hint">Sent to the agent as soon as it starts.</span>
           </div>
 
-          <fieldset className="field">
-            <legend className="field-label">Where it runs</legend>
-            <div className="placement-list" role="radiogroup" aria-label="Where it runs">
-              <label className="choice-card">
-                <input
-                  type="radio"
-                  name="agent-placement"
-                  checked={placementKind === "new"}
-                  onChange={() => setPlacementKind("new")}
-                />
-                <Icon name="branch" size={15} />
-                <span className="choice-copy">
-                  <span className="choice-title">New worktree</span>
-                  <span className="choice-detail">Its own folder and branch, so agents never collide</span>
-                </span>
-              </label>
-              {placementKind === "new" ? (
-                <div className="placement-fields">
-                  <Field label="Branch name">
-                    <input
-                      className="input is-mono"
-                      value={branch}
-                      onChange={(event) => {
-                        setBranch(event.target.value);
-                        setBranchEdited(true);
-                      }}
-                      placeholder="feature/my-change"
-                      spellCheck={false}
-                    />
-                  </Field>
-                  <Field label="Start from">
-                    <input
-                      className="input is-mono"
-                      value={baseRef}
-                      onChange={(event) => setBaseRef(event.target.value)}
-                      placeholder="HEAD"
-                      spellCheck={false}
-                    />
-                  </Field>
-                  <div className="field run-count">
-                    <span className="field-label">Runs</span>
-                    <Segmented<RunCount> label="Runs" value={runCount} options={runOptions} onChange={setRunCount} />
-                    <span className="field-hint">
-                      {runs > 1
-                        ? "Each run gets its own worktree and the same first message. Keep the best one."
-                        : "Start up to four agents on the same task to compare."}
-                    </span>
-                  </div>
-                  {runs > 1 ? (
-                    <div className="run-agents">
-                      {runAgents.map((agent, index) => (
-                        <Field
-                          // biome-ignore lint/suspicious/noArrayIndexKey: a run is its position.
-                          key={index}
-                          label={`Run ${index + 1}`}
-                          hint={branches[index]}
-                        >
-                          <Select
-                            aria-label={`Agent for run ${index + 1}`}
-                            value={agent}
-                            onChange={(event) =>
-                              setRunProviders((current) => ({
-                                ...current,
-                                [index]: event.target.value as ListedProviderKind,
-                              }))
-                            }
-                          >
-                            {installed.map((entry) => (
-                              <option key={entry.provider} value={entry.provider}>
-                                {entry.displayName}
-                              </option>
-                            ))}
-                          </Select>
-                        </Field>
-                      ))}
-                    </div>
+          <div className="launch-rows">
+            {projection.projects.length > 1 ? (
+              <LaunchRow label="Project">
+                <Select
+                  className="input-sm"
+                  aria-label="Project"
+                  value={projectId}
+                  onChange={(event) => setProjectId(event.target.value as typeof projectId)}
+                >
+                  {projection.projects.map((candidate) => (
+                    <option key={candidate.projectId} value={candidate.projectId}>
+                      {candidate.name}
+                    </option>
+                  ))}
+                </Select>
+              </LaunchRow>
+            ) : null}
+
+            <LaunchRow label="Agent">
+              {projection.providers === undefined ? (
+                <p className="loading-line">
+                  <span className="spinner" aria-hidden="true" />
+                  Checking which agent CLIs are installed
+                </p>
+              ) : listed.length === 0 ? (
+                <p className="field-hint">No agent CLIs could be listed.</p>
+              ) : (
+                <div className="chip-group" role="radiogroup" aria-label="Agent">
+                  {shownProviders.map((entry) => (
+                    <label
+                      className="chip-choice"
+                      key={entry.provider}
+                      title={
+                        entry.status === "found"
+                          ? entry.version
+                            ? `${entry.path} (${entry.version})`
+                            : entry.path
+                          : `Not installed. ${entry.reason ?? ""}`.trim()
+                      }
+                    >
+                      <input
+                        type="radio"
+                        name="agent-provider"
+                        value={entry.provider}
+                        checked={provider === entry.provider}
+                        disabled={entry.status === "missing"}
+                        onChange={() => {
+                          setProvider(entry.provider);
+                          setModel("");
+                        }}
+                      />
+                      <ProviderMark provider={entry.provider} size={14} />
+                      <span>{entry.displayName}</span>
+                    </label>
+                  ))}
+                  {installed.length > 0 && missing.length > 0 ? (
+                    <button
+                      className="chip-more"
+                      type="button"
+                      aria-expanded={showMissing}
+                      onClick={() => setShowMissing((value) => !value)}
+                    >
+                      {showMissing ? "Hide not installed" : `Show ${missing.length} not installed`}
+                    </button>
                   ) : null}
                 </div>
-              ) : null}
-              <label className="choice-card">
-                <input
-                  type="radio"
-                  name="agent-placement"
-                  checked={placementKind === "checkout"}
-                  onChange={() => setPlacementKind("checkout")}
-                />
-                <Icon name="folder" size={15} />
-                <span className="choice-copy">
-                  <span className="choice-title">Current checkout</span>
-                  <span className="choice-detail" title={project?.path}>
-                    {checkout && checkout.branch !== "HEAD" ? `${checkout.branch} in ` : ""}
-                    {project?.path ?? "The project folder"}
-                  </span>
-                </span>
-              </label>
-              {projectWorktrees.length > 0 ? (
-                <>
-                  <label className="choice-card">
+              )}
+            </LaunchRow>
+
+            <LaunchRow label="Work in">
+              <div className="chip-group" role="radiogroup" aria-label="Mode">
+                <label className="chip-choice" title="The agent's own CLI, full screen in a tile">
+                  <input
+                    type="radio"
+                    name="agent-mode"
+                    checked={mode === "terminal"}
+                    onChange={() => setMode("terminal")}
+                  />
+                  <Icon name="terminal" size={13} />
+                  <span>Terminal</span>
+                </label>
+                <label className="chip-choice" title="Messages with a work log and changed files">
+                  <input type="radio" name="agent-mode" checked={mode === "chat"} onChange={() => setMode("chat")} />
+                  <Icon name="message" size={13} />
+                  <span>Chat</span>
+                </label>
+              </div>
+            </LaunchRow>
+
+            <LaunchRow label="Runs in">
+              <div className="chip-group" role="radiogroup" aria-label="Where it runs">
+                <label className="chip-choice" title="Its own folder and branch, so agents never collide">
+                  <input
+                    type="radio"
+                    name="agent-placement"
+                    checked={placementKind === "new"}
+                    onChange={() => setPlacementKind("new")}
+                  />
+                  <Icon name="branch" size={13} />
+                  <span>New worktree</span>
+                </label>
+                <label className="chip-choice" title={project?.path}>
+                  <input
+                    type="radio"
+                    name="agent-placement"
+                    checked={placementKind === "checkout"}
+                    onChange={() => setPlacementKind("checkout")}
+                  />
+                  <Icon name="folder" size={13} />
+                  <span>Current checkout</span>
+                </label>
+                {projectWorktrees.length > 0 ? (
+                  <label className="chip-choice" title="Join a worktree that is already set up">
                     <input
                       type="radio"
                       name="agent-placement"
                       checked={placementKind === "existing"}
                       onChange={() => setPlacementKind("existing")}
                     />
-                    <Icon name="folderOpen" size={15} />
-                    <span className="choice-copy">
-                      <span className="choice-title">Existing worktree</span>
-                      <span className="choice-detail">Join a worktree that is already set up</span>
-                    </span>
+                    <Icon name="folderOpen" size={13} />
+                    <span>Existing worktree</span>
                   </label>
-                  {placementKind === "existing" ? (
-                    <div className="placement-fields">
-                      <Field label="Worktree">
-                        <Select value={existingId} onChange={(event) => setExistingId(event.target.value)}>
-                          {projectWorktrees.map((worktree) => (
-                            <option key={worktree.worktreeId} value={worktree.worktreeId}>
-                              {worktree.branch}
-                            </option>
-                          ))}
-                        </Select>
-                      </Field>
-                    </div>
-                  ) : null}
-                </>
-              ) : null}
-            </div>
-            {sharing ? (
-              <p className="field-hint is-warning">
-                Another agent is already working there. Both will edit the same files.
-              </p>
-            ) : null}
-          </fieldset>
+                ) : null}
+              </div>
+            </LaunchRow>
 
-          <div className="field-row">
-            <Field
-              label="Model"
-              hint={
-                modelUnsupported
-                  ? "Pick the model inside the Droid CLI."
-                  : runAgents.some((agent) => agent !== provider)
-                    ? "Runs with another agent use its default model."
-                    : undefined
-              }
-            >
+            {placementKind === "new" ? (
+              <LaunchRow label="Branch">
+                <div className="launch-inline">
+                  <input
+                    className="input input-sm is-mono launch-branch"
+                    aria-label="Branch name"
+                    value={branch}
+                    onChange={(event) => {
+                      setBranch(event.target.value);
+                      setBranchEdited(true);
+                    }}
+                    placeholder="feature/my-change"
+                    spellCheck={false}
+                  />
+                  <span className="launch-joiner">from</span>
+                  <input
+                    className="input input-sm is-mono launch-base"
+                    aria-label="Start from"
+                    value={baseRef}
+                    onChange={(event) => setBaseRef(event.target.value)}
+                    placeholder="HEAD"
+                    spellCheck={false}
+                  />
+                  <span className="launch-joiner">Runs</span>
+                  <Segmented<RunCount> label="Runs" value={runCount} options={runOptions} onChange={setRunCount} />
+                </div>
+              </LaunchRow>
+            ) : placementKind === "checkout" ? (
+              <LaunchRow label="Folder">
+                <span className="launch-path" title={project?.path}>
+                  {checkout && checkout.branch !== "HEAD" ? `${checkout.branch} in ` : ""}
+                  {project?.path ?? "The project folder"}
+                </span>
+              </LaunchRow>
+            ) : (
+              <LaunchRow label="Worktree">
+                <Select
+                  className="input-sm"
+                  aria-label="Worktree"
+                  value={existingId}
+                  onChange={(event) => setExistingId(event.target.value)}
+                >
+                  {projectWorktrees.map((worktree) => (
+                    <option key={worktree.worktreeId} value={worktree.worktreeId}>
+                      {worktree.branch}
+                    </option>
+                  ))}
+                </Select>
+              </LaunchRow>
+            )}
+
+            {runs > 1 ? (
+              <LaunchRow
+                label="Agents"
+                hint="Each run gets its own worktree and the same first message. Keep the best one."
+              >
+                <div className="run-agents">
+                  {runAgents.map((agent, index) => (
+                    <Select
+                      // biome-ignore lint/suspicious/noArrayIndexKey: a run is its position.
+                      key={index}
+                      className="input-sm"
+                      aria-label={`Agent for run ${index + 1}`}
+                      title={branches[index]}
+                      value={agent}
+                      onChange={(event) =>
+                        setRunProviders((current) => ({
+                          ...current,
+                          [index]: event.target.value as ListedProviderKind,
+                        }))
+                      }
+                    >
+                      {installed.map((entry) => (
+                        <option key={entry.provider} value={entry.provider}>
+                          {entry.displayName}
+                        </option>
+                      ))}
+                    </Select>
+                  ))}
+                </div>
+              </LaunchRow>
+            ) : null}
+
+            <LaunchRow label="Model" hint={modelHint}>
               <Select
+                className="input-sm"
+                aria-label="Model"
                 value={modelUnsupported ? "" : model}
                 disabled={modelUnsupported}
                 onChange={(event) => setModel(event.target.value)}
@@ -502,16 +483,12 @@ export function NewAgentDialog({
                   </option>
                 ))}
               </Select>
-            </Field>
-            <Field
-              label="Permissions"
-              hint={
-                permissionMode === "full-access"
-                  ? "Edits files and runs commands without asking."
-                  : "Asks before risky commands where the agent supports it."
-              }
-            >
+            </LaunchRow>
+
+            <LaunchRow label="Permissions" hint={permissionHint}>
               <Select
+                className="input-sm"
+                aria-label="Permissions"
                 value={permissionMode}
                 onChange={(event) => setPermissionMode(event.target.value as PermissionMode)}
               >
@@ -521,8 +498,14 @@ export function NewAgentDialog({
                   </option>
                 ))}
               </Select>
-            </Field>
+            </LaunchRow>
           </div>
+
+          {sharing ? (
+            <p className="field-hint is-warning">
+              Another agent is already working there. Both will edit the same files.
+            </p>
+          ) : null}
 
           {error ? (
             <p className="inline-error" role="alert">
@@ -546,5 +529,18 @@ export function NewAgentDialog({
         </div>
       </form>
     </Dialog>
+  );
+}
+
+/** One labelled line of the launch form: the label sits to the left so the form stays short. */
+function LaunchRow({ label, hint, children }: { label: string; hint?: string | undefined; children: ReactNode }) {
+  return (
+    <div className="launch-row">
+      <span className="launch-label">{label}</span>
+      <div className="launch-control">
+        {children}
+        {hint ? <span className="launch-hint">{hint}</span> : null}
+      </div>
+    </div>
   );
 }

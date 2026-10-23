@@ -6,10 +6,13 @@
 .brand-mark { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: var(--zli-radius-sm); background: var(--zli-text); color: var(--zli-canvas); font-size: var(--zli-text-xs); font-weight: 800; line-height: 1; }
 .wordmark { color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 650; letter-spacing: .06em; }
 
-.sidebar-primary { flex: 0 0 auto; padding: 0 var(--zli-space-2) var(--zli-space-3); }
+.sidebar-primary { display: flex; flex: 0 0 auto; flex-direction: column; gap: 2px; padding: 0 var(--zli-space-2) var(--zli-space-3); }
 .sidebar-new-agent { width: 100%; justify-content: flex-start; padding: 0 var(--zli-space-1-5) 0 var(--zli-space-2-5); }
 .sidebar-new-agent > span:not(.kbd-group) { flex: 1; text-align: left; }
 .sidebar-new-agent > svg { color: var(--zli-muted); }
+.sidebar-primary .sidebar-add-project { width: 100%; justify-content: flex-start; gap: var(--zli-space-2); padding: 0 var(--zli-space-2-5); color: var(--zli-muted); }
+.sidebar-add-project > svg { color: var(--zli-dim); }
+.sidebar-add-project:hover > svg { color: var(--zli-text); }
 
 .sidebar-scroll { min-height: 0; flex: 1; overflow: auto; padding: 0 var(--zli-space-2) var(--zli-space-3); }
 .sidebar-empty { display: flex; flex-direction: column; align-items: flex-start; gap: var(--zli-space-3); padding: var(--zli-space-2) var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
