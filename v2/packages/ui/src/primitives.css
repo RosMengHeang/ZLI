@@ -10,20 +10,22 @@
   border: 1px solid transparent; border-radius: var(--zli-radius-md);
   background: transparent; color: var(--zli-text); cursor: pointer;
   font-size: var(--zli-text-base); font-weight: 500; line-height: 1; white-space: nowrap; text-decoration: none;
-  transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease);
+  transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease), transform var(--zli-duration-fast) var(--zli-ease);
 }
+/* A slight press confirms the click before the action's result arrives. */
+.btn:active:not(:disabled) { transform: scale(.97); }
 .btn > span:not(.kbd-group) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .btn:disabled, .btn[aria-disabled="true"] { cursor: not-allowed; opacity: .45; }
 .btn-sm { height: var(--zli-control-sm); padding: 0 var(--zli-space-2); gap: var(--zli-space-1); border-radius: var(--zli-radius-sm); font-size: var(--zli-text-sm); }
 .btn-xs { height: var(--zli-control-xs); padding: 0 var(--zli-space-1-5); gap: var(--zli-space-1); border-radius: var(--zli-radius-xs); font-size: var(--zli-text-xs); }
 .btn-lg { height: var(--zli-control-lg); padding: 0 var(--zli-space-4); }
 
-.btn-primary { background: var(--zli-accent); color: var(--zli-accent-ink); }
+.btn-primary { background: var(--zli-accent); color: var(--zli-accent-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 1px 2px rgba(0, 0, 0, .4); }
 .btn-primary:hover:not(:disabled) { background: var(--zli-accent-hover); }
 .btn-primary:active:not(:disabled) { background: var(--zli-accent-pressed); }
-.btn-primary kbd { border-color: rgba(255, 255, 255, .32); color: rgba(255, 255, 255, .86); }
+.btn-primary kbd { border-color: transparent; background: rgba(255, 255, 255, .16); color: rgba(255, 255, 255, .9); }
 
-.btn-secondary { border-color: var(--zli-border-strong); background: var(--zli-raised); }
+.btn-secondary { border-color: var(--zli-border-strong); background: var(--zli-raised); box-shadow: var(--zli-highlight); }
 .btn-secondary:hover:not(:disabled) { border-color: var(--zli-border-hover); background: var(--zli-overlay); }
 .btn-secondary:active:not(:disabled) { background: var(--zli-pressed); }
 
@@ -31,7 +33,7 @@
 .btn-ghost:hover:not(:disabled) { background: var(--zli-hover); color: var(--zli-text); }
 .btn-ghost:active:not(:disabled), .btn-ghost[aria-pressed="true"], .btn-ghost.is-active { background: var(--zli-active); color: var(--zli-text); }
 
-.btn-danger { background: var(--zli-danger); color: var(--zli-accent-ink); }
+.btn-danger { background: var(--zli-danger); color: var(--zli-accent-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16); }
 .btn-danger:hover:not(:disabled) { background: var(--zli-danger-hover); }
 .btn-ghost.is-danger { color: var(--zli-red); }
 .btn-ghost.is-danger:hover:not(:disabled) { background: var(--zli-red-soft); color: var(--zli-red); }
@@ -46,8 +48,8 @@
 .kbd-group { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px; }
 kbd {
   display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px;
-  border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-xs); background: transparent;
-  color: var(--zli-dim); font-family: var(--zli-font); font-size: var(--zli-text-2xs); font-weight: 500; line-height: 1;
+  border: 0; border-radius: var(--zli-radius-xs); background: var(--zli-hover);
+  color: var(--zli-muted); font-family: var(--zli-font); font-size: var(--zli-text-2xs); font-weight: 500; line-height: 1;
 }
 
 /* ---------- Fields ---------- */
@@ -59,7 +61,7 @@ kbd {
 .input, .select, .textarea {
   width: 100%; min-width: 0; height: var(--zli-control-lg); padding: 0 var(--zli-space-3);
   border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); outline: none;
-  background: var(--zli-canvas); color: var(--zli-text); font-size: var(--zli-text-base);
+  background: var(--zli-well); color: var(--zli-text); font-size: var(--zli-text-base);
   transition: border-color var(--zli-duration-fast) var(--zli-ease), box-shadow var(--zli-duration-fast) var(--zli-ease);
 }
 .input-sm { height: var(--zli-control-md); padding: 0 var(--zli-space-2); font-size: var(--zli-text-sm); }
@@ -97,14 +99,14 @@ kbd {
 .count { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; min-width: 18px; height: 16px; padding: 0 5px; border-radius: var(--zli-radius-pill); background: var(--zli-hover); color: var(--zli-muted); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; line-height: 1; }
 
 /* ---------- Segmented control and tabs ---------- */
-.segmented { min-width: 0; margin: 0; border: 0; display: inline-flex; flex: 0 0 auto; gap: 2px; padding: 2px; border-radius: var(--zli-radius-md); background: var(--zli-canvas); box-shadow: inset 0 0 0 1px var(--zli-border); }
+.segmented { min-width: 0; margin: 0; border: 0; display: inline-flex; flex: 0 0 auto; gap: 2px; padding: 2px; border-radius: var(--zli-radius-md); background: var(--zli-well); }
 .segmented-item {
   display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 var(--zli-space-2); border: 0; border-radius: var(--zli-radius-sm);
   background: transparent; color: var(--zli-dim); cursor: pointer; font-size: var(--zli-text-sm); font-weight: 500; white-space: nowrap;
   transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease);
 }
 .segmented-item:hover { color: var(--zli-text); }
-.segmented-item[aria-pressed="true"], .segmented-item[aria-selected="true"] { background: var(--zli-overlay); color: var(--zli-text); box-shadow: inset 0 0 0 1px var(--zli-border-strong); }
+.segmented-item[aria-pressed="true"], .segmented-item[aria-selected="true"] { background: var(--zli-overlay); color: var(--zli-text); box-shadow: var(--zli-highlight), 0 1px 2px rgba(0, 0, 0, .35); }
 .segmented-item:focus-visible { outline-offset: -1px; }
 
 /* ---------- Switch ---------- */
@@ -115,7 +117,7 @@ kbd {
 .switch-hint { color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
 .switch {
   position: relative; flex: 0 0 28px; width: 28px; height: 16px; margin: 0; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-sm);
-  appearance: none; background: var(--zli-canvas); cursor: inherit;
+  appearance: none; background: var(--zli-well); cursor: inherit;
   transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease);
 }
 .switch::before { position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 2px; background: var(--zli-dim); content: ""; transition: transform var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
@@ -123,34 +125,48 @@ kbd {
 .switch:checked::before { transform: translateX(12px); background: var(--zli-canvas); }
 .switch:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
 
-/* ---------- Tooltip ---------- */.tooltip {
+/* ---------- Tooltip ---------- */
+.tooltip {
   position: fixed; z-index: var(--zli-z-tooltip); display: inline-flex; max-width: 280px; align-items: center; gap: var(--zli-space-2);
-  padding: 5px var(--zli-space-2); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-sm);
-  background: var(--zli-overlay); box-shadow: var(--zli-shadow-pop); color: var(--zli-text);
+  padding: 5px var(--zli-space-2); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md);
+  background: var(--zli-overlay); box-shadow: var(--zli-highlight), var(--zli-shadow-pop); color: var(--zli-text);
   font-size: var(--zli-text-sm); line-height: var(--zli-leading-tight); pointer-events: none;
 }
 .tooltip kbd { height: 16px; min-width: 16px; }
 
 /* ---------- Dialogs ---------- */
-.dialog-backdrop { position: fixed; z-index: var(--zli-z-dialog); inset: 0; display: flex; align-items: flex-start; justify-content: center; padding: 12vh var(--zli-space-4) var(--zli-space-4); background: rgba(0, 0, 0, .62); }
+/*
+ * The backdrop is the one blurred surface: it pushes live terminal output out of focus behind a modal.
+ * no-drag keeps the desktop title bar region under it clickable.
+ */
+.dialog-backdrop {
+  position: fixed; z-index: var(--zli-z-dialog); inset: 0; display: flex; align-items: flex-start; justify-content: center; padding: 12vh var(--zli-space-4) var(--zli-space-4);
+  background: rgba(0, 0, 0, .52); backdrop-filter: blur(3px); -webkit-app-region: no-drag;
+  animation: zli-fade-in var(--zli-duration-enter) var(--zli-ease);
+}
 .dialog-scrim { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: default; }
 .dialog-scrim:focus-visible { outline: none; }
 .dialog {
   position: relative; z-index: 1; display: flex; width: min(480px, 100%); max-height: calc(100vh - 12vh - var(--zli-space-6)); flex-direction: column;
-  border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-surface); box-shadow: var(--zli-shadow-dialog); overflow: hidden;
+  border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-xl); background: var(--zli-raised); box-shadow: var(--zli-highlight), var(--zli-shadow-dialog); overflow: hidden;
+  animation: zli-pop-in var(--zli-duration-enter) var(--zli-ease);
 }
+/* Entrances only: a dialog appearing in place reads as the same window, not a new screen. */
+@keyframes zli-fade-in { from { opacity: 0; } }
+@keyframes zli-pop-in { from { opacity: 0; transform: translateY(4px) scale(.985); } }
 .dialog-sm { width: min(420px, 100%); }
 .dialog-lg { width: min(600px, 100%); }
-.dialog-header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: var(--zli-space-4); padding: var(--zli-space-5) var(--zli-space-4) var(--zli-space-2) var(--zli-space-5); }
-.dialog-title { margin: 0; color: var(--zli-text); font-size: var(--zli-text-md); font-weight: 600; line-height: var(--zli-leading-tight); }
+.dialog-header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: var(--zli-space-4); padding: var(--zli-space-5) var(--zli-space-4) var(--zli-space-2) var(--zli-space-6); }
+.dialog-title { margin: 0; color: var(--zli-text); font-size: 15px; font-weight: 600; line-height: var(--zli-leading-tight); letter-spacing: -.005em; }
 .dialog-subtitle { margin: var(--zli-space-1-5) 0 0; color: var(--zli-muted); font-size: var(--zli-text-base); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
 .dialog-header .btn-icon { margin: -4px 0 0; }
-.dialog-body { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: var(--zli-space-4); padding: var(--zli-space-3) var(--zli-space-5) var(--zli-space-5); overflow: auto; }
-.dialog-footer { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: var(--zli-space-2); padding: var(--zli-space-3) var(--zli-space-5); border-top: 1px solid var(--zli-border); background: var(--zli-sidebar); }
+.dialog-body { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: var(--zli-space-4); padding: var(--zli-space-3) var(--zli-space-6) var(--zli-space-5); overflow: auto; }
+.dialog-footer { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: var(--zli-space-2); padding: var(--zli-space-3) var(--zli-space-4) var(--zli-space-4) var(--zli-space-6); border-top: 1px solid var(--zli-border); }
 .dialog-footer-note { min-width: 0; flex: 1; color: var(--zli-dim); font-size: var(--zli-text-xs); }
 
 /* ---------- Pane chrome ---------- */
-.pane-header { display: flex; align-items: center; gap: var(--zli-space-3); height: var(--zli-pane-header); flex: 0 0 auto; padding: 0 var(--zli-space-2) 0 var(--zli-space-4); border-bottom: 1px solid var(--zli-border); }
+/* Pane headers carry no rule of their own; the toolbar or content edge below them draws the boundary. */
+.pane-header { display: flex; align-items: center; gap: var(--zli-space-3); height: var(--zli-pane-header); flex: 0 0 auto; padding: 0 var(--zli-space-2) 0 var(--zli-space-4); }
 .pane-title { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-2); }
 .pane-title > svg { color: var(--zli-dim); }
 .pane-title h2 { flex: 0 1 auto; min-width: 0; margin: 0; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
@@ -162,10 +178,11 @@ kbd {
 
 /* ---------- Empty, loading, and error states ---------- */
 .empty-state { display: flex; min-height: 0; flex: 1; flex-direction: column; align-items: center; justify-content: center; padding: var(--zli-space-8) var(--zli-space-6); text-align: center; }
-.empty-state-icon { display: inline-grid; place-items: center; width: 40px; height: 40px; margin-bottom: var(--zli-space-4); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-surface); color: var(--zli-muted); }
-.empty-state-icon.is-danger { border-color: var(--zli-red-line); color: var(--zli-red); }
+.empty-state-icon { display: inline-grid; place-items: center; width: 24px; height: 24px; margin-bottom: var(--zli-space-3); color: var(--zli-dim); }
+.empty-state.is-large .empty-state-icon { margin-bottom: var(--zli-space-4); }
+.empty-state-icon.is-danger { color: var(--zli-red); }
 .empty-state-title { margin: 0; color: var(--zli-text); font-size: var(--zli-text-md); font-weight: 600; line-height: var(--zli-leading-tight); }
-.empty-state.is-large .empty-state-title { font-size: var(--zli-text-lg); }
+.empty-state.is-large .empty-state-title { font-size: var(--zli-text-lg); letter-spacing: -.01em; }
 .empty-state-detail { max-width: 420px; margin: var(--zli-space-2) 0 0; color: var(--zli-muted); font-size: var(--zli-text-base); line-height: var(--zli-leading-normal); }
 .empty-state-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--zli-space-2); margin-top: var(--zli-space-5); }
 .empty-state-hint { margin: var(--zli-space-3) 0 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }

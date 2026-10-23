@@ -31,10 +31,30 @@ export function secureWebPreferences(preloadPath: string, partition?: string): R
   };
 }
 
+/** The renderer's canvas color and top bar height, so the native chrome matches the app around it. */
+const CANVAS = "#0a0a0b";
+const TITLE_BAR_HEIGHT = 44;
+
+/**
+ * The renderer draws its own title bar, so the native one and its menu row are hidden. Windows and
+ * Linux keep native window controls through the overlay; macOS keeps its traffic lights. Menu
+ * accelerators still work without the visible menu.
+ */
+export function titleBarOptions(platform: NodeJS.Platform): Record<string, unknown> {
+  if (platform === "darwin") {
+    return { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 15 }, titleBarOverlay: true };
+  }
+  return {
+    titleBarStyle: "hidden",
+    titleBarOverlay: { color: CANVAS, symbolColor: "#a3a3a3", height: TITLE_BAR_HEIGHT },
+  };
+}
+
 export function createMainWindow(
   BrowserWindow: BrowserWindowConstructor,
   preloadPath: string,
   appOrigin: string,
+  platform: NodeJS.Platform = process.platform,
 ): BrowserWindowLike {
   const window = new BrowserWindow({
     title: "ZLI",
@@ -43,7 +63,8 @@ export function createMainWindow(
     minWidth: 960,
     minHeight: 640,
     show: false,
-    backgroundColor: "#181818",
+    backgroundColor: CANVAS,
+    ...titleBarOptions(platform),
     webPreferences: secureWebPreferences(preloadPath),
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));

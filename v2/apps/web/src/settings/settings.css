@@ -1,6 +1,6 @@
 .settings-dialog { width: min(720px, 100%); }
 .settings-layout { display: grid; min-height: 0; flex: 1 1 auto; grid-template-columns: 160px minmax(0, 1fr); border-top: 1px solid var(--zli-border); }
-.settings-nav { display: flex; flex-direction: column; gap: 2px; padding: var(--zli-space-3) var(--zli-space-2); border-right: 1px solid var(--zli-border); background: var(--zli-sidebar); }
+.settings-nav { display: flex; flex-direction: column; gap: 2px; padding: var(--zli-space-3) var(--zli-space-2); border-right: 1px solid var(--zli-border); background: var(--zli-well); }
 .settings-tab { display: flex; align-items: center; height: var(--zli-control-lg); padding: 0 var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-base); text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
 .settings-tab:hover { background: var(--zli-hover); color: var(--zli-text); }
 .settings-tab[aria-selected="true"] { background: var(--zli-active); color: var(--zli-text); font-weight: 500; }
@@ -22,7 +22,7 @@
 .shortcut-label { min-width: 0; color: var(--zli-text); font-size: var(--zli-text-base); }
 .shortcut-key { display: inline-flex; min-width: 96px; height: var(--zli-control-md); align-items: center; justify-content: flex-end; padding: 0 var(--zli-space-1-5); border: 1px solid transparent; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: pointer; transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
 .shortcut-key:hover { border-color: var(--zli-border-strong); background: var(--zli-hover); }
-.shortcut-key.is-recording { justify-content: center; border-color: var(--zli-accent-line); background: var(--zli-canvas); }
+.shortcut-key.is-recording { justify-content: center; border-color: var(--zli-accent-line); background: var(--zli-well); }
 .shortcut-waiting { color: var(--zli-text); font-size: var(--zli-text-sm); }
 .shortcut-reset { display: inline-flex; justify-content: center; }
 .shortcut-problem { grid-column: 1 / -1; margin: 0 0 var(--zli-space-2); color: var(--zli-red); font-size: var(--zli-text-xs); }

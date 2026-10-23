@@ -26,11 +26,12 @@ const TERMINAL_FONT = '"JetBrains Mono Variable", "JetBrains Mono", "SFMono-Regu
 const TERMINAL_FONT_SIZE = 12;
 const ATTACH_ATTEMPTS = 30;
 
+/** The background matches --zli-terminal so output sits on its tile without a seam. */
 export const terminalTheme: ITheme = {
-  background: "#0c0c0c",
+  background: "#141416",
   foreground: "#dcdcdc",
   cursor: "rgb(180, 203, 255)",
-  cursorAccent: "#0c0c0c",
+  cursorAccent: "#141416",
   selectionBackground: "rgba(180, 203, 255, 0.25)",
   black: "#1f1f1f",
   red: "#d77c7c",

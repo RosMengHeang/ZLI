@@ -23,7 +23,7 @@
 .prompt-warning svg { flex: 0 0 auto; margin-top: 2px; }
 .prompt-footer {
   display: flex; align-items: center; gap: var(--zli-space-2); min-height: 32px; padding: 0 var(--zli-space-1) 0 var(--zli-space-3);
-  border-top: 1px solid var(--zli-border); background: var(--zli-sidebar); color: var(--zli-dim); font-size: var(--zli-text-xs);
+  border-top: 1px solid var(--zli-border); background: var(--zli-well); color: var(--zli-dim); font-size: var(--zli-text-xs);
 }
 .prompt-footer > span { flex: 1; }
 .prompt-footer kbd { margin-right: 2px; }

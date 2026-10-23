@@ -2,9 +2,9 @@
 .files-pane { position: relative; }
 .files-body { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .files-body.is-split { flex-direction: row; }
-.files-browser { display: flex; min-height: 0; flex: 1; flex-direction: column; background: var(--zli-sidebar); }
+.files-browser { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .files-body.is-split .files-browser { min-width: 0; flex: 0 0 auto; }
-.files-editor { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; background: var(--zli-canvas); }
+.files-editor { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
 .files-body.is-split .files-editor { min-width: 280px; }
 
 /* The divider draws the pane boundary itself, so neither side needs a border. */
@@ -53,11 +53,11 @@
 .file-status-added, .file-status-untracked { color: var(--zli-green); }
 .file-status-deleted, .file-status-conflicted { color: var(--zli-red); }
 
-.file-tabs { display: flex; height: var(--zli-toolbar); flex: 0 0 auto; overflow-x: auto; border-bottom: 1px solid var(--zli-border); background: var(--zli-sidebar); scrollbar-width: none; }
+.file-tabs { display: flex; height: var(--zli-toolbar); flex: 0 0 auto; overflow-x: auto; border-bottom: 1px solid var(--zli-border); background: var(--zli-well); scrollbar-width: none; }
 .file-tab { position: relative; display: flex; align-items: center; max-width: 200px; flex: 0 0 auto; border-right: 1px solid var(--zli-border); color: var(--zli-dim); }
 .file-tab:hover { color: var(--zli-muted); }
-.file-tab.is-active { background: var(--zli-canvas); color: var(--zli-text); }
-.file-tab.is-active::after { position: absolute; right: 0; bottom: -1px; left: 0; height: 1px; background: var(--zli-canvas); content: ""; }
+.file-tab.is-active { background: var(--zli-surface); color: var(--zli-text); }
+.file-tab.is-active::after { position: absolute; right: 0; bottom: -1px; left: 0; height: 1px; background: var(--zli-surface); content: ""; }
 .file-tab-label { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); height: 100%; padding: 0 var(--zli-space-1) 0 var(--zli-space-3); border: 0; background: transparent; color: inherit; cursor: pointer; font-size: var(--zli-text-sm); }
 .file-tab-label:focus-visible { outline-offset: -2px; }
 .file-tab-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -122,7 +122,7 @@
   .file-view.is-split > .file-md-pane, .file-view.is-split > .empty-state { border-top: 1px solid var(--zli-border); border-left: 0; }
 }
 
-.file-md-pane { display: flex; min-height: 0; flex-direction: column; background: var(--zli-canvas); }
+.file-md-pane { display: flex; min-height: 0; flex-direction: column; }
 .file-md-notice { display: flex; align-items: center; gap: var(--zli-space-2); flex: 0 0 auto; min-height: 32px; padding: var(--zli-space-1) var(--zli-space-2) var(--zli-space-1) var(--zli-space-3); border-bottom: 1px solid var(--zli-border); background: var(--zli-surface); color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
 .file-md-notice > span { min-width: 0; flex: 1; }
 .file-md-scroll { min-height: 0; flex: 1; overflow: auto; }
@@ -180,7 +180,7 @@
 .syntax-invalid { color: #ec7272; }
 
 .file-search { display: flex; min-height: 0; flex: 1; flex-direction: column; }
-.file-search-form { display: flex; align-items: center; gap: var(--zli-space-1); margin: var(--zli-space-2) var(--zli-space-2) 0; padding: 0 var(--zli-space-1) 0 var(--zli-space-2); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-sm); background: var(--zli-canvas); transition: border-color var(--zli-duration-fast) var(--zli-ease), box-shadow var(--zli-duration-fast) var(--zli-ease); }
+.file-search-form { display: flex; align-items: center; gap: var(--zli-space-1); margin: var(--zli-space-2) var(--zli-space-2) 0; padding: 0 var(--zli-space-1) 0 var(--zli-space-2); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-sm); background: var(--zli-well); transition: border-color var(--zli-duration-fast) var(--zli-ease), box-shadow var(--zli-duration-fast) var(--zli-ease); }
 .file-search-form:hover { border-color: var(--zli-border-hover); }
 .file-search-form:focus-within { border-color: var(--zli-accent-line); box-shadow: 0 0 0 3px var(--zli-accent-soft); }
 .file-search-form input { min-width: 0; height: 28px; flex: 1; border: 0; outline: none; background: transparent; color: var(--zli-text); font-size: var(--zli-text-sm); }

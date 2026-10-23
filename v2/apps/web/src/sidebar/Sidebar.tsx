@@ -144,7 +144,7 @@ export function Sidebar({
       </div>
       <div className="sidebar-primary">
         <button
-          className="btn btn-secondary sidebar-new-agent"
+          className="btn btn-ghost sidebar-new-agent"
           type="button"
           onClick={() => onNewAgent()}
           disabled={projects.length === 0}
@@ -213,16 +213,14 @@ export function Sidebar({
                             title={worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}
                           >
                             <ProviderMark provider={session.provider} size={14} />
-                            <span className="session-copy">
-                              <span className="session-title">{title}</span>
-                              <span className="session-meta">
-                                <span className="session-branch">{worktree?.branch ?? "worktree"}</span>
-                                {background ? <span className="session-background">Background</span> : null}
-                              </span>
-                            </span>
+                            <span className="session-title">{title}</span>
                             <span className="session-side">
                               {quiet ? (
-                                <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
+                                background ? (
+                                  <span className="session-background">Background</span>
+                                ) : (
+                                  <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
+                                )
                               ) : (
                                 <span className={`session-status is-${session.status}`}>
                                   <span className="dot" aria-hidden="true" />
@@ -282,9 +280,7 @@ export function Sidebar({
                   />
                 </div>
                 {worktreesOpen ? (
-                  projectWorktrees.length === 0 ? (
-                    <p className="sidebar-note">No worktrees yet.</p>
-                  ) : (
+                  projectWorktrees.length === 0 ? null : (
                     <ul className="worktree-list">
                       {projectWorktrees.map((worktree) => {
                         const live = threads.some(

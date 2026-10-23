@@ -18,7 +18,6 @@ export function Topbar({
   project,
   worktree,
   hasProjects,
-  agentCount,
   drawerOpen,
   sidePane,
   onShowSidebar,
@@ -33,7 +32,6 @@ export function Topbar({
   project: ProjectProjection | undefined;
   worktree: WorktreeProjection | undefined;
   hasProjects: boolean;
-  agentCount: number;
   drawerOpen: boolean;
   sidePane: SidePane | undefined;
   onShowSidebar(): void;
@@ -68,11 +66,6 @@ export function Topbar({
         ) : (
           <span className="topbar-project is-empty">{hasProjects ? "No worktree selected" : "No project open"}</span>
         )}
-        {agentCount > 0 ? (
-          <span className="topbar-count">
-            {agentCount} {agentCount === 1 ? "agent" : "agents"}
-          </span>
-        ) : null}
         {worktree && onOpenDevServer ? <DevServerChip devServers={devServers} onOpen={onOpenDevServer} /> : null}
       </div>
       <span className="topbar-spacer" />
@@ -115,7 +108,7 @@ export function Topbar({
   );
 }
 
-/** Shows or hides a panel. The label stays the accessible name when narrow windows hide it. */
+/** Shows or hides a panel. Icon only; the label is the accessible name and the tooltip names the action. */
 function ToolToggle({
   label,
   icon,
@@ -131,7 +124,7 @@ function ToolToggle({
 }) {
   return (
     <button
-      className={`btn btn-ghost btn-sm tool-toggle${active ? " is-active" : ""}`}
+      className={`btn btn-ghost btn-icon tool-toggle${active ? " is-active" : ""}`}
       type="button"
       aria-label={label}
       aria-pressed={active}
@@ -140,8 +133,7 @@ function ToolToggle({
       aria-keyshortcuts={shortcut ? ariaShortcut(shortcut) : undefined}
       onClick={onClick}
     >
-      <Icon name={icon} size={14} />
-      <span className="tool-toggle-label">{label}</span>
+      <Icon name={icon} size={15} />
     </button>
   );
 }

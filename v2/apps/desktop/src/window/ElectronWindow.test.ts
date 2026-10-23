@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createMainWindow, secureWebPreferences } from "./ElectronWindow.js";
+import { createMainWindow, secureWebPreferences, titleBarOptions } from "./ElectronWindow.js";
 
 describe("ElectronWindow", () => {
   it("creates a Chromium window with the security posture required by Codex/Cursor-style shells", () => {
@@ -32,6 +32,19 @@ describe("ElectronWindow", () => {
       nodeIntegration: false,
       preload: "/tmp/preload.js",
     });
+  });
+
+  it("replaces the native title bar while keeping native window controls", () => {
+    const created: Array<Record<string, unknown>> = [];
+    class FakeBrowserWindow {
+      webContents = { setWindowOpenHandler: () => undefined, on: () => undefined, reload: () => undefined };
+      constructor(options: Record<string, unknown>) {
+        created.push(options);
+      }
+    }
+    createMainWindow(FakeBrowserWindow, "/tmp/preload.js", "zli-v2://app", "win32");
+    expect(created[0]).toMatchObject({ titleBarStyle: "hidden", titleBarOverlay: { height: 44 } });
+    expect(titleBarOptions("darwin")).toMatchObject({ titleBarStyle: "hiddenInset", titleBarOverlay: true });
   });
 
   it("keeps frames inside the app window on inline documents", () => {

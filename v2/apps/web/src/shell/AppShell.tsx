@@ -1128,7 +1128,6 @@ function WorkspaceApp() {
             project={contextWorktree ? contextProject : undefined}
             worktree={contextWorktree}
             hasProjects={hasProjects}
-            agentCount={tiles.length}
             drawerOpen={workbench.drawerOpen}
             sidePane={sidePane}
             onShowSidebar={toggleSidebar}
