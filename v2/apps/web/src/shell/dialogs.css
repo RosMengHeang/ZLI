@@ -70,6 +70,15 @@
 .keep-run-list li { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-2); padding: var(--zli-space-1-5) var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); color: var(--zli-muted); font-size: var(--zli-text-sm); }
 .keep-run-list code { overflow: hidden; color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 
+/* ---------- Handoff ---------- */
+.handoff-dialog .is-mono { font-family: var(--zli-mono); font-size: .95em; }
+.handoff-preview { max-height: 140px; margin: 0; padding: var(--zli-space-2) var(--zli-space-2-5); overflow: auto; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); background: var(--zli-canvas); color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: 1.55; }
+.handoff-preview pre { margin: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.handoff-preview:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+.handoff-file { display: flex; align-items: center; gap: var(--zli-space-1-5); margin: var(--zli-space-1) 0 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.handoff-file-name { color: var(--zli-muted); font-family: var(--zli-mono); }
+.handoff-file-meta::before { margin-right: var(--zli-space-1-5); content: "·"; }
+
 /* ---------- Confirmations ---------- */
 .check-field { display: flex; align-items: flex-start; gap: var(--zli-space-2-5); padding: var(--zli-space-2-5) var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); cursor: pointer; transition: border-color var(--zli-duration-fast) var(--zli-ease); }
 .check-field:hover { border-color: var(--zli-border-hover); }

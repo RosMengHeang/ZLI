@@ -9,12 +9,20 @@ export function GridEmptyState({
   closedCount,
   onOpenProject,
   onNewAgent,
+  onScratchChat,
 }: {
   projection: RuntimeProjection;
   closedCount: number;
   onOpenProject(): void;
   onNewAgent(): void;
+  /** Absent when scratch chats are not available, outside the desktop app. */
+  onScratchChat?: (() => void) | undefined;
 }) {
+  const scratch = onScratchChat ? (
+    <Button size="lg" icon="scratch" onClick={onScratchChat}>
+      Scratch chat
+    </Button>
+  ) : null;
   const newAgentShortcut = useShortcut("newAgent");
   if (projection.projects.length === 0) {
     return (
@@ -22,11 +30,12 @@ export function GridEmptyState({
         size="large"
         icon="folderOpen"
         title="Add a project to start"
-        detail="Pick a Git repository folder. Agents run side by side in it, each in its own terminal."
+        detail="Pick a Git repository folder. Agents run side by side in it, each in its own terminal. For a quick question, a scratch chat needs no project."
       >
         <Button variant="primary" size="lg" icon="folderPlus" onClick={onOpenProject}>
           Add project
         </Button>
+        {scratch}
       </EmptyState>
     );
   }
@@ -44,6 +53,7 @@ export function GridEmptyState({
       <Button variant="primary" size="lg" icon="plus" shortcut={newAgentShortcut} showShortcut onClick={onNewAgent}>
         New agent
       </Button>
+      {scratch}
     </EmptyState>
   );
 }

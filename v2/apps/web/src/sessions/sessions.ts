@@ -9,6 +9,7 @@ import type {
 
 import { providerDisplayName } from "../agent/providers.js";
 import { shallowArrayEqual } from "../runtime/runtimeStore.js";
+import type { FirstMessageFile } from "./handoff.js";
 
 export type SessionMode = "terminal" | "chat";
 
@@ -29,6 +30,8 @@ export type PendingLaunch = {
   started?: boolean;
   /** First message for the agent, moved to the workbench's delivery queue once the agent starts. */
   prompt?: string;
+  /** Text that goes with the first message: attached in a chat, pasted after it in a terminal. */
+  promptFile?: FirstMessageFile;
 };
 
 export type AgentSession = {
