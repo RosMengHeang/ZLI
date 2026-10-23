@@ -9,6 +9,9 @@ export type FilesSession = {
   expanded: Set<string>;
   mode: "tree" | "search";
   changedOnly: boolean;
+  /** Whether the Changed group above the tree is expanded. */
+  changedOpen: boolean;
+  diffSource: "uncommitted" | "turn";
   search: SearchSettings;
 };
 
@@ -20,6 +23,8 @@ export function emptyFilesSession(): FilesSession {
     expanded: new Set(),
     mode: "tree",
     changedOnly: false,
+    changedOpen: true,
+    diffSource: "uncommitted",
     search: { query: "", caseSensitive: false, regex: false },
   };
 }

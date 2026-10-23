@@ -12,10 +12,11 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
 import { AttentionPanel } from "../attention/AttentionPanel.js";
 import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
+import { addCodeReference } from "../chat/codeReferences.js";
 import { textBase64 } from "../chat/pastedText.js";
 import { devServerCommands } from "../devservers/DevServers.js";
 import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
-import type { FilesFocus } from "../files/FilesPane.js";
+import type { AskAgentTarget, FilesFocus } from "../files/FilesPane.js";
 import { QuickOpen } from "../files/QuickOpen.js";
 import { useAgentNotifications } from "../notifications/useAgentNotifications.js";
 import { PromptsDialog } from "../prompts/PromptsDialog.js";
@@ -215,6 +216,26 @@ function WorkspaceApp() {
     },
     [sessions, focusSession, updateWorkbench],
   );
+
+  /** The chat that Ask about this in the Files panel adds references to: the focused agent's, or the newest open one. */
+  const askAgent = useMemo((): AskAgentTarget | undefined => {
+    const worktreeId = contextWorktree?.worktreeId;
+    const usable = (session: AgentSession) =>
+      session.worktreeId === worktreeId &&
+      session.thread !== undefined &&
+      session.thread.status !== "stopped" &&
+      session.thread.status !== "failed";
+    const session = activeSession && usable(activeSession) ? activeSession : tiles.findLast(usable);
+    const thread = session?.thread;
+    if (!session || !thread) return undefined;
+    return {
+      name: providerDisplayName(session.provider, projection?.providers),
+      ask: (reference) => {
+        addCodeReference(thread.threadId, reference);
+        showAgent(session.sessionId, "chat");
+      },
+    };
+  }, [activeSession, contextWorktree?.worktreeId, projection?.providers, showAgent, tiles]);
 
   const tilesRef = useRef(tiles);
   tilesRef.current = tiles;
@@ -1219,6 +1240,7 @@ function WorkspaceApp() {
                         <FilesPane
                           worktree={contextWorktree}
                           focus={filesFocus}
+                          askAgent={askAgent}
                           onQuickOpen={openQuickOpen}
                           onOpenDiff={(path) => {
                             setSidePane("review");

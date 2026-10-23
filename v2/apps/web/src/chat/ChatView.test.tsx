@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
 import { ChatView } from "./ChatView.js";
+import { addCodeReference } from "./codeReferences.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -250,6 +251,36 @@ describe("ChatView", () => {
       threadId,
       text: "run the tests",
     });
+  });
+
+  it("sends file references from the Files panel ahead of the message, then clears them", async () => {
+    const { container, dispatched } = await render(projectionWith({ threads: [{ ...thread, status: "idle" }] }));
+    await act(async () => {
+      addCodeReference(threadId, {
+        path: "src/app.ts",
+        startLine: 3,
+        endLine: 4,
+        snippet: "const a = 1;\nconst b = 2;",
+      });
+      addCodeReference(threadId, { path: "README.md" });
+    });
+    const chips = () => [...container.querySelectorAll(".composer-attachments li")].map((item) => item.textContent);
+    expect(chips()).toEqual(["app.ts:3-4src", "README.mdWorktree root"]);
+    await act(async () => button(container, "Remove README.md")?.click());
+    expect(chips()).toEqual(["app.ts:3-4src"]);
+
+    const textarea = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Droid"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(textarea, "Why two constants?");
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => button(container, "Send")?.click());
+    expect(dispatched.at(-1)?.command).toMatchObject({
+      type: "thread.queue",
+      text: "`src/app.ts` lines 3-4:\n```ts\nconst a = 1;\nconst b = 2;\n```\n\nWhy two constants?",
+    });
+    expect(chips()).toEqual([]);
   });
 
   it("queues messages while the agent works and can send one now or remove it", async () => {

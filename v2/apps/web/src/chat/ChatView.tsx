@@ -23,6 +23,7 @@ import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { latestContext } from "../usage/usage.js";
 import { Composer, type ComposerAttachment } from "./Composer.js";
+import { clearCodeReferences, removeCodeReference, useCodeReferences } from "./codeReferences.js";
 import { Markdown } from "./Markdown.js";
 import { RequestCard } from "./RequestCard.js";
 import { TurnChanges } from "./TurnChanges.js";
@@ -51,6 +52,7 @@ export function ChatView({
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(threadMode);
   const permissionSwitch = thread.capabilities.permissionSwitch === "in-session";
   useEffect(() => setPermissionMode(threadMode), [threadMode]);
+  const references = useCodeReferences(thread.threadId);
   const [peerDraft, setPeerDraft] = useState("");
   const [peerTargetId, setPeerTargetId] = useState<string>();
   const logRef = useRef<HTMLDivElement>(null);
@@ -332,6 +334,9 @@ export function ChatView({
               onPermissionModeChange={permissionSwitch ? setPermissionMode : undefined}
               projectId={worktree?.projectId}
               context={context}
+              references={references}
+              onRemoveReference={(id) => removeCodeReference(thread.threadId, id)}
+              onReferencesSent={() => clearCodeReferences(thread.threadId)}
               onSubmit={send}
             />
           )}

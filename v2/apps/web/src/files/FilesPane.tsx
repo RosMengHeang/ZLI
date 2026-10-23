@@ -1,22 +1,53 @@
-import type { FileChangeStatus, FileReadResult, WorktreeProjection } from "@zli-v2/contracts";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type FileChangeStatus,
+  type FileListEntry,
+  type FileReadResult,
+  MAX_PREVIEW_FILE_BYTES,
+  previewMimeType,
+  type RuntimeProjection,
+  type WorktreeProjection,
+} from "@zli-v2/contracts";
+import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { useRuntime } from "../runtime/RuntimeProvider.js";
+import type { CodeReference } from "../chat/codeReferences.js";
+import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
+import { useAppSettings } from "../settings/appSettings.js";
 import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
 import { type CodeEditorHandle, createCodeEditor, languageLabel } from "./codeEditor.js";
+import { type DiffSource, FileDiffPanel, latestTurnFor } from "./FileDiffPanel.js";
 import { useFileIndex, useFileIndexContext } from "./FileIndex.js";
+import { FileStatusMark, LineCounts } from "./FileMarks.js";
 import { FileSearchView, type SearchSettings } from "./FileSearchView.js";
-import { FileStatusMark, FileTreeView } from "./FileTreeView.js";
+import { type ContextMenuRequest, FilesContextMenu } from "./FilesContextMenu.js";
+import { FilesDivider } from "./FilesDivider.js";
+import { FileTreeView } from "./FileTreeView.js";
 import { readFile, writeFile } from "./fileClient.js";
 import { baseName, dirName, type FileLocation } from "./filePaths.js";
+import { clampTreeWidth, maxTreeWidth, TREE_DEFAULT_WIDTH, TREE_MIN_WIDTH, useFilesLayout } from "./filesLayout.js";
 import { ancestorDirectories } from "./fileTree.js";
+import { FILE_VIEW_MODES, type FileViewMode, previewKind, useFileViewModes } from "./fileViewModes.js";
+import { ImagePreview } from "./ImagePreview.js";
+import type { PreviewHandle } from "./MarkdownPreview.js";
+
+const MarkdownPreview = lazy(() =>
+  import("./MarkdownPreview.js").then((module) => ({ default: module.MarkdownPreview })),
+);
+
+/** The chat that file and line references go to. */
+export type AskAgentTarget = { name: string; ask(reference: Omit<CodeReference, "id">): void };
+
+/** Longer selections go out as a file and line range only; the agent can read the lines itself. */
+const MAX_SNIPPET_CHARS = 12_000;
+const NO_CHAT_HINT = "Start a chat with an agent in this worktree to ask about code";
 
 export type FilesFocus =
   | { kind: "open"; path: string; line?: number | undefined; column?: number | undefined; nonce: number }
   | { kind: "search"; nonce: number };
+
+const selectCheckpoints = (projection: RuntimeProjection | undefined) => projection?.checkpoints;
 
 /** How often the open file and the change markers are checked against the disk. */
 const POLL_MS = 4_000;
@@ -50,11 +81,14 @@ function isMissing(message: string): boolean {
 export function FilesPane({
   worktree,
   focus,
+  askAgent,
   onOpenDiff,
   onQuickOpen,
 }: {
   worktree: WorktreeProjection | undefined;
   focus?: FilesFocus | undefined;
+  /** Absent when no agent chat in this worktree can take a reference. */
+  askAgent?: AskAgentTarget | undefined;
   onOpenDiff(path: string): void;
   onQuickOpen(): void;
 }) {
@@ -79,6 +113,7 @@ export function FilesPane({
       key={worktree.worktreeId}
       worktree={worktree}
       focus={focus}
+      askAgent={askAgent}
       onOpenDiff={onOpenDiff}
       onQuickOpen={onQuickOpen}
     />
@@ -88,11 +123,13 @@ export function FilesPane({
 function FilesWorkspace({
   worktree,
   focus,
+  askAgent,
   onOpenDiff,
   onQuickOpen,
 }: {
   worktree: WorktreeProjection;
   focus: FilesFocus | undefined;
+  askAgent: AskAgentTarget | undefined;
   onOpenDiff(path: string): void;
   onQuickOpen(): void;
 }) {
@@ -108,15 +145,35 @@ function FilesWorkspace({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(session.expanded);
   const [mode, setMode] = useState(session.mode);
   const [changedOnly, setChangedOnly] = useState(session.changedOnly);
+  const [changedOpen, setChangedOpen] = useState(session.changedOpen);
+  const [diffSource, setDiffSource] = useState<DiffSource>(session.diffSource);
+  /** The open file whose diff is showing in place of its contents. */
+  const [diffPath, setDiffPath] = useState<string>();
+  const checkpoints = useRuntimeSelector(selectCheckpoints);
+  const [menu, setMenu] = useState<ContextMenuRequest>();
+  const closeMenu = useCallback(() => setMenu(undefined), []);
+  const askAgentRef = useRef(askAgent);
+  askAgentRef.current = askAgent;
+  /** Whether the editor of the active file is on screen, so its selection is what the person sees. */
+  const editorVisible = useRef(false);
   const [search, setSearch] = useState<SearchSettings>(session.search);
   const [tabData, setTabData] = useState<ReadonlyMap<string, TabData>>(new Map());
   const [dirty, setDirty] = useState<ReadonlySet<string>>(() => new Set(session.drafts.keys()));
   const [revealKey, setRevealKey] = useState(0);
   const [searchFocusKey, setSearchFocusKey] = useState(0);
   const [closeRequest, setCloseRequest] = useState<string>();
-  const [wide, setWide] = useState(true);
+  const [paneWidth, setPaneWidth] = useState<number>();
+  const wide = paneWidth === undefined || paneWidth >= SPLIT_MIN_WIDTH;
   const [browseOpen, setBrowseOpen] = useState(session.tabs.length === 0);
-  const [treeHidden, setTreeHidden] = useState(false);
+  const [layout, updateLayout] = useFilesLayout();
+  const [viewModes, setViewMode] = useFileViewModes();
+  const [previewReveal, setPreviewReveal] = useState<{ path: string; line: number; nonce: number }>();
+  const viewTabsId = useId();
+  const filePanelId = useId();
+  const treeHidden = layout.treeHidden;
+  const treeOnRight = useAppSettings().fileTreePosition !== "left";
+  const browserId = useId();
+  const browserRef = useRef<HTMLDivElement>(null);
   const [generation, setGeneration] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<{ path: string; handle: CodeEditorHandle } | undefined>(undefined);
@@ -133,14 +190,17 @@ function FilesWorkspace({
     session.expanded = new Set(expanded);
     session.mode = mode;
     session.changedOnly = changedOnly;
+    session.changedOpen = changedOpen;
+    session.diffSource = diffSource;
     session.search = search;
-  }, [session, tabs, activePath, expanded, mode, changedOnly, search]);
+  }, [session, tabs, activePath, expanded, mode, changedOnly, changedOpen, diffSource, search]);
 
-  const statuses = useMemo(() => {
-    const map = new Map<string, FileChangeStatus>();
-    for (const entry of index?.entries ?? []) if (entry.status) map.set(entry.path, entry.status);
+  const changes = useMemo(() => {
+    const map = new Map<string, FileListEntry & { status: FileChangeStatus }>();
+    for (const entry of index?.entries ?? []) if (entry.status) map.set(entry.path, { ...entry, status: entry.status });
     return map;
   }, [index]);
+  const statuses = useMemo(() => new Map([...changes].map(([path, entry]) => [path, entry.status])), [changes]);
   const treeEntries = useMemo(
     () => (changedOnly ? (index?.entries ?? []).filter((entry) => entry.status) : (index?.entries ?? [])),
     [changedOnly, index],
@@ -219,6 +279,10 @@ function FilesWorkspace({
       setBrowseOpen(false);
       setCloseRequest(undefined);
       pendingReveal.current = location.line ? location : undefined;
+      if (location.line) {
+        const line = location.line;
+        setPreviewReveal((current) => ({ path, line, nonce: (current?.nonce ?? 0) + 1 }));
+      }
       const editor = editorRef.current;
       if (editor?.path === path && location.line) {
         editor.handle.revealLine(location.line, location.column);
@@ -241,7 +305,7 @@ function FilesWorkspace({
     if (focus.kind === "open") openPath(focus);
     else {
       setMode("search");
-      setTreeHidden(false);
+      updateLayout({ treeHidden: false });
       setBrowseOpen(true);
       setSearchFocusKey((key) => key + 1);
     }
@@ -251,7 +315,7 @@ function FilesWorkspace({
     const root = rootRef.current;
     if (!root || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(([entry]) => {
-      if (entry) setWide(entry.contentRect.width >= SPLIT_MIN_WIDTH);
+      if (entry) setPaneWidth(entry.contentRect.width);
     });
     observer.observe(root);
     return () => observer.disconnect();
@@ -412,21 +476,361 @@ function FilesWorkspace({
   );
 
   const active = activePath ? tabData.get(activePath) : undefined;
-  const activeStatus = activePath ? statuses.get(activePath) : undefined;
+  const activeChange = activePath ? changes.get(activePath) : undefined;
+  const activeStatus = activeChange?.status;
+  const activeTurn = useMemo(
+    () => (activePath ? latestTurnFor(checkpoints, worktreeId, activePath) : undefined),
+    [activePath, checkpoints, worktreeId],
+  );
+  const showDiff = activePath !== undefined && diffPath === activePath;
+  const canDiff = activeStatus !== undefined || activeTurn !== undefined;
+  const activeKind = activePath ? previewKind(activePath) : undefined;
+  const activeIsText = active?.status === "ready" && active.file.content !== undefined;
+  const viewMode = activeKind && activeIsText ? viewModes[activeKind] : undefined;
+  const diffRevision = `${activeStatus ?? ""}:${activeChange?.additions ?? ""}:${activeChange?.deletions ?? ""}:${active?.status === "ready" ? active.file.version : ""}`;
+  editorVisible.current = !showDiff && viewMode !== "preview";
+
+  /** Sends the selected lines of `path`, or the whole file when nothing is selected, to the agent's composer. */
+  const askAbout = useCallback((path: string, useSelection: boolean): boolean => {
+    const target = askAgentRef.current;
+    if (!target) return false;
+    const editor = editorRef.current;
+    const picked =
+      useSelection && editor?.path === path && editorVisible.current ? editor.handle.selection() : undefined;
+    target.ask(
+      picked
+        ? {
+            path,
+            startLine: picked.startLine,
+            endLine: picked.endLine,
+            ...(picked.text.length <= MAX_SNIPPET_CHARS ? { snippet: picked.text } : {}),
+          }
+        : { path },
+    );
+    return true;
+  }, []);
+
+  const copyText = (value: string) => void navigator.clipboard?.writeText(value).catch(() => undefined);
+  const fullPath = (path: string) => {
+    const separator = worktree.path.includes("\\") ? "\\" : "/";
+    return `${worktree.path.replace(/[\\/]+$/u, "")}${separator}${path.replaceAll("/", separator)}`;
+  };
+  const openRowMenu = (path: string, kind: "file" | "directory", at: { x: number; y: number }) =>
+    setMenu({
+      ...at,
+      label: `Actions for ${baseName(path)}`,
+      items: [
+        {
+          label: askAgent ? `Add to ${askAgent.name} chat` : "Add to chat",
+          disabled: !askAgent,
+          title: askAgent ? undefined : NO_CHAT_HINT,
+          run: () => askAbout(path, false),
+        },
+        ...(kind === "file" ? [{ label: "Open", run: () => openPath({ path }) }] : []),
+        { label: "Copy path", run: () => copyText(path) },
+        { label: "Copy full path", run: () => copyText(fullPath(path)) },
+      ],
+    });
+  const openEditorMenu = useCallback(
+    (path: string, at: { x: number; y: number }) => {
+      const selected = editorRef.current?.path === path ? editorRef.current.handle.selection() : undefined;
+      const target = askAgentRef.current;
+      setMenu({
+        ...at,
+        label: "Editor actions",
+        items: [
+          {
+            label: target ? `Ask ${target.name} about this` : "Ask an agent about this",
+            shortcut: "Mod+L",
+            disabled: !target,
+            title: target ? undefined : NO_CHAT_HINT,
+            run: () => askAbout(path, true),
+          },
+          {
+            label: "Copy",
+            shortcut: "Mod+C",
+            disabled: !selected,
+            run: () => {
+              if (selected) void navigator.clipboard?.writeText(selected.text).catch(() => undefined);
+            },
+          },
+          { label: "Copy path", run: () => void navigator.clipboard?.writeText(path).catch(() => undefined) },
+        ],
+      });
+    },
+    [askAbout],
+  );
+
+  const changeViewMode = (mode: FileViewMode) => {
+    if (activeKind) setViewMode(activeKind, mode);
+  };
   const showTree = wide ? !treeHidden : browseOpen || tabs.length === 0;
   const showEditor = wide || !showTree;
   const changedCount = statuses.size;
+  const treeWidth = clampTreeWidth(layout.treeWidth, paneWidth);
+  const toggleTree = () => (wide ? updateLayout({ treeHidden: !treeHidden }) : setBrowseOpen((value) => !value));
+
+  const browser = showTree ? (
+    <div className="files-browser" id={browserId} ref={browserRef} style={wide ? { width: treeWidth } : undefined}>
+      <div className="files-modes" role="tablist" aria-label="File list mode">
+        <button
+          className={mode === "tree" ? "is-active" : undefined}
+          type="button"
+          role="tab"
+          aria-selected={mode === "tree"}
+          onClick={() => setMode("tree")}
+        >
+          Files
+        </button>
+        <button
+          className={mode === "search" ? "is-active" : undefined}
+          type="button"
+          role="tab"
+          aria-selected={mode === "search"}
+          onClick={() => {
+            setMode("search");
+            setSearchFocusKey((key) => key + 1);
+          }}
+        >
+          Search
+        </button>
+        <span className="files-modes-spacer" />
+        {mode === "tree" ? (
+          <button
+            className={`files-filter${changedOnly ? " is-active" : ""}`}
+            type="button"
+            aria-pressed={changedOnly}
+            title="Show only files with uncommitted changes"
+            onClick={() => setChangedOnly((value) => !value)}
+          >
+            Changed{changedCount > 0 ? ` ${changedCount}` : ""}
+          </button>
+        ) : null}
+      </div>
+      {mode === "search" ? (
+        <FileSearchView
+          worktreeId={worktreeId}
+          settings={search}
+          focusKey={searchFocusKey}
+          onSettingsChange={setSearch}
+          onOpen={openPath}
+        />
+      ) : !index ? (
+        <LoadingState label="Loading files" />
+      ) : changedOnly && treeEntries.length === 0 ? (
+        <p className="files-hint">No uncommitted changes in this worktree.</p>
+      ) : (
+        <>
+          <FileTreeView
+            entries={treeEntries}
+            expanded={treeExpanded}
+            selectedPath={activePath}
+            revealKey={revealKey}
+            changedGroup={
+              changedOnly ? undefined : { open: changedOpen, onToggle: () => setChangedOpen((value) => !value) }
+            }
+            onToggle={toggleFolder}
+            onOpen={(path) => openPath({ path })}
+            onRowMenu={openRowMenu}
+          />
+          {index.truncated ? (
+            <p className="files-hint">This worktree has more files than ZLI lists. Use Search to find the rest.</p>
+          ) : null}
+        </>
+      )}
+    </div>
+  ) : null;
+
+  const editor = showEditor ? (
+    <div className="files-editor">
+      {tabs.length > 0 ? (
+        <div className="file-tabs" role="tablist" aria-label="Open files">
+          {tabs.map((path) => (
+            <div className={`file-tab${path === activePath ? " is-active" : ""}`} key={path} title={path}>
+              <button
+                className="file-tab-label"
+                type="button"
+                role="tab"
+                aria-selected={path === activePath}
+                onClick={() => openPath({ path })}
+                onAuxClick={(event) => {
+                  if (event.button === 1) closeTab(path);
+                }}
+              >
+                <span className={`file-tab-name${statuses.get(path) === "deleted" ? " is-deleted" : ""}`}>
+                  {baseName(path)}
+                </span>
+                {dirty.has(path) ? <span className="file-tab-dirty" role="img" aria-label="Unsaved changes" /> : null}
+              </button>
+              <button
+                className="file-tab-close"
+                type="button"
+                aria-label={`Close ${baseName(path)}`}
+                onClick={() => closeTab(path)}
+              >
+                <Icon name="x" size={11} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {!activePath ? (
+        <EmptyState
+          icon="file"
+          title="Open a file"
+          detail="Pick one in the file list, or click a file path in an agent's reply or terminal."
+          hint={{ label: "Find a file by name", shortcut: quickOpenShortcut }}
+        />
+      ) : (
+        <>
+          <div className="file-path-bar">
+            <span className="file-path" title={activePath}>
+              {dirName(activePath) ? <span className="file-path-dir">{dirName(activePath)}/</span> : null}
+              <span className="file-path-name">{baseName(activePath)}</span>
+            </span>
+            <FileStatusMark status={activeStatus} />
+            <LineCounts additions={activeChange?.additions} deletions={activeChange?.deletions} />
+            <span className="file-path-spacer" />
+            {viewMode && !showDiff ? (
+              <ViewModeTabs mode={viewMode} idBase={viewTabsId} panelId={filePanelId} onChange={changeViewMode} />
+            ) : null}
+            {active?.status === "ready" && active.file.content !== undefined ? (
+              <span className="file-meta">
+                {languageLabel(activePath)} · {active.file.lineEnding === "crlf" ? "CRLF" : "LF"}
+              </span>
+            ) : null}
+            <IconButton
+              icon="message"
+              size="sm"
+              label={askAgent ? `Ask ${askAgent.name} about this` : "Ask an agent about this"}
+              tooltip={askAgent ? `Ask ${askAgent.name} about this file, or about the selected lines` : NO_CHAT_HINT}
+              shortcut="Mod+L"
+              disabled={!askAgent}
+              onClick={() => askAbout(activePath, true)}
+            />
+            {canDiff || showDiff ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon="diff"
+                aria-pressed={showDiff}
+                tooltip={showDiff ? "Show the file" : "Show what changed in this file"}
+                onClick={() => setDiffPath(showDiff ? undefined : activePath)}
+              >
+                Diff
+              </Button>
+            ) : null}
+            {active?.status === "ready" && active.file.content !== undefined ? (
+              <Button
+                variant={dirty.has(activePath) ? "primary" : "ghost"}
+                size="sm"
+                disabled={!dirty.has(activePath) || active.saving}
+                tooltip={dirty.has(activePath) ? "Save" : "No unsaved changes"}
+                shortcut="Mod+S"
+                onClick={() => void save(activePath)}
+              >
+                {active.saving ? "Saving" : dirty.has(activePath) ? "Save" : "Saved"}
+              </Button>
+            ) : null}
+          </div>
+          {closeRequest === activePath ? (
+            <FileBanner
+              tone="warning"
+              message={`${baseName(activePath)} has unsaved changes.`}
+              actions={[
+                {
+                  label: "Save and close",
+                  primary: true,
+                  run: () =>
+                    void save(activePath).then(() => {
+                      if (!session.drafts.has(activePath)) closeTab(activePath, true);
+                    }),
+                },
+                { label: "Discard changes", run: () => closeTab(activePath, true) },
+                { label: "Cancel", run: () => setCloseRequest(undefined) },
+              ]}
+            />
+          ) : null}
+          {active?.status === "ready" ? (
+            <FileBanners
+              path={activePath}
+              data={active}
+              onOverwrite={() => void save(activePath, { overwrite: true })}
+              onReload={() => void reloadFromDisk(activePath)}
+              onKeepMine={() =>
+                updateTab(activePath, (current) =>
+                  current?.status === "ready"
+                    ? { ...current, dismissedVersion: current.diskChange?.version, diskChange: undefined }
+                    : current,
+                )
+              }
+              onDismissError={() =>
+                updateTab(activePath, (current) =>
+                  current?.status === "ready" ? { ...current, saveError: undefined } : current,
+                )
+              }
+            />
+          ) : null}
+          {showDiff ? (
+            <FileDiffPanel
+              worktreeId={worktreeId}
+              path={activePath}
+              revision={diffRevision}
+              turn={activeTurn}
+              source={diffSource}
+              onSourceChange={setDiffSource}
+              onOpenChanges={() => onOpenDiff(activePath)}
+            />
+          ) : null}
+          <div className="file-body-host" hidden={showDiff}>
+            <FileBody
+              key={`${activePath}:${generation}`}
+              worktreeId={worktreeId}
+              path={activePath}
+              data={active}
+              status={activeStatus}
+              draft={session.drafts.get(activePath)}
+              viewMode={viewMode}
+              panelId={filePanelId}
+              labelledBy={viewMode ? `${viewTabsId}-${viewMode}` : undefined}
+              reveal={previewReveal?.path === activePath ? previewReveal : undefined}
+              onOpenFile={openPath}
+              onViewModeChange={changeViewMode}
+              onReady={onEditorReady}
+              onDispose={onEditorDispose}
+              onChange={onEditorChange}
+              onSave={(path) => void save(path)}
+              onAskAgent={(path) => askAbout(path, true)}
+              onEditorMenu={openEditorMenu}
+              onRetry={() => void loadFile(activePath)}
+              onOpenDiff={() => setDiffPath(activePath)}
+              onClose={() => closeTab(activePath, true)}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  ) : null;
+
+  const divider =
+    wide && showTree ? (
+      <FilesDivider
+        width={treeWidth}
+        min={TREE_MIN_WIDTH}
+        max={maxTreeWidth(paneWidth)}
+        treeSide={treeOnRight ? "right" : "left"}
+        controls={browserId}
+        onPreview={(width) => {
+          if (browserRef.current) browserRef.current.style.width = `${width}px`;
+        }}
+        onCommit={(width) => updateLayout({ treeWidth: width })}
+        onReset={() => updateLayout({ treeWidth: TREE_DEFAULT_WIDTH })}
+      />
+    ) : null;
 
   return (
     <div className="tool-pane files-pane" ref={rootRef}>
       <PaneHeader icon="folderTree" title="Files" detail={worktree.branch}>
-        <IconButton
-          icon="panelLeft"
-          size="sm"
-          pressed={showTree}
-          label={showTree ? "Hide file list" : "Show file list"}
-          onClick={() => (wide ? setTreeHidden((value) => !value) : setBrowseOpen((value) => !value))}
-        />
         <IconButton icon="search" size="sm" label="Go to file" shortcut={quickOpenShortcut} onClick={onQuickOpen} />
         <IconButton
           icon="reload"
@@ -438,206 +842,29 @@ function FilesWorkspace({
             void checkActiveFile();
           }}
         />
+        <IconButton
+          icon={treeOnRight ? "panelRight" : "panelLeft"}
+          size="sm"
+          pressed={showTree}
+          label={showTree ? "Hide file list" : "Show file list"}
+          onClick={toggleTree}
+        />
       </PaneHeader>
-      <div className={`files-body${wide ? " is-split" : ""}`}>
-        {showTree ? (
-          <div className="files-browser">
-            <div className="files-modes" role="tablist" aria-label="File list mode">
-              <button
-                className={mode === "tree" ? "is-active" : undefined}
-                type="button"
-                role="tab"
-                aria-selected={mode === "tree"}
-                onClick={() => setMode("tree")}
-              >
-                Files
-              </button>
-              <button
-                className={mode === "search" ? "is-active" : undefined}
-                type="button"
-                role="tab"
-                aria-selected={mode === "search"}
-                onClick={() => {
-                  setMode("search");
-                  setSearchFocusKey((key) => key + 1);
-                }}
-              >
-                Search
-              </button>
-              <span className="files-modes-spacer" />
-              {mode === "tree" ? (
-                <button
-                  className={`files-filter${changedOnly ? " is-active" : ""}`}
-                  type="button"
-                  aria-pressed={changedOnly}
-                  title="Show only files with uncommitted changes"
-                  onClick={() => setChangedOnly((value) => !value)}
-                >
-                  Changed{changedCount > 0 ? ` ${changedCount}` : ""}
-                </button>
-              ) : null}
-            </div>
-            {mode === "search" ? (
-              <FileSearchView
-                worktreeId={worktreeId}
-                settings={search}
-                focusKey={searchFocusKey}
-                onSettingsChange={setSearch}
-                onOpen={openPath}
-              />
-            ) : !index ? (
-              <LoadingState label="Loading files" />
-            ) : changedOnly && treeEntries.length === 0 ? (
-              <p className="files-hint">No uncommitted changes in this worktree.</p>
-            ) : (
-              <>
-                <FileTreeView
-                  entries={treeEntries}
-                  expanded={treeExpanded}
-                  selectedPath={activePath}
-                  revealKey={revealKey}
-                  onToggle={toggleFolder}
-                  onOpen={(path) => openPath({ path })}
-                />
-                {index.truncated ? (
-                  <p className="files-hint">
-                    This worktree has more files than ZLI lists. Use Search to find the rest.
-                  </p>
-                ) : null}
-              </>
-            )}
-          </div>
-        ) : null}
-        {showEditor ? (
-          <div className="files-editor">
-            {tabs.length > 0 ? (
-              <div className="file-tabs" role="tablist" aria-label="Open files">
-                {tabs.map((path) => (
-                  <div className={`file-tab${path === activePath ? " is-active" : ""}`} key={path} title={path}>
-                    <button
-                      className="file-tab-label"
-                      type="button"
-                      role="tab"
-                      aria-selected={path === activePath}
-                      onClick={() => openPath({ path })}
-                      onAuxClick={(event) => {
-                        if (event.button === 1) closeTab(path);
-                      }}
-                    >
-                      <span className={`file-tab-name${statuses.get(path) === "deleted" ? " is-deleted" : ""}`}>
-                        {baseName(path)}
-                      </span>
-                      {dirty.has(path) ? (
-                        <span className="file-tab-dirty" role="img" aria-label="Unsaved changes" />
-                      ) : null}
-                    </button>
-                    <button
-                      className="file-tab-close"
-                      type="button"
-                      aria-label={`Close ${baseName(path)}`}
-                      onClick={() => closeTab(path)}
-                    >
-                      <Icon name="x" size={11} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            {!activePath ? (
-              <EmptyState
-                icon="file"
-                title="Open a file"
-                detail="Pick one in the file list, or click a file path in an agent's reply or terminal."
-                hint={{ label: "Find a file by name", shortcut: quickOpenShortcut }}
-              />
-            ) : (
-              <>
-                <div className="file-path-bar">
-                  <span className="file-path" title={activePath}>
-                    {dirName(activePath) ? <span className="file-path-dir">{dirName(activePath)}/</span> : null}
-                    <span className="file-path-name">{baseName(activePath)}</span>
-                  </span>
-                  <FileStatusMark status={activeStatus} />
-                  <span className="file-path-spacer" />
-                  {active?.status === "ready" && active.file.content !== undefined ? (
-                    <span className="file-meta">
-                      {languageLabel(activePath)} · {active.file.lineEnding === "crlf" ? "CRLF" : "LF"}
-                    </span>
-                  ) : null}
-                  {activeStatus ? (
-                    <Button variant="ghost" size="sm" icon="diff" onClick={() => onOpenDiff(activePath)}>
-                      Diff
-                    </Button>
-                  ) : null}
-                  {active?.status === "ready" && active.file.content !== undefined ? (
-                    <Button
-                      variant={dirty.has(activePath) ? "primary" : "ghost"}
-                      size="sm"
-                      disabled={!dirty.has(activePath) || active.saving}
-                      tooltip={dirty.has(activePath) ? "Save" : "No unsaved changes"}
-                      shortcut="Mod+S"
-                      onClick={() => void save(activePath)}
-                    >
-                      {active.saving ? "Saving" : dirty.has(activePath) ? "Save" : "Saved"}
-                    </Button>
-                  ) : null}
-                </div>
-                {closeRequest === activePath ? (
-                  <FileBanner
-                    tone="warning"
-                    message={`${baseName(activePath)} has unsaved changes.`}
-                    actions={[
-                      {
-                        label: "Save and close",
-                        primary: true,
-                        run: () =>
-                          void save(activePath).then(() => {
-                            if (!session.drafts.has(activePath)) closeTab(activePath, true);
-                          }),
-                      },
-                      { label: "Discard changes", run: () => closeTab(activePath, true) },
-                      { label: "Cancel", run: () => setCloseRequest(undefined) },
-                    ]}
-                  />
-                ) : null}
-                {active?.status === "ready" ? (
-                  <FileBanners
-                    path={activePath}
-                    data={active}
-                    onOverwrite={() => void save(activePath, { overwrite: true })}
-                    onReload={() => void reloadFromDisk(activePath)}
-                    onKeepMine={() =>
-                      updateTab(activePath, (current) =>
-                        current?.status === "ready"
-                          ? { ...current, dismissedVersion: current.diskChange?.version, diskChange: undefined }
-                          : current,
-                      )
-                    }
-                    onDismissError={() =>
-                      updateTab(activePath, (current) =>
-                        current?.status === "ready" ? { ...current, saveError: undefined } : current,
-                      )
-                    }
-                  />
-                ) : null}
-                <FileBody
-                  key={`${activePath}:${generation}`}
-                  path={activePath}
-                  data={active}
-                  status={activeStatus}
-                  draft={session.drafts.get(activePath)}
-                  onReady={onEditorReady}
-                  onDispose={onEditorDispose}
-                  onChange={onEditorChange}
-                  onSave={(path) => void save(path)}
-                  onRetry={() => void loadFile(activePath)}
-                  onOpenDiff={() => onOpenDiff(activePath)}
-                  onClose={() => closeTab(activePath, true)}
-                />
-              </>
-            )}
-          </div>
-        ) : null}
+      {menu ? <FilesContextMenu request={menu} onClose={closeMenu} /> : null}
+      <div className={`files-body${wide ? " is-split" : ""}${treeOnRight ? " is-tree-right" : ""}`}>
+        {treeOnRight ? (
+          <>
+            {editor}
+            {divider}
+            {browser}
+          </>
+        ) : (
+          <>
+            {browser}
+            {divider}
+            {editor}
+          </>
+        )}
       </div>
     </div>
   );
@@ -718,27 +945,98 @@ function FileBanners({
   return null;
 }
 
+const VIEW_MODE_LABELS: Record<FileViewMode, string> = { preview: "Preview", code: "Code", split: "Split" };
+
+/** Preview, Code, and Split as one tab list; arrow keys move between them. */
+function ViewModeTabs({
+  mode,
+  idBase,
+  panelId,
+  onChange,
+}: {
+  mode: FileViewMode;
+  idBase: string;
+  panelId: string;
+  onChange(mode: FileViewMode): void;
+}) {
+  const buttons = useRef<(HTMLButtonElement | null)[]>([]);
+  const move = (event: React.KeyboardEvent, index: number) => {
+    const last = FILE_VIEW_MODES.length - 1;
+    const next =
+      event.key === "ArrowRight"
+        ? index === last
+          ? 0
+          : index + 1
+        : event.key === "ArrowLeft"
+          ? index === 0
+            ? last
+            : index - 1
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? last
+              : undefined;
+    const target = next === undefined ? undefined : FILE_VIEW_MODES[next];
+    if (next === undefined || !target) return;
+    event.preventDefault();
+    onChange(target);
+    buttons.current[next]?.focus();
+  };
+  return (
+    <div className="file-view-tabs" role="tablist" aria-label="Show the file as">
+      {FILE_VIEW_MODES.map((value, index) => (
+        <button
+          key={value}
+          ref={(element) => {
+            buttons.current[index] = element;
+          }}
+          id={`${idBase}-${value}`}
+          className={value === mode ? "is-active" : undefined}
+          type="button"
+          role="tab"
+          aria-selected={value === mode}
+          aria-controls={panelId}
+          tabIndex={value === mode ? 0 : -1}
+          onClick={() => onChange(value)}
+          onKeyDown={(event) => move(event, index)}
+        >
+          {VIEW_MODE_LABELS[value]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+type FileViewProps = {
+  worktreeId: string;
+  path: string;
+  viewMode: FileViewMode | undefined;
+  panelId: string;
+  labelledBy: string | undefined;
+  reveal: { line: number; nonce: number } | undefined;
+  onReady(path: string, handle: CodeEditorHandle): void;
+  onDispose(path: string, handle: CodeEditorHandle): void;
+  onChange(path: string): void;
+  onSave(path: string): void;
+  onOpenFile(location: FileLocation): void;
+  onViewModeChange(mode: FileViewMode): void;
+  onAskAgent(path: string): boolean;
+  onEditorMenu(path: string, at: { x: number; y: number }): void;
+};
+
 function FileBody({
   path,
   data,
   status,
   draft,
-  onReady,
-  onDispose,
-  onChange,
-  onSave,
   onRetry,
   onOpenDiff,
   onClose,
-}: {
-  path: string;
+  ...view
+}: FileViewProps & {
   data: TabData | undefined;
   status: FileChangeStatus | undefined;
   draft: string | undefined;
-  onReady(path: string, handle: CodeEditorHandle): void;
-  onDispose(path: string, handle: CodeEditorHandle): void;
-  onChange(path: string): void;
-  onSave(path: string): void;
   onRetry(): void;
   onOpenDiff(): void;
   onClose(): void;
@@ -773,6 +1071,10 @@ function FileBody({
     );
   }
   const { file } = data;
+  const mimeType = previewMimeType(path);
+  if (file.content === undefined && mimeType?.startsWith("image/") && file.size <= MAX_PREVIEW_FILE_BYTES) {
+    return <ImagePreview key={file.version} worktreeId={view.worktreeId} path={path} version={file.version} />;
+  }
   if (file.content === undefined) {
     const megabytes = (file.size / (1024 * 1024)).toFixed(1);
     return (
@@ -788,15 +1090,182 @@ function FileBody({
     );
   }
   return (
-    <EditorSurface
+    <TextFileView
+      {...view}
       path={path}
       doc={draft ?? file.content}
       lineSeparator={file.lineEnding === "crlf" ? "\r\n" : "\n"}
-      onReady={onReady}
-      onDispose={onDispose}
-      onChange={onChange}
-      onSave={onSave}
     />
+  );
+}
+
+/** The source line, possibly fractional, at the top of an editor. */
+function editorTopLine(view: CodeEditorHandle["view"]): number {
+  const offset = view.scrollDOM.scrollTop - view.documentPadding.top;
+  const block = view.lineBlockAtHeight(Math.max(0, offset));
+  const line = view.state.doc.lineAt(block.from).number;
+  return line + Math.min(1, Math.max(0, (offset - block.top) / Math.max(1, block.height)));
+}
+
+function scrollEditorToLine(view: CodeEditorHandle["view"], line: number): void {
+  const whole = Math.min(Math.max(1, Math.floor(line)), view.state.doc.lines);
+  const block = view.lineBlockAt(view.state.doc.line(whole).from);
+  view.scrollDOM.scrollTop = block.top + view.documentPadding.top + (line - whole) * block.height;
+}
+
+/** How long a programmatic scroll on one side of Split keeps the other side from echoing it back. */
+const SCROLL_ECHO_MS = 120;
+
+type ScrollEcho = { from: "editor" | "preview"; until: number } | undefined;
+
+/** True while a scroll on `side` is most likely the echo of syncing from the other side. */
+function isEcho(echo: ScrollEcho, side: "editor" | "preview"): boolean {
+  return echo !== undefined && echo.from !== side && performance.now() < echo.until;
+}
+
+/**
+ * The editor, plus the rendered preview for Markdown. The editor stays mounted while only the
+ * preview shows, so undo history and unsaved edits survive switching views.
+ */
+function TextFileView({
+  worktreeId,
+  path,
+  doc,
+  lineSeparator,
+  viewMode,
+  panelId,
+  labelledBy,
+  reveal,
+  onReady,
+  onDispose,
+  onChange,
+  onSave,
+  onOpenFile,
+  onViewModeChange,
+  onAskAgent,
+  onEditorMenu,
+}: Omit<FileViewProps, "path"> & { path: string; doc: string; lineSeparator: "\n" | "\r\n" }) {
+  const handleRef = useRef<CodeEditorHandle | undefined>(undefined);
+  const previewRef = useRef<PreviewHandle | undefined>(undefined);
+  const [liveText, setLiveText] = useState(doc);
+  const liveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const lastLine = useRef<number | undefined>(undefined);
+  const pendingEditLine = useRef<number | undefined>(undefined);
+  const echo = useRef<ScrollEcho>(undefined);
+  const previousMode = useRef(viewMode);
+  const showPreview = viewMode === "preview" || viewMode === "split";
+
+  useEffect(() => () => clearTimeout(liveTimer.current), []);
+
+  const ready = useCallback(
+    (readyPath: string, handle: CodeEditorHandle) => {
+      handleRef.current = handle;
+      onReady(readyPath, handle);
+    },
+    [onReady],
+  );
+  const dispose = useCallback(
+    (disposedPath: string, handle: CodeEditorHandle) => {
+      if (handleRef.current === handle) handleRef.current = undefined;
+      onDispose(disposedPath, handle);
+    },
+    [onDispose],
+  );
+  const docChanged = useCallback(() => {
+    clearTimeout(liveTimer.current);
+    liveTimer.current = setTimeout(() => {
+      const handle = handleRef.current;
+      if (handle) setLiveText(handle.getDoc());
+    }, 60);
+  }, []);
+  const previewReady = useCallback((handle: PreviewHandle | undefined) => {
+    previewRef.current = handle;
+  }, []);
+
+  // In Split, scrolling the editor scrolls the preview to the same source line.
+  useEffect(() => {
+    const handle = handleRef.current;
+    if (!viewMode || !handle) return;
+    const scroller = handle.view.scrollDOM;
+    const onScroll = () => {
+      if (scroller.offsetParent === null) return;
+      lastLine.current = editorTopLine(handle.view);
+      if (viewMode !== "split" || isEcho(echo.current, "editor")) return;
+      echo.current = { from: "editor", until: performance.now() + SCROLL_ECHO_MS };
+      previewRef.current?.scrollToLine(lastLine.current);
+    };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    return () => scroller.removeEventListener("scroll", onScroll);
+  }, [viewMode]);
+
+  const previewScrolled = () => {
+    const line = previewRef.current?.topLine();
+    if (line === undefined) return;
+    lastLine.current = line;
+    const handle = handleRef.current;
+    if (viewMode !== "split" || !handle || isEcho(echo.current, "preview")) return;
+    echo.current = { from: "preview", until: performance.now() + SCROLL_ECHO_MS };
+    scrollEditorToLine(handle.view, line);
+  };
+
+  // Switching views keeps the same part of the document on screen.
+  useLayoutEffect(() => {
+    const previous = previousMode.current;
+    previousMode.current = viewMode;
+    const handle = handleRef.current;
+    if (previous !== "preview" || viewMode === "preview" || !handle) return;
+    const editLine = pendingEditLine.current;
+    pendingEditLine.current = undefined;
+    const line = lastLine.current;
+    const frame = requestAnimationFrame(() => {
+      if (editLine) handle.revealLine(editLine);
+      else if (line) scrollEditorToLine(handle.view, line);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [viewMode]);
+
+  const editLine = (line: number) => {
+    if (viewMode === "preview") {
+      pendingEditLine.current = line;
+      onViewModeChange("code");
+    } else handleRef.current?.revealLine(line);
+  };
+
+  return (
+    <div
+      className={`file-view${viewMode ? ` is-${viewMode}` : ""}`}
+      id={panelId}
+      {...(viewMode ? { role: "tabpanel", "aria-labelledby": labelledBy } : {})}
+    >
+      <EditorSurface
+        path={path}
+        doc={doc}
+        lineSeparator={lineSeparator}
+        hidden={viewMode === "preview"}
+        onReady={ready}
+        onDispose={dispose}
+        onChange={onChange}
+        onDocChange={docChanged}
+        onSave={onSave}
+        onAskAgent={onAskAgent}
+        onMenu={onEditorMenu}
+      />
+      {showPreview ? (
+        <Suspense fallback={<LoadingState label="Rendering preview" />}>
+          <MarkdownPreview
+            worktreeId={worktreeId}
+            path={path}
+            source={liveText}
+            initialLine={lastLine.current}
+            reveal={reveal}
+            onOpenFile={onOpenFile}
+            onEditLine={editLine}
+            onReady={previewReady}
+            onUserScroll={previewScrolled}
+          />
+        </Suspense>
+      ) : null}
+    </div>
   );
 }
 
@@ -805,23 +1274,31 @@ function EditorSurface({
   path,
   doc,
   lineSeparator,
+  hidden,
   onReady,
   onDispose,
   onChange,
+  onDocChange,
   onSave,
+  onAskAgent,
+  onMenu,
 }: {
   path: string;
   doc: string;
   lineSeparator: "\n" | "\r\n";
+  hidden?: boolean;
+  onAskAgent(path: string): boolean;
+  onMenu(path: string, at: { x: number; y: number }): void;
   onReady(path: string, handle: CodeEditorHandle): void;
   onDispose(path: string, handle: CodeEditorHandle): void;
   onChange(path: string): void;
+  onDocChange?(): void;
   onSave(path: string): void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const initial = useRef({ doc, lineSeparator });
-  const callbacks = useRef({ onReady, onDispose, onChange, onSave });
-  callbacks.current = { onReady, onDispose, onChange, onSave };
+  const callbacks = useRef({ onReady, onDispose, onChange, onDocChange, onSave, onAskAgent });
+  callbacks.current = { onReady, onDispose, onChange, onDocChange, onSave, onAskAgent };
 
   useEffect(() => {
     const parent = hostRef.current;
@@ -832,7 +1309,9 @@ function EditorSurface({
       path,
       lineSeparator: initial.current.lineSeparator,
       onChange: () => callbacks.current.onChange(path),
+      onDocChange: () => callbacks.current.onDocChange?.(),
       onSave: () => callbacks.current.onSave(path),
+      onAskAgent: () => callbacks.current.onAskAgent(path),
     });
     callbacks.current.onReady(path, handle);
     return () => {
@@ -841,5 +1320,17 @@ function EditorSurface({
     };
   }, [path]);
 
-  return <div className="file-editor-host" ref={hostRef} data-path={path} />;
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: the editor inside is the interactive element; this only opens its menu.
+    <div
+      className="file-editor-host"
+      ref={hostRef}
+      data-path={path}
+      hidden={hidden}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onMenu(path, { x: event.clientX, y: event.clientY });
+      }}
+    />
+  );
 }

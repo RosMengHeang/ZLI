@@ -7,6 +7,8 @@ import {
   HighlightStyle,
   indentOnInput,
   indentUnit,
+  Language,
+  LanguageSupport,
   StreamLanguage,
   type StreamParser,
   syntaxHighlighting,
@@ -22,7 +24,7 @@ import {
   keymap,
   lineNumbers,
 } from "@codemirror/view";
-import { tags as t } from "@lezer/highlight";
+import { tags as t, tagHighlighter } from "@lezer/highlight";
 
 export type CodeEditorOptions = {
   parent: HTMLElement;
@@ -30,8 +32,13 @@ export type CodeEditorOptions = {
   path: string;
   lineSeparator: "\n" | "\r\n";
   readOnly?: boolean;
+  /** Called for edits made in the editor. */
   onChange?: (doc: string) => void;
+  /** Called for every change to the text, including ones applied with `setDoc`. */
+  onDocChange?: () => void;
   onSave?: () => void;
+  /** Mod+L. Returns false to leave the key to the editor, which selects the line. */
+  onAskAgent?: () => boolean;
 };
 
 export type CodeEditorHandle = {
@@ -42,6 +49,8 @@ export type CodeEditorHandle = {
   setDoc(doc: string): void;
   setPath(path: string): Promise<void>;
   revealLine(line: number, column?: number): void;
+  /** The main selection with the lines it covers, or undefined when nothing is selected. */
+  selection(): { startLine: number; endLine: number; text: string } | undefined;
   focus(): void;
   setReadOnly(readOnly: boolean): void;
   openSearch(): void;
@@ -205,6 +214,28 @@ export function languageLabel(path: string): string {
   return id ? LANGUAGES[id].label : "Plain text";
 }
 
+const FENCE_ALIASES: Record<string, LanguageId> = {
+  "c++": "cpp",
+  "c#": "csharp",
+  golang: "go",
+  docker: "dockerfile",
+  pwsh: "powershell",
+  ps: "powershell",
+  console: "shell",
+  shellsession: "shell",
+};
+
+/** The parser for a fenced code block's language name, such as `ts` or `python`, when ZLI knows it. */
+export async function loadFenceParser(name: string): Promise<Language["parser"] | undefined> {
+  const key = name.trim().toLowerCase();
+  const id = Object.hasOwn(LANGUAGES, key) ? (key as LanguageId) : (FENCE_ALIASES[key] ?? BY_EXTENSION[key]);
+  if (!id) return undefined;
+  const extension = await LANGUAGES[id].load();
+  if (extension instanceof LanguageSupport) return extension.language.parser;
+  if (extension instanceof Language) return extension.parser;
+  return undefined;
+}
+
 /** Loads the language extension for a path; resolves to an empty extension for plain text. */
 export async function loadLanguage(path: string): Promise<Extension> {
   const id = languageId(path);
@@ -337,30 +368,42 @@ const zliTheme = EditorView.theme(
   { dark: true },
 );
 
-const zliHighlight = HighlightStyle.define([
-  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.modifier], color: "#b3a6dc" },
-  { tag: [t.definitionKeyword, t.self, t.null], color: "#b3a6dc" },
-  { tag: [t.string, t.special(t.string), t.character], color: "#a3c49a" },
-  { tag: [t.regexp, t.escape], color: "#d3a283" },
-  { tag: [t.number, t.bool, t.atom, t.constant(t.name), t.unit], color: "#d8b67e" },
-  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: "#6a6a6a" },
-  { tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName], color: "#8fb0e3" },
-  { tag: [t.typeName, t.className, t.namespace, t.standard(t.typeName)], color: "#80bfb8" },
-  { tag: [t.tagName, t.angleBracket], color: "#80bfb8" },
-  { tag: [t.attributeName, t.propertyName, t.labelName], color: "#a9bad6" },
-  { tag: [t.definition(t.variableName), t.variableName], color: "#dcdcdc" },
-  { tag: [t.operator, t.derefOperator], color: "#a3a3a3" },
-  { tag: [t.punctuation, t.separator, t.bracket], color: "#8a8a8a" },
-  { tag: [t.meta, t.processingInstruction, t.annotation], color: "#8a8a8a" },
-  { tag: t.heading, color: "#e6e6e6", fontWeight: "600" },
-  { tag: [t.link, t.url], color: "#8fb0e3", textDecoration: "underline" },
-  { tag: t.emphasis, fontStyle: "italic" },
-  { tag: t.strong, fontWeight: "600" },
-  { tag: t.strikethrough, textDecoration: "line-through" },
-  { tag: [t.inserted], color: "#a3c49a" },
-  { tag: [t.deleted], color: "#de8f8f" },
-  { tag: t.invalid, color: "#ec7272" },
-]);
+/** `name` is the class suffix code blocks in the Markdown preview use; files.css repeats these colors. */
+const SYNTAX_STYLES = [
+  {
+    name: "keyword",
+    tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.modifier],
+    color: "#b3a6dc",
+  },
+  { name: "keyword", tag: [t.definitionKeyword, t.self, t.null], color: "#b3a6dc" },
+  { name: "string", tag: [t.string, t.special(t.string), t.character], color: "#a3c49a" },
+  { name: "regexp", tag: [t.regexp, t.escape], color: "#d3a283" },
+  { name: "number", tag: [t.number, t.bool, t.atom, t.constant(t.name), t.unit], color: "#d8b67e" },
+  { name: "comment", tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: "#6a6a6a" },
+  { name: "function", tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName], color: "#8fb0e3" },
+  { name: "type", tag: [t.typeName, t.className, t.namespace, t.standard(t.typeName)], color: "#80bfb8" },
+  { name: "type", tag: [t.tagName, t.angleBracket], color: "#80bfb8" },
+  { name: "property", tag: [t.attributeName, t.propertyName, t.labelName], color: "#a9bad6" },
+  { name: "variable", tag: [t.definition(t.variableName), t.variableName], color: "#dcdcdc" },
+  { name: "operator", tag: [t.operator, t.derefOperator], color: "#a3a3a3" },
+  { name: "punctuation", tag: [t.punctuation, t.separator, t.bracket], color: "#8a8a8a" },
+  { name: "punctuation", tag: [t.meta, t.processingInstruction, t.annotation], color: "#8a8a8a" },
+  { name: "heading", tag: t.heading, color: "#e6e6e6", fontWeight: "600" },
+  { name: "link", tag: [t.link, t.url], color: "#8fb0e3", textDecoration: "underline" },
+  { name: "emphasis", tag: t.emphasis, fontStyle: "italic" },
+  { name: "strong", tag: t.strong, fontWeight: "600" },
+  { name: "strikethrough", tag: t.strikethrough, textDecoration: "line-through" },
+  { name: "inserted", tag: [t.inserted], color: "#a3c49a" },
+  { name: "deleted", tag: [t.deleted], color: "#de8f8f" },
+  { name: "invalid", tag: t.invalid, color: "#ec7272" },
+];
+
+const zliHighlight = HighlightStyle.define(SYNTAX_STYLES.map(({ name: _name, ...style }) => style));
+
+/** Gives highlighted code outside an editor `syntax-*` classes in the editor's colors. */
+export const fenceHighlighter = tagHighlighter(
+  SYNTAX_STYLES.map(({ name, tag }) => ({ tag, class: `syntax-${name}` })),
+);
 
 const external = Annotation.define<boolean>();
 
@@ -383,6 +426,7 @@ export function createCodeEditor(options: CodeEditorOptions): CodeEditorHandle {
         return true;
       },
     },
+    { key: "Mod-l", run: () => options.onAskAgent?.() ?? false },
   ]);
 
   const state = EditorState.create({
@@ -421,6 +465,7 @@ export function createCodeEditor(options: CodeEditorOptions): CodeEditorHandle {
         indentWithTab,
       ]),
       EditorView.updateListener.of((update) => {
+        if (update.docChanged) options.onDocChange?.();
         if (!update.docChanged || !options.onChange) return;
         if (update.transactions.every((tr) => !tr.docChanged || tr.annotation(external))) return;
         options.onChange(update.state.sliceDoc());
@@ -483,6 +528,16 @@ export function createCodeEditor(options: CodeEditorOptions): CodeEditorHandle {
         effects: EditorView.scrollIntoView(pos, { y: "center" }),
       });
       view.focus();
+    },
+    selection() {
+      const range = view.state.selection.main;
+      if (range.empty) return undefined;
+      const doc = view.state.doc;
+      const startLine = doc.lineAt(range.from).number;
+      const last = doc.lineAt(range.to);
+      // A selection that ends at the start of a line does not cover that line.
+      const endLine = last.from === range.to && last.number > startLine ? last.number - 1 : last.number;
+      return { startLine, endLine, text: view.state.sliceDoc(range.from, range.to) };
     },
     focus: () => view.focus(),
     setReadOnly(readOnly) {

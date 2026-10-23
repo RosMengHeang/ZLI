@@ -28,6 +28,9 @@
     "@xterm/xterm": "5.5.0",
     "@zli-v2/contracts": "workspace:*",
     "@zli-v2/ui": "workspace:*",
+    "dompurify": "3.4.17",
+    "markdown-it": "15.0.3",
+    "markdown-it-footnote": "4.0.0",
     "react": "19.1.1",
     "react-dom": "19.1.1"
   },

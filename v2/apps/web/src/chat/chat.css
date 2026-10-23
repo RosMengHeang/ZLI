@@ -183,6 +183,7 @@
 .composer-attachment-icon { display: inline-grid; flex: 0 0 auto; place-items: center; width: 28px; height: 28px; border-radius: var(--zli-radius-xs); background: var(--zli-overlay); color: var(--zli-muted); }
 .composer-attachment-label { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; margin-right: var(--zli-space-1); line-height: 1.25; }
 .composer-attachment-label > span:first-child { color: var(--zli-text); }
+.composer-attachment-label > .is-mono { font-family: var(--zli-mono); }
 .composer-attachment-meta { color: var(--zli-dim); font-variant-numeric: tabular-nums; }
 .capture-picker { margin: 0 0 var(--zli-space-2); padding: var(--zli-space-2); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-surface); }
 .capture-picker-header { display: flex; align-items: center; gap: var(--zli-space-1); margin-bottom: var(--zli-space-2); }
