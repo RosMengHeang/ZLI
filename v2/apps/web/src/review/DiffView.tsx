@@ -15,6 +15,7 @@ import {
   splitOnMatches,
 } from "./diffLines.js";
 import { addReviewComment, useReviewComments } from "./reviewComments.js";
+import "./review.css";
 
 type Draft = { anchor: LineAnchor; excerpt: string[]; returnTo: number };
 

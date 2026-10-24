@@ -3,10 +3,14 @@ import {
   PullRequestCheckLogResult,
   type PullRequestCheckState,
   type PullRequestCommand,
+  PullRequestCommentsResult,
   PullRequestCreateResult,
   PullRequestInfo,
   type PullRequestProblem,
   PullRequestPushResult,
+  type PullRequestReviewComment,
+  type PullRequestReviewSummary,
+  type PullRequestReviewThread,
   PullRequestStatusResult,
   type RuntimeProjection,
 } from "@zli-v2/contracts";
@@ -46,6 +50,24 @@ const MAX_LOG_CHARS = 30_000;
 const MAX_BODY_SUBJECTS = 50;
 const GH_READY_MS = 5 * 60_000;
 const PR_FIELDS = "url,state,isDraft,number,statusCheckRollup,reviewDecision";
+const MAX_THREADS = 100;
+const MAX_THREAD_COMMENTS = 50;
+const MAX_REVIEWS = 30;
+const MAX_COMMENT_CHARS = 20_000;
+const MAX_HUNK_LINES = 12;
+const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: ${MAX_THREADS}) {
+        nodes {
+          id isResolved isOutdated path line startLine originalLine originalStartLine
+          comments(first: ${MAX_THREAD_COMMENTS}) { nodes { author { login } body url createdAt diffHunk } }
+        }
+      }
+      reviews(last: ${MAX_REVIEWS}) { nodes { id author { login } state body url } }
+    }
+  }
+}`;
 
 const GH_MISSING =
   "GitHub CLI (gh) is not installed or not on PATH. Install it from https://cli.github.com, then check again.";
@@ -166,6 +188,41 @@ export class PullRequestService {
     return PullRequestCheckLogResult.parse(failedLogExcerpt(result.stdout));
   }
 
+  /** Unresolved review threads and written review summaries of the branch's pull request. */
+  async comments(input: PullRequestInput): Promise<PullRequestCommentsResult> {
+    const cwd = input.worktreePath;
+    const branch = await this.currentBranch(cwd);
+    if (!branch) throw new PullRequestError(DETACHED);
+    const problem = await this.ghProblem(cwd);
+    if (problem) throw new PullRequestError(problem.message);
+    const view = await this.gh(["pr", "view", branch, "--json", "number,url"], cwd);
+    if (view.code !== 0) {
+      if (/no (open )?pull requests? found/iu.test(view.stderr))
+        throw new PullRequestError("This branch has no pull request yet.");
+      throw new PullRequestError(ghFailure("could not look up the pull request", view));
+    }
+    const pullRequest = parsePullRequestLink(view.stdout);
+    if (!pullRequest) throw new PullRequestError("GitHub CLI returned a pull request ZLI could not read.");
+    const args = [
+      "api",
+      "graphql",
+      ...(pullRequest.host === "github.com" ? [] : ["--hostname", pullRequest.host]),
+      "-f",
+      `query=${REVIEW_THREADS_QUERY}`,
+      "-f",
+      `owner=${pullRequest.owner}`,
+      "-f",
+      `name=${pullRequest.repo}`,
+      "-F",
+      `number=${pullRequest.number}`,
+    ];
+    const result = await this.gh(args, cwd, { maxOutputBytes: 4 * 1024 * 1024 });
+    if (result.code !== 0) throw new PullRequestError(ghFailure("could not read the review comments", result));
+    const parsed = parseReviewComments(result.stdout);
+    if (!parsed) throw new PullRequestError("GitHub returned review comments ZLI could not read.");
+    return PullRequestCommentsResult.parse({ number: pullRequest.number, url: pullRequest.url, ...parsed });
+  }
+
   private async view(cwd: string, target: string): Promise<PullRequestInfo | undefined> {
     const view = await this.gh(["pr", "view", target, "--json", PR_FIELDS], cwd);
     return view.code === 0 ? parsePullRequest(view.stdout) : undefined;
@@ -268,6 +325,8 @@ export async function runPullRequestCommand(
       return service.push(input);
     case "review.pr.checkLog":
       return service.checkLog(input, command.url);
+    case "review.pr.comments":
+      return service.comments(input);
     case "review.pr.create":
       return service.create(input, {
         title: command.title,
@@ -469,6 +528,140 @@ export function failedLogExcerpt(log: string): { excerpt: string; truncated: boo
     truncated = true;
   }
   return { excerpt, truncated };
+}
+
+/** The repository and number behind `gh pr view --json number,url`. */
+export function parsePullRequestLink(
+  stdout: string,
+): { host: string; owner: string; repo: string; number: number; url: string } | undefined {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(stdout);
+  } catch {
+    return undefined;
+  }
+  if (!isRecordValue(raw) || typeof raw.url !== "string" || typeof raw.number !== "number") return undefined;
+  let url: URL;
+  try {
+    url = new URL(raw.url);
+  } catch {
+    return undefined;
+  }
+  const match = /^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/?$/u.exec(url.pathname);
+  const [, owner, repo] = match ?? [];
+  const host = url.hostname.toLowerCase();
+  if (url.protocol !== "https:" || !owner || !repo || !REPO_PART.test(owner) || !REPO_PART.test(repo)) return undefined;
+  if (!/^[a-z0-9.-]+$/u.test(host) || !Number.isSafeInteger(raw.number) || raw.number <= 0) return undefined;
+  return { host, owner, repo, number: raw.number, url: url.href };
+}
+
+/**
+ * Reduces the GraphQL answer to the threads nobody resolved and the reviews that say something.
+ * Each thread keeps the end of the diff hunk its first comment points at.
+ */
+export function parseReviewComments(
+  stdout: string,
+): { threads: PullRequestReviewThread[]; reviews: PullRequestReviewSummary[] } | undefined {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(stdout);
+  } catch {
+    return undefined;
+  }
+  const pullRequest = pathIn(raw, ["data", "repository", "pullRequest"]);
+  if (!isRecordValue(pullRequest)) return undefined;
+  const threads: PullRequestReviewThread[] = [];
+  for (const node of nodes(pullRequest.reviewThreads).slice(0, MAX_THREADS)) {
+    if (!isRecordValue(node) || node.isResolved === true) continue;
+    const id = stringField(node.id);
+    const filePath = stringField(node.path);
+    if (!id || !filePath) continue;
+    const rawComments = nodes(node.comments);
+    const comments = rawComments.flatMap((comment) => reviewComment(comment)).slice(0, MAX_THREAD_COMMENTS);
+    if (comments.length === 0) continue;
+    const first = rawComments.find(isRecordValue);
+    const line = positiveInteger(node.line) ?? positiveInteger(node.originalLine);
+    const startLine = positiveInteger(node.startLine) ?? positiveInteger(node.originalStartLine);
+    const hunk = first && typeof first.diffHunk === "string" ? hunkTail(first.diffHunk) : "";
+    threads.push({
+      id: id.slice(0, 200),
+      path: filePath.slice(0, 4_000),
+      ...(line ? { line } : {}),
+      ...(startLine && line && startLine < line ? { startLine } : {}),
+      outdated: node.isOutdated === true,
+      ...(hunk ? { diffHunk: hunk } : {}),
+      comments,
+    });
+  }
+  const reviews: PullRequestReviewSummary[] = [];
+  for (const node of nodes(pullRequest.reviews).slice(-MAX_REVIEWS)) {
+    if (!isRecordValue(node)) continue;
+    const id = stringField(node.id);
+    const body = stringField(node.body);
+    const state = node.state;
+    if (!id || !body || (state !== "CHANGES_REQUESTED" && state !== "COMMENTED" && state !== "APPROVED")) continue;
+    const url = httpUrl(stringField(node.url));
+    reviews.push({
+      id: id.slice(0, 200),
+      author: authorOf(node),
+      state,
+      body: body.slice(0, MAX_COMMENT_CHARS),
+      ...(url ? { url } : {}),
+    });
+  }
+  return { threads, reviews };
+}
+
+function reviewComment(value: unknown): PullRequestReviewComment[] {
+  if (!isRecordValue(value)) return [];
+  const body = typeof value.body === "string" ? value.body.trim() : "";
+  if (!body) return [];
+  const url = httpUrl(stringField(value.url));
+  const createdAt = stringField(value.createdAt);
+  return [
+    {
+      author: authorOf(value),
+      body: body.slice(0, MAX_COMMENT_CHARS),
+      ...(url ? { url } : {}),
+      ...(createdAt ? { createdAt: createdAt.slice(0, 40) } : {}),
+    },
+  ];
+}
+
+function authorOf(value: Record<string, unknown>): string {
+  const author = value.author;
+  return (isRecordValue(author) ? stringField(author.login) : undefined)?.slice(0, 100) ?? "ghost";
+}
+
+/**
+ * The last lines of a hunk, which end at the line the comment is on. The @@ header stays only when
+ * nothing was cut, since its line numbers describe the start of the hunk.
+ */
+export function hunkTail(hunk: string): string {
+  const lines = hunk.replace(/\r\n?/gu, "\n").replace(/\n$/u, "").split("\n");
+  const tail = lines.length > MAX_HUNK_LINES ? lines.slice(-MAX_HUNK_LINES) : lines;
+  return tail.join("\n").slice(-8_000);
+}
+
+function nodes(connection: unknown): unknown[] {
+  return isRecordValue(connection) && Array.isArray(connection.nodes) ? connection.nodes : [];
+}
+
+function pathIn(value: unknown, keys: readonly string[]): unknown {
+  let current = value;
+  for (const key of keys) {
+    if (!isRecordValue(current)) return undefined;
+    current = current[key];
+  }
+  return current;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function fromUrl(url: string | undefined, draft: boolean): PullRequestInfo | undefined {

@@ -74,6 +74,11 @@
 .file-meta { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); white-space: nowrap; }
 
 .file-path-bar .btn[aria-pressed="true"] { background: var(--zli-active); color: var(--zli-text); }
+.file-note { display: flex; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-1-5); padding: var(--zli-space-2) var(--zli-space-3); border-bottom: 1px solid var(--zli-border); background: var(--zli-well); }
+.file-note-location { color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
+.file-note .textarea { min-height: 48px; font-size: var(--zli-text-sm); }
+.file-note-actions { display: flex; align-items: center; gap: var(--zli-space-2); }
+.file-note-hint { flex: 1; min-width: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .file-body-host { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .file-body-host[hidden] { display: none; }
 

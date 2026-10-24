@@ -27,6 +27,7 @@ case "$1" in
         echo "${PR_URL}"
         exit 0 ;;
     esac ;;
+  api) cat "$state/comments.json"; exit 0 ;;
   run)
     printf '%s\n' \
       'test	UNKNOWN STEP	2026-01-01T00:00:00.0000000Z ##[group]Run pnpm test' \
@@ -202,6 +203,127 @@ test("shows a pull request's checks and sends a failed check's log to an agent",
 
     // The sidebar shows the same pull request next to the worktree.
     await expect(worktree).toContainText("#7");
+  } finally {
+    if (fixture) await closeDesktop(fixture);
+  }
+});
+
+test("reads a pull request's review comments and sends the picked ones to an agent", async () => {
+  test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
+  test.skip(process.platform === "win32", "The stand-in GitHub CLI is a POSIX shell script.");
+  const { root, repo } = await createGitFixture();
+  const origin = join(root, "origin.git");
+  await git(root, ["init", "--bare", origin]);
+  await git(repo, ["remote", "add", "origin", origin]);
+  await git(repo, ["push", "-u", "origin", "main"]);
+  const binDir = join(root, "bin");
+  const ghState = join(root, "gh-state");
+  await mkdir(binDir, { recursive: true });
+  await mkdir(ghState, { recursive: true });
+  await writeFile(join(binDir, "gh"), FAKE_GH, "utf8");
+  await chmod(join(binDir, "gh"), 0o755);
+  await writeFile(
+    join(ghState, "pr.json"),
+    JSON.stringify({ url: PR_URL, state: "OPEN", isDraft: false, number: 7, reviewDecision: "CHANGES_REQUESTED" }),
+    "utf8",
+  );
+  await writeFile(
+    join(ghState, "comments.json"),
+    JSON.stringify({
+      data: {
+        repository: {
+          pullRequest: {
+            reviewThreads: {
+              nodes: [
+                {
+                  id: "T1",
+                  isResolved: false,
+                  isOutdated: false,
+                  path: "README.md",
+                  line: 1,
+                  comments: {
+                    nodes: [
+                      {
+                        author: { login: "reviewer" },
+                        body: "Make the title shorter.",
+                        url: `${PR_URL}#discussion_r1`,
+                        diffHunk: "@@ -0,0 +1 @@\n+# ZLI integration fixture",
+                      },
+                      { author: { login: "author" }, body: "Will do." },
+                    ],
+                  },
+                },
+                {
+                  id: "T2",
+                  isResolved: true,
+                  path: "README.md",
+                  line: 2,
+                  comments: { nodes: [{ author: { login: "reviewer" }, body: "Already handled." }] },
+                },
+              ],
+            },
+            reviews: {
+              nodes: [
+                { id: "R1", author: { login: "reviewer" }, state: "CHANGES_REQUESTED", body: "Close, a few nits." },
+              ],
+            },
+          },
+        },
+      },
+    }),
+    "utf8",
+  );
+
+  let fixture: DesktopFixture | undefined;
+  try {
+    fixture = await launchDesktop(repo, root, {
+      env: { PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`, ZLI_FAKE_GH_STATE: ghState },
+    });
+    const page = fixture.page;
+    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    const createWorktree = page.getByRole("dialog", { name: "Create worktree" });
+    await createWorktree.getByLabel("Branch").fill("reviewed");
+    await createWorktree.getByRole("button", { name: "Create worktree" }).click();
+    const worktree = page.getByRole("button", { name: /reviewed/iu }).first();
+    await expect(worktree).toContainText("Ready", { timeout: 30_000 });
+    await worktree.click();
+
+    await page.locator(".sidebar-new-agent").click();
+    const newAgent = page.getByRole("dialog", { name: "New agent" });
+    await newAgent.getByText("Codex", { exact: true }).click();
+    await newAgent.getByText("Chat", { exact: true }).click();
+    await newAgent.getByRole("button", { name: "Start agent" }).click();
+    await expect(page.getByRole("textbox", { name: "Message Codex" })).toBeEnabled({ timeout: 20_000 });
+
+    await page.getByRole("button", { name: "Changes", exact: true }).click();
+    await page.getByRole("button", { name: "Refresh changes" }).click();
+    const section = page.getByRole("group", { name: "Pull request" });
+    await expect(section).toContainText("#7", { timeout: 30_000 });
+    await section.getByRole("button", { name: "Review comments" }).click();
+    const comments = section.getByRole("region", { name: "Pull request comments" });
+    await expect(comments).toContainText("2 open review comments", { timeout: 30_000 });
+    await expect(comments).toContainText("README.md:1");
+    await expect(comments).toContainText("Make the title shorter.");
+    await expect(comments).toContainText("1 more reply");
+    await expect(comments).not.toContainText("Already handled.");
+    const calls = await readFile(join(ghState, "calls.log"), "utf8");
+    expect(calls).toMatch(/^api graphql -f query=.*-f owner=zli -f name=fixture -F number=7$/msu);
+
+    await comments.getByRole("checkbox", { name: "Include Review by reviewer" }).uncheck();
+    await comments.getByRole("button", { name: "Send 1 to agent" }).click();
+    const send = page.getByRole("dialog", { name: "Send review comments" });
+    const preview = send.getByLabel("Message preview");
+    await expect(preview).toContainText("pull request #7");
+    await expect(preview).toContainText("+# ZLI integration fixture");
+    await expect(preview).toContainText("author: Will do.");
+    await expect(preview).not.toContainText("Close, a few nits.");
+    await send.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(send).toHaveCount(0);
+    await expect(page.getByText(/Mock response: Please address this review comment from pull request #7/u)).toBeVisible(
+      {
+        timeout: 20_000,
+      },
+    );
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

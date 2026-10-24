@@ -10,6 +10,8 @@ import {
 import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { CodeReference } from "../chat/codeReferences.js";
+import { formatLocation } from "../review/diffLines.js";
+import { addReviewComment } from "../review/reviewComments.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { useAppSettings } from "../settings/appSettings.js";
 import { useShortcut } from "../shell/keybindings.js";
@@ -42,6 +44,23 @@ export type AskAgentTarget = { name: string; ask(reference: Omit<CodeReference, 
 /** Longer selections go out as a file and line range only; the agent can read the lines itself. */
 const MAX_SNIPPET_CHARS = 12_000;
 const NO_CHAT_HINT = "Start a chat with an agent in this worktree to ask about code";
+/** A note keeps at most this many of the lines it is on; the message shows the first few and counts the rest. */
+const MAX_NOTE_LINES = 1_000;
+
+type NoteDraft = { path: string; start: number; end: number; excerpt: string[] };
+
+/** The selected lines, or the line with the cursor, as the place a review note points at. */
+function noteTarget(path: string, handle: CodeEditorHandle): NoteDraft {
+  const { doc, selection } = handle.view.state;
+  const picked = handle.selection();
+  const start = picked?.startLine ?? doc.lineAt(selection.main.head).number;
+  const end = picked?.endLine ?? start;
+  const excerpt: string[] = [];
+  for (let line = start; line <= Math.min(end, start + MAX_NOTE_LINES - 1); line += 1) {
+    excerpt.push(` ${doc.line(line).text}`);
+  }
+  return { path, start, end, excerpt };
+}
 
 export type FilesFocus =
   | { kind: "open"; path: string; line?: number | undefined; column?: number | undefined; nonce: number }
@@ -162,6 +181,7 @@ function FilesWorkspace({
   const [revealKey, setRevealKey] = useState(0);
   const [searchFocusKey, setSearchFocusKey] = useState(0);
   const [closeRequest, setCloseRequest] = useState<string>();
+  const [noteDraft, setNoteDraft] = useState<NoteDraft>();
   const [paneWidth, setPaneWidth] = useState<number>();
   const wide = paneWidth === undefined || paneWidth >= SPLIT_MIN_WIDTH;
   const [browseOpen, setBrowseOpen] = useState(session.tabs.length === 0);
@@ -524,6 +544,26 @@ function FilesWorkspace({
     return true;
   }, []);
 
+  /** Opens the note composer on the selected lines of `path`, or the line with the cursor. */
+  const startNote = useCallback((path: string) => {
+    const editor = editorRef.current;
+    if (editor?.path !== path || !editorVisible.current) return;
+    setNoteDraft(noteTarget(path, editor.handle));
+  }, []);
+  const finishNote = (body: string | undefined) => {
+    if (noteDraft && body) {
+      addReviewComment({
+        worktreeId,
+        path: noteDraft.path,
+        anchor: { side: "new", start: noteDraft.start, end: noteDraft.end },
+        excerpt: noteDraft.excerpt,
+        body,
+      });
+    }
+    setNoteDraft(undefined);
+    if (editorRef.current?.path === noteDraft?.path) editorRef.current?.handle.focus();
+  };
+
   const copyText = (value: string) => void navigator.clipboard?.writeText(value).catch(() => undefined);
   const fullPath = (path: string) => {
     const separator = worktree.path.includes("\\") ? "\\" : "/";
@@ -560,6 +600,7 @@ function FilesWorkspace({
             title: target ? undefined : NO_CHAT_HINT,
             run: () => askAbout(path, true),
           },
+          { label: "Add review note", run: () => startNote(path) },
           {
             label: "Copy",
             shortcut: "Mod+C",
@@ -572,7 +613,7 @@ function FilesWorkspace({
         ],
       });
     },
-    [askAbout],
+    [askAbout, startNote],
   );
 
   const changeViewMode = (mode: FileViewMode) => {
@@ -732,6 +773,16 @@ function FilesWorkspace({
               disabled={!askAgent}
               onClick={() => askAbout(activePath, true)}
             />
+            {activeIsText && !showDiff && viewMode !== "preview" ? (
+              <IconButton
+                icon="squarePen"
+                size="sm"
+                label="Add review note"
+                tooltip="Add a review note on the selected lines. Send notes to an agent from Changes."
+                pressed={noteDraft?.path === activePath}
+                onClick={() => startNote(activePath)}
+              />
+            ) : null}
             {canDiff || showDiff ? (
               <Button
                 variant="ghost"
@@ -759,6 +810,9 @@ function FilesWorkspace({
               </Button>
             ) : null}
           </div>
+          {noteDraft?.path === activePath && !showDiff ? (
+            <ReviewNoteComposer key={`${noteDraft.start}:${noteDraft.end}`} draft={noteDraft} onDone={finishNote} />
+          ) : null}
           {closeRequest === activePath ? (
             <FileBanner
               tone="warning"
@@ -893,6 +947,55 @@ function FilesWorkspace({
         )}
       </div>
     </div>
+  );
+}
+
+/** A note on lines of the open file, kept with the diff comments until it is sent to an agent. */
+function ReviewNoteComposer({ draft, onDone }: { draft: NoteDraft; onDone(body: string | undefined): void }) {
+  const [body, setBody] = useState("");
+  const location = formatLocation(draft.path, { side: "new", start: draft.start, end: draft.end });
+  const submit = () => {
+    if (body.trim()) onDone(body.trim());
+  };
+  return (
+    <form
+      className="file-note"
+      aria-label="Review note"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
+    >
+      <span className="file-note-location">Note on {location}</span>
+      <textarea
+        className="textarea"
+        aria-label={`Note on ${location}`}
+        placeholder="What should change here?"
+        rows={2}
+        // biome-ignore lint/a11y/noAutofocus: the composer opens because the person asked to write a note.
+        autoFocus
+        value={body}
+        onChange={(event) => setBody(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault();
+            submit();
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            onDone(undefined);
+          }
+        }}
+      />
+      <div className="file-note-actions">
+        <span className="file-note-hint">Notes wait in Changes until you send them to an agent.</span>
+        <Button size="sm" variant="ghost" onClick={() => onDone(undefined)}>
+          Cancel
+        </Button>
+        <Button size="sm" variant="primary" type="submit" shortcut="Mod+Enter" disabled={!body.trim()}>
+          Add note
+        </Button>
+      </div>
+    </form>
   );
 }
 

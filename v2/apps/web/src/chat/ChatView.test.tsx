@@ -225,11 +225,13 @@ describe("ChatView", () => {
     await act(async () => changes?.querySelector<HTMLButtonElement>(".turn-file")?.click());
     expect(dispatched.at(-1)?.command).toEqual({ type: "checkpoint.diff", checkpointId, path: "README.md" });
     const diff = container.querySelector('[aria-label="Diff for README.md"]');
-    expect([...(diff?.querySelectorAll(".turn-diff-line") ?? [])].map((line) => line.className)).toEqual([
-      "turn-diff-line is-hunk",
-      "turn-diff-line is-del",
-      "turn-diff-line is-add",
+    expect([...(diff?.querySelectorAll(".diff-line") ?? [])].map((line) => line.className)).toEqual([
+      "diff-line is-hunk",
+      "diff-line is-del",
+      "diff-line is-add",
     ]);
+    // The lines take review comments like the Changes panel.
+    expect(diff?.querySelector('[role="listbox"]')?.getAttribute("aria-label")).toBe("Lines of README.md");
 
     await act(async () => button(changes as HTMLElement, "Restore")?.click());
     const dialog = document.querySelector('[role="dialog"][aria-label="Restore files"]');
