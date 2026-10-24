@@ -83,7 +83,9 @@ export function scanPlugins(
   for (const path of PLUGIN_MARKETPLACES) {
     const catalog = readJson(files, path);
     if (!isPlainObject(catalog) || !Array.isArray(catalog.plugins)) continue;
-    marketplace = stringField(catalog, "name") ?? stringField(isPlainObject(catalog.interface) ? catalog.interface : {}, "displayName");
+    marketplace =
+      stringField(catalog, "name") ??
+      stringField(isPlainObject(catalog.interface) ? catalog.interface : {}, "displayName");
     const base = cleanPath(stringField(isPlainObject(catalog.metadata) ? catalog.metadata : {}, "pluginRoot") ?? "");
     for (const entry of catalog.plugins) {
       if (!isPlainObject(entry)) continue;
@@ -138,9 +140,8 @@ function readPlugin(
   const descriptor: PluginDescriptor = {
     name,
     displayName: stringField(manifest, "displayName") ?? stringField(ui, "displayName") ?? name,
-    description:
-      stringField(manifest, "description") ?? stringField(ui, "shortDescription") ?? hint.description ?? "",
-    ...(stringField(manifest, "version") ? { version: stringField(manifest, "version") } : {}),
+    description: stringField(manifest, "description") ?? stringField(ui, "shortDescription") ?? hint.description ?? "",
+    ...versionOf(manifest),
     format: hint.format,
     skills: readSkills(files, manifest, warnings),
     mcpServers: readMcpServers(files, manifest, warnings),
@@ -167,7 +168,9 @@ function readPlugin(
 }
 
 export function countParts(descriptor: Pick<PluginDescriptor, "skills" | "mcpServers" | "prompts" | "actions">) {
-  return descriptor.skills.length + descriptor.mcpServers.length + descriptor.prompts.length + descriptor.actions.length;
+  return (
+    descriptor.skills.length + descriptor.mcpServers.length + descriptor.prompts.length + descriptor.actions.length
+  );
 }
 
 export function componentsOf(descriptor: PluginDescriptor): PluginComponents {
@@ -375,6 +378,11 @@ function readJson(files: ReadonlyMap<string, Uint8Array>, path: string): unknown
   } catch {
     return null;
   }
+}
+
+function versionOf(manifest: Record<string, unknown>): { version?: string } {
+  const version = stringField(manifest, "version");
+  return version ? { version } : {};
 }
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {

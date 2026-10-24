@@ -78,6 +78,8 @@ export class SkillStore {
       home: string;
       env?: NodeJS.ProcessEnv;
       sync?: UserSkillSync;
+      /** Skills from other sources, such as plugins. Library skills win a shared name. */
+      extraSkills?: () => ReadonlyArray<{ name: string; path: string }>;
       fetch?: typeof fetch;
       githubToken?: string | undefined;
       now?: () => number;
@@ -120,6 +122,16 @@ export class SkillStore {
 
   libraryPath(): string {
     return this.options.libraryDir;
+  }
+
+  /** Names of every skill in the library, on or off. */
+  async libraryNames(): Promise<string[]> {
+    return (await listSkillFolders(this.options.libraryDir)).map((folder) => folder.name);
+  }
+
+  /** Agent skills folders where a skill the person already had kept this one from being copied. */
+  conflictPaths(name: string): string[] {
+    return this.outcomes.filter((outcome) => outcome.conflicts.includes(name)).map((outcome) => outcome.path);
   }
 
   async list(project?: ProjectRef): Promise<SkillListResult> {
@@ -360,15 +372,15 @@ export class SkillStore {
   private async sync(): Promise<void> {
     const sync = this.options.sync;
     if (!sync) return;
-    const enabled = (await listSkillFolders(this.options.libraryDir)).filter(
-      (folder) => !folder.problem && !this.disabled.has(folder.name),
-    );
+    const library = await listSkillFolders(this.options.libraryDir);
+    const names = new Set(library.map((folder) => folder.name));
+    const enabled = library
+      .filter((folder) => !folder.problem && !this.disabled.has(folder.name))
+      .map((folder) => ({ name: folder.name, path: folder.path }));
+    const extra = (this.options.extraSkills?.() ?? []).filter((skill) => !names.has(skill.name));
     let result: Awaited<ReturnType<UserSkillSync>>;
     try {
-      result = await sync(
-        enabled.map((folder) => ({ name: folder.name, path: folder.path })),
-        this.owned,
-      );
+      result = await sync([...enabled, ...extra], this.owned);
     } catch {
       return;
     }

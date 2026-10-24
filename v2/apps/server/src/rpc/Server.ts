@@ -27,6 +27,8 @@ import {
   type McpCommand,
   type McpListResult,
   type McpServerConfig,
+  PLUGIN_COMMAND_TYPES,
+  type PluginCommand,
   type ProviderDiscovery,
   PULL_REQUEST_COMMAND_TYPES,
   type PullRequestCommand,
@@ -44,6 +46,8 @@ import { CheckpointError, type TurnCheckpoints } from "../checkpoints/TurnCheckp
 import { errorCode, FileService, FileServiceError } from "../files/FileService.js";
 import { defaultIssueSources, IssueError, type IssueSources, runIssueCommand } from "../issues/IssueService.js";
 import type { Engine } from "../orchestration/Engine.js";
+import { isPluginError, type PluginStore } from "../plugins/PluginStore.js";
+import { runPluginCommand } from "../plugins/runPluginCommand.js";
 import { unavailableProviderDiscovery } from "../providers/discoverCliProviders.js";
 import {
   PullRequestError,
@@ -93,6 +97,8 @@ type RpcServerOptions = {
   };
   /** The skills from Settings. Without it, skills commands are answered as unavailable. */
   skills?: SkillStore;
+  /** Installed plugins. Without it, plugin commands are answered as unavailable. */
+  plugins?: PluginStore;
   /** Accounts per agent CLI. Without it, account commands are answered as unavailable. */
   accounts?: {
     list(): Promise<AccountListResult>;
@@ -117,6 +123,7 @@ export class RpcServer {
   private readonly checkpoints: RpcServerOptions["checkpoints"];
   private readonly mcpServers: RpcServerOptions["mcpServers"];
   private readonly skills: SkillStore | undefined;
+  private readonly plugins: PluginStore | undefined;
   private readonly accounts: RpcServerOptions["accounts"];
   private readonly host: string;
   private readonly port: number;
@@ -143,6 +150,7 @@ export class RpcServer {
     this.checkpoints = options.checkpoints;
     this.mcpServers = options.mcpServers;
     this.skills = options.skills;
+    this.plugins = options.plugins;
     this.accounts = options.accounts;
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
@@ -458,6 +466,31 @@ export class RpcServer {
     return true;
   }
 
+  /** Plugins live in folders beside the database, outside the event log. */
+  private async handlePluginCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isPluginCommand(command)) return false;
+    const store = this.plugins;
+    const reject = (error: RuntimeError) =>
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: false, error } });
+    if (!store) {
+      reject({ code: "unavailable", message: "Plugins are not available here.", retryable: false });
+      return true;
+    }
+    try {
+      const result = await runPluginCommand(store, command);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reject(
+        isPluginError(error)
+          ? { code: "invalid_request", message, retryable: false }
+          : { code: "internal", message: `The plugin change did not go through. ${message}`, retryable: true },
+      );
+    }
+    return true;
+  }
+
   /** Accounts live in an owner-only file beside the database, outside the event log, since it holds keys. */
   private async handleAccountCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
     const command = request.command;
@@ -680,6 +713,7 @@ export class RpcServer {
         if (await this.handleProjectConfig(client, message.data.request)) return;
         if (await this.handleMcpCommand(client, message.data.request)) return;
         if (await this.handleSkillCommand(client, message.data.request)) return;
+        if (await this.handlePluginCommand(client, message.data.request)) return;
         if (await this.handleAccountCommand(client, message.data.request)) return;
         try {
           let request: RpcRequest;
@@ -792,6 +826,10 @@ function isAccountCommand(command: RpcRequest["command"]): command is AccountCom
 
 function isMcpCommand(command: RpcRequest["command"]): command is McpCommand {
   return (MCP_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
+function isPluginCommand(command: RpcRequest["command"]): command is PluginCommand {
+  return (PLUGIN_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
 function isSkillCommand(command: RpcRequest["command"]): command is SkillCommand {

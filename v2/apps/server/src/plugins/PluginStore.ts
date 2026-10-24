@@ -12,7 +12,12 @@ import type {
 } from "@zli-v2/contracts";
 
 import { isPlainObject, writeFileAtomic } from "../browser-tool/browserTool.js";
-import { downloadGithubFiles, type GithubSkillSource, parseGithubSkillSource, sourceKey } from "../skills/githubSource.js";
+import {
+  downloadGithubFiles,
+  type GithubSkillSource,
+  parseGithubSkillSource,
+  sourceKey,
+} from "../skills/githubSource.js";
 import { isNotFound, replaceFolder, SkillError, writeSkillFiles } from "../skills/skillFolders.js";
 import {
   componentsOf,
@@ -59,6 +64,8 @@ export type PluginStoreOptions = {
   userServerNames?: () => readonly string[];
   /** Names of the person's own skills, which win over plugin skills. */
   userSkillNames?: () => Promise<readonly string[]>;
+  /** Agent skills folders where a same-named skill the person already had kept a plugin skill out. */
+  skillConflicts?: (name: string) => readonly string[];
   /** Runs after a change so agent settings and skill folders pick it up. */
   onChange?: () => Promise<void>;
 };
@@ -115,6 +122,10 @@ export class PluginStore {
           for (const skill of descriptor.skills) {
             if (librarySkills.has(skill.name)) {
               problems.push(`Skill ${skill.name} is not copied to agents: one of your own skills has that name.`);
+              continue;
+            }
+            for (const path of this.options.skillConflicts?.(skill.name) ?? []) {
+              problems.push(`Skill ${skill.name} is not copied to ${path}: a skill with that name is already there.`);
             }
           }
         }
@@ -446,7 +457,10 @@ function sourceFor(source: ParsedSource, root: string): string {
   return `https://github.com/${owner}/${repo}${ref || folder ? `/tree/${ref ?? "HEAD"}${folder ? `/${folder}` : ""}` : ""}`;
 }
 
-function effectiveConfig(descriptor: PluginDescriptor, saved: Readonly<Record<string, string>>): Record<string, string> {
+function effectiveConfig(
+  descriptor: PluginDescriptor,
+  saved: Readonly<Record<string, string>>,
+): Record<string, string> {
   const values: Record<string, string> = {};
   for (const option of descriptor.config) {
     const value = saved[option.key] || option.default;

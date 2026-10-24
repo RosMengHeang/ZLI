@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { EnvironmentId } from "@zli-v2/contracts";
+import { EnvironmentId, type McpServerConfig } from "@zli-v2/contracts";
 import { AccountStore } from "./accounts/AccountStore.js";
 import { type BrowserToolConfig, browserToolConfigFromEnv, zliMcpServerSpecs } from "./browser-tool/browserTool.js";
 import {
@@ -24,6 +24,7 @@ import { LegacyImportReactor } from "./import/LegacyImportReactor.js";
 import { GitHubIssues } from "./issues/GitHubIssues.js";
 import { LinearIssues } from "./issues/LinearIssues.js";
 import { McpServerStore } from "./mcp/McpServerStore.js";
+import { PluginStore } from "./plugins/PluginStore.js";
 import { AgentMessageReactor } from "./orchestration/AgentMessageReactor.js";
 import { Engine } from "./orchestration/Engine.js";
 import { ProviderReactor } from "./providers/ProviderReactor.js";
@@ -58,6 +59,7 @@ export type RuntimeProcess = {
   devServerReactor: DevServerReactor;
   mcpServers: McpServerStore;
   skills: SkillStore;
+  plugins: PluginStore;
   accounts: AccountStore;
   /** Settles once the browser tool is registered in agent user settings (empty when not configured). */
   browserToolRegistration: Promise<readonly UserSettingsOutcome[]>;
@@ -106,8 +108,25 @@ export async function startRuntime(options: {
   const userHome = options.userHome ?? homedir();
   const writeUserSettings = options.registerInUserSettings !== false;
   const mcpConfigDir = browserTool?.mcpConfigDir ?? join(dirname(databasePath), "mcp");
-  const mcpServers = new McpServerStore({
+  const githubToken = process.env.GH_TOKEN?.trim() || process.env.GITHUB_TOKEN?.trim() || undefined;
+  // Loaded first: the MCP and skill stores read plugin parts as they load. The callbacks below run later.
+  const plugins: PluginStore = new PluginStore({
+    pluginsDir: join(dirname(databasePath), "plugins"),
+    dataDir: join(dirname(databasePath), "plugin-data"),
+    statePath: join(dirname(databasePath), "plugins.json"),
+    githubToken,
+    userServerNames: (): string[] => mcpServers.list().servers.map((server) => server.name),
+    userSkillNames: (): Promise<string[]> => skills.libraryNames(),
+    skillConflicts: (name): string[] => skills.conflictPaths(name),
+    onChange: async (): Promise<void> => {
+      await mcpServers.refresh();
+      await skills.syncUserSettings();
+    },
+  });
+  await plugins.load();
+  const mcpServers: McpServerStore = new McpServerStore({
     path: join(dirname(databasePath), "mcp-servers.json"),
+    extraServers: (taken): McpServerConfig[] => plugins.mcpServers(taken),
     ...(writeUserSettings
       ? {
           syncUserSettings: (specs, owned) =>
@@ -124,7 +143,8 @@ export async function startRuntime(options: {
     libraryDir: join(dirname(databasePath), "skills"),
     statePath: join(dirname(databasePath), "skills.json"),
     home: userHome,
-    githubToken: process.env.GH_TOKEN?.trim() || process.env.GITHUB_TOKEN?.trim() || undefined,
+    githubToken,
+    extraSkills: () => plugins.skills(),
     ...(writeUserSettings
       ? {
           sync: (list, owned) =>
@@ -187,6 +207,7 @@ export async function startRuntime(options: {
     mcpServers,
     issues: { github: new GitHubIssues(), linear: linearIssues },
     skills,
+    plugins,
     accounts,
   });
   // Before the server accepts commands, so a setup started by a new request is never mistaken for a stale one.
@@ -227,6 +248,7 @@ export async function startRuntime(options: {
     devServerReactor,
     mcpServers,
     skills,
+    plugins,
     accounts,
     browserToolRegistration,
     token,
@@ -235,6 +257,7 @@ export async function startRuntime(options: {
       await browserToolRegistration;
       await mcpServers.waitForIdle();
       await linearIssues.waitForIdle();
+      await plugins.waitForIdle();
       await skills.waitForIdle();
       await accounts.waitForIdle();
       await worktreeReactor.waitForIdle();

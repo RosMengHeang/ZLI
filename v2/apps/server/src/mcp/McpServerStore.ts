@@ -92,7 +92,14 @@ export class McpServerStore {
   private problem: string | undefined;
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly options: { path: string; syncUserSettings?: McpUserSettingsSync }) {}
+  constructor(
+    private readonly options: {
+      path: string;
+      syncUserSettings?: McpUserSettingsSync;
+      /** Servers from other sources, such as plugins. `taken` holds the lowercase names of the person's own servers, which win. */
+      extraServers?: (taken: ReadonlySet<string>) => McpServerConfig[];
+    },
+  ) {}
 
   async load(): Promise<void> {
     let text: string;
@@ -126,11 +133,9 @@ export class McpServerStore {
 
   /** Enabled servers in the form agent launches use. */
   specs(): McpServerSpec[] {
-    return this.servers
-      .filter((server) => server.enabled)
-      .map((server) =>
-        mcpLaunchSpec(server, needsHeaderFile(server) ? { headerFile: this.headerFile(server.name) } : {}),
-      );
+    return [...this.servers.filter((server) => server.enabled), ...this.extraServers()].map((server) =>
+      mcpLaunchSpec(server, needsHeaderFile(server) ? { headerFile: this.headerFile(server.name) } : {}),
+    );
   }
 
   /** Where mcp-remote reads one sign-in server's headers. */
@@ -178,6 +183,14 @@ export class McpServerStore {
     });
   }
 
+  /** Picks up a change in the extra servers: rewrites their header files and agent settings. */
+  refresh(): Promise<void> {
+    return this.serialize(async () => {
+      await this.writeHeaderFiles();
+      await this.sync();
+    });
+  }
+
   /** Brings agent settings in line with the saved list, for example after an agent CLI was installed. */
   syncUserSettings(): Promise<McpListResult> {
     return this.serialize(async () => {
@@ -194,6 +207,16 @@ export class McpServerStore {
     const run = this.queue.catch(() => undefined).then(work);
     this.queue = run;
     return run;
+  }
+
+  private extraServers(): McpServerConfig[] {
+    const extra = this.options.extraServers;
+    if (!extra) return [];
+    try {
+      return extra(new Set(this.servers.map((server) => server.name.toLowerCase())));
+    } catch {
+      return [];
+    }
   }
 
   private async sync(): Promise<void> {
@@ -219,7 +242,7 @@ export class McpServerStore {
 
   /** Keeps one private file per sign-in server with headers and removes the rest. A failure only affects that server. */
   private async writeHeaderFiles(): Promise<void> {
-    const wanted = this.servers.filter(needsHeaderFile);
+    const wanted = [...this.servers, ...this.extraServers()].filter(needsHeaderFile);
     const keep = new Set(wanted.map((server) => `${server.name}${HEADER_FILE_SUFFIX}`));
     for (const server of wanted) {
       if (!isHttpServer(server)) continue;

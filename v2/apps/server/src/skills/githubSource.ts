@@ -105,7 +105,8 @@ export async function downloadGithubFiles(
   } = {},
 ): Promise<GithubDownload> {
   const maxFileBytes = options.maxFileBytes ?? MAX_SKILL_FILE_BYTES * 4;
-  const maxKeptBytes = options.maxKeptBytes ?? MAX_KEPT_BYTES;  const fetchImpl = options.fetch ?? fetch;
+  const maxKeptBytes = options.maxKeptBytes ?? MAX_KEPT_BYTES;
+  const fetchImpl = options.fetch ?? fetch;
   const ref = source.ref ? `/${source.ref.split("/").map(encodeURIComponent).join("/")}` : "";
   const url = `https://api.github.com/repos/${source.owner}/${source.repo}/tarball${ref}`;
   let response: Response;
