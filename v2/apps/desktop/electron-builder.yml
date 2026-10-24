@@ -9,6 +9,8 @@ afterPack: ./scripts/after-pack.mjs
 files:
   - dist/**
   - renderer/**
+  # The window icon on Windows and Linux.
+  - build/icon-square.png
 # The release workflow creates a draft release for the tag first; each platform build uploads its
 # installer and update files (latest*.yml, .blockmap) into it, and the workflow publishes it last.
 publish:
