@@ -8,7 +8,16 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
 import { McpServersSection } from "./McpServersSection.js";
-import { applyDraft, commandLine, EMPTY_DRAFT, envFromText, settingsProblems } from "./mcpServers.js";
+import {
+  applyDraft,
+  commandLine,
+  draftFromServer,
+  EMPTY_DRAFT,
+  envFromText,
+  headersFromText,
+  serverSummary,
+  settingsProblems,
+} from "./mcpServers.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -55,6 +64,54 @@ describe("MCP server drafts", () => {
     });
   });
 
+  it("builds remote servers from the URL, header lines, and sign-in choice", () => {
+    const draft = {
+      ...EMPTY_DRAFT,
+      name: "linear",
+      transport: "http" as const,
+      command: "ignored",
+      url: " https://mcp.linear.app/mcp ",
+      headers: "Authorization: Bearer lin_1\n\nX-Team:eng",
+      oauth: true,
+    };
+    const linear = {
+      name: "linear",
+      enabled: true,
+      transport: "http",
+      url: "https://mcp.linear.app/mcp",
+      headers: { Authorization: "Bearer lin_1", "X-Team": "eng" },
+      oauth: true,
+    };
+    expect(applyDraft([github], draft, undefined)).toEqual({ servers: [github, linear] });
+    expect(draftFromServer(linear as McpServerConfig)).toMatchObject({
+      transport: "http",
+      url: linear.url,
+      headers: "Authorization: Bearer lin_1\nX-Team: eng",
+      oauth: true,
+    });
+    expect(applyDraft([], { ...draft, url: "http://mcp.example.com" }, undefined)).toEqual({
+      problem: "Use https://. Plain http:// works only for servers on this computer (localhost).",
+    });
+    expect(applyDraft([], { ...draft, url: "" }, undefined)).toEqual({ problem: "Add the server address." });
+    expect(headersFromText("Bearer x")).toEqual({ problem: "Header line 1 needs the form Name: value." });
+    expect(headersFromText("Bad Name: x")).toEqual({
+      problem: "Header line 1: names use letters, digits, and - only.",
+    });
+  });
+
+  it("shows header names but never their values in the row summary", () => {
+    const summary = serverSummary({
+      name: "ctx",
+      enabled: true,
+      transport: "http",
+      url: "https://mcp.context7.com/mcp",
+      headers: { Authorization: "Bearer secret-token" },
+      oauth: true,
+    });
+    expect(summary).toBe("https://mcp.context7.com/mcp · Authorization: •••• · sign in with browser");
+    expect(summary).not.toContain("secret-token");
+    expect(serverSummary(github)).toBe("npx -y gh-mcp");
+  });
   it("summarizes the command and the settings files ZLI could not change", () => {
     expect(commandLine({ command: "C:\\Program Files\\node.exe", args: ["server.js"] })).toBe(
       '"C:\\Program Files\\node.exe" server.js',
@@ -159,6 +216,93 @@ describe("McpServersSection", () => {
     expect(container.textContent).toContain("No servers yet.");
   });
 
+  it("adds a remote server and catalog servers", async () => {
+    let servers: McpServerConfig[] = [];
+    const bridge = {
+      runtime: {
+        dispatch: async (request: { commandId: string; command: { type: string; servers?: McpServerConfig[] } }) => {
+          if (request.command.type === "mcp.save") servers = request.command.servers ?? [];
+          return {
+            commandId: CommandId.parse(request.commandId),
+            accepted: true as const,
+            result: { servers, agentAccess: "full", userSettings: { enabled: true, outcomes: [] } },
+          };
+        },
+        getProjection: async () => undefined,
+        onProjection: () => () => undefined,
+      },
+      app: { getVersion: async () => "0", quit: async () => undefined },
+    } as unknown as ZliBridge;
+    const container = document.createElement("div");
+    document.body.append(container);
+    await act(async () => {
+      createRoot(container).render(
+        <RuntimeProvider bridge={bridge}>
+          <McpServersSection />
+        </RuntimeProvider>,
+      );
+    });
+
+    await act(async () => button(container, "Add server").click());
+    let form = container.querySelector("form") as HTMLFormElement;
+    await act(async () => setValue(form.querySelector("input") as HTMLInputElement, "context7"));
+    await act(async () => form.querySelector<HTMLButtonElement>('button[aria-label="Type: Local process"]')?.click());
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('[role="option"][data-label="Remote server"]')?.click(),
+    );
+    form = container.querySelector("form") as HTMLFormElement;
+    const url = form.querySelector<HTMLInputElement>('input[inputmode="url"]') as HTMLInputElement;
+    const headers = form.querySelector("textarea") as HTMLTextAreaElement;
+    await act(async () => {
+      setValue(url, "https://mcp.context7.com/mcp");
+      setValue(headers, "Authorization: Bearer ctx-secret");
+    });
+    await act(async () => form.requestSubmit());
+    expect(servers).toEqual([
+      {
+        name: "context7",
+        enabled: true,
+        transport: "http",
+        url: "https://mcp.context7.com/mcp",
+        headers: { Authorization: "Bearer ctx-secret" },
+        oauth: false,
+      },
+    ]);
+    expect(container.querySelector(".mcp-row-command")?.textContent).toBe(
+      "https://mcp.context7.com/mcp · Authorization: ••••",
+    );
+    expect(container.textContent).not.toContain("ctx-secret");
+
+    await act(async () => button(container, "Browse catalog").click());
+    const catalog = container.querySelector('[aria-label="MCP server catalog"]') as HTMLElement;
+    expect(catalog.querySelector('[data-entry="context7"]')?.textContent).toContain("Added");
+    const search = catalog.querySelector<HTMLInputElement>('input[type="search"]') as HTMLInputElement;
+    await act(async () => setValue(search, "linear"));
+    expect([...catalog.querySelectorAll(".mcp-catalog-item")].map((item) => item.getAttribute("data-entry"))).toEqual([
+      "linear",
+    ]);
+    await act(async () => button(catalog, "Add Linear").click());
+    expect(servers.at(-1)).toEqual({
+      name: "linear",
+      enabled: true,
+      transport: "http",
+      url: "https://mcp.linear.app/mcp",
+      headers: {},
+      oauth: true,
+    });
+    expect(catalog.querySelector('[data-entry="linear"]')?.textContent).toContain("Added");
+
+    await act(async () => setValue(search, "github"));
+    await act(async () => button(catalog, "Add GitHub").click());
+    const githubForm = catalog.querySelector('form[aria-label="Add GitHub"]') as HTMLFormElement;
+    await act(async () => githubForm.requestSubmit());
+    expect(githubForm.textContent).toContain("Add the personal access token.");
+    const token = githubForm.querySelector<HTMLInputElement>('input[type="password"]') as HTMLInputElement;
+    await act(async () => setValue(token, "ghp_test"));
+    await act(async () => githubForm.requestSubmit());
+    expect(servers.at(-1)).toMatchObject({ name: "github", headers: { Authorization: "Bearer ghp_test" } });
+    expect(catalog.querySelector('[data-entry="github"]')?.textContent).toContain("Added");
+  });
   it("shows why the list could not load and retries", async () => {
     let calls = 0;
     const bridge = {

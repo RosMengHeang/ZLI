@@ -8,6 +8,7 @@ import {
   agentMcpServerSpec,
   BROWSER_MCP_SERVER,
   type BrowserToolConfig,
+  isHttpSpec,
   isPlainObject,
   type McpServerSpec,
   mcpServerSpec,
@@ -56,8 +57,27 @@ export function userSettingsFiles(
   ];
 }
 
+/**
+ * Keys that say how to reach a server. ZLI replaces all of them together, so an entry switched between a
+ * command and a URL does not keep the old transport's keys.
+ */
+const TRANSPORT_KEYS = ["type", "transport", "command", "args", "env", "url", "httpUrl", "headers"];
+
 /** The server entry in one agent's settings format. */
 export function userSettingsEntry(provider: UserSettingsProvider, spec: McpServerSpec): Record<string, unknown> {
+  if (isHttpSpec(spec)) {
+    const headers = Object.keys(spec.headers).length > 0 ? { headers: { ...spec.headers } } : {};
+    switch (provider) {
+      case "droid":
+        return { type: "http", url: spec.url, ...headers };
+      case "gemini":
+      case "qwen":
+        return { httpUrl: spec.url, ...headers };
+      case "cursor-agent":
+      case "kimi":
+        return { url: spec.url, ...headers };
+    }
+  }
   const stdio = { command: spec.command, args: [...spec.args], env: { ...spec.env } };
   return provider === "droid" ? { type: "stdio", ...stdio } : stdio;
 }
@@ -209,7 +229,10 @@ async function applyChanges(
   }
   for (const [name, entry] of Object.entries(changes.set)) {
     const existing = next[name];
-    const merged = { ...(isPlainObject(existing) ? existing : {}), ...entry };
+    const kept = isPlainObject(existing)
+      ? Object.fromEntries(Object.entries(existing).filter(([key]) => !TRANSPORT_KEYS.includes(key)))
+      : {};
+    const merged = { ...kept, ...entry };
     if (isPlainObject(existing) && sameJson(existing, merged)) continue;
     if (existing === undefined) created.push(name);
     next[name] = merged;

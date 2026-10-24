@@ -226,4 +226,45 @@ describe("syncUserMcpServers", () => {
     expect(failed.outcomes.find((outcome) => outcome.provider === "droid")?.status).toBe("skipped-invalid");
     expect(failed.owned).toEqual(added.owned);
   });
+  it("writes remote servers in each agent's own format and drops the old transport's keys", async () => {
+    const dir = await home();
+    const options = {
+      home: dir,
+      env: {},
+      isInstalled: installed("cursor-agent", "droid", "kimi", "gemini", "qwen"),
+    };
+    const cursor = join(dir, ".cursor", "mcp.json");
+    await mkdir(join(dir, ".cursor"));
+    await writeFile(
+      cursor,
+      JSON.stringify({ mcpServers: { linear: { command: "old", args: [], env: {}, disabled: true } } }),
+      "utf8",
+    );
+    const remote = {
+      transport: "http" as const,
+      name: "linear",
+      url: "https://mcp.linear.app/mcp",
+      headers: { Authorization: "Bearer t" },
+    };
+    await syncUserMcpServers([remote], {}, options);
+    const headers = { Authorization: "Bearer t" };
+    expect(await readJson(cursor)).toEqual({
+      mcpServers: { linear: { url: remote.url, headers, disabled: true } },
+    });
+    expect(await readJson(join(dir, ".factory", "mcp.json"))).toEqual({
+      mcpServers: { linear: { type: "http", url: remote.url, headers } },
+    });
+    expect(await readJson(join(dir, ".kimi-code", "mcp.json"))).toEqual({
+      mcpServers: { linear: { url: remote.url, headers } },
+    });
+    for (const file of [".gemini", ".qwen"]) {
+      expect(await readJson(join(dir, file, "settings.json"))).toEqual({
+        mcpServers: { linear: { httpUrl: remote.url, headers } },
+      });
+    }
+    await syncUserMcpServers([{ ...remote, headers: {} }], {}, options);
+    expect(await readJson(join(dir, ".gemini", "settings.json"))).toEqual({
+      mcpServers: { linear: { httpUrl: remote.url } },
+    });
+  });
 });

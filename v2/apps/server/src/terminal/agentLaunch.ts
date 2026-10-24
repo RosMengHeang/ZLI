@@ -1,11 +1,6 @@
 import type { ListedProviderKind, TerminalAgentLaunch } from "@zli-v2/contracts";
 
-import {
-  codexMcpArgs,
-  gooseExtension,
-  type McpConfigFileKind,
-  type McpServerSpec,
-} from "../browser-tool/browserTool.js";
+import { codexMcpArgs, gooseMcpArgs, type McpConfigFileKind, type McpServerSpec } from "../browser-tool/browserTool.js";
 
 /**
  * Model ids reach cmd.exe when the CLI is an npm .cmd shim, so only characters that real
@@ -129,7 +124,7 @@ export function mcpLaunchArgs(
       // The servers come from ~/.cursor/mcp.json; without this Cursor asks before starting them.
       return ["--approve-mcps"];
     case "goose":
-      return tool.specs.flatMap((spec) => ["--with-extension", gooseExtension(spec, platform)]);
+      return tool.specs.flatMap((spec) => gooseMcpArgs(spec, platform));
     case "droid":
     case "opencode":
     case "gemini":

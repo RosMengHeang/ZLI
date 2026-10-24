@@ -7,21 +7,87 @@ export const MCP_SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/u;
 /** Names ZLI uses for its own servers. */
 export const RESERVED_MCP_SERVER_NAMES: readonly string[] = ["zli", "zli-browser"];
 export const MAX_MCP_SERVERS = 50;
+/** HTTP header names (RFC 9110 tokens). */
+export const MCP_HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,256}$/u;
+/** The mcp-remote release that bridges sign-in (OAuth) servers to stdio. Pinned so a new release cannot change it unseen. */
+export const MCP_REMOTE_PACKAGE = "mcp-remote@0.15.2";
 
 const EnvName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/u, "Environment names use letters, digits, and _.");
+const HeaderName = z.string().regex(MCP_HEADER_NAME_PATTERN, "Header names use letters, digits, and - only.");
+const HeaderValue = z
+  .string()
+  .max(8_000)
+  .refine((value) => !/[\r\n\0]/u.test(value), "Header values must fit on one line.");
 
-/** A local stdio MCP server that ZLI hands to every agent it starts. */
-export const McpServerConfig = z.object({
-  name: z
-    .string()
-    .regex(MCP_SERVER_NAME_PATTERN, "Names use letters, digits, - and _, up to 64 characters.")
-    .refine((name) => !RESERVED_MCP_SERVER_NAMES.includes(name.toLowerCase()), "This name is used by ZLI."),
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** Why a remote server address cannot be used, or undefined when it can. */
+export function mcpServerUrlProblem(raw: string): string | undefined {
+  if (/\s/u.test(raw)) return "The address cannot contain spaces.";
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return "Enter the full server address, starting with https://.";
+  }
+  if (url.username || url.password) return "Put credentials in a header, not in the address.";
+  if (url.protocol === "https:") return undefined;
+  if (url.protocol === "http:") {
+    return LOOPBACK_HOSTS.has(url.hostname.toLowerCase())
+      ? undefined
+      : "Use https://. Plain http:// works only for servers on this computer (localhost).";
+  }
+  return "The address must start with https://.";
+}
+
+const ServerName = z
+  .string()
+  .regex(MCP_SERVER_NAME_PATTERN, "Names use letters, digits, - and _, up to 64 characters.")
+  .refine((name) => !RESERVED_MCP_SERVER_NAMES.includes(name.toLowerCase()), "This name is used by ZLI.");
+
+/** A local server that the agent starts as a process and talks to over stdio. Older files have no transport. */
+export const McpStdioServerConfig = z.object({
+  name: ServerName,
   enabled: z.boolean(),
+  transport: z.literal("stdio").optional(),
   command: z.string().trim().min(1, "Add the command that starts the server.").max(2_000),
   args: z.array(z.string().max(4_000)).max(64),
   env: z.record(EnvName, z.string().max(8_000)),
 });
+export type McpStdioServerConfig = z.infer<typeof McpStdioServerConfig>;
+
+/** A remote server reached over streamable HTTP. */
+export const McpHttpServerConfig = z.object({
+  name: ServerName,
+  enabled: z.boolean(),
+  transport: z.literal("http"),
+  url: z
+    .string()
+    .trim()
+    .min(1, "Add the server address.")
+    .max(2_000)
+    .superRefine((url, context) => {
+      const problem = mcpServerUrlProblem(url);
+      if (problem) context.addIssue({ code: "custom", message: problem });
+    }),
+  headers: z
+    .record(HeaderName, HeaderValue)
+    .refine((headers) => Object.keys(headers).length <= 32, "Use up to 32 headers."),
+  /**
+   * Started through mcp-remote, which opens the browser to sign in and keeps the tokens, so servers that
+   * need OAuth work the same in every agent.
+   */
+  oauth: z.boolean(),
+});
+export type McpHttpServerConfig = z.infer<typeof McpHttpServerConfig>;
+
+/** An MCP server that ZLI hands to every agent it starts. */
+export const McpServerConfig = z.discriminatedUnion("transport", [McpStdioServerConfig, McpHttpServerConfig]);
 export type McpServerConfig = z.infer<typeof McpServerConfig>;
+
+export function isHttpServer(server: McpServerConfig): server is McpHttpServerConfig {
+  return server.transport === "http";
+}
 
 export const McpServerList = z
   .array(McpServerConfig)
