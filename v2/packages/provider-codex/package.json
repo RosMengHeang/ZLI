@@ -9,6 +9,6 @@
   "dependencies": {
     "@zli-v2/contracts": "workspace:*",
     "@zli-v2/shared": "workspace:*",
-    "zod": "4.1.11"
+    "zod": "4.6.7"
   }
 }
