@@ -122,6 +122,8 @@ test("tries an earlier message several ways, starting from before it was sent", 
     await expect(page.getByText("Mock response: [write notes.md] first change")).toBeVisible({ timeout: 30_000 });
     await sendChatMessage(page, "[write other.md] second change");
     await expect(page.getByText("Mock response: [write other.md] second change")).toBeVisible({ timeout: 30_000 });
+    // Each turn's changes are saved just after it ends; until then Try N ways cannot know where to start.
+    await expect(page.getByRole("region", { name: "Changes in this turn" })).toHaveCount(2, { timeout: 20_000 });
 
     const message = page.locator(".chat-message-user").filter({ hasText: "[write notes.md] first change" });
     await message.hover();

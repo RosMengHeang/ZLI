@@ -208,21 +208,22 @@ export function ChatView({
     }
   };
 
-  const [retry, setRetry] = useState<{ key: string; text: string; from: RunStart }>();
+  const [retry, setRetry] = useState<{ key: string; text: string; index: number }>();
   const placedRef = useRef(placedCheckpoints);
   placedRef.current = placedCheckpoints;
   const worktreeIdRef = useRef(thread.worktreeId);
   worktreeIdRef.current = thread.worktreeId;
   const tryWays = useCallback((message: ThreadMessageProjection, index: number) => {
-    const checkpoint = forkPointAfter(index, placedRef.current.after);
-    setRetry({
-      key: message.messageId,
-      text: message.text,
-      from: checkpoint
-        ? { kind: "checkpoint", checkpointId: checkpoint.checkpointId }
-        : { kind: "worktree", worktreeId: worktreeIdRef.current },
-    });
+    setRetry({ key: message.messageId, text: message.text, index });
   }, []);
+  // Worked out when the runs start rather than when the popover opens: a turn that just ended may
+  // not have its checkpoint yet, and without it the runs would copy the files later turns changed.
+  const retryStart = (index: number): RunStart => {
+    const checkpoint = forkPointAfter(index, placedRef.current.after);
+    return checkpoint
+      ? { kind: "checkpoint", checkpointId: checkpoint.checkpointId }
+      : { kind: "worktree", worktreeId: worktreeIdRef.current };
+  };
   const runAgents = useMemo(
     (): BestOfAgentOption[] =>
       listedDiscoveries(projection.providers).flatMap((entry) =>
@@ -241,7 +242,7 @@ export function ChatView({
             onStartRuns({
               prompt: text,
               runs,
-              from: again && retry ? retry.from : { kind: "worktree", worktreeId: thread.worktreeId },
+              from: again && retry ? retryStart(retry.index) : { kind: "worktree", worktreeId: thread.worktreeId },
               permissionMode,
             }),
         }
