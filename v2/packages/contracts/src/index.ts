@@ -14,5 +14,6 @@ export * from "./provider.js";
 export * from "./pullRequest.js";
 export * from "./review.js";
 export * from "./rpc.js";
+export * from "./skills.js";
 export * from "./terminal.js";
 export * from "./updates.js";

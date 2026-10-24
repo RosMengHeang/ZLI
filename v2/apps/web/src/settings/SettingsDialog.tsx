@@ -31,6 +31,7 @@ import {
 } from "./appSettings.js";
 import { McpServersSection } from "./McpServersSection.js";
 import { SectionHeader, SettingRow } from "./SectionHeader.js";
+import { SkillsSection } from "./SkillsSection.js";
 import "./settings.css";
 
 export type SettingsSection =
@@ -39,6 +40,7 @@ export type SettingsSection =
   | "worktrees"
   | "files"
   | "mcp"
+  | "skills"
   | "shortcuts"
   | "notifications"
   | "updates";
@@ -49,6 +51,7 @@ const sections: { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: "worktrees", label: "Worktrees", icon: "branch" },
   { id: "files", label: "Files", icon: "fileText" },
   { id: "mcp", label: "MCP servers", icon: "wrench" },
+  { id: "skills", label: "Skills", icon: "sparkle" },
   { id: "shortcuts", label: "Shortcuts", icon: "command" },
   { id: "notifications", label: "Notifications", icon: "bell" },
   { id: "updates", label: "Updates", icon: "download" },
@@ -143,6 +146,7 @@ export function SettingsDialog({
           {section === "worktrees" ? <WorktreeSettings projection={projection} /> : null}
           {section === "files" ? <FilesSettings /> : null}
           {section === "mcp" ? <McpServersSection /> : null}
+          {section === "skills" ? <SkillsSection projection={projection} initialProjectId={initialProjectId} /> : null}
           {section === "shortcuts" ? <ShortcutSettings /> : null}
           {section === "notifications" ? <NotificationSection {...notifications} /> : null}
           {section === "updates" ? <UpdatesSection updates={updates} onRestart={onRestartToUpdate} /> : null}
