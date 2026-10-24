@@ -47,9 +47,9 @@ const MAX_BODY_SUBJECTS = 50;
 const GH_READY_MS = 5 * 60_000;
 const PR_FIELDS = "url,state,isDraft,number,statusCheckRollup,reviewDecision";
 
-const GH_MISSING =
+export const GH_MISSING =
   "GitHub CLI (gh) is not installed or not on PATH. Install it from https://cli.github.com, then check again.";
-const GH_SIGNED_OUT = "GitHub CLI is not signed in. Run gh auth login in a terminal, then check again.";
+export const GH_SIGNED_OUT = "GitHub CLI is not signed in. Run gh auth login in a terminal, then check again.";
 const NO_ORIGIN = "This repository has no origin remote. Add one with git remote add origin <url>, then check again.";
 const DETACHED = "This worktree is not on a branch. Check out a branch to open a pull request from it.";
 const NOT_ACTIONS = "ZLI can read logs only for GitHub Actions checks. Open the check on GitHub to see why it failed.";
@@ -304,7 +304,7 @@ function lastLines(value: string): string {
   return lines.length > 400 ? `${lines.slice(0, 399)}…` : lines;
 }
 
-function ghFailure(action: string, result: ProcessResult): string {
+export function ghFailure(action: string, result: ProcessResult): string {
   const detail = lastLines(result.stderr || result.stdout);
   return `GitHub CLI ${action}.${detail ? ` ${detail}` : ""}`;
 }
@@ -477,7 +477,7 @@ function fromUrl(url: string | undefined, draft: boolean): PullRequestInfo | und
   return { number, url, state: "OPEN", isDraft: draft };
 }
 
-function isMissingProgram(error: unknown): boolean {
+export function isMissingProgram(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
 }
 

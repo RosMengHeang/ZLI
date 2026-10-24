@@ -1,0 +1,38 @@
+.dialog.issues-dialog { width: min(1040px, 100%); }
+.issues-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-2); padding: var(--zli-space-2-5) var(--zli-space-4); border-bottom: 1px solid var(--zli-border); }
+.issues-project { min-width: 160px; }
+.issues-search { display: flex; min-width: 200px; flex: 1; align-items: center; gap: var(--zli-space-1-5); height: 30px; padding: 0 var(--zli-space-2-5); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); background: var(--zli-well); color: var(--zli-dim); }
+.issues-search:focus-within { border-color: var(--zli-focus); }
+.issues-search input { min-width: 0; flex: 1; border: 0; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); outline: none; }
+.issues-filters { display: flex; gap: var(--zli-space-1); margin: 0; padding: 0; border: 0; }
+.issues-filters .btn[aria-pressed="true"] { background: var(--zli-active); color: var(--zli-text); }
+.issues-layout { display: grid; grid-template-columns: minmax(280px, 2fr) minmax(320px, 3fr); height: min(560px, calc(100vh - 260px)); min-height: 280px; }
+.issues-list-region { min-height: 0; overflow: auto; border-right: 1px solid var(--zli-border); }
+.issues-state { display: flex; flex-direction: column; align-items: flex-start; gap: var(--zli-space-2); margin: 0; padding: var(--zli-space-3) var(--zli-space-4); }
+.issues-state.loading-line { flex-direction: row; align-items: center; }
+.issues-state > .inline-error { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: 0; }
+.issues-empty { color: var(--zli-dim); font-size: var(--zli-text-sm); }
+.issues-list { margin: 0; padding: var(--zli-space-1-5); list-style: none; }
+.issue-row { display: flex; width: 100%; flex-direction: column; gap: var(--zli-space-1); padding: var(--zli-space-2) var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-text); cursor: pointer; font: inherit; text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.issue-row:hover { background: var(--zli-hover); }
+.issue-row.is-selected { background: var(--zli-active); }
+.issue-row-top { display: flex; min-width: 0; align-items: baseline; gap: var(--zli-space-2); }
+.issue-ref { flex: 0 0 auto; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
+.issue-title { min-width: 0; flex: 1; overflow: hidden; font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.issue-updated { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.issue-labels { display: flex; flex-wrap: wrap; gap: var(--zli-space-1); }
+.issue-label { padding: 0 var(--zli-space-1-5); border: 1px solid var(--zli-border); border-radius: 999px; color: var(--zli-muted); font-size: var(--zli-text-2xs); line-height: 18px; }
+.issue-label.is-closed { border-color: var(--zli-border-hover); color: var(--zli-dim); }
+.issue-detail { min-height: 0; overflow: auto; }
+.issue-detail-body { display: flex; flex-direction: column; gap: var(--zli-space-3); padding: var(--zli-space-3) var(--zli-space-4) var(--zli-space-4); font-size: var(--zli-text-sm); }
+.issue-detail-header { display: flex; flex-direction: column; gap: var(--zli-space-1-5); }
+.issue-detail-title { margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; overflow-wrap: anywhere; }
+.issue-detail-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1) var(--zli-space-2-5); margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.issue-comments { display: flex; flex-direction: column; gap: var(--zli-space-2-5); padding-top: var(--zli-space-2-5); border-top: 1px solid var(--zli-border); }
+.issue-comments-title { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 600; }
+.issue-comment-head { margin: 0 0 var(--zli-space-1); color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 600; }
+.issue-comment-head > span { color: var(--zli-dim); font-weight: 400; }
+.new-agent-issue { display: flex; align-items: center; gap: var(--zli-space-1-5); margin: 0; color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.new-agent-issue .issue-ref { color: var(--zli-text); }
+.new-agent-prompt { min-height: 140px; font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
+

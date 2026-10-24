@@ -1,6 +1,7 @@
 import type { PullRequestInfo, PullRequestStatusResult, WorktreeProjection } from "@zli-v2/contracts";
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 
+import { issueLinkFor, withIssueReference } from "../issues/issueStart.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
@@ -43,6 +44,7 @@ export function PullRequestDialog({
   const titleRef = useRef<HTMLInputElement>(null);
   const openRef = useRef<HTMLButtonElement>(null);
   const worktreeId = worktree.worktreeId;
+  const [issueLink] = useState(() => issueLinkFor(worktreeId));
 
   const load = async () => {
     setPhase({ kind: "loading" });
@@ -51,7 +53,7 @@ export function PullRequestDialog({
       const next = await pullRequestStatus(dispatch, worktreeId, requestedBase);
       setStatus(next);
       setTitle(next.defaults.title);
-      setBody(next.defaults.body);
+      setBody(withIssueReference(next.defaults.body, issueLink));
       setBase(next.defaults.base);
       if (next.pullRequest?.state === "OPEN") setPhase({ kind: "done", pullRequest: next.pullRequest, existed: true });
       else setPhase({ kind: "form" });
@@ -283,7 +285,14 @@ export function PullRequestDialog({
                   required
                 />
               </Field>
-              <Field label="Description" hint="Markdown. Starts with the commits since the base branch.">
+              <Field
+                label="Description"
+                hint={
+                  issueLink
+                    ? `Markdown. Starts with the commits since the base branch and closes ${issueLink.reference}.`
+                    : "Markdown. Starts with the commits since the base branch."
+                }
+              >
                 <textarea
                   className="textarea pr-body"
                   value={body}

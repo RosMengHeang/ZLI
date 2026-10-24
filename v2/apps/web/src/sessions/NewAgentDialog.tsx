@@ -8,6 +8,7 @@ import {
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
+import { ISSUE_SOURCE_NAMES, type IssueRef, issueBranchName } from "../issues/issueStart.js";
 import { permissionHint, permissionIcon, permissionLabel, permissionOptions } from "../chat/permissions.js";
 import {
   branchFromTemplate,
@@ -24,6 +25,7 @@ import { ModelMark, modelOptions } from "../ui/ModelMark.js";
 import { Picker } from "../ui/Picker.js";
 import { checkoutWorktree, type LaunchOptions, type Placement, safeBranchName } from "./launch.js";
 import type { SessionMode } from "./sessions.js";
+import "../issues/issues.css";
 
 const LAST_LAUNCH_KEY = "zli.lastLaunch.v1";
 
@@ -42,7 +44,12 @@ function readLastLaunch(): LaunchDefaults {
 export type NewAgentRequest = LaunchOptions & {
   project: ProjectProjection;
   placement: Placement;
+  /** Sent to the agent once it is ready. */
+  prompt?: string;
 };
+
+/** Starting values when the agent is started from an issue. */
+export type NewAgentPrefill = { issue: IssueRef; prompt: string };
 
 export const viewOptions: readonly ChoiceOption<SessionMode>[] = [
   { value: "terminal", label: "Terminal", icon: "terminal" },
@@ -58,12 +65,14 @@ export function NewAgentDialog({
   projection,
   initialProject,
   initialWorktreeId,
+  prefill,
   onClose,
   onSubmit,
 }: {
   projection: RuntimeProjection;
   initialProject: ProjectProjection | undefined;
   initialWorktreeId: string | undefined;
+  prefill?: NewAgentPrefill | undefined;
   onClose(): void;
   onSubmit(request: NewAgentRequest): Promise<string | undefined>;
 }) {
@@ -92,11 +101,16 @@ export function NewAgentDialog({
         worktree.status === "bootstrapping"),
   );
   const [placementKind, setPlacementKind] = useState<Placement["kind"]>(() =>
-    initialWorktreeId && projectWorktrees.some((worktree) => worktree.worktreeId === initialWorktreeId)
+    !prefill && initialWorktreeId && projectWorktrees.some((worktree) => worktree.worktreeId === initialWorktreeId)
       ? "existing"
       : "new",
   );
-  const [branch, setBranch] = useState(() => branchFromTemplate(settings.branchTemplate, provider));
+  const branchFor = (agent: ListedProviderKind | undefined) =>
+    prefill
+      ? issueBranchName(settings.branchTemplate, agent, prefill.issue)
+      : branchFromTemplate(settings.branchTemplate, agent);
+  const [branch, setBranch] = useState(() => branchFor(provider));
+  const [prompt, setPrompt] = useState(prefill?.prompt ?? "");
   const [branchEdited, setBranchEdited] = useState(false);
   const [baseRef, setBaseRef] = useState("");
   const [existingId, setExistingId] = useState<string | undefined>(
@@ -134,8 +148,9 @@ export function NewAgentDialog({
       : []),
   ];
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: branchFor only reads the template and the prefill.
   useEffect(() => {
-    if (!branchEdited) setBranch(branchFromTemplate(settings.branchTemplate, provider));
+    if (!branchEdited) setBranch(branchFor(provider));
   }, [provider, branchEdited, settings.branchTemplate]);
 
   const chooseProject = (nextId: typeof projectId) => {
@@ -183,6 +198,7 @@ export function NewAgentDialog({
         mode,
         permissionMode,
         ...(model && !modelUnsupported ? { model } : {}),
+        ...(prompt.trim() ? { prompt: prompt.trim() } : {}),
       });
     } catch (cause) {
       failure = cause instanceof Error ? cause.message : String(cause);
@@ -375,6 +391,30 @@ export function NewAgentDialog({
               </Picker>
             </FormSection>
           </div>
+
+          {prefill ? (
+            <FormSection
+              label="First message"
+              htmlFor={`${ids}-prompt`}
+              hint="Sent to the agent as soon as it is ready. Edit it as you like."
+            >
+              <p className="new-agent-issue">
+                <Icon name="issue" size={14} />
+                <span>
+                  From {ISSUE_SOURCE_NAMES[prefill.issue.source]} issue{" "}
+                  <span className="issue-ref">{prefill.issue.reference}</span>
+                </span>
+              </p>
+              <textarea
+                id={`${ids}-prompt`}
+                className="textarea new-agent-prompt"
+                aria-label="First message"
+                rows={8}
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+              />
+            </FormSection>
+          ) : null}
 
           {error ? (
             <p className="inline-error" role="alert">

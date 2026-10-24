@@ -29,6 +29,7 @@ import {
   updateAppSettings,
   useAppSettings,
 } from "./appSettings.js";
+import { IssuesSection } from "./IssuesSection.js";
 import { McpServersSection } from "./McpServersSection.js";
 import { SectionHeader, SettingRow } from "./SectionHeader.js";
 import "./settings.css";
@@ -39,6 +40,7 @@ export type SettingsSection =
   | "worktrees"
   | "files"
   | "mcp"
+  | "issues"
   | "shortcuts"
   | "notifications"
   | "updates";
@@ -49,6 +51,7 @@ const sections: { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: "worktrees", label: "Worktrees", icon: "branch" },
   { id: "files", label: "Files", icon: "fileText" },
   { id: "mcp", label: "MCP servers", icon: "wrench" },
+  { id: "issues", label: "Issues", icon: "issue" },
   { id: "shortcuts", label: "Shortcuts", icon: "command" },
   { id: "notifications", label: "Notifications", icon: "bell" },
   { id: "updates", label: "Updates", icon: "download" },
@@ -143,6 +146,7 @@ export function SettingsDialog({
           {section === "worktrees" ? <WorktreeSettings projection={projection} /> : null}
           {section === "files" ? <FilesSettings /> : null}
           {section === "mcp" ? <McpServersSection /> : null}
+          {section === "issues" ? <IssuesSection /> : null}
           {section === "shortcuts" ? <ShortcutSettings /> : null}
           {section === "notifications" ? <NotificationSection {...notifications} /> : null}
           {section === "updates" ? <UpdatesSection updates={updates} onRestart={onRestartToUpdate} /> : null}
@@ -353,7 +357,8 @@ function WorktreeSettings({ projection }: { projection: RuntimeProjection | unde
           description={
             <>
               <code>{"{agent}"}</code> is the agent, <code>{"{random}"}</code> four random characters, and{" "}
-              <code>{"{date}"}</code> today as YYYYMMDD.
+              <code>{"{date}"}</code> today as YYYYMMDD. Agents started from an issue get a name like
+              issue-123-fix-login, placed at <code>{"{issue}"}</code> if the template has it.
             </>
           }
         >

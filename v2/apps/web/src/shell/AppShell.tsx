@@ -20,6 +20,7 @@ import { devServerCommands } from "../devservers/DevServers.js";
 import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
 import type { AskAgentTarget, FilesFocus } from "../files/FilesPane.js";
 import { QuickOpen } from "../files/QuickOpen.js";
+import { type IssueLink, issuePrompt, rememberIssueLink } from "../issues/issueStart.js";
 import { useAgentNotifications } from "../notifications/useAgentNotifications.js";
 import { PromptsDialog } from "../prompts/PromptsDialog.js";
 import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.js";
@@ -35,7 +36,7 @@ import { firstMessageStep, TERMINAL_FIRST_MESSAGE_DELAY_MS, terminalFirstMessage
 import type { HandoffRequest } from "../sessions/HandoffDialog.js";
 import { canHandOff, inlineFirstMessage } from "../sessions/handoff.js";
 import { createWorktree, ensureCheckout, samePath, startSessionAgent } from "../sessions/launch.js";
-import { NewAgentDialog, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
+import { NewAgentDialog, type NewAgentPrefill, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
 import {
   type AgentSession,
   deriveSessions,
@@ -80,6 +81,9 @@ const FilesPane = lazy(() => import("../files/FilesPane.js").then((module) => ({
 const HandoffDialog = lazy(() =>
   import("../sessions/HandoffDialog.js").then((module) => ({ default: module.HandoffDialog })),
 );
+const IssuesDialog = lazy(() =>
+  import("../issues/IssuesDialog.js").then((module) => ({ default: module.IssuesDialog })),
+);
 const UsageDialog = lazy(() => import("../usage/UsageDialog.js").then((module) => ({ default: module.UsageDialog })));
 // The diff viewer and pull request tools load the first time the Changes panel opens.
 const ReviewPane = lazy(() => import("../review/ReviewPane.js").then((module) => ({ default: module.ReviewPane })));
@@ -109,6 +113,9 @@ function WorkspaceApp() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [worktreeDialogProject, setWorktreeDialogProject] = useState<ProjectProjection>();
   const [newAgentProject, setNewAgentProject] = useState<ProjectProjection | "default">();
+  const [issuesProject, setIssuesProject] = useState<ProjectProjection | "default">();
+  /** The issue the open New agent dialog was started from. */
+  const [issueStart, setIssueStart] = useState<{ link: Omit<IssueLink, "linkedAt">; prefill: NewAgentPrefill }>();
   const [notice, setNotice] = useState<{
     message: string;
     tone: "danger" | "info";
@@ -341,6 +348,15 @@ function WorkspaceApp() {
     [hasProjects],
   );
 
+  const openIssues = useCallback(
+    (project?: ProjectProjection) => {
+      if (!hasProjects) return;
+      setPaletteOpen(false);
+      setIssuesProject(project ?? "default");
+    },
+    [hasProjects],
+  );
+
   const toggleSidePane = (next: SidePane) => setSidePane((current) => (current === next ? undefined : next));
   const toggleSidebar = () => updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
   const toggleDrawer = () => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }));
@@ -369,6 +385,8 @@ function WorkspaceApp() {
       setQuickOpen(false);
       setWorktreeDialogProject(undefined);
       setNewAgentProject(undefined);
+      setIssuesProject(undefined);
+      setIssueStart(undefined);
       setLegacyImportBatchId(undefined);
       setHelpOpen(false);
       setSettingsSection(undefined);
@@ -789,8 +807,12 @@ function WorkspaceApp() {
       mode: request.mode,
       permissionMode: request.permissionMode,
       ...(request.model ? { model: request.model } : {}),
+      ...(request.prompt ? { prompt: request.prompt } : {}),
       createdAt: new Date().toISOString(),
     };
+    if (issueStart) {
+      rememberIssueLink(worktreeId, { ...issueStart.link, sessionId: launch.sessionId, linkedAt: launch.createdAt });
+    }
     updateWorkbench((state) => ({
       ...state,
       pending: [...state.pending, launch],
@@ -799,6 +821,7 @@ function WorkspaceApp() {
     }));
     setSelectedWorktreeId(worktreeId);
     setNewAgentProject(undefined);
+    setIssueStart(undefined);
     return undefined;
   };
   const submitHandoff = async (from: AgentSession, request: HandoffRequest): Promise<string | undefined> => {
@@ -1052,6 +1075,9 @@ function WorkspaceApp() {
           },
         ]
       : []),
+    ...(hasProjects
+      ? [{ label: "Start from issue", icon: "issue" as const, group: "Create" as const, action: () => openIssues() }]
+      : []),
     { label: "Add project", icon: "folderPlus", group: "Create", action: () => void openProject() },
     ...(bridge?.scratch
       ? [
@@ -1192,6 +1218,7 @@ function WorkspaceApp() {
     quickOpen ||
     worktreeDialogProject !== undefined ||
     newAgentProject !== undefined ||
+    issuesProject !== undefined ||
     helpOpen ||
     settingsSection !== undefined ||
     usageOpen ||
@@ -1263,6 +1290,7 @@ function WorkspaceApp() {
             sidePane={sidePane}
             onShowSidebar={toggleSidebar}
             onNewAgent={() => openNewAgent()}
+            onOpenIssues={() => openIssues(contextProject)}
             onToggleDrawer={toggleDrawer}
             onToggleSidePane={toggleSidePane}
             onOpenPalette={() => setPaletteOpen(true)}
@@ -1559,10 +1587,36 @@ function WorkspaceApp() {
               newAgentProject === "default" ? (contextProject ?? projection.projects[0]) : newAgentProject
             }
             initialWorktreeId={selectedWorktreeId ?? contextWorktree?.worktreeId}
-            onClose={() => setNewAgentProject(undefined)}
+            prefill={issueStart?.prefill}
+            onClose={() => {
+              setNewAgentProject(undefined);
+              setIssueStart(undefined);
+            }}
             onSubmit={submitNewAgent}
           />
         )}
+        {issuesProject && projection ? (
+          <Suspense fallback={null}>
+            <IssuesDialog
+              projection={projection}
+              initialProject={issuesProject === "default" ? (contextProject ?? projection.projects[0]) : issuesProject}
+              onClose={() => setIssuesProject(undefined)}
+              onConnectLinear={() => {
+                setIssuesProject(undefined);
+                openSettings("issues");
+              }}
+              onStart={(project, issue) => {
+                const { source, key, reference, title, url } = issue;
+                setIssuesProject(undefined);
+                setIssueStart({
+                  link: { source, key, reference, title, url },
+                  prefill: { issue: { source, key, reference, title }, prompt: issuePrompt(issue) },
+                });
+                setNewAgentProject(project);
+              }}
+            />
+          </Suspense>
+        ) : null}
         {promptManager && projection ? (
           <PromptsDialog
             project={
