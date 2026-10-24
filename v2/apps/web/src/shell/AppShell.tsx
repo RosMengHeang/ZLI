@@ -450,7 +450,8 @@ function WorkspaceApp() {
             }),
         )
         .then((failure) => {
-          launching.current.delete(launch.sessionId);
+          // The id stays in `launching` until a retry: an effect from an earlier render can still run with
+          // this launch not yet marked started, and it must not fork the worktree and start it again.
           updateWorkbench((state) => {
             // The pending entry may already be gone because the session showed up in the projection first.
             const prompt = failure ? undefined : launch.prompt;
@@ -974,6 +975,7 @@ function WorkspaceApp() {
   const retryPending = (session: AgentSession) => {
     const worktree = findWorktree(session.worktreeId);
     if (worktree?.status === "failed") void worktreeAction(worktree, "retry");
+    launching.current.delete(session.sessionId);
     updateWorkbench((state) => ({
       ...state,
       pending: state.pending.map((entry) => {
