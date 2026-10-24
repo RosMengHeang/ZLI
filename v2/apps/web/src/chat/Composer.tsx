@@ -112,6 +112,7 @@ export function Composer({
   onRemoveReference,
   onReferencesSent,
   onSubmit,
+  onStop,
   bestOf,
 }: {
   displayName: string;
@@ -138,6 +139,8 @@ export function Composer({
   onRemoveReference?(id: string): void;
   onReferencesSent?(): void;
   onSubmit(text: string, attachments: ComposerAttachment[]): Promise<boolean>;
+  /** Stops the turn that is running. Absent while the agent is not working. */
+  onStop?: (() => void) | undefined;
   bestOf?: ComposerBestOf | undefined;
 }) {
   const [draft, setDraft] = useState("");
@@ -611,6 +614,17 @@ export function Composer({
         )}
         <span className="composer-spacer" />
         {context ? <ContextMeter tokens={context.tokens} window={context.window} /> : null}
+        {onStop ? (
+          <button
+            className="stop-button"
+            type="button"
+            aria-label={`Stop ${displayName}`}
+            data-tooltip={`Stop ${displayName}'s current turn`}
+            onClick={onStop}
+          >
+            <Icon name="square" size={12} fill="currentColor" strokeWidth={0} />
+          </button>
+        ) : null}
         <span className={`send-split${bestOf ? " has-menu" : ""}`} ref={sendSplitRef}>
           <button
             className="send-button"

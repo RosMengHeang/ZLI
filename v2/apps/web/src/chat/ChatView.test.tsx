@@ -118,7 +118,7 @@ describe("ChatView", () => {
         ] as RuntimeProjection["activities"],
       }),
     );
-    expect(container.querySelector('[aria-label="Work log"]')?.textContent).toContain("npm test");
+    expect(container.querySelector('[aria-label="Steps"]')?.textContent).toContain("npm test");
     const changed = container.querySelector('[aria-label="Changed files"]');
     expect(changed?.textContent).toContain("1 file changed");
     expect(container.querySelector(".markdown strong")?.textContent).toBe("helper");
@@ -126,6 +126,54 @@ describe("ChatView", () => {
     expect(onOpenDiff).toHaveBeenCalledWith();
     await act(async () => changed?.querySelector<HTMLButtonElement>("li button")?.click());
     expect(onOpenDiff).toHaveBeenLastCalledWith("src/helper.ts");
+  });
+
+  it("places steps inside the reply, shows the running step, and stops the turn", async () => {
+    const turnId = thread.activeTurnId as string;
+    const { container, dispatched } = await render(
+      projectionWith({
+        threads: [{ ...thread, status: "working" }],
+        messages: [
+          { messageId: "m1", threadId, turnId, role: "user", text: "Fix the tests" },
+          { messageId: "m2", threadId, turnId, role: "assistant", text: "Looking first.Fixed the helper." },
+        ] as RuntimeProjection["messages"],
+        activities: [
+          {
+            activityId: "a1",
+            threadId,
+            turnId,
+            kind: "file-edit",
+            title: "Edit src/helper.ts",
+            status: "completed",
+            files: ["src/helper.ts"],
+            lines: { added: 3, removed: 1 },
+            textOffset: 14,
+          },
+          {
+            activityId: "a2",
+            threadId,
+            turnId,
+            kind: "command",
+            title: "Run the tests",
+            command: "npm test",
+            status: "running",
+            textOffset: 31,
+          },
+        ] as unknown as RuntimeProjection["activities"],
+      }),
+    );
+    const order = [...container.querySelectorAll(".chat-message-assistant, .work-steps")].map((node) =>
+      node.classList.contains("work-steps") ? `steps:${node.textContent}` : node.textContent,
+    );
+    expect(order).toEqual([
+      "Looking first.",
+      "steps:Edit 4 lines helper.ts+3-1",
+      "Fixed the helper.",
+      "steps:Run the tests",
+    ]);
+    expect(container.querySelector(".chat-working-label")?.textContent).toBe("Run the tests");
+    await act(async () => button(container, "Stop Droid")?.click());
+    expect(dispatched.at(-1)?.command).toMatchObject({ type: "thread.interrupt", threadId, turnId });
   });
 
   it("lists a turn's changed files with their diff and restores the files after confirming", async () => {

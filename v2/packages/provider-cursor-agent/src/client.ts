@@ -8,6 +8,7 @@ import { type CursorPermissionMode, cursorTurnArgs, decodeCursorLine, MAX_CURSOR
 import { CURSOR_TOOL_DENY_MESSAGE, type CursorToolUpdate, classifyCursorMessage } from "./schema.js";
 
 const VERSION_PROBE_MS = 1_000;
+const HELP_PROBE_MS = 5_000;
 
 export type CursorProviderEvent =
   | { type: "turn.started"; providerTurnId: string }
@@ -65,6 +66,8 @@ export type CursorAgentClientOptions = {
   /** Default model for every turn that does not name one. */
   model?: string;
   approveMcps?: boolean;
+  /** Whether turns pass --disable-auto-update. Found from the CLI's help when not given. */
+  disableAutoUpdate?: boolean;
   spawnProcess?: (command: string, args: readonly string[], options: CursorSpawnOptions) => CursorChild;
 };
 
@@ -100,6 +103,7 @@ export class CursorAgentClient {
     private permissionMode: CursorPermissionMode,
     private readonly model: string | undefined,
     private readonly approveMcps: boolean,
+    private readonly disableAutoUpdate: boolean,
   ) {}
 
   static async start(options: CursorAgentClientOptions): Promise<CursorAgentClient> {
@@ -117,6 +121,7 @@ export class CursorAgentClient {
       options.permissionMode ?? "full-access",
       options.model?.trim() || undefined,
       options.approveMcps ?? false,
+      options.disableAutoUpdate ?? (options.spawnProcess ? false : await supportsDisableAutoUpdate(command)),
     );
   }
 
@@ -183,6 +188,7 @@ export class CursorAgentClient {
       ...(model ? { model } : {}),
       ...(this.sessionId ? { sessionId: this.sessionId } : {}),
       ...(this.approveMcps ? { approveMcps: true } : {}),
+      ...(this.disableAutoUpdate ? { disableAutoUpdate: true } : {}),
     });
     let child: CursorChild;
     try {
@@ -473,6 +479,52 @@ function assertBareCommand(command: string): Promise<void> {
   });
 }
 
+const autoUpdateSupport = new Map<string, Promise<boolean>>();
+
+/** Older Cursor CLIs reject flags they do not know, so the flag is only passed when help lists it. */
+export function supportsDisableAutoUpdate(command: string): Promise<boolean> {
+  let pending = autoUpdateSupport.get(command);
+  if (!pending) {
+    pending = helpText(command).then((help) => help.includes("--disable-auto-update"));
+    autoUpdateSupport.set(command, pending);
+  }
+  return pending;
+}
+
+function helpText(command: string): Promise<string> {
+  return new Promise((resolve) => {
+    let child: ChildProcess;
+    try {
+      child = spawnCli(command, ["--help"], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    } catch {
+      resolve("");
+      return;
+    }
+    let output = "";
+    const collect = (chunk: string | Buffer) => {
+      if (output.length < 200_000) output += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    };
+    child.stdout?.on("data", collect);
+    child.stderr?.on("data", collect);
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        // The probe already exited.
+      }
+      resolve(output);
+    }, HELP_PROBE_MS);
+    child.once("error", () => {
+      clearTimeout(timer);
+      resolve("");
+    });
+    child.once("close", () => {
+      clearTimeout(timer);
+      resolve(output);
+    });
+  });
+}
+
 function isPathCommand(command: string): boolean {
   return command.includes("/") || command.includes("\\");
 }
@@ -481,6 +533,9 @@ function errnoOf(error: unknown): string | undefined {
   if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
   return typeof error.code === "string" ? error.code : undefined;
 }
+
+export const BROKEN_INSTALL_MESSAGE =
+  "Cursor CLI stopped because some of its files are missing. This happens when Cursor updates itself during a turn. Run agent update in a terminal, then start a new chat.";
 
 function sanitizeDetail(value: string): string {
   return value.replace(/\s+/gu, " ").trim().slice(0, 180);
@@ -579,6 +634,7 @@ class JsonlCursorPeer implements CursorPeer {
 
 function processExitError(code: number | null, signal: NodeJS.Signals | null, stderr: string): Error {
   const status = `${code ?? "unknown"}${signal ? `/${signal}` : ""}`;
+  if (/Cannot find module/u.test(stderr) && /cursor-agent/iu.test(stderr)) return new Error(BROKEN_INSTALL_MESSAGE);
   const detail = sanitizeDetail(stderr);
   return new Error(detail ? `Cursor CLI exited (${status}): ${detail}` : `Cursor CLI exited (${status}).`);
 }

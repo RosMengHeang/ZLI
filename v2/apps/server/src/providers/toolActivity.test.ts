@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyTool, displayPath, toolActivity } from "./toolActivity.js";
+import { classifyTool, diffLineCounts, displayPath, editLines, patchLines, toolActivity } from "./toolActivity.js";
 
 describe("classifyTool", () => {
   it.each([
@@ -169,5 +169,64 @@ describe("toolActivity", () => {
     expect(toolActivity({ callId: "odd", name: "Read", input: { file_path: 42 }, status: "running" }).title).toBe(
       "Read file",
     );
+  });
+});
+
+describe("edit line counts", () => {
+  it("counts a replacement without the lines both sides share", () => {
+    expect(
+      toolActivity({
+        callId: "e1",
+        name: "Edit",
+        input: { file_path: "a.ts", old_string: "one\ntwo\nthree", new_string: "one\n2\n2b\nthree" },
+        status: "completed",
+      }).lines,
+    ).toEqual({ added: 2, removed: 1 });
+    expect(
+      editLines({
+        edits: [
+          { old_str: "a", new_str: "b" },
+          { old_str: "c\nd", new_str: "" },
+        ],
+      }),
+    ).toEqual({ added: 1, removed: 3 });
+  });
+
+  it("counts a new file, a patch, and prefers what the CLI reported", () => {
+    expect(editLines({ path: "notes.md", fileText: "# Notes\n\nOne\n" })).toEqual({ added: 3, removed: 0 });
+    const patch = ["*** Begin Patch", "*** Update File: a.ts", "@@", " keep", "-old", "+new", "+more", "*** End Patch"];
+    expect(patchLines(patch.join("\n"))).toEqual({ added: 2, removed: 1 });
+    expect(editLines({ input: patch.join("\n") })).toEqual({ added: 2, removed: 1 });
+    expect(diffLineCounts("same\n", "same\n")).toEqual({ added: 0, removed: 0 });
+    const reported = toolActivity({
+      callId: "e2",
+      name: "edit",
+      input: { path: "a.ts", streamContent: "x" },
+      status: "completed",
+      lines: { added: 7, removed: 2 },
+    });
+    expect(reported.lines).toEqual({ added: 7, removed: 2 });
+    expect(
+      toolActivity({
+        callId: "e3",
+        name: "Edit",
+        input: { file_path: "a.ts", old_string: "a", new_string: "b" },
+        status: "failed",
+      }).lines,
+    ).toBeUndefined();
+  });
+
+  it("titles a command by its description and keeps the command line", () => {
+    expect(
+      toolActivity({
+        callId: "c1",
+        name: "Bash",
+        input: { command: "pnpm -r typecheck", description: "Typecheck web" },
+        status: "running",
+      }),
+    ).toMatchObject({ kind: "command", title: "Typecheck web", command: "pnpm -r typecheck" });
+    expect(
+      toolActivity({ callId: "c2", name: "Bash", input: { command: "ls" }, status: "running" }),
+    ).not.toHaveProperty("command");
   });
 });

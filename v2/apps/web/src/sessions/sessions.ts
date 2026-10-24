@@ -193,27 +193,39 @@ export function relativeTime(iso: string | undefined, now: number = Date.now()):
 }
 
 export type TimelineItem =
-  | { kind: "message"; message: ThreadMessageProjection }
-  | { kind: "work"; turnId: string; activities: ThreadActivityProjection[]; changedFiles: string[] };
+  /** `key` is set when the item is one part of a reply that tool calls split up. */
+  | { kind: "message"; message: ThreadMessageProjection; key?: string }
+  | {
+      kind: "work";
+      /** The first call's id, which stays the same while the group grows. */
+      key: string;
+      turnId: string;
+      activities: ThreadActivityProjection[];
+      /** Files the whole turn changed, on the turn's last group only. */
+      changedFiles: string[];
+    };
+
+type WorkItem = Extract<TimelineItem, { kind: "work" }>;
 
 /**
- * Messages in order, with each turn's tool calls folded into one work group placed
- * just before that turn's reply. Turns still running have no reply yet, so their
- * work groups go at the end.
- */
-/**
- * Orders a thread's messages and work logs. Items equal to ones in `previous` are returned as the
- * same objects, so memoized rows skip re-rendering while one message streams in.
+ * Orders a thread's messages and tool calls. A call that reports where it started in the reply
+ * goes at that point, so the steps read in between the agent's text the way they happened. Calls
+ * without that place go before the turn's reply, and turns with no reply yet put theirs at the end.
+ *
+ * Items equal to ones in `previous` are returned as the same objects, so memoized rows skip
+ * re-rendering while one message streams in.
  */
 export function buildTimeline(
   messages: readonly ThreadMessageProjection[],
   activities: readonly ThreadActivityProjection[],
   previous: readonly TimelineItem[] = [],
 ): TimelineItem[] {
-  const previousWork = new Map<string, Extract<TimelineItem, { kind: "work" }>>();
+  const previousWork = new Map<string, WorkItem>();
   const previousMessages = new Map<ThreadMessageProjection, TimelineItem>();
+  const previousParts = new Map<string, Extract<TimelineItem, { kind: "message" }>>();
   for (const item of previous) {
-    if (item.kind === "work") previousWork.set(item.turnId, item);
+    if (item.kind === "work") previousWork.set(item.key, item);
+    else if (item.key) previousParts.set(item.key, item);
     else previousMessages.set(item.message, item);
   }
   const byTurn = new Map<string, ThreadActivityProjection[]>();
@@ -223,24 +235,75 @@ export function buildTimeline(
     list.push(activity);
     byTurn.set(key, list);
   }
-  const placed = new Set<string>();
+  const lastReply = new Map<string, number>();
+  messages.forEach((message, index) => {
+    if (message.role === "assistant" && message.turnId && byTurn.has(message.turnId))
+      lastReply.set(message.turnId, index);
+  });
+  const filesByTurn = new Map<string, string[]>();
+  for (const [turnId, list] of byTurn) filesByTurn.set(turnId, changedFiles(list));
+  const lastGroup = new Map<string, number>();
   const items: TimelineItem[] = [];
-  const pushWork = (turnId: string) => {
-    const list = byTurn.get(turnId);
-    if (!list || placed.has(turnId)) return;
-    placed.add(turnId);
-    const earlier = previousWork.get(turnId);
-    if (earlier && shallowArrayEqual(earlier.activities, list)) items.push(earlier);
-    else items.push({ kind: "work", turnId, activities: list, changedFiles: changedFiles(list) });
+  const pushWork = (turnId: string, list: ThreadActivityProjection[]) => {
+    const first = list[0];
+    if (!first) return;
+    const key = first.activityId;
+    lastGroup.set(turnId, items.length);
+    items.push({ kind: "work", key, turnId, activities: list, changedFiles: [] });
   };
-  for (const message of messages) {
-    if (message.role === "assistant" && message.turnId) pushWork(message.turnId);
-    items.push(previousMessages.get(message) ?? { kind: "message", message });
-  }
-  for (const turnId of byTurn.keys()) pushWork(turnId);
+  const pushPart = (message: ThreadMessageProjection, start: number, end: number) => {
+    const text = message.text.slice(start, end);
+    if (!text.trim()) return;
+    if (start === 0 && end >= message.text.length) {
+      items.push(previousMessages.get(message) ?? { kind: "message", message });
+      return;
+    }
+    const key = `${message.messageId}:${start}`;
+    const earlier = previousParts.get(key);
+    if (earlier && earlier.message.text === text) items.push(earlier);
+    else items.push({ kind: "message", message: { ...message, text }, key });
+  };
+  /** Reply text already placed per turn. A turn's reply can arrive as more than one message. */
+  const consumed = new Map<string, number>();
+  messages.forEach((message, index) => {
+    const turnId = message.role === "assistant" ? message.turnId : undefined;
+    const queue = turnId ? byTurn.get(turnId) : undefined;
+    if (!turnId || !queue) {
+      items.push(previousMessages.get(message) ?? { kind: "message", message });
+      return;
+    }
+    const base = consumed.get(turnId) ?? 0;
+    const end = base + message.text.length;
+    let cursor = base;
+    while (queue.length > 0 && placeOf(queue[0]) < end) {
+      const at = Math.max(placeOf(queue[0]), cursor);
+      pushPart(message, cursor - base, at - base);
+      cursor = at;
+      const group: ThreadActivityProjection[] = [];
+      while (queue.length > 0 && placeOf(queue[0]) <= cursor) group.push(queue.shift() as ThreadActivityProjection);
+      pushWork(turnId, group);
+    }
+    pushPart(message, cursor - base, end - base);
+    consumed.set(turnId, end);
+    if (lastReply.get(turnId) === index) pushWork(turnId, queue.splice(0));
+  });
+  for (const [turnId, queue] of byTurn) pushWork(turnId, queue.splice(0));
+  items.forEach((item, index) => {
+    if (item.kind !== "work") return;
+    const files = lastGroup.get(item.turnId) === index ? (filesByTurn.get(item.turnId) ?? []) : [];
+    const earlier = previousWork.get(item.key);
+    const same =
+      earlier?.turnId === item.turnId &&
+      shallowArrayEqual(earlier.activities, item.activities) &&
+      shallowArrayEqual(earlier.changedFiles, files);
+    items[index] = same && earlier ? earlier : { ...item, changedFiles: files };
+  });
   return items;
 }
 
+function placeOf(activity: ThreadActivityProjection | undefined): number {
+  return activity?.textOffset ?? 0;
+}
 export function changedFiles(activities: readonly ThreadActivityProjection[]): string[] {
   const files: string[] = [];
   for (const activity of activities) {

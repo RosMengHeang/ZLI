@@ -71,6 +71,11 @@ export class MockProviderAdapter implements ProviderAdapter {
         return;
       }
       this.emit({ type: "turn.started", threadId: input.threadId, turnId });
+      // "[steps]" plays a short turn with text between reads, an edit, and a command, each running for a moment.
+      if (input.text.includes("[steps]")) {
+        this.playSteps(input.threadId, turnId, input.text.includes("[slow]") ? 1_500 : 150);
+        return;
+      }
       // "[write notes.md]" writes that file in the worktree, standing in for an agent's edit.
       const write = /\[write (\w[\w.-]*)\]/u.exec(input.text)?.[1];
       if (write) {
@@ -203,6 +208,48 @@ export class MockProviderAdapter implements ProviderAdapter {
       if (!this.sessions.has(threadId)) return;
       this.emit({ type: "turn.completed", threadId, turnId, status: "completed" });
     }, 5);
+  }
+
+  private playSteps(threadId: ThreadId, turnId: string, pause: number): void {
+    const activity = (
+      activityId: string,
+      status: "running" | "completed",
+      fields: Omit<Extract<ProviderEvent, { type: "activity" }>["activity"], "activityId" | "status">,
+    ): ProviderEvent => ({ type: "activity", threadId, turnId, activity: { activityId, status, ...fields } });
+    const read = (file: string) => ({ kind: "file-read" as const, title: `Read ${file}`, files: [file] });
+    const search = { kind: "search" as const, title: "Search TODO" };
+    const edit = {
+      kind: "file-edit" as const,
+      title: "Edit src/routes.ts",
+      files: ["src/routes.ts"],
+      lines: { added: 4, removed: 1 },
+    };
+    const test = { kind: "command" as const, title: "Run the tests", command: "npm test" };
+    const text = (value: string): ProviderEvent => ({ type: "assistant.delta", threadId, turnId, text: value });
+    const script: ProviderEvent[][] = [
+      [text("I'll look at the routes first.")],
+      [activity("read-1", "running", read("src/app.ts"))],
+      [activity("read-1", "completed", read("src/app.ts")), activity("read-2", "running", read("src/routes.ts"))],
+      [activity("read-2", "completed", read("src/routes.ts")), activity("search-1", "running", search)],
+      [activity("search-1", "completed", search), text("\n\nFound it. The route skips empty input, so I'll fix that.")],
+      [activity("edit-1", "running", edit)],
+      [activity("edit-1", "completed", edit), activity("test-1", "running", test)],
+      [activity("test-1", "completed", { ...test, detail: "2 passed" })],
+      [text("\n\nDone. The route now handles empty input and the tests pass.")],
+      [{ type: "turn.completed", threadId, turnId, status: "completed" }],
+    ];
+    const prefix = `${turnId}:`;
+    script.forEach((events, index) => {
+      setTimeout(() => {
+        if (!this.sessions.has(threadId)) return;
+        for (const event of events) {
+          if (event.type === "activity") {
+            this.emit({ ...event, activity: { ...event.activity, activityId: prefix + event.activity.activityId } });
+          } else this.emit(event);
+        }
+        if (index === script.length - 1) this.context(threadId).status = "idle";
+      }, index * pause);
+    });
   }
 
   private emit(event: ProviderEvent): void {

@@ -23,6 +23,8 @@
 .tile-branch span { overflow: hidden; text-overflow: ellipsis; }
 .tile-spacer { flex: 1; }
 .tile-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 1px; }
+.tile-actions .tile-stop { gap: 5px; margin: 0 var(--zli-space-1); padding: 0 var(--zli-space-2); background: var(--zli-red-soft); box-shadow: inset 0 0 0 1px var(--zli-red-line); color: var(--zli-red-ink); }
+.tile-actions .tile-stop:hover:not(:disabled) { background: var(--zli-danger); box-shadow: none; color: #fff; }
 .tile-body { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .tile-terminal { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; background: var(--zli-terminal); }
 .tile-ended {

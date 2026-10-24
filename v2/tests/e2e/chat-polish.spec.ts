@@ -28,13 +28,13 @@ test("folds file reads, previews HTML replies, attaches long pastes, and finds t
     await newAgent.getByRole("button", { name: "Start agent" }).click();
     await sendChatMessage(page, "[reads] [html] look around");
 
-    const workLog = page.getByRole("region", { name: "Work log" });
-    await expect(workLog).toContainText("Ran 1 command, read 3 files", { timeout: 30_000 });
-    await workLog.locator(".work-log-header").click();
-    const reads = workLog.getByRole("button", { name: /Read 3 files/u });
+    const steps = page.getByRole("region", { name: "Steps" });
+    const reads = steps.getByRole("button", { name: /Explored 3 files/u });
+    await expect(reads).toBeVisible({ timeout: 30_000 });
     await expect(reads).toHaveAttribute("aria-expanded", "false");
+    await expect(steps).toContainText("npm test");
     await reads.click();
-    await expect(workLog.getByText("Read src/routes.ts")).toBeVisible();
+    await expect(steps.getByText("Read src/routes.ts")).toBeVisible();
 
     const preview = page.frameLocator('iframe[title="HTML preview"]');
     await expect(preview.getByRole("heading", { name: "Mock card" })).toBeVisible();

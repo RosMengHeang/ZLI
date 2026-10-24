@@ -143,6 +143,40 @@ describe("timeline", () => {
     expect(third[2]).not.toBe(second[2]);
   });
 
+  it("splits a reply where each call started and puts later calls after it", () => {
+    const at = (id: string, textOffset: number, kind: ThreadActivityProjection["kind"] = "file-read") => ({
+      ...activity(id, "t1", kind, kind === "file-edit" ? ["a.ts"] : undefined),
+      textOffset,
+    });
+    const messages = [
+      { messageId: "m1", threadId, turnId: "t1", role: "user" as const, text: "fix it" },
+      { messageId: "m2", threadId, turnId: "t1", role: "assistant" as const, text: "Reading. Editing. Done." },
+    ] as RuntimeProjection["messages"] & object;
+    const steps = [at("r1", 0), at("r2", 0), at("e1", 9, "file-edit"), at("c1", 23, "command")];
+    const first = buildTimeline(messages, steps);
+    const shape = (items: typeof first) =>
+      items.map((item) =>
+        item.kind === "work" ? `work:${item.activities.map((entry) => entry.activityId).join("+")}` : item.message.text,
+      );
+    expect(shape(first)).toEqual(["fix it", "work:r1+r2", "Reading. ", "work:e1", "Editing. Done.", "work:c1"]);
+    const work = first.filter((item) => item.kind === "work");
+    expect(work.map((item) => item.changedFiles)).toEqual([[], [], ["a.ts"]]);
+
+    const longer = [messages[0], { ...messages[1], text: "Reading. Editing. Done. All good." }] as typeof messages;
+    const second = buildTimeline(longer, steps, first);
+    expect(shape(second)).toEqual([
+      "fix it",
+      "work:r1+r2",
+      "Reading. ",
+      "work:e1",
+      "Editing. Done.",
+      "work:c1",
+      " All good.",
+    ]);
+    expect(second[1]).toBe(first[1]);
+    expect(second[2]).toBe(first[2]);
+  });
+
   it("does not count failed edits as changed files", () => {
     expect(changedFiles([{ ...activity("edit", "t1", "file-edit", ["x.ts"]), status: "failed" }])).toEqual([]);
   });

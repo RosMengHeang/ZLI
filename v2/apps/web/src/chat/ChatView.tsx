@@ -1,6 +1,7 @@
 import type {
   PermissionMode,
   RuntimeProjection,
+  ThreadActivityProjection,
   ThreadCheckpoint,
   ThreadId,
   ThreadMessageProjection,
@@ -29,7 +30,7 @@ import { clearCodeReferences, removeCodeReference, useCodeReferences } from "./c
 import { Markdown } from "./Markdown.js";
 import { RequestCard } from "./RequestCard.js";
 import { TurnChanges } from "./TurnChanges.js";
-import { ChangedFiles, WorkLog } from "./WorkLog.js";
+import { ChangedFiles, elapsedLabel, liveStepLabel, WorkSteps } from "./WorkLog.js";
 import "./chat.css";
 
 export function ChatView({
@@ -186,6 +187,13 @@ export function ChatView({
     if (response?.accepted === false) setError(response.error.message);
   };
 
+  const stopTurn = () =>
+    void run({
+      type: "thread.interrupt",
+      threadId: thread.threadId,
+      ...(thread.activeTurnId ? { turnId: thread.activeTurnId } : {}),
+    });
+
   const sendToPeer = async () => {
     if (!selectedPeerId || !peerDraft.trim()) return;
     const text = peerDraft.trim();
@@ -248,7 +256,9 @@ export function ChatView({
         }
       : undefined;
 
-  const lastTurnRunning = working ? thread.activeTurnId : undefined;
+  const step = useMemo(() => (working ? currentStep(timeline) : undefined), [working, timeline]);
+  const liveLabel =
+    thread.status === "waiting" ? `${displayName} is waiting for you` : step ? liveStepLabel(step) : "Thinking";
   const visibleError = error;
 
   return (
@@ -279,11 +289,10 @@ export function ChatView({
             />
           ) : (
             timeline.map((item, index) => (
-              <Fragment key={item.kind === "work" ? `work-${item.turnId}` : item.message.messageId}>
+              <Fragment key={item.kind === "work" ? `work-${item.key}` : (item.key ?? item.message.messageId)}>
                 {item.kind === "work" ? (
                   <ChatWork
                     item={item}
-                    running={item.turnId === lastTurnRunning}
                     showChangedFiles={!placedCheckpoints.turns.has(item.turnId)}
                     onOpenDiff={openDiff}
                   />
@@ -301,12 +310,7 @@ export function ChatView({
             ))
           )}
           {placedCheckpoints.unplaced.map(turnChanges)}
-          {thread.status === "working" ? (
-            <p className="chat-working" role="status">
-              <span className="spinner" aria-hidden="true" />
-              {displayName} is working
-            </p>
-          ) : null}
+          {working ? <WorkingStatus label={liveLabel} /> : null}
         </div>
       </div>
       <div className="chat-dock">
@@ -385,6 +389,7 @@ export function ChatView({
               onRemoveReference={(id) => removeCodeReference(thread.threadId, id)}
               onReferencesSent={() => clearCodeReferences(thread.threadId)}
               onSubmit={send}
+              onStop={working ? stopTurn : undefined}
               bestOf={bestOf}
             />
           )}
@@ -507,21 +512,52 @@ function QueuedMessages({
   );
 }
 
+/** Mounted for as long as the agent works, so the time counts from the moment the message went out. */
+function WorkingStatus({ label }: { label: string }) {
+  const [startedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(startedAt);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <p className="chat-working">
+      <span className="spinner" aria-hidden="true" />
+      <span className="chat-working-label" role="status">
+        {label}
+      </span>
+      <span className="chat-working-time">{elapsedLabel(now - startedAt)}</span>
+    </p>
+  );
+}
+
+/** The step the agent is on in its current turn: the latest call still running after the last message sent. */
+export function currentStep(timeline: readonly TimelineItem[]): ThreadActivityProjection | undefined {
+  let start = 0;
+  timeline.forEach((item, index) => {
+    if (item.kind === "message" && item.message.role === "user") start = index + 1;
+  });
+  let running: ThreadActivityProjection | undefined;
+  for (const item of timeline.slice(start)) {
+    if (item.kind !== "work") continue;
+    for (const activity of item.activities) if (activity.status === "running") running = activity;
+  }
+  return running;
+}
+
 const ChatWork = memo(function ChatWork({
   item,
-  running,
   showChangedFiles,
   onOpenDiff,
 }: {
   item: Extract<TimelineItem, { kind: "work" }>;
-  running: boolean;
   /** Off once the turn has a checkpoint, which lists the same files with their real diff. */
   showChangedFiles: boolean;
   onOpenDiff(path?: string): void;
 }) {
   return (
     <div className="chat-work">
-      <WorkLog activities={item.activities} running={running} />
+      <WorkSteps activities={item.activities} onOpenFile={onOpenDiff} />
       {showChangedFiles && item.changedFiles.length > 0 ? (
         <ChangedFiles files={item.changedFiles} onOpenDiff={onOpenDiff} />
       ) : null}
