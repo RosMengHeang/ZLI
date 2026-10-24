@@ -251,6 +251,7 @@ async function startBrowserControl(databasePath: string): Promise<BrowserToolPat
     command: process.execPath,
     script: join(DESKTOP_DIST, "zli-browser.js"),
     agentScript: join(DESKTOP_DIST, "zli.js"),
+    connectScript: join(DESKTOP_DIST, "zli-connect.js"),
     shimDir: process.env.ZLI_DATABASE_PATH ? `${databasePath}.bin` : join(userData, "bin"),
   };
   const browserActions = createBrowserControlActions({

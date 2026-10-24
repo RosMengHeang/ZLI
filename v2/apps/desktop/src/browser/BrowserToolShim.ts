@@ -10,6 +10,8 @@ export type BrowserToolPaths = {
   readonly script: string;
   /** The bundled zli.js agent tool script. */
   readonly agentScript: string;
+  /** The bundled zli-connect.js MCP sign-in bridge script. */
+  readonly connectScript: string;
   readonly shimDir: string;
 };
 
@@ -20,6 +22,7 @@ export function browserToolEnvironment(paths: BrowserToolPaths): Record<string, 
     ZLI_BROWSER_TOOL_COMMAND: paths.command,
     ZLI_BROWSER_TOOL_SCRIPT: paths.script,
     ZLI_AGENT_TOOL_SCRIPT: paths.agentScript,
+    ZLI_CONNECT_TOOL_SCRIPT: paths.connectScript,
     ZLI_BROWSER_SHIM_DIR: paths.shimDir,
   };
 }

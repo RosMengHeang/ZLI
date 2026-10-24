@@ -13,6 +13,8 @@ export type BrowserToolConfig = {
   script: string;
   /** The bundled `zli` agent tool script, run the same way. */
   agentScript?: string;
+  /** The bundled `zli-connect` MCP sign-in bridge script, run the same way. */
+  connectScript?: string;
   /** Endpoint file the tool reads to reach the browser control service. */
   controlFile: string;
   /** Directory holding the `zli-browser` shell shims. */
@@ -57,10 +59,12 @@ export function browserToolConfigFromEnv(env: NodeJS.ProcessEnv = process.env): 
   if (!command || !script || !controlFile || !shimDir) return undefined;
   if (![command, script, controlFile, shimDir].every((value) => isAbsolute(value))) return undefined;
   const agentScript = env.ZLI_AGENT_TOOL_SCRIPT?.trim();
+  const connectScript = env.ZLI_CONNECT_TOOL_SCRIPT?.trim();
   return {
     command,
     script,
     ...(agentScript && isAbsolute(agentScript) ? { agentScript } : {}),
+    ...(connectScript && isAbsolute(connectScript) ? { connectScript } : {}),
     controlFile,
     shimDir,
     mcpConfigDir: join(dirname(controlFile), "mcp"),

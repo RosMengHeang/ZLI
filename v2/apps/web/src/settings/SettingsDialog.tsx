@@ -31,6 +31,7 @@ import {
 } from "./appSettings.js";
 import { IssuesSection } from "./IssuesSection.js";
 import { AccountsSection } from "./AccountsSection.js";
+import { ConnectorsSection } from "./ConnectorsSection.js";
 import { McpServersSection } from "./McpServersSection.js";
 import { PluginsSection } from "./PluginsSection.js";
 import { SectionHeader, SettingRow } from "./SectionHeader.js";
@@ -43,6 +44,7 @@ export type SettingsSection =
   | "projects"
   | "worktrees"
   | "files"
+  | "connectors"
   | "mcp"
   | "skills"
   | "plugins"
@@ -57,6 +59,7 @@ const sections: { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: "projects", label: "Projects", icon: "folder" },
   { id: "worktrees", label: "Worktrees", icon: "branch" },
   { id: "files", label: "Files", icon: "fileText" },
+  { id: "connectors", label: "Connectors", icon: "globe" },
   { id: "mcp", label: "MCP servers", icon: "wrench" },
   { id: "skills", label: "Skills", icon: "sparkle" },
   { id: "plugins", label: "Plugins", icon: "puzzle" },
@@ -160,7 +163,8 @@ export function SettingsDialog({
           ) : null}
           {section === "worktrees" ? <WorktreeSettings projection={projection} /> : null}
           {section === "files" ? <FilesSettings /> : null}
-          {section === "mcp" ? <McpServersSection /> : null}
+          {section === "connectors" ? <ConnectorsSection onOpenMcpServers={() => setSection("mcp")} /> : null}
+          {section === "mcp" ? <McpServersSection onOpenConnectors={() => setSection("connectors")} /> : null}
           {section === "skills" ? <SkillsSection projection={projection} initialProjectId={initialProjectId} /> : null}
           {section === "plugins" ? <PluginsSection /> : null}
           {section === "issues" ? <IssuesSection /> : null}

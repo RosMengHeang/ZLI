@@ -2,10 +2,11 @@ import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { MCP_REMOTE_PACKAGE, McpServerList } from "@zli-v2/contracts";
+import { McpServerList } from "@zli-v2/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { McpServerStore, type McpUserSettingsSync, mcpLaunchSpec } from "./McpServerStore.js";
+import { McpSignIns } from "./signIn/McpSignIns.js";
 
 const temps: string[] = [];
 afterEach(async () => {
@@ -26,7 +27,12 @@ describe("McpServerStore", () => {
     const path = await storePath();
     const store = new McpServerStore({ path });
     await store.load();
-    expect(store.list()).toEqual({ servers: [], agentAccess: "full", userSettings: { enabled: false, outcomes: [] } });
+    expect(store.list()).toEqual({
+      servers: [],
+      agentAccess: "full",
+      userSettings: { enabled: false, outcomes: [] },
+      signIns: [],
+    });
 
     await store.save([github, linear]);
     const reloaded = new McpServerStore({ path });
@@ -97,9 +103,11 @@ describe("McpServerStore", () => {
     expect(store.specs()).toEqual([{ name: "github", command: "npx", args: ["-y", "gh-mcp"], env: { TOKEN: "t" } }]);
   });
 
-  it("hands remote servers to agents as URLs, and sign-in ones through mcp-remote with a private header file", async () => {
+  it("hands remote servers to agents as URLs, and sign-in ones through the connect bridge with private files", async () => {
     const path = await storePath();
-    const store = new McpServerStore({ path });
+    const signIns = new McpSignIns({ dir: join(dirname(path), "mcp-sign-in") });
+    const connectTool = { command: "/apps/ZLI", script: "/apps/zli-connect.js" };
+    const store = new McpServerStore({ path, signIns, connectTool });
     await store.load();
     const context7 = {
       name: "context7",
@@ -118,24 +126,29 @@ describe("McpServerStore", () => {
     };
     await store.save([context7, sentry]);
 
-    const reloaded = new McpServerStore({ path });
+    const reloaded = new McpServerStore({ path, signIns, connectTool });
     await reloaded.load();
     expect(reloaded.list().servers).toEqual([context7, sentry]);
+    expect(reloaded.list().signIns).toEqual([{ name: "sentry", url: sentry.url, signedIn: false }]);
     const headerFile = reloaded.headerFile("sentry");
     expect(reloaded.specs()).toEqual([
       { transport: "http", name: "context7", url: context7.url, headers: { Authorization: "Bearer ctx" } },
       {
         name: "sentry",
-        command: process.platform === "win32" ? "cmd" : "npx",
+        command: "/apps/ZLI",
         args: [
-          ...(process.platform === "win32" ? ["/c", "npx"] : []),
-          "-y",
-          MCP_REMOTE_PACKAGE,
+          "/apps/zli-connect.js",
+          "mcp",
+          "--name",
+          "sentry",
+          "--url",
           sentry.url,
+          "--token-file",
+          signIns.tokenFile(sentry.url),
           "--header-file",
           headerFile,
         ],
-        env: {},
+        env: { ELECTRON_RUN_AS_NODE: "1" },
       },
     ]);
     expect(await readFile(headerFile, "utf8")).toBe("X-Org: acme\n");
@@ -145,27 +158,41 @@ describe("McpServerStore", () => {
     expect(await readdir(dirname(headerFile))).toEqual([]);
   });
 
-  it("builds the mcp-remote bridge for each platform", () => {
+  it("without the bridge, gives sign-in servers the saved token as a header", () => {
     const server = {
       name: "local",
       enabled: true,
       transport: "http" as const,
       url: "http://localhost:3000/mcp",
-      headers: { Authorization: "Bearer t" },
+      headers: { authorization: "Bearer old", "X-Team": "a" },
       oauth: true,
     };
-    expect(mcpLaunchSpec(server, { platform: "win32" })).toEqual({
+    expect(mcpLaunchSpec(server, { accessToken: "fresh" })).toEqual({
+      transport: "http",
       name: "local",
-      command: "cmd",
-      args: ["/c", "npx", "-y", MCP_REMOTE_PACKAGE, server.url, "--allow-http", "--header", "Authorization:Bearer t"],
-      env: {},
+      url: server.url,
+      headers: { "X-Team": "a", Authorization: "Bearer fresh" },
     });
-    expect(mcpLaunchSpec({ ...server, headers: {} }, { platform: "darwin", headerFile: "/x.headers" })).toEqual({
+    expect(mcpLaunchSpec({ ...server, headers: {} })).toEqual({
+      transport: "http",
       name: "local",
-      command: "npx",
-      args: ["-y", MCP_REMOTE_PACKAGE, server.url, "--allow-http"],
-      env: {},
+      url: server.url,
+      headers: {},
     });
+    // Headers stay out of the process list, so the bridge is skipped without a header file.
+    expect(mcpLaunchSpec(server, { connectTool: { command: "/z", script: "/c.js" } })).toMatchObject({
+      transport: "http",
+    });
+  });
+
+  it("refuses sign-in for servers that do not use it", async () => {
+    const path = await storePath();
+    const store = new McpServerStore({ path, signIns: new McpSignIns({ dir: join(dirname(path), "s") }) });
+    await store.load();
+    await store.save([github]);
+    await expect(store.signIn("github")).rejects.toThrow("github does not use sign-in.");
+    await expect(store.signIn("nope")).rejects.toThrow("There is no MCP server named nope.");
+    await expect(new McpServerStore({ path }).signOut("github")).rejects.toThrow("Signing in is not available here.");
   });
   it("rejects duplicate and reserved names", () => {
     expect(McpServerList.safeParse([github, { ...github, name: "GitHub" }]).success).toBe(false);

@@ -51,6 +51,14 @@ await build({
   format: "esm",
 });
 
+// The MCP sign-in bridge agents launch; also run under ELECTRON_RUN_AS_NODE.
+await build({
+  ...shared,
+  entryPoints: [resolve(root, "apps/server/src/connect-entry.ts")],
+  outfile: resolve(desktopDist, "zli-connect.js"),
+  format: "esm",
+});
+
 await build({
   ...shared,
   entryPoints: [resolve(root, "apps/server/src/main.ts")],

@@ -71,6 +71,16 @@ describe("browserToolConfigFromEnv", () => {
     expect(browserToolConfigFromEnv({ ...fullEnv, ZLI_AGENT_TOOL_SCRIPT: "zli.js" })).not.toHaveProperty("agentScript");
   });
 
+  it("adds the connect bridge script when the desktop passes an absolute one", () => {
+    expect(
+      browserToolConfigFromEnv({ ...fullEnv, ZLI_CONNECT_TOOL_SCRIPT: "/opt/zli/resources/zli-connect.js" })
+        ?.connectScript,
+    ).toBe("/opt/zli/resources/zli-connect.js");
+    expect(browserToolConfigFromEnv({ ...fullEnv, ZLI_CONNECT_TOOL_SCRIPT: "zli-connect.js" })).not.toHaveProperty(
+      "connectScript",
+    );
+  });
+
   it("is undefined for relative paths", () => {
     expect(browserToolConfigFromEnv({ ...fullEnv, ZLI_BROWSER_SHIM_DIR: "bin" })).toBeUndefined();
   });

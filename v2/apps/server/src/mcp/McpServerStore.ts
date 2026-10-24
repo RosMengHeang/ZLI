@@ -5,15 +5,22 @@ import {
   AgentToolAccess,
   DEFAULT_AGENT_TOOL_ACCESS,
   isHttpServer,
-  MCP_REMOTE_PACKAGE,
+  type McpHttpServerConfig,
   type McpListResult,
   type McpServerConfig,
   McpServerList,
   type McpSettingsOutcome,
+  type McpSignInStart,
+  type McpSignInState,
 } from "@zli-v2/contracts";
 
 import { isPlainObject, type McpServerSpec, writeFileAtomic, writeFileIfChanged } from "../browser-tool/browserTool.js";
 import type { UserSettingsOwnership } from "../browser-tool/userSettings.js";
+import type { McpSignIns } from "./signIn/McpSignIns.js";
+import { SignInError } from "./signIn/oauth.js";
+
+/** ZLI's bundled connect bridge, run with Electron's Node like the other agent tools. */
+export type ConnectTool = { command: string; script: string };
 
 /** Copies the enabled servers into agents that read MCP servers only from their own settings files. */
 export type McpUserSettingsSync = (
@@ -29,39 +36,46 @@ type StoredFile = {
 };
 
 /**
- * The server as agents launch it. A sign-in (OAuth) server runs through mcp-remote, which handles the
- * browser login and token refresh, so it works in every agent the same way. Its headers go in
- * `headerFile` when given, which keeps them out of the process list.
+ * The server as agents launch it. A sign-in (OAuth) server runs through ZLI's connect bridge, which reads
+ * the saved login from `tokenFile` and refreshes it, so it works in every agent the same way, Goose
+ * included. Its headers go in `headerFile`, which keeps them out of the process list. Without the bridge
+ * (tests and runs outside the desktop app), agents get the URL with the current token as a header.
  */
 export function mcpLaunchSpec(
   server: McpServerConfig,
-  options: { headerFile?: string; platform?: NodeJS.Platform } = {},
+  options: { headerFile?: string; tokenFile?: string; accessToken?: string; connectTool?: ConnectTool } = {},
 ): McpServerSpec {
   if (!isHttpServer(server)) {
     return { name: server.name, command: server.command, args: [...server.args], env: { ...server.env } };
   }
-  if (!server.oauth) return { transport: "http", name: server.name, url: server.url, headers: { ...server.headers } };
-  const headers = Object.entries(server.headers);
-  const headerArgs =
-    headers.length === 0
-      ? []
-      : options.headerFile
-        ? ["--header-file", options.headerFile]
-        : headers.flatMap(([name, value]) => ["--header", `${name}:${value}`]);
-  const args = [
-    "-y",
-    MCP_REMOTE_PACKAGE,
-    server.url,
-    ...(server.url.startsWith("http:") ? ["--allow-http"] : []),
-    ...headerArgs,
-  ];
-  // npx is a .cmd shim on Windows, and agents start servers without a shell.
-  return (options.platform ?? process.platform) === "win32"
-    ? { name: server.name, command: "cmd", args: ["/c", "npx", ...args], env: {} }
-    : { name: server.name, command: "npx", args, env: {} };
+  const hasHeaders = Object.keys(server.headers).length > 0;
+  const tool = options.connectTool;
+  if (server.oauth && tool && (!hasHeaders || options.headerFile)) {
+    return {
+      name: server.name,
+      command: tool.command,
+      args: [
+        tool.script,
+        "mcp",
+        "--name",
+        server.name,
+        "--url",
+        server.url,
+        ...(options.tokenFile ? ["--token-file", options.tokenFile] : []),
+        ...(hasHeaders && options.headerFile ? ["--header-file", options.headerFile] : []),
+      ],
+      env: { ELECTRON_RUN_AS_NODE: "1" },
+    };
+  }
+  const headers = { ...server.headers };
+  if (server.oauth && options.accessToken) {
+    for (const name of Object.keys(headers)) if (name.toLowerCase() === "authorization") delete headers[name];
+    headers.Authorization = `Bearer ${options.accessToken}`;
+  }
+  return { transport: "http", name: server.name, url: server.url, headers };
 }
 
-/** mcp-remote header file contents: one `Name: value` per line. */
+/** Connect bridge header file contents: one `Name: value` per line. */
 export function mcpRemoteHeaderFile(headers: Readonly<Record<string, string>>): string {
   return Object.entries(headers)
     .map(([name, value]) => `${name}: ${value}\n`)
@@ -98,6 +112,8 @@ export class McpServerStore {
       syncUserSettings?: McpUserSettingsSync;
       /** Servers from other sources, such as plugins. `taken` holds the lowercase names of the person's own servers, which win. */
       extraServers?: (taken: ReadonlySet<string>) => McpServerConfig[];
+      signIns?: McpSignIns;
+      connectTool?: ConnectTool;
     },
   ) {}
 
@@ -134,11 +150,23 @@ export class McpServerStore {
   /** Enabled servers in the form agent launches use. */
   specs(): McpServerSpec[] {
     return [...this.servers.filter((server) => server.enabled), ...this.extraServers()].map((server) =>
-      mcpLaunchSpec(server, needsHeaderFile(server) ? { headerFile: this.headerFile(server.name) } : {}),
+      mcpLaunchSpec(server, this.launchOptions(server)),
     );
   }
 
-  /** Where mcp-remote reads one sign-in server's headers. */
+  private launchOptions(server: McpServerConfig): Parameters<typeof mcpLaunchSpec>[1] {
+    if (!isHttpServer(server) || !server.oauth) return {};
+    const signIns = this.options.signIns;
+    const accessToken = signIns?.accessToken(server.url);
+    return {
+      ...(needsHeaderFile(server) ? { headerFile: this.headerFile(server.name) } : {}),
+      ...(signIns ? { tokenFile: signIns.tokenFile(server.url) } : {}),
+      ...(accessToken ? { accessToken } : {}),
+      ...(this.options.connectTool ? { connectTool: this.options.connectTool } : {}),
+    };
+  }
+
+  /** Where the connect bridge reads one sign-in server's headers. */
   headerFile(name: string): string {
     return join(this.headerDir(), `${name}${HEADER_FILE_SUFFIX}`);
   }
@@ -152,8 +180,59 @@ export class McpServerStore {
       servers: this.servers.map(copyServer),
       agentAccess: this.access,
       userSettings: { enabled: this.options.syncUserSettings !== undefined, outcomes: [...this.outcomes] },
+      signIns: this.signInStates(),
       ...(this.problem ? { problem: this.problem } : {}),
     };
+  }
+
+  /** Starts signing in to one sign-in server, the person's or a plugin's. */
+  async signIn(name: string): Promise<McpSignInStart> {
+    const signIns = this.requireSignIns();
+    const server = this.signInServer(name);
+    const start = await signIns.start(server.url);
+    if (start.status === "open") return start;
+    await this.refresh();
+    return { status: "done", list: this.list() };
+  }
+
+  async waitForSignIn(attemptId: string): Promise<McpListResult> {
+    await this.requireSignIns().wait(attemptId);
+    await this.refresh();
+    return this.list();
+  }
+
+  cancelSignIn(attemptId: string): McpListResult {
+    this.requireSignIns().cancel(attemptId);
+    return this.list();
+  }
+
+  async signOut(name: string): Promise<McpListResult> {
+    await this.requireSignIns().signOut(this.signInServer(name).url);
+    await this.refresh();
+    return this.list();
+  }
+
+  private requireSignIns(): McpSignIns {
+    const signIns = this.options.signIns;
+    if (!signIns) throw new SignInError("Signing in is not available here.");
+    return signIns;
+  }
+
+  private signInServer(name: string): McpHttpServerConfig {
+    const key = name.toLowerCase();
+    const server = [...this.servers, ...this.extraServers()].find((entry) => entry.name.toLowerCase() === key);
+    if (!server) throw new SignInError(`There is no MCP server named ${name}.`);
+    if (!isHttpServer(server) || !server.oauth) throw new SignInError(`${server.name} does not use sign-in.`);
+    return server;
+  }
+
+  private signInStates(): McpSignInState[] {
+    const signIns = this.options.signIns;
+    return [...this.servers, ...this.extraServers()].flatMap((server) => {
+      if (!isHttpServer(server) || !server.oauth) return [];
+      const status = signIns?.status(server.url) ?? { signedIn: false };
+      return [{ name: server.name, url: server.url, ...status }];
+    });
   }
 
   save(servers: readonly McpServerConfig[]): Promise<McpListResult> {

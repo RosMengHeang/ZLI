@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { McpServerConfig, McpServerList } from "./mcp.js";
-import { catalogEntryAdded, catalogMissingField, catalogServer, MCP_CATALOG } from "./mcpCatalog.js";
+import {
+  catalogEntryAdded,
+  catalogMissingField,
+  catalogServer,
+  catalogSignsIn,
+  MCP_CATALOG,
+  MCP_CATALOG_CATEGORIES,
+} from "./mcpCatalog.js";
 
 const sample = (key: string) => (key === "folder" ? "/home/me/notes" : `value-${key}`);
 
@@ -38,14 +45,15 @@ describe("MCP catalog", () => {
   });
 
   it("asks for required fields and leaves out optional ones left empty", () => {
-    const github = MCP_CATALOG.find((entry) => entry.id === "github");
+    const render = MCP_CATALOG.find((entry) => entry.id === "render");
     const context7 = MCP_CATALOG.find((entry) => entry.id === "context7");
     const filesystem = MCP_CATALOG.find((entry) => entry.id === "filesystem");
-    if (!github || !context7 || !filesystem) throw new Error("catalog entries missing");
-    expect(catalogMissingField(github, { token: "  " })?.key).toBe("token");
-    expect(catalogServer(github, { token: " ghp_1 " })).toMatchObject({
+    if (!render || !context7 || !filesystem) throw new Error("catalog entries missing");
+    expect(catalogMissingField(render, { apiKey: "  " })?.key).toBe("apiKey");
+    expect(catalogServer(render, { apiKey: " rnd_1 " })).toMatchObject({
       transport: "http",
-      headers: { Authorization: "Bearer ghp_1" },
+      headers: { Authorization: "Bearer rnd_1" },
+      oauth: false,
     });
     expect(catalogMissingField(context7, {})).toBeUndefined();
     expect(catalogServer(context7, {})).toMatchObject({ transport: "http", headers: {} });
@@ -56,6 +64,21 @@ describe("MCP catalog", () => {
       args: ["/c", "npx", "-y", "@modelcontextprotocol/server-filesystem", "C:\\notes"],
       env: {},
     });
+  });
+
+  it("signs in to hosted services, with a token as GitHub's second way in", () => {
+    const github = MCP_CATALOG.find((entry) => entry.id === "github");
+    if (!github) throw new Error("catalog entries missing");
+    expect(catalogSignsIn(github)).toBe(true);
+    expect(catalogServer(github, {})).toMatchObject({ transport: "http", headers: {}, oauth: true });
+    expect(catalogServer(github, { token: " ghp_1 " }, { useToken: true })).toMatchObject({
+      transport: "http",
+      headers: { Authorization: "Bearer ghp_1" },
+      oauth: false,
+    });
+    const categories = new Set(MCP_CATALOG_CATEGORIES.map((category) => category.id));
+    for (const entry of MCP_CATALOG) expect(categories.has(entry.category)).toBe(true);
+    expect(MCP_CATALOG.filter(catalogSignsIn).length).toBeGreaterThanOrEqual(30);
   });
 
   it("knows which entries were already added, by name, URL, or package", () => {

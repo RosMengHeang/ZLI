@@ -24,6 +24,8 @@ import { LegacyImportReactor } from "./import/LegacyImportReactor.js";
 import { GitHubIssues } from "./issues/GitHubIssues.js";
 import { LinearIssues } from "./issues/LinearIssues.js";
 import { McpServerStore } from "./mcp/McpServerStore.js";
+import { GITHUB_OAUTH_CLIENT_ID } from "./mcp/signIn/github.js";
+import { McpSignIns } from "./mcp/signIn/McpSignIns.js";
 import { PluginStore } from "./plugins/PluginStore.js";
 import { AgentMessageReactor } from "./orchestration/AgentMessageReactor.js";
 import { Engine } from "./orchestration/Engine.js";
@@ -124,9 +126,18 @@ export async function startRuntime(options: {
     },
   });
   await plugins.load();
+  const signIns = new McpSignIns({
+    dir: join(dirname(databasePath), "mcp-sign-in"),
+    githubClientId: process.env.ZLI_GITHUB_CLIENT_ID?.trim() || GITHUB_OAUTH_CLIENT_ID,
+  });
+  await signIns.load();
   const mcpServers: McpServerStore = new McpServerStore({
     path: join(dirname(databasePath), "mcp-servers.json"),
     extraServers: (taken): McpServerConfig[] => plugins.mcpServers(taken),
+    signIns,
+    ...(browserTool?.connectScript
+      ? { connectTool: { command: browserTool.command, script: browserTool.connectScript } }
+      : {}),
     ...(writeUserSettings
       ? {
           syncUserSettings: (specs, owned) =>
@@ -253,6 +264,7 @@ export async function startRuntime(options: {
     browserToolRegistration,
     token,
     close: async () => {
+      signIns.close();
       await server.stop();
       await browserToolRegistration;
       await mcpServers.waitForIdle();
