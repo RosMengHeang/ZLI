@@ -2,7 +2,7 @@ import { z } from "zod";
 import { BrowserTabProjection } from "./browser.js";
 import { ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
-import { DiagnosticLog } from "./diagnostics.js";
+import { DesktopAppInfo, DiagnosticLog } from "./diagnostics.js";
 import {
   BrowserTabId,
   EventId,
@@ -158,6 +158,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     destinationPath: z.string().min(1),
     allowedRoot: z.string().min(1).optional(),
     desktopLogs: z.array(DiagnosticLog).optional(),
+    desktopApp: DesktopAppInfo.optional(),
   }),
   z.object({ type: z.literal("diagnostics.bundle.created"), bundle: SupportBundleProjection }),
   z.object({ type: z.literal("diagnostics.bundle.failed"), message: z.string().min(1) }),

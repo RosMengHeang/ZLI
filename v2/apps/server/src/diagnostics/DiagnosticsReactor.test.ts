@@ -30,7 +30,11 @@ describe("DiagnosticsReactor", () => {
       await engine.dispatchPromise({
         protocolVersion: 1,
         commandId: CommandId.parse("00000000-0000-4000-8000-000000000010"),
-        command: { type: "diagnostics.createSupportBundle", destinationPath: destination },
+        command: {
+          type: "diagnostics.createSupportBundle",
+          destinationPath: destination,
+          desktopApp: { version: "0.4.2", platform: "linux", arch: "x64" },
+        },
       });
       await reactor.waitForIdle();
 
@@ -42,7 +46,10 @@ describe("DiagnosticsReactor", () => {
         "logs.jsonl",
         "events.jsonl",
       ]);
-      expect((await readFile(destination)).subarray(0, 4).toString("hex")).toBe("504b0304");
+      const archive = await readFile(destination);
+      expect(archive.subarray(0, 4).toString("hex")).toBe("504b0304");
+      // Entries are stored uncompressed, so the manifest text is in the archive as written.
+      expect(archive.toString("utf8")).toContain('"version": "0.4.2"');
     } finally {
       reactor.stop();
       database.close();

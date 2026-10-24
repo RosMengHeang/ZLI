@@ -94,6 +94,8 @@ export async function launchDesktop(
         ZLI_TEST_PROJECT_PATH: repo,
         ZLI_TEST_PROVIDER: "mock",
         ZLI_REDUCED_MOTION: "1",
+        // The packaged app under test must never ask GitHub for a newer release or replace itself.
+        ZLI_DISABLE_UPDATES: "1",
         ZLI_TEST_LEGACY_SNAPSHOT_PATH: options.legacySnapshotPath,
         ...options.env,
       },

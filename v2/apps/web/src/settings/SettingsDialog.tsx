@@ -13,6 +13,8 @@ import { Icon, type IconName } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
 import { Switch } from "../ui/Switch.js";
 import { shortcutText } from "../ui/shortcuts.js";
+import { UpdatesSection } from "../updates/UpdatesSection.js";
+import type { Updates } from "../updates/useUpdates.js";
 import {
   type AppSettings,
   branchFromTemplate,
@@ -28,7 +30,15 @@ import { McpServersSection } from "./McpServersSection.js";
 import { SectionHeader, SettingRow } from "./SectionHeader.js";
 import "./settings.css";
 
-export type SettingsSection = "agents" | "projects" | "worktrees" | "files" | "mcp" | "shortcuts" | "notifications";
+export type SettingsSection =
+  | "agents"
+  | "projects"
+  | "worktrees"
+  | "files"
+  | "mcp"
+  | "shortcuts"
+  | "notifications"
+  | "updates";
 
 const sections: { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: "agents", label: "New agents", icon: "squarePen" },
@@ -38,6 +48,7 @@ const sections: { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: "mcp", label: "MCP servers", icon: "wrench" },
   { id: "shortcuts", label: "Shortcuts", icon: "command" },
   { id: "notifications", label: "Notifications", icon: "bell" },
+  { id: "updates", label: "Updates", icon: "download" },
 ];
 
 const modeLabel: Record<SessionMode, string> = { terminal: "Terminal", chat: "Chat" };
@@ -47,6 +58,8 @@ type Props = {
   initialProjectId?: string | undefined;
   initialSection?: SettingsSection;
   notifications: { settings: NotificationSettings | undefined; update(patch: Partial<NotificationSettings>): void };
+  updates?: Updates | undefined;
+  onRestartToUpdate?(): void;
   onClose(): void;
 };
 
@@ -55,6 +68,8 @@ export function SettingsDialog({
   initialProjectId,
   initialSection = "agents",
   notifications,
+  updates,
+  onRestartToUpdate = () => undefined,
   onClose,
 }: Props) {
   const [section, setSection] = useState<SettingsSection>(initialSection);
@@ -124,6 +139,7 @@ export function SettingsDialog({
           {section === "mcp" ? <McpServersSection /> : null}
           {section === "shortcuts" ? <ShortcutSettings /> : null}
           {section === "notifications" ? <NotificationSection {...notifications} /> : null}
+          {section === "updates" ? <UpdatesSection updates={updates} onRestart={onRestartToUpdate} /> : null}
         </section>
       </div>
     </Dialog>

@@ -1,6 +1,12 @@
 name: ZLI V2 desktop
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "v2/**"
+      - "package.json"
+      - ".github/workflows/v2-desktop.yml"
   pull_request:
     paths:
       - "v2/**"

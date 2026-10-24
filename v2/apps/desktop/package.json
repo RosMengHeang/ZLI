@@ -8,18 +8,21 @@
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
-    "pack": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml",
-    "pack:dir": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml --dir"
+    "pack": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml --publish never",
+    "pack:dir": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml --dir --publish never",
+    "release": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml --publish always"
   },
   "dependencies": {
     "@zli-v2/client-runtime": "workspace:*",
     "@zli-v2/contracts": "workspace:*",
     "@zli-v2/ui": "workspace:*",
+    "electron-updater": "6.8.11",
     "node-pty": "1.1.0",
     "ws": "8.21.3"
   },
   "devDependencies": {
     "@types/node": "24.10.1",
+    "@types/semver": "7.8.0",
     "@types/ws": "8.18.1",
     "electron": "44.4.2"
   }

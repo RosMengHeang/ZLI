@@ -1,4 +1,5 @@
 import type { DevServerProjection, ProjectProjection, WorktreeProjection } from "@zli-v2/contracts";
+import type { ReactNode } from "react";
 
 import { DevServerChip } from "../devservers/DevServers.js";
 import type { ShortcutId } from "../settings/appSettings.js";
@@ -34,6 +35,7 @@ export function Topbar({
   onOpenPalette,
   devServers = [],
   onOpenDevServer,
+  updateNotice,
 }: {
   sidebarOpen: boolean;
   project: ProjectProjection | undefined;
@@ -49,6 +51,8 @@ export function Topbar({
   /** Servers the selected worktree's terminals are running, newest first. */
   devServers?: readonly DevServerProjection[];
   onOpenDevServer?(url: string): void;
+  /** The update pill, shown before the panel toggles. */
+  updateNotice?: ReactNode;
 }) {
   const shortcuts = useShortcuts();
   return (
@@ -76,6 +80,7 @@ export function Topbar({
         {worktree && onOpenDevServer ? <DevServerChip devServers={devServers} onOpen={onOpenDevServer} /> : null}
       </div>
       <span className="topbar-spacer" />
+      {updateNotice}
       {sidebarOpen || !hasProjects ? null : (
         <Button variant="ghost" size="sm" icon="plus" shortcut={shortcuts.newAgent} onClick={onNewAgent}>
           New agent

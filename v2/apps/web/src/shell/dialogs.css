@@ -121,7 +121,7 @@
 .help-action-detail { color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
 .help-dialog .dialog-footer { justify-content: space-between; gap: var(--zli-space-4); }
 .help-dialog .help-version { flex: 0 0 auto; }
-.help-dialog .help-version + .dialog-footer-note { text-align: right; }
+.help-dialog .help-footer-note { flex: 1; text-align: right; }
 @media (max-width: 640px) {
   .help-shortcuts, .help-actions { grid-template-columns: minmax(0, 1fr); }
 }

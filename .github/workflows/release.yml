@@ -1,0 +1,146 @@
+name: Release
+
+# Every merge to main ships a patch release. Run this workflow by hand for a minor or major one.
+# The v* tag is the only record of the version: package.json files keep 0.0.0 on main and get the
+# release version written into them inside the build jobs.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to raise
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: write
+
+# Two quick merges must not compute the same version. A newer push waits for the running release;
+# GitHub keeps only the newest waiting run, which builds main with the changes of the run it replaced.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      tag: ${{ steps.next.outputs.tag }}
+      sha: ${{ steps.next.outputs.sha }}
+      skip: ${{ steps.next.outputs.skip }}
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: v2/.nvmrc
+      - name: Work out the next version
+        id: next
+        env:
+          RELEASE_BUMP: ${{ inputs.bump }}
+        run: node scripts/release-version.mjs next
+      - name: Explain the skip
+        if: steps.next.outputs.skip == 'true'
+        run: echo "::notice::No release for this push (${{ steps.next.outputs.reason }})."
+      - name: Tag the release commit
+        if: steps.next.outputs.skip != 'true'
+        env:
+          TAG: ${{ steps.next.outputs.tag }}
+          SHA: ${{ steps.next.outputs.sha }}
+        run: |
+          git tag "$TAG" "$SHA"
+          git push origin "refs/tags/$TAG"
+      # The draft exists before the build jobs start, so the three parallel electron-builder uploads all
+      # find it and add their files to it instead of each creating a release of their own.
+      - name: Create the draft release with notes
+        if: steps.next.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.next.outputs.tag }}
+          SHA: ${{ steps.next.outputs.sha }}
+          PREVIOUS_TAG: ${{ steps.next.outputs.previous_tag }}
+        run: |
+          args=(-f "tag_name=$TAG" -f "target_commitish=$SHA")
+          if [ -n "$PREVIOUS_TAG" ]; then args+=(-f "previous_tag_name=$PREVIOUS_TAG"); fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" "${args[@]}" --jq .body > "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+            --title "ZLI $TAG" --notes-file "$RUNNER_TEMP/notes.md"
+
+  build:
+    needs: version
+    if: needs.version.outputs.skip != 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: v2/.nvmrc
+          cache: pnpm
+          cache-dependency-path: v2/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Set the release version for this build
+        run: node scripts/release-version.mjs apply "${{ needs.version.outputs.version }}"
+      - name: Build installers and upload them to the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # TODO(macOS signing): Squirrel.Mac only installs updates into a signed, notarized app, so macOS
+          # users download new versions from the release page for now. To make macOS updates install on
+          # their own, add the repository secrets CSC_LINK (base64 Developer ID Application .p12),
+          # CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID, uncomment the lines
+          # below, and turn on notarize in apps/desktop/electron-builder.yml. ZLI_MAC_SIGNED=1 tells the
+          # app it may install updates itself.
+          # CSC_LINK: ${{ runner.os == 'macOS' && secrets.CSC_LINK || '' }}
+          # CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.CSC_KEY_PASSWORD || '' }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # ZLI_MAC_SIGNED: ${{ runner.os == 'macOS' && '1' || '0' }}
+        run: pnpm run desktop:release
+
+  publish:
+    needs: [version, build]
+    if: needs.version.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the installers and update files are attached
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          echo "$assets"
+          missing=0
+          for pattern in '^latest\.yml$' '^latest-mac\.yml$' '^latest-linux\.yml$' '\.exe$' '\.exe\.blockmap$' \
+            '\.dmg$' '-mac-.*\.zip$' '\.AppImage$'; do
+            if ! grep -Eq -- "$pattern" <<< "$assets"; then
+              echo "::error::No release file matches $pattern"
+              missing=1
+            fi
+          done
+          exit "$missing"
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
