@@ -13,7 +13,6 @@ import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
-import { Segmented, type SegmentedOption } from "../ui/Segmented.js";
 import type { RunPosition } from "./bestOf.js";
 import {
   type AgentSession,
@@ -36,26 +35,13 @@ const statusTone: Record<SessionStatus, BadgeTone> = {
   failed: "danger",
 };
 
-const modeOptions: readonly SegmentedOption<SessionMode>[] = [
-  {
-    value: "terminal",
-    label: "Terminal",
-    icon: "terminal",
-    ariaLabel: "Terminal view",
-    tooltip: "Agent CLI in a terminal",
-  },
-  { value: "chat", label: "Chat", icon: "message", ariaLabel: "Chat view", tooltip: "Chat with a work log and diffs" },
-];
-
 export function AgentTile({
   projection,
   session,
   worktree,
-  mode,
   active,
   maximized,
   canMaximize,
-  onModeChange,
   onFocus,
   onToggleMaximize,
   onStop,
@@ -73,11 +59,9 @@ export function AgentTile({
   projection: RuntimeProjection;
   session: AgentSession;
   worktree: WorktreeProjection | undefined;
-  mode: SessionMode;
   active: boolean;
   maximized: boolean;
   canMaximize: boolean;
-  onModeChange(mode: SessionMode): void;
   onFocus(): void;
   onToggleMaximize(): void;
   onStop(): void;
@@ -102,6 +86,7 @@ export function AgentTile({
   const branch = worktree?.branch ?? "worktree";
   const terminal = session.terminal;
   const thread = session.thread;
+  const mode = session.mode;
   const terminalLive = terminal?.status === "running" || terminal?.status === "starting";
   const fileLinks = useFileLinks(mode === "terminal" ? worktree?.worktreeId : undefined);
   const setup = worktree?.status === "bootstrapping" ? worktreeSetup(projection, worktree.worktreeId) : undefined;
@@ -176,12 +161,6 @@ export function AgentTile({
           {sessionStatusLabel[status]}
         </Badge>
         <span className="tile-spacer" />
-        {session.pending && !terminal && !thread ? null : (
-          <>
-            <Segmented label="View" className="tile-modes" value={mode} options={modeOptions} onChange={onModeChange} />
-            <span className="toolbar-divider tile-divider" aria-hidden="true" />
-          </>
-        )}
         <span className="tile-actions">
           {mode === "chat" && onHandoff ? (
             <IconButton
@@ -293,7 +272,7 @@ export function AgentTile({
             <EmptyState
               media={mark}
               title={`Run ${displayName} in a terminal`}
-              detail={`Starts the ${displayName} CLI in ${branch}. It keeps its own history, separate from the chat.`}
+              detail={`Starts the ${displayName} CLI in ${branch}.`}
             >
               <Button variant="primary" icon="play" loading={busy} onClick={() => void start("terminal")}>
                 {busy ? "Starting" : "Start in terminal"}
@@ -315,7 +294,7 @@ export function AgentTile({
           <EmptyState
             media={mark}
             title={`Chat with ${displayName}`}
-            detail={`A structured chat with a work log and diffs, in ${branch}. It does not share history with the terminal.`}
+            detail={`A chat with a work log and diffs, in ${branch}.`}
           >
             <Button variant="primary" icon="message" loading={busy} onClick={() => void start("chat")}>
               {busy ? "Starting" : "Start chat"}

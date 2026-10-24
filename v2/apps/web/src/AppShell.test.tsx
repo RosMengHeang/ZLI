@@ -276,6 +276,8 @@ describe("AppShell", () => {
     const container = await render(makeBridge(withAgent));
     expect(container.querySelectorAll(".agent-tile")).toHaveLength(1);
     await vi.waitFor(() => expect(container.querySelector('[aria-label="Claude Code terminal"]')).not.toBeNull());
+    // The view is chosen when the agent starts, so the tile has no Terminal or Chat switch.
+    expect(container.querySelector('.agent-tile [aria-label="Chat view"]')).toBeNull();
     expect(container.querySelector(".session-row")?.getAttribute("aria-label")).toBe("Claude Code, Claude Code, Ready");
     await act(async () => {
       button(container, "Close tile")?.click();

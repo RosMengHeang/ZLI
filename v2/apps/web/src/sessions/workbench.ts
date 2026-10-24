@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 
 import { parseRunGroups, type RunGroup, withoutRun } from "./bestOf.js";
 import type { FirstMessageFile } from "./handoff.js";
-import type { PendingLaunch, SessionMode } from "./sessions.js";
+import type { PendingLaunch } from "./sessions.js";
 
 const STORAGE_KEY = "zli.workbench.v1";
 
@@ -11,7 +11,6 @@ export type FirstMessage = { text: string; file?: FirstMessageFile };
 export type WorkbenchState = {
   /** Sessions removed from the grid. They stay in the sidebar and keep running. */
   closed: string[];
-  modes: Record<string, SessionMode>;
   pending: PendingLaunch[];
   /** First messages waiting for their agent to be ready for input, by session. */
   firstMessages: Record<string, FirstMessage>;
@@ -29,7 +28,6 @@ export const MIN_DRAWER_HEIGHT = 140;
 
 const initialState: WorkbenchState = {
   closed: [],
-  modes: {},
   pending: [],
   firstMessages: {},
   groups: [],
@@ -40,7 +38,6 @@ const initialState: WorkbenchState = {
 
 /** Drops every layout trace of a session that no longer exists. */
 export function forgetSession(state: WorkbenchState, sessionId: string): WorkbenchState {
-  const { [sessionId]: _mode, ...modes } = state.modes;
   const { [sessionId]: _message, ...firstMessages } = state.firstMessages;
   return {
     ...state,
@@ -48,7 +45,6 @@ export function forgetSession(state: WorkbenchState, sessionId: string): Workben
     groups: withoutRun(state.groups, sessionId),
     closed: state.closed.filter((id) => id !== sessionId),
     pending: state.pending.filter((entry) => entry.sessionId !== sessionId),
-    modes,
     activeSessionId: state.activeSessionId === sessionId ? undefined : state.activeSessionId,
     maximizedSessionId: state.maximizedSessionId === sessionId ? undefined : state.maximizedSessionId,
   };
@@ -72,10 +68,6 @@ export function parseWorkbenchState(raw: string | null): WorkbenchState {
   if (!raw) return initialState;
   try {
     const value = JSON.parse(raw) as Partial<WorkbenchState>;
-    const modes: Record<string, SessionMode> = {};
-    for (const [key, mode] of Object.entries(value.modes ?? {})) {
-      if (mode === "terminal" || mode === "chat") modes[key] = mode;
-    }
     const pending = Array.isArray(value.pending)
       ? value.pending.filter(
           (entry): entry is PendingLaunch =>
@@ -94,7 +86,6 @@ export function parseWorkbenchState(raw: string | null): WorkbenchState {
     }
     return {
       closed: strings(value.closed),
-      modes,
       pending,
       firstMessages,
       groups: parseRunGroups(value.groups),
@@ -120,7 +111,7 @@ function load(): WorkbenchState {
   }
 }
 
-/** Layout choices that belong to this window: open tiles, view modes, drawer size. */
+/** Layout choices that belong to this window: open tiles, drawer size. */
 export function useWorkbenchState(): [WorkbenchState, (update: (state: WorkbenchState) => WorkbenchState) => void] {
   const [state, setState] = useState(load);
   const update = useCallback((change: (state: WorkbenchState) => WorkbenchState) => {

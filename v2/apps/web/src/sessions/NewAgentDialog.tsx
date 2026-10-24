@@ -50,8 +50,8 @@ export const viewOptions: readonly ChoiceOption<SessionMode>[] = [
 ];
 
 export const viewHint: Record<SessionMode, string> = {
-  terminal: "Runs the agent's own CLI inside the tile.",
-  chat: "Shows messages, a work log, and changed files.",
+  terminal: "Runs the agent's own CLI inside the tile. You can't change this later.",
+  chat: "Shows messages, a work log, and changed files. You can't change this later.",
 };
 
 export function NewAgentDialog({

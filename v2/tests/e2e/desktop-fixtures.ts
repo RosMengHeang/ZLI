@@ -31,6 +31,8 @@ export async function sendChatMessage(page: Page, message: string): Promise<void
   const composer = page.getByRole("textbox", { name: "Message Codex" });
   await expect(composer).toBeEnabled({ timeout: 30_000 });
   await composer.fill(message);
+  // The text box takes input while the agent starts, but Send stays off until it is ready.
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled({ timeout: 30_000 });
   await composer.press("Enter");
 }
 
