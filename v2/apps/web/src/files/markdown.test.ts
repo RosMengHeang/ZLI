@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { isMarkdownPath, parseFileViewModes } from "./fileViewModes.js";
+import { isMarkdownPath } from "./fileViewModes.js";
 import { markdownHeadings, renderMarkdown, resolveMarkdownLink, resolveWorktreePath, slugify } from "./markdown.js";
 
 function render(source: string): HTMLElement {
@@ -146,12 +146,5 @@ describe("Markdown helpers", () => {
       true,
     ]);
     expect(["readme.txt", "src/app.ts", ".md"].map(isMarkdownPath)).toEqual([false, false, false]);
-  });
-
-  it("falls back to the default view when the stored one is damaged", () => {
-    expect(parseFileViewModes(null).markdown).toBe("preview");
-    expect(parseFileViewModes('{"markdown":"split"}').markdown).toBe("split");
-    expect(parseFileViewModes('{"markdown":"sideways"}').markdown).toBe("preview");
-    expect(parseFileViewModes("not json").markdown).toBe("preview");
   });
 });

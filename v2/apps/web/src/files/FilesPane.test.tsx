@@ -243,7 +243,8 @@ describe("FilesPane", () => {
 
     expect(editorView(container).state.doc.toString()).toBe("const a = 1;\n");
     expect(container.querySelector(".file-path")?.textContent).toBe("src/app.ts");
-    expect(button(container, "Saved").disabled).toBe(true);
+    // Save only shows while there is something to save.
+    expect(() => button(container, "Save")).toThrow();
   });
 
   it("saves edits with the version it read and marks the tab clean", async () => {
@@ -460,7 +461,7 @@ describe("FilesPane Markdown preview", () => {
   };
   const editorHost = (container: HTMLElement) => container.querySelector<HTMLElement>(".file-editor-host");
 
-  it("opens Markdown rendered and remembers the view picked for Markdown files", async () => {
+  it("opens Markdown rendered, and Code only applies to the tab it was picked in", async () => {
     const disk: Disk = new Map([["README.md", { content: "# Demo\n\nHello **there**.\n", version: "r1" }]]);
     const { bridge } = fakeRuntime(disk);
     const first = await renderPane(bridge, { kind: "open", path: "README.md", nonce: 1 });
@@ -473,13 +474,13 @@ describe("FilesPane Markdown preview", () => {
     act(() => tab(first.container, "Code").click());
     expect(first.container.querySelector(".file-md")).toBeNull();
     expect(editorHost(first.container)?.hidden).toBe(false);
-    expect(JSON.parse(window.localStorage.getItem("zli.files.viewModes.v1") ?? "{}")).toEqual({ markdown: "code" });
 
     act(() => root?.unmount());
     root = undefined;
     document.body.replaceChildren();
     const second = await renderPane(bridge, { kind: "open", path: "README.md", nonce: 2 });
-    expect(tab(second.container, "Code").getAttribute("aria-selected")).toBe("true");
+    expect(tab(second.container, "Preview").getAttribute("aria-selected")).toBe("true");
+    expect(() => tab(second.container, "Split")).toThrow();
   });
 
   it("moves between views with the arrow keys", async () => {
@@ -490,24 +491,23 @@ describe("FilesPane Markdown preview", () => {
     act(() => {
       tab(container, "Preview").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
     });
-    expect(tab(container, "Split").getAttribute("aria-selected")).toBe("true");
-    expect(document.activeElement).toBe(tab(container, "Split"));
-    expect(container.querySelector("[role=tabpanel]")?.getAttribute("aria-labelledby")).toBe(
-      tab(container, "Split").id,
-    );
+    expect(tab(container, "Code").getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(tab(container, "Code"));
+    expect(container.querySelector("[role=tabpanel]")?.getAttribute("aria-labelledby")).toBe(tab(container, "Code").id);
   });
 
-  it("shows unsaved edits in the preview while typing in Split", async () => {
+  it("shows unsaved edits from Code in the preview", async () => {
     const disk: Disk = new Map([["README.md", { content: "# Demo\n", version: "r1" }]]);
     const { bridge } = fakeRuntime(disk);
     const { container } = await renderPane(bridge, { kind: "open", path: "README.md", nonce: 1 });
-    act(() => tab(container, "Split").click());
-    await settlePreview();
+    act(() => tab(container, "Code").click());
 
     const view = editorView(container);
     act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: "\n## Draft\n" } }));
     await settle(100);
     await settle(200);
+    act(() => tab(container, "Preview").click());
+    await settlePreview();
     expect(container.querySelector(".file-md h2")?.textContent).toBe("Draft");
     expect(container.querySelector(".file-tab-dirty")).not.toBeNull();
   });

@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode } from "react";
 
 import type { FileLinks } from "../files/FileIndex.js";
+import { ChatImage, isImagePath } from "./ChatImage.js";
 import { CodeBlock } from "./CodeBlock.js";
 
 type Block =
@@ -74,7 +75,27 @@ export function parseMarkdown(source: string): Block[] {
   return blocks;
 }
 
-const INLINE = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\[[^\]\n]+\]\([^)\s]+\))|(\*[^*\s][^*\n]*\*)/gu;
+const INLINE =
+  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\[[^\]\n]+\]\([^)\s]+\))|(\*[^*\s][^*\n]*\*)|(!\[[^\]\n]*\]\([^)\s]+\))/gu;
+const DATA_IMAGE = /^data:image\/(?:png|jpe?g|gif|webp|avif|bmp);base64,[a-z0-9+/=]+$/iu;
+
+/** The worktree file a Markdown image points to. Web images stay unloaded, like web links. */
+function imagePath(href: string, links: FileLinks | undefined): string | undefined {
+  if (/^[a-z][a-z0-9+.-]*:/iu.test(href) && !/^[a-z]:[\\/]/iu.test(href)) return undefined;
+  const resolved = links?.resolve(href)?.path ?? href.replace(/^\.\//u, "");
+  return isImagePath(resolved) ? resolved : undefined;
+}
+
+function renderImage(alt: string, href: string, key: string, links: FileLinks | undefined): ReactNode {
+  if (DATA_IMAGE.test(href)) return <ChatImage key={key} source={{ url: href, name: alt || "image" }} alt={alt} />;
+  const path = imagePath(href, links);
+  if (path) return <ChatImage key={key} source={{ path }} alt={alt} />;
+  return (
+    <span className="md-link" title={href} key={key}>
+      {alt || href}
+    </span>
+  );
+}
 
 function fileLink(links: FileLinks, target: string, key: string, children: ReactNode): ReactNode | undefined {
   const location = links.resolve(target);
@@ -145,6 +166,9 @@ export function renderInline(text: string, links?: FileLinks): ReactNode[] {
           </span>
         ),
       );
+    } else if (match[5]) {
+      const split = token.indexOf("](");
+      nodes.push(renderImage(token.slice(2, split), token.slice(split + 2, -1), key, links));
     } else nodes.push(<em key={key}>{token.slice(1, -1)}</em>);
     last = start + token.length;
   }
@@ -153,11 +177,51 @@ export function renderInline(text: string, links?: FileLinks): ReactNode[] {
 }
 
 /**
- * Renders agent replies as React elements. No HTML from the agent reaches the app's DOM; HTML and
- * SVG blocks preview inside a sandboxed frame with scripts and network requests off.
+ * Image files a reply names without Markdown image syntax, such as "Saved it to assets/logo.png".
+ * Code blocks are skipped, since paths there are usually part of a command or a listing.
  */
-export function Markdown({ text, links }: { text: string; links?: FileLinks | undefined }) {
+function mentionedImages(blocks: readonly Block[], links: FileLinks | undefined): string[] {
+  if (!links) return [];
+  const embedded = new Set<string>();
+  const found: string[] = [];
+  for (const block of blocks) {
+    if (block.kind === "code") continue;
+    const texts = block.kind === "list" ? block.items : [block.text];
+    for (const text of texts) {
+      for (const match of text.matchAll(INLINE)) {
+        if (match[5]) {
+          const href = match[5].slice(match[5].indexOf("](") + 2, -1);
+          const path = imagePath(href, links);
+          if (path) embedded.add(path);
+        } else if (match[1]) {
+          const path = links.resolve(match[1].slice(1, -1))?.path;
+          if (path && isImagePath(path)) found.push(path);
+        }
+      }
+      for (const reference of links.find(text)) {
+        if (isImagePath(reference.location.path)) found.push(reference.location.path);
+      }
+    }
+  }
+  return [...new Set(found)].filter((path) => !embedded.has(path)).slice(0, 8);
+}
+
+/**
+ * Renders agent replies as React elements. No HTML from the agent reaches the app's DOM; HTML and
+ * SVG blocks preview inside a sandboxed frame with scripts and network requests off. With
+ * `showImages`, image files the reply names show below it.
+ */
+export function Markdown({
+  text,
+  links,
+  showImages = false,
+}: {
+  text: string;
+  links?: FileLinks | undefined;
+  showImages?: boolean;
+}) {
   const blocks = parseMarkdown(text);
+  const images = showImages ? mentionedImages(blocks, links) : [];
   return (
     <div className="markdown">
       {blocks.map((block, index) => {
@@ -192,6 +256,13 @@ export function Markdown({ text, links }: { text: string; links?: FileLinks | un
             );
         }
       })}
+      {images.length > 0 ? (
+        <div className="chat-image-gallery">
+          {images.map((path) => (
+            <ChatImage key={path} source={{ path }} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
