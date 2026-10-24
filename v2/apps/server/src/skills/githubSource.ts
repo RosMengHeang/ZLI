@@ -73,6 +73,12 @@ export function sourceKey(source: GithubSkillSource): string {
   return `${source.owner}/${source.repo}@${source.ref ?? ""}:${source.path}`.toLowerCase();
 }
 
+export type GithubDownload = {
+  files: Map<string, Uint8Array>;
+  links: Set<string>;
+  oversized: Set<string>;
+};
+
 /**
  * Downloads the repository tarball from GitHub and returns each folder under `source.path` that holds
  * a SKILL.md. A folder inside another skill belongs to that skill. Links and unsafe names are left out.
@@ -81,7 +87,25 @@ export async function fetchGithubSkills(
   source: GithubSkillSource,
   options: { fetch?: typeof fetch; token?: string | undefined } = {},
 ): Promise<RemoteSkill[]> {
-  const fetchImpl = options.fetch ?? fetch;
+  const download = await downloadGithubFiles(source, options);
+  return skillsFromFiles(download.files, { links: download.links, oversized: download.oversized, repo: source.repo });
+}
+
+/**
+ * Downloads the repository tarball and keeps the regular files under `source.path`, keyed by their path
+ * from the repository root. Links are reported, never kept.
+ */
+export async function downloadGithubFiles(
+  source: GithubSkillSource,
+  options: {
+    fetch?: typeof fetch;
+    token?: string | undefined;
+    maxFileBytes?: number;
+    maxKeptBytes?: number;
+  } = {},
+): Promise<GithubDownload> {
+  const maxFileBytes = options.maxFileBytes ?? MAX_SKILL_FILE_BYTES * 4;
+  const maxKeptBytes = options.maxKeptBytes ?? MAX_KEPT_BYTES;  const fetchImpl = options.fetch ?? fetch;
   const ref = source.ref ? `/${source.ref.split("/").map(encodeURIComponent).join("/")}` : "";
   const url = `https://api.github.com/repos/${source.owner}/${source.repo}/tarball${ref}`;
   let response: Response;
@@ -124,12 +148,12 @@ export async function fetchGithubSkills(
     keep: (path, size) => {
       const relativePath = inScope(path);
       if (relativePath === undefined) return false;
-      if (size > MAX_SKILL_FILE_BYTES * 4) {
+      if (size > maxFileBytes) {
         oversized.add(relativePath);
         return false;
       }
       kept += size;
-      if (kept > MAX_KEPT_BYTES) throw new SkillError("The folder is too large to install. Link to a smaller folder.");
+      if (kept > maxKeptBytes) throw new SkillError("The folder is too large to install. Link to a smaller folder.");
       return true;
     },
     onEntry: (entry) => {
@@ -153,7 +177,7 @@ export async function fetchGithubSkills(
   } finally {
     gunzip.destroy();
   }
-  return skillsFromFiles(files, { links, oversized, repo: source.repo });
+  return { files, links, oversized };
 }
 
 /** Groups downloaded files into skills. Exported for tests. */
@@ -203,7 +227,7 @@ export function skillsFromFiles(
 }
 
 /** Characters Windows cannot hold in a file name, and control characters. */
-function unsafeSegment(segment: string): boolean {
+export function unsafeSegment(segment: string): boolean {
   return [...segment].some((char) => char.charCodeAt(0) < 32 || '\\:*?"<>|'.includes(char));
 }
 
