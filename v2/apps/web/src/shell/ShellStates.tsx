@@ -50,7 +50,7 @@ export function GridEmptyState({
           : "Start an agent in a terminal or a chat. Run several at once, each in its own worktree or in the current checkout."
       }
     >
-      <Button variant="primary" size="lg" icon="plus" shortcut={newAgentShortcut} showShortcut onClick={onNewAgent}>
+      <Button variant="primary" size="lg" icon="plus" shortcut={newAgentShortcut} onClick={onNewAgent}>
         New agent
       </Button>
       {scratch}

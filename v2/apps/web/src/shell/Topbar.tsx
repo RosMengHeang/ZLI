@@ -2,6 +2,7 @@ import type { DevServerProjection, ProjectProjection, WorktreeProjection } from 
 import type { ReactNode } from "react";
 
 import { DevServerChip } from "../devservers/DevServers.js";
+import type { ShortcutId } from "../settings/appSettings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
@@ -14,12 +15,17 @@ export const sidePaneLabel: Record<SidePane, string> = { files: "Files", browser
 
 const sidePaneIcon: Record<SidePane, IconName> = { files: "folderTree", browser: "globe", review: "diff" };
 
+export const sidePaneShortcut = {
+  files: "toggleFiles",
+  browser: "toggleBrowser",
+  review: "toggleChanges",
+} as const satisfies Record<SidePane, ShortcutId>;
+
 export function Topbar({
   sidebarOpen,
   project,
   worktree,
   hasProjects,
-  agentCount,
   drawerOpen,
   sidePane,
   onShowSidebar,
@@ -35,7 +41,6 @@ export function Topbar({
   project: ProjectProjection | undefined;
   worktree: WorktreeProjection | undefined;
   hasProjects: boolean;
-  agentCount: number;
   drawerOpen: boolean;
   sidePane: SidePane | undefined;
   onShowSidebar(): void;
@@ -72,11 +77,6 @@ export function Topbar({
         ) : (
           <span className="topbar-project is-empty">{hasProjects ? "No worktree selected" : "No project open"}</span>
         )}
-        {agentCount > 0 ? (
-          <span className="topbar-count">
-            {agentCount} {agentCount === 1 ? "agent" : "agents"}
-          </span>
-        ) : null}
         {worktree && onOpenDevServer ? <DevServerChip devServers={devServers} onOpen={onOpenDevServer} /> : null}
       </div>
       <span className="topbar-spacer" />
@@ -100,6 +100,7 @@ export function Topbar({
             key={pane}
             label={sidePaneLabel[pane]}
             icon={sidePaneIcon[pane]}
+            shortcut={shortcuts[sidePaneShortcut[pane]]}
             active={sidePane === pane}
             onClick={() => onToggleSidePane(pane)}
           />
@@ -120,7 +121,7 @@ export function Topbar({
   );
 }
 
-/** Shows or hides a panel. The label stays the accessible name when narrow windows hide it. */
+/** Shows or hides a panel. Icon only; the label is the accessible name and the tooltip names the action. */
 function ToolToggle({
   label,
   icon,
@@ -136,7 +137,7 @@ function ToolToggle({
 }) {
   return (
     <button
-      className={`btn btn-ghost btn-sm tool-toggle${active ? " is-active" : ""}`}
+      className={`btn btn-ghost btn-icon tool-toggle${active ? " is-active" : ""}`}
       type="button"
       aria-label={label}
       aria-pressed={active}
@@ -145,8 +146,7 @@ function ToolToggle({
       aria-keyshortcuts={shortcut ? ariaShortcut(shortcut) : undefined}
       onClick={onClick}
     >
-      <Icon name={icon} size={14} />
-      <span className="tool-toggle-label">{label}</span>
+      <Icon name={icon} size={15} />
     </button>
   );
 }

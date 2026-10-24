@@ -10,11 +10,12 @@ import type {
 } from "@zli-v2/contracts";
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { providerDisplayName } from "../agent/providers.js";
+import { listedDiscoveries, providerDisplayName } from "../agent/providers.js";
 import { type FileLinks, useFileLinks } from "../files/FileIndex.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { entriesForThread, shallowArrayEqual } from "../runtime/runtimeStore.js";
+import { forkPointAfter, type RunAgent, type RunStart } from "../sessions/bestOf.js";
 import { buildTimeline, type TimelineItem } from "../sessions/sessions.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Select } from "../ui/Field.js";
@@ -22,7 +23,8 @@ import { Icon } from "../ui/Icon.js";
 import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { latestContext } from "../usage/usage.js";
-import { Composer, type ComposerAttachment } from "./Composer.js";
+import type { BestOfAgentOption } from "./BestOfPopover.js";
+import { Composer, type ComposerAttachment, type ComposerBestOf } from "./Composer.js";
 import { clearCodeReferences, removeCodeReference, useCodeReferences } from "./codeReferences.js";
 import { Markdown } from "./Markdown.js";
 import { RequestCard } from "./RequestCard.js";
@@ -37,6 +39,7 @@ export function ChatView({
   onOpenDiff,
   onRestart,
   onHandoff,
+  onStartRuns,
 }: {
   projection: RuntimeProjection;
   thread: ThreadProjection;
@@ -44,6 +47,8 @@ export function ChatView({
   onOpenDiff(path?: string): void;
   onRestart(): void;
   onHandoff?: (() => void) | undefined;
+  /** Starts best-of runs from this chat. Absent where runs cannot start, such as a scratch chat. */
+  onStartRuns?: ((request: StartRunsRequest) => Promise<string | undefined>) | undefined;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
@@ -203,6 +208,46 @@ export function ChatView({
     }
   };
 
+  const [retry, setRetry] = useState<{ key: string; text: string; index: number }>();
+  const placedRef = useRef(placedCheckpoints);
+  placedRef.current = placedCheckpoints;
+  const worktreeIdRef = useRef(thread.worktreeId);
+  worktreeIdRef.current = thread.worktreeId;
+  const tryWays = useCallback((message: ThreadMessageProjection, index: number) => {
+    setRetry({ key: message.messageId, text: message.text, index });
+  }, []);
+  // Worked out when the runs start rather than when the popover opens: a turn that just ended may
+  // not have its checkpoint yet, and without it the runs would copy the files later turns changed.
+  const retryStart = (index: number): RunStart => {
+    const checkpoint = forkPointAfter(index, placedRef.current.after);
+    return checkpoint
+      ? { kind: "checkpoint", checkpointId: checkpoint.checkpointId }
+      : { kind: "worktree", worktreeId: worktreeIdRef.current };
+  };
+  const runAgents = useMemo(
+    (): BestOfAgentOption[] =>
+      listedDiscoveries(projection.providers).flatMap((entry) =>
+        entry.status === "found" ? [{ provider: entry.provider, name: entry.displayName, models: entry.models }] : [],
+      ),
+    [projection.providers],
+  );
+  const bestOf: ComposerBestOf | undefined =
+    onStartRuns && worktree?.status === "ready"
+      ? {
+          agents: runAgents,
+          current: { provider: thread.provider, ...(model ? { model } : {}) },
+          retry: retry ? { key: retry.key, text: retry.text } : undefined,
+          onRetryClose: () => setRetry(undefined),
+          onStart: ({ text, runs, retry: again }) =>
+            onStartRuns({
+              prompt: text,
+              runs,
+              from: again && retry ? retryStart(retry.index) : { kind: "worktree", worktreeId: thread.worktreeId },
+              permissionMode,
+            }),
+        }
+      : undefined;
+
   const lastTurnRunning = working ? thread.activeTurnId : undefined;
   const visibleError = error;
 
@@ -245,8 +290,10 @@ export function ChatView({
                 ) : (
                   <ChatMessage
                     message={item.message}
+                    index={index}
                     links={fileLinks}
                     source={item.message.role === "agent" ? sourceLabel(projection, item.message.sourceThreadId) : ""}
+                    onTryWays={bestOf && !ended ? tryWays : undefined}
                   />
                 )}
                 {placedCheckpoints.after.get(index)?.map(turnChanges)}
@@ -338,6 +385,7 @@ export function ChatView({
               onRemoveReference={(id) => removeCodeReference(thread.threadId, id)}
               onReferencesSent={() => clearCodeReferences(thread.threadId)}
               onSubmit={send}
+              bestOf={bestOf}
             />
           )}
           {peers.length > 0 && selectedPeerId && !ended ? (
@@ -507,18 +555,43 @@ export function placeCheckpoints(
   return { after, unplaced, turns: new Set(checkpoints.map((checkpoint) => checkpoint.turnId)) };
 }
 
+export type StartRunsRequest = {
+  prompt: string;
+  runs: RunAgent[];
+  from: RunStart;
+  permissionMode: PermissionMode;
+};
+
 const ChatMessage = memo(function ChatMessage({
   message,
+  index,
   links,
   source,
+  onTryWays,
 }: {
   message: ThreadMessageProjection;
+  /** Position in the timeline, which places the message among the saved turns. */
+  index: number;
   links: FileLinks | undefined;
   source: string;
+  onTryWays?: ((message: ThreadMessageProjection, index: number) => void) | undefined;
 }) {
   if (message.role === "user") {
     return (
       <article className="chat-message chat-message-user">
+        {onTryWays && message.text.trim() ? (
+          <span className="chat-message-actions">
+            <Button
+              variant="ghost"
+              size="xs"
+              icon="split"
+              tooltip="Run this message again in new worktrees, from before it was sent"
+              onClick={() => onTryWays(message, index)}
+            >
+              Try N ways
+            </Button>
+          </span>
+        ) : null}
         {message.attachments && message.attachments.length > 0 ? (
           <ul className="chat-attachments">
             {message.attachments.map((attachment) => (

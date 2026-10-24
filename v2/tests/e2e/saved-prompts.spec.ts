@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 
 import { closeDesktop, createGitFixture, launchDesktop, type DesktopFixture } from "./desktop-fixtures.js";
 
-test("inserts shared and personal prompts with / and sends the first message on start", async () => {
+test("inserts shared and personal prompts with / in the composer", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
   const { root, repo } = await createGitFixture();
   await writeFile(
@@ -27,21 +27,20 @@ test("inserts shared and personal prompts with / and sends the first message on 
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();
-    const firstMessage = newAgent.getByLabel("First message");
-    await firstMessage.fill("/insp");
-    const options = newAgent.getByRole("listbox", { name: "Saved prompts" });
-    await expect(options.getByRole("option")).toHaveCount(1);
-    await expect(options.getByRole("option")).toContainText("Inspect");
-    await firstMessage.press("Enter");
-    await expect(firstMessage).toHaveValue("inspect workspace");
-    await expect(options).toHaveCount(0);
     await newAgent.getByRole("button", { name: "Start agent" }).click();
 
-    // The first message is sent by itself once the agent is ready.
+    const composer = page.getByRole("textbox", { name: "Message Codex" });
+    await expect(composer).toBeEnabled({ timeout: 30_000 });
+    await composer.fill("/insp");
+    const options = page.getByRole("listbox", { name: "Saved prompts" });
+    await expect(options.getByRole("option")).toHaveCount(1);
+    await expect(options.getByRole("option")).toContainText("Inspect");
+    await composer.press("Enter");
+    await expect(composer).toHaveValue("inspect workspace");
+    await expect(options).toHaveCount(0);
+    await composer.press("Enter");
     await expect(page.getByText("Mock response: inspect workspace")).toBeVisible({ timeout: 30_000 });
 
-    const composer = page.getByRole("textbox", { name: "Message Codex" });
-    await expect(composer).toBeEnabled({ timeout: 20_000 });
     await composer.fill("review the diff for typos");
     await page.getByRole("button", { name: "Saved prompts", exact: true }).click();
     await page.getByRole("button", { name: "Save draft" }).click();

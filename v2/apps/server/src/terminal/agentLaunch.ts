@@ -47,29 +47,52 @@ export function agentCliMissingMessage(provider: ListedProviderKind): string {
   return `${agentDisplayName(provider)} CLI was not found. Install it or check PATH.`;
 }
 
-/** Interactive CLI arguments for an agent terminal. Permission mode defaults to full access. */
+/**
+ * Interactive CLI arguments for an agent terminal. Permission mode defaults to full access.
+ * Read only uses the CLI's plan or read-only mode where it has one; Gemini, Qwen, and Copilot
+ * have none, so they keep their default of asking before each change.
+ */
 export function buildAgentArgs(agent: TerminalAgentLaunch): string[] {
-  const fullAccess = (agent.permissionMode ?? "full-access") === "full-access";
+  const mode = agent.permissionMode ?? "full-access";
+  const fullAccess = mode === "full-access";
+  const readOnly = mode === "read-only";
   const model = agent.model === undefined ? undefined : validModel(agent.model);
   switch (agent.provider) {
     case "codex":
-      return [...(fullAccess ? ["--dangerously-bypass-approvals-and-sandbox"] : []), ...(model ? ["-m", model] : [])];
+      return [
+        ...(fullAccess ? ["--dangerously-bypass-approvals-and-sandbox"] : []),
+        ...(readOnly ? ["--sandbox", "read-only", "--ask-for-approval", "on-request"] : []),
+        ...(model ? ["-m", model] : []),
+      ];
     case "claude-code":
-      return [...(fullAccess ? ["--dangerously-skip-permissions"] : []), ...(model ? ["--model", model] : [])];
+      return [
+        ...(fullAccess ? ["--dangerously-skip-permissions"] : []),
+        ...(readOnly ? ["--permission-mode", "plan"] : []),
+        ...(model ? ["--model", model] : []),
+      ];
     case "cursor-agent":
-      return [...(fullAccess ? ["--force"] : []), "--trust", ...(model ? ["--model", model] : [])];
+      return [
+        ...(fullAccess ? ["--force"] : []),
+        ...(readOnly ? ["--mode", "plan"] : []),
+        "--trust",
+        ...(model ? ["--model", model] : []),
+      ];
     case "droid":
       // Interactive droid has no model flag; the model is chosen inside the TUI.
-      return fullAccess ? ["--auto", "high"] : [];
+      return fullAccess ? ["--auto", "high"] : readOnly ? ["--use-spec"] : [];
     case "opencode":
-      return [...(fullAccess ? ["--auto"] : []), ...(model ? ["--model", model] : [])];
+      return [
+        ...(fullAccess ? ["--auto"] : []),
+        ...(readOnly ? ["--agent", "plan"] : []),
+        ...(model ? ["--model", model] : []),
+      ];
     case "gemini":
     case "qwen":
       return [...(fullAccess ? ["--approval-mode", "yolo"] : []), ...(model ? ["--model", model] : [])];
     case "copilot":
       return [...(fullAccess ? ["--allow-all"] : []), ...(model ? ["--model", model] : [])];
     case "kimi":
-      return [...(fullAccess ? ["--yolo"] : []), ...(model ? ["--model", model] : [])];
+      return [...(fullAccess ? ["--yolo"] : []), ...(readOnly ? ["--plan"] : []), ...(model ? ["--model", model] : [])];
     case "goose":
       // goose session has no permission or model flags; GOOSE_MODE and GOOSE_MODEL in its config decide both.
       return ["session"];

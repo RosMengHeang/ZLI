@@ -246,7 +246,7 @@ const zliTheme = EditorView.theme(
   {
     "&": {
       height: "100%",
-      backgroundColor: "var(--zli-canvas)",
+      backgroundColor: "var(--zli-surface)",
       color: "var(--zli-text)",
       fontSize: "12.5px",
     },
@@ -266,7 +266,7 @@ const zliTheme = EditorView.theme(
     },
     "&.cm-focused .cm-nonmatchingBracket": { backgroundColor: "var(--zli-red-soft)" },
     ".cm-gutters": {
-      backgroundColor: "var(--zli-canvas)",
+      backgroundColor: "var(--zli-surface)",
       color: "var(--zli-dim)",
       borderRight: "1px solid var(--zli-border)",
     },
@@ -318,7 +318,7 @@ const zliTheme = EditorView.theme(
       border: "1px solid var(--zli-border-strong)",
       borderRadius: "var(--zli-radius-sm)",
       outline: "none",
-      backgroundColor: "var(--zli-canvas)",
+      backgroundColor: "var(--zli-well)",
       color: "var(--zli-text)",
       fontSize: "12px",
     },

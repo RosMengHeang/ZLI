@@ -1,4 +1,4 @@
-export type CursorPermissionMode = "full-access" | "supervised";
+export type CursorPermissionMode = "read-only" | "supervised" | "full-access";
 
 // stream-json is only valid in print mode. Cursor does not keep a stdin session
 // open: each user turn is a new process in the worktree, and the chat id from
@@ -6,6 +6,7 @@ export type CursorPermissionMode = "full-access" | "supervised";
 // flag creates a different git worktree. Full access adds --force: print mode has
 // no approval channel, and each agent already runs in its own isolated worktree.
 // Supervised omits it, so Cursor refuses commands its allowlist does not cover.
+// Read only runs Cursor's plan mode, which analyzes and proposes without editing.
 export function cursorTurnArgs(input: {
   cwd: string;
   sessionId?: string;
@@ -15,7 +16,8 @@ export function cursorTurnArgs(input: {
   approveMcps?: boolean;
 }): string[] {
   const args = ["-p", "--output-format", "stream-json", "--stream-partial-output", "--trust"];
-  if (input.permissionMode !== "supervised") args.push("--force");
+  if (input.permissionMode === "read-only") args.push("--mode", "plan");
+  else if (input.permissionMode !== "supervised") args.push("--force");
   if (input.approveMcps) args.push("--approve-mcps");
   args.push("--workspace", input.cwd);
   if (input.model) args.push("--model", input.model);

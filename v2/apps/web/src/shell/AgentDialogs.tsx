@@ -1,8 +1,6 @@
 import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { useRef, useState } from "react";
 
-import { providerDisplayName } from "../agent/providers.js";
-import type { RunGroup } from "../sessions/bestOf.js";
 import type { AgentSession } from "../sessions/sessions.js";
 import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
@@ -19,25 +17,6 @@ export function deletableWorktree(
     (other) => other.sessionId !== session.sessionId && other.worktreeId === session.worktreeId,
   );
   return shared ? undefined : worktree;
-}
-
-/** The runs a "Keep this one" deletes, with the worktree branch removed along with each. */
-export function discardedRuns(
-  projection: RuntimeProjection,
-  sessions: readonly AgentSession[],
-  group: RunGroup,
-  keptSessionId: string,
-): { title: string; branch: string | undefined }[] {
-  return group.sessionIds.flatMap((sessionId) => {
-    const session = sessionId === keptSessionId ? undefined : sessions.find((entry) => entry.sessionId === sessionId);
-    if (!session) return [];
-    return [
-      {
-        title: providerDisplayName(session.provider, projection.providers),
-        branch: deletableWorktree(projection, sessions, session)?.branch,
-      },
-    ];
-  });
 }
 
 export function CloseAgentDialog({
@@ -144,7 +123,7 @@ export function KeepRunDialog({
   index: number;
   count: number;
   branch: string;
-  /** The other runs: their agent name and the worktree branch removed with them, if any. */
+  /** The other runs: their agent name and the worktree branch deleted with them, if any. */
   discarded: { title: string; branch: string | undefined }[];
   onKeep(): void;
   onCancel(): void;
@@ -157,7 +136,7 @@ export function KeepRunDialog({
       label="Keep this run"
       size="sm"
       title={`Keep run ${index} of ${count}?`}
-      subtitle={`Keeps the agent in ${branch} and deletes ${others}, with their terminal output and chat history. This cannot be undone.`}
+      subtitle={`Keeps the agent in ${branch} and deletes ${others}, with their chat history. This cannot be undone.`}
       scrimLabel="Cancel"
       showClose={false}
       initialFocusRef={cancelRef}
@@ -175,8 +154,8 @@ export function KeepRunDialog({
         </ul>
         {removed.length > 0 ? (
           <p className="field-hint">
-            {removed.length === 1 ? "Its worktree folder is" : "Their worktree folders are"} removed and uncommitted
-            changes there are lost. The branches stay in the repository.
+            {removed.length === 1 ? "Its worktree folder and branch are" : "Their worktree folders and branches are"}{" "}
+            deleted. Uncommitted changes and commits that exist only there are lost.
           </p>
         ) : null}
       </div>

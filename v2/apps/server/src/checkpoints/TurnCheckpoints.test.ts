@@ -132,6 +132,60 @@ describe("TurnCheckpoints", () => {
     expect(refs.stdout.trim().split(/\r?\n/u)).toHaveLength(3);
   }, 20_000);
 
+  it("copies a worktree's current files, or a turn's starting files, into a new worktree", async () => {
+    const { repo, git, engine, dispatch, checkpoints } = await setup();
+    const start = await checkpoints.capture(threadId);
+    if (!start) throw new Error("Expected a starting snapshot.");
+    await writeFile(join(repo, "README.md"), "turn one\n");
+    await checkpoints.record(threadId, "turn-1", start);
+    const [checkpoint] = (await engine.projection()).checkpoints ?? [];
+    if (!checkpoint) throw new Error("Expected a checkpoint.");
+    // Not committed: a run has to start from what the person sees, not from the branch.
+    await writeFile(join(repo, "draft.txt"), "draft\n");
+    await rm(join(repo, "src", "old.txt"));
+
+    const runPath = join(repo, "..", "run1");
+    await git.run(["worktree", "add", "-b", "main-run1", runPath], { cwd: repo });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project.");
+    const runWorktreeId = WorktreeId.parse("00000000-0000-4000-8000-000000000a04");
+    await dispatch({
+      type: "worktree.create",
+      worktreeId: runWorktreeId,
+      projectId: ProjectId.parse(project.projectId),
+      path: runPath,
+      workspaceRoot: join(repo, ".."),
+      branch: "main-run1",
+    });
+    await expect(
+      checkpoints.fork({ type: "checkpoint.fork", worktreeId: runWorktreeId, from: { kind: "worktree", worktreeId } }),
+    ).rejects.toThrow("The new worktree is not ready.");
+    await dispatch({ type: "worktree.status", worktreeId: runWorktreeId, status: "ready" });
+
+    expect(
+      await checkpoints.fork({
+        type: "checkpoint.fork",
+        worktreeId: runWorktreeId,
+        from: { kind: "worktree", worktreeId },
+      }),
+    ).toEqual({ changedFiles: 3 });
+    expect(await readFile(join(runPath, "README.md"), "utf8")).toBe("turn one\n");
+    expect(await readFile(join(runPath, "draft.txt"), "utf8")).toBe("draft\n");
+    await expect(stat(join(runPath, "src", "old.txt"))).rejects.toThrow();
+    expect(await readFile(join(repo, "draft.txt"), "utf8")).toBe("draft\n");
+
+    expect(
+      await checkpoints.fork({
+        type: "checkpoint.fork",
+        worktreeId: runWorktreeId,
+        from: { kind: "checkpoint", checkpointId: checkpoint.checkpointId },
+      }),
+    ).toEqual({ changedFiles: 3 });
+    expect(await readFile(join(runPath, "README.md"), "utf8")).toBe("base\n");
+    expect(await readFile(join(runPath, "src", "old.txt"), "utf8")).toBe("old\n");
+    await expect(stat(join(runPath, "draft.txt"))).rejects.toThrow();
+  }, 30_000);
+
   it("skips turns that changed nothing", async () => {
     const { engine, checkpoints } = await setup();
     const start = await checkpoints.capture(threadId);

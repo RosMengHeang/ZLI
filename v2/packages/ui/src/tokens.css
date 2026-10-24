@@ -5,23 +5,30 @@
 :root {
   color-scheme: dark;
 
-  /* Surfaces, from the deepest layer up. */
-  --zli-canvas: #0b0b0c;
-  --zli-sidebar: #0e0e0f;
-  --zli-surface: #121213;
-  --zli-raised: #19191a;
-  --zli-overlay: #202022;
-  --zli-terminal: #0b0b0c;
+  /*
+   * Surfaces, from the deepest layer up. The canvas is the window itself: sidebar, top bar, and the
+   * gutters between work panels. Work panels (tiles, the drawer, the side panel) are islands of
+   * --zli-surface on it, so tone separates regions and borders can stay faint.
+   */
+  --zli-canvas: #0a0a0b;
+  --zli-sidebar: #0a0a0b;
+  --zli-surface: #141416;
+  --zli-raised: #1b1b1e;
+  --zli-overlay: #1f1f23;
+  /* Must match terminalTheme.background so a terminal blends into its tile. */
+  --zli-terminal: #141416;
+  /* Sunken wells for fields, code, and logs, on any surface. */
+  --zli-well: rgba(0, 0, 0, .22);
 
   /* Interaction fills drawn over any surface. */
-  --zli-hover: rgba(255, 255, 255, .05);
-  --zli-active: rgba(255, 255, 255, .085);
-  --zli-pressed: rgba(255, 255, 255, .11);
+  --zli-hover: rgba(255, 255, 255, .055);
+  --zli-active: rgba(255, 255, 255, .09);
+  --zli-pressed: rgba(255, 255, 255, .12);
 
   /* Hairlines. */
-  --zli-border: rgba(255, 255, 255, .07);
-  --zli-border-strong: rgba(255, 255, 255, .12);
-  --zli-border-hover: rgba(255, 255, 255, .2);
+  --zli-border: rgba(255, 255, 255, .06);
+  --zli-border-strong: rgba(255, 255, 255, .1);
+  --zli-border-hover: rgba(255, 255, 255, .17);
 
   /*
    * Text. Each step keeps WCAG AA (4.5:1) on every surface above, including --zli-overlay.
@@ -39,6 +46,7 @@
   --zli-accent-ink: #ffffff;
   --zli-accent-soft: oklch(.571 .21 264 / .14);
   --zli-accent-line: oklch(.62 .2 264 / .6);
+  --zli-accent-edge: oklch(.62 .2 264 / .42);
   --zli-focus: oklch(.66 .19 264 / .9);
 
   /* Status colors carry process and Git meaning only. */
@@ -92,26 +100,34 @@
   --zli-control-md: 28px;
   --zli-control-lg: 32px;
 
-  /* Chrome rows. */
+  /* Chrome rows. The bar height is also the desktop title bar overlay height. */
   --zli-bar-height: 44px;
   --zli-pane-header: 40px;
   --zli-toolbar: 36px;
+  /* The gutter between islands on the canvas. */
+  --zli-gutter: 6px;
 
-  /* Radii: small on controls, larger on containers. Pills only for counts. */
+  /* Radii: small on controls, larger on containers. Pills only for counts and the send button. */
   --zli-radius-xs: 4px;
   --zli-radius-sm: 6px;
   --zli-radius-md: 8px;
   --zli-radius-lg: 12px;
+  --zli-radius-xl: 16px;
   --zli-radius-pill: 999px;
 
-  /* Elevation: popovers and dialogs only. Panes and tiles sit flat. */
-  --zli-shadow-pop: 0 0 0 1px rgba(0, 0, 0, .45), 0 8px 24px rgba(0, 0, 0, .5);
-  --zli-shadow-dialog: 0 0 0 1px rgba(0, 0, 0, .5), 0 24px 64px rgba(0, 0, 0, .6);
+  /*
+   * Elevation: popovers and dialogs only. Islands sit flat on the canvas.
+   * The top highlight is the light edge raised controls and floating surfaces catch.
+   */
+  --zli-highlight: inset 0 1px 0 rgba(255, 255, 255, .055);
+  --zli-shadow-pop: 0 0 0 1px rgba(0, 0, 0, .5), 0 12px 32px -8px rgba(0, 0, 0, .7);
+  --zli-shadow-dialog: 0 0 0 1px rgba(0, 0, 0, .55), 0 32px 80px -20px rgba(0, 0, 0, .85);
 
   /* Motion. */
   --zli-ease: cubic-bezier(.2, 0, 0, 1);
   --zli-duration-fast: 100ms;
   --zli-duration-base: 160ms;
+  --zli-duration-enter: 150ms;
 
   /* Stacking. */
   --zli-z-dialog: 20;
@@ -131,10 +147,10 @@ button, input, textarea, select { font: inherit; letter-spacing: inherit; }
 button { color: inherit; }
 svg { flex: 0 0 auto; }
 ::selection { background: oklch(.571 .21 264 / .38); }
-* { scrollbar-color: rgba(255, 255, 255, .14) transparent; scrollbar-width: thin; }
+* { scrollbar-color: rgba(255, 255, 255, .12) transparent; scrollbar-width: thin; }
 input::placeholder, textarea::placeholder { color: var(--zli-dim); opacity: 1; }
 select { color-scheme: dark; }
-code { padding: 1px 5px; border-radius: var(--zli-radius-xs); background: var(--zli-raised); color: var(--zli-text); font-family: var(--zli-mono); font-size: .9em; }
+code { padding: 1px 5px; border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-text); font-family: var(--zli-mono); font-size: .9em; }
 /* Ligatures would draw operators such as != and => as single glyphs, which misreads code. */
 code, kbd, pre, samp { font-variant-ligatures: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -142,6 +158,12 @@ code, kbd, pre, samp { font-variant-ligatures: none; }
 /* One focus ring for everything that takes keyboard focus. Fields replace it with their own border ring. */
 :focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
 
+/*
+ * Reduced motion turns movement off rather than shortening it: entrances are skipped, so a dialog or
+ * menu is in place and fully opaque from its first frame. Spinners keep turning because they report
+ * that work is still running.
+ */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+  *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+  .spinner { animation: zli-spin 1.6s linear infinite !important; }
 }

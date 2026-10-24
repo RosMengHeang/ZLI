@@ -1,5 +1,5 @@
 /* ---------- Browser ---------- */
-.browser-tabs { display: flex; min-width: 0; align-items: flex-end; gap: 2px; height: var(--zli-toolbar); padding: 0 var(--zli-space-2); overflow-x: auto; border-bottom: 1px solid var(--zli-border); background: var(--zli-sidebar); }
+.browser-tabs { display: flex; min-width: 0; align-items: flex-end; gap: 2px; height: var(--zli-toolbar); padding: 0 var(--zli-space-2); overflow-x: auto; border-bottom: 1px solid var(--zli-border); background: var(--zli-well); }
 .browser-tab { display: flex; min-width: 0; align-items: center; height: 28px; margin-bottom: var(--zli-space-1); border-radius: var(--zli-radius-md); color: var(--zli-muted); }
 .browser-tab:hover { background: var(--zli-hover); }
 .browser-tab.is-active { background: var(--zli-raised); color: var(--zli-text); box-shadow: inset 0 0 0 1px var(--zli-border); }
@@ -11,10 +11,10 @@
 .browser-controls { display: flex; gap: 0; }
 .browser-address { position: relative; display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-1-5); }
 .browser-address-icon { position: absolute; left: var(--zli-space-2-5); display: inline-flex; color: var(--zli-dim); pointer-events: none; }
-.browser-address input { height: var(--zli-control-md); min-width: 0; flex: 1; padding: 0 var(--zli-space-2-5) 0 30px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); outline: none; background: var(--zli-canvas); color: var(--zli-text); font-size: var(--zli-text-sm); transition: border-color var(--zli-duration-fast) var(--zli-ease), box-shadow var(--zli-duration-fast) var(--zli-ease); }
+.browser-address input { height: var(--zli-control-md); min-width: 0; flex: 1; padding: 0 var(--zli-space-2-5) 0 30px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); outline: none; background: var(--zli-well); color: var(--zli-text); font-size: var(--zli-text-sm); transition: border-color var(--zli-duration-fast) var(--zli-ease), box-shadow var(--zli-duration-fast) var(--zli-ease); }
 .browser-address input:hover { border-color: var(--zli-border-hover); }
 .browser-address input:focus-visible { outline: none; border-color: var(--zli-accent-line); box-shadow: 0 0 0 3px var(--zli-accent-soft); }
-.browser-device-bar { display: flex; align-items: center; gap: var(--zli-space-1-5); height: var(--zli-toolbar); flex: 0 0 auto; padding: 0 var(--zli-space-2); border-bottom: 1px solid var(--zli-border); background: var(--zli-sidebar); }
+.browser-device-bar { display: flex; align-items: center; gap: var(--zli-space-1-5); height: var(--zli-toolbar); flex: 0 0 auto; padding: 0 var(--zli-space-2); border-bottom: 1px solid var(--zli-border); background: var(--zli-well); }
 .browser-device-size { color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .browser-device-bar > .btn:last-child { margin-left: auto; }
 .browser-surface { position: relative; min-height: 0; flex: 1; overflow: hidden; background: var(--zli-canvas); }

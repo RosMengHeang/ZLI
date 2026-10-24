@@ -12,7 +12,7 @@
 .devserver-chip-more { color: var(--zli-dim); font-variant-numeric: tabular-nums; }
 .devserver-bar {
   display: flex; align-items: center; gap: var(--zli-space-2); height: var(--zli-toolbar); flex: 0 0 auto; padding: 0 var(--zli-space-1) 0 var(--zli-space-2-5);
-  border-bottom: 1px solid var(--zli-border); background: var(--zli-sidebar); color: var(--zli-muted); font-size: var(--zli-text-sm);
+  border-bottom: 1px solid var(--zli-border); background: var(--zli-well); color: var(--zli-muted); font-size: var(--zli-text-sm);
 }
 .devserver-bar .status-dot { width: 6px; height: 6px; flex-basis: 6px; }
 .devserver-bar-text { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

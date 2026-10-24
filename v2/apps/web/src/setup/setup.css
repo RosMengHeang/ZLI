@@ -2,7 +2,7 @@
 .setup-approval { gap: var(--zli-space-2-5); }
 .setup-commands {
   display: flex; flex-direction: column; max-height: 240px; margin: 0; padding: 0; overflow: auto;
-  border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-canvas);
+  border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well);
   counter-reset: setup; list-style: none;
 }
 .setup-commands li {

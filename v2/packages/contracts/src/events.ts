@@ -62,6 +62,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     type: z.literal("worktree.remove.requested"),
     worktreeId: WorktreeId,
     force: z.boolean(),
+    deleteBranch: z.boolean().optional(),
   }),
   z.object({ type: z.literal("worktree.archive.requested"), worktreeId: WorktreeId }),
   z.object({

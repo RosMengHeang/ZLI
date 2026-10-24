@@ -15,6 +15,7 @@
   "dependencies": {
     "@zli-v2/client-runtime": "workspace:*",
     "@zli-v2/contracts": "workspace:*",
+    "@zli-v2/ui": "workspace:*",
     "electron-updater": "6.8.11",
     "node-pty": "1.1.0",
     "ws": "8.21.3"
@@ -23,6 +24,6 @@
     "@types/node": "24.10.1",
     "@types/semver": "7.8.0",
     "@types/ws": "8.18.1",
-    "electron": "44.4.2"
+    "electron": "44.9.3"
   }
 }

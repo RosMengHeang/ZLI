@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
+import { _electron as electron, type ElectronApplication, expect, type Page } from "@playwright/test";
 
 import { closeChildProcess } from "../closeChildProcess.js";
 import { getProcessTreeTerminationOrder } from "../processTree.js";
@@ -25,6 +25,14 @@ export type DesktopLaunchOptions = {
   /** Extra environment for the app and the runtime it starts, such as a PATH with stand-in CLIs. */
   env?: Record<string, string>;
 };
+
+/** Sends a message from the chat composer of a newly started Codex agent once it is ready. */
+export async function sendChatMessage(page: Page, message: string): Promise<void> {
+  const composer = page.getByRole("textbox", { name: "Message Codex" });
+  await expect(composer).toBeEnabled({ timeout: 30_000 });
+  await composer.fill(message);
+  await composer.press("Enter");
+}
 
 export async function createGitFixture(): Promise<{ root: string; repo: string }> {
   const root = await mkdtemp(join(tmpdir(), "zli-v2-e2e-"));
@@ -85,6 +93,7 @@ export async function launchDesktop(
             }),
         ZLI_TEST_PROJECT_PATH: repo,
         ZLI_TEST_PROVIDER: "mock",
+        ZLI_REDUCED_MOTION: "1",
         // The packaged app under test must never ask GitHub for a newer release or replace itself.
         ZLI_DISABLE_UPDATES: "1",
         ZLI_TEST_LEGACY_SNAPSHOT_PATH: options.legacySnapshotPath,
@@ -97,7 +106,14 @@ export async function launchDesktop(
         throw new WindowTimeout(error);
       });
       await page.waitForLoadState("domcontentloaded");
-      await page.getByText("Local runtime").waitFor({ state: "visible" });
+      // The app also forces reduced motion through ZLI_REDUCED_MOTION; this covers a page loaded before it applied.
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      const runtime = page.getByText("Local runtime");
+      const showSidebar = page.getByRole("button", { name: "Show sidebar" });
+      await runtime.or(showSidebar).first().waitFor({ state: "visible" });
+      // The window shares its profile with local dev runs, which can leave the sidebar hidden.
+      if (await showSidebar.isVisible()) await showSidebar.click();
+      await runtime.waitFor({ state: "visible" });
       return { app, page, root, repo };
     } catch (error) {
       // A launched app that never showed its window would otherwise outlive the test and stall worker shutdown.

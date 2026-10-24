@@ -69,7 +69,7 @@ afterEach(() => document.body.replaceChildren());
 describe("UsageDialog", () => {
   it("explains where numbers come from when nothing is recorded", async () => {
     const container = await render(projectionWith());
-    expect(container.textContent).toContain("No usage yet.");
+    expect(container.textContent).toContain("No usage yet");
     expect(container.querySelector("table")).toBeNull();
   });
 

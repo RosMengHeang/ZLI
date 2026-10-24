@@ -31,7 +31,8 @@ export function McpServersSection() {
 
   const header = (
     <SectionHeader title="MCP servers">
-      Every agent ZLI starts gets these servers, in terminals and in chats. Changes reach agents started after you save.
+      Servers every agent started by ZLI can use, in terminals and chats. Changes apply to agents started after you
+      save.
     </SectionHeader>
   );
 
@@ -39,7 +40,10 @@ export function McpServersSection() {
     return (
       <>
         {header}
-        <p className="settings-empty">Loading MCP servers.</p>
+        <p className="loading-line">
+          <span className="spinner" aria-hidden="true" />
+          Loading MCP servers
+        </p>
       </>
     );
   }
@@ -118,8 +122,8 @@ export function McpServersSection() {
           <span className="mcp-row-copy">
             <strong>zli</strong>
             <span className="mcp-row-detail">
-              Lets agents see and read the other agents in their project, and start or message them if allowed. Also the
-              zli command in terminals.
+              Lets agents list and read the other agents in their project, and start or message them when allowed. Also
+              available as the zli command in terminals.
             </span>
           </span>
           <Select
@@ -143,16 +147,15 @@ export function McpServersSection() {
           <span className="mcp-row-copy">
             <strong>zli-browser</strong>
             <span className="mcp-row-detail">
-              Lets agents open and test pages in the Browser panel. Always on, and the zli-browser command in terminals.
+              Lets agents open and test pages in the Browser panel. Always on, and available as the zli-browser command
+              in terminals.
             </span>
           </span>
         </li>
       </ul>
-      <h3 className="mcp-subhead">Added by you</h3>
+      <h3 className="mcp-subhead">Your servers</h3>
       {servers.length === 0 && !editing ? (
-        <p className="settings-empty">
-          No servers yet. Add one here instead of in each agent's own settings, and every agent can use it.
-        </p>
+        <p className="settings-empty">No servers yet. Add one here once and every agent can use it.</p>
       ) : null}
       {servers.length > 0 ? (
         <ul className="mcp-rows">
@@ -310,10 +313,10 @@ export function McpServersSection() {
           </Button>
         </div>
       )}
-      <p className="settings-section-note">
+      <p className="settings-footnote">
         {userSettings.enabled
-          ? `${SETTINGS_AGENTS} read servers only from their own settings files, so ZLI also writes enabled servers there and removes the ones it added.`
-          : `${SETTINGS_AGENTS} read servers only from their own settings files, and this ZLI is set not to change those files.`}
+          ? `${SETTINGS_AGENTS} only read servers from their own settings files, so ZLI writes enabled servers there and removes the ones it added.`
+          : `${SETTINGS_AGENTS} only read servers from their own settings files, and ZLI is set to leave those files alone.`}
       </p>
       {problems.length > 0 ? (
         <ul className="mcp-settings-problems">

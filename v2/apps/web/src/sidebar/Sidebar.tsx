@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
 import { type PullRequestEntry, usePullRequestEntries } from "../review/pullRequestStore.js";
+import type { RunGroup, RunState } from "../sessions/bestOf.js";
+import { runStateLabel } from "../sessions/bestOf.js";
 import {
   type AgentSession,
   relativeTime,
@@ -11,6 +13,7 @@ import {
   sessionStopCommands,
   sessionTitle,
 } from "../sessions/sessions.js";
+import { groupFinished } from "../sessions/useRunStates.js";
 import { setupBadge, worktreeSetup } from "../setup/setup.js";
 import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
@@ -89,7 +92,14 @@ type Props = {
   onOpenSettings(): void;
   onOpenUsage(): void;
   onHideSidebar(): void;
+  /** Best-of runs still being compared; their sessions list under the chat they came from. */
+  runGroups?: readonly RunGroup[];
+  runStates?: ReadonlyMap<string, RunState>;
+  onCompareRuns?(group: RunGroup): void;
 };
+
+const noGroups: readonly RunGroup[] = [];
+const noStates: ReadonlyMap<string, RunState> = new Map();
 
 export function Sidebar({
   projection,
@@ -111,6 +121,9 @@ export function Sidebar({
   onOpenSettings,
   onOpenUsage,
   onHideSidebar,
+  runGroups = noGroups,
+  runStates = noStates,
+  onCompareRuns = () => undefined,
 }: Props) {
   const newAgentShortcut = useShortcut("newAgent");
   const sidebarShortcut = useShortcut("toggleSidebar");
@@ -122,12 +135,127 @@ export function Sidebar({
   const projects = projection?.projects ?? [];
   const worktrees = projection?.worktrees ?? [];
   const threads = projection?.threads ?? [];
+  const runIds = new Set(runGroups.flatMap((group) => group.sessionIds));
+  const groupsBySource = new Map<string, RunGroup[]>();
+  for (const group of runGroups) {
+    groupsBySource.set(group.sourceSessionId, [...(groupsBySource.get(group.sourceSessionId) ?? []), group]);
+  }
 
   // Relative times only need minute precision.
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
+
+  const renderGroup = (group: RunGroup, projectWorktrees: readonly WorktreeProjection[]) => {
+    const finished = groupFinished(group, runStates);
+    const count = group.sessionIds.length;
+    const doneCount = group.sessionIds.filter((sessionId) => runStates.get(sessionId) !== "running").length;
+    return (
+      <fieldset className="run-group" aria-label={`Best of ${count} from ${group.label}`}>
+        <div className="run-group-head">
+          <Icon name="split" size={11} />
+          <span className="run-group-title" title={group.prompt}>
+            Best of {count}
+          </span>
+          {finished ? (
+            <Button variant="ghost" size="xs" className="run-group-compare" onClick={() => onCompareRuns(group)}>
+              Compare
+            </Button>
+          ) : (
+            <span className="run-group-progress">
+              {doneCount} of {count} done
+            </span>
+          )}
+        </div>
+        <ul className="session-list run-list">
+          {group.sessionIds.map((sessionId, index) => {
+            const run = sessions.find((session) => session.sessionId === sessionId);
+            return run ? renderSession(run, projectWorktrees, undefined, index + 1) : null;
+          })}
+        </ul>
+      </fieldset>
+    );
+  };
+
+  const renderSession = (
+    session: AgentSession,
+    projectWorktrees: readonly WorktreeProjection[],
+    groups: readonly RunGroup[] | undefined,
+    runIndex?: number,
+  ) => {
+    const worktree = projectWorktrees.find((entry) => entry.worktreeId === session.worktreeId);
+    const title = sessionTitle(session, projection?.messages, projection?.providers);
+    const provider = providerDisplayName(session.provider, projection?.providers);
+    const runStatus = runIndex === undefined ? undefined : (runStates.get(session.sessionId) ?? "running");
+    const status = runStatus ? runStateLabel[runStatus] : sessionStatusLabel[session.status];
+    const active = session.sessionId === activeSessionId;
+    const background = backgroundSessionIds.has(session.sessionId);
+    const stoppable = sessionStopCommands(session).length > 0;
+    const quiet = runStatus === undefined && (session.status === "ready" || session.status === "ended");
+    const name = runIndex === undefined ? title : `Run ${runIndex}`;
+    return (
+      <li className={`session-entry${runIndex === undefined ? "" : " is-run"}`} key={session.sessionId}>
+        <button
+          className={`session-row${active ? " is-active" : ""}`}
+          type="button"
+          aria-label={`${name}, ${provider}, ${status}${background ? ", in the background" : ""}`}
+          aria-current={active ? "true" : undefined}
+          onClick={() => onSelectSession(session)}
+          title={worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}
+        >
+          <ProviderMark provider={session.provider} size={14} />
+          {runIndex === undefined ? (
+            <span className="session-title">{title}</span>
+          ) : (
+            <>
+              <span className="run-badge">Run {runIndex}</span>
+              <span className="session-title">{worktree?.branch ?? provider}</span>
+            </>
+          )}
+          <span className="session-side">
+            {quiet ? (
+              background ? (
+                <span className="session-background">Background</span>
+              ) : (
+                <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
+              )
+            ) : (
+              <span
+                className={`session-status is-${runStatus === "running" ? "working" : (runStatus ?? session.status)}`}
+              >
+                <span className="dot" aria-hidden="true" />
+                {status}
+              </span>
+            )}
+          </span>
+        </button>
+        <span className="session-actions">
+          {stoppable ? (
+            <IconButton
+              label={`Stop ${name}`}
+              tooltip="Stop agent"
+              icon="square"
+              size="xs"
+              iconSize={10}
+              onClick={() => onStopSession(session)}
+            />
+          ) : null}
+          <IconButton
+            label={`Delete ${name}`}
+            tooltip="Delete agent"
+            icon="trash"
+            size="xs"
+            iconSize={12}
+            onClick={() => onDeleteSession(session)}
+          />
+        </span>
+        {groups?.map((group) => (
+          <div key={group.groupId}>{renderGroup(group, projectWorktrees)}</div>
+        ))}
+      </li>
+    );
+  };
 
   return (
     <aside className="sidebar" aria-label="Projects and agents">
@@ -143,20 +271,20 @@ export function Sidebar({
         </span>
       </div>
       <div className="sidebar-primary">
+        <button className="btn btn-ghost sidebar-add-project" type="button" onClick={onOpenProject}>
+          <Icon name="folderPlus" size={15} />
+          <span>Add project</span>
+        </button>
         <button
-          className="btn btn-secondary sidebar-new-agent"
+          className="btn btn-ghost sidebar-new-agent"
           type="button"
           onClick={() => onNewAgent()}
           disabled={projects.length === 0}
           aria-keyshortcuts={ariaShortcut(newAgentShortcut)}
         >
-          <Icon name="plus" size={14} />
+          <Icon name="squarePen" size={15} />
           <span>New agent</span>
           <Kbd shortcut={newAgentShortcut} />
-        </button>
-        <button className="btn btn-ghost sidebar-add-project" type="button" onClick={onOpenProject}>
-          <Icon name="folderPlus" size={14} />
-          <span>Add project</span>
         </button>
       </div>
       <div className="sidebar-scroll">
@@ -194,68 +322,22 @@ export function Sidebar({
                 ) : (
                   <ul className="session-list">
                     {projectSessions.map((session) => {
-                      const worktree = projectWorktrees.find((entry) => entry.worktreeId === session.worktreeId);
-                      const title = sessionTitle(session, projection?.messages, projection?.providers);
-                      const provider = providerDisplayName(session.provider, projection?.providers);
-                      const status = sessionStatusLabel[session.status];
-                      const active = session.sessionId === activeSessionId;
-                      const background = backgroundSessionIds.has(session.sessionId);
-                      const stoppable = sessionStopCommands(session).length > 0;
-                      const quiet = session.status === "ready" || session.status === "ended";
-                      return (
-                        <li className="session-entry" key={session.sessionId}>
-                          <button
-                            className={`session-row${active ? " is-active" : ""}`}
-                            type="button"
-                            aria-label={`${title}, ${provider}, ${status}${background ? ", in the background" : ""}`}
-                            aria-current={active ? "true" : undefined}
-                            onClick={() => onSelectSession(session)}
-                            title={worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}
-                          >
-                            <ProviderMark provider={session.provider} size={14} />
-                            <span className="session-copy">
-                              <span className="session-title">{title}</span>
-                              <span className="session-meta">
-                                <span className="session-branch">{worktree?.branch ?? "worktree"}</span>
-                                {background ? <span className="session-background">Background</span> : null}
-                              </span>
-                            </span>
-                            <span className="session-side">
-                              {quiet ? (
-                                <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
-                              ) : (
-                                <span className={`session-status is-${session.status}`}>
-                                  <span className="dot" aria-hidden="true" />
-                                  {status}
-                                </span>
-                              )}
-                            </span>
-                          </button>
-                          <span className="session-actions">
-                            {stoppable ? (
-                              <IconButton
-                                label={`Stop ${title}`}
-                                tooltip="Stop agent"
-                                icon="square"
-                                size="xs"
-                                iconSize={10}
-                                onClick={() => onStopSession(session)}
-                              />
-                            ) : null}
-                            <IconButton
-                              label={`Delete ${title}`}
-                              tooltip="Delete agent"
-                              icon="trash"
-                              size="xs"
-                              iconSize={12}
-                              onClick={() => onDeleteSession(session)}
-                            />
-                          </span>
-                        </li>
-                      );
+                      if (runIds.has(session.sessionId)) return null;
+                      return renderSession(session, projectWorktrees, groupsBySource.get(session.sessionId));
                     })}
+                    {runGroups
+                      .filter(
+                        (group) =>
+                          !projectSessions.some((session) => session.sessionId === group.sourceSessionId) &&
+                          projectSessions.some((session) => group.sessionIds.includes(session.sessionId)),
+                      )
+                      .map((group) => (
+                        <li className="session-entry is-orphan-group" key={group.groupId}>
+                          {renderGroup(group, projectWorktrees)}
+                        </li>
+                      ))}
                   </ul>
-                )}
+                )}{" "}
                 <div className="worktree-heading">
                   <button
                     className="worktree-toggle"
@@ -282,9 +364,7 @@ export function Sidebar({
                   />
                 </div>
                 {worktreesOpen ? (
-                  projectWorktrees.length === 0 ? (
-                    <p className="sidebar-note">No worktrees yet.</p>
-                  ) : (
+                  projectWorktrees.length === 0 ? null : (
                     <ul className="worktree-list">
                       {projectWorktrees.map((worktree) => {
                         const live = threads.some(

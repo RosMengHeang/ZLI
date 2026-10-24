@@ -25,6 +25,9 @@ export type ShortcutId =
   | "searchFiles"
   | "toggleSidebar"
   | "toggleDrawer"
+  | "toggleFiles"
+  | "toggleBrowser"
+  | "toggleChanges"
   | "settings";
 
 /** Which side of the Files panel the folder tree sits on when there is room for both. */
@@ -49,7 +52,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 };
 
 const modes: readonly SessionMode[] = ["terminal", "chat"];
-const permissions: readonly PermissionMode[] = ["full-access", "supervised"];
+const permissions: readonly PermissionMode[] = ["read-only", "supervised", "full-access"];
 const shortcutIds: readonly ShortcutId[] = [
   "palette",
   "newAgent",
@@ -57,6 +60,9 @@ const shortcutIds: readonly ShortcutId[] = [
   "searchFiles",
   "toggleSidebar",
   "toggleDrawer",
+  "toggleFiles",
+  "toggleBrowser",
+  "toggleChanges",
   "settings",
 ];
 

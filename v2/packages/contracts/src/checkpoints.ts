@@ -42,9 +42,21 @@ export const CheckpointCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("checkpoint.diff"), checkpointId: z.string().uuid(), path: RelativePath }),
   /** Puts the worktree's files back to how they were when the turn started. */
   z.object({ type: z.literal("checkpoint.restore"), checkpointId: z.string().uuid() }),
+  /**
+   * Makes a fresh worktree's files match another worktree's current files, or the files as they were
+   * before a saved turn. Best-of-N runs use it so every run starts from the same state.
+   */
+  z.object({
+    type: z.literal("checkpoint.fork"),
+    worktreeId: WorktreeId,
+    from: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("worktree"), worktreeId: WorktreeId }),
+      z.object({ kind: z.literal("checkpoint"), checkpointId: z.string().uuid() }),
+    ]),
+  }),
 ]);
 export type CheckpointCommand = z.infer<typeof CheckpointCommand>;
-export const CHECKPOINT_COMMAND_TYPES = ["checkpoint.diff", "checkpoint.restore"] as const;
+export const CHECKPOINT_COMMAND_TYPES = ["checkpoint.diff", "checkpoint.restore", "checkpoint.fork"] as const;
 
 export const CheckpointDiffResult = z.object({
   path: RelativePath,
@@ -60,3 +72,9 @@ export const CheckpointRestoreResult = z.object({
   changedFiles: z.number().int().nonnegative(),
 });
 export type CheckpointRestoreResult = z.infer<typeof CheckpointRestoreResult>;
+
+export const CheckpointForkResult = z.object({
+  /** Files written or deleted in the new worktree. */
+  changedFiles: z.number().int().nonnegative(),
+});
+export type CheckpointForkResult = z.infer<typeof CheckpointForkResult>;

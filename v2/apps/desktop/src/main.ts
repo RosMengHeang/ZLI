@@ -68,6 +68,9 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
+// Integration tests turn motion off so a click never lands on a dialog that is still animating in.
+if (process.env.ZLI_REDUCED_MOTION === "1") app.commandLine.appendSwitch("force-prefers-reduced-motion");
+
 let environment: EnvironmentProcess | undefined;
 let runtime: RuntimeClient | undefined;
 let browserManager: BrowserManager | undefined;
@@ -204,9 +207,12 @@ async function main(): Promise<void> {
       window.webContents.send("zli:runtime:terminal", message);
     }
   });
+  // ready-to-show can fire before loadURL resolves, so the listener goes first. A window that misses it
+  // stays hidden and Chromium stops drawing frames for it.
+  window.once?.("ready-to-show", () => window.show?.());
   const rendererUrl = process.env.ZLI_RENDERER_URL ?? `${APP_ORIGIN}/index.html`;
   if (window.loadURL) await window.loadURL(rendererUrl);
-  window.once?.("ready-to-show", () => window.show?.());
+  if (window.isVisible?.() === false) window.show?.();
 }
 
 /**

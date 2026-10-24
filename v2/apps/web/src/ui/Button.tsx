@@ -1,7 +1,6 @@
 import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 
 import { Icon, type IconName } from "./Icon.js";
-import { Kbd } from "./Kbd.js";
 import { ariaShortcut, shortcutText } from "./shortcuts.js";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
@@ -21,13 +20,12 @@ export function cx(...names: (string | false | null | undefined)[]): string {
 
 const iconSizes: Record<ButtonSize, number> = { xs: 12, sm: 13, md: 14, lg: 15 };
 
-/** A text button. Pass `showShortcut` to print the key caps inside it. */
+/** A text button. Its shortcut shows in the tooltip, never as key caps inside the button. */
 export function Button({
   variant = "secondary",
   size = "md",
   icon,
   shortcut,
-  showShortcut = false,
   loading = false,
   tooltip,
   className,
@@ -38,7 +36,6 @@ export function Button({
   ...rest
 }: BaseProps & {
   icon?: IconName | undefined;
-  showShortcut?: boolean;
   /** Replaces the icon with a spinner and blocks clicks while an action runs. */
   loading?: boolean;
   tooltip?: string | undefined;
@@ -50,7 +47,7 @@ export function Button({
       type={type}
       className={cx("btn", `btn-${variant}`, size !== "md" && `btn-${size}`, className)}
       data-tooltip={tooltip}
-      data-shortcut={shortcut && (tooltip || !showShortcut) ? shortcutText(shortcut) : undefined}
+      data-shortcut={shortcut ? shortcutText(shortcut) : undefined}
       aria-keyshortcuts={shortcut ? ariaShortcut(shortcut) : undefined}
       aria-busy={loading || undefined}
       disabled={disabled || loading}
@@ -62,7 +59,6 @@ export function Button({
         <Icon name={icon} size={iconSizes[size]} />
       ) : null}
       {children}
-      {shortcut && showShortcut ? <Kbd shortcut={shortcut} /> : null}
     </button>
   );
 }

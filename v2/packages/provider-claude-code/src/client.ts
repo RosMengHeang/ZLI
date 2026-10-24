@@ -399,7 +399,7 @@ export class ClaudeCodeClient {
   }): void {
     const { requestId, subtype } = message;
     try {
-      if (subtype === "can_use_tool" && this.permissionMode === "supervised") {
+      if (subtype === "can_use_tool" && this.permissionMode !== "full-access") {
         const input = message.input ?? {};
         const toolName = message.toolName ?? "Tool";
         if (this.sessionAllowedTools.has(toolName)) {

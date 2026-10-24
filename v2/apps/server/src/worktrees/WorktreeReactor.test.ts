@@ -210,6 +210,49 @@ describe("durable worktree reactor", () => {
     });
   });
 
+  it("removes a worktree together with its unmerged branch when asked", async () => {
+    const root = await createRepository();
+    const engine = makeEngine();
+    const reactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()));
+    reactors.push(reactor);
+    const projectReceipt = await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000211", { type: "project.register", path: root.repoPath }),
+    );
+    const projectId = ProjectId.parse(projectReceipt.result?.projectId ?? "");
+    const worktreeId = WorktreeId.parse("00000000-0000-4000-8000-000000000212");
+    const worktreePath = join(root.workspaceRoot, "main-run2");
+    await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000213", {
+        type: "worktree.create",
+        worktreeId,
+        projectId,
+        path: worktreePath,
+        workspaceRoot: root.workspaceRoot,
+        branch: "main-run2",
+        baseRef: "main",
+      }),
+    );
+    await reactor.waitForIdle();
+    await writeFile(join(worktreePath, "run.txt"), "run work\n");
+    await execFileAsync("git", ["add", "run.txt"], { cwd: worktreePath });
+    await execFileAsync("git", ["commit", "-m", "run work"], { cwd: worktreePath });
+    await writeFile(join(worktreePath, "dirty.txt"), "not committed\n");
+
+    await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000214", {
+        type: "worktree.remove",
+        worktreeId,
+        force: true,
+        deleteBranch: true,
+      }),
+    );
+    await reactor.waitForIdle();
+
+    expect((await engine.projection()).worktrees).toEqual([]);
+    const branches = await execFileAsync("git", ["branch", "--list", "main-run2"], { cwd: root.repoPath });
+    expect(branches.stdout.trim()).toBe("");
+  });
+
   it("records bootstrap failures while leaving the committed worktree intent reviewable", async () => {
     const root = await createRepository();
     const engine = makeEngine();

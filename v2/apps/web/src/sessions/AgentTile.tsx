@@ -2,7 +2,7 @@ import type { RpcResponse, RuntimeProjection, WorktreeProjection } from "@zli-v2
 import { useCallback, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
-import { ChatView } from "../chat/ChatView.js";
+import { ChatView, type StartRunsRequest } from "../chat/ChatView.js";
 import { useFileLinks } from "../files/FileIndex.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
@@ -66,9 +66,9 @@ export function AgentTile({
   onDismissPending,
   onReviewSetup,
   onShowSetupOutput,
-  run,
-  onKeep,
   onHandoff,
+  run,
+  onStartRuns,
 }: {
   projection: RuntimeProjection;
   session: AgentSession;
@@ -88,11 +88,11 @@ export function AgentTile({
   onDismissPending(): void;
   onReviewSetup(): void;
   onShowSetupOutput(): void;
-  /** Where this agent sits in a best-of run that is still being compared. */
-  run?: RunPosition | undefined;
-  onKeep(): void;
   /** Absent when the chat has nothing to hand over yet. */
   onHandoff?: (() => void) | undefined;
+  /** Where this agent sits in a best-of run that is still being compared. */
+  run?: RunPosition | undefined;
+  onStartRuns?: ((request: StartRunsRequest) => Promise<string | undefined>) | undefined;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
@@ -163,7 +163,7 @@ export function AgentTile({
         </span>
         {run ? (
           <span className="tile-run" title={`Run ${run.index} of ${run.count} for ${run.group.label}`}>
-            Run {run.index} of {run.count}
+            Run {run.index}
           </span>
         ) : null}
         <Badge
@@ -183,19 +183,6 @@ export function AgentTile({
           </>
         )}
         <span className="tile-actions">
-          {run ? (
-            <Button
-              className="tile-keep"
-              size="xs"
-              variant="ghost"
-              icon="check"
-              aria-label="Keep this one"
-              tooltip="Keep this run and delete the others"
-              onClick={onKeep}
-            >
-              <span className="tile-keep-label">Keep this one</span>
-            </Button>
-          ) : null}
           {mode === "chat" && onHandoff ? (
             <IconButton
               label="Continue with another agent"
@@ -322,6 +309,7 @@ export function AgentTile({
             onOpenDiff={onOpenDiff}
             onRestart={() => void start("chat")}
             onHandoff={onHandoff}
+            onStartRuns={onStartRuns}
           />
         ) : (
           <EmptyState

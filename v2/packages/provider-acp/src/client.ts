@@ -42,7 +42,10 @@ const CANCEL_SETTLE_MS = 5_000;
 const MAX_IMAGE_BYTES = 10_000_000;
 const STDERR_TAIL_CHARS = 2_000;
 
-export type AcpPermissionMode = "full-access" | "supervised";
+export type AcpPermissionMode = "read-only" | "supervised" | "full-access";
+
+/** ACP tool kinds that only look at things, so read-only sessions allow them without asking. */
+const READ_ONLY_TOOL_KINDS = new Set(["read", "search", "fetch", "think"]);
 
 export type AcpProviderEvent =
   | { type: "turn.started"; providerTurnId: string }
@@ -519,6 +522,19 @@ export class AcpClient {
     const { options } = parsed.data;
     if (this.permissionMode === "full-access") {
       this.connection.respond(id, permissionOutcome(pickOption(options, ["allow_always", "allow_once"], "allow")));
+      return;
+    }
+    if (this.permissionMode === "read-only") {
+      const kind = parsed.data.toolCall?.kind;
+      const reads = typeof kind === "string" && READ_ONLY_TOOL_KINDS.has(kind);
+      this.connection.respond(
+        id,
+        permissionOutcome(
+          reads
+            ? pickOption(options, ["allow_once", "allow_always"], "allow")
+            : pickOption(options, ["reject_once", "reject_always"], "reject"),
+        ),
+      );
       return;
     }
     const requestId = randomUUID();

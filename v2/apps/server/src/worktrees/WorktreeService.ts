@@ -47,6 +47,7 @@ export type WorktreeRemoveRequest = {
   worktreePath: string;
   branch?: string;
   force?: boolean;
+  /** Deletes the branch only when it is merged, unless `force` is set. */
   deleteBranch?: boolean;
 };
 
@@ -115,10 +116,10 @@ export class WorktreeService {
     if (request.deleteBranch && request.branch) {
       assertSafeRef(request.branch);
       try {
-        await this.git.run(["branch", "-d", request.branch], { cwd: repoPath });
+        await this.git.run(["branch", request.force ? "-D" : "-d", request.branch], { cwd: repoPath });
         branchDeleted = true;
       } catch {
-        // A branch with unmerged user work is preserved for review.
+        // Without force, a branch with unmerged user work is preserved for review.
       }
     }
     return { removed: true, branchDeleted };

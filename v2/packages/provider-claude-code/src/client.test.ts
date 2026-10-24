@@ -12,7 +12,7 @@ import {
   type ClaudeProviderEvent,
   type ClaudeSpawnOptions,
 } from "./client.js";
-import { CLAUDE_SESSION_ARGS } from "./protocol.js";
+import { CLAUDE_SESSION_ARGS, claudeSessionArgs } from "./protocol.js";
 
 class FakePeer implements ClaudePeer {
   readonly written: string[] = [];
@@ -444,7 +444,16 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
     ]);
   });
 
-  it("starts supervised sessions in default mode with stdio prompts and the chosen model", async () => {
+  it("starts read-only sessions in plan mode with stdio prompts", () => {
+    expect(claudeSessionArgs({ permissionMode: "read-only" }).slice(-4)).toEqual([
+      "--permission-mode",
+      "plan",
+      "--permission-prompt-tool",
+      "stdio",
+    ]);
+  });
+
+  it("starts supervised sessions accepting edits with stdio prompts and the chosen model", async () => {
     const child = new FakeProcess();
     let args: readonly string[] = [];
     const pending = ClaudeCodeClient.start({
@@ -468,7 +477,7 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
       "--verbose",
       "--include-partial-messages",
       "--permission-mode",
-      "default",
+      "acceptEdits",
       "--permission-prompt-tool",
       "stdio",
       "--model",

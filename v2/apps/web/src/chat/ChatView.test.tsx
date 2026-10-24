@@ -237,7 +237,7 @@ describe("ChatView", () => {
 
   it("sends composer text and shows the session's permission mode", async () => {
     const { container, dispatched } = await render(projectionWith({ threads: [{ ...thread, status: "idle" }] }));
-    expect(container.querySelector(".composer-badge")?.textContent).toContain("Supervised");
+    expect(container.querySelector(".composer-badge")?.textContent).toContain("Auto");
     const textarea = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Droid"]');
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
@@ -323,13 +323,22 @@ describe("ChatView", () => {
       projectionWith({ threads: [{ ...thread, status: "idle", capabilities: { permissionSwitch: "in-session" } }] }),
     );
     expect(container.querySelector(".composer-badge")).toBeNull();
-    const select = container.querySelector<HTMLSelectElement>(".composer-permission select");
-    expect(select?.value).toBe("supervised");
-    await act(async () => {
-      if (!select) return;
-      select.value = "full-access";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    const trigger = button(container, "Permissions: Auto");
+    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => trigger?.click());
+    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+    const options = [...document.querySelectorAll<HTMLButtonElement>('[role="listbox"] [role="option"]')];
+    expect(options.map((option) => option.querySelector(".picker-option-label")?.textContent)).toEqual([
+      "Read only",
+      "Auto",
+      "Full access",
+    ]);
+    expect(options[1]?.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(options[1]);
+    await act(async () => options[2]?.click());
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(trigger?.getAttribute("aria-label")).toBe("Permissions: Full access");
     const textarea = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Droid"]');
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
@@ -346,6 +355,63 @@ describe("ChatView", () => {
     });
   });
 
+  it("picks a model from a menu that shows each maker's logo", async () => {
+    const { container, dispatched } = await render(
+      projectionWith({
+        threads: [{ ...thread, status: "idle" }],
+        providers: [
+          {
+            provider: "droid",
+            displayName: "Droid",
+            status: "found",
+            path: "droid",
+            models: [
+              { id: "claude-sonnet-4-5", label: "Sonnet 4.5" },
+              { id: "gpt-5.1-codex", label: "GPT-5.1 Codex" },
+              { id: "glm-4.6", label: "GLM-4.6" },
+              { id: "house-model", label: "House model" },
+            ],
+          },
+        ],
+      }),
+    );
+    const trigger = button(container, "Model: Default model");
+    await act(async () => trigger?.click());
+    const options = [...document.querySelectorAll<HTMLButtonElement>('[role="listbox"] [role="option"]')];
+    expect(options.map((option) => option.querySelector(".provider-mark")?.getAttribute("class") ?? "generic")).toEqual(
+      [
+        "generic",
+        "provider-mark provider-mark-claude-code",
+        "provider-mark provider-mark-openai",
+        "provider-mark provider-mark-zai",
+        "generic",
+      ],
+    );
+    await act(async () => {
+      document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    });
+    expect(document.activeElement).toBe(options[1]);
+    await act(async () => {
+      document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    await act(async () => trigger?.click());
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+        .find((option) => option.textContent === "GPT-5.1 Codex")
+        ?.click(),
+    );
+    expect(button(container, "Model: GPT-5.1 Codex")?.querySelector(".provider-mark-openai")).not.toBeNull();
+    const textarea = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Droid"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(textarea, "hi");
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => button(container, "Send")?.click());
+    expect(dispatched.at(-1)?.command).toMatchObject({ type: "thread.queue", text: "hi", model: "gpt-5.1-codex" });
+  });
   it("shows a Claude tool request in plain words and can allow the tool for the chat", async () => {
     const { container, dispatched } = await render(
       projectionWith({

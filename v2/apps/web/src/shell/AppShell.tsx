@@ -12,6 +12,8 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
 import { AttentionPanel } from "../attention/AttentionPanel.js";
 import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
+import type { StartRunsRequest } from "../chat/ChatView.js";
+import { forkWorktree } from "../chat/checkpointClient.js";
 import { addCodeReference } from "../chat/codeReferences.js";
 import { textBase64 } from "../chat/pastedText.js";
 import { devServerCommands } from "../devservers/DevServers.js";
@@ -27,11 +29,12 @@ import { getBridge, type NotificationSettings, type ZliBridge } from "../runtime
 import { makeCommandId } from "../runtime/commandId.js";
 import { RuntimeProvider, useRuntime, useShellProjection } from "../runtime/RuntimeProvider.js";
 import { AgentTile } from "../sessions/AgentTile.js";
-import { type RunGroup, runBranches, runPosition, withoutRun, worktreeInProgress } from "../sessions/bestOf.js";
+import { keepRunCleanup, planRuns, type RunGroup, runPosition, withoutRun } from "../sessions/bestOf.js";
+import { CompareRunsDialog } from "../sessions/CompareRunsDialog.js";
 import { firstMessageStep, TERMINAL_FIRST_MESSAGE_DELAY_MS, terminalFirstMessage } from "../sessions/firstMessage.js";
 import type { HandoffRequest } from "../sessions/HandoffDialog.js";
 import { canHandOff, inlineFirstMessage } from "../sessions/handoff.js";
-import { createWorktree, ensureCheckout, safeBranchName, samePath, startSessionAgent } from "../sessions/launch.js";
+import { createWorktree, ensureCheckout, samePath, startSessionAgent } from "../sessions/launch.js";
 import { NewAgentDialog, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
 import {
   type AgentSession,
@@ -42,6 +45,7 @@ import {
   sessionStopCommands,
   sessionTitle,
 } from "../sessions/sessions.js";
+import { groupFinished, useRunStates } from "../sessions/useRunStates.js";
 import { forgetSession, useWorkbenchState } from "../sessions/workbench.js";
 import { resolveLaunchDefaults, useAppSettings } from "../settings/appSettings.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
@@ -50,7 +54,7 @@ import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
 import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
 import { Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
-import { IconButton } from "../ui/Button.js";
+import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { LoadingState } from "../ui/Pane.js";
 import { TooltipLayer } from "../ui/Tooltip.js";
@@ -59,13 +63,7 @@ import { UpdatePill } from "../updates/UpdatePill.js";
 import { busyAgentCount } from "../updates/updateCopy.js";
 import { useUpdates } from "../updates/useUpdates.js";
 import { PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
-import {
-  CloseAgentDialog,
-  DeleteAgentDialog,
-  deletableWorktree,
-  discardedRuns,
-  KeepRunDialog,
-} from "./AgentDialogs.js";
+import { CloseAgentDialog, DeleteAgentDialog, deletableWorktree, KeepRunDialog } from "./AgentDialogs.js";
 import { CommandPalette, type PaletteCommand } from "./CommandPalette.js";
 import { HelpDialog } from "./HelpDialog.js";
 import { useShortcuts } from "./keybindings.js";
@@ -111,7 +109,11 @@ function WorkspaceApp() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [worktreeDialogProject, setWorktreeDialogProject] = useState<ProjectProjection>();
   const [newAgentProject, setNewAgentProject] = useState<ProjectProjection | "default">();
-  const [notice, setNotice] = useState<{ message: string; tone: "danger" | "info" }>();
+  const [notice, setNotice] = useState<{
+    message: string;
+    tone: "danger" | "info";
+    action?: { label: string; run(): void };
+  }>();
   const showError = useCallback((message: string) => setNotice({ message, tone: "danger" }), []);
   const [legacyImportBatchId, setLegacyImportBatchId] = useState<string>();
   const [helpOpen, setHelpOpen] = useState(false);
@@ -120,6 +122,8 @@ function WorkspaceApp() {
   const [closeRequest, setCloseRequest] = useState<AgentSession>();
   const [deleteRequest, setDeleteRequest] = useState<AgentSession>();
   const [handoffRequest, setHandoffRequest] = useState<AgentSession>();
+  const [compareGroupId, setCompareGroupId] = useState<string>();
+  const [keepRequest, setKeepRequest] = useState<{ group: RunGroup; session: AgentSession }>();
   const [version, setVersion] = useState<string>();
   const [browserReveal, setBrowserReveal] = useState<BrowserReveal>();
   const [browserOpen, setBrowserOpen] = useState<BrowserOpenRequest>();
@@ -162,6 +166,7 @@ function WorkspaceApp() {
       ),
     [sessions, workbench.closed],
   );
+  const runStates = useRunStates(workbench.groups, sessions);
   const activeSession = tiles.find((session) => session.sessionId === workbench.activeSessionId);
   const maximized = tiles.find((session) => session.sessionId === workbench.maximizedSessionId);
   const visibleTiles = maximized ? [maximized] : tiles;
@@ -336,6 +341,7 @@ function WorkspaceApp() {
     [hasProjects],
   );
 
+  const toggleSidePane = (next: SidePane) => setSidePane((current) => (current === next ? undefined : next));
   const toggleSidebar = () => updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
   const toggleDrawer = () => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }));
   const openSettings = (section: SettingsSection = "agents") => {
@@ -354,6 +360,9 @@ function WorkspaceApp() {
     searchFiles: searchInFiles,
     toggleSidebar,
     toggleDrawer,
+    toggleFiles: () => toggleSidePane("files"),
+    toggleBrowser: () => toggleSidePane("browser"),
+    toggleChanges: () => toggleSidePane("review"),
     settings: () => openSettings(),
     escape: () => {
       setPaletteOpen(false);
@@ -367,6 +376,8 @@ function WorkspaceApp() {
       setCloseRequest(undefined);
       setDeleteRequest(undefined);
       setHandoffRequest(undefined);
+      setCompareGroupId(undefined);
+      setKeepRequest(undefined);
       setPromptManager(undefined);
       setRestartConfirm(false);
       if (whatsNewRef.current) updates.dismissWhatsNew();
@@ -410,53 +421,57 @@ function WorkspaceApp() {
         continue;
       }
       if (worktree.status !== "ready") continue;
-      if (!isSelectableProvider(launch.provider)) {
+      const provider = launch.provider;
+      if (!isSelectableProvider(provider)) {
         fail("This agent is not supported.");
         continue;
       }
       launching.current.add(launch.sessionId);
-      void startSessionAgent(dispatch, projection, {
-        provider: launch.provider,
-        mode: launch.mode,
-        permissionMode: launch.permissionMode ?? "full-access",
-        ...(launch.model ? { model: launch.model } : {}),
-        sessionId: launch.sessionId,
-        worktreeId: worktree.worktreeId,
-        cwd: worktree.path,
-      }).then((failure) => {
-        launching.current.delete(launch.sessionId);
-        updateWorkbench((state) => {
-          // The pending entry may already be gone because the session showed up in the projection first.
-          const prompt = failure ? undefined : launch.prompt;
-          const message = prompt
-            ? { text: prompt, ...(launch.promptFile ? { file: launch.promptFile } : {}) }
-            : undefined;
-          return {
-            ...state,
-            pending: state.pending.map((candidate) => {
-              if (candidate.sessionId !== launch.sessionId) return candidate;
-              if (failure) return { ...candidate, errorMessage: failure };
-              const { prompt: _prompt, promptFile: _file, ...rest } = candidate;
-              return { ...rest, started: true };
+      const fork = launch.fork;
+      const forked = fork
+        ? forkWorktree(dispatch, worktree.worktreeId, fork).then(
+            () => undefined,
+            (cause: unknown) =>
+              cause instanceof Error ? cause.message : "The files could not be copied into the new worktree.",
+          )
+        : Promise.resolve(undefined);
+      void forked
+        .then(
+          (failure) =>
+            failure ??
+            startSessionAgent(dispatch, projection, {
+              provider,
+              mode: launch.mode,
+              permissionMode: launch.permissionMode ?? "full-access",
+              ...(launch.model ? { model: launch.model } : {}),
+              sessionId: launch.sessionId,
+              worktreeId: worktree.worktreeId,
+              cwd: worktree.path,
             }),
-            ...(message ? { firstMessages: { ...state.firstMessages, [launch.sessionId]: message } } : {}),
-          };
+        )
+        .then((failure) => {
+          // The id stays in `launching` until a retry: an effect from an earlier render can still run with
+          // this launch not yet marked started, and it must not fork the worktree and start it again.
+          updateWorkbench((state) => {
+            // The pending entry may already be gone because the session showed up in the projection first.
+            const prompt = failure ? undefined : launch.prompt;
+            const message = prompt
+              ? { text: prompt, ...(launch.promptFile ? { file: launch.promptFile } : {}) }
+              : undefined;
+            return {
+              ...state,
+              pending: state.pending.map((candidate) => {
+                if (candidate.sessionId !== launch.sessionId) return candidate;
+                if (failure) return { ...candidate, errorMessage: failure };
+                const { prompt: _prompt, promptFile: _file, fork: _fork, ...rest } = candidate;
+                return { ...rest, started: true };
+              }),
+              ...(message ? { firstMessages: { ...state.firstMessages, [launch.sessionId]: message } } : {}),
+            };
+          });
         });
-      });
     }
   }, [dispatch, projection, sessions, updateWorkbench, workbench.pending]);
-
-  // Runs deleted elsewhere, for example from another window, leave their group.
-  useEffect(() => {
-    if (!projection) return;
-    const known = new Set(sessions.map((session) => session.sessionId));
-    const gone = workbench.groups.flatMap((group) => group.sessionIds.filter((sessionId) => !known.has(sessionId)));
-    if (gone.length === 0) return;
-    updateWorkbench((state) => ({
-      ...state,
-      groups: gone.reduce((groups, sessionId) => withoutRun(groups, sessionId), state.groups),
-    }));
-  }, [projection, sessions, updateWorkbench, workbench.groups]);
 
   // A first message goes out once its agent can take input: an idle chat, or a CLI that had time to draw.
   const delivering = useRef(new Set<string>());
@@ -506,6 +521,35 @@ function WorkspaceApp() {
       }, TERMINAL_FIRST_MESSAGE_DELAY_MS);
     }
   }, [dispatch, sessions, showError, updateWorkbench, workbench.firstMessages]);
+
+  // A run deleted some other way leaves its group.
+  useEffect(() => {
+    if (!projection) return;
+    const known = new Set(sessions.map((session) => session.sessionId));
+    const gone = workbench.groups.flatMap((group) => group.sessionIds.filter((sessionId) => !known.has(sessionId)));
+    if (gone.length === 0) return;
+    updateWorkbench((state) => ({
+      ...state,
+      groups: gone.reduce((groups, sessionId) => withoutRun(groups, sessionId), state.groups),
+    }));
+  }, [projection, sessions, updateWorkbench, workbench.groups]);
+
+  useEffect(() => {
+    const finished = workbench.groups.filter((group) => !group.notified && groupFinished(group, runStates));
+    if (finished.length === 0) return;
+    const ids = new Set(finished.map((group) => group.groupId));
+    updateWorkbench((state) => ({
+      ...state,
+      groups: state.groups.map((group) => (ids.has(group.groupId) ? { ...group, notified: true } : group)),
+    }));
+    const group = finished.at(-1);
+    if (!group) return;
+    setNotice({
+      message: `All ${group.sessionIds.length} runs for ${group.label} finished. Compare them and keep one.`,
+      tone: "info",
+      action: { label: "Compare", run: () => setCompareGroupId(group.groupId) },
+    });
+  }, [runStates, updateWorkbench, workbench.groups]);
 
   const openProject = async () => {
     if (!bridge) {
@@ -722,60 +766,41 @@ function WorkspaceApp() {
 
   const submitNewAgent = async (request: NewAgentRequest): Promise<string | undefined> => {
     if (!projection) return "The runtime is not connected.";
-    const placements: { worktreeId: string; provider: string }[] = [];
-    let partialFailure: string | undefined;
+    let worktreeId: string;
     if (request.placement.kind === "new") {
-      const agents = request.runs && request.runs.length > 1 ? request.runs : [request.provider];
-      const branches = runBranches(request.placement.branch, agents.length);
-      for (const [index, branch] of branches.entries()) {
-        const result = await createWorktree(dispatch, request.project, branch, request.placement.baseRef);
-        if ("error" in result) {
-          if (placements.length === 0) return result.error;
-          partialFailure = `Started ${placements.length} of ${branches.length} runs. ${branch}: ${result.error}`;
-          break;
-        }
-        placements.push({ worktreeId: result.worktreeId, provider: agents[index] ?? request.provider });
-      }
+      const result = await createWorktree(
+        dispatch,
+        request.project,
+        request.placement.branch,
+        request.placement.baseRef,
+      );
+      if ("error" in result) return result.error;
+      worktreeId = result.worktreeId;
     } else if (request.placement.kind === "checkout") {
       const result = await ensureCheckout(dispatch, projection, request.project);
       if ("error" in result) return result.error;
-      placements.push({ worktreeId: result.worktreeId, provider: request.provider });
+      worktreeId = result.worktreeId;
     } else {
-      placements.push({ worktreeId: request.placement.worktreeId, provider: request.provider });
+      worktreeId = request.placement.worktreeId;
     }
-    const createdAt = new Date().toISOString();
-    const launches: PendingLaunch[] = placements.map((placement) => ({
+    const launch: PendingLaunch = {
       sessionId: makeCommandId(),
-      worktreeId: placement.worktreeId,
-      provider: placement.provider,
+      worktreeId,
+      provider: request.provider,
       mode: request.mode,
       permissionMode: request.permissionMode,
-      // Model ids belong to one agent, so runs with another agent use their default.
-      ...(request.model && placement.provider === request.provider ? { model: request.model } : {}),
-      ...(request.prompt ? { prompt: request.prompt } : {}),
-      createdAt,
-    }));
-    const first = launches[0];
-    if (!first) return "No worktree could be created.";
-    const group: RunGroup | undefined =
-      launches.length > 1 && request.placement.kind === "new"
-        ? {
-            groupId: makeCommandId(),
-            label: safeBranchName(request.placement.branch),
-            sessionIds: launches.map((launch) => launch.sessionId),
-          }
-        : undefined;
+      ...(request.model ? { model: request.model } : {}),
+      createdAt: new Date().toISOString(),
+    };
     updateWorkbench((state) => ({
       ...state,
-      pending: [...state.pending, ...launches],
-      modes: { ...state.modes, ...Object.fromEntries(launches.map((launch) => [launch.sessionId, request.mode])) },
-      ...(group ? { groups: [...state.groups, group] } : {}),
-      activeSessionId: first.sessionId,
+      pending: [...state.pending, launch],
+      modes: { ...state.modes, [launch.sessionId]: request.mode },
+      activeSessionId: launch.sessionId,
       maximizedSessionId: undefined,
     }));
-    setSelectedWorktreeId(first.worktreeId);
+    setSelectedWorktreeId(worktreeId);
     setNewAgentProject(undefined);
-    if (partialFailure) showError(partialFailure);
     return undefined;
   };
   const submitHandoff = async (from: AgentSession, request: HandoffRequest): Promise<string | undefined> => {
@@ -806,6 +831,68 @@ function WorkspaceApp() {
     setHandoffRequest(undefined);
     return undefined;
   };
+  /** Starts one agent per run, each in a new worktree that copies the files the runs start from. */
+  const startRuns = async (source: AgentSession, request: StartRunsRequest): Promise<string | undefined> => {
+    const sourceWorktree = findWorktree(source.worktreeId);
+    const project = projection?.projects.find((entry) => entry.projectId === sourceWorktree?.projectId);
+    if (!projection || !sourceWorktree || !project) return "The worktree for this agent is gone.";
+    const plan = planRuns(
+      sourceWorktree.branch,
+      request.runs,
+      projection.worktrees.map((worktree) => worktree.branch),
+    );
+    const baseRef = sourceWorktree.branch === "HEAD" ? "" : sourceWorktree.branch;
+    const created: string[] = [];
+    for (const run of plan) {
+      const result = await createWorktree(dispatch, project, run.branch, baseRef);
+      if ("error" in result) {
+        await Promise.all(created.map((worktreeId) => send({ type: "worktree.cancel", worktreeId })));
+        return result.error;
+      }
+      created.push(result.worktreeId);
+    }
+    const createdAt = new Date().toISOString();
+    const launches: PendingLaunch[] = plan.map((run, index) => ({
+      sessionId: makeCommandId(),
+      worktreeId: created[index] ?? "",
+      provider: run.agent.provider,
+      mode: "chat",
+      permissionMode: request.permissionMode,
+      ...(run.agent.model ? { model: run.agent.model } : {}),
+      prompt: request.prompt,
+      fork: request.from,
+      createdAt,
+    }));
+    const group: RunGroup = {
+      groupId: makeCommandId(),
+      sourceSessionId: source.sessionId,
+      label: sourceWorktree.branch === "HEAD" ? "this chat" : sourceWorktree.branch,
+      prompt: request.prompt,
+      sessionIds: launches.map((launch) => launch.sessionId),
+      createdAt,
+    };
+    updateWorkbench((state) => ({
+      ...state,
+      pending: [...state.pending, ...launches],
+      modes: { ...state.modes, ...Object.fromEntries(launches.map((launch) => [launch.sessionId, "chat" as const])) },
+      groups: [...state.groups, group],
+      activeSessionId: launches[0]?.sessionId ?? state.activeSessionId,
+      maximizedSessionId: undefined,
+    }));
+    return undefined;
+  };
+
+  const keepRun = async (group: RunGroup, kept: AgentSession) => {
+    setKeepRequest(undefined);
+    setCompareGroupId(undefined);
+    const current = projectionRef.current;
+    if (!current) return;
+    updateWorkbench((state) => ({ ...state, groups: state.groups.filter((entry) => entry.groupId !== group.groupId) }));
+    focusSession(kept);
+    const discarded = keepRunCleanup(current, sessionsRef.current, group, kept.sessionId);
+    await Promise.all(discarded.map(({ session, worktree }) => deleteSession(session, worktree !== undefined, true)));
+  };
+
   const handoffTarget = (session: AgentSession | undefined) =>
     session && canHandOff(session, projection?.messages) && findWorktree(session.worktreeId)?.status === "ready"
       ? session
@@ -845,7 +932,7 @@ function WorkspaceApp() {
     }
   };
 
-  const deleteSession = async (session: AgentSession, removeWorktree: boolean): Promise<void> => {
+  const deleteSession = async (session: AgentSession, removeWorktree: boolean, deleteBranch = false): Promise<void> => {
     setNotice(undefined);
     const worktree = removeWorktree ? findWorktree(session.worktreeId) : undefined;
     // Windows keeps a folder locked while a process runs inside it, so the agent must exit before git removes it.
@@ -859,45 +946,20 @@ function WorkspaceApp() {
     }
     updateWorkbench((state) => forgetSession(state, session.sessionId));
     if (!worktree) return;
+    if (worktree.status !== "ready" && worktree.status !== "failed") {
+      await send({ type: "worktree.cancel", worktreeId: worktree.worktreeId });
+      return;
+    }
     // The person confirmed that uncommitted changes in the folder are lost.
-    const removed = await send({ type: "worktree.remove", worktreeId: worktree.worktreeId, force: true });
+    const removed = await send({
+      type: "worktree.remove",
+      worktreeId: worktree.worktreeId,
+      force: true,
+      ...(deleteBranch ? { deleteBranch: true } : {}),
+    });
     if (removed && worktree.worktreeId === selectedWorktreeId) setSelectedWorktreeId(undefined);
   };
 
-  const [keepRequest, setKeepRequest] = useState<AgentSession>();
-
-  /** Keeps one best-of run: deletes the other runs and their worktrees, which the person confirmed. */
-  const keepingGroups = useRef(new Set<string>());
-  const keepRun = async (kept: AgentSession): Promise<void> => {
-    const position = runPosition(workbench.groups, kept.sessionId);
-    if (!position || !projection) return;
-    const { groupId } = position.group;
-    if (keepingGroups.current.has(groupId)) return;
-    keepingGroups.current.add(groupId);
-    const others = position.group.sessionIds
-      .filter((sessionId) => sessionId !== kept.sessionId)
-      .map((sessionId) => sessions.find((session) => session.sessionId === sessionId))
-      .filter((session): session is AgentSession => session !== undefined);
-    // The group is not dropped up front: each successful delete leaves it through forgetSession, so a run
-    // whose delete fails stays grouped with the kept one and can be kept or deleted again.
-    try {
-      await Promise.all(
-        others.map(async (session) => {
-          const worktree = deletableWorktree(projection, sessions, session);
-          if (worktree && worktreeInProgress(worktree.status)) {
-            // Cancelling stops the setup and removes the half-made folder.
-            await send({ type: "worktree.cancel", worktreeId: worktree.worktreeId });
-            await deleteSession(session, false);
-            return;
-          }
-          await deleteSession(session, worktree !== undefined);
-        }),
-      );
-    } finally {
-      keepingGroups.current.delete(groupId);
-    }
-    focusSession(kept);
-  };
   const closeTileNow = (session: AgentSession) =>
     updateWorkbench((state) => ({
       ...state,
@@ -913,6 +975,7 @@ function WorkspaceApp() {
   const retryPending = (session: AgentSession) => {
     const worktree = findWorktree(session.worktreeId);
     if (worktree?.status === "failed") void worktreeAction(worktree, "retry");
+    launching.current.delete(session.sessionId);
     updateWorkbench((state) => ({
       ...state,
       pending: state.pending.map((entry) => {
@@ -970,7 +1033,6 @@ function WorkspaceApp() {
     }
   };
 
-  const toggleSidePane = (next: SidePane) => setSidePane((current) => (current === next ? undefined : next));
   const commands: PaletteCommand[] = [
     ...(hasProjects
       ? [
@@ -1062,9 +1124,27 @@ function WorkspaceApp() {
       shortcut: shortcuts.toggleDrawer,
       action: toggleDrawer,
     },
-    { label: "Focus files", icon: "folderTree", group: "View", action: () => setSidePane("files") },
-    { label: "Focus browser", icon: "globe", group: "View", action: () => setSidePane("browser") },
-    { label: "Focus changes", icon: "diff", group: "View", action: () => setSidePane("review") },
+    {
+      label: "Focus files",
+      icon: "folderTree",
+      group: "View",
+      shortcut: shortcuts.toggleFiles,
+      action: () => setSidePane("files"),
+    },
+    {
+      label: "Focus browser",
+      icon: "globe",
+      group: "View",
+      shortcut: shortcuts.toggleBrowser,
+      action: () => setSidePane("browser"),
+    },
+    {
+      label: "Focus changes",
+      icon: "diff",
+      group: "View",
+      shortcut: shortcuts.toggleChanges,
+      action: () => setSidePane("review"),
+    },
     {
       label: workbench.sidebarOpen ? "Hide sidebar" : "Show sidebar",
       icon: "panelLeft",
@@ -1121,6 +1201,7 @@ function WorkspaceApp() {
     closeRequest !== undefined ||
     deleteRequest !== undefined ||
     handoffRequest !== undefined ||
+    workbench.groups.some((group) => group.groupId === compareGroupId) ||
     keepRequest !== undefined ||
     promptManager !== undefined ||
     (restartConfirm && readyUpdate !== undefined) ||
@@ -1133,11 +1214,11 @@ function WorkspaceApp() {
   whatsNewRef.current = whatsNew !== undefined;
   const overlayOpen = otherOverlayOpen || setupApproval !== undefined || whatsNew !== undefined;
   const { columns, rows } = gridLayout(visibleTiles.length, gridWidth);
-  const keepPosition = keepRequest ? runPosition(workbench.groups, keepRequest.sessionId) : undefined;
   const handoffSession = handoffRequest
     ? sessions.find((session) => session.sessionId === handoffRequest.sessionId)
     : undefined;
   const handoffWorktree = handoffSession ? findWorktree(handoffSession.worktreeId) : undefined;
+  const compareGroup = workbench.groups.find((group) => group.groupId === compareGroupId);
 
   return (
     <FileIndexProvider onOpenFile={openFile}>
@@ -1170,6 +1251,9 @@ function WorkspaceApp() {
             onOpenSettings={() => openSettings()}
             onOpenUsage={openUsage}
             onHideSidebar={() => updateWorkbench((state) => ({ ...state, sidebarOpen: false }))}
+            runGroups={workbench.groups}
+            runStates={runStates}
+            onCompareRuns={(group) => setCompareGroupId(group.groupId)}
           />
         ) : null}
         <main className="main-workspace">
@@ -1178,7 +1262,6 @@ function WorkspaceApp() {
             project={contextWorktree ? contextProject : undefined}
             worktree={contextWorktree}
             hasProjects={hasProjects}
-            agentCount={tiles.length}
             drawerOpen={workbench.drawerOpen}
             sidePane={sidePane}
             onShowSidebar={toggleSidebar}
@@ -1201,6 +1284,18 @@ function WorkspaceApp() {
             <div className={`banner banner-${notice.tone}`} role={notice.tone === "danger" ? "alert" : "status"}>
               <Icon name={notice.tone === "danger" ? "alert" : "check"} size={14} />
               <span className="banner-message">{notice.message}</span>
+              {notice.action ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    notice.action?.run();
+                    setNotice(undefined);
+                  }}
+                >
+                  {notice.action.label}
+                </Button>
+              ) : null}
               <IconButton label="Dismiss message" icon="x" size="sm" onClick={() => setNotice(undefined)} />
             </div>
           ) : null}
@@ -1266,9 +1361,13 @@ function WorkspaceApp() {
                           onDismissPending={() => closeTileNow(session)}
                           onReviewSetup={() => reviewSetup(session.worktreeId)}
                           onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
-                          run={runPosition(workbench.groups, session.sessionId)}
-                          onKeep={() => setKeepRequest(session)}
                           onHandoff={handoffTarget(session) ? () => setHandoffRequest(session) : undefined}
+                          run={runPosition(workbench.groups, session.sessionId)}
+                          onStartRuns={
+                            runPosition(workbench.groups, session.sessionId)
+                              ? undefined
+                              : (request) => startRuns(session, request)
+                          }
                         />
                       ))}
                     </div>
@@ -1427,17 +1526,33 @@ function WorkspaceApp() {
             />
           </Suspense>
         ) : null}
-        {keepRequest && keepPosition && projection ? (
-          <KeepRunDialog
-            index={keepPosition.index}
-            count={keepPosition.count}
-            branch={findWorktree(keepRequest.worktreeId)?.branch ?? keepPosition.group.label}
-            discarded={discardedRuns(projection, sessions, keepPosition.group, keepRequest.sessionId)}
-            onKeep={() => {
-              const session = keepRequest;
-              setKeepRequest(undefined);
-              void keepRun(session);
+
+        {compareGroup && !keepRequest ? (
+          <CompareRunsDialog
+            group={compareGroup}
+            sessions={sessions}
+            onViewDiff={(session) => {
+              setCompareGroupId(undefined);
+              focusSession(session);
+              setSidePane("review");
+              setReviewFocus(undefined);
             }}
+            onKeep={(session) => setKeepRequest({ group: compareGroup, session })}
+            onClose={() => setCompareGroupId(undefined)}
+          />
+        ) : null}
+        {keepRequest && projection ? (
+          <KeepRunDialog
+            index={keepRequest.group.sessionIds.indexOf(keepRequest.session.sessionId) + 1}
+            count={keepRequest.group.sessionIds.length}
+            branch={findWorktree(keepRequest.session.worktreeId)?.branch ?? "its worktree"}
+            discarded={keepRunCleanup(projection, sessions, keepRequest.group, keepRequest.session.sessionId).map(
+              ({ session, worktree }) => ({
+                title: `Run ${keepRequest.group.sessionIds.indexOf(session.sessionId) + 1}, ${providerDisplayName(session.provider, projection.providers)}`,
+                branch: worktree?.branch,
+              }),
+            )}
+            onKeep={() => void keepRun(keepRequest.group, keepRequest.session)}
             onCancel={() => setKeepRequest(undefined)}
           />
         ) : null}

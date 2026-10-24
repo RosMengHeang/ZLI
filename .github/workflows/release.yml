@@ -24,7 +24,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Nothing is tagged or built until the release commit passes the same audit and checks as pull requests,
+  # so a merge with a known high or critical advisory or a failing check never ships.
+  gate:
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: v2/.nvmrc
+          cache: pnpm
+          cache-dependency-path: v2/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --audit-level high
+      - run: pnpm run verify
+
   version:
+    needs: gate
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:

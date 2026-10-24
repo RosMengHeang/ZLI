@@ -2,23 +2,24 @@
 .terminal-output, .agent-terminal-output { min-height: 0; flex: 1; overflow: hidden; background: var(--zli-terminal); }
 .terminal-output .xterm, .agent-terminal-output .xterm { height: 100%; padding: var(--zli-space-2) var(--zli-space-2-5); }
 .terminal-output .xterm-viewport, .agent-terminal-output .xterm-viewport { background: transparent !important; }
-.terminal-drawer { position: relative; display: flex; min-height: 0; flex: 0 0 auto; flex-direction: column; border-top: 1px solid var(--zli-border); background: var(--zli-terminal); }
-.drawer-resizer { position: absolute; z-index: 2; top: -4px; right: 0; left: 0; height: 7px; cursor: row-resize; touch-action: none; }
-.drawer-resizer::after { position: absolute; top: 3px; right: 0; left: 0; height: 1px; background: transparent; content: ""; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
-.drawer-resizer:hover::after, .drawer-resizer:focus-visible::after, .drawer-resizer.is-dragging::after { height: 2px; background: var(--zli-accent); }
+/* The drawer is its own island below the grid; the gutter above it is the resize handle. */
+.terminal-drawer { position: relative; display: flex; min-height: 0; flex: 0 0 auto; flex-direction: column; margin-top: var(--zli-gutter); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-terminal); }
+.drawer-resizer { position: absolute; z-index: 2; top: calc(-1px - var(--zli-gutter)); right: 0; left: 0; height: var(--zli-gutter); cursor: row-resize; touch-action: none; }
+.drawer-resizer::after { position: absolute; top: calc(50% - 1px); right: var(--zli-space-3); left: var(--zli-space-3); height: 2px; border-radius: 1px; background: transparent; content: ""; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.drawer-resizer:hover::after { background: var(--zli-border-hover); }
+.drawer-resizer:focus-visible::after, .drawer-resizer.is-dragging::after { background: var(--zli-accent); }
 .drawer-resizer:focus-visible { outline: none; }
-.drawer-header { display: flex; align-items: center; gap: var(--zli-space-2); height: var(--zli-toolbar); flex: 0 0 auto; padding: 0 var(--zli-space-1-5) 0 var(--zli-space-4); border-bottom: 1px solid var(--zli-border); color: var(--zli-dim); }
+.drawer-header { display: flex; align-items: center; gap: var(--zli-space-2); height: var(--zli-toolbar); flex: 0 0 auto; padding: 0 var(--zli-space-1-5) 0 var(--zli-space-4); color: var(--zli-dim); }
 .drawer-header h2 { margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
 .drawer-detail { min-width: 0; overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .drawer-spacer { flex: 1; }
-.terminal-drawer.is-compact { background: var(--zli-canvas); }
-.terminal-drawer.is-compact .drawer-header { border-bottom: 0; }
+.terminal-drawer.is-compact { background: var(--zli-surface); }
 .terminal-drawer.is-compact .inline-error { margin: 0 var(--zli-space-4) var(--zli-space-2); }
 .drawer-note { min-width: 0; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
 .drawer-note .drawer-detail { color: var(--zli-muted); }
-.drawer-splits { display: grid; min-height: 0; flex: 1; gap: 1px; background: var(--zli-border); }
+.drawer-splits { display: grid; min-height: 0; flex: 1; gap: 1px; overflow: hidden; border-top: 1px solid var(--zli-border); border-radius: 0 0 calc(var(--zli-radius-lg) - 1px) calc(var(--zli-radius-lg) - 1px); background: var(--zli-border); }
 .drawer-pane { display: flex; min-width: 0; min-height: 0; flex-direction: column; background: var(--zli-terminal); }
-.drawer-pane-bar { display: flex; align-items: center; gap: var(--zli-space-2); height: 28px; flex: 0 0 auto; padding: 0 var(--zli-space-1) 0 var(--zli-space-3); border-bottom: 1px solid var(--zli-border); color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.drawer-pane-bar { display: flex; align-items: center; gap: var(--zli-space-2); height: 28px; flex: 0 0 auto; padding: 0 var(--zli-space-1) 0 var(--zli-space-3); color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .drawer-pane-bar .status-dot { width: 6px; height: 6px; flex-basis: 6px; }
 .drawer-pane-title { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-muted); text-overflow: ellipsis; white-space: nowrap; }
 .drawer-pane-state { color: var(--zli-dim); }

@@ -1,6 +1,8 @@
 import {
   CheckpointDiffResult,
   type CheckpointDiffResult as CheckpointDiffResultValue,
+  CheckpointForkResult,
+  type CheckpointForkResult as CheckpointForkResultValue,
   CheckpointRestoreResult,
   type CheckpointRestoreResult as CheckpointRestoreResultValue,
   type RpcResponse,
@@ -31,6 +33,14 @@ export function readCheckpointDiff(
   path: string,
 ): Promise<CheckpointDiffResultValue> {
   return request(dispatch, { type: "checkpoint.diff", checkpointId, path }, CheckpointDiffResult);
+}
+
+export function forkWorktree(
+  dispatch: Dispatch,
+  worktreeId: string,
+  from: { kind: "worktree"; worktreeId: string } | { kind: "checkpoint"; checkpointId: string },
+): Promise<CheckpointForkResultValue> {
+  return request(dispatch, { type: "checkpoint.fork", worktreeId, from }, CheckpointForkResult);
 }
 
 export function restoreCheckpoint(dispatch: Dispatch, checkpointId: string): Promise<CheckpointRestoreResultValue> {

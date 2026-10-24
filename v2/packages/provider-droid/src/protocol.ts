@@ -1,11 +1,12 @@
-export type DroidPermissionMode = "full-access" | "supervised";
+export type DroidPermissionMode = "read-only" | "supervised" | "full-access";
 
 // Droid exec runs one process per user turn. The prompt arrives on stdin, and the
 // session id from system/init is passed back with -s to continue the
 // conversation. Full access uses --skip-permissions-unsafe: exec mode has no
 // approval channel, and each agent already runs in its own isolated worktree.
 // Supervised uses --auto low, which lets the agent edit files but refuses riskier
-// commands instead of asking. The two flags cannot be combined.
+// commands instead of asking. Read only passes neither, which is exec's own read-only
+// default. The two flags cannot be combined.
 export function droidTurnArgs(input: {
   cwd: string;
   sessionId?: string;
@@ -14,7 +15,7 @@ export function droidTurnArgs(input: {
 }): string[] {
   const args = ["exec", "-o", "stream-json", "--cwd", input.cwd];
   if (input.permissionMode === "supervised") args.push("--auto", "low");
-  else args.push("--skip-permissions-unsafe");
+  else if (input.permissionMode !== "read-only") args.push("--skip-permissions-unsafe");
   if (input.model) args.push("-m", input.model);
   if (input.sessionId) args.push("-s", input.sessionId);
   return args;

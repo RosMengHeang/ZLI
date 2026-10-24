@@ -3,12 +3,12 @@ import { type KeyboardEvent, useId, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, providerDisplayName } from "../agent/providers.js";
 import { Button } from "../ui/Button.js";
+import { ChoiceSegmented, FormSection, ProviderOptions } from "../ui/Choice.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Icon } from "../ui/Icon.js";
-import { ProviderMark } from "../ui/ProviderMark.js";
 import { Switch } from "../ui/Switch.js";
 import { type HandoffMessage, handoffMessage } from "./handoff.js";
-import { LaunchRow } from "./NewAgentDialog.js";
+import { viewHint, viewOptions } from "./NewAgentDialog.js";
 import { type AgentSession, type SessionMode, sessionStopCommands, sessionTitle } from "./sessions.js";
 
 export type HandoffRequest = {
@@ -109,64 +109,40 @@ export function HandoffDialog({
         }}
       >
         <div className="dialog-body">
-          <div className="launch-rows">
-            <LaunchRow label="Agent">
-              {installed.length === 0 ? (
-                <p className="field-hint">No agent CLIs are installed.</p>
-              ) : (
-                <div className="chip-group" role="radiogroup" aria-label="Agent">
-                  {installed.map((entry) => (
-                    <label className="chip-choice" key={entry.provider} title={entry.path}>
-                      <input
-                        type="radio"
-                        name="handoff-provider"
-                        checked={provider === entry.provider}
-                        onChange={() => setProvider(entry.provider)}
-                      />
-                      <ProviderMark provider={entry.provider} size={14} />
-                      <span>{entry.displayName}</span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </LaunchRow>
-            <LaunchRow label="Work in">
-              <div className="chip-group" role="radiogroup" aria-label="Mode">
-                <label className="chip-choice" title="Messages with a work log and changed files">
-                  <input type="radio" name="handoff-mode" checked={mode === "chat"} onChange={() => setMode("chat")} />
-                  <Icon name="message" size={13} />
-                  <span>Chat</span>
-                </label>
-                <label className="chip-choice" title="The agent's own CLI, full screen in a tile">
-                  <input
-                    type="radio"
-                    name="handoff-mode"
-                    checked={mode === "terminal"}
-                    onChange={() => setMode("terminal")}
-                  />
-                  <Icon name="terminal" size={13} />
-                  <span>Terminal</span>
-                </label>
-              </div>
-            </LaunchRow>
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor={noteId}>
-              What to do next
-            </label>
+          <FormSection label="Agent">
+            {installed.length === 0 ? (
+              <p className="form-section-hint">No agent CLIs were found on this computer.</p>
+            ) : (
+              <ProviderOptions
+                name="handoff-provider"
+                entries={installed}
+                value={provider}
+                onChange={(next) => setProvider(next as ListedProviderKind)}
+              />
+            )}
+          </FormSection>
+          <FormSection label="View" hint={viewHint[mode]}>
+            <ChoiceSegmented<SessionMode>
+              name="handoff-mode"
+              label="View"
+              value={mode}
+              options={viewOptions}
+              onChange={setMode}
+            />
+          </FormSection>
+          <FormSection label="Next step" htmlFor={noteId}>
             <textarea
               id={noteId}
               className="textarea"
               rows={2}
               value={note}
               onChange={(event) => setNote(event.target.value)}
-              placeholder="Optional. Without it, the agent reads the conversation and carries on."
+              placeholder="Optional. Leave empty and the agent continues from the conversation."
             />
-          </div>
-          <div className="field">
-            <span className="field-label">First message</span>
+          </FormSection>
+          <FormSection label="Opening message">
             {/* biome-ignore lint/a11y/noNoninteractiveTabindex: the preview scrolls, so it needs to take focus for the keyboard. */}
-            <section className="handoff-preview" tabIndex={0} aria-label="First message preview">
+            <section className="handoff-preview" tabIndex={0} aria-label="Opening message preview">
               <pre>{message.text}</pre>
             </section>
             <p className="handoff-file">
@@ -176,7 +152,7 @@ export function HandoffDialog({
                 {message.omitted > 0 ? `${carried}, ${message.omitted.toLocaleString()} older left out` : carried}
               </span>
             </p>
-          </div>
+          </FormSection>
           {canStop ? (
             <Switch
               label={`Stop ${fromName} and close its tile`}
