@@ -99,6 +99,7 @@ export const InitializeResult = z
     agentCapabilities: z
       .object({
         promptCapabilities: z.object({ image: z.boolean().optional() }).passthrough().optional(),
+        mcpCapabilities: z.object({ http: z.boolean().optional() }).passthrough().optional(),
       })
       .passthrough()
       .optional(),

@@ -203,6 +203,23 @@ describe("AcpClient handshake", () => {
     expect(agent.received[1]?.params).toEqual({ cwd: "/work/tree", mcpServers: [server] });
   });
 
+  it("offers HTTP MCP servers only to agents that advertise mcpCapabilities.http", async () => {
+    const stdio = { name: "memory", command: "npx", args: ["-y", "@modelcontextprotocol/server-memory"], env: [] };
+    const http = {
+      type: "http" as const,
+      name: "linear",
+      url: "https://mcp.linear.app/mcp",
+      headers: [{ name: "Authorization", value: "Bearer t" }],
+    };
+    const plain = new FakeAgent();
+    await harness(plain, { mcpServers: [stdio, http] });
+    expect(plain.received[1]?.params).toEqual({ cwd: "/work/tree", mcpServers: [stdio] });
+
+    const capable = new FakeAgent({ protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true } } });
+    await harness(capable, { mcpServers: [stdio, http] });
+    expect(capable.received[1]?.params).toEqual({ cwd: "/work/tree", mcpServers: [stdio, http] });
+  });
+
   it("turns an auth failure on session/new into a sign-in hint and stops the agent", async () => {
     const agent = new FakeAgent();
     agent.handlers.set("session/new", () => new RpcFailure(-32000, "Authentication required"));

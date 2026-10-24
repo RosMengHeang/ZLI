@@ -1,17 +1,21 @@
-import { AgentToolAccess, type McpServerConfig } from "@zli-v2/contracts";
+import { AgentToolAccess, isHttpServer, type McpServerConfig } from "@zli-v2/contracts";
 import { useRef, useState } from "react";
 
 import { Button, IconButton } from "../ui/Button.js";
 import { Field, Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
+import { McpCatalog } from "./McpCatalog.js";
 import {
   AGENT_ACCESS_LABELS,
   applyDraft,
-  commandLine,
+  applyServer,
   draftFromServer,
   EMPTY_DRAFT,
   type McpDraft,
+  type McpTransport,
+  serverSummary,
   settingsProblems,
+  TRANSPORT_LABELS,
   useMcpServers,
 } from "./mcpServers.js";
 import { SectionHeader } from "./SectionHeader.js";
@@ -27,6 +31,7 @@ export function McpServersSection() {
   const [saveError, setSaveError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string>();
+  const [browsing, setBrowsing] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
   const header = (
@@ -84,6 +89,7 @@ export function McpServersSection() {
   const persist = (next: McpServerConfig[]) => run(() => save(next));
 
   const startEdit = (index?: number) => {
+    setBrowsing(false);
     setConfirmDelete(undefined);
     setProblem(undefined);
     const server = index === undefined ? undefined : servers[index];
@@ -102,6 +108,21 @@ export function McpServersSection() {
     }
     setProblem(undefined);
     if (await persist(applied.servers)) setEditing(undefined);
+  };
+
+  const addFromCatalog = async (server: McpServerConfig): Promise<string | undefined> => {
+    const applied = applyServer(servers, server, undefined);
+    if ("problem" in applied) return applied.problem;
+    setSaveError(undefined);
+    try {
+      setSaving(true);
+      await save(applied.servers);
+      return undefined;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const setDraft = (patch: Partial<McpDraft>) =>
@@ -169,8 +190,8 @@ export function McpServersSection() {
               />
               <span className="mcp-row-copy">
                 <strong>{server.name}</strong>
-                <span className="mcp-row-command" title={commandLine(server)}>
-                  {commandLine(server)}
+                <span className="mcp-row-command" title={serverSummary(server)}>
+                  {serverSummary(server)}
                 </span>
               </span>
               {confirmDelete === server.name ? (
@@ -217,7 +238,7 @@ export function McpServersSection() {
           ))}
         </ul>
       ) : null}
-      {saveError && !editing ? (
+      {saveError && !editing && !browsing ? (
         <p className="inline-error" role="alert">
           <Icon name="alert" size={13} />
           {saveError}
@@ -243,39 +264,92 @@ export function McpServersSection() {
               onChange={(event) => setDraft({ name: event.target.value })}
             />
           </Field>
-          <Field
-            label="Command"
-            hint="On Windows, start npx servers through cmd: command cmd, then /c and npx as the first arguments."
-          >
-            <input
-              className="input input-sm is-mono"
-              value={editing.draft.command}
-              spellCheck={false}
-              placeholder="npx"
-              onChange={(event) => setDraft({ command: event.target.value })}
+          <div className="field">
+            <span className="field-label">Type</span>
+            <Select<McpTransport>
+              className="input-sm"
+              label="Type"
+              value={editing.draft.transport}
+              options={(["stdio", "http"] as const).map((value) => ({ value, label: TRANSPORT_LABELS[value] }))}
+              onChange={(transport) => setDraft({ transport })}
             />
-          </Field>
-          <Field label="Arguments" hint="One per line.">
-            <textarea
-              className="textarea is-mono"
-              rows={3}
-              value={editing.draft.args}
-              spellCheck={false}
-              onChange={(event) => setDraft({ args: event.target.value })}
-            />
-          </Field>
-          <Field
-            label="Environment"
-            hint="One NAME=value per line. Values stay on this computer, in ZLI's data folder and the agent config files it writes."
-          >
-            <textarea
-              className="textarea is-mono"
-              rows={2}
-              value={editing.draft.env}
-              spellCheck={false}
-              onChange={(event) => setDraft({ env: event.target.value })}
-            />
-          </Field>
+          </div>
+          {editing.draft.transport === "http" ? (
+            <>
+              <Field label="URL" hint="The server's streamable HTTP address. Plain http:// works only for localhost.">
+                <input
+                  className="input input-sm is-mono"
+                  inputMode="url"
+                  value={editing.draft.url}
+                  spellCheck={false}
+                  placeholder="https://mcp.example.com/mcp"
+                  onChange={(event) => setDraft({ url: event.target.value })}
+                />
+              </Field>
+              <Field
+                label="Headers"
+                hint="One Name: value per line, such as Authorization: Bearer and your token. Values stay on this computer, in ZLI's data folder and the agent config files it writes."
+              >
+                <textarea
+                  className="textarea is-mono"
+                  rows={2}
+                  value={editing.draft.headers}
+                  spellCheck={false}
+                  onChange={(event) => setDraft({ headers: event.target.value })}
+                />
+              </Field>
+              <label className="check-field mcp-oauth">
+                <input
+                  type="checkbox"
+                  checked={editing.draft.oauth}
+                  onChange={(event) => setDraft({ oauth: event.target.checked })}
+                />
+                <span className="choice-copy">
+                  <span className="choice-title">Sign in with browser (OAuth)</span>
+                  <span className="choice-detail">
+                    For servers such as Linear, Notion, and Sentry. ZLI starts them through mcp-remote, which opens your
+                    browser to sign in the first time and keeps the login. Needs Node.js (npx) on PATH.
+                  </span>
+                </span>
+              </label>
+            </>
+          ) : (
+            <>
+              <Field
+                label="Command"
+                hint="On Windows, start npx servers through cmd: command cmd, then /c and npx as the first arguments."
+              >
+                <input
+                  className="input input-sm is-mono"
+                  value={editing.draft.command}
+                  spellCheck={false}
+                  placeholder="npx"
+                  onChange={(event) => setDraft({ command: event.target.value })}
+                />
+              </Field>
+              <Field label="Arguments" hint="One per line.">
+                <textarea
+                  className="textarea is-mono"
+                  rows={3}
+                  value={editing.draft.args}
+                  spellCheck={false}
+                  onChange={(event) => setDraft({ args: event.target.value })}
+                />
+              </Field>
+              <Field
+                label="Environment"
+                hint="One NAME=value per line. Values stay on this computer, in ZLI's data folder and the agent config files it writes."
+              >
+                <textarea
+                  className="textarea is-mono"
+                  rows={2}
+                  value={editing.draft.env}
+                  spellCheck={false}
+                  onChange={(event) => setDraft({ env: event.target.value })}
+                />
+              </Field>
+            </>
+          )}
           {problem || saveError ? (
             <p className="inline-error" role="alert">
               <Icon name="alert" size={13} />
@@ -298,10 +372,30 @@ export function McpServersSection() {
             </Button>
           </div>
         </form>
+      ) : browsing ? (
+        <McpCatalog
+          servers={servers}
+          saving={saving}
+          saveError={saveError}
+          onAdd={addFromCatalog}
+          onClose={() => setBrowsing(false)}
+        />
       ) : (
         <div className="settings-actions">
           <Button size="sm" icon="plus" disabled={saving} onClick={() => startEdit()}>
             Add server
+          </Button>
+          <Button
+            size="sm"
+            icon="search"
+            disabled={saving}
+            onClick={() => {
+              setConfirmDelete(undefined);
+              setSaveError(undefined);
+              setBrowsing(true);
+            }}
+          >
+            Browse catalog
           </Button>
         </div>
       )}
@@ -310,6 +404,14 @@ export function McpServersSection() {
           ? `${SETTINGS_AGENTS} only read servers from their own settings files, so ZLI writes enabled servers there and removes the ones it added.`
           : `${SETTINGS_AGENTS} only read servers from their own settings files, and ZLI is set to leave those files alone.`}
       </p>
+      {servers.some(
+        (server) => server.enabled && isHttpServer(server) && !server.oauth && Object.keys(server.headers).length > 0,
+      ) ? (
+        <p className="settings-footnote">
+          Goose in a terminal cannot send headers, so it skips remote servers that need them. Turn on Sign in with
+          browser for a server to reach Goose through mcp-remote instead.
+        </p>
+      ) : null}
       {problems.length > 0 ? (
         <ul className="mcp-settings-problems">
           {problems.map((line) => (
