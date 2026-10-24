@@ -126,22 +126,14 @@ export function McpServersSection() {
               available as the zli command in terminals.
             </span>
           </span>
-          <Select
+          <Select<AgentToolAccess>
             className="input-sm"
-            aria-label="What agents may do with other agents"
+            label="What agents may do with other agents"
             value={agentAccess}
             disabled={saving}
-            onChange={(event) => {
-              const access = AgentToolAccess.parse(event.target.value);
-              void run(() => setAgentAccess(access));
-            }}
-          >
-            {AgentToolAccess.options.map((access) => (
-              <option key={access} value={access}>
-                {AGENT_ACCESS_LABELS[access]}
-              </option>
-            ))}
-          </Select>
+            options={AgentToolAccess.options.map((access) => ({ value: access, label: AGENT_ACCESS_LABELS[access] }))}
+            onChange={(access) => void run(() => setAgentAccess(access))}
+          />
         </li>
         <li className="mcp-row">
           <span className="mcp-row-copy">

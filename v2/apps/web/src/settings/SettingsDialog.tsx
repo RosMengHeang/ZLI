@@ -2,7 +2,7 @@ import type { RuntimeProjection } from "@zli-v2/contracts";
 import { type KeyboardEvent, useId, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
-import { permissionHint, permissionLabel, permissionModes } from "../chat/permissions.js";
+import { permissionHint, permissionOptions } from "../chat/permissions.js";
 import type { NotificationSettings } from "../runtime/bridge.js";
 import type { SessionMode } from "../sessions/sessions.js";
 import { defaultShortcut, shortcutActions, shortcutFromEvent, shortcutProblem } from "../shell/keybindings.js";
@@ -11,6 +11,9 @@ import { Dialog } from "../ui/Dialog.js";
 import { Select } from "../ui/Field.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
+import { modelOptions } from "../ui/ModelMark.js";
+import type { PickerOption } from "../ui/Picker.js";
+import { ProviderMark } from "../ui/ProviderMark.js";
 import { Switch } from "../ui/Switch.js";
 import { shortcutText } from "../ui/shortcuts.js";
 import { UpdatesSection } from "../updates/UpdatesSection.js";
@@ -51,7 +54,10 @@ const sections: { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: "updates", label: "Updates", icon: "download" },
 ];
 
-const modeLabel: Record<SessionMode, string> = { terminal: "Terminal", chat: "Chat" };
+const modeOptions: readonly PickerOption<SessionMode>[] = [
+  { value: "terminal", label: "Terminal", icon: <Icon name="terminal" size={15} /> },
+  { value: "chat", label: "Chat", icon: <Icon name="message" size={15} /> },
+];
 
 type Props = {
   projection: RuntimeProjection | undefined;
@@ -163,6 +169,7 @@ function LaunchFields({
   const choices = listed.filter((entry) => entry.status === "found" || entry.provider === value.provider);
   const discovery = listed.find((entry) => entry.provider === value.provider);
   const models = discovery?.status === "found" ? (discovery.models ?? []) : [];
+  const inherit: PickerOption<string> = { value: "", label: inheritLabel };
   const set = (patch: Partial<Record<keyof LaunchDefaults, string>>) => {
     const next: Record<string, string | undefined> = { ...value, ...patch };
     for (const key of Object.keys(next)) if (!next[key]) delete next[key];
@@ -173,34 +180,28 @@ function LaunchFields({
       <SettingRow label="Agent" description="The CLI selected when the dialog opens." htmlFor={`${ids}-agent`}>
         <Select
           id={`${ids}-agent`}
-          aria-label="Agent"
+          label="Agent"
           value={value.provider ?? ""}
-          onChange={(event) => set({ provider: event.target.value, model: "" })}
-        >
-          <option value="">{inheritLabel}</option>
-          {choices.map((entry) => (
-            <option key={entry.provider} value={entry.provider}>
-              {entry.displayName}
-              {entry.status === "found" ? "" : " (not installed)"}
-            </option>
-          ))}
-        </Select>
+          options={[
+            inherit,
+            ...choices.map((entry) => ({
+              value: entry.provider,
+              label: `${entry.displayName}${entry.status === "found" ? "" : " (not installed)"}`,
+              icon: <ProviderMark provider={entry.provider} size={15} />,
+            })),
+          ]}
+          onChange={(provider) => set({ provider, model: "" })}
+        />
       </SettingRow>
       {value.provider && models.length > 0 ? (
         <SettingRow label="Model" description="Used when the agent lets you choose one." htmlFor={`${ids}-model`}>
           <Select
             id={`${ids}-model`}
-            aria-label="Model"
+            label="Model"
             value={value.model ?? ""}
-            onChange={(event) => set({ model: event.target.value })}
-          >
-            <option value="">Default model</option>
-            {models.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
+            options={modelOptions(models, value.model)}
+            onChange={(model) => set({ model })}
+          />
         </SettingRow>
       ) : null}
       <SettingRow
@@ -208,19 +209,13 @@ function LaunchFields({
         description="Terminal runs the agent's CLI. Chat shows messages and changes."
         htmlFor={`${ids}-view`}
       >
-        <Select
+        <Select<string>
           id={`${ids}-view`}
-          aria-label="View"
+          label="View"
           value={value.mode ?? ""}
-          onChange={(event) => set({ mode: event.target.value })}
-        >
-          <option value="">{inheritLabel}</option>
-          {(Object.keys(modeLabel) as SessionMode[]).map((mode) => (
-            <option key={mode} value={mode}>
-              {modeLabel[mode]}
-            </option>
-          ))}
-        </Select>
+          options={[inherit, ...modeOptions]}
+          onChange={(mode) => set({ mode })}
+        />
       </SettingRow>
       <SettingRow
         label="Permissions"
@@ -229,19 +224,13 @@ function LaunchFields({
         }
         htmlFor={`${ids}-permissions`}
       >
-        <Select
+        <Select<string>
           id={`${ids}-permissions`}
-          aria-label="Permissions"
+          label="Permissions"
           value={value.permissionMode ?? ""}
-          onChange={(event) => set({ permissionMode: event.target.value })}
-        >
-          <option value="">{inheritLabel}</option>
-          {permissionModes.map((mode) => (
-            <option key={mode} value={mode}>
-              {permissionLabel[mode]}
-            </option>
-          ))}
-        </Select>
+          options={[inherit, ...permissionOptions]}
+          onChange={(permissionMode) => set({ permissionMode })}
+        />
       </SettingRow>
     </>
   );
@@ -306,18 +295,17 @@ function ProjectDefaults({
           htmlFor={projects.length > 1 ? projectSelectId : undefined}
         >
           {projects.length > 1 ? (
-            <Select
+            <Select<string>
               id={projectSelectId}
-              aria-label="Project"
+              label="Project"
               value={project.projectId}
-              onChange={(event) => setProjectId(event.target.value as typeof projectId)}
-            >
-              {projects.map((candidate) => (
-                <option key={candidate.projectId} value={candidate.projectId}>
-                  {candidate.name}
-                </option>
-              ))}
-            </Select>
+              options={projects.map((candidate) => ({
+                value: candidate.projectId,
+                label: candidate.name,
+                icon: <Icon name="folder" size={15} />,
+              }))}
+              onChange={(next) => setProjectId(next as typeof projectId)}
+            />
           ) : (
             <span className="settings-value">{project.name}</span>
           )}
@@ -409,7 +397,10 @@ function WorktreeSettings({ projection }: { projection: RuntimeProjection | unde
   );
 }
 
-const treePositionLabel: Record<FileTreePosition, string> = { right: "Right", left: "Left" };
+const treePositionOptions: readonly PickerOption<FileTreePosition>[] = [
+  { value: "right", label: "Right" },
+  { value: "left", label: "Left" },
+];
 
 function FilesSettings() {
   const settings = useAppSettings();
@@ -423,21 +414,11 @@ function FilesSettings() {
         <SettingRow label="Tree position" description="The open file takes the other side." htmlFor={selectId}>
           <Select
             id={selectId}
-            aria-label="File tree position"
+            label="File tree position"
             value={settings.fileTreePosition}
-            onChange={(event) =>
-              updateAppSettings((current) => ({
-                ...current,
-                fileTreePosition: event.target.value === "left" ? "left" : "right",
-              }))
-            }
-          >
-            {(Object.keys(treePositionLabel) as FileTreePosition[]).map((position) => (
-              <option key={position} value={position}>
-                {treePositionLabel[position]}
-              </option>
-            ))}
-          </Select>
+            options={treePositionOptions}
+            onChange={(fileTreePosition) => updateAppSettings((current) => ({ ...current, fileTreePosition }))}
+          />
         </SettingRow>
       </div>
     </>

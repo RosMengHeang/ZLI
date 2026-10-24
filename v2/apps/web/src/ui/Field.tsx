@@ -1,13 +1,6 @@
-import {
-  cloneElement,
-  isValidElement,
-  type ReactElement,
-  type ReactNode,
-  type SelectHTMLAttributes,
-  useId,
-} from "react";
+import { cloneElement, isValidElement, type ReactElement, type ReactNode, useId } from "react";
 
-import { Icon } from "./Icon.js";
+import { Picker, type PickerOption } from "./Picker.js";
 
 /**
  * A labelled form control with an optional hint underneath. The hint sits outside the label so it
@@ -47,13 +40,38 @@ export function Field({
   );
 }
 
-export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
+/** A form select that opens the app's dark list instead of the operating system's light one. */
+export function Select<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  id,
+  disabled = false,
+  className,
+}: {
+  label: string;
+  value: T;
+  options: readonly PickerOption<T>[];
+  onChange(value: T): void;
+  id?: string | undefined;
+  disabled?: boolean;
+  className?: string | undefined;
+}) {
+  const current = options.find((option) => option.value === value);
   return (
-    <span className="select-wrap">
-      <select className={`select${className ? ` ${className}` : ""}`} {...rest}>
-        {children}
-      </select>
-      <Icon name="chevronDown" size={14} />
-    </span>
+    <Picker
+      variant="field"
+      id={id}
+      label={label}
+      value={value}
+      options={options}
+      onChange={onChange}
+      disabled={disabled}
+      className={className}
+    >
+      {current?.icon}
+      <span className="picker-trigger-label">{current?.label ?? value}</span>
+    </Picker>
   );
 }

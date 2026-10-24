@@ -25,6 +25,9 @@ win:
   target:
     - nsis
   requestedExecutionLevel: asInvoker
+nsis:
+  # Refreshes Windows' icon cache so an update's new icon shows on the taskbar.
+  include: build/installer.nsh
 mac:
   icon: build/icon.png
   # electron-updater reads the zip; people download the dmg.

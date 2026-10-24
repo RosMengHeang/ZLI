@@ -79,9 +79,14 @@ export function UpdatesSection({ updates, onRestart }: { updates: Updates | unde
           <span className="settings-value is-mono">{status.currentVersion}</span>
         </SettingRow>
         <SettingRow label="Channel" description="Only stable releases are offered for now." htmlFor={channelId}>
-          <Select id={channelId} aria-label="Update channel" value={status.channel} disabled>
-            <option value="stable">Stable</option>
-          </Select>
+          <Select
+            id={channelId}
+            label="Update channel"
+            value={status.channel}
+            options={[{ value: "stable", label: "Stable" }]}
+            onChange={() => undefined}
+            disabled
+          />
         </SettingRow>
         <Switch
           label="Install updates automatically"
