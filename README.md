@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="v2/branding/zli-logo-light.svg">
+    <img src="v2/branding/zli-logo-dark.svg" alt="ZLI" height="72">
+  </picture>
+</p>
+
 # ZLI
 
 ZLI is an Electron desktop workspace for coding agents. It provides isolated Git worktrees, persistent terminal sessions, structured Codex sessions, Git review, and a Chromium browser scoped to each worktree.

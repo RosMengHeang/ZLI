@@ -16,11 +16,15 @@ publish:
   owner: RosMengHeang
   repo: ZLI
   releaseType: draft
+# The icons in build/ are rendered at 1024px from branding/zli-icon.svg (macOS, inset to Apple's grid)
+# and branding/zli-icon-square.svg (Windows and Linux); electron-builder makes the .icns and .ico.
 win:
+  icon: build/icon-square.png
   target:
     - nsis
   requestedExecutionLevel: asInvoker
 mac:
+  icon: build/icon.png
   # electron-updater reads the zip; people download the dmg.
   target:
     - dmg
@@ -31,5 +35,6 @@ mac:
   # notarize: true
 linux:
   executableName: zli
+  icon: build/icon-square.png
   target:
     - AppImage
