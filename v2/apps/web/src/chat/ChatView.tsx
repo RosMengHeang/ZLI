@@ -24,6 +24,7 @@ import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { latestContext } from "../usage/usage.js";
 import type { BestOfAgentOption } from "./BestOfPopover.js";
+import { ChatImageScope } from "./ChatImage.js";
 import { Composer, type ComposerAttachment, type ComposerBestOf } from "./Composer.js";
 import { clearCodeReferences, removeCodeReference, useCodeReferences } from "./codeReferences.js";
 import { Markdown } from "./Markdown.js";
@@ -117,6 +118,9 @@ export function ChatView({
     latestOpenDiff.current = onOpenDiff;
   });
   const openDiff = useCallback((...args: [path?: string]) => latestOpenDiff.current(...args), []);
+  const latestLinks = useRef(fileLinks);
+  latestLinks.current = fileLinks;
+  const openFile = useCallback((path: string) => latestLinks.current?.open({ path }), []);
   const ended = thread.status === "stopped" || thread.status === "failed";
   const working = thread.status === "working" || thread.status === "waiting";
   const busy = working || queued.length > 0;
@@ -143,6 +147,7 @@ export function ChatView({
       displayName={displayName}
       branch={worktree?.branch ?? "this worktree"}
       restoreBlocked={restoreBlocked}
+      onOpenFile={fileLinks ? openFile : undefined}
     />
   );
 
@@ -253,62 +258,64 @@ export function ChatView({
 
   return (
     <div className="chat-view">
-      <div
-        className="chat-log"
-        role="log"
-        aria-label="Agent conversation"
-        ref={logRef}
-        onScroll={(event) => {
-          const target = event.currentTarget;
-          stickToBottom.current = target.scrollHeight - target.scrollTop - target.clientHeight < 48;
-        }}
-      >
-        <div className="chat-column">
-          {timeline.length === 0 ? (
-            <EmptyState
-              className="chat-empty"
-              media={
-                thread.status === "starting" ? (
-                  <span className="spinner" aria-hidden="true" />
-                ) : (
-                  <ProviderMark provider={thread.provider} size={18} />
-                )
-              }
-              title={thread.status === "starting" ? `Starting ${displayName}` : `${displayName} is ready`}
-              detail={`Describe a task. ${displayName} works in ${worktree?.branch ?? "this worktree"}.`}
-            />
-          ) : (
-            timeline.map((item, index) => (
-              <Fragment key={item.kind === "work" ? `work-${item.turnId}` : item.message.messageId}>
-                {item.kind === "work" ? (
-                  <ChatWork
-                    item={item}
-                    running={item.turnId === lastTurnRunning}
-                    showChangedFiles={!placedCheckpoints.turns.has(item.turnId)}
-                    onOpenDiff={openDiff}
-                  />
-                ) : (
-                  <ChatMessage
-                    message={item.message}
-                    index={index}
-                    links={fileLinks}
-                    source={item.message.role === "agent" ? sourceLabel(projection, item.message.sourceThreadId) : ""}
-                    onTryWays={bestOf && !ended ? tryWays : undefined}
-                  />
-                )}
-                {placedCheckpoints.after.get(index)?.map(turnChanges)}
-              </Fragment>
-            ))
-          )}
-          {placedCheckpoints.unplaced.map(turnChanges)}
-          {thread.status === "working" ? (
-            <p className="chat-working" role="status">
-              <span className="spinner" aria-hidden="true" />
-              {displayName} is working
-            </p>
-          ) : null}
+      <ChatImageScope value={worktree?.worktreeId}>
+        <div
+          className="chat-log"
+          role="log"
+          aria-label="Agent conversation"
+          ref={logRef}
+          onScroll={(event) => {
+            const target = event.currentTarget;
+            stickToBottom.current = target.scrollHeight - target.scrollTop - target.clientHeight < 48;
+          }}
+        >
+          <div className="chat-column">
+            {timeline.length === 0 ? (
+              <EmptyState
+                className="chat-empty"
+                media={
+                  thread.status === "starting" ? (
+                    <span className="spinner" aria-hidden="true" />
+                  ) : (
+                    <ProviderMark provider={thread.provider} size={18} />
+                  )
+                }
+                title={thread.status === "starting" ? `Starting ${displayName}` : `${displayName} is ready`}
+                detail={`Describe a task. ${displayName} works in ${worktree?.branch ?? "this worktree"}.`}
+              />
+            ) : (
+              timeline.map((item, index) => (
+                <Fragment key={item.kind === "work" ? `work-${item.turnId}` : item.message.messageId}>
+                  {item.kind === "work" ? (
+                    <ChatWork
+                      item={item}
+                      running={item.turnId === lastTurnRunning}
+                      showChangedFiles={!placedCheckpoints.turns.has(item.turnId)}
+                      onOpenDiff={openDiff}
+                    />
+                  ) : (
+                    <ChatMessage
+                      message={item.message}
+                      index={index}
+                      links={fileLinks}
+                      source={item.message.role === "agent" ? sourceLabel(projection, item.message.sourceThreadId) : ""}
+                      onTryWays={bestOf && !ended ? tryWays : undefined}
+                    />
+                  )}
+                  {placedCheckpoints.after.get(index)?.map(turnChanges)}
+                </Fragment>
+              ))
+            )}
+            {placedCheckpoints.unplaced.map(turnChanges)}
+            {thread.status === "working" ? (
+              <p className="chat-working" role="status">
+                <span className="spinner" aria-hidden="true" />
+                {displayName} is working
+              </p>
+            ) : null}
+          </div>
         </div>
-      </div>
+      </ChatImageScope>
       <div className="chat-dock">
         <div className="chat-column">
           {request ? (
@@ -619,7 +626,7 @@ const ChatMessage = memo(function ChatMessage({
   if (message.role === "system") return <p className="chat-system">{message.text}</p>;
   return (
     <article className="chat-message chat-message-assistant">
-      <Markdown text={message.text} links={links} />
+      <Markdown text={message.text} links={links} showImages />
     </article>
   );
 });

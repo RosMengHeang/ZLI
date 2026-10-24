@@ -28,7 +28,7 @@ import { readFile, writeFile } from "./fileClient.js";
 import { baseName, dirName, type FileLocation } from "./filePaths.js";
 import { clampTreeWidth, maxTreeWidth, TREE_DEFAULT_WIDTH, TREE_MIN_WIDTH, useFilesLayout } from "./filesLayout.js";
 import { ancestorDirectories } from "./fileTree.js";
-import { FILE_VIEW_MODES, type FileViewMode, previewKind, useFileViewModes } from "./fileViewModes.js";
+import { FILE_VIEW_MODES, type FileViewMode, previewKind } from "./fileViewModes.js";
 import { ImagePreview } from "./ImagePreview.js";
 import type { PreviewHandle } from "./MarkdownPreview.js";
 
@@ -166,7 +166,16 @@ function FilesWorkspace({
   const wide = paneWidth === undefined || paneWidth >= SPLIT_MIN_WIDTH;
   const [browseOpen, setBrowseOpen] = useState(session.tabs.length === 0);
   const [layout, updateLayout] = useFilesLayout();
-  const [viewModes, setViewMode] = useFileViewModes();
+  /** Code picked for an open Markdown tab; every other tab shows the preview. */
+  const [codeTabs, setCodeTabs] = useState<ReadonlySet<string>>(new Set());
+  const dropCodeTab = useCallback((path: string) => {
+    setCodeTabs((current) => {
+      if (!current.has(path)) return current;
+      const next = new Set(current);
+      next.delete(path);
+      return next;
+    });
+  }, []);
   const [previewReveal, setPreviewReveal] = useState<{ path: string; line: number; nonce: number }>();
   const viewTabsId = useId();
   const filePanelId = useId();
@@ -302,8 +311,11 @@ function FilesWorkspace({
   // biome-ignore lint/correctness/useExhaustiveDependencies: only a new focus request should act.
   useEffect(() => {
     if (!focus) return;
-    if (focus.kind === "open") openPath(focus);
-    else {
+    if (focus.kind === "open") {
+      // A file opened from a chat or terminal shows its preview, even when its tab was left on Code.
+      dropCodeTab(focus.path);
+      openPath(focus);
+    } else {
       setMode("search");
       updateLayout({ treeHidden: false });
       setBrowseOpen(true);
@@ -430,6 +442,7 @@ function FilesWorkspace({
     }
     setDraft(path, undefined);
     setCloseRequest(undefined);
+    dropCodeTab(path);
     updateTab(path, () => undefined);
     const position = tabs.indexOf(path);
     const next = tabs.filter((candidate) => candidate !== path);
@@ -486,7 +499,8 @@ function FilesWorkspace({
   const canDiff = activeStatus !== undefined || activeTurn !== undefined;
   const activeKind = activePath ? previewKind(activePath) : undefined;
   const activeIsText = active?.status === "ready" && active.file.content !== undefined;
-  const viewMode = activeKind && activeIsText ? viewModes[activeKind] : undefined;
+  const viewMode: FileViewMode | undefined =
+    activeKind && activeIsText ? (activePath && codeTabs.has(activePath) ? "code" : "preview") : undefined;
   const diffRevision = `${activeStatus ?? ""}:${activeChange?.additions ?? ""}:${activeChange?.deletions ?? ""}:${active?.status === "ready" ? active.file.version : ""}`;
   editorVisible.current = !showDiff && viewMode !== "preview";
 
@@ -562,7 +576,14 @@ function FilesWorkspace({
   );
 
   const changeViewMode = (mode: FileViewMode) => {
-    if (activeKind) setViewMode(activeKind, mode);
+    if (!activeKind || !activePath) return;
+    setCodeTabs((current) => {
+      if (current.has(activePath) === (mode === "code")) return current;
+      const next = new Set(current);
+      if (mode === "code") next.add(activePath);
+      else next.delete(activePath);
+      return next;
+    });
   };
   const showTree = wide ? !treeHidden : browseOpen || tabs.length === 0;
   const showEditor = wide || !showTree;
@@ -684,17 +705,20 @@ function FilesWorkspace({
       ) : (
         <>
           <div className="file-path-bar">
-            <span className="file-path" title={activePath}>
-              {dirName(activePath) ? <span className="file-path-dir">{dirName(activePath)}/</span> : null}
-              <span className="file-path-name">{baseName(activePath)}</span>
-            </span>
+            {/* The tab already names a file at the top of the worktree; deeper ones also show their folder. */}
+            {dirName(activePath) ? (
+              <span className="file-path" title={activePath}>
+                <span className="file-path-dir">{dirName(activePath)}/</span>
+                <span className="file-path-name">{baseName(activePath)}</span>
+              </span>
+            ) : null}
             <FileStatusMark status={activeStatus} />
             <LineCounts additions={activeChange?.additions} deletions={activeChange?.deletions} />
             <span className="file-path-spacer" />
             {viewMode && !showDiff ? (
               <ViewModeTabs mode={viewMode} idBase={viewTabsId} panelId={filePanelId} onChange={changeViewMode} />
             ) : null}
-            {active?.status === "ready" && active.file.content !== undefined ? (
+            {active?.status === "ready" && active.file.content !== undefined && viewMode !== "preview" ? (
               <span className="file-meta">
                 {languageLabel(activePath)} · {active.file.lineEnding === "crlf" ? "CRLF" : "LF"}
               </span>
@@ -720,16 +744,18 @@ function FilesWorkspace({
                 Diff
               </Button>
             ) : null}
-            {active?.status === "ready" && active.file.content !== undefined ? (
+            {active?.status === "ready" &&
+            active.file.content !== undefined &&
+            (dirty.has(activePath) || active.saving) ? (
               <Button
-                variant={dirty.has(activePath) ? "primary" : "ghost"}
+                variant="primary"
                 size="sm"
-                disabled={!dirty.has(activePath) || active.saving}
-                tooltip={dirty.has(activePath) ? "Save" : "No unsaved changes"}
+                disabled={active.saving}
+                tooltip="Save"
                 shortcut="Mod+S"
                 onClick={() => void save(activePath)}
               >
-                {active.saving ? "Saving" : dirty.has(activePath) ? "Save" : "Saved"}
+                {active.saving ? "Saving" : "Save"}
               </Button>
             ) : null}
           </div>
@@ -945,9 +971,9 @@ function FileBanners({
   return null;
 }
 
-const VIEW_MODE_LABELS: Record<FileViewMode, string> = { preview: "Preview", code: "Code", split: "Split" };
+const VIEW_MODE_LABELS: Record<FileViewMode, string> = { preview: "Preview", code: "Code" };
 
-/** Preview, Code, and Split as one tab list; arrow keys move between them. */
+/** Preview and Code as one tab list; arrow keys move between them. */
 function ViewModeTabs({
   mode,
   idBase,
@@ -1113,16 +1139,6 @@ function scrollEditorToLine(view: CodeEditorHandle["view"], line: number): void 
   view.scrollDOM.scrollTop = block.top + view.documentPadding.top + (line - whole) * block.height;
 }
 
-/** How long a programmatic scroll on one side of Split keeps the other side from echoing it back. */
-const SCROLL_ECHO_MS = 120;
-
-type ScrollEcho = { from: "editor" | "preview"; until: number } | undefined;
-
-/** True while a scroll on `side` is most likely the echo of syncing from the other side. */
-function isEcho(echo: ScrollEcho, side: "editor" | "preview"): boolean {
-  return echo !== undefined && echo.from !== side && performance.now() < echo.until;
-}
-
 /**
  * The editor, plus the rendered preview for Markdown. The editor stays mounted while only the
  * preview shows, so undo history and unsaved edits survive switching views.
@@ -1151,9 +1167,8 @@ function TextFileView({
   const liveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastLine = useRef<number | undefined>(undefined);
   const pendingEditLine = useRef<number | undefined>(undefined);
-  const echo = useRef<ScrollEcho>(undefined);
   const previousMode = useRef(viewMode);
-  const showPreview = viewMode === "preview" || viewMode === "split";
+  const showPreview = viewMode === "preview";
 
   useEffect(() => () => clearTimeout(liveTimer.current), []);
 
@@ -1182,7 +1197,7 @@ function TextFileView({
     previewRef.current = handle;
   }, []);
 
-  // In Split, scrolling the editor scrolls the preview to the same source line.
+  // Remembers where the editor is, so switching to the preview keeps the same part on screen.
   useEffect(() => {
     const handle = handleRef.current;
     if (!viewMode || !handle) return;
@@ -1190,9 +1205,6 @@ function TextFileView({
     const onScroll = () => {
       if (scroller.offsetParent === null) return;
       lastLine.current = editorTopLine(handle.view);
-      if (viewMode !== "split" || isEcho(echo.current, "editor")) return;
-      echo.current = { from: "editor", until: performance.now() + SCROLL_ECHO_MS };
-      previewRef.current?.scrollToLine(lastLine.current);
     };
     scroller.addEventListener("scroll", onScroll, { passive: true });
     return () => scroller.removeEventListener("scroll", onScroll);
@@ -1200,12 +1212,7 @@ function TextFileView({
 
   const previewScrolled = () => {
     const line = previewRef.current?.topLine();
-    if (line === undefined) return;
-    lastLine.current = line;
-    const handle = handleRef.current;
-    if (viewMode !== "split" || !handle || isEcho(echo.current, "preview")) return;
-    echo.current = { from: "preview", until: performance.now() + SCROLL_ECHO_MS };
-    scrollEditorToLine(handle.view, line);
+    if (line !== undefined) lastLine.current = line;
   };
 
   // Switching views keeps the same part of the document on screen.
