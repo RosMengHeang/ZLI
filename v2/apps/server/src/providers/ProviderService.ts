@@ -40,7 +40,11 @@ export type ProviderSessionStart = {
   model?: string;
   /** Lets agent tools such as zli-browser act on this thread's worktree. */
   worktreeId?: string;
+  /** The account the agent runs under and the environment that selects it. Absent means the usual login. */
+  account?: ProviderAccount;
 };
+
+export type ProviderAccount = { accountId: string; env: Readonly<Record<string, string>> };
 
 export type ProviderTurnInput = {
   threadId: ThreadId;

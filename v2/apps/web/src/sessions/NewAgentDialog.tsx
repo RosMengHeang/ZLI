@@ -1,4 +1,5 @@
 import {
+  type Account,
   type ListedProviderKind,
   type PermissionMode,
   type ProjectProjection,
@@ -7,6 +8,7 @@ import {
 } from "@zli-v2/contracts";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
+import { accountOptions, defaultAccountId, launchAccountId } from "../accounts/accounts.js";
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
 import { permissionHint, permissionIcon, permissionLabel, permissionOptions } from "../chat/permissions.js";
 import {
@@ -26,6 +28,7 @@ import { checkoutWorktree, type LaunchOptions, type Placement, safeBranchName } 
 import type { SessionMode } from "./sessions.js";
 
 const LAST_LAUNCH_KEY = "zli.lastLaunch.v1";
+const noAccounts: readonly Account[] = [];
 
 function readLastLaunch(): LaunchDefaults {
   try {
@@ -58,12 +61,14 @@ export function NewAgentDialog({
   projection,
   initialProject,
   initialWorktreeId,
+  accounts = noAccounts,
   onClose,
   onSubmit,
 }: {
   projection: RuntimeProjection;
   initialProject: ProjectProjection | undefined;
   initialWorktreeId: string | undefined;
+  accounts?: readonly Account[];
   onClose(): void;
   onSubmit(request: NewAgentRequest): Promise<string | undefined>;
 }) {
@@ -77,6 +82,8 @@ export function NewAgentDialog({
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(initial.permissionMode ?? "full-access");
   const [model, setModel] = useState(initial.model ?? "");
   const [showMissing, setShowMissing] = useState(false);
+  // Unset follows the agent's default account, which can change while the dialog is open.
+  const [pickedAccount, setPickedAccount] = useState<string>();
   const installed = listed.filter((entry) => entry.status === "found");
   const missing = listed.filter((entry) => entry.status !== "found");
   const shownProviders = installed.length === 0 || showMissing ? [...installed, ...missing] : installed;
@@ -120,6 +127,8 @@ export function NewAgentDialog({
     placementKind === "checkout" ? checkout?.worktreeId : placementKind === "existing" ? existingId : undefined;
   const sharing = sharedWorktreeId !== undefined && worktreeHasLiveThread(projection.threads, sharedWorktreeId);
   const newBranch = placementKind === "new" ? safeBranchName(branch) : "";
+  const accountChoices = accountOptions(accounts, provider);
+  const shownAccount = provider ? (pickedAccount ?? defaultAccountId(accounts, provider)) : "";
 
   const placementOptions: ChoiceOption<Placement["kind"]>[] = [
     {
@@ -161,6 +170,7 @@ export function NewAgentDialog({
   const submit = async () => {
     if (launching.current || !ready || !project || !provider) return;
     launching.current = true;
+    const accountId = launchAccountId(accounts, provider, pickedAccount);
     const placement: Placement =
       placementKind === "new"
         ? { kind: "new", branch, baseRef }
@@ -183,6 +193,7 @@ export function NewAgentDialog({
         mode,
         permissionMode,
         ...(model && !modelUnsupported ? { model } : {}),
+        ...(accountId ? { accountId } : {}),
       });
     } catch (cause) {
       failure = cause instanceof Error ? cause.message : String(cause);
@@ -251,6 +262,7 @@ export function NewAgentDialog({
                   onChange={(next) => {
                     setProvider(next as ListedProviderKind);
                     setModel("");
+                    setPickedAccount(undefined);
                   }}
                 />
                 {installed.length > 0 && missing.length > 0 ? (
@@ -266,6 +278,18 @@ export function NewAgentDialog({
               </>
             )}
           </FormSection>
+
+          {accountChoices.length > 0 ? (
+            <FormSection label="Account" htmlFor={`${ids}-account`}>
+              <Select<string>
+                id={`${ids}-account`}
+                label="Account"
+                value={shownAccount}
+                options={accountChoices.map((option) => ({ ...option, icon: <Icon name="user" size={15} /> }))}
+                onChange={setPickedAccount}
+              />
+            </FormSection>
+          ) : null}
 
           <FormSection label="View" hint={viewHint[mode]}>
             <ChoiceSegmented<SessionMode>

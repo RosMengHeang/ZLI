@@ -5,7 +5,13 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { BrowserToolConfig } from "./browserTool.js";
-import { registerBrowserToolInUserSettings, syncUserMcpServers, type UserSettingsProvider } from "./userSettings.js";
+import {
+  accountSettingsFile,
+  registerBrowserToolInUserSettings,
+  syncAccountMcpServers,
+  syncUserMcpServers,
+  type UserSettingsProvider,
+} from "./userSettings.js";
 
 const config: BrowserToolConfig = {
   command: "C:\\ZLI\\ZLI.exe",
@@ -225,5 +231,25 @@ describe("syncUserMcpServers", () => {
     const failed = await syncUserMcpServers([], added.owned, options);
     expect(failed.outcomes.find((outcome) => outcome.provider === "droid")?.status).toBe("skipped-invalid");
     expect(failed.owned).toEqual(added.owned);
+  });
+});
+
+describe("syncAccountMcpServers", () => {
+  const github = { name: "github", command: "npx", args: ["-y", "gh-mcp"], env: {} };
+
+  it("writes servers into the settings file inside an account's own config folder", async () => {
+    const dir = await home();
+    expect(accountSettingsFile("cursor-agent", dir)).toBe(join(dir, "mcp.json"));
+    expect(accountSettingsFile("gemini", dir)).toBe(join(dir, ".gemini", "settings.json"));
+    expect(accountSettingsFile("qwen", dir)).toBe(join(dir, "settings.json"));
+    expect(accountSettingsFile("codex", dir)).toBeUndefined();
+
+    const owned = await syncAccountMcpServers("kimi", dir, [github], []);
+    expect(owned).toEqual(["github"]);
+    expect(await readJson(join(dir, "mcp.json"))).toMatchObject({ mcpServers: { github: { command: "npx" } } });
+
+    expect(await syncAccountMcpServers("kimi", dir, [], owned ?? [])).toEqual([]);
+    expect(await readJson(join(dir, "mcp.json"))).toEqual({ mcpServers: {} });
+    await expect(syncAccountMcpServers("codex", dir, [github], [])).resolves.toBeUndefined();
   });
 });

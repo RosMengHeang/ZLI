@@ -24,6 +24,8 @@ export type LaunchOptions = {
   mode: SessionMode;
   model?: string;
   permissionMode: PermissionMode;
+  /** Unset when the agent has no saved accounts, so it starts with the usual login. */
+  accountId?: string;
 };
 
 export function shellForPlatform(): string {
@@ -107,6 +109,32 @@ export async function ensureCheckout(
   return { worktreeId, path: project.path };
 }
 
+/** Opens a terminal tile that runs the agent's own sign-in with an account's private config folder. */
+export async function startAccountSignIn(
+  dispatch: Dispatch,
+  projection: Pick<RuntimeProjection, "providers">,
+  input: { provider: ListedProviderKind; accountId: string; sessionId: string; worktreeId: string; cwd: string },
+): Promise<string | undefined> {
+  const command = {
+    type: "terminal.create",
+    terminalId: makeCommandId(),
+    worktreeId: input.worktreeId,
+    cwd: input.cwd,
+    shell: shellForPlatform(),
+    title: `Sign in to ${providerDisplayName(input.provider, projection.providers)}`,
+    cols: 120,
+    rows: 32,
+    sessionId: input.sessionId,
+    agent: { provider: input.provider, accountId: input.accountId, login: true },
+  };
+  try {
+    const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
+    return response?.accepted === false ? response.error.message : undefined;
+  } catch (cause) {
+    return cause instanceof Error ? cause.message : "The sign-in could not start.";
+  }
+}
+
 /** Starts the agent for a session in a worktree that is ready. */
 export async function startSessionAgent(
   dispatch: Dispatch,
@@ -124,6 +152,7 @@ export async function startSessionAgent(
           sessionId: input.sessionId,
           permissionMode: input.permissionMode,
           ...(input.model ? { model: input.model } : {}),
+          ...(input.accountId ? { accountId: input.accountId } : {}),
           // The person picked this placement, so a second agent in the same checkout is intended.
           ...(worktreeHasLiveThread(projection.threads, input.worktreeId) ? { shareWorktree: true } : {}),
         }
@@ -141,6 +170,7 @@ export async function startSessionAgent(
             provider: input.provider,
             permissionMode: input.permissionMode,
             ...(input.model ? { model: input.model } : {}),
+            ...(input.accountId ? { accountId: input.accountId } : {}),
           },
         };
   try {
