@@ -62,7 +62,7 @@ On Linux without a display, run the journeys under `xvfb-run -a`.
 
 ## Releases
 
-Every merge to `main` publishes a new patch release. The [Release workflow](.github/workflows/release.yml) works out the next version from the highest `vX.Y.Z` tag (the first release is `v0.1.0`), tags the merge commit, and creates a draft GitHub release with generated notes. Windows, macOS, and Linux builds then upload their installers and update files (`latest*.yml`, `.blockmap`) into the draft, and the workflow publishes it once every file is there. The `package.json` files on `main` stay at `0.0.0`; the build jobs write the release version into them.
+Every merge to `main` publishes a new patch release. The [Release workflow](.github/workflows/release.yml) first runs `pnpm audit --audit-level high` and `pnpm run verify` on Windows, macOS, and Linux, and stops before tagging if either fails. It then works out the next version from the highest `vX.Y.Z` tag (the first release is `v0.1.0`), tags the merge commit, and creates a draft GitHub release with generated notes. Windows, macOS, and Linux builds then upload their installers and update files (`latest*.yml`, `.blockmap`) into the draft, and the workflow publishes it once every file is there. The `package.json` files on `main` stay at `0.0.0`; the build jobs write the release version into them.
 
 - A push is not released when every file changed since the last release is Markdown or under a `docs/` folder, or when its head commit message contains `[skip release]`.
 - For a minor or major release, run the **Release** workflow from the Actions tab and pick the bump.
