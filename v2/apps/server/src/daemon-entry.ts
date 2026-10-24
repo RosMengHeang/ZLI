@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { TERMINAL_DAEMON_VERSION, TerminalId, WorktreeId } from "@zli-v2/contracts";
 
+import { DaemonLifecycle } from "./daemon/DaemonLifecycle.js";
 import { NodePtyFactory } from "./terminal/NodePtyFactory.js";
 import { TerminalService } from "./terminal/TerminalService.js";
 import { TerminalCwdError } from "./terminal/terminalCwd.js";
@@ -26,7 +27,15 @@ type Client = {
 async function main(): Promise<void> {
   if (!token || !endpointPath) throw new Error("Terminal daemon environment is incomplete.");
   const terminals = new TerminalService(new NodePtyFactory());
-  const server = createServer((socket) => accept(socket, terminals));
+  const lifecycle = new DaemonLifecycle({
+    terminals,
+    exit: () => {
+      server.close();
+      // Gives the shutdown reply time to reach the app before the process ends.
+      setTimeout(() => process.exit(0), 100);
+    },
+  });
+  const server = createServer((socket) => accept(socket, terminals, lifecycle));
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
@@ -55,7 +64,7 @@ export async function writeDaemonEndpointFile(endpointPath: string, contents: st
   await chmod(endpointPath, daemonEndpointFileMode);
 }
 
-export function accept(socket: Socket, terminals: TerminalService): void {
+export function accept(socket: Socket, terminals: TerminalService, lifecycle?: DaemonLifecycle): void {
   const client: Client = { socket, authenticated: false, subscriptions: [] };
   socket.setEncoding("utf8");
   socket.on("error", () => socket.destroy());
@@ -66,16 +75,22 @@ export function accept(socket: Socket, terminals: TerminalService): void {
     while (newline >= 0) {
       const line = buffer.slice(0, newline);
       buffer = buffer.slice(newline + 1);
-      void handle(client, terminals, line);
+      void handle(client, terminals, line, lifecycle);
       newline = buffer.indexOf("\n");
     }
   });
   socket.on("close", () => {
     for (const subscription of client.subscriptions) subscription.close();
+    if (client.authenticated) lifecycle?.clientDisconnected();
   });
 }
 
-async function handle(client: Client, terminals: TerminalService, line: string): Promise<void> {
+async function handle(
+  client: Client,
+  terminals: TerminalService,
+  line: string,
+  lifecycle: DaemonLifecycle | undefined,
+): Promise<void> {
   let request: Record<string, unknown>;
   try {
     request = JSON.parse(line) as Record<string, unknown>;
@@ -90,11 +105,21 @@ async function handle(client: Client, terminals: TerminalService, line: string):
       return;
     }
     client.authenticated = true;
+    lifecycle?.clientConnected();
     send(client.socket, { type: "hello", protocolVersion });
     return;
   }
   try {
     switch (request.type) {
+      case "shutdown":
+        if (!lifecycle) {
+          send(client.socket, { type: "error", message: "unsupported-request" });
+          return;
+        }
+        await lifecycle.stopTerminals();
+        send(client.socket, { type: "result", accepted: true });
+        lifecycle.exit();
+        return;
       case "ping":
         send(client.socket, { type: "pong" });
         return;

@@ -106,4 +106,55 @@ describe("EnvironmentProcess", () => {
     await stopping;
     expect(stopped).toBe(true);
   });
+
+  it("ends the server's stdin to stop it, and kills it only if it does not exit in time", async () => {
+    const launch = (options: { closesOnEnd: boolean }) => {
+      let output: ((chunk: string) => void) | undefined;
+      const closeListeners: Array<(...args: unknown[]) => void> = [];
+      const events: string[] = [];
+      const close = () => {
+        for (const listener of closeListeners) listener(0);
+      };
+      const environment = new EnvironmentProcess({
+        serverEntryPath: "server.js",
+        databasePath: "runtime.sqlite",
+        launcher: () => ({
+          stdin: {
+            end: () => {
+              events.push("stdin-end");
+              if (options.closesOnEnd) close();
+            },
+          },
+          stdout: {
+            on: (_event: "data", listener: (chunk: string) => void) => {
+              output = listener;
+            },
+          },
+          stderr: { on: () => undefined },
+          once: (event: "error" | "close", listener: (...args: unknown[]) => void) => {
+            if (event === "close") closeListeners.push(listener);
+          },
+          kill: () => {
+            events.push("kill");
+            close();
+          },
+        }),
+      });
+      return { environment, events, ready: () => output?.('{"url":"ws://127.0.0.1:4321/rpc","token":"secret"}\n') };
+    };
+
+    const graceful = launch({ closesOnEnd: true });
+    const first = graceful.environment.start();
+    graceful.ready();
+    await first;
+    await graceful.environment.shutdown(1_000);
+    expect(graceful.events).toEqual(["stdin-end"]);
+
+    const stuck = launch({ closesOnEnd: false });
+    const second = stuck.environment.start();
+    stuck.ready();
+    await second;
+    await stuck.environment.shutdown(20);
+    expect(stuck.events).toEqual(["stdin-end", "kill"]);
+  });
 });

@@ -218,11 +218,20 @@ async function main(): Promise<void> {
     registerInUserSettings: process.env.ZLI_BROWSER_USER_SETTINGS !== "0",
   });
   process.stdout.write(`${JSON.stringify({ url: runtime.server.url(), token: runtime.token })}\n`);
+  let closing = false;
   const shutdown = () => {
+    if (closing) return;
+    closing = true;
     void runtime.close().finally(() => process.exit(0));
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
+  // The desktop app ends this pipe to stop the server, because Windows has no SIGTERM to send. The pipe
+  // also ends when the app crashes, so agents are stopped instead of left running.
+  if (process.env.ZLI_RUNTIME_STOP_ON_STDIN_END === "1") {
+    process.stdin.once("end", shutdown);
+    process.stdin.resume();
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {

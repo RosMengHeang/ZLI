@@ -55,6 +55,104 @@ export async function ensureDesktopDaemon(options: {
   throw new Error("Timed out waiting for the desktop terminal daemon.");
 }
 
+/**
+ * Asks the daemon at `endpointPath` to stop its terminals and exit, and stops its process if it is
+ * still running after `timeoutMs`. A daemon from an older build that has no shutdown request is
+ * stopped right away. Nothing is stopped unless the daemon first proves it holds the endpoint token,
+ * because a stale endpoint file can name a pid that now belongs to another process.
+ */
+export async function shutdownDesktopDaemon(options: {
+  endpointPath: string;
+  timeoutMs?: number;
+  stopProcess?: (pid: number) => void;
+  isRunning?: (pid: number) => boolean;
+}): Promise<void> {
+  const endpoint = await readEndpoint(resolve(options.endpointPath));
+  if (!endpoint) return;
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  const isRunning = options.isRunning ?? processIsRunning;
+  const reply = await requestShutdown(endpoint, timeoutMs);
+  if (reply === "unreachable") return;
+  const deadline = Date.now() + (reply === "accepted" ? timeoutMs : 0);
+  while (isRunning(endpoint.pid) && Date.now() < deadline) await delay(50);
+  if (isRunning(endpoint.pid)) (options.stopProcess ?? stopProcess)(endpoint.pid);
+}
+
+async function requestShutdown(
+  endpoint: DaemonEndpoint,
+  timeoutMs: number,
+): Promise<"accepted" | "refused" | "unreachable"> {
+  let authenticated = false;
+  const socket = createConnection({ host: endpoint.host, port: endpoint.port });
+  const timer = setTimeout(() => socket.destroy(new Error("Daemon shutdown timed out.")), timeoutMs);
+  socket.setEncoding("utf8");
+  try {
+    await new Promise<void>((resolveConnection, rejectConnection) => {
+      socket.once("connect", resolveConnection);
+      socket.once("error", rejectConnection);
+    });
+    const replies = lineReader(socket);
+    socket.write(`${JSON.stringify({ type: "hello", protocolVersion: 1, token: endpoint.token })}\n`);
+    const hello = await replies.next();
+    if (hello?.type !== "hello") return "unreachable";
+    authenticated = true;
+    socket.write(`${JSON.stringify({ type: "shutdown" })}\n`);
+    const reply = await replies.next();
+    return reply?.type === "result" ? "accepted" : "refused";
+  } catch {
+    return authenticated ? "refused" : "unreachable";
+  } finally {
+    clearTimeout(timer);
+    socket.destroy();
+  }
+}
+
+/** Reads one JSON line per call, keeping any bytes that arrived early for the next call. */
+function lineReader(socket: ReturnType<typeof createConnection>): {
+  next(): Promise<{ type?: unknown } | undefined>;
+} {
+  let buffer = "";
+  let ended = false;
+  let waiting: (() => void) | undefined;
+  // The timeout destroys the socket with an error; the close that follows ends the read.
+  socket.on("error", () => undefined);
+  socket.on("data", (chunk: string) => {
+    buffer += chunk;
+    waiting?.();
+  });
+  socket.once("close", () => {
+    ended = true;
+    waiting?.();
+  });
+  return {
+    async next() {
+      while (!buffer.includes("\n") && !ended) {
+        await new Promise<void>((resolveWait) => {
+          waiting = resolveWait;
+        });
+        waiting = undefined;
+      }
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) return undefined;
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      try {
+        return JSON.parse(line) as { type?: unknown };
+      } catch {
+        return undefined;
+      }
+    },
+  };
+}
+
+function processIsRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
 async function readEndpoint(path: string): Promise<DaemonEndpoint | undefined> {
   try {
     const value = JSON.parse(await readFile(path, "utf8")) as unknown;

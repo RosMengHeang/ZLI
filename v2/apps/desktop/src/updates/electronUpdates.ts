@@ -18,6 +18,7 @@ export async function registerUpdates(options: {
   window: BrowserWindow;
   settingsPath: string;
   openExternal(url: string): Promise<unknown>;
+  prepareToInstall(): Promise<void>;
   log(level: "info" | "warn" | "error", message: string): void;
 }): Promise<UpdateService> {
   const { window } = options;
@@ -32,6 +33,7 @@ export async function registerUpdates(options: {
     macCanAutoInstall: typeof __ZLI_MAC_SIGNED__ === "boolean" && __ZLI_MAC_SIGNED__,
     settings,
     openExternal: options.openExternal,
+    prepareToInstall: options.prepareToInstall,
     log: options.log,
   });
   service.subscribe((status) => {

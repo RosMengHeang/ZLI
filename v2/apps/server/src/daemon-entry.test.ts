@@ -290,3 +290,52 @@ it("isolates a reset runtime socket without crashing the terminal daemon", () =>
   expect(() => socket.emit("error", Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }))).not.toThrow();
   expect(socket.destroy).toHaveBeenCalledOnce();
 });
+
+it("stops its terminals and exits when an authenticated client asks it to shut down", async () => {
+  const previous = { token: process.env.ZLI_DAEMON_TOKEN, endpointPath: process.env.ZLI_DAEMON_ENDPOINT_PATH };
+  process.env.ZLI_DAEMON_TOKEN = "shutdown-token";
+  process.env.ZLI_DAEMON_ENDPOINT_PATH = "/tmp/zli-daemon-endpoint.json";
+  vi.resetModules();
+  try {
+    const { accept: acceptFresh } = await import("./daemon-entry.js");
+    const { DaemonLifecycle } = await import("./daemon/DaemonLifecycle.js");
+    let stopped = 0;
+    let exits = 0;
+    const terminals = {
+      list: () => [],
+      stopAll: () => {
+        stopped += 1;
+      },
+      subscribeExit: () => () => undefined,
+    };
+    const lifecycle = new DaemonLifecycle({ terminals, exit: () => (exits += 1), idleMs: 60_000 });
+    const writes: string[] = [];
+    const connect = () => {
+      const socket = Object.assign(new EventEmitter(), {
+        setEncoding: vi.fn(),
+        destroy: vi.fn(),
+        end: vi.fn(),
+        destroyed: false,
+        write: (data: string) => {
+          writes.push(data);
+          return true;
+        },
+      });
+      acceptFresh(socket as unknown as Socket, terminals as unknown as TerminalService, lifecycle);
+      return socket;
+    };
+    connect().emit("data", `${JSON.stringify({ type: "shutdown" })}\n`);
+    expect(writes).toEqual([`${JSON.stringify({ type: "error", message: "unauthorized" })}\n`]);
+    expect(stopped).toBe(0);
+
+    const authed = connect();
+    authed.emit("data", `${JSON.stringify({ type: "hello", token: "shutdown-token", protocolVersion: 1 })}\n`);
+    authed.emit("data", `${JSON.stringify({ type: "shutdown" })}\n`);
+    await vi.waitFor(() => expect(exits).toBe(1));
+    expect(stopped).toBe(1);
+    expect(writes.at(-1)).toBe(`${JSON.stringify({ type: "result", accepted: true })}\n`);
+  } finally {
+    restoreEnv("ZLI_DAEMON_TOKEN", previous.token);
+    restoreEnv("ZLI_DAEMON_ENDPOINT_PATH", previous.endpointPath);
+  }
+});
