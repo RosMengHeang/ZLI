@@ -161,7 +161,10 @@ export function PluginExportForm({
         <>
           {checklist("Skills", lists.skills, skills, setSkills, "You have no skills of your own yet.")}
           {checklist("MCP servers", lists.servers, servers, setServers, "You have no MCP servers yet.")}
-          <p className="settings-footnote">Keys and tokens are not copied. People who install it add their own.</p>
+          <p className="settings-footnote">
+            Environment variables and headers are not copied. People who install it add their own. Commands, args, and
+            URLs are copied as they are, so take any secrets out of them first.
+          </p>
           {lists.problem ? <p className="skill-row-problem">{lists.problem}</p> : null}
         </>
       )}

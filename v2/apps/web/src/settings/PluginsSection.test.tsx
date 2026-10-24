@@ -360,7 +360,9 @@ describe("Share my setup", () => {
     expect(form.textContent).toContain("helper");
     expect(form.textContent).not.toContain("repo-only");
     expect(form.textContent).toContain("docs");
-    expect(form.textContent).toContain("Keys and tokens are not copied. People who install it add their own.");
+    expect(form.textContent).toContain(
+      "Environment variables and headers are not copied. People who install it add their own. Commands, args, and URLs are copied as they are, so take any secrets out of them first.",
+    );
 
     const [nameInput] = form.querySelectorAll<HTMLInputElement>("input.input");
     await act(async () => setValue(nameInput as HTMLInputElement, "My Setup"));
