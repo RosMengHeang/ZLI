@@ -25,6 +25,7 @@ import { useAgentNotifications } from "../notifications/useAgentNotifications.js
 import { PromptsDialog } from "../prompts/PromptsDialog.js";
 import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.js";
 import { usePullRequestPolling } from "../review/pullRequestStore.js";
+import { ReviewNotesPill } from "../review/ReviewNotesPill.js";
 import type { ReviewFocus } from "../review/ReviewPane.js";
 import { getBridge, type NotificationSettings, type ZliBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
@@ -1297,12 +1298,15 @@ function WorkspaceApp() {
             devServers={contextDevServers}
             onOpenDevServer={openDevServer}
             updateNotice={
-              <UpdatePill
-                status={updates.status}
-                onRestart={restartToUpdate}
-                onOpenRelease={() => void updates.openReleasePage()}
-                onOpenSettings={() => openSettings("updates")}
-              />
+              <>
+                <ReviewNotesPill worktree={contextWorktree} onShowAgent={showAgent} />
+                <UpdatePill
+                  status={updates.status}
+                  onRestart={restartToUpdate}
+                  onOpenRelease={() => void updates.openReleasePage()}
+                  onOpenSettings={() => openSettings("updates")}
+                />
+              </>
             }
           />
           {notice ? (
@@ -1429,6 +1433,7 @@ function WorkspaceApp() {
                         obscured={overlayOpen}
                         reveal={browserReveal}
                         openRequest={browserOpen}
+                        onShowAgent={showAgent}
                       />
                     ) : (
                       <Suspense fallback={<LoadingState label="Loading the changes" />}>

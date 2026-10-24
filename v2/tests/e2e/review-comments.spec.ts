@@ -3,7 +3,13 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, launchDesktop, type DesktopFixture } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  createGitFixture,
+  type DesktopFixture,
+  launchDesktop,
+  sendChatMessage,
+} from "./desktop-fixtures.js";
 
 test("comments on diff lines and sends them to a chat agent", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
@@ -78,6 +84,66 @@ test("comments on diff lines and sends them to a chat agent", async () => {
     await expect(page.getByText(/Turn these into a numbered list\./u).first()).toBeVisible();
     await expect(list).toHaveCount(0);
     await expect(composer).toBeFocused();
+  } finally {
+    if (fixture) await closeDesktop(fixture);
+  }
+});
+
+test("collects notes from a turn's diff and the Files editor and sends them together", async () => {
+  test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
+  const { root, repo } = await createGitFixture();
+  let fixture: DesktopFixture | undefined;
+  const mod = process.platform === "darwin" ? "Meta" : "Control";
+  try {
+    fixture = await launchDesktop(repo, root);
+    const page = fixture.page;
+    await page.locator(".sidebar-new-agent").click();
+    const newAgent = page.getByRole("dialog", { name: "New agent" });
+    await newAgent.getByText("Codex", { exact: true }).click();
+    await newAgent.getByText("Chat", { exact: true }).click();
+    await newAgent.getByRole("button", { name: "Start agent" }).click();
+    await sendChatMessage(page, "[write notes.txt] add release notes");
+    await expect(page.getByText("Mock response: [write notes.txt] add release notes")).toBeVisible({ timeout: 30_000 });
+
+    const changes = page.getByRole("region", { name: "Changes in this turn" });
+    await expect(changes).toContainText("1 file changed", { timeout: 20_000 });
+    await changes.getByRole("button", { name: /notes\.txt/u }).click();
+    const turnLines = changes.getByRole("listbox", { name: "Lines of notes.txt" });
+    await turnLines.getByRole("option", { name: /Written by the mock agent/u }).click();
+    await page.keyboard.press("c");
+    const turnComment = page.getByRole("textbox", { name: "Comment on notes.txt:1" });
+    await expect(turnComment).toBeFocused();
+    await turnComment.fill("Say which version this is for.");
+    await page.keyboard.press(`${mod}+Enter`);
+    await expect(turnComment).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^1 review note not sent/u })).toBeVisible();
+
+    await page.evaluate(() => window.localStorage.removeItem("zli.files.viewModes.v1"));
+    await page.getByRole("button", { name: "Files", exact: true }).click();
+    const panel = page.getByRole("complementary", { name: "Files panel" });
+    await panel.locator(".file-row", { hasText: "README.md" }).first().click();
+    await panel.getByRole("tab", { name: "Code", exact: true }).click();
+    const editor = panel.locator(".cm-content");
+    await editor.getByText("ZLI integration fixture").click();
+    await panel.getByRole("button", { name: "Add review note" }).click();
+    const note = panel.getByRole("textbox", { name: "Note on README.md:1" });
+    await expect(note).toBeFocused();
+    await note.fill("Use a shorter title.");
+    await page.keyboard.press(`${mod}+Enter`);
+    await expect(note).toHaveCount(0);
+
+    await page.getByRole("button", { name: /^2 review notes not sent/u }).click();
+    const send = page.getByRole("dialog", { name: "Send comments" });
+    const preview = send.getByLabel("Message preview");
+    await expect(preview).toContainText("notes.txt:1");
+    await expect(preview).toContainText("README.md:1");
+    await expect(preview).toContainText("Use a shorter title.");
+    await send.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(send).toHaveCount(0);
+    await expect(page.getByText(/Mock response: Please address these review comments on the changes/u)).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.getByRole("button", { name: /review notes? not sent/u })).toHaveCount(0);
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

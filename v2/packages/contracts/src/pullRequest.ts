@@ -11,6 +11,8 @@ export const PullRequestCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("review.pr.push"), worktreeId: WorktreeId }),
   /** Reads the failed part of a GitHub Actions job log; `url` is the check's details link. */
   z.object({ type: z.literal("review.pr.checkLog"), worktreeId: WorktreeId, url: z.string().url().max(2_000) }),
+  /** Reads the unresolved review threads and review summaries of the branch's pull request. */
+  z.object({ type: z.literal("review.pr.comments"), worktreeId: WorktreeId }),
   z.object({
     type: z.literal("review.pr.create"),
     worktreeId: WorktreeId,
@@ -26,6 +28,7 @@ export const PULL_REQUEST_COMMAND_TYPES = [
   "review.pr.push",
   "review.pr.create",
   "review.pr.checkLog",
+  "review.pr.comments",
 ] as const;
 
 export const PullRequestCheckState = z.enum(["pending", "passed", "failed", "skipped"]);
@@ -86,3 +89,45 @@ export const PullRequestCheckLogResult = z.object({
   truncated: z.boolean(),
 });
 export type PullRequestCheckLogResult = z.infer<typeof PullRequestCheckLogResult>;
+
+export const PullRequestReviewComment = z.object({
+  /** The GitHub login, or "ghost" for a deleted account. */
+  author: z.string().min(1).max(100),
+  body: z.string().max(20_000),
+  url: z.string().url().optional(),
+  createdAt: z.string().max(40).optional(),
+});
+export type PullRequestReviewComment = z.infer<typeof PullRequestReviewComment>;
+
+/** A conversation on lines of the pull request's diff that nobody has marked resolved. */
+export const PullRequestReviewThread = z.object({
+  id: z.string().min(1).max(200),
+  path: z.string().min(1).max(4_000),
+  /** Lines in the current version; absent when the thread no longer maps onto the diff. */
+  line: z.number().int().positive().optional(),
+  startLine: z.number().int().positive().optional(),
+  /** True when later commits changed the lines the thread was started on. */
+  outdated: z.boolean(),
+  /** The end of the diff hunk the first comment was made on, ending at the commented line. */
+  diffHunk: z.string().max(8_000).optional(),
+  comments: z.array(PullRequestReviewComment).min(1).max(50),
+});
+export type PullRequestReviewThread = z.infer<typeof PullRequestReviewThread>;
+
+/** A submitted review with a written summary, such as a request for changes. */
+export const PullRequestReviewSummary = z.object({
+  id: z.string().min(1).max(200),
+  author: z.string().min(1).max(100),
+  state: z.enum(["CHANGES_REQUESTED", "COMMENTED", "APPROVED"]),
+  body: z.string().min(1).max(20_000),
+  url: z.string().url().optional(),
+});
+export type PullRequestReviewSummary = z.infer<typeof PullRequestReviewSummary>;
+
+export const PullRequestCommentsResult = z.object({
+  number: z.number().int().positive(),
+  url: z.string().url(),
+  threads: z.array(PullRequestReviewThread).max(100),
+  reviews: z.array(PullRequestReviewSummary).max(30),
+});
+export type PullRequestCommentsResult = z.infer<typeof PullRequestCommentsResult>;

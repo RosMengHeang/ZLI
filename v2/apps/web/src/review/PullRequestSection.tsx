@@ -7,6 +7,7 @@ import { Badge, type BadgeTone } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { openExternalLink, useCopyFeedback } from "./links.js";
+import { PullRequestComments } from "./PullRequestComments.js";
 import { PullRequestDialog } from "./PullRequestDialog.js";
 import { readCheckLog } from "./pullRequestClient.js";
 import { recordPullRequest, refreshPullRequest, usePullRequestEntry } from "./pullRequestStore.js";
@@ -44,6 +45,7 @@ export function PullRequestSection({
   const checking = entry?.checking ?? false;
   const error = entry?.error;
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
   const [linkError, setLinkError] = useState<string>();
   const [copyState, copy] = useCopyFeedback();
   const commitAfterClose = useRef(false);
@@ -55,6 +57,9 @@ export function PullRequestSection({
     setLinkError(undefined);
     void refreshPullRequest(dispatch, worktreeId, true);
   }, [dispatch, worktreeId, checkKey]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: another worktree has other comments.
+  useEffect(() => setCommentsOpen(false), [worktreeId]);
 
   // The dialog gives focus back to the Create PR button as it closes, so the commit field is
   // focused only once that has happened.
@@ -126,6 +131,17 @@ export function PullRequestSection({
           >
             View PR
           </Button>
+          {pullRequest.state === "OPEN" ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon="message"
+              aria-expanded={commentsOpen}
+              onClick={() => setCommentsOpen((open) => !open)}
+            >
+              Review comments
+            </Button>
+          ) : null}
         </>
       ) : null}
       {problem ? (
@@ -145,6 +161,9 @@ export function PullRequestSection({
       ) : null}
       {pullRequest?.checks ? (
         <PullRequestChecks worktree={worktree} pullRequest={pullRequest} onShowAgent={onShowAgent} />
+      ) : null}
+      {commentsOpen && pullRequest?.state === "OPEN" ? (
+        <PullRequestComments key={worktreeId} worktree={worktree} checkKey={checkKey} onShowAgent={onShowAgent} />
       ) : null}
       {dialogOpen ? (
         <Suspense fallback={null}>
