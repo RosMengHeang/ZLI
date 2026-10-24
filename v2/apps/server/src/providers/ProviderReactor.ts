@@ -47,6 +47,8 @@ export class ProviderReactor {
   private readonly endedTurns = new Map<string, string[]>();
   /** The files before each running turn, keyed by thread and the provider's turn id. */
   private readonly turnStarts = new Map<string, TurnStart>();
+  /** Reply characters recorded so far per turn, keyed like pendingDeltas. Tool calls note it as their place. */
+  private readonly replyLengths = new Map<string, number>();
   private readonly unsubscribe: () => void;
   private readonly unsubscribeProvider: () => void;
 
@@ -199,6 +201,7 @@ export class ProviderReactor {
     this.activeTurns.delete(threadId);
     this.endedTurns.delete(threadId);
     for (const key of this.turnStarts.keys()) if (key.startsWith(`${threadId}\u0000`)) this.turnStarts.delete(key);
+    for (const key of this.replyLengths.keys()) if (key.startsWith(`${threadId}\u0000`)) this.replyLengths.delete(key);
     for (const [key, pending] of this.pendingDeltas) {
       if (pending.threadId !== threadId) continue;
       clearTimeout(pending.timer);
@@ -278,6 +281,7 @@ export class ProviderReactor {
 
   private endTurn(threadId: string, turnId: string): void {
     if (this.activeTurns.get(threadId) === turnId) this.activeTurns.delete(threadId);
+    this.replyLengths.delete(turnKey(threadId, turnId));
     const ended = this.endedTurns.get(threadId) ?? [];
     ended.push(turnId);
     this.endedTurns.set(threadId, ended.slice(-MAX_ENDED_TURNS));
@@ -320,6 +324,7 @@ export class ProviderReactor {
     if (!pending) return;
     clearTimeout(pending.timer);
     this.pendingDeltas.delete(key);
+    this.replyLengths.set(key, (this.replyLengths.get(key) ?? 0) + pending.text.length);
     this.track(this.message(pending.threadId, "assistant", pending.text, pending.turnId));
   }
 
@@ -413,6 +418,8 @@ export class ProviderReactor {
     const detail = activity.detail?.replace(/\s+$/u, "");
     const files = (activity.files ?? []).filter((file) => file.length > 0 && file.length <= 4_000).slice(0, 100);
     const turnId = event.turnId?.trim();
+    const lines = activity.lines;
+    const textOffset = event.turnId ? this.replyLengths.get(turnKey(event.threadId, event.turnId)) : undefined;
     if (this.deleted.has(event.threadId)) return Promise.resolve();
     return this.engine
       .dispatchPromise({
@@ -429,6 +436,9 @@ export class ProviderReactor {
             ...(detail ? { detail: detail.slice(-MAX_ACTIVITY_DETAIL) } : {}),
             status: activity.status,
             ...(files.length > 0 ? { files } : {}),
+            ...(lines ? { lines } : {}),
+            ...(activity.command?.trim() ? { command: activity.command.trim().slice(0, 2_000) } : {}),
+            ...(turnId ? { textOffset: textOffset ?? 0 } : {}),
           },
         },
       })

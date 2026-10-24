@@ -1,9 +1,9 @@
 import type { ThreadActivityProjection } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
-import { groupActivities, groupLabel } from "./WorkLog.js";
+import { elapsedLabel, exploreCounts, groupSteps, liveStepLabel } from "./WorkLog.js";
 
-const activity = (id: string, kind: ThreadActivityProjection["kind"]) =>
+const activity = (id: string, kind: ThreadActivityProjection["kind"], extra: Partial<ThreadActivityProjection> = {}) =>
   ({
     activityId: id,
     threadId: "00000000-0000-4000-8000-000000000001",
@@ -11,39 +11,52 @@ const activity = (id: string, kind: ThreadActivityProjection["kind"]) =>
     kind,
     title: id,
     status: "completed",
+    ...extra,
   }) as ThreadActivityProjection;
 
-describe("groupActivities", () => {
-  it("folds consecutive reads and searches but keeps edits and commands on their own rows", () => {
-    const rows = groupActivities([
+describe("groupSteps", () => {
+  it("folds a run of reads, searches, and lookups into one step and keeps edits and commands apart", () => {
+    const rows = groupSteps([
       activity("r1", "file-read"),
-      activity("r2", "file-read"),
-      activity("r3", "file-read"),
-      activity("e1", "file-edit"),
       activity("s1", "search"),
-      activity("s2", "search"),
-      activity("r4", "file-read"),
+      activity("w1", "web"),
+      activity("e1", "file-edit"),
+      activity("r2", "file-read"),
       activity("c1", "command"),
       activity("c2", "command"),
     ]);
-    expect(rows.map((row) => (row.kind === "group" ? row.entries.map((entry) => entry.activityId) : row.key))).toEqual([
-      ["r1", "r2", "r3"],
-      "e1",
-      ["s1", "s2"],
-      "r4",
-      "c1",
-      "c2",
-    ]);
+    expect(
+      rows.map((row) => (row.kind === "explore" ? row.entries.map((entry) => entry.activityId) : row.key)),
+    ).toEqual([["r1", "s1", "w1"], "e1", ["r2"], "c1", "c2"]);
+  });
+});
+
+describe("step labels", () => {
+  it("counts files once however often they were read", () => {
+    expect(
+      exploreCounts([
+        activity("r1", "file-read", { files: ["a.ts"] }),
+        activity("r2", "file-read", { files: ["a.ts"] }),
+        activity("r3", "file-read", { files: ["b.ts"] }),
+        activity("s1", "search"),
+      ]),
+    ).toBe("2 files, 1 search");
+    expect(exploreCounts([activity("w1", "web"), activity("w2", "web")])).toBe("2 web pages");
   });
 
-  it("does not merge reads and searches into one group", () => {
-    const rows = groupActivities([activity("r1", "file-read"), activity("s1", "search"), activity("w1", "web")]);
-    expect(rows.every((row) => row.kind === "entry")).toBe(true);
+  it("says what is running in a few words", () => {
+    expect(liveStepLabel(activity("r", "file-read", { files: ["src/app/routes.ts"] }))).toBe("Reading routes.ts");
+    expect(liveStepLabel(activity("e", "file-edit", { files: ["C:\\repo\\notes.md"] }))).toBe("Editing notes.md");
+    expect(liveStepLabel(activity("c", "command", { title: "npm test" }))).toBe("Running npm test");
+    expect(liveStepLabel(activity("s", "search", { title: "Search TODO" }))).toBe("Searching for TODO");
+    expect(liveStepLabel(activity("w", "web", { title: "Fetch https://example.com" }))).toBe(
+      "Opening https://example.com",
+    );
   });
 
-  it("names each group in plain words", () => {
-    expect(groupLabel("file-read", 3)).toBe("Read 3 files");
-    expect(groupLabel("search", 2)).toBe("2 searches");
-    expect(groupLabel("web", 4)).toBe("4 web lookups");
+  it("formats elapsed time", () => {
+    expect(elapsedLabel(8_400)).toBe("8s");
+    expect(elapsedLabel(65_000)).toBe("1m 05s");
+    expect(elapsedLabel(3_720_000)).toBe("1h 02m");
   });
 });

@@ -26,6 +26,7 @@ export type CodexToolUpdate = {
   input?: Record<string, unknown>;
   status: "running" | "completed" | "failed";
   output?: string;
+  lines?: { added: number; removed: number };
 };
 
 const ItemNotification = z.object({
@@ -51,6 +52,7 @@ export function codexItemTool(
   if (!shape) return undefined;
   const status = completed ? completedStatus(item) : "running";
   const output = completed ? itemOutput(item) : undefined;
+  const lines = shape.name === "fileChange" && status !== "failed" ? changeLines(item) : undefined;
   return {
     providerThreadId: parsed.data.threadId,
     providerTurnId: parsed.data.turnId,
@@ -60,6 +62,7 @@ export function codexItemTool(
       ...(shape.input ? { input: shape.input } : {}),
       status,
       ...(output ? { output } : {}),
+      ...(lines ? { lines } : {}),
     },
   };
 }
@@ -102,6 +105,37 @@ function itemShape(item: Record<string, unknown>): { name: string; input?: Recor
     default:
       return undefined;
   }
+}
+
+/**
+ * Lines a fileChange item adds and removes. Each change carries a unified diff for an update and
+ * the whole file for an add or a delete.
+ */
+function changeLines(item: Record<string, unknown>): { added: number; removed: number } | undefined {
+  if (!Array.isArray(item.changes)) return undefined;
+  let added = 0;
+  let removed = 0;
+  let counted = false;
+  for (const change of item.changes) {
+    const record = asRecord(change);
+    const diff = typeof record?.diff === "string" ? record.diff : undefined;
+    if (diff === undefined) continue;
+    counted = true;
+    const kind = asRecord(record?.kind)?.type ?? record?.kind;
+    const lines = diff.split(/\r?\n/u);
+    if (lines.at(-1) === "") lines.pop();
+    if (!lines.some((line) => line.startsWith("@@"))) {
+      if (kind === "add") added += lines.length;
+      else if (kind === "delete") removed += lines.length;
+      continue;
+    }
+    for (const line of lines) {
+      if (line.startsWith("+++ ") || line.startsWith("--- ")) continue;
+      if (line.startsWith("+")) added += 1;
+      else if (line.startsWith("-")) removed += 1;
+    }
+  }
+  return counted ? { added, removed } : undefined;
 }
 
 function completedStatus(item: Record<string, unknown>): "completed" | "failed" {

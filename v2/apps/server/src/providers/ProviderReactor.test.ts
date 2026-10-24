@@ -455,6 +455,7 @@ describe("ProviderReactor", () => {
         title: "npm test",
         detail: "1 failed",
         status: "failed",
+        textOffset: 15,
       },
       {
         activityId: expect.stringMatching(new RegExp(`^${threadId}:[0-9a-f]{40}$`, "u")),

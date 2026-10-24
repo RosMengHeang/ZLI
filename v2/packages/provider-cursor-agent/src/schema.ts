@@ -6,6 +6,7 @@ export type CursorToolUpdate = {
   input?: Record<string, unknown>;
   status: "running" | "completed" | "failed";
   output?: string;
+  lines?: { added: number; removed: number };
 };
 
 export type CursorInbound =
@@ -63,6 +64,7 @@ function classifyToolCall(record: Record<string, unknown>): CursorInbound {
   if (!callId || !entry) return { kind: "tool", denied };
   const status = record.subtype === "completed" ? completedStatus(entry.result, denied) : "running";
   const output = record.subtype === "completed" ? resultOutput(entry.result) : undefined;
+  const lines = record.subtype === "completed" && status === "completed" ? resultLines(entry.result) : undefined;
   return {
     kind: "tool",
     denied,
@@ -72,6 +74,7 @@ function classifyToolCall(record: Record<string, unknown>): CursorInbound {
       ...(entry.input ? { input: entry.input } : {}),
       status,
       ...(output ? { output } : {}),
+      ...(lines ? { lines } : {}),
     },
   };
 }
@@ -128,6 +131,27 @@ function resultOutput(result: Record<string, unknown> | undefined): string | und
     if (text) return text;
   }
   return undefined;
+}
+
+/** Line counts from an edit result: Cursor's own counts when present, else its diff text. */
+function resultLines(result: Record<string, unknown> | undefined): { added: number; removed: number } | undefined {
+  const success = asRecord(result?.success);
+  if (!success) return undefined;
+  const count = (value: unknown) =>
+    typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+  const added = count(success.linesAdded) ?? count(success.linesCreated);
+  const removed = count(success.linesRemoved) ?? count(success.linesDeleted);
+  if (added !== undefined || removed !== undefined) return { added: added ?? 0, removed: removed ?? 0 };
+  const diff = textValue(success.diffString) ?? textValue(success.diff);
+  if (!diff) return undefined;
+  let plus = 0;
+  let minus = 0;
+  for (const line of diff.split(/\r?\n/u)) {
+    if (line.startsWith("+++ ") || line.startsWith("--- ")) continue;
+    if (line.startsWith("+")) plus += 1;
+    else if (line.startsWith("-")) minus += 1;
+  }
+  return { added: plus, removed: minus };
 }
 
 function joinOutput(stdout: unknown, stderr: unknown): string | undefined {

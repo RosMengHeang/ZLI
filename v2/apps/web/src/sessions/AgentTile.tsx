@@ -113,15 +113,6 @@ export function AgentTile({
     setBusy(false);
   };
 
-  const interrupt = () => {
-    if (!thread) return;
-    void send({
-      type: "thread.interrupt",
-      threadId: thread.threadId,
-      ...(thread.activeTurnId ? { turnId: thread.activeTurnId } : {}),
-    });
-  };
-
   const canStop = sessionStopCommands(session).length > 0;
   const status = session.status;
   const statusBusy = status === "working" || status === "starting" || status === "preparing";
@@ -172,21 +163,21 @@ export function AgentTile({
               onClick={onHandoff}
             />
           ) : null}
-          {mode === "chat" && (thread?.status === "working" || thread?.status === "waiting") ? (
-            <IconButton label="Interrupt" tooltip="Interrupt the turn" icon="pause" size="sm" onClick={interrupt} />
-          ) : null}
           {canStop ? (
-            <IconButton
-              label="Stop agent"
+            <Button
+              className="tile-stop"
+              variant="ghost"
+              size="xs"
+              aria-label="Stop agent"
               tooltip="Stop the agent in the terminal and the chat"
-              icon="square"
-              size="sm"
-              iconSize={11}
               onClick={() => {
                 setError(undefined);
                 onStop();
               }}
-            />
+            >
+              <Icon name="square" size={9} fill="currentColor" strokeWidth={0} />
+              Stop
+            </Button>
           ) : null}
           {canMaximize ? (
             <IconButton

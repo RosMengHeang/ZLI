@@ -203,7 +203,10 @@ describe("CodexAppServerClient tool items", () => {
       type: "fileChange",
       id: "fc-1",
       status: "completed",
-      changes: [{ path: "/work/src/a.ts", kind: { type: "update" } }, { path: "/work/src/b.ts" }],
+      changes: [
+        { path: "/work/src/a.ts", kind: { type: "update" }, diff: "@@ -1,2 +1,2 @@\n keep\n-old\n+new\n" },
+        { path: "/work/src/b.ts", kind: { type: "add" }, diff: "one\ntwo\n" },
+      ],
     });
     notify("item/completed", {
       type: "mcpToolCall",
@@ -251,6 +254,7 @@ describe("CodexAppServerClient tool items", () => {
           name: "fileChange",
           input: { paths: ["/work/src/a.ts", "/work/src/b.ts"] },
           status: "completed",
+          lines: { added: 3, removed: 1 },
         },
       },
       {

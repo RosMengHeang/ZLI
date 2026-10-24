@@ -185,5 +185,13 @@ export const ThreadActivityProjection = z.object({
   detail: z.string().max(4_000).optional(),
   status: z.enum(["running", "completed", "failed"]),
   files: z.array(z.string().min(1).max(4_000)).max(100).optional(),
+  /** The command line, for a command whose title is the agent's description of it. */
+  command: z.string().min(1).max(2_000).optional(),
+  /** Lines an edit added and removed, when the agent reported enough to count them. */
+  lines: z
+    .object({ added: z.number().int().min(0).max(10_000_000), removed: z.number().int().min(0).max(10_000_000) })
+    .optional(),
+  /** How much of the turn's reply had arrived when the call started, which places it inside the reply. */
+  textOffset: z.number().int().min(0).max(100_000_000).optional(),
 });
 export type ThreadActivityProjection = z.infer<typeof ThreadActivityProjection>;

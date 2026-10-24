@@ -387,6 +387,7 @@ describe("AcpClient turns", () => {
           title: "Write hello.txt",
           input: { filePath: "/work/tree/hello.txt", paths: ["/work/tree/hello.txt"] },
           status: "completed",
+          lines: { added: 1, removed: 0 },
         },
       },
       {

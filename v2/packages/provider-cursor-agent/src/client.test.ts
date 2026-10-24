@@ -1,11 +1,19 @@
 import { EventEmitter } from "node:events";
 import { mkdtempSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { CursorAgentClient, type CursorChild, type CursorProviderEvent, type CursorSpawnOptions } from "./client.js";
+import {
+  BROKEN_INSTALL_MESSAGE,
+  CursorAgentClient,
+  type CursorChild,
+  type CursorProviderEvent,
+  type CursorSpawnOptions,
+  supportsDisableAutoUpdate,
+} from "./client.js";
 import { cursorTurnArgs } from "./protocol.js";
 import { CURSOR_TOOL_DENY_MESSAGE } from "./schema.js";
 
@@ -280,6 +288,21 @@ describe("CursorAgentClient", () => {
     await expect(client.sendTurn({ text: "next" })).rejects.toMatchObject({ code: "closed" });
   });
 
+  it("explains a crash from Cursor replacing its own files mid-turn", async () => {
+    const { client, children, events } = await harness();
+    const turn = await client.sendTurn({ text: "Run tests" });
+    children[0]?.stderr.emit(
+      "data",
+      "Error: Cannot find module './7404.index.js'\nRequire stack:\n- C:\\Users\\me\\AppData\\Local\\cursor-agent\\versions\\2026.10.22-27dcf5f\\index.js\n",
+    );
+    children[0]?.exit(1);
+    expect(events[1]).toEqual({
+      type: "turn.failed",
+      providerTurnId: turn.providerTurnId,
+      message: BROKEN_INSTALL_MESSAGE,
+    });
+  });
+
   it("keeps the chat resumable when the process dies after init", async () => {
     const { client, children, calls, events } = await harness();
     const turn = await client.sendTurn({ text: "Run tests" });
@@ -529,6 +552,7 @@ describe("CursorAgentClient tool activity", () => {
         input: { path: "/work/tree/note.txt", streamContent: "done" },
         status: "completed",
         output: "Wrote contents",
+        lines: { added: 1, removed: 0 },
       },
     ]);
     expect(events.at(-1)).toEqual({ type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" });
@@ -591,6 +615,40 @@ describe("CursorAgentClient tool activity", () => {
     await client.interruptTurn();
     await client.sendTurn({ text: "Three" });
     expect(calls.map((args) => args.includes("--force"))).toEqual([true, false, false]);
+  });
+
+  it("turns off Cursor's background updates for each turn when the CLI supports it", async () => {
+    const calls: Array<readonly string[]> = [];
+    const client = await CursorAgentClient.start({
+      command: "/usr/bin/cursor-agent",
+      cwd: "/work/tree",
+      disableAutoUpdate: true,
+      spawnProcess: (_command, args) => {
+        calls.push(args);
+        return new FakeProcess();
+      },
+    });
+    await client.sendTurn({ text: "One" });
+    expect(calls[0]).toEqual([...printArgs.slice(0, 5), "--disable-auto-update", ...printArgs.slice(5)]);
+  });
+});
+
+describe("supportsDisableAutoUpdate", () => {
+  it.skipIf(process.platform === "win32")("reads the flag from the CLI's help", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "zli-cursor-help-"));
+    const withFlag = join(dir, "new-agent");
+    const withoutFlag = join(dir, "old-agent");
+    await writeFile(withFlag, "#!/bin/sh\necho '  --disable-auto-update  Turn off background updates'\n", {
+      mode: 0o755,
+    });
+    await writeFile(withoutFlag, "#!/bin/sh\necho '  --print  Print mode'\n", { mode: 0o755 });
+    try {
+      await expect(supportsDisableAutoUpdate(withFlag)).resolves.toBe(true);
+      await expect(supportsDisableAutoUpdate(withoutFlag)).resolves.toBe(false);
+      await expect(supportsDisableAutoUpdate(join(dir, "missing"))).resolves.toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

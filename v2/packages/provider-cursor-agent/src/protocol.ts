@@ -14,8 +14,15 @@ export function cursorTurnArgs(input: {
   model?: string;
   /** Starts configured MCP servers without the approval prompt print mode cannot answer. */
   approveMcps?: boolean;
+  /**
+   * Every turn is a new process, and each one can start Cursor's background updater. An update
+   * that lands while a turn runs replaces the files that turn still loads, and it crashes with
+   * "Cannot find module".
+   */
+  disableAutoUpdate?: boolean;
 }): string[] {
   const args = ["-p", "--output-format", "stream-json", "--stream-partial-output", "--trust"];
+  if (input.disableAutoUpdate) args.push("--disable-auto-update");
   if (input.permissionMode === "read-only") args.push("--mode", "plan");
   else if (input.permissionMode !== "supervised") args.push("--force");
   if (input.approveMcps) args.push("--approve-mcps");

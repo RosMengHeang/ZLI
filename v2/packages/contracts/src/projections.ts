@@ -222,6 +222,8 @@ export function upsertThreadActivity(
     ...previous,
     ...activity,
     ...(activity.files || previous?.files ? { files: activity.files ?? previous?.files } : {}),
+    // A call keeps its place in the reply when later updates report it again.
+    ...(previous?.textOffset !== undefined ? { textOffset: previous.textOffset } : {}),
   };
   return [...activities.slice(0, index), merged, ...activities.slice(index + 1)];
 }

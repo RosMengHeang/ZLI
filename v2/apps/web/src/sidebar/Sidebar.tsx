@@ -237,6 +237,7 @@ export function Sidebar({
               label={`Stop ${name}`}
               tooltip="Stop agent"
               icon="square"
+              tone="danger"
               size="xs"
               iconSize={10}
               onClick={() => onStopSession(session)}

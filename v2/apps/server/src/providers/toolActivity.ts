@@ -9,7 +9,11 @@ export type ToolCallUpdate = {
   input?: Record<string, unknown>;
   status: "running" | "completed" | "failed";
   output?: string;
+  /** Line counts the CLI reported itself, preferred over counting from the input. */
+  lines?: LineCounts;
 };
+
+export type LineCounts = { added: number; removed: number };
 
 export type ProviderActivity = {
   activityId: string;
@@ -18,10 +22,13 @@ export type ProviderActivity = {
   detail?: string;
   status: "running" | "completed" | "failed";
   files?: string[];
+  lines?: LineCounts;
+  command?: string;
 };
 
 const MAX_TITLE = 500;
 const MAX_DETAIL = 4_000;
+const MAX_COMMAND = 2_000;
 
 const EXACT_KINDS: Readonly<Record<string, ThreadActivityKind>> = {
   shell: "command",
@@ -86,6 +93,8 @@ export function toolActivity(update: ToolCallUpdate, cwd?: string): ProviderActi
     clip(toolTitle(kind, update.name, input, files, cwd), MAX_TITLE) || humanName(update.name) || "Tool call";
   const showDetail = update.status === "failed" || (kind !== "file-read" && kind !== "file-edit");
   const detail = showDetail ? tail(update.output) : undefined;
+  const command = kind === "command" ? commandText(input) : undefined;
+  const lines = kind === "file-edit" && update.status !== "failed" ? (update.lines ?? editLines(input)) : undefined;
   return {
     activityId: update.callId,
     kind,
@@ -93,7 +102,92 @@ export function toolActivity(update: ToolCallUpdate, cwd?: string): ProviderActi
     status: update.status,
     ...(detail ? { detail } : {}),
     ...(files.length > 0 ? { files: [...new Set(files)].slice(0, 100) } : {}),
+    ...(lines && (lines.added > 0 || lines.removed > 0) ? { lines } : {}),
+    ...(command && command !== title ? { command: clip(command, MAX_COMMAND) } : {}),
   };
+}
+
+const OLD_TEXT_KEYS = ["old_string", "old_str", "oldString", "old_text", "oldText"];
+const NEW_TEXT_KEYS = ["new_string", "new_str", "newString", "new_text", "newText"];
+const CONTENT_KEYS = ["content", "contents", "file_text", "fileText", "text"];
+const PATCH_KEYS = ["patch", "diff", "input"];
+
+/**
+ * Lines an edit adds and removes, worked out from the tool input: a replacement pair, a list of
+ * them, a whole new file, or a patch. Undefined when the input carries none of those.
+ */
+export function editLines(input: Record<string, unknown>): LineCounts | undefined {
+  const edits = input.edits;
+  if (Array.isArray(edits)) {
+    let total: LineCounts | undefined;
+    for (const edit of edits) {
+      if (!edit || typeof edit !== "object" || Array.isArray(edit)) continue;
+      const counts = replacementLines(edit as Record<string, unknown>);
+      if (counts)
+        total = { added: (total?.added ?? 0) + counts.added, removed: (total?.removed ?? 0) + counts.removed };
+    }
+    if (total) return total;
+  }
+  const replacement = replacementLines(input);
+  if (replacement) return replacement;
+  const patch = rawString(input, PATCH_KEYS);
+  if (patch && /^(?:\*\*\* |@@|\+\+\+ |--- )/mu.test(patch)) return patchLines(patch);
+  const content = rawString(input, CONTENT_KEYS);
+  if (content !== undefined) return { added: lineCount(content), removed: 0 };
+  return undefined;
+}
+
+function replacementLines(input: Record<string, unknown>): LineCounts | undefined {
+  const before = rawString(input, OLD_TEXT_KEYS);
+  const after = rawString(input, NEW_TEXT_KEYS);
+  if (before === undefined && after === undefined) return undefined;
+  return diffLineCounts(before ?? "", after ?? "");
+}
+
+/** Counts changed lines after dropping the lines both sides share at the start and the end. */
+export function diffLineCounts(before: string, after: string): LineCounts {
+  const a = splitLines(before);
+  const b = splitLines(after);
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start += 1;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA -= 1;
+    endB -= 1;
+  }
+  return { added: endB - start, removed: endA - start };
+}
+
+/** Counts +/- lines in a unified diff or an apply_patch envelope, skipping file headers. */
+export function patchLines(patch: string): LineCounts {
+  let added = 0;
+  let removed = 0;
+  for (const line of patch.split(/\r?\n/u)) {
+    if (line.startsWith("+++ ") || line.startsWith("--- ") || line.startsWith("*** ")) continue;
+    if (line.startsWith("+")) added += 1;
+    else if (line.startsWith("-")) removed += 1;
+  }
+  return { added, removed };
+}
+
+function splitLines(value: string): string[] {
+  if (value.length === 0) return [];
+  const lines = value.split(/\r?\n/u);
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+}
+
+function lineCount(value: string): number {
+  return splitLines(value).length;
+}
+
+function rawString(input: Record<string, unknown>, keys: readonly string[]): string | undefined {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "string") return value;
+  }
+  return undefined;
 }
 
 export function classifyTool(name: string, input: Record<string, unknown> = {}): ThreadActivityKind {
@@ -120,8 +214,11 @@ function toolTitle(
   cwd: string | undefined,
 ): string {
   switch (kind) {
-    case "command":
-      return commandText(input) ?? humanName(name);
+    case "command": {
+      // Claude's description and Droid's summary say what a command is for in plain words.
+      const description = firstString(input, ["description", "summary"]);
+      return (description ? firstLine(description) : undefined) ?? commandText(input) ?? humanName(name);
+    }
     case "file-read":
       return files[0] ? `Read ${filesLabel(files)}` : "Read file";
     case "file-edit":
