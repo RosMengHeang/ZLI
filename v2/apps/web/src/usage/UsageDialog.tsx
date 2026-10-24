@@ -71,19 +71,16 @@ export function UsageDialog({ projection, initialProjectId, onClose }: Props) {
       <div className="usage-toolbar">
         <Segmented<UsagePeriod> label="Period" value={period} options={periodOptions} onChange={setPeriod} />
         {projects.length > 1 ? (
-          <Select
+          <Select<string>
             className="input-sm"
-            aria-label="Project"
+            label="Project"
             value={projectId ?? ""}
-            onChange={(event) => setProjectId((event.target.value || undefined) as typeof projectId)}
-          >
-            <option value="">All projects</option>
-            {projects.map((project) => (
-              <option key={project.projectId} value={project.projectId}>
-                {project.name}
-              </option>
-            ))}
-          </Select>
+            options={[
+              { value: "", label: "All projects" },
+              ...projects.map((project) => ({ value: project.projectId, label: project.name })),
+            ]}
+            onChange={(next) => setProjectId((next || undefined) as typeof projectId)}
+          />
         ) : null}
       </div>
       <div className="usage-body">

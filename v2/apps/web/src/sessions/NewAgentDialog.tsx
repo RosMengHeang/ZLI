@@ -220,18 +220,17 @@ export function NewAgentDialog({
         <div className="dialog-body new-agent-body">
           {projection.projects.length > 1 ? (
             <FormSection label="Project" htmlFor={`${ids}-project`}>
-              <Select
+              <Select<string>
                 id={`${ids}-project`}
-                aria-label="Project"
-                value={projectId}
-                onChange={(event) => chooseProject(event.target.value as typeof projectId)}
-              >
-                {projection.projects.map((candidate) => (
-                  <option key={candidate.projectId} value={candidate.projectId}>
-                    {candidate.name}
-                  </option>
-                ))}
-              </Select>
+                label="Project"
+                value={projectId ?? ""}
+                options={projection.projects.map((candidate) => ({
+                  value: candidate.projectId,
+                  label: candidate.name,
+                  icon: <Icon name="folder" size={15} />,
+                }))}
+                onChange={(next) => chooseProject(next as typeof projectId)}
+              />
             </FormSection>
           ) : null}
 
@@ -324,17 +323,16 @@ export function NewAgentDialog({
                   ) : null}
                 </p>
               ) : (
-                <Select
-                  aria-label="Worktree"
-                  value={existingId}
-                  onChange={(event) => setExistingId(event.target.value)}
-                >
-                  {projectWorktrees.map((worktree) => (
-                    <option key={worktree.worktreeId} value={worktree.worktreeId}>
-                      {worktree.branch}
-                    </option>
-                  ))}
-                </Select>
+                <Select<string>
+                  label="Worktree"
+                  value={existingId ?? ""}
+                  options={projectWorktrees.map((worktree) => ({
+                    value: worktree.worktreeId,
+                    label: worktree.branch,
+                    icon: <Icon name="branch" size={15} />,
+                  }))}
+                  onChange={setExistingId}
+                />
               )}
             </div>
             {sharing ? (

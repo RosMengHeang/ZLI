@@ -71,15 +71,10 @@ kbd {
 .input:focus-visible, .select:focus-visible, .textarea:focus-visible { outline: none; border-color: var(--zli-accent-line); box-shadow: 0 0 0 3px var(--zli-accent-soft); }
 .input:disabled, .select:disabled, .textarea:disabled { cursor: not-allowed; opacity: .5; }
 .select { padding-right: var(--zli-space-8); appearance: none; cursor: pointer; }
-.select-wrap { position: relative; display: flex; min-width: 0; align-items: center; }
-.select-wrap > svg { position: absolute; right: var(--zli-space-3); color: var(--zli-dim); pointer-events: none; }
 
-/* A compact borderless select used in toolbars (model, device). */
+/* A compact borderless picker trigger used in toolbars (model, device). */
 .select-ghost { position: relative; display: inline-flex; min-width: 0; align-items: center; gap: var(--zli-space-1); height: var(--zli-control-md); padding: 0 var(--zli-space-1-5) 0 var(--zli-space-2); border-radius: var(--zli-radius-sm); color: var(--zli-muted); font-size: var(--zli-text-sm); cursor: pointer; transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
 .select-ghost:hover:not(.is-disabled) { background: var(--zli-hover); color: var(--zli-text); }
-.select-ghost select { min-width: 0; max-width: 180px; overflow: hidden; padding: 0; border: 0; outline: none; appearance: none; background: transparent; color: inherit; cursor: inherit; font-size: inherit; text-overflow: ellipsis; }
-.select-ghost select:focus-visible { outline: none; }
-.select-ghost:has(select:focus-visible) { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
 .select-ghost.is-disabled { cursor: not-allowed; opacity: .55; }
 
 /* ---------- Picker: a toolbar trigger with a dark list of choices ---------- */

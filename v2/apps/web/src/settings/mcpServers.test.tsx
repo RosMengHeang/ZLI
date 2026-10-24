@@ -123,16 +123,16 @@ describe("McpServersSection", () => {
       );
     });
     expect(container.textContent).toContain("No servers yet.");
-    const access = container.querySelector<HTMLSelectElement>(
-      'select[aria-label="What agents may do with other agents"]',
-    ) as HTMLSelectElement;
-    expect(access.value).toBe("full");
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(access, "read");
-      access.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    const access = container.querySelector<HTMLButtonElement>(
+      'button[aria-label^="What agents may do with other agents"]',
+    ) as HTMLButtonElement;
+    expect(access.getAttribute("aria-label")).toBe("What agents may do with other agents: Start and message agents");
+    await act(async () => access.click());
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('[role="option"][data-label="List and read agents"]')?.click(),
+    );
     expect(agentAccess).toBe("read");
-    expect(access.value).toBe("read");
+    expect(access.getAttribute("aria-label")).toBe("What agents may do with other agents: List and read agents");
 
     await act(async () => button(container, "Add server").click());
     const form = container.querySelector("form") as HTMLFormElement;

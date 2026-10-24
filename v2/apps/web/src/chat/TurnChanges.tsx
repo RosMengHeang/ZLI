@@ -1,11 +1,12 @@
 import type { CheckpointDiffResult, ThreadCheckpoint, TurnCheckpointFile } from "@zli-v2/contracts";
 import { type KeyboardEvent, memo, useRef, useState } from "react";
-
+import { isMarkdownPath } from "../files/fileViewModes.js";
 import { parseDiffLines, patchBody } from "../review/diffLines.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Icon } from "../ui/Icon.js";
+import { ImageViewer, isImagePath } from "./ChatImage.js";
 import { readCheckpointDiff, restoreCheckpoint } from "./checkpointClient.js";
 
 type DiffState =
@@ -19,18 +20,23 @@ const kindLabel: Partial<Record<TurnCheckpointFile["kind"], string>> = {
   renamed: "renamed",
 };
 
-/** What one turn changed on disk, with each file's diff on demand and a way to undo the turn. */
+/**
+ * What one turn changed on disk, with each file's diff on demand and a way to undo the turn.
+ * Markdown files open in the Files panel to read, and images open full size.
+ */
 export const TurnChanges = memo(function TurnChanges({
   checkpoint,
   displayName,
   branch,
   restoreBlocked,
+  onOpenFile,
 }: {
   checkpoint: ThreadCheckpoint;
   displayName: string;
   branch: string;
   /** Why restoring is not possible right now, for example while an agent is working. */
   restoreBlocked: string | undefined;
+  onOpenFile?: ((path: string) => void) | undefined;
 }) {
   const { dispatch } = useRuntime();
   const [openPath, setOpenPath] = useState<string>();
@@ -38,6 +44,7 @@ export const TurnChanges = memo(function TurnChanges({
   const [confirming, setConfirming] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState<string>();
+  const [viewing, setViewing] = useState<string>();
 
   const toggle = (path: string) => {
     if (openPath === path) {
@@ -98,16 +105,40 @@ export const TurnChanges = memo(function TurnChanges({
           const normalized = file.path.replaceAll("\\", "/");
           const slash = normalized.lastIndexOf("/");
           const label = kindLabel[file.kind];
+          const opens =
+            file.kind === "deleted"
+              ? undefined
+              : isImagePath(file.path)
+                ? "image"
+                : onOpenFile && isMarkdownPath(file.path)
+                  ? "file"
+                  : undefined;
           return (
             <li key={file.path} className={open ? "is-open" : undefined}>
               <button
                 type="button"
                 className="turn-file"
-                aria-expanded={open}
-                title={file.oldPath ? `${file.oldPath} to ${file.path}` : file.path}
-                onClick={() => toggle(file.path)}
+                {...(opens ? {} : { "aria-expanded": open })}
+                title={
+                  opens === "image"
+                    ? `View ${file.path}`
+                    : opens === "file"
+                      ? `Read ${file.path} in the Files panel`
+                      : file.oldPath
+                        ? `${file.oldPath} to ${file.path}`
+                        : file.path
+                }
+                onClick={() => {
+                  if (opens === "image") setViewing(file.path);
+                  else if (opens === "file") onOpenFile?.(file.path);
+                  else toggle(file.path);
+                }}
               >
-                <Icon name="chevronRight" size={11} className="turn-file-chevron" />
+                <Icon
+                  name={opens === "image" ? "image" : opens === "file" ? "fileText" : "chevronRight"}
+                  size={11}
+                  className={opens ? "turn-file-icon" : "turn-file-chevron"}
+                />
                 <span className="turn-file-path">
                   <span className={`turn-file-name${file.kind === "deleted" ? " is-deleted" : ""}`}>
                     {normalized.slice(slash + 1)}
@@ -132,6 +163,7 @@ export const TurnChanges = memo(function TurnChanges({
           {error}
         </p>
       ) : null}
+      {viewing ? <ImageViewer source={{ path: viewing }} onClose={() => setViewing(undefined)} /> : null}
       {confirming ? (
         <RestoreDialog
           checkpoint={checkpoint}
