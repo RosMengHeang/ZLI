@@ -690,3 +690,54 @@ describe("ProviderReactor usage", () => {
     service.dispose();
   });
 });
+
+describe("ProviderReactor accounts", () => {
+  it("starts the thread's agent with its account and keeps the account on the thread", async () => {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const asked: Array<string | undefined> = [];
+    const reactor = new ProviderReactor(engine, service, undefined, {
+      resolveAccount: async (_provider, accountId) => {
+        asked.push(accountId);
+        return accountId ? { accountId, env: { CODEX_HOME: "/zli/accounts/work" } } : undefined;
+      },
+    });
+    let sequence = 0;
+    const dispatch = (command: Parameters<Engine["dispatchPromise"]>[0]["command"]) => {
+      sequence += 1;
+      return engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`30000000-0000-4000-8000-0000000009${String(sequence).padStart(2, "0")}`),
+        command,
+      });
+    };
+    await dispatch({ type: "project.register", path: "C:\\workspace\\accounts" });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    await dispatch({
+      type: "worktree.create",
+      worktreeId,
+      projectId: ProjectId.parse(project.projectId),
+      path: "C:\\workspace\\accounts-tree",
+      workspaceRoot: "C:\\workspace",
+      branch: "feature/accounts",
+    });
+    await dispatch({
+      type: "thread.start",
+      threadId,
+      worktreeId,
+      provider: "codex",
+      cwd: "C:\\workspace\\accounts-tree",
+      accountId: "work",
+    });
+    await reactor.waitForIdle();
+
+    expect(asked).toEqual(["work"]);
+    expect(adapter.startInputs[0]?.account).toEqual({ accountId: "work", env: { CODEX_HOME: "/zli/accounts/work" } });
+    expect((await engine.projection()).threads[0]?.accountId).toBe("work");
+    reactor.stop();
+  });
+});

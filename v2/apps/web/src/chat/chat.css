@@ -166,6 +166,8 @@ button.step-row:hover:not(:disabled) { background: var(--zli-hover); }
 .turn-diff-line.is-meta { color: var(--zli-dim); }
 .turn-diff-num { flex: 0 0 auto; width: 4.5ch; padding-right: 1ch; color: var(--zli-dim); opacity: .7; text-align: right; user-select: none; font-variant-numeric: tabular-nums; }
 .turn-diff-text { flex: 1 0 auto; padding-left: var(--zli-space-1); white-space: pre; }
+.turn-diff-review > .review-diff-panel { margin: var(--zli-space-1) 0 var(--zli-space-1-5); }
+.turn-diff-review .review-diff { max-height: 360px; }
 .turn-diff-note { display: flex; align-items: center; gap: var(--zli-space-2); margin: var(--zli-space-1) var(--zli-space-1-5) var(--zli-space-1-5); color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .turn-restore-note { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 

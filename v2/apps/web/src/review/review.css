@@ -89,7 +89,21 @@
 .pr-check.is-pending > svg { color: var(--zli-amber); }
 .pr-check.is-skipped > svg { color: var(--zli-dim); }
 .pr-check-name { min-width: 0; flex: 1; overflow: hidden; font-family: var(--zli-mono); text-overflow: ellipsis; white-space: nowrap; }
-.send-preview-loading { display: flex; align-items: center; gap: var(--zli-space-2); }
+.pr-comments { display: flex; min-width: 0; flex: 1 0 100%; flex-direction: column; gap: var(--zli-space-1); }
+.pr-comments-header { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); }
+.pr-comments-status { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.pr-comments-status.is-problem > svg { flex: 0 0 auto; color: var(--zli-amber); }
+.pr-comment-list { display: flex; max-height: 240px; flex-direction: column; margin: 0; padding: 0; overflow: auto; list-style: none; }
+.pr-comment { display: flex; min-width: 0; align-items: flex-start; gap: var(--zli-space-2); padding: var(--zli-space-1-5) 0; }
+.pr-comment + .pr-comment { border-top: 1px solid var(--zli-border); }
+.pr-comment > input { flex: 0 0 auto; margin: 3px 0 0; accent-color: var(--zli-accent); }
+.pr-comment-main { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.pr-comment-head { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); }
+.pr-comment-location { min-width: 0; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.pr-comment-location.is-mono { font-family: var(--zli-mono); }
+.pr-comment-body { display: -webkit-box; margin: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; white-space: pre-wrap; }
+.pr-comment-author { color: var(--zli-text); font-weight: 600; }
+.pr-comment-replies { color: var(--zli-dim); font-size: var(--zli-text-2xs); }.send-preview-loading { display: flex; align-items: center; gap: var(--zli-space-2); }
 .review-pr-state { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-muted); font-size: var(--zli-text-sm); }
 .review-pr-state > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-pr-state > svg { flex: 0 0 auto; color: var(--zli-dim); }

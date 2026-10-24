@@ -1,6 +1,7 @@
-import type { RuntimeProjection, ThreadUsageRecord } from "@zli-v2/contracts";
+import type { Account, RuntimeProjection, ThreadUsageRecord } from "@zli-v2/contracts";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 
+import { accountLabel } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
 import { useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { relativeTime } from "../sessions/sessions.js";
@@ -32,10 +33,12 @@ const periodOptions: readonly SegmentedOption<UsagePeriod>[] = usagePeriods.map(
 type Props = {
   projection: RuntimeProjection | undefined;
   initialProjectId?: string | undefined;
+  /** Saved accounts, to name the per-account rows. Undefined until they load. */
+  accounts?: readonly Account[] | undefined;
   onClose(): void;
 };
 
-export function UsageDialog({ projection, initialProjectId, onClose }: Props) {
+export function UsageDialog({ projection, initialProjectId, accounts, onClose }: Props) {
   // The shell projection skips usage updates, so the dialog reads them from the store itself.
   const records = useRuntimeSelector(useCallback((value: RuntimeProjection | undefined) => value?.usage ?? EMPTY, []));
   const messages = useRuntimeSelector(useCallback((value: RuntimeProjection | undefined) => value?.messages, []));
@@ -50,7 +53,10 @@ export function UsageDialog({ projection, initialProjectId, onClose }: Props) {
   const agents = useMemo(() => groupUsage(visible, "provider"), [visible]);
   const chats = useMemo(() => groupUsage(visible, "thread").slice(0, MAX_CHAT_ROWS), [visible]);
   const providerName = (provider: string) => providerDisplayName(provider, projection?.providers);
-  const silentOnCost = agents.filter((group) => group.totals.costedTurns === 0).map((group) => group.provider);
+  // One provider can have a row per account; it is silent only when none of them reported a cost.
+  const silentOnCost = [...new Set(agents.map((group) => group.provider))].filter((provider) =>
+    agents.every((group) => group.provider !== provider || group.totals.costedTurns === 0),
+  );
   const titles = useMemo(() => chatTitles(messages), [messages]);
   const liveThreads = new Set<string>(projection?.threads.map((thread) => thread.threadId));
   const projectName = (id: string | undefined) => projects.find((project) => project.projectId === id)?.name;
@@ -110,6 +116,9 @@ export function UsageDialog({ projection, initialProjectId, onClose }: Props) {
                   <span className="usage-name">
                     <ProviderMark provider={group.provider} size={14} />
                     {providerName(group.provider)}
+                    {group.accountId ? (
+                      <span className="usage-account">{accountLabel(accounts, group.accountId) ?? "Account"}</span>
+                    ) : null}
                   </span>
                 )}
               />

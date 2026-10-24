@@ -1,5 +1,6 @@
 import {
   PullRequestCheckLogResult,
+  PullRequestCommentsResult,
   PullRequestCreateResult,
   PullRequestPushResult,
   PullRequestStatusResult,
@@ -49,6 +50,14 @@ export function readCheckLog(dispatch: Dispatch, worktreeId: string, url: string
     dispatch,
     { type: "review.pr.checkLog", worktreeId: WorktreeId.parse(worktreeId), url },
     PullRequestCheckLogResult,
+  );
+}
+
+export function readReviewComments(dispatch: Dispatch, worktreeId: string): Promise<PullRequestCommentsResult> {
+  return request(
+    dispatch,
+    { type: "review.pr.comments", worktreeId: WorktreeId.parse(worktreeId) },
+    PullRequestCommentsResult,
   );
 }
 

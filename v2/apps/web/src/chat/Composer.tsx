@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 
+import { usePluginContributions } from "../plugins/plugins.js";
 import { PromptList, usePromptPicker } from "../prompts/PromptPicker.js";
 import { combinePrompts, requestPromptManager, slashQuery, usePersonalPrompts } from "../prompts/prompts.js";
 import { useSharedPrompts } from "../prompts/useSharedPrompts.js";
@@ -157,9 +158,10 @@ export function Composer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const personalPrompts = usePersonalPrompts();
   const sharedPrompts = useSharedPrompts(projectId);
+  const pluginPrompts = usePluginContributions(slashQuery(draft) !== undefined).prompts;
   const prompts = useMemo(
-    () => combinePrompts(sharedPrompts.prompts, personalPrompts),
-    [sharedPrompts.prompts, personalPrompts],
+    () => combinePrompts(sharedPrompts.prompts, personalPrompts, pluginPrompts),
+    [sharedPrompts.prompts, personalPrompts, pluginPrompts],
   );
   const picker = usePromptPicker({ draft, setDraft, prompts });
   const imagesRef = useRef(images);

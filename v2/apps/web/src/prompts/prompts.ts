@@ -1,4 +1,4 @@
-import type { SharedPrompt } from "@zli-v2/contracts";
+import type { PluginPrompt, SharedPrompt } from "@zli-v2/contracts";
 import { useSyncExternalStore } from "react";
 
 const STORAGE_KEY = "zli.prompts.v1";
@@ -9,7 +9,12 @@ export const MAX_PROMPT_TEXT = 20_000;
 /** Saved on this computer only. Shared prompts come from the project's zli.json. */
 export type PersonalPrompt = { id: string; name: string; prompt: string };
 
-export type SavedPrompt = { key: string; name: string; prompt: string; source: "shared" | "personal" };
+export type SavedPrompt = {
+  key: string;
+  name: string;
+  prompt: string;
+  source: "shared" | "personal" | "plugin";
+};
 
 export function parsePersonalPrompts(raw: string | null): PersonalPrompt[] {
   if (!raw) return [];
@@ -96,8 +101,15 @@ export function deletePersonalPrompt(id: string): void {
   write(read().filter((entry) => entry.id !== id));
 }
 
-/** Shared prompts first, in zli.json order, then personal ones in the order they were saved. */
-export function combinePrompts(shared: readonly SharedPrompt[], personal: readonly PersonalPrompt[]): SavedPrompt[] {
+/**
+ * Shared prompts first, in zli.json order, then personal ones in the order they were saved, then plugin
+ * prompts named plugin:prompt as Claude Code shows them.
+ */
+export function combinePrompts(
+  shared: readonly SharedPrompt[],
+  personal: readonly PersonalPrompt[],
+  plugin: readonly PluginPrompt[] = [],
+): SavedPrompt[] {
   return [
     ...shared.map((entry, index) => ({
       key: `shared:${index}`,
@@ -110,6 +122,12 @@ export function combinePrompts(shared: readonly SharedPrompt[], personal: readon
       name: entry.name,
       prompt: entry.prompt,
       source: "personal" as const,
+    })),
+    ...plugin.map((entry) => ({
+      key: `plugin:${entry.plugin}:${entry.name}`,
+      name: `${entry.plugin}:${entry.name}`,
+      prompt: entry.prompt,
+      source: "plugin" as const,
     })),
   ];
 }

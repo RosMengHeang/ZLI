@@ -4,7 +4,13 @@ import { join } from "node:path";
 
 import type { ProviderCapabilities, ThreadId } from "@zli-v2/contracts";
 
-import type { ProviderAdapter, ProviderEvent, ProviderKind, ProviderSession } from "./ProviderService.js";
+import type {
+  ProviderAccount,
+  ProviderAdapter,
+  ProviderEvent,
+  ProviderKind,
+  ProviderSession,
+} from "./ProviderService.js";
 
 /**
  * Deterministic provider used only by the Electron integration harness.
@@ -25,8 +31,10 @@ export class MockProviderAdapter implements ProviderAdapter {
   /** Turns paused on an approval or question, finished once the person answers. */
   private readonly pausedTurns = new Map<string, string>();
   private readonly listeners = new Set<(event: ProviderEvent) => void>();
+  /** Names of the variables each session's account set, so the harness can see which account a chat used. */
+  private readonly accountEnv = new Map<string, string[]>();
 
-  async startSession(input: { threadId: ThreadId; cwd: string }): Promise<ProviderSession> {
+  async startSession(input: { threadId: ThreadId; cwd: string; account?: ProviderAccount }): Promise<ProviderSession> {
     const session: ProviderSession = {
       threadId: input.threadId,
       provider: this.provider,
@@ -35,6 +43,7 @@ export class MockProviderAdapter implements ProviderAdapter {
     };
     this.sessions.set(input.threadId, session);
     this.turns.set(input.threadId, []);
+    this.accountEnv.set(input.threadId, Object.keys(input.account?.env ?? {}).sort());
     return session;
   }
 
@@ -109,6 +118,15 @@ export class MockProviderAdapter implements ProviderAdapter {
         });
       }
       this.emit({ type: "assistant.delta", threadId: input.threadId, turnId, text: `Mock response: ${input.text}` });
+      if (input.text.includes("[account]")) {
+        const names = this.accountEnv.get(input.threadId) ?? [];
+        this.emit({
+          type: "assistant.delta",
+          threadId: input.threadId,
+          turnId,
+          text: `\n\nAccount environment: ${names.length > 0 ? names.join(", ") : "none"}`,
+        });
+      }
       if (input.text.includes("[html]")) {
         this.emit({
           type: "assistant.delta",
@@ -157,6 +175,7 @@ export class MockProviderAdapter implements ProviderAdapter {
   async stopSession(input: { threadId: ThreadId }): Promise<void> {
     this.context(input.threadId);
     this.sessions.delete(input.threadId);
+    this.accountEnv.delete(input.threadId);
   }
 
   listSessions(): ReadonlyArray<ProviderSession> {

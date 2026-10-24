@@ -55,6 +55,7 @@ export function AgentTile({
   onHandoff,
   run,
   onStartRuns,
+  accountLabel,
 }: {
   projection: RuntimeProjection;
   session: AgentSession;
@@ -77,6 +78,8 @@ export function AgentTile({
   /** Where this agent sits in a best-of run that is still being compared. */
   run?: RunPosition | undefined;
   onStartRuns?: ((request: StartRunsRequest) => Promise<string | undefined>) | undefined;
+  /** Shown only when the agent runs under a saved account rather than the usual login. */
+  accountLabel?: string | undefined;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
@@ -137,6 +140,12 @@ export function AgentTile({
           <Icon name="branch" size={11} />
           <span>{branch}</span>
         </span>
+        {accountLabel ? (
+          <span className="tile-account" title={`Account: ${accountLabel}`}>
+            <Icon name="user" size={11} />
+            <span>{accountLabel}</span>
+          </span>
+        ) : null}
         {run ? (
           <span className="tile-run" title={`Run ${run.index} of ${run.count} for ${run.group.label}`}>
             Run {run.index}

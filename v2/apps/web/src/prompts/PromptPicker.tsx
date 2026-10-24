@@ -119,7 +119,11 @@ export function PromptList({
               <div key={entry.key}>
                 {startsGroup ? (
                   <p className="prompt-group" aria-hidden="true">
-                    {entry.source === "shared" ? "Shared in zli.json" : "Personal"}
+                    {entry.source === "shared"
+                      ? "Shared in zli.json"
+                      : entry.source === "plugin"
+                        ? "From plugins"
+                        : "Personal"}
                   </p>
                 ) : null}
                 {/* biome-ignore lint/a11y/useKeyWithClickEvents: the text box handles the keyboard for the list. */}

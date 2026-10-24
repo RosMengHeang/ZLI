@@ -153,6 +153,21 @@ describe("mcpLaunchArgs", () => {
     ]);
   });
 
+  it("passes remote servers by URL, skipping Goose ones that need headers", () => {
+    const figma = { transport: "http" as const, name: "figma", url: "http://127.0.0.1:3845/mcp", headers: {} };
+    const linear = {
+      ...figma,
+      name: "linear",
+      url: "https://mcp.linear.app/mcp",
+      headers: { Authorization: "Bearer t" },
+    };
+    expect(mcpLaunchArgs("goose", { specs: [figma, linear] }, "linux")).toEqual([
+      "--with-streamable-http-extension",
+      figma.url,
+    ]);
+    expect(mcpLaunchArgs("codex", { specs: [linear] })).toEqual(codexMcpArgs(linear));
+  });
+
   it("adds nothing for CLIs that read user settings or the environment, or when the config file is missing", () => {
     for (const provider of ["droid", "opencode", "gemini", "kimi", "qwen"] as const) {
       expect(mcpLaunchArgs(provider, { specs })).toEqual([]);

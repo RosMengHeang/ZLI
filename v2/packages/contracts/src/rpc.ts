@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AccountCommand } from "./accounts.js";
 import { BrowserTabProjection } from "./browser.js";
 import { CheckpointCommand, ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
@@ -6,6 +7,7 @@ import { DesktopAppInfo, DiagnosticLog } from "./diagnostics.js";
 import { RuntimeEventEnvelope } from "./events.js";
 import { FileCommand } from "./files.js";
 import {
+  AccountId,
   BrowserTabId,
   CommandId,
   EnvironmentId,
@@ -17,7 +19,9 @@ import {
   WorktreeId,
 } from "./ids.js";
 import { LegacyImportPreview } from "./import.js";
+import { IssueCommand } from "./issues.js";
 import { McpCommand } from "./mcp.js";
+import { PluginCommand } from "./plugins.js";
 import { SetupDecision, WorktreeSetupProjection } from "./projectConfig.js";
 import {
   EnvironmentDescriptor,
@@ -38,6 +42,7 @@ import {
 } from "./provider.js";
 import { PullRequestCommand } from "./pullRequest.js";
 import { ReviewProjection } from "./review.js";
+import { SkillCommand } from "./skills.js";
 import { TerminalAgentLaunch, TerminalAttachSnapshot, TerminalProjection, TerminalStreamMessage } from "./terminal.js";
 
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
@@ -130,6 +135,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     permissionMode: PermissionMode.optional(),
     model: z.string().min(1).max(200).optional(),
     sessionId: SessionId.optional(),
+    /** Omitted runs the provider's default account. */
+    accountId: AccountId.optional(),
   }),
   z.object({
     type: z.literal("thread.send"),
@@ -247,6 +254,10 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   ...PullRequestCommand.options,
   ...CheckpointCommand.options,
   ...McpCommand.options,
+  ...IssueCommand.options,
+  ...SkillCommand.options,
+  ...PluginCommand.options,
+  ...AccountCommand.options,
   /** Reported by the runtime while it copies files and runs zli.json setup in a new worktree. */
   z.object({ type: z.literal("worktree.setup"), setup: WorktreeSetupProjection }),
   /** The person's answer to running zli.json setup commands; the hash pins the exact list they saw. */

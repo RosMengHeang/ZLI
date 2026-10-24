@@ -24,6 +24,7 @@ export type PendingLaunch = {
   mode: SessionMode;
   model?: string;
   permissionMode?: PermissionMode;
+  accountId?: string;
   shareWorktree?: boolean;
   createdAt: string;
   errorMessage?: string;

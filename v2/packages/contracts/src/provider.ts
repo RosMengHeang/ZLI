@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { ProjectId, SessionId, ThreadId, TurnId, WorktreeId } from "./ids.js";
+import { AccountId, ProjectId, SessionId, ThreadId, TurnId, WorktreeId } from "./ids.js";
 
 export const ProviderKind = z.enum([
   "codex",
@@ -71,6 +71,8 @@ export const ThreadProjection = z.object({
   permissionMode: PermissionMode.optional(),
   model: z.string().min(1).max(200).optional(),
   sessionId: SessionId.optional(),
+  /** The account the agent runs under. Threads from before accounts existed have none. */
+  accountId: AccountId.optional(),
   createdAt: z.string().datetime({ offset: true }).optional(),
   updatedAt: z.string().datetime({ offset: true }).optional(),
 });
@@ -165,6 +167,7 @@ export const ThreadUsageRecord = z.object({
   provider: z.string().min(1),
   projectId: ProjectId.optional(),
   model: z.string().min(1).max(200).optional(),
+  accountId: AccountId.optional(),
   recordedAt: z.string().datetime({ offset: true }).optional(),
   usage: TurnUsage,
 });

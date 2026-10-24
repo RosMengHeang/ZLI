@@ -122,3 +122,54 @@ describe("codexUserInputAnswers", () => {
     });
   });
 });
+
+describe("CodexProviderAdapter accounts", () => {
+  it("runs each account on its own app server and closes it when its last thread stops", async () => {
+    const created: Array<{ accountId: string | undefined; client: FakeClient }> = [];
+    const adapter = new CodexProviderAdapter({
+      createClient: async ({ account }) => {
+        const client = new FakeClient();
+        created.push({ accountId: account?.accountId, client });
+        return client;
+      },
+    });
+    const work = { accountId: "work", env: { CODEX_HOME: "/zli/accounts/work" } };
+    const second = ThreadId.parse("00000000-0000-4000-8000-000000000702");
+    const third = ThreadId.parse("00000000-0000-4000-8000-000000000703");
+    await adapter.startSession({ threadId, cwd: "/tree" });
+    await adapter.startSession({ threadId: second, cwd: "/tree", account: work });
+    await adapter.startSession({ threadId: third, cwd: "/tree", account: work });
+    expect(created.map((entry) => entry.accountId)).toEqual([undefined, "work"]);
+
+    await adapter.sendTurn({ threadId: second, text: "hi" });
+    expect(created[1]?.client.calls.map((call) => call.method)).toEqual(["start", "start", "turn"]);
+    expect(created[0]?.client.calls.map((call) => call.method)).toEqual(["start"]);
+
+    await adapter.stopSession({ threadId: second });
+    expect(created[1]?.client.calls.map((call) => call.method)).not.toContain("close");
+    await adapter.stopSession({ threadId: third });
+    expect(created[1]?.client.calls.at(-1)?.method).toBe("close");
+    await adapter.stopSession({ threadId });
+    expect(created[0]?.client.calls.map((call) => call.method)).not.toContain("close");
+  });
+
+  it("closes only the sessions of the app server that exited", async () => {
+    const clients: FakeClient[] = [];
+    const adapter = new CodexProviderAdapter({
+      createClient: async () => {
+        const client = new FakeClient();
+        clients.push(client);
+        return client;
+      },
+    });
+    const events: ProviderEvent[] = [];
+    adapter.subscribe((event) => events.push(event));
+    const second = ThreadId.parse("00000000-0000-4000-8000-000000000704");
+    await adapter.startSession({ threadId, cwd: "/tree" });
+    await adapter.startSession({ threadId: second, cwd: "/tree", account: { accountId: "work", env: {} } });
+    clients[1]?.emit({ type: "session.closed", reason: "exited" } as CodexProviderEvent);
+    expect(events).toEqual([{ type: "session.closed", threadId: second, reason: "exited" }]);
+    expect(adapter.hasSession({ threadId })).toBe(true);
+    expect(adapter.hasSession({ threadId: second })).toBe(false);
+  });
+});

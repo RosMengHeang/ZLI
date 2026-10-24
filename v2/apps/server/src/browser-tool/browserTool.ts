@@ -21,12 +21,32 @@ export type BrowserToolConfig = {
   mcpConfigDir: string;
 };
 
-export type McpServerSpec = {
+/** A server the agent starts as a process. ZLI's own specs and older callers leave out the transport. */
+export type McpStdioServerSpec = {
+  transport?: "stdio";
   name: string;
   command: string;
   args: string[];
   env: Record<string, string>;
 };
+
+/** A remote server the agent reaches over streamable HTTP. */
+export type McpHttpServerSpec = {
+  transport: "http";
+  name: string;
+  url: string;
+  headers: Record<string, string>;
+};
+
+export type McpServerSpec = McpStdioServerSpec | McpHttpServerSpec;
+
+export function isHttpSpec(spec: McpServerSpec): spec is McpHttpServerSpec {
+  return spec.transport === "http";
+}
+
+function headersField(headers: Record<string, string>): { headers?: Record<string, string> } {
+  return Object.keys(headers).length > 0 ? { headers: { ...headers } } : {};
+}
 
 /** Undefined unless the desktop shell passed every browser tool path, so tests and CLI runs inject nothing. */
 export function browserToolConfigFromEnv(env: NodeJS.ProcessEnv = process.env): BrowserToolConfig | undefined {
@@ -48,7 +68,7 @@ export function browserToolConfigFromEnv(env: NodeJS.ProcessEnv = process.env): 
 }
 
 /** Global registrations omit the worktree id; the tool then resolves the worktree from its cwd. */
-export function mcpServerSpec(config: BrowserToolConfig, worktreeId?: string): McpServerSpec {
+export function mcpServerSpec(config: BrowserToolConfig, worktreeId?: string): McpStdioServerSpec {
   return {
     name: BROWSER_MCP_SERVER,
     command: config.command,
@@ -61,13 +81,13 @@ export function mcpServerSpec(config: BrowserToolConfig, worktreeId?: string): M
   };
 }
 
-export function agentMcpServerSpec(config: BrowserToolConfig, worktreeId?: string): McpServerSpec | undefined {
+export function agentMcpServerSpec(config: BrowserToolConfig, worktreeId?: string): McpStdioServerSpec | undefined {
   if (!config.agentScript) return undefined;
   return { ...mcpServerSpec(config, worktreeId), name: AGENT_MCP_SERVER, args: [config.agentScript, "mcp"] };
 }
 
 /** Every MCP server ZLI itself provides: the browser, and the agent tool when it was bundled. */
-export function zliMcpServerSpecs(config: BrowserToolConfig, worktreeId?: string): McpServerSpec[] {
+export function zliMcpServerSpecs(config: BrowserToolConfig, worktreeId?: string): McpStdioServerSpec[] {
   const agent = agentMcpServerSpec(config, worktreeId);
   return [mcpServerSpec(config, worktreeId), ...(agent ? [agent] : [])];
 }
@@ -121,13 +141,20 @@ export function agentEnv(
   return { ...browserToolEnv(config, worktreeId), [key]: path };
 }
 
-/** ACP stdio McpServer, where env is a list of name/value pairs. */
-export function acpMcpServer(spec: McpServerSpec): {
-  name: string;
-  command: string;
-  args: string[];
-  env: Array<{ name: string; value: string }>;
-} {
+export type AcpMcpServerEntry =
+  | { name: string; command: string; args: string[]; env: Array<{ name: string; value: string }> }
+  | { type: "http"; name: string; url: string; headers: Array<{ name: string; value: string }> };
+
+/** ACP McpServer, where env and headers are lists of name/value pairs. */
+export function acpMcpServer(spec: McpServerSpec): AcpMcpServerEntry {
+  if (isHttpSpec(spec)) {
+    return {
+      type: "http",
+      name: spec.name,
+      url: spec.url,
+      headers: Object.entries(spec.headers).map(([name, value]) => ({ name, value })),
+    };
+  }
   return {
     name: spec.name,
     command: spec.command,
@@ -145,7 +172,9 @@ export function claudeMcpConfig(specs: McpServerSpec | readonly McpServerSpec[])
   const mcpServers = Object.fromEntries(
     specList(specs).map((spec) => [
       spec.name,
-      { type: "stdio", command: spec.command, args: spec.args, env: spec.env },
+      isHttpSpec(spec)
+        ? { type: "http", url: spec.url, ...headersField(spec.headers) }
+        : { type: "stdio", command: spec.command, args: spec.args, env: spec.env },
     ]),
   );
   return `${JSON.stringify({ mcpServers }, null, 2)}\n`;
@@ -156,7 +185,9 @@ export function copilotMcpConfig(specs: McpServerSpec | readonly McpServerSpec[]
   const mcpServers = Object.fromEntries(
     specList(specs).map((spec) => [
       spec.name,
-      { type: "local", command: spec.command, args: spec.args, env: spec.env, tools: ["*"] },
+      isHttpSpec(spec)
+        ? { type: "http", url: spec.url, ...headersField(spec.headers), tools: ["*"] }
+        : { type: "local", command: spec.command, args: spec.args, env: spec.env, tools: ["*"] },
     ]),
   );
   return `${JSON.stringify({ mcpServers }, null, 2)}\n`;
@@ -183,6 +214,14 @@ export function tomlInlineTable(values: Record<string, string>): string {
 /** Codex `-c` overrides that add the server for one process without touching ~/.codex/config.toml. */
 export function codexMcpArgs(spec: McpServerSpec): string[] {
   const prefix = `mcp_servers.${tomlKey(spec.name)}`;
+  if (isHttpSpec(spec)) {
+    const headers = Object.keys(spec.headers).length > 0;
+    return [
+      "-c",
+      `${prefix}.url=${tomlString(spec.url)}`,
+      ...(headers ? ["-c", `${prefix}.http_headers=${tomlInlineTable(spec.headers)}`] : []),
+    ];
+  }
   return [
     "-c",
     `${prefix}.command=${tomlString(spec.command)}`,
@@ -194,12 +233,16 @@ export function codexMcpArgs(spec: McpServerSpec): string[] {
 }
 
 /** Per-thread Codex config override that gives one app-server thread its worktree id. */
-export function codexThreadConfig(spec: McpServerSpec): Record<string, unknown> {
+export function codexThreadConfig(spec: McpStdioServerSpec): Record<string, unknown> {
   return { [`mcp_servers.${spec.name}.env`]: { ...spec.env } };
 }
 
 /** Per-thread Codex config override that adds a whole server, so edits apply to the next thread. */
 export function codexServerConfig(spec: McpServerSpec): Record<string, unknown> {
+  if (isHttpSpec(spec)) {
+    const headers = Object.keys(spec.headers).length > 0 ? { http_headers: { ...spec.headers } } : {};
+    return { [`mcp_servers.${spec.name}`]: { url: spec.url, ...headers } };
+  }
   return { [`mcp_servers.${spec.name}`]: { command: spec.command, args: [...spec.args], env: { ...spec.env } } };
 }
 
@@ -222,7 +265,9 @@ export function opencodeConfigContent(
   const added = Object.fromEntries(
     specList(specs).map((spec) => [
       spec.name,
-      { type: "local", command: [spec.command, ...spec.args], environment: spec.env, enabled: true },
+      isHttpSpec(spec)
+        ? { type: "remote", url: spec.url, ...headersField(spec.headers), enabled: true }
+        : { type: "local", command: [spec.command, ...spec.args], environment: spec.env, enabled: true },
     ]),
   );
   return JSON.stringify({ ...base, mcp: { ...mcp, ...added } });
@@ -232,7 +277,7 @@ export function opencodeConfigContent(
  * Goose `--with-extension` value: leading KEY=VALUE environment assignments, then the command line.
  * Windows paths use forward slashes because a POSIX-style word splitter would eat backslashes.
  */
-export function gooseExtension(spec: McpServerSpec, platform: NodeJS.Platform = process.platform): string {
+export function gooseExtension(spec: McpStdioServerSpec, platform: NodeJS.Platform = process.platform): string {
   const word = (value: string) => {
     const normalized = platform === "win32" ? value.replace(/\\/gu, "/") : value;
     return /^[A-Za-z0-9_\-./:@+=,]+$/u.test(normalized) ? normalized : `'${normalized.replace(/'/gu, `'\\''`)}'`;
@@ -241,16 +286,28 @@ export function gooseExtension(spec: McpServerSpec, platform: NodeJS.Platform = 
   return [...assignments, word(spec.command), ...spec.args.map(word)].join(" ");
 }
 
+/**
+ * Goose flags for one server. Its streamable HTTP flag takes only a URL, so remote servers that need
+ * headers are left out; with sign-in (OAuth) they arrive as a stdio bridge instead.
+ */
+export function gooseMcpArgs(spec: McpServerSpec, platform: NodeJS.Platform = process.platform): string[] {
+  if (!isHttpSpec(spec)) return ["--with-extension", gooseExtension(spec, platform)];
+  return Object.keys(spec.headers).length === 0 ? ["--with-streamable-http-extension", spec.url] : [];
+}
+
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Writes through a temp file and rename so a reader never sees a half-written file. */
-export async function writeFileAtomic(path: string, contents: string): Promise<void> {
+export async function writeFileAtomic(path: string, contents: string, options: { mode?: number } = {}): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   try {
-    await writeFile(temp, contents, "utf8");
+    await writeFile(temp, contents, {
+      encoding: "utf8",
+      ...(options.mode === undefined ? {} : { mode: options.mode }),
+    });
     await rename(temp, path);
   } catch (error) {
     await rm(temp, { force: true }).catch(() => undefined);
@@ -259,13 +316,17 @@ export async function writeFileAtomic(path: string, contents: string): Promise<v
 }
 
 /** Writes only when the contents differ, so launches that share a file do not rewrite it. */
-export async function writeFileIfChanged(path: string, contents: string): Promise<void> {
+export async function writeFileIfChanged(
+  path: string,
+  contents: string,
+  options: { mode?: number } = {},
+): Promise<void> {
   try {
     if ((await readFile(path, "utf8")) === contents) return;
   } catch {
     // Missing or unreadable: write it.
   }
-  await writeFileAtomic(path, contents);
+  await writeFileAtomic(path, contents, options);
 }
 
 export type McpConfigFileKind = "claude" | "copilot";
@@ -279,7 +340,10 @@ export async function writeAgentMcpConfig(
 ): Promise<string> {
   const key = (worktreeId ?? "shared").replace(/[^A-Za-z0-9_-]/gu, "_");
   const path = join(dir, `${kind}-${key}.json`);
-  await writeFileIfChanged(path, kind === "claude" ? claudeMcpConfig(specs) : copilotMcpConfig(specs));
+  // Holds server env values and headers, which are often tokens.
+  await writeFileIfChanged(path, kind === "claude" ? claudeMcpConfig(specs) : copilotMcpConfig(specs), {
+    mode: 0o600,
+  });
   return path;
 }
 

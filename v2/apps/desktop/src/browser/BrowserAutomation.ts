@@ -1,3 +1,5 @@
+import { CANCEL_DESIGN_PICKER_SCRIPT, DESIGN_PICKER_SCRIPT, SELECTOR_FOR_SOURCE } from "./DesignPicker.js";
+
 const MAX_RESULT_BYTES = 8 * 1024 * 1024;
 const MAX_DIAGNOSTIC_ENTRIES = 500;
 const MAX_DIAGNOSTIC_ENTRY_BYTES = 16 * 1024;
@@ -7,6 +9,32 @@ const MAX_EVALUATE_RESULT_CHARS = 100_000;
 const INPUT_TIMEOUT_MS = 5_000;
 const CAPTURE_TIMEOUT_MS = 5_000;
 const MAX_FULL_PAGE_HEIGHT = 16_384;
+const MAX_INSPECT_HTML_CHARS = 4_000;
+const INSPECT_STYLE_KEYS = [
+  "display",
+  "position",
+  "color",
+  "backgroundColor",
+  "fontSize",
+  "fontFamily",
+  "borderRadius",
+];
+/** Shown only when they differ from the browser default, so the summary stays short. */
+const INSPECT_EXTRA_STYLE_KEYS = [
+  "width",
+  "height",
+  "margin",
+  "padding",
+  "fontWeight",
+  "lineHeight",
+  "textAlign",
+  "border",
+  "boxShadow",
+  "opacity",
+  "gap",
+];
+const INSPECT_FLEX_STYLE_KEYS = ["flexDirection", "flexWrap", "justifyContent", "alignItems"];
+const INSPECT_GRID_STYLE_KEYS = ["gridTemplateColumns", "gridTemplateRows", "justifyItems", "alignItems"];
 
 const INTERACTIVE_SELECTOR = [
   "a[href]",
@@ -79,6 +107,11 @@ export type BrowserInspection = {
   readonly bounds?: { x: number; y: number; width: number; height: number };
   readonly url?: string;
   readonly sourceLocation?: unknown;
+  /** The element's markup, cut at 4,000 characters. */
+  readonly html?: string;
+  readonly htmlTruncated?: boolean;
+  /** The visible area, with the scroll offset that turns `bounds` into page coordinates. */
+  readonly viewport?: { width: number; height: number; pageX: number; pageY: number };
 };
 
 export type BrowserClickInput = { selector: string } | { text: string } | { x: number; y: number };
@@ -180,33 +213,7 @@ export class BrowserAutomation {
     await this.start();
     const value = await this.#evaluate(`(() => {
       const interactive = ${JSON.stringify(INTERACTIVE_SELECTOR)};
-      const unique = (selector) => { try { return document.querySelectorAll(selector).length === 1; } catch { return false; } };
-      const quote = (value) => '"' + value.replace(/["\\\\]/g, '\\\\$&') + '"';
-      const selectorFor = (element) => {
-        if (element.id && unique('#' + CSS.escape(element.id))) return '#' + CSS.escape(element.id);
-        const tag = element.localName;
-        for (const attribute of ['data-testid', 'data-test', 'data-cy', 'name', 'aria-label', 'placeholder']) {
-          const value = element.getAttribute(attribute);
-          if (value && value.length <= 120) {
-            const selector = tag + '[' + attribute + '=' + quote(value) + ']';
-            if (unique(selector)) return selector;
-          }
-        }
-        const parts = [];
-        let node = element;
-        while (node && node.nodeType === 1 && node !== document.documentElement) {
-          if (node !== element && node.id && unique('#' + CSS.escape(node.id))) { parts.unshift('#' + CSS.escape(node.id)); break; }
-          let part = node.localName;
-          const parent = node.parentElement;
-          if (parent) {
-            const siblings = Array.from(parent.children).filter((child) => child.localName === node.localName);
-            if (siblings.length > 1) part += ':nth-of-type(' + (siblings.indexOf(node) + 1) + ')';
-          }
-          parts.unshift(part);
-          node = parent;
-        }
-        return parts.join(' > ');
-      };
+      ${SELECTOR_FOR_SOURCE}
       const clean = (value) => (value || '').replace(/\\s+/g, ' ').trim();
       const elements = [];
       for (const element of document.querySelectorAll(interactive)) {
@@ -472,15 +479,26 @@ export class BrowserAutomation {
         const rect = element.getBoundingClientRect();
         const styles = getComputedStyle(element);
         const attributes = Object.fromEntries(Array.from(element.attributes).slice(0, 40).map((attribute) => [attribute.name, attribute.value.slice(0, 500)]));
+        const shownStyles = Object.fromEntries(${JSON.stringify(INSPECT_STYLE_KEYS)}.map((key) => [key, styles[key]]));
+        const quiet = ['', 'none', 'normal', 'auto', '0px', '1', 'start', 'rgba(0, 0, 0, 0)'];
+        const extra = [...${JSON.stringify(INSPECT_EXTRA_STYLE_KEYS)}, ...(styles.display.includes('flex') ? ${JSON.stringify(INSPECT_FLEX_STYLE_KEYS)} : []), ...(styles.display.includes('grid') ? ${JSON.stringify(INSPECT_GRID_STYLE_KEYS)} : [])];
+        for (const key of extra) {
+          const value = styles[key];
+          if (typeof value === 'string' && !quiet.includes(value) && !value.startsWith('0px none')) shownStyles[key] = value;
+        }
+        const html = element.outerHTML || '';
         return {
           tag: element.tagName.toLowerCase(),
           name: (element.getAttribute('aria-label') || element.textContent || element.getAttribute('name') || '').trim().slice(0, 500),
           text: (element.textContent || '').trim().slice(0, 2_000),
           attributes,
-          styles: Object.fromEntries(['display','position','color','backgroundColor','fontSize','fontFamily','borderRadius'].map((key) => [key, styles[key]])),
+          styles: shownStyles,
           ancestry: Array.from(element.parentElement ? [element.parentElement, element.parentElement.parentElement, element.parentElement.parentElement?.parentElement] : []).filter(Boolean).map((parent) => parent.tagName.toLowerCase()).slice(0, 4),
           bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
           url: location.href,
+          html: html.slice(0, ${MAX_INSPECT_HTML_CHARS}),
+          htmlTruncated: html.length > ${MAX_INSPECT_HTML_CHARS},
+          viewport: { width: innerWidth, height: innerHeight, pageX: visualViewport ? visualViewport.pageLeft : scrollX, pageY: visualViewport ? visualViewport.pageTop : scrollY },
         };
       })()`,
       returnByValue: true,
@@ -489,6 +507,34 @@ export class BrowserAutomation {
     if (!isRecord(value) || typeof value.tag !== "string" || typeof value.name !== "string")
       throw new Error("Element was not found.");
     return value as unknown as BrowserInspection;
+  }
+
+  /**
+   * Lets the person pick an element in the page and resolves with its selector, or null when the
+   * pick is cancelled, the page navigates away, or the tab closes.
+   */
+  async pickElement(): Promise<{ selector: string } | null> {
+    await this.start();
+    let response: unknown;
+    try {
+      response = await this.cdp.send("Runtime.evaluate", {
+        expression: DESIGN_PICKER_SCRIPT,
+        returnByValue: true,
+        awaitPromise: true,
+      });
+    } catch {
+      return null;
+    }
+    if (isRecord(response) && isRecord(response.exceptionDetails)) return null;
+    const value = extractValue(response);
+    return isRecord(value) && typeof value.selector === "string" && value.selector
+      ? { selector: value.selector }
+      : null;
+  }
+
+  async cancelPick(): Promise<void> {
+    await this.start();
+    await this.cdp.send("Runtime.evaluate", { expression: CANCEL_DESIGN_PICKER_SCRIPT, returnByValue: true });
   }
 
   consoleEntries(): readonly unknown[] {

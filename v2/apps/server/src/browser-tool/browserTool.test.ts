@@ -15,10 +15,13 @@ import {
   codexThreadConfig,
   copilotMcpConfig,
   gooseExtension,
+  gooseMcpArgs,
+  type McpHttpServerSpec,
   mcpServerSpec,
   opencodeConfigContent,
   pathKey,
   prependPath,
+  writeAgentMcpConfig,
   writeMcpConfigFile,
   zliMcpServerSpecs,
 } from "./browserTool.js";
@@ -265,6 +268,75 @@ describe("writeMcpConfigFile", () => {
     const copilot = await writeMcpConfigFile(local, "copilot", undefined);
     expect(copilot).toBe(join(dir, "mcp", "copilot-shared.json"));
     expect((await readdir(join(dir, "mcp"))).sort()).toEqual([`claude-${WORKTREE}.json`, "copilot-shared.json"]);
+  });
+});
+
+describe("remote (HTTP) servers", () => {
+  const linear: McpHttpServerSpec = {
+    transport: "http",
+    name: "linear",
+    url: "https://mcp.linear.app/mcp",
+    headers: { Authorization: "Bearer lin_123", "X-Team": "eng" },
+  };
+  const bare: McpHttpServerSpec = { transport: "http", name: "figma", url: "http://127.0.0.1:3845/mcp", headers: {} };
+
+  it("offers ACP agents the http shape with headers as name/value pairs", () => {
+    expect(acpMcpServer(linear)).toEqual({
+      type: "http",
+      name: "linear",
+      url: "https://mcp.linear.app/mcp",
+      headers: [
+        { name: "Authorization", value: "Bearer lin_123" },
+        { name: "X-Team", value: "eng" },
+      ],
+    });
+    expect(acpMcpServer(bare)).toMatchObject({ type: "http", headers: [] });
+  });
+
+  it("writes Claude Code, Copilot, and OpenCode entries in their own formats", () => {
+    expect(JSON.parse(claudeMcpConfig([linear, bare])).mcpServers).toEqual({
+      linear: { type: "http", url: linear.url, headers: linear.headers },
+      figma: { type: "http", url: bare.url },
+    });
+    expect(JSON.parse(copilotMcpConfig([linear, bare])).mcpServers).toEqual({
+      linear: { type: "http", url: linear.url, headers: linear.headers, tools: ["*"] },
+      figma: { type: "http", url: bare.url, tools: ["*"] },
+    });
+    expect(JSON.parse(opencodeConfigContent([linear, bare]) ?? "").mcp).toEqual({
+      linear: { type: "remote", url: linear.url, headers: linear.headers, enabled: true },
+      figma: { type: "remote", url: bare.url, enabled: true },
+    });
+  });
+
+  it("gives Codex the url and http_headers keys, as -c overrides and per thread", () => {
+    const args = codexMcpArgs(linear);
+    expect(args).toEqual([
+      "-c",
+      "mcp_servers.linear.url='https://mcp.linear.app/mcp'",
+      "-c",
+      "mcp_servers.linear.http_headers={ Authorization = 'Bearer lin_123', X-Team = 'eng' }",
+    ]);
+    expect(parseToml(args[3]?.split("=").slice(1).join("=") ?? "")).toEqual(linear.headers);
+    expect(codexMcpArgs(bare)).toEqual(["-c", "mcp_servers.figma.url='http://127.0.0.1:3845/mcp'"]);
+    expect(codexServerConfig(linear)).toEqual({
+      "mcp_servers.linear": { url: linear.url, http_headers: linear.headers },
+    });
+    expect(codexServerConfig(bare)).toEqual({ "mcp_servers.figma": { url: bare.url } });
+  });
+
+  it("uses Goose's streamable HTTP flag and leaves out servers that need headers", () => {
+    expect(gooseMcpArgs(bare)).toEqual(["--with-streamable-http-extension", bare.url]);
+    expect(gooseMcpArgs(linear)).toEqual([]);
+    const spec = mcpServerSpec(config, WORKTREE);
+    expect(gooseMcpArgs(spec, "linux")).toEqual(["--with-extension", gooseExtension(spec, "linux")]);
+  });
+
+  it("writes per-launch config files that only the owner can read", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "zli-mcp-"));
+    temps.push(dir);
+    const path = await writeAgentMcpConfig(dir, "claude", WORKTREE, [linear]);
+    expect(JSON.parse(await readFile(path, "utf8")).mcpServers.linear.headers).toEqual(linear.headers);
+    if (process.platform !== "win32") expect((await stat(path)).mode & 0o777).toBe(0o600);
   });
 });
 
