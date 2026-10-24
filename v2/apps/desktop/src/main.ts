@@ -81,6 +81,12 @@ let scratchFolderPath: string | undefined;
 /** Test launches record links instead of starting the system browser. */
 let lastExternalUrl: string | undefined;
 
+/** An icon from apps/desktop/build, which packaged builds carry next to dist. */
+function appIcon(name: string): string | undefined {
+  const path = resolve(DESKTOP_DIST, "..", "build", name);
+  return existsSync(path) ? path : undefined;
+}
+
 async function main(): Promise<void> {
   await app.whenReady();
   const rendererRoot = process.env.ZLI_RENDERER_ROOT ?? defaultRendererRoot();
@@ -128,7 +134,12 @@ async function main(): Promise<void> {
     BrowserWindow as unknown as BrowserWindowConstructor,
     join(DESKTOP_DIST, "preload.js"),
     APP_ORIGIN,
+    process.platform,
+    appIcon("icon-square.png"),
   );
+  // Packaged macOS builds take the dock icon from the bundle; a development launch would show Electron's.
+  const dockIcon = process.platform === "darwin" && !app.isPackaged ? appIcon("icon.png") : undefined;
+  if (dockIcon) app.dock?.setIcon(dockIcon);
   const electronWindow = window as unknown as BrowserWindow;
   mainWindow = electronWindow;
   await registerAgentNotifications({

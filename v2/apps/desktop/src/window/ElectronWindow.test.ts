@@ -47,6 +47,20 @@ describe("ElectronWindow", () => {
     expect(titleBarOptions("darwin")).toMatchObject({ titleBarStyle: "hiddenInset", titleBarOverlay: true });
   });
 
+  it("sets the window icon only when one is given", () => {
+    const created: Array<Record<string, unknown>> = [];
+    class FakeBrowserWindow {
+      webContents = { setWindowOpenHandler: () => undefined, on: () => undefined, reload: () => undefined };
+      constructor(options: Record<string, unknown>) {
+        created.push(options);
+      }
+    }
+    createMainWindow(FakeBrowserWindow, "/tmp/preload.js", "zli-v2://app", "linux", "/app/build/icon-square.png");
+    createMainWindow(FakeBrowserWindow, "/tmp/preload.js", "zli-v2://app", "linux");
+    expect(created[0]).toMatchObject({ icon: "/app/build/icon-square.png" });
+    expect(created[1]).not.toHaveProperty("icon");
+  });
+
   it("keeps frames inside the app window on inline documents", () => {
     let onFrameNavigate: ((event: { url: string; isMainFrame: boolean; preventDefault(): void }) => void) | undefined;
     const webContents = {
