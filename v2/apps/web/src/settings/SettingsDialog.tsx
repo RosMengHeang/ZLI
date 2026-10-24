@@ -32,6 +32,7 @@ import {
 import { IssuesSection } from "./IssuesSection.js";
 import { McpServersSection } from "./McpServersSection.js";
 import { SectionHeader, SettingRow } from "./SectionHeader.js";
+import { SkillsSection } from "./SkillsSection.js";
 import "./settings.css";
 
 export type SettingsSection =
@@ -40,6 +41,7 @@ export type SettingsSection =
   | "worktrees"
   | "files"
   | "mcp"
+  | "skills"
   | "issues"
   | "shortcuts"
   | "notifications"
@@ -51,6 +53,7 @@ const sections: { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: "worktrees", label: "Worktrees", icon: "branch" },
   { id: "files", label: "Files", icon: "fileText" },
   { id: "mcp", label: "MCP servers", icon: "wrench" },
+  { id: "skills", label: "Skills", icon: "sparkle" },
   { id: "issues", label: "Issues", icon: "issue" },
   { id: "shortcuts", label: "Shortcuts", icon: "command" },
   { id: "notifications", label: "Notifications", icon: "bell" },
@@ -146,6 +149,7 @@ export function SettingsDialog({
           {section === "worktrees" ? <WorktreeSettings projection={projection} /> : null}
           {section === "files" ? <FilesSettings /> : null}
           {section === "mcp" ? <McpServersSection /> : null}
+          {section === "skills" ? <SkillsSection projection={projection} initialProjectId={initialProjectId} /> : null}
           {section === "issues" ? <IssuesSection /> : null}
           {section === "shortcuts" ? <ShortcutSettings /> : null}
           {section === "notifications" ? <NotificationSection {...notifications} /> : null}

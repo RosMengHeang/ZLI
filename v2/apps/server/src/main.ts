@@ -30,6 +30,8 @@ import { createProviderRegistry } from "./providers/registerProviders.js";
 import { ReviewReactor } from "./review/ReviewReactor.js";
 import { ReviewService } from "./review/ReviewService.js";
 import { RpcServer } from "./rpc/Server.js";
+import { SkillStore } from "./skills/SkillStore.js";
+import { syncUserSkills } from "./skills/userSkillSync.js";
 import { RemotePtyFactory } from "./terminal/RemotePtyFactory.js";
 import { TerminalReactor } from "./terminal/TerminalReactor.js";
 import { TerminalService } from "./terminal/TerminalService.js";
@@ -53,6 +55,7 @@ export type RuntimeProcess = {
   legacyImportReactor: LegacyImportReactor;
   devServerReactor: DevServerReactor;
   mcpServers: McpServerStore;
+  skills: SkillStore;
   /** Settles once the browser tool is registered in agent user settings (empty when not configured). */
   browserToolRegistration: Promise<readonly UserSettingsOutcome[]>;
   token: string;
@@ -114,6 +117,23 @@ export async function startRuntime(options: {
       : {}),
   });
   await mcpServers.load();
+  const skills = new SkillStore({
+    libraryDir: join(dirname(databasePath), "skills"),
+    statePath: join(dirname(databasePath), "skills.json"),
+    home: userHome,
+    githubToken: process.env.GH_TOKEN?.trim() || process.env.GITHUB_TOKEN?.trim() || undefined,
+    ...(writeUserSettings
+      ? {
+          sync: (list, owned) =>
+            syncUserSkills(list, owned, {
+              home: userHome,
+              isInstalled: async (provider): Promise<boolean> => (await resolveAgentCli(provider)) !== undefined,
+              log: (level, message, context) => logger.record(level, message, {}, context),
+            }),
+        }
+      : {}),
+  });
+  await skills.load();
   const mcpOptions = { mcpServers: () => mcpServers.specs(), mcpConfigDir };
   const providerService = new ProviderService(
     createProviderRegistry(process.env, { ...(browserTool ? { browserTool } : {}), ...mcpOptions }),
@@ -147,6 +167,7 @@ export async function startRuntime(options: {
     checkpoints,
     mcpServers,
     issues: { github: new GitHubIssues(), linear: linearIssues },
+    skills,
   });
   // Before the server accepts commands, so a setup started by a new request is never mistaken for a stale one.
   await worktreeSetup.reconcile();
@@ -164,6 +185,11 @@ export async function startRuntime(options: {
       : Promise.resolve([]);
   // After the browser registration, which writes the same files. Picks up agents installed since the last save.
   void browserToolRegistration.then(() => mcpServers.syncUserSettings()).catch(() => undefined);
+  // After discovery, so skills reach agents installed since the last save.
+  void providerService
+    .discoverProviders()
+    .then(() => skills.syncUserSettings())
+    .catch(() => undefined);
   return {
     database,
     engine,
@@ -180,6 +206,7 @@ export async function startRuntime(options: {
     legacyImportReactor,
     devServerReactor,
     mcpServers,
+    skills,
     browserToolRegistration,
     token,
     close: async () => {
@@ -187,6 +214,7 @@ export async function startRuntime(options: {
       await browserToolRegistration;
       await mcpServers.waitForIdle();
       await linearIssues.waitForIdle();
+      await skills.waitForIdle();
       await worktreeReactor.waitForIdle();
       await terminalReactor.waitForIdle();
       await reviewReactor.waitForIdle();

@@ -28,6 +28,8 @@ import {
   type RpcRequest,
   type RuntimeError,
   type RuntimeProjection,
+  SKILL_COMMAND_TYPES,
+  type SkillCommand,
   TerminalId,
   type TerminalReadResult,
 } from "@zli-v2/contracts";
@@ -45,6 +47,9 @@ import {
   runPullRequestCommand,
 } from "../review/PullRequestService.js";
 import type { TerminalService, TerminalSubscription } from "../terminal/TerminalService.js";
+import { runSkillCommand } from "../skills/runSkillCommand.js";
+import { SkillError } from "../skills/skillFolders.js";
+import type { SkillStore } from "../skills/SkillStore.js";
 import { readableTerminalText } from "../terminal/terminalText.js";
 import { readZliConfig } from "../worktrees/zliConfig.js";
 import { AttachmentError, storeThreadAttachments } from "./attachments.js";
@@ -81,6 +86,8 @@ type RpcServerOptions = {
     save(servers: readonly McpServerConfig[]): Promise<McpListResult>;
     setAgentAccess(access: AgentToolAccess): Promise<McpListResult>;
   };
+  /** The skills from Settings. Without it, skills commands are answered as unavailable. */
+  skills?: SkillStore;
   host?: string;
   port?: number;
 };
@@ -97,6 +104,7 @@ export class RpcServer {
   private readonly issues: IssueSources;
   private readonly checkpoints: RpcServerOptions["checkpoints"];
   private readonly mcpServers: RpcServerOptions["mcpServers"];
+  private readonly skills: SkillStore | undefined;
   private readonly host: string;
   private readonly port: number;
   private httpServer: HttpServer | undefined;
@@ -121,6 +129,7 @@ export class RpcServer {
     this.issues = options.issues ?? defaultIssueSources();
     this.checkpoints = options.checkpoints;
     this.mcpServers = options.mcpServers;
+    this.skills = options.skills;
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
   }
@@ -407,6 +416,34 @@ export class RpcServer {
     return true;
   }
 
+  /** Skills live in folders on disk, outside the event log. */
+  private async handleSkillCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isSkillCommand(command)) return false;
+    const store = this.skills;
+    const reject = (error: RuntimeError) =>
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: false, error } });
+    if (!store) {
+      reject({ code: "unavailable", message: "Skills are not available here.", retryable: false });
+      return true;
+    }
+    try {
+      const result = await runSkillCommand(store, command, async (projectId) => {
+        const projection = await this.engine.projection();
+        return projection.projects.find((candidate) => candidate.projectId === projectId)?.path;
+      });
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reject(
+        error instanceof SkillError
+          ? { code: "invalid_request", message, retryable: false }
+          : { code: "internal", message: `The skill change did not go through. ${message}`, retryable: true },
+      );
+    }
+    return true;
+  }
+
   private async runFileCommand(root: string, command: FileCommand): Promise<unknown> {
     switch (command.type) {
       case "files.list":
@@ -597,6 +634,7 @@ export class RpcServer {
         if (await this.handleCheckpointCommand(client, message.data.request)) return;
         if (await this.handleProjectConfig(client, message.data.request)) return;
         if (await this.handleMcpCommand(client, message.data.request)) return;
+        if (await this.handleSkillCommand(client, message.data.request)) return;
         try {
           let request: RpcRequest;
           try {
@@ -704,6 +742,10 @@ export class RpcServer {
 
 function isMcpCommand(command: RpcRequest["command"]): command is McpCommand {
   return (MCP_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
+function isSkillCommand(command: RpcRequest["command"]): command is SkillCommand {
+  return (SKILL_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
 function isFileCommand(command: RpcRequest["command"]): command is FileCommand {
