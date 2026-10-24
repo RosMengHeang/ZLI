@@ -22,7 +22,10 @@ await build({
   entryPoints: [resolve(root, "apps/desktop/src/main.ts")],
   outfile: resolve(desktopDist, "main.js"),
   format: "esm",
-  external: ["electron", "ws"],
+  // electron-updater stays a package in node_modules: it is CommonJS that requires its own files lazily.
+  external: ["electron", "electron-updater", "ws"],
+  // Squirrel.Mac only installs updates into a signed app, so release builds say whether theirs is.
+  define: { __ZLI_MAC_SIGNED__: JSON.stringify(process.env.ZLI_MAC_SIGNED === "1") },
 });
 
 await build({

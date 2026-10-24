@@ -501,6 +501,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           destinationPath: command.destinationPath,
           ...(command.allowedRoot ? { allowedRoot: command.allowedRoot } : {}),
           ...(command.desktopLogs ? { desktopLogs: command.desktopLogs } : {}),
+          ...(command.desktopApp ? { desktopApp: command.desktopApp } : {}),
         },
       ];
     case "diagnostics.bundle.created":

@@ -21,6 +21,8 @@ import {
   RuntimeProjection,
   TerminalAttachSnapshot,
   TerminalStreamMessage,
+  UpdateStatus,
+  WhatsNew,
 } from "@zli-v2/contracts";
 
 import {
@@ -267,6 +269,32 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
           const sessionId = (value as { sessionId?: unknown } | null)?.sessionId;
           if (typeof sessionId === "string" && sessionId.length > 0) listener({ sessionId });
         }),
+    },
+    updates: {
+      getStatus: async () => UpdateStatus.parse(await ipc.invoke("zli:updates:get-status")),
+      onStatus: (listener: (status: UpdateStatus) => void) =>
+        ipc.on("zli:updates:status", (_event, value) => {
+          const parsed = UpdateStatus.safeParse(value);
+          if (parsed.success) listener(parsed.data);
+        }),
+      check: async () => UpdateStatus.parse(await ipc.invoke("zli:updates:check")),
+      /** Downloads the offered update, or opens its release page where ZLI cannot install it. */
+      download: async () => UpdateStatus.parse(await ipc.invoke("zli:updates:download")),
+      /** Restarts ZLI into the downloaded update. Resolves false when none is ready. */
+      quitAndInstall: async () => (await ipc.invoke("zli:updates:install")) === true,
+      openReleasePage: async () => {
+        await ipc.invoke("zli:updates:open-release");
+      },
+      setAutoInstall: async (autoInstall: boolean) =>
+        UpdateStatus.parse(await ipc.invoke("zli:updates:set-auto-install", { autoInstall: autoInstall === true })),
+      /** The release this launch was updated to, once, or undefined. */
+      whatsNew: async () => {
+        const parsed = WhatsNew.safeParse(await ipc.invoke("zli:updates:whats-new"));
+        return parsed.success ? parsed.data : undefined;
+      },
+      dismissWhatsNew: async () => {
+        await ipc.invoke("zli:updates:dismiss-whats-new");
+      },
     },
   };
   return options.testMode

@@ -54,6 +54,10 @@ import { IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { LoadingState } from "../ui/Pane.js";
 import { TooltipLayer } from "../ui/Tooltip.js";
+import { RestartToUpdateDialog } from "../updates/RestartToUpdateDialog.js";
+import { UpdatePill } from "../updates/UpdatePill.js";
+import { busyAgentCount } from "../updates/updateCopy.js";
+import { useUpdates } from "../updates/useUpdates.js";
 import { PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
 import {
   CloseAgentDialog,
@@ -81,6 +85,10 @@ const HandoffDialog = lazy(() =>
 const UsageDialog = lazy(() => import("../usage/UsageDialog.js").then((module) => ({ default: module.UsageDialog })));
 // The diff viewer and pull request tools load the first time the Changes panel opens.
 const ReviewPane = lazy(() => import("../review/ReviewPane.js").then((module) => ({ default: module.ReviewPane })));
+// Release notes render through the Markdown parser, which stays out of the startup bundle.
+const WhatsNewDialog = lazy(() =>
+  import("../updates/WhatsNewDialog.js").then((module) => ({ default: module.WhatsNewDialog })),
+);
 
 export function AppShell({ bridge = getBridge() }: { bridge?: ZliBridge } = {}) {
   return (
@@ -120,7 +128,9 @@ function WorkspaceApp() {
   /** Setup approvals the person closed without answering; they stay reachable from the sidebar. */
   const [deferredSetups, setDeferredSetups] = useState<string[]>([]);
   const [promptManager, setPromptManager] = useState<ManagerRequest>();
+  const [restartConfirm, setRestartConfirm] = useState(false);
   const setupApprovalRef = useRef<WorktreeSetupProjection>(undefined);
+  const whatsNewRef = useRef(false);
   const launching = useRef(new Set<string>());
   const projectionRef = useRef(projection);
   projectionRef.current = projection;
@@ -197,6 +207,17 @@ function WorkspaceApp() {
       if (session) focusSession(session);
     },
   );
+
+  const updates = useUpdates(bridge);
+  const busyAgents = busyAgentCount(sessions);
+  const readyUpdate = updates.status?.state.status === "ready" ? updates.status.state : undefined;
+  /** Restarts into the downloaded update, asking first when that would cut an agent off mid-turn. */
+  const restartToUpdate = () => {
+    setPaletteOpen(false);
+    setSettingsSection(undefined);
+    if (busyAgents > 0) setRestartConfirm(true);
+    else void updates.install();
+  };
 
   /** Brings an agent forward in one view and puts the cursor in its prompt. */
   const showAgent = useCallback(
@@ -347,6 +368,8 @@ function WorkspaceApp() {
       setDeleteRequest(undefined);
       setHandoffRequest(undefined);
       setPromptManager(undefined);
+      setRestartConfirm(false);
+      if (whatsNewRef.current) updates.dismissWhatsNew();
       const approval = setupApprovalRef.current;
       if (approval) deferSetup(approval);
     },
@@ -1061,6 +1084,29 @@ function WorkspaceApp() {
     { label: "MCP servers", icon: "wrench", group: "App", action: () => openSettings("mcp") },
     { label: "Usage and cost", icon: "gauge", group: "App", action: openUsage },
     { label: "Help and diagnostics", icon: "help", group: "App", action: () => setHelpOpen(true) },
+    ...(updates.available
+      ? [
+          {
+            label: "Check for updates",
+            icon: "reload" as const,
+            group: "App" as const,
+            action: () => {
+              openSettings("updates");
+              void updates.check();
+            },
+          },
+        ]
+      : []),
+    ...(readyUpdate
+      ? [
+          {
+            label: `Restart to update to v${readyUpdate.version}`,
+            icon: "rotate" as const,
+            group: "App" as const,
+            action: restartToUpdate,
+          },
+        ]
+      : []),
     ...notificationCommands(notifications.settings, (patch) => void notifications.update(patch)),
     ...devServerCommands(contextDevServers, openDevServer),
   ];
@@ -1077,11 +1123,15 @@ function WorkspaceApp() {
     handoffRequest !== undefined ||
     keepRequest !== undefined ||
     promptManager !== undefined ||
+    (restartConfirm && readyUpdate !== undefined) ||
     (legacyImportBatchId !== undefined && projection !== undefined);
   // Waits behind other dialogs so it never stacks on top of one.
   const setupApproval = otherOverlayOpen ? undefined : nextSetupApproval(projection, deferredSetups);
   setupApprovalRef.current = setupApproval;
-  const overlayOpen = otherOverlayOpen || setupApproval !== undefined;
+  // What's new waits behind everything else, setup approvals included.
+  const whatsNew = otherOverlayOpen || setupApproval ? undefined : updates.whatsNew;
+  whatsNewRef.current = whatsNew !== undefined;
+  const overlayOpen = otherOverlayOpen || setupApproval !== undefined || whatsNew !== undefined;
   const { columns, rows } = gridLayout(visibleTiles.length, gridWidth);
   const keepPosition = keepRequest ? runPosition(workbench.groups, keepRequest.sessionId) : undefined;
   const handoffSession = handoffRequest
@@ -1138,6 +1188,14 @@ function WorkspaceApp() {
             onOpenPalette={() => setPaletteOpen(true)}
             devServers={contextDevServers}
             onOpenDevServer={openDevServer}
+            updateNotice={
+              <UpdatePill
+                status={updates.status}
+                onRestart={restartToUpdate}
+                onOpenRelease={() => void updates.openReleasePage()}
+                onOpenSettings={() => openSettings("updates")}
+              />
+            }
           />
           {notice ? (
             <div className={`banner banner-${notice.tone}`} role={notice.tone === "danger" ? "alert" : "status"}>
@@ -1295,6 +1353,14 @@ function WorkspaceApp() {
               setHelpOpen(false);
               void startLegacyImport();
             }}
+            onOpenUpdates={
+              updates.available
+                ? () => {
+                    setHelpOpen(false);
+                    openSettings("updates");
+                  }
+                : undefined
+            }
             onClose={() => setHelpOpen(false)}
           />
         )}
@@ -1304,6 +1370,8 @@ function WorkspaceApp() {
             initialProjectId={contextProject?.projectId}
             initialSection={settingsSection}
             notifications={{ settings: notifications.settings, update: (patch) => void notifications.update(patch) }}
+            updates={updates}
+            onRestartToUpdate={restartToUpdate}
             onClose={() => setSettingsSection(undefined)}
           />
         ) : null}
@@ -1408,6 +1476,27 @@ function WorkspaceApp() {
             onRespond={(decision) => respondToSetup(setupApproval, decision)}
             onDefer={() => deferSetup(setupApproval)}
           />
+        ) : null}
+        {restartConfirm && readyUpdate ? (
+          <RestartToUpdateDialog
+            version={readyUpdate.version}
+            busyCount={busyAgents}
+            onRestart={() => {
+              setRestartConfirm(false);
+              void updates.install();
+            }}
+            onCancel={() => setRestartConfirm(false)}
+          />
+        ) : null}
+        {whatsNew ? (
+          <Suspense fallback={null}>
+            <WhatsNewDialog
+              whatsNew={whatsNew}
+              bridge={bridge}
+              onOpenRelease={() => void updates.openReleasePage()}
+              onClose={updates.dismissWhatsNew}
+            />
+          </Suspense>
         ) : null}
         <TooltipLayer />
       </div>

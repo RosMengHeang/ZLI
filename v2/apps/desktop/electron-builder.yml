@@ -9,13 +9,26 @@ afterPack: ./scripts/after-pack.mjs
 files:
   - dist/**
   - renderer/**
+# The release workflow creates a draft release for the tag first; each platform build uploads its
+# installer and update files (latest*.yml, .blockmap) into it, and the workflow publishes it last.
+publish:
+  provider: github
+  owner: RosMengHeang
+  repo: ZLI
+  releaseType: draft
 win:
   target:
     - nsis
   requestedExecutionLevel: asInvoker
 mac:
+  # electron-updater reads the zip; people download the dmg.
   target:
     - dmg
+    - zip
+  # TODO(macOS signing): once the release workflow has the Developer ID and Apple ID secrets, turn these on
+  # so builds are signed and notarized, and set ZLI_MAC_SIGNED there so the app installs its own updates.
+  # hardenedRuntime: true
+  # notarize: true
 linux:
   executableName: zli
   target:

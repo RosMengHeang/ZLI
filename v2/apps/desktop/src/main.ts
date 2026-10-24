@@ -53,6 +53,7 @@ import { ensureDesktopDaemon } from "./runtime/DesktopDaemon.js";
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
 import { ensureScratchFolder } from "./scratch/ScratchFolder.js";
 import { shouldOpenExternal } from "./security/NavigationPolicy.js";
+import { registerUpdates } from "./updates/electronUpdates.js";
 import { resolveAppAsset } from "./window/ElectronProtocol.js";
 import { type BrowserWindowConstructor, createMainWindow } from "./window/ElectronWindow.js";
 
@@ -110,7 +111,16 @@ async function main(): Promise<void> {
     connectTransport: async () => connectWebSocket(((await environment?.start()) ?? descriptor).url),
   });
   await registerTestProject(runtime);
-  registerIpc(new DesktopDiagnostics());
+  const desktopDiagnostics = new DesktopDiagnostics({
+    app: {
+      version: app.getVersion(),
+      platform: process.platform,
+      arch: process.arch,
+      electron: process.versions.electron,
+      packaged: app.isPackaged,
+    },
+  });
+  registerIpc(desktopDiagnostics);
   const window = createMainWindow(
     BrowserWindow as unknown as BrowserWindowConstructor,
     join(DESKTOP_DIST, "preload.js"),
@@ -125,6 +135,14 @@ async function main(): Promise<void> {
       ? `${databasePath}.notifications.json`
       : join(app.getPath("userData"), "notification-settings.json"),
   }).catch((error: unknown) => console.error("Agent notifications could not start", error));
+  await registerUpdates({
+    window: electronWindow,
+    settingsPath: process.env.ZLI_DATABASE_PATH
+      ? `${databasePath}.updates.json`
+      : join(app.getPath("userData"), "update-settings.json"),
+    openExternal: openExternalUrl,
+    log: (level, message) => desktopDiagnostics.record(level, message, { component: "updates" }),
+  }).catch((error: unknown) => console.error("Update checks could not start", error));
   browserManager = new BrowserManager(
     {
       create: ({ session: browserSession }) =>
@@ -272,6 +290,7 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
           destinationPath: parsed.data.command.destinationPath,
           allowedRoot,
           desktopLogs: desktopDiagnostics.snapshot(),
+          desktopApp: desktopDiagnostics.app,
         },
       });
     }
@@ -438,8 +457,7 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
     const url = input && typeof input === "object" && "url" in input ? (input as { url: unknown }).url : undefined;
     if (typeof url !== "string" || !shouldOpenExternal(url))
       throw new Error("Only http and https links can be opened.");
-    if (process.env.ZLI_TEST_PROVIDER === "mock") lastExternalUrl = url;
-    else await shell.openExternal(url);
+    await openExternalUrl(url);
     return { accepted: true };
   });
   ipcMain.handle("zli:test:take-external-url", () => {
@@ -448,6 +466,11 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
     lastExternalUrl = undefined;
     return url;
   });
+}
+
+async function openExternalUrl(url: string): Promise<void> {
+  if (process.env.ZLI_TEST_PROVIDER === "mock") lastExternalUrl = url;
+  else await shell.openExternal(url);
 }
 
 function connectWebSocket(url: string): Promise<RuntimeTransport> {

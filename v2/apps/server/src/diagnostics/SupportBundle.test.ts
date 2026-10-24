@@ -108,6 +108,21 @@ describe("SupportBundle", () => {
     expect(entries["runtime.json"]).not.toContain("path");
   });
 
+  it("names the desktop build in the manifest", () => {
+    const entries = buildSupportEntries({
+      projection,
+      app: { version: "0.4.2", platform: "darwin", arch: "arm64", electron: "44.4.2", packaged: true },
+    });
+    expect(JSON.parse(entries["manifest.json"] ?? "{}").app).toEqual({
+      version: "0.4.2",
+      platform: "darwin",
+      arch: "arm64",
+      electron: "44.4.2",
+      packaged: true,
+    });
+    expect(JSON.parse(buildSupportEntries({ projection })["manifest.json"] ?? "{}").app).toBeUndefined();
+  });
+
   it("excludes cookie values and environment credentials from every bundle entry", () => {
     const entries = buildSupportEntries({
       projection,

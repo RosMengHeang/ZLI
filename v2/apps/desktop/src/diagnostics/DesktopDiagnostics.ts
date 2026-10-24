@@ -1,13 +1,18 @@
-import type { DiagnosticLog } from "@zli-v2/contracts";
+import type { DesktopAppInfo, DiagnosticLog } from "@zli-v2/contracts";
 
 export class DesktopDiagnostics {
+  /** Which build produced the logs, for the support bundle. */
+  readonly app: DesktopAppInfo | undefined;
   private readonly entries: DiagnosticLog[] = [];
+  private readonly maxEntries: number;
+  private readonly maxBytes: number;
   private bytes = 0;
 
-  constructor(
-    private readonly maxEntries = 250,
-    private readonly maxBytes = 128 * 1024,
-  ) {}
+  constructor(options: { maxEntries?: number; maxBytes?: number; app?: DesktopAppInfo } = {}) {
+    this.maxEntries = options.maxEntries ?? 250;
+    this.maxBytes = options.maxBytes ?? 128 * 1024;
+    this.app = options.app ? { ...options.app } : undefined;
+  }
 
   record(level: DiagnosticLog["level"], message: string, context: Record<string, unknown> = {}): void {
     const entry: DiagnosticLog = {
