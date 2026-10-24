@@ -6,7 +6,7 @@
 .sidebar-top button { -webkit-app-region: no-drag; }
 .sidebar-top-actions { display: flex; gap: 2px; margin-left: auto; }
 .brand { display: inline-flex; align-items: center; gap: var(--zli-space-2); }
-.brand-mark { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: var(--zli-radius-sm); background: var(--zli-text); color: var(--zli-canvas); font-size: var(--zli-text-xs); font-weight: 800; line-height: 1; }
+.brand-mark { display: block; flex: 0 0 auto; }
 .wordmark { color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 650; letter-spacing: .06em; }
 
 .sidebar-primary { display: flex; flex: 0 0 auto; flex-direction: column; gap: 1px; padding: var(--zli-space-1) var(--zli-space-2) var(--zli-space-4); }

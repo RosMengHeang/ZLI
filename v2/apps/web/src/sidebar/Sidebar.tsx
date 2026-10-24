@@ -18,6 +18,7 @@ import { setupBadge, worktreeSetup } from "../setup/setup.js";
 import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { ZliLogo } from "../ui/ZliLogo.js";
 import { Kbd } from "../ui/Kbd.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ariaShortcut } from "../ui/shortcuts.js";
@@ -261,9 +262,7 @@ export function Sidebar({
     <aside className="sidebar" aria-label="Projects and agents">
       <div className="sidebar-top">
         <span className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            Z
-          </span>
+          <ZliLogo className="brand-mark" />
           <span className="wordmark">ZLI</span>
         </span>
         <span className="sidebar-top-actions">
