@@ -32,6 +32,7 @@ import {
 import { IssuesSection } from "./IssuesSection.js";
 import { AccountsSection } from "./AccountsSection.js";
 import { McpServersSection } from "./McpServersSection.js";
+import { PluginsSection } from "./PluginsSection.js";
 import { SectionHeader, SettingRow } from "./SectionHeader.js";
 import { SkillsSection } from "./SkillsSection.js";
 import "./settings.css";
@@ -44,6 +45,7 @@ export type SettingsSection =
   | "files"
   | "mcp"
   | "skills"
+  | "plugins"
   | "issues"
   | "shortcuts"
   | "notifications"
@@ -57,6 +59,7 @@ const sections: { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: "files", label: "Files", icon: "fileText" },
   { id: "mcp", label: "MCP servers", icon: "wrench" },
   { id: "skills", label: "Skills", icon: "sparkle" },
+  { id: "plugins", label: "Plugins", icon: "puzzle" },
   { id: "issues", label: "Issues", icon: "issue" },
   { id: "shortcuts", label: "Shortcuts", icon: "command" },
   { id: "notifications", label: "Notifications", icon: "bell" },
@@ -159,6 +162,7 @@ export function SettingsDialog({
           {section === "files" ? <FilesSettings /> : null}
           {section === "mcp" ? <McpServersSection /> : null}
           {section === "skills" ? <SkillsSection projection={projection} initialProjectId={initialProjectId} /> : null}
+          {section === "plugins" ? <PluginsSection /> : null}
           {section === "issues" ? <IssuesSection /> : null}
           {section === "shortcuts" ? <ShortcutSettings /> : null}
           {section === "notifications" ? <NotificationSection {...notifications} /> : null}

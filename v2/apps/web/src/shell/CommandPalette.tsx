@@ -7,13 +7,13 @@ import { Kbd } from "../ui/Kbd.js";
 export type PaletteCommand = {
   label: string;
   icon: IconName;
-  group: "Create" | "Go to" | "View" | "App";
+  group: "Create" | "Go to" | "View" | "App" | "Plugins";
   /** A shortcut that runs the same command, for example "Mod+N". */
   shortcut?: string;
   action(): void;
 };
 
-const groupOrder: PaletteCommand["group"][] = ["Create", "Go to", "View", "App"];
+const groupOrder: PaletteCommand["group"][] = ["Create", "Go to", "View", "App", "Plugins"];
 
 export function CommandPalette({ commands, onClose }: { commands: readonly PaletteCommand[]; onClose(): void }) {
   const [query, setQuery] = useState("");

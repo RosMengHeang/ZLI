@@ -103,6 +103,9 @@ export const PluginListResult = z.object({
 });
 export type PluginListResult = z.infer<typeof PluginListResult>;
 
+export const PluginInstallResult = PluginListResult.extend({ installed: z.array(z.string()) });
+export type PluginInstallResult = z.infer<typeof PluginInstallResult>;
+
 export const PluginInstallCandidate = z.object({
   name: z.string(),
   displayName: z.string(),

@@ -89,6 +89,9 @@
 .skill-candidate > input { margin-top: 3px; accent-color: var(--zli-accent); }
 .skill-candidate.is-off { cursor: default; }
 .skill-candidate.is-off strong { color: var(--zli-muted); }
+.plugin-elsewhere { display: flex; flex-direction: column; gap: var(--zli-space-1); }
+.plugin-elsewhere ul { display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.plugin-elsewhere li { display: flex; gap: var(--zli-space-2); align-items: baseline; min-width: 0; }
 
 @media (max-width: 720px) {
   .settings-layout { grid-template-columns: minmax(0, 1fr); }

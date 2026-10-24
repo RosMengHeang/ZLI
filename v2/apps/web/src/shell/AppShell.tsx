@@ -24,6 +24,7 @@ import type { AskAgentTarget, FilesFocus } from "../files/FilesPane.js";
 import { QuickOpen } from "../files/QuickOpen.js";
 import { type IssueLink, issuePrompt, rememberIssueLink } from "../issues/issueStart.js";
 import { useAgentNotifications } from "../notifications/useAgentNotifications.js";
+import { actionTerminalCommand, usePluginContributions } from "../plugins/plugins.js";
 import { PromptsDialog } from "../prompts/PromptsDialog.js";
 import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.js";
 import { usePullRequestPolling } from "../review/pullRequestStore.js";
@@ -192,6 +193,7 @@ function WorkspaceApp() {
     projection?.worktrees.find((worktree) => worktree.status === "ready");
   const contextProject = projection?.projects.find((project) => project.projectId === contextWorktree?.projectId);
   const hasProjects = (projection?.projects.length ?? 0) > 0;
+  const pluginActions = usePluginContributions(paletteOpen).actions;
 
   const focusSession = useCallback(
     (session: AgentSession) => {
@@ -1069,6 +1071,33 @@ function WorkspaceApp() {
     });
   };
 
+  /** Runs in the current worktree, or else in the project's own checkout. */
+  const runPluginAction = async (action: (typeof pluginActions)[number]) => {
+    const project = contextProject ?? projection?.projects[0];
+    if (!projection || !project) return;
+    try {
+      const worktree =
+        contextWorktree?.status === "ready" ? contextWorktree : await ensureCheckout(dispatch, projection, project);
+      if ("error" in worktree) {
+        showError(worktree.error);
+        return;
+      }
+      const response = await dispatch({
+        protocolVersion: 1,
+        commandId: makeCommandId(),
+        command: actionTerminalCommand(action, worktree),
+      });
+      if (response?.accepted === false) {
+        showError(response.error.message);
+        return;
+      }
+      setSelectedWorktreeId(worktree.worktreeId);
+      updateWorkbench((state) => ({ ...state, drawerOpen: true }));
+    } catch (cause) {
+      showError(cause instanceof Error ? cause.message : "The action could not start.");
+    }
+  };
+
   const deferSetup = (setup: WorktreeSetupProjection) =>
     setDeferredSetups((current) => [...current, setupDeferKey(setup)]);
   const reviewSetup = (worktreeId: string) =>
@@ -1257,6 +1286,14 @@ function WorkspaceApp() {
       : []),
     ...notificationCommands(notifications.settings, (patch) => void notifications.update(patch)),
     ...devServerCommands(contextDevServers, openDevServer),
+    ...(hasProjects
+      ? pluginActions.map((action) => ({
+          label: `${action.name} (${action.plugin})`,
+          icon: "puzzle" as const,
+          group: "Plugins" as const,
+          action: () => void runPluginAction(action),
+        }))
+      : []),
   ];
   const otherOverlayOpen =
     paletteOpen ||
