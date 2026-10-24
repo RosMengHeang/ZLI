@@ -62,7 +62,7 @@ describe("deriveSessions", () => {
     expect(session?.terminal?.terminalId).toBe(agentTerminal.terminalId);
     expect(session?.thread?.threadId).toBe(threadId);
     expect(session?.status).toBe("working");
-    expect(session?.defaultMode).toBe("chat");
+    expect(session?.mode).toBe("chat");
     expect(session?.createdAt).toBe("2026-01-01T10:00:00.000Z");
     expect(session?.updatedAt).toBe("2026-01-01T10:06:00.000Z");
   });
@@ -90,7 +90,15 @@ describe("deriveSessions", () => {
   it("reports ended when the CLI exits and no chat is live", () => {
     const [session] = deriveSessions({ terminals: [{ ...agentTerminal, status: "exited" }], threads: [] });
     expect(session?.status).toBe("ended");
-    expect(session?.defaultMode).toBe("terminal");
+    expect(session?.mode).toBe("terminal");
+  });
+
+  it("shows the one started last when an older session has both a terminal and a chat", () => {
+    const laterTerminal = { ...agentTerminal, createdAt: "2026-01-01T11:00:00.000Z" };
+    const [session] = deriveSessions({ terminals: [laterTerminal], threads: [thread] });
+    expect(session?.mode).toBe("terminal");
+    // The chat it no longer shows still counts, so a quit or update still warns while it works.
+    expect(session?.status).toBe("working");
   });
 });
 
@@ -186,7 +194,6 @@ describe("helpers", () => {
     const state = parseWorkbenchState(
       JSON.stringify({
         closed: ["a", "b"],
-        modes: { a: "chat", b: "terminal" },
         pending: [{ sessionId: "a", worktreeId, provider: "droid", mode: "chat" }],
         activeSessionId: "a",
         maximizedSessionId: "a",
@@ -194,7 +201,6 @@ describe("helpers", () => {
     );
     const next = forgetSession(state, "a");
     expect(next.closed).toEqual(["b"]);
-    expect(next.modes).toEqual({ b: "terminal" });
     expect(next.pending).toEqual([]);
     expect(next.activeSessionId).toBeUndefined();
     expect(next.maximizedSessionId).toBeUndefined();
@@ -202,10 +208,9 @@ describe("helpers", () => {
 
   it("drops malformed workbench state from storage", () => {
     const state = parseWorkbenchState(
-      JSON.stringify({ closed: ["a", 3], modes: { a: "chat", b: "x" }, pending: [{ sessionId: 1 }], drawerHeight: 20 }),
+      JSON.stringify({ closed: ["a", 3], pending: [{ sessionId: 1 }], drawerHeight: 20 }),
     );
     expect(state.closed).toEqual(["a"]);
-    expect(state.modes).toEqual({ a: "chat" });
     expect(state.pending).toEqual([]);
     expect(state.drawerHeight).toBe(280);
     expect(parseWorkbenchState("{not json").sidebarOpen).toBe(true);

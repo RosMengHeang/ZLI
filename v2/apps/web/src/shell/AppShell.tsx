@@ -224,23 +224,22 @@ function WorkspaceApp() {
     else void updates.install();
   };
 
-  /** Brings an agent forward in one view and puts the cursor in its prompt. */
+  /** Brings an agent forward and puts the cursor in its prompt. */
   const showAgent = useCallback(
-    (sessionId: string, mode: SessionMode) => {
+    (sessionId: string) => {
       const session = sessions.find((candidate) => candidate.sessionId === sessionId);
       if (!session) return;
       focusSession(session);
-      updateWorkbench((state) =>
-        state.modes[sessionId] === mode ? state : { ...state, modes: { ...state.modes, [sessionId]: mode } },
-      );
       requestAnimationFrame(() => {
         const tile = document.querySelector(`.agent-tile[data-session-id="${CSS.escape(sessionId)}"]`);
         tile
-          ?.querySelector<HTMLElement>(mode === "chat" ? 'textarea[aria-label^="Message"]' : ".xterm-helper-textarea")
+          ?.querySelector<HTMLElement>(
+            session.mode === "chat" ? 'textarea[aria-label^="Message"]' : ".xterm-helper-textarea",
+          )
           ?.focus();
       });
     },
-    [sessions, focusSession, updateWorkbench],
+    [sessions, focusSession],
   );
 
   /** The chat that Ask about this in the Files panel adds references to: the focused agent's, or the newest open one. */
@@ -248,6 +247,7 @@ function WorkspaceApp() {
     const worktreeId = contextWorktree?.worktreeId;
     const usable = (session: AgentSession) =>
       session.worktreeId === worktreeId &&
+      session.mode === "chat" &&
       session.thread !== undefined &&
       session.thread.status !== "stopped" &&
       session.thread.status !== "failed";
@@ -258,7 +258,7 @@ function WorkspaceApp() {
       name: providerDisplayName(session.provider, projection?.providers),
       ask: (reference) => {
         addCodeReference(thread.threadId, reference);
-        showAgent(session.sessionId, "chat");
+        showAgent(session.sessionId);
       },
     };
   }, [activeSession, contextWorktree?.worktreeId, projection?.providers, showAgent, tiles]);
@@ -629,7 +629,6 @@ function WorkspaceApp() {
       updateWorkbench((state) => ({
         ...state,
         pending: [...state.pending, launch],
-        modes: { ...state.modes, [launch.sessionId]: "chat" },
         activeSessionId: launch.sessionId,
         maximizedSessionId: undefined,
       }));
@@ -795,7 +794,6 @@ function WorkspaceApp() {
     updateWorkbench((state) => ({
       ...state,
       pending: [...state.pending, launch],
-      modes: { ...state.modes, [launch.sessionId]: request.mode },
       activeSessionId: launch.sessionId,
       maximizedSessionId: undefined,
     }));
@@ -820,7 +818,6 @@ function WorkspaceApp() {
     updateWorkbench((state) => ({
       ...state,
       pending: [...state.pending, launch],
-      modes: { ...state.modes, [launch.sessionId]: request.mode },
       closed:
         request.stopCurrent && !state.closed.includes(from.sessionId)
           ? [...state.closed, from.sessionId]
@@ -874,7 +871,6 @@ function WorkspaceApp() {
     updateWorkbench((state) => ({
       ...state,
       pending: [...state.pending, ...launches],
-      modes: { ...state.modes, ...Object.fromEntries(launches.map((launch) => [launch.sessionId, "chat" as const])) },
       groups: [...state.groups, group],
       activeSessionId: launches[0]?.sessionId ?? state.activeSessionId,
       maximizedSessionId: undefined,
@@ -894,7 +890,9 @@ function WorkspaceApp() {
   };
 
   const handoffTarget = (session: AgentSession | undefined) =>
-    session && canHandOff(session, projection?.messages) && findWorktree(session.worktreeId)?.status === "ready"
+    session?.mode === "chat" &&
+    canHandOff(session, projection?.messages) &&
+    findWorktree(session.worktreeId)?.status === "ready"
       ? session
       : undefined;
 
@@ -992,7 +990,6 @@ function WorkspaceApp() {
     if (worktree.status !== "ready") return Promise.resolve("The worktree is not ready yet.");
     if (!isSelectableProvider(session.provider)) return Promise.resolve("This agent is not supported.");
     const model = session.thread?.model ?? session.terminal?.agent?.model;
-    updateWorkbench((state) => ({ ...state, modes: { ...state.modes, [session.sessionId]: mode } }));
     return startSessionAgent(dispatch, projection, {
       provider: session.provider,
       mode,
@@ -1331,16 +1328,9 @@ function WorkspaceApp() {
                           projection={projection}
                           session={session}
                           worktree={findWorktree(session.worktreeId)}
-                          mode={workbench.modes[session.sessionId] ?? session.defaultMode}
                           active={session.sessionId === activeSession?.sessionId}
                           maximized={maximized?.sessionId === session.sessionId}
                           canMaximize={tiles.length > 1}
-                          onModeChange={(mode) =>
-                            updateWorkbench((state) => ({
-                              ...state,
-                              modes: { ...state.modes, [session.sessionId]: mode },
-                            }))
-                          }
                           onFocus={() => focusSession(session)}
                           onToggleMaximize={() =>
                             updateWorkbench((state) => ({

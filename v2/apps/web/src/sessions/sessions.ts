@@ -49,11 +49,14 @@ export type AgentSession = {
   createdAt?: string;
   updatedAt?: string;
   status: SessionStatus;
-  /** The view that was created most recently, used until the person picks one. */
-  defaultMode: SessionMode;
+  /**
+   * How the agent runs, chosen once when it starts. Sessions from earlier versions could have both a
+   * terminal and a chat; they show the one started last.
+   */
+  mode: SessionMode;
 };
 
-type Builder = Omit<AgentSession, "status" | "defaultMode"> & { order: number; lastKind?: SessionMode };
+type Builder = Omit<AgentSession, "status" | "mode"> & { order: number; lastKind?: SessionMode };
 
 /**
  * Agent terminals and chat threads that share a sessionId are one session.
@@ -100,7 +103,7 @@ export function deriveSessions(
     .map(({ order: _order, lastKind, ...session }) => ({
       ...session,
       status: sessionStatus(session),
-      defaultMode: lastKind ?? "chat",
+      mode: lastKind ?? "chat",
     }));
 }
 

@@ -26,7 +26,7 @@ const group: RunGroup = {
 };
 
 function session(sessionId: string, worktreeId: string, status: AgentSession["status"] = "ready"): AgentSession {
-  return { sessionId, worktreeId, provider: "codex", status, defaultMode: "chat" };
+  return { sessionId, worktreeId, provider: "codex", status, mode: "chat" };
 }
 
 function checkpoint(id: string, turnId: string, files: string[], additions: number, deletions: number) {

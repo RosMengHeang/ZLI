@@ -9,7 +9,7 @@ const base: AgentSession = {
   worktreeId: "w1",
   provider: "droid",
   status: "starting",
-  defaultMode: "chat",
+  mode: "chat",
 };
 
 const thread = (status: ThreadProjection["status"]) => ({ threadId: "t1", status }) as ThreadProjection;
