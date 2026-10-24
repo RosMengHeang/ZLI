@@ -12,6 +12,7 @@ import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, PaneHeader } from "../ui/Pane.js";
+import { Picker } from "../ui/Picker.js";
 import "./browser.css";
 
 const DEFAULT_PROFILE_ID = "00000000-0000-4000-8000-000000000002";
@@ -475,24 +476,21 @@ export function BrowserPane({ worktree, obscured = false, reveal, openRequest }:
       </div>
       {tab?.viewport ? (
         <div className="browser-device-bar">
-          <label className="select-ghost" data-tooltip="Device">
-            <select
-              aria-label="Device"
-              value={devicePreset?.id ?? CUSTOM_DEVICE}
-              onChange={(event) => {
-                const preset = BROWSER_DEVICE_PRESETS.find((candidate) => candidate.id === event.target.value);
-                if (preset) setViewport(preset.viewport);
-              }}
-            >
-              {devicePreset ? null : <option value={CUSTOM_DEVICE}>Custom</option>}
-              {BROWSER_DEVICE_PRESETS.map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.label}
-                </option>
-              ))}
-            </select>
-            <Icon name="chevronDown" size={12} />
-          </label>
+          <Picker<string>
+            label="Device"
+            tooltip="Device"
+            value={devicePreset?.id ?? CUSTOM_DEVICE}
+            options={[
+              ...(devicePreset ? [] : [{ value: CUSTOM_DEVICE, label: "Custom" }]),
+              ...BROWSER_DEVICE_PRESETS.map((preset) => ({ value: preset.id, label: preset.label })),
+            ]}
+            onChange={(id) => {
+              const preset = BROWSER_DEVICE_PRESETS.find((candidate) => candidate.id === id);
+              if (preset) setViewport(preset.viewport);
+            }}
+          >
+            <span className="picker-trigger-label">{devicePreset?.label ?? "Custom"}</span>
+          </Picker>
           <span className="browser-device-size">
             {tab.viewport.width} × {tab.viewport.height}
             {tab.viewport.deviceScaleFactor && tab.viewport.deviceScaleFactor !== 1

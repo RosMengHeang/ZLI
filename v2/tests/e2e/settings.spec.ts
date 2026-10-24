@@ -19,8 +19,11 @@ test("changes New agent defaults, branch names, and shortcuts from Settings", as
 
     await page.getByRole("button", { name: "Settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
-    await settings.getByRole("combobox", { name: "Agent" }).selectOption("codex");
-    await settings.getByRole("combobox", { name: "View" }).selectOption("chat");
+    await settings.getByRole("button", { name: /^Agent: /u }).click();
+    await page.getByRole("option", { name: "Codex", exact: true }).click();
+    await settings.getByRole("button", { name: /^View: /u }).click();
+    await page.getByRole("option", { name: "Chat", exact: true }).click();
+    await expect(settings.getByRole("button", { name: "View: Chat" })).toBeVisible();
 
     await settings.getByRole("tab", { name: "Worktrees" }).click();
     await settings.getByLabel("Branch name template").fill("task/{agent}-{random}");

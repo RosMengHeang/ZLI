@@ -96,8 +96,11 @@ test("lets agents list, start, read, and message each other with the zli command
     await page.getByRole("button", { name: "Settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
     await settings.getByRole("tab", { name: "MCP servers" }).click();
-    await settings.getByLabel("What agents may do with other agents").selectOption("read");
-    await expect(settings.getByLabel("What agents may do with other agents")).toHaveValue("read");
+    await settings.getByRole("button", { name: /^What agents may do with other agents: /u }).click();
+    await page.getByRole("option", { name: "List and read agents" }).click();
+    await expect(
+      settings.getByRole("button", { name: "What agents may do with other agents: List and read agents" }),
+    ).toBeVisible();
     const blocked = await zli(["send", helper.agent.id, "One more thing", "--cwd", firstPath]);
     expect(blocked.code).toBe(1);
     expect(blocked.stderr).toContain("not start or message them");

@@ -1,6 +1,6 @@
 .dialog.usage-dialog { width: min(780px, 100%); }
 .usage-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--zli-space-2); padding: var(--zli-space-3) var(--zli-space-5); border-top: 1px solid var(--zli-border); }
-.usage-toolbar .select-wrap { flex: 0 0 auto; min-width: 160px; }
+.usage-toolbar .picker-field { width: auto; flex: 0 0 auto; min-width: 160px; }
 .usage-body { display: flex; min-height: 0; max-height: min(600px, 72vh); flex-direction: column; gap: var(--zli-space-5); padding: 0 var(--zli-space-5) var(--zli-space-5); overflow: auto; }
 .usage-body > .empty-state { padding-block: var(--zli-space-8); }
 .usage-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--zli-space-2); margin: 0; }

@@ -401,18 +401,17 @@ export function ChatView({
                   void sendToPeer();
                 }}
               >
-                <Select
+                <Select<string>
                   className="input-sm"
-                  aria-label="Another thread in this project"
+                  label="Another thread in this project"
                   value={selectedPeerId}
-                  onChange={(event) => setPeerTargetId(event.target.value)}
-                >
-                  {peers.map((peer) => (
-                    <option key={peer.threadId} value={peer.threadId}>
-                      {peerOptionLabel(projection, peer.threadId)}
-                    </option>
-                  ))}
-                </Select>
+                  options={peers.map((peer) => ({
+                    value: peer.threadId,
+                    label: peerOptionLabel(projection, peer.threadId),
+                    icon: <ProviderMark provider={peer.provider} size={15} />,
+                  }))}
+                  onChange={setPeerTargetId}
+                />
                 <textarea
                   className="textarea"
                   value={peerDraft}

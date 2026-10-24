@@ -358,12 +358,26 @@ describe("AppShell", () => {
 });
 
 describe("Settings", () => {
-  const setValue = async (element: HTMLInputElement | HTMLSelectElement, value: string) => {
-    const prototype = element instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+  const setValue = async (element: HTMLInputElement, value: string) => {
     await act(async () => {
-      Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(element, value);
-      element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }));
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(element, value);
+      element.dispatchEvent(new Event("input", { bubbles: true }));
     });
+  };
+  const picker = (scope: HTMLElement, label: string) => {
+    const trigger = scope.querySelector<HTMLButtonElement>(`button[aria-haspopup="listbox"][aria-label^="${label}: "]`);
+    if (!trigger) throw new Error(`The ${label} picker is missing.`);
+    return trigger;
+  };
+  const choose = async (scope: HTMLElement, label: string, option: string) => {
+    const trigger = picker(scope, label);
+    await act(async () => trigger.click());
+    const choice = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
+      (entry) => entry.dataset.label === option,
+    );
+    if (!choice) throw new Error(`${label} has no ${option} option.`);
+    await act(async () => choice.click());
+    return trigger;
   };
   const press = async (target: EventTarget, init: KeyboardEventInit) => {
     await act(async () => {
@@ -418,9 +432,7 @@ describe("Settings", () => {
   it("starts New agent with the saved defaults and branch template", async () => {
     const container = await render(makeBridge(discovered));
     const agents = await openSettings(container);
-    const mode = agents.querySelector<HTMLSelectElement>('select[aria-label="View"]');
-    if (!mode) throw new Error("The View setting is missing.");
-    await setValue(mode, "chat");
+    expect((await choose(agents, "View", "Chat")).getAttribute("aria-label")).toBe("View: Chat");
     await act(async () => {
       [...agents.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
         .find((entry) => entry.textContent === "Worktrees")
@@ -477,10 +489,9 @@ describe("Settings", () => {
     updateAppSettings((current) => ({ ...current, defaults: { permissionMode: "full-access" } }));
     const container = await render(makeBridge(discovered));
     const settings = await openSettings(container, "Projects");
-    const permissions = settings.querySelector<HTMLSelectElement>('select[aria-label="Permissions"]');
-    if (!permissions) throw new Error("The project permission setting is missing.");
-    expect(permissions.value).toBe("");
-    await setValue(permissions, "supervised");
+    expect(picker(settings, "Permissions").getAttribute("aria-label")).toBe("Permissions: Same as New agents");
+    await choose(settings, "Permissions", "Auto");
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
     expect(button(settings, "Reset repo to New agents")).not.toBeUndefined();
 
     await press(window, { key: "Escape", code: "Escape" });
@@ -624,9 +635,11 @@ describe("Updates", () => {
     expect(settings?.textContent).toContain("0.1.0");
     expect(settings?.textContent).toContain("ZLI is up to date.");
     expect(settings?.textContent).toContain("Last checked");
-    const channel = settings?.querySelector<HTMLSelectElement>('select[aria-label="Update channel"]');
-    expect(channel?.disabled).toBe(true);
-    expect(channel?.value).toBe("stable");
+    const channel = settings?.querySelector<HTMLButtonElement>('button[aria-label^="Update channel"]');
+    expect(channel?.getAttribute("aria-disabled")).toBe("true");
+    expect(channel?.getAttribute("aria-label")).toBe("Update channel: Stable");
+    await act(async () => channel?.click());
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
 
     await act(async () => {
       button(settings ?? container, "Check for updates")?.click();

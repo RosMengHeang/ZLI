@@ -1,5 +1,5 @@
-import { createServer, type Server } from "node:http";
 import { writeFile } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
@@ -8,9 +8,9 @@ import {
   closeApp,
   closeDesktop,
   createGitFixture,
+  type DesktopFixture,
   git,
   launchDesktop,
-  type DesktopFixture,
 } from "./desktop-fixtures.js";
 
 test("completes the workspace, provider, browser, review, and restoration journey", async () => {
@@ -84,7 +84,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await newAgent.getByText("Chat", { exact: true }).click();
     await expect(newAgent.getByRole("radio", { name: /^Chat/u })).toBeChecked();
     await expect(newAgent.getByRole("radio", { name: /Existing worktree/u })).toBeChecked();
-    await expect(newAgent.getByRole("combobox", { name: /^Worktree/u })).toHaveValue(worktreeId);
+    await expect(newAgent.getByRole("button", { name: "Worktree: e2e" })).toBeVisible();
     await newAgent.getByRole("button", { name: "Start agent" }).click();
     const composer = page.getByRole("textbox", { name: "Message Codex" });
     await expect(composer).toBeVisible({ timeout: 20_000 });

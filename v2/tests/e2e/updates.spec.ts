@@ -29,7 +29,10 @@ test("never checks for updates in test launches and shows why in Settings", asyn
     await expect(settings.getByRole("button", { name: "Check for updates" })).toBeDisabled();
     await expect(settings.getByRole("switch", { name: /Install updates automatically/u })).toBeChecked();
     await expect(settings.getByRole("switch", { name: /Install updates automatically/u })).toBeDisabled();
-    await expect(settings.getByRole("combobox", { name: "Update channel" })).toHaveValue("stable");
+    await expect(settings.getByRole("button", { name: "Update channel: Stable" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
     await page.keyboard.press("Escape");
 
     await page.getByRole("button", { name: "Help", exact: true }).click();
