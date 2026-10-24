@@ -2,6 +2,7 @@ import { isImageMimeType, type ProviderCapabilities, type ThreadId } from "@zli-
 import type { CodexAppServerClient, CodexProviderEvent } from "@zli-v2/provider-codex";
 
 import type {
+  ProviderAccount,
   ProviderAdapter,
   ProviderEvent,
   ProviderSession,
@@ -22,6 +23,12 @@ type CodexClient = Pick<
   | "close"
 >;
 
+type Connection = { client: CodexClient; unsubscribe: () => void };
+type Context = { providerThreadId: string; session: ProviderSession; clientKey: string; account?: ProviderAccount };
+
+/** Threads on the usual login share this app server; each account gets its own, with its own CODEX_HOME. */
+const USUAL_CLIENT = "";
+
 export class CodexProviderAdapter implements ProviderAdapter {
   readonly provider = "codex" as const;
   readonly capabilities: ProviderCapabilities = {
@@ -31,21 +38,21 @@ export class CodexProviderAdapter implements ProviderAdapter {
     conversationRollback: true,
     modelSwitch: "unsupported",
   };
-  private client: CodexClient | undefined;
-  private unsubscribeClient: (() => void) | undefined;
-  private readonly sessions = new Map<string, { providerThreadId: string; session: ProviderSession }>();
+  private readonly connections = new Map<string, Promise<Connection>>();
+  private readonly sessions = new Map<string, Context>();
   private readonly listeners = new Set<(event: ProviderEvent) => void>();
 
   constructor(
     private readonly options: {
-      createClient: () => Promise<CodexClient>;
+      createClient: (input: { account?: ProviderAccount }) => Promise<CodexClient>;
       /** Config overrides for one thread; the app server is shared, so per-thread values go here. */
       threadConfig?: (input: ProviderSessionStart) => Record<string, unknown> | undefined;
     },
   ) {}
 
   async startSession(input: ProviderSessionStart): Promise<ProviderSession> {
-    const client = await this.ensureClient();
+    const clientKey = input.account?.accountId ?? USUAL_CLIENT;
+    const client = await this.ensureClient(clientKey, input.account);
     const config = this.options.threadConfig?.(input);
     // Full access keeps Codex's own configured policy, as before supervised mode existed.
     // The other two match Codex's own Read only and Auto presets.
@@ -65,13 +72,18 @@ export class CodexProviderAdapter implements ProviderAdapter {
       cwd: input.cwd,
       status: "idle",
     };
-    this.sessions.set(input.threadId, { providerThreadId: started.providerThreadId, session });
+    this.sessions.set(input.threadId, {
+      providerThreadId: started.providerThreadId,
+      session,
+      clientKey,
+      ...(input.account ? { account: input.account } : {}),
+    });
     return session;
   }
 
   async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
     const context = this.context(input.threadId);
-    const client = await this.ensureClient();
+    const client = await this.clientFor(context);
     const imagePaths = (input.attachments ?? [])
       .filter((attachment) => isImageMimeType(attachment.mimeType))
       .map((attachment) => attachment.path);
@@ -87,12 +99,12 @@ export class CodexProviderAdapter implements ProviderAdapter {
   async interruptTurn(input: { threadId: ThreadId; turnId?: string }): Promise<void> {
     const context = this.context(input.threadId);
     if (!input.turnId) return;
-    await (await this.ensureClient()).interruptTurn(context.providerThreadId, input.turnId);
+    await (await this.clientFor(context)).interruptTurn(context.providerThreadId, input.turnId);
   }
 
   async respondToRequest(input: { threadId: ThreadId; requestId: string; decision: unknown }): Promise<void> {
-    this.context(input.threadId);
-    await (await this.ensureClient()).respondToRequest(input.requestId, codexApprovalDecision(input.decision));
+    const context = this.context(input.threadId);
+    await (await this.clientFor(context)).respondToRequest(input.requestId, codexApprovalDecision(input.decision));
   }
 
   async respondToUserInput(input: {
@@ -100,13 +112,16 @@ export class CodexProviderAdapter implements ProviderAdapter {
     requestId: string;
     answers: Record<string, string>;
   }): Promise<void> {
-    this.context(input.threadId);
-    await (await this.ensureClient()).respondToRequest(input.requestId, codexUserInputAnswers(input.answers));
+    const context = this.context(input.threadId);
+    await (await this.clientFor(context)).respondToRequest(input.requestId, codexUserInputAnswers(input.answers));
   }
 
   async stopSession(input: { threadId: ThreadId }): Promise<void> {
-    this.context(input.threadId);
+    const context = this.context(input.threadId);
     this.sessions.delete(input.threadId);
+    const inUse = [...this.sessions.values()].some((candidate) => candidate.clientKey === context.clientKey);
+    // An account's app server only exists for its threads; the shared one stays up as before.
+    if (!inUse && context.clientKey !== USUAL_CLIENT) await this.closeClient(context.clientKey);
   }
 
   listSessions(): ReadonlyArray<ProviderSession> {
@@ -119,7 +134,7 @@ export class CodexProviderAdapter implements ProviderAdapter {
 
   async readThread(input: { threadId: ThreadId }): Promise<{ threadId: ThreadId; turns: ReadonlyArray<unknown> }> {
     const context = this.context(input.threadId);
-    const result = await (await this.ensureClient()).readThread(context.providerThreadId);
+    const result = await (await this.clientFor(context)).readThread(context.providerThreadId);
     return { threadId: input.threadId, turns: result.turns };
   }
 
@@ -128,16 +143,13 @@ export class CodexProviderAdapter implements ProviderAdapter {
     numTurns: number;
   }): Promise<{ threadId: ThreadId; turns: ReadonlyArray<unknown> }> {
     const context = this.context(input.threadId);
-    const result = await (await this.ensureClient()).rollbackThread(context.providerThreadId, input.numTurns);
+    const result = await (await this.clientFor(context)).rollbackThread(context.providerThreadId, input.numTurns);
     return { threadId: input.threadId, turns: result.turns };
   }
 
   async stopAll(): Promise<void> {
     this.sessions.clear();
-    this.unsubscribeClient?.();
-    this.unsubscribeClient = undefined;
-    await this.client?.close();
-    this.client = undefined;
+    await Promise.all([...this.connections.keys()].map((key) => this.closeClient(key)));
   }
 
   subscribe(listener: (event: ProviderEvent) => void): () => void {
@@ -145,27 +157,50 @@ export class CodexProviderAdapter implements ProviderAdapter {
     return () => this.listeners.delete(listener);
   }
 
-  private async ensureClient(): Promise<CodexClient> {
-    if (this.client) return this.client;
-    this.client = await this.options.createClient();
-    this.unsubscribeClient = this.client.subscribe((event) => this.onCodexEvent(event));
-    return this.client;
+  private async ensureClient(key: string, account: ProviderAccount | undefined): Promise<CodexClient> {
+    let connection = this.connections.get(key);
+    if (!connection) {
+      connection = this.options.createClient(account ? { account } : {}).then((client) => ({
+        client,
+        unsubscribe: client.subscribe((event) => this.onCodexEvent(key, event)),
+      }));
+      this.connections.set(key, connection);
+      // A failed start must not stick, or every later thread on this account would fail the same way.
+      connection.catch(() => {
+        if (this.connections.get(key) === connection) this.connections.delete(key);
+      });
+    }
+    return (await connection).client;
   }
 
-  private context(threadId: ThreadId): { providerThreadId: string; session: ProviderSession } {
+  private clientFor(context: Context): Promise<CodexClient> {
+    return this.ensureClient(context.clientKey, context.account);
+  }
+
+  private async closeClient(key: string): Promise<void> {
+    const connection = this.connections.get(key);
+    this.connections.delete(key);
+    if (!connection) return;
+    const opened = await connection.catch(() => undefined);
+    if (!opened) return;
+    opened.unsubscribe();
+    await opened.client.close();
+  }
+
+  private context(threadId: ThreadId): Context {
     const context = this.sessions.get(threadId);
     if (!context) throw new Error(`Codex session does not exist: ${threadId}`);
     return context;
   }
 
-  private onCodexEvent(event: CodexProviderEvent): void {
+  private onCodexEvent(key: string, event: CodexProviderEvent): void {
     if (event.type === "session.closed") {
-      const closed = [...this.sessions.values()];
+      const closed = [...this.sessions.values()].filter((context) => context.clientKey === key);
       // The app server is gone; the next session must spawn a fresh process instead of reusing a dead client.
-      this.sessions.clear();
-      this.unsubscribeClient?.();
-      this.unsubscribeClient = undefined;
-      this.client = undefined;
+      for (const context of closed) this.sessions.delete(context.session.threadId);
+      const connection = this.connections.get(key);
+      this.connections.delete(key);
+      void connection?.then((opened) => opened.unsubscribe()).catch(() => undefined);
       for (const context of closed) {
         this.emit({ type: "session.closed", threadId: context.session.threadId, reason: event.reason });
       }
@@ -177,7 +212,9 @@ export class CodexProviderAdapter implements ProviderAdapter {
     }
     const providerThreadId = "providerThreadId" in event ? event.providerThreadId : undefined;
     const context = providerThreadId
-      ? [...this.sessions.values()].find((candidate) => candidate.providerThreadId === providerThreadId)
+      ? [...this.sessions.values()].find(
+          (candidate) => candidate.clientKey === key && candidate.providerThreadId === providerThreadId,
+        )
       : undefined;
     if (!context) return;
     switch (event.type) {

@@ -475,3 +475,92 @@ describe("TerminalReactor", () => {
     expect(after.lastSequence).toBe(before);
   });
 });
+
+describe("TerminalReactor accounts", () => {
+  const spawnInto = (spawned: PtySpawnInput[]): PtyFactory => ({
+    spawn: async (input) => {
+      spawned.push(input);
+      return new FakePty();
+    },
+  });
+  const create = (engine: Engine, worktreeId: string, n: number, agent: Record<string, unknown>) =>
+    engine.dispatchPromise(
+      command("terminal.create", {
+        terminalId: TerminalId.parse(`00000000-0000-4000-8000-0000000003a${n}`),
+        worktreeId,
+        cwd: "C:/workspace/project-tree",
+        shell: "powershell.exe",
+        title: "Agent",
+        cols: 120,
+        rows: 32,
+        agent,
+      }),
+    );
+
+  it("starts an agent with its account's environment, and the usual login without one", async () => {
+    const spawned: PtySpawnInput[] = [];
+    const asked: Array<{ provider: string; accountId: string | undefined }> = [];
+    const { engine, reactor, worktreeId } = await setup(spawnInto(spawned), {
+      resolveAgentCli: async (provider) => `C:\\bin\\${provider}.exe`,
+      env: {},
+      resolveAccount: async (provider, accountId) => {
+        asked.push({ provider, accountId });
+        return accountId === "work" ? { accountId, env: { CLAUDE_CONFIG_DIR: "C:\\ZLI\\accounts\\work" } } : undefined;
+      },
+    });
+    await create(engine, worktreeId, 1, { provider: "claude-code", accountId: "work" });
+    await create(engine, worktreeId, 2, { provider: "claude-code" });
+    await reactor.waitForIdle();
+
+    expect(asked).toEqual([
+      { provider: "claude-code", accountId: "work" },
+      { provider: "claude-code", accountId: undefined },
+    ]);
+    expect(spawned[0]?.envOverrides).toMatchObject({ CLAUDE_CONFIG_DIR: "C:\\ZLI\\accounts\\work" });
+    expect(spawned[1]?.envOverrides?.CLAUDE_CONFIG_DIR).toBeUndefined();
+    expect((await engine.projection()).terminals[0]?.agent).toEqual({ provider: "claude-code", accountId: "work" });
+  });
+
+  it("runs the CLI's own login for a sign-in, without MCP flags", async () => {
+    const spawned: PtySpawnInput[] = [];
+    const { engine, reactor, worktreeId } = await setup(spawnInto(spawned), {
+      resolveAgentCli: async (provider) => `C:\\bin\\${provider}.exe`,
+      env: {},
+      mcpServers: () => [{ name: "github", command: "npx", args: [], env: {} }],
+      mcpConfigDir: "C:\\ZLI\\data\\mcp",
+      writeMcpConfig: async () => {
+        throw new Error("no MCP config for a sign-in");
+      },
+      resolveAccount: async (_provider, accountId) =>
+        accountId ? { accountId, env: { CODEX_HOME: "C:\\ZLI\\accounts\\home" } } : undefined,
+    });
+    await create(engine, worktreeId, 3, { provider: "codex", accountId: "home", login: true });
+    await create(engine, worktreeId, 4, { provider: "codex", login: true });
+    await reactor.waitForIdle();
+
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0]).toMatchObject({
+      shell: "C:\\bin\\codex.exe",
+      args: ["login"],
+      envOverrides: { CODEX_HOME: "C:\\ZLI\\accounts\\home" },
+    });
+    const terminals = (await engine.projection()).terminals;
+    expect(terminals.map((terminal) => terminal.status)).toEqual(["running", "failed"]);
+    expect(terminals[1]?.errorMessage).toContain("Choose an account to sign in to.");
+  });
+
+  it("fails the agent instead of running it as someone else when its account is gone", async () => {
+    const spawned: PtySpawnInput[] = [];
+    const { engine, reactor, worktreeId } = await setup(spawnInto(spawned), {
+      resolveAgentCli: async (provider) => `C:\\bin\\${provider}.exe`,
+      env: {},
+      resolveAccount: async () => {
+        throw new Error("The account for this agent was removed. Start it with another account.");
+      },
+    });
+    await create(engine, worktreeId, 5, { provider: "gemini", accountId: "gone" });
+    await reactor.waitForIdle();
+    expect(spawned).toEqual([]);
+    expect((await engine.projection()).terminals[0]).toMatchObject({ status: "failed" });
+  });
+});

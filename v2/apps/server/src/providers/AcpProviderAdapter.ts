@@ -38,7 +38,7 @@ type AcpSessionClient = Pick<
   AcpClient,
   "sendTurn" | "interruptTurn" | "respondToPermission" | "transcript" | "subscribe" | "close"
 >;
-type ClientStart = Pick<ProviderSessionStart, "cwd" | "permissionMode" | "model" | "worktreeId">;
+type ClientStart = Pick<ProviderSessionStart, "cwd" | "permissionMode" | "model" | "worktreeId" | "account">;
 
 const MAX_TITLE = 500;
 const GENERIC_TITLES = new Set(["Read file", "Edit files", "Search", "List files", "Tool call"]);
@@ -68,8 +68,9 @@ export class AcpProviderAdapter implements ProviderAdapter {
     this.provider = config.provider;
     this.createClient =
       options.createClient ??
-      (async ({ worktreeId, ...input }) => {
+      (async ({ worktreeId, account, ...input }) => {
         const browserTool = config.browserTool;
+        const env = { ...(browserTool ? agentEnv(browserTool, worktreeId) : {}), ...account?.env };
         const specs = [
           ...(browserTool ? zliMcpServerSpecs(browserTool, worktreeId) : []),
           ...(config.mcpServers?.() ?? []),
@@ -80,7 +81,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
           args: config.acpArgs,
           displayName: config.displayName,
           authHint: config.authHint,
-          ...(browserTool ? { env: agentEnv(browserTool, worktreeId) } : {}),
+          ...(Object.keys(env).length > 0 ? { env } : {}),
           ...(specs.length > 0 ? { mcpServers: specs.map(acpMcpServer) } : {}),
         });
       });
@@ -92,6 +93,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
       ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
       ...(input.model ? { model: input.model } : {}),
       ...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
+      ...(input.account ? { account: input.account } : {}),
     });
     const session: ProviderSession = {
       threadId: input.threadId,

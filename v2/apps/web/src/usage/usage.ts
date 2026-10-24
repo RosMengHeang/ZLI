@@ -1,4 +1,4 @@
-import type { ThreadUsageRecord } from "@zli-v2/contracts";
+import { type ThreadUsageRecord, USUAL_LOGIN_ACCOUNT_ID } from "@zli-v2/contracts";
 
 export type UsagePeriod = "today" | "week" | "month" | "all";
 
@@ -19,7 +19,7 @@ export type UsageTotals = {
   costedTurns: number;
 };
 
-export type UsageGroup = { key: string; provider: string; lastAt: number; totals: UsageTotals };
+export type UsageGroup = { key: string; provider: string; accountId?: string; lastAt: number; totals: UsageTotals };
 
 const DAY_MS = 86_400_000;
 
@@ -68,18 +68,39 @@ export function sumUsage(records: readonly ThreadUsageRecord[]): UsageTotals {
   return totals;
 }
 
-/** Biggest spenders first, by tokens, since not every provider reports cost. */
+/**
+ * Biggest spenders first, by tokens, since not every provider reports cost. By provider, each saved
+ * account gets its own group; the usual login keeps the plain provider key.
+ */
 export function groupUsage(records: readonly ThreadUsageRecord[], by: "provider" | "thread"): UsageGroup[] {
-  const groups = new Map<string, { provider: string; lastAt: number; records: ThreadUsageRecord[] }>();
+  const groups = new Map<
+    string,
+    { provider: string; accountId?: string; lastAt: number; records: ThreadUsageRecord[] }
+  >();
   for (const record of records) {
-    const key = by === "provider" ? record.provider : record.threadId;
-    const group = groups.get(key) ?? { provider: record.provider, lastAt: 0, records: [] };
+    const accountId =
+      by === "provider" && record.accountId && record.accountId !== USUAL_LOGIN_ACCOUNT_ID
+        ? record.accountId
+        : undefined;
+    const key = by === "thread" ? record.threadId : accountId ? `${record.provider}:${accountId}` : record.provider;
+    const group = groups.get(key) ?? {
+      provider: record.provider,
+      ...(accountId ? { accountId } : {}),
+      lastAt: 0,
+      records: [],
+    };
     group.records.push(record);
     group.lastAt = Math.max(group.lastAt, recordedAt(record) ?? 0);
     groups.set(key, group);
   }
   return [...groups.entries()]
-    .map(([key, group]) => ({ key, provider: group.provider, lastAt: group.lastAt, totals: sumUsage(group.records) }))
+    .map(([key, group]) => ({
+      key,
+      provider: group.provider,
+      ...(group.accountId ? { accountId: group.accountId } : {}),
+      lastAt: group.lastAt,
+      totals: sumUsage(group.records),
+    }))
     .sort((left, right) =>
       by === "thread" ? right.lastAt - left.lastAt : tokenTotal(right.totals) - tokenTotal(left.totals),
     );

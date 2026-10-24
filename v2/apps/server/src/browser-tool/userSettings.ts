@@ -245,6 +245,51 @@ async function applyChanges(
   return { outcome: { ...base, status: allNew ? "created" : "updated" }, created };
 }
 
+/** The MCP settings file each CLI reads when its config directory variable points at `dir`. */
+export function accountSettingsFile(provider: ListedProviderKind, dir: string): string | undefined {
+  switch (provider) {
+    case "cursor-agent":
+    case "kimi":
+      return join(dir, "mcp.json");
+    case "gemini":
+      // GEMINI_CLI_HOME stands in for the home directory, so the settings stay under .gemini.
+      return join(dir, ".gemini", "settings.json");
+    case "qwen":
+      return join(dir, "settings.json");
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Brings the MCP servers in a sign-in account's own settings file in line with `specs`. The person may add
+ * servers there too, so only names in `owned` are ever removed. Returns the names ZLI owns afterwards, or
+ * undefined when the provider reads MCP servers some other way.
+ */
+export async function syncAccountMcpServers(
+  provider: ListedProviderKind,
+  dir: string,
+  specs: readonly McpServerSpec[],
+  owned: readonly string[],
+): Promise<string[] | undefined> {
+  const path = accountSettingsFile(provider, dir);
+  if (!path) return undefined;
+  const settingsProvider = provider as UserSettingsProvider;
+  const wanted = new Set(specs.map((spec) => spec.name));
+  const set = Object.fromEntries(specs.map((spec) => [spec.name, userSettingsEntry(settingsProvider, spec)]));
+  const remove = owned.filter((name) => !wanted.has(name));
+  const { outcome, created } = await applySafely(
+    settingsProvider,
+    path,
+    { set, remove },
+    {
+      home: dir,
+      isInstalled: async () => true,
+    },
+  );
+  if (outcome.status === "skipped-invalid" || outcome.status === "failed") return [...owned];
+  return [...new Set([...owned.filter((name) => wanted.has(name)), ...created])];
+}
 function sameJson(left: unknown, right: unknown): boolean {
   if (Array.isArray(left) || Array.isArray(right)) {
     return (
