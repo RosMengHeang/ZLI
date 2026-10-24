@@ -57,9 +57,11 @@ export function createMainWindow(
   preloadPath: string,
   appOrigin: string,
   platform: NodeJS.Platform = process.platform,
+  icon?: string,
 ): BrowserWindowLike {
   const window = new BrowserWindow({
     title: "ZLI",
+    ...(icon ? { icon } : {}),
     width: 1440,
     height: 900,
     minWidth: 960,
