@@ -19,6 +19,8 @@ import { DiagnosticsReactor } from "./diagnostics/DiagnosticsReactor.js";
 import { StructuredLogger } from "./diagnostics/StructuredLogger.js";
 import { GitProcess } from "./git/GitProcess.js";
 import { LegacyImportReactor } from "./import/LegacyImportReactor.js";
+import { GitHubIssues } from "./issues/GitHubIssues.js";
+import { LinearIssues } from "./issues/LinearIssues.js";
 import { McpServerStore } from "./mcp/McpServerStore.js";
 import { AgentMessageReactor } from "./orchestration/AgentMessageReactor.js";
 import { Engine } from "./orchestration/Engine.js";
@@ -134,6 +136,7 @@ export async function startRuntime(options: {
   const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
   const legacyImportReactor = new LegacyImportReactor(engine);
   const devServerReactor = new DevServerReactor(engine, terminalService);
+  const linearIssues = new LinearIssues({ keyPath: join(dirname(databasePath), "linear-key.json") });
   const server = new RpcServer({
     engine,
     environment,
@@ -143,6 +146,7 @@ export async function startRuntime(options: {
     attachmentsDir: join(dirname(databasePath), "attachments"),
     checkpoints,
     mcpServers,
+    issues: { github: new GitHubIssues(), linear: linearIssues },
   });
   // Before the server accepts commands, so a setup started by a new request is never mistaken for a stale one.
   await worktreeSetup.reconcile();
@@ -182,6 +186,7 @@ export async function startRuntime(options: {
       await server.stop();
       await browserToolRegistration;
       await mcpServers.waitForIdle();
+      await linearIssues.waitForIdle();
       await worktreeReactor.waitForIdle();
       await terminalReactor.waitForIdle();
       await reviewReactor.waitForIdle();

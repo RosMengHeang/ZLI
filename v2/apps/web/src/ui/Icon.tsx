@@ -234,6 +234,12 @@ const paths = {
     <path d="M12 2v4M16.2 7.8l2.9-2.9M18 12h4M16.2 16.2l2.9 2.9M12 18v4M4.9 19.1l2.9-2.9M2 12h4M4.9 4.9l2.9 2.9" />
   ),
   circle: <circle cx="12" cy="12" r="9" />,
+  issue: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="1.5" />
+    </>
+  ),
   bot: (
     <>
       <path d="M12 8V4H8" />
