@@ -46,14 +46,16 @@ export class CodexProviderAdapter implements ProviderAdapter {
     private readonly options: {
       createClient: (input: { account?: ProviderAccount }) => Promise<CodexClient>;
       /** Config overrides for one thread; the app server is shared, so per-thread values go here. */
-      threadConfig?: (input: ProviderSessionStart) => Record<string, unknown> | undefined;
+      threadConfig?: (
+        input: ProviderSessionStart,
+      ) => Record<string, unknown> | undefined | Promise<Record<string, unknown> | undefined>;
     },
   ) {}
 
   async startSession(input: ProviderSessionStart): Promise<ProviderSession> {
     const clientKey = input.account?.accountId ?? USUAL_CLIENT;
     const client = await this.ensureClient(clientKey, input.account);
-    const config = this.options.threadConfig?.(input);
+    const config = await this.options.threadConfig?.(input);
     // Full access keeps Codex's own configured policy, as before supervised mode existed.
     // The other two match Codex's own Read only and Auto presets.
     const started = await client.startSession({

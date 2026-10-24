@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { CommandId, MCP_CATALOG, type McpListResult, type McpServerConfig } from "@zli-v2/contracts";
+import { CommandId, MCP_CATALOG, McpListResult, type McpServerConfig } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
@@ -34,6 +34,7 @@ const listOf = (servers: McpServerConfig[], signedIn: string[] = []): McpListRes
   servers,
   agentAccess: "full",
   userSettings: { enabled: true, outcomes: [] },
+  health: [],
   signIns: servers
     .filter((server) => server.transport === "http" && server.oauth)
     .map((server) => ({
@@ -55,6 +56,11 @@ describe("connector helpers", () => {
     expect(connectorState(entry("vercel"), listOf([{ ...vercel, enabled: false }]), {})).toMatchObject({
       kind: "off",
     });
+    const expired = McpListResult.parse({
+      ...listOf([vercel]),
+      signIns: [{ name: "vercel", url: vercel.url, signedIn: false, expired: true }],
+    });
+    expect(connectorState(entry("vercel"), expired, {})).toMatchObject({ kind: "expired" });
     const pending = { vercel: { name: "vercel", attemptId: "a", url: "https://vercel.com/oauth" } };
     expect(connectorState(entry("vercel"), listOf([vercel]), pending)).toMatchObject({ kind: "pending" });
   });
@@ -201,5 +207,119 @@ describe("ConnectorsSection", () => {
 
     await act(async () => setValue(search, "nothing like this"));
     expect(container.textContent).toContain("No connectors match.");
+  });
+});
+
+type Command = { type: string; servers?: McpServerConfig[]; name?: string; attemptId?: string };
+
+async function renderWith(
+  handle: (command: Command) => unknown,
+  projects: { projectId: string; path: string; name: string }[] = [],
+): Promise<HTMLElement> {
+  const bridge = {
+    runtime: {
+      dispatch: async (request: { commandId: string; command: Command }) => ({
+        commandId: CommandId.parse(request.commandId),
+        accepted: true as const,
+        result: await handle(request.command),
+      }),
+      getProjection: async () => (projects.length > 0 ? { lastSequence: 1, projects } : undefined),
+      onProjection: () => () => undefined,
+    },
+    app: { getVersion: async () => "0", quit: async () => undefined, openExternal: async () => undefined },
+  } as unknown as ZliBridge;
+  const container = document.createElement("div");
+  document.body.append(container);
+  await act(async () => {
+    createRoot(container).render(
+      <RuntimeProvider bridge={bridge}>
+        <ConnectorsSection />
+      </RuntimeProvider>,
+    );
+  });
+  return container;
+}
+
+describe("ConnectorsSection health, projects, and plugin sign-ins", () => {
+  it("tests a connected card and limits it to a project", async () => {
+    let servers: McpServerConfig[] = [vercel];
+    let health: McpListResult["health"] = [];
+    const container = await renderWith(
+      (command) => {
+        if (command.type === "mcp.test") {
+          health = [{ name: "vercel", ok: true, toolCount: 3, testedAt: "2025-01-02T03:04:05.000Z" }];
+          return {
+            name: "vercel",
+            ok: true,
+            tools: [{ name: "a" }, { name: "b" }, { name: "c" }],
+            testedAt: "2025-01-02T03:04:05.000Z",
+          };
+        }
+        if (command.type === "mcp.save") servers = command.servers ?? [];
+        return McpListResult.parse({ ...listOf(servers, ["vercel"]), health });
+      },
+      [{ projectId: "00000000-0000-4000-8000-000000000001", path: "/work/repo", name: "repo" }],
+    );
+    const vercelCard = () => card(container, "vercel");
+    expect(vercelCard().textContent).toContain("Not tested");
+    await act(async () => button(vercelCard(), "Test Vercel").click());
+    expect(vercelCard().textContent).toContain("3 tools");
+    expect(vercelCard().querySelector('[aria-label="Working, 3 tools"]')).not.toBeNull();
+
+    await act(async () => button(vercelCard(), "Projects for Vercel: All projects").click());
+    const popover = vercelCard().querySelector('[role="dialog"]') as HTMLElement;
+    expect(popover.textContent).toContain("skip servers limited to some projects");
+    await act(async () => popover.querySelector<HTMLInputElement>('input[aria-label="repo"]')?.click());
+    expect(servers).toEqual([{ ...vercel, projects: ["/work/repo"] }]);
+    expect(button(vercelCard(), "Projects for Vercel: 1 project")).toBeTruthy();
+    await act(async () =>
+      vercelCard().querySelector<HTMLInputElement>('[role="dialog"] input[aria-label="All projects"]')?.click(),
+    );
+    expect(servers).toEqual([vercel]);
+  });
+
+  it("asks to sign in again when a connector's sign-in expired", async () => {
+    let expired = true;
+    const container = await renderWith((command) => {
+      if (command.type === "mcp.signIn") expired = false;
+      const list = listOf([vercel], expired ? [] : ["vercel"]);
+      const result = McpListResult.parse({
+        ...list,
+        signIns: expired ? [{ name: "vercel", url: vercel.url, signedIn: false, expired: true }] : list.signIns,
+      });
+      return command.type === "mcp.signIn" ? { status: "done", list: result } : result;
+    });
+    expect(card(container, "vercel").dataset.state).toBe("expired");
+    expect(card(container, "vercel").textContent).toContain("Sign-in expired");
+    await act(async () => button(card(container, "vercel"), "Sign in again to Vercel").click());
+    expect(card(container, "vercel").dataset.state).toBe("connected");
+  });
+
+  it("shows sign-ins from plugins in their own group", async () => {
+    let signedIn = false;
+    const container = await renderWith((command) => {
+      if (command.type === "mcp.signIn") signedIn = true;
+      if (command.type === "mcp.signOut") signedIn = false;
+      const result = McpListResult.parse({
+        ...listOf([]),
+        signIns: [
+          signedIn
+            ? { name: "team-linear", url: "https://mcp.linear.app/mcp", signedIn: true, account: "ada" }
+            : { name: "team-linear", url: "https://mcp.linear.app/mcp", signedIn: false },
+        ],
+      });
+      return command.type === "mcp.signIn" ? { status: "done", list: result } : result;
+    });
+    const group = container.querySelector('section[aria-label="From plugins"]') as HTMLElement;
+    expect(container.querySelector(".connector-group h3")?.textContent).toBe("From plugins");
+    const plugin = () => container.querySelector('[data-plugin="team-linear"]') as HTMLElement;
+    expect(group.contains(plugin())).toBe(true);
+    expect(plugin().textContent).toContain("mcp.linear.app");
+    expect(plugin().querySelector(".connector-logo-letter")).toBeNull();
+    await act(async () => button(plugin(), "Sign in to team-linear").click());
+    expect(plugin().textContent).toContain("Signed in as ada");
+    expect(button(container, "Connected (1)")).toBeTruthy();
+    await act(async () => button(plugin(), "Sign out of team-linear").click());
+    expect(plugin().dataset.state).toBe("signed-out");
   });
 });

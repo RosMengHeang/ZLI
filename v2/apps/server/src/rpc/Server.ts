@@ -25,9 +25,11 @@ import {
   type IssueCommand,
   MCP_COMMAND_TYPES,
   type McpCommand,
+  type McpImportResult,
   type McpListResult,
   type McpServerConfig,
   type McpSignInStart,
+  type McpTestResult,
   PLUGIN_COMMAND_TYPES,
   type PluginCommand,
   type ProviderDiscovery,
@@ -47,6 +49,7 @@ import { CheckpointError, type TurnCheckpoints } from "../checkpoints/TurnCheckp
 import { errorCode, FileService, FileServiceError } from "../files/FileService.js";
 import { defaultIssueSources, IssueError, type IssueSources, runIssueCommand } from "../issues/IssueService.js";
 import type { Engine } from "../orchestration/Engine.js";
+import { McpRequestError } from "../mcp/McpServerStore.js";
 import { SignInError } from "../mcp/signIn/oauth.js";
 import { isPluginError, type PluginStore } from "../plugins/PluginStore.js";
 import { runPluginCommand } from "../plugins/runPluginCommand.js";
@@ -416,22 +419,15 @@ export class RpcServer {
       send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const signIn = command.type.startsWith("mcp.sign");
       send(client, {
         type: "response",
         response: {
           commandId: request.commandId,
           accepted: false,
           error:
-            error instanceof SignInError
+            error instanceof SignInError || error instanceof McpRequestError
               ? { code: "invalid_request", message, retryable: true }
-              : {
-                  code: "internal",
-                  message: signIn
-                    ? `The sign-in did not go through. ${message}`
-                    : `MCP servers were not saved. ${message}`,
-                  retryable: true,
-                },
+              : { code: "internal", message: `${mcpFailurePrefix(command)} ${message}`, retryable: true },
         },
       });
     }
@@ -836,13 +832,34 @@ export type McpServerCommands = {
   waitForSignIn?(attemptId: string): Promise<McpListResult>;
   cancelSignIn?(attemptId: string): McpListResult;
   signOut?(name: string): Promise<McpListResult>;
+  /** Rereads saved logins before a list, since connect bridges may have found one expired. */
+  reloadSignIns?(): Promise<void>;
+  test?(name: string): Promise<McpTestResult>;
+  scanImports?(): Promise<McpImportResult>;
 };
 
-function runMcpCommand(store: McpServerCommands, command: McpCommand): Promise<McpListResult | McpSignInStart> {
+function mcpFailurePrefix(command: McpCommand): string {
+  if (command.type.startsWith("mcp.sign")) return "The sign-in did not go through.";
+  if (command.type === "mcp.test") return "The test did not run.";
+  if (command.type === "mcp.import.scan") return "ZLI could not look for servers in other apps.";
+  if (command.type === "mcp.list") return "MCP servers could not be listed.";
+  return "MCP servers were not saved.";
+}
+
+function runMcpCommand(
+  store: McpServerCommands,
+  command: McpCommand,
+): Promise<McpListResult | McpSignInStart | McpTestResult | McpImportResult> {
   const missing = () => Promise.reject(new SignInError("Signing in is not available here."));
+  const unavailable = (what: string) => Promise.reject(new McpRequestError(`${what} is not available here.`));
   switch (command.type) {
     case "mcp.list":
-      return Promise.resolve(store.list());
+      return store.reloadSignIns
+        ? store
+            .reloadSignIns()
+            .catch(() => undefined)
+            .then(() => store.list())
+        : Promise.resolve(store.list());
     case "mcp.save":
       return store.save(command.servers);
     case "mcp.agentAccess":
@@ -855,6 +872,10 @@ function runMcpCommand(store: McpServerCommands, command: McpCommand): Promise<M
       return store.cancelSignIn ? Promise.resolve(store.cancelSignIn(command.attemptId)) : missing();
     case "mcp.signOut":
       return store.signOut ? store.signOut(command.name) : missing();
+    case "mcp.test":
+      return store.test ? store.test(command.name) : unavailable("Testing servers");
+    case "mcp.import.scan":
+      return store.scanImports ? store.scanImports() : unavailable("Importing servers");
   }
 }
 

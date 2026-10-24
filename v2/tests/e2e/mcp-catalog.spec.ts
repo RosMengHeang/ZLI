@@ -62,7 +62,7 @@ test("adds connectors from the gallery and MCP servers by remote URL", async () 
       settings.locator(".mcp-row", { hasText: "mcp.linear.app" }).getByRole("button", { name: /Sign in/ }),
     ).toBeVisible();
     await expect(settings).not.toContainText("ghp_e2e_secret");
-    await expect(settings).toContainText("Goose in a terminal cannot send headers");
+    await expect(settings).not.toContainText("Goose in a terminal cannot send headers");
 
     const saved = JSON.parse(await readFile(join(root, "mcp-servers.json"), "utf8"));
     expect(saved.servers).toEqual([

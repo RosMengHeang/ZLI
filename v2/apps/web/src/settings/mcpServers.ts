@@ -1,13 +1,17 @@
 import {
   type AgentToolAccess,
   isHttpServer,
+  MCP_CATALOG,
   MCP_HEADER_NAME_PATTERN,
+  McpImportResult,
   McpListResult,
   type McpServerConfig,
+  type McpServerHealth,
   McpServerList,
   type McpSettingsOutcome,
   McpSignInStart,
   type McpSignInState,
+  McpTestResult,
   type RpcResponse,
 } from "@zli-v2/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -30,6 +34,11 @@ export type McpDraft = {
   headers: string;
   oauth: boolean;
   enabled: boolean;
+  /** Off means every project. */
+  limitProjects: boolean;
+  projects: string[];
+  /** Kept as they are; the tools panel changes them. */
+  disabledTools: string[];
 };
 
 export const EMPTY_DRAFT: McpDraft = {
@@ -42,6 +51,9 @@ export const EMPTY_DRAFT: McpDraft = {
   headers: "",
   oauth: false,
   enabled: true,
+  limitProjects: false,
+  projects: [],
+  disabledTools: [],
 };
 
 export const TRANSPORT_LABELS: Record<McpTransport, string> = {
@@ -80,6 +92,123 @@ export function cancelMcpSignIn(dispatch: Dispatch, attemptId: string): Promise<
 
 export function signOutMcpServer(dispatch: Dispatch, name: string): Promise<McpListResult> {
   return request(dispatch, { type: "mcp.signOut", name });
+}
+
+export async function testMcpServer(dispatch: Dispatch, name: string): Promise<McpTestResult> {
+  const parsed = McpTestResult.safeParse(await send(dispatch, { type: "mcp.test", name }));
+  if (!parsed.success) throw new Error(UNEXPECTED);
+  return parsed.data;
+}
+
+export async function scanMcpImports(dispatch: Dispatch): Promise<McpImportResult> {
+  const parsed = McpImportResult.safeParse(await send(dispatch, { type: "mcp.import.scan" }));
+  if (!parsed.success) throw new Error(UNEXPECTED);
+  return parsed.data;
+}
+
+/** Sign-ins for servers that came from plugins rather than the person's own list. */
+export function pluginSignIns(result: McpListResult): McpSignInState[] {
+  return result.signIns.filter(
+    (entry) => !result.servers.some((server) => server.name.toLowerCase() === entry.name.toLowerCase()),
+  );
+}
+
+/** The last test of a server, matched by name. */
+export function healthFor(result: McpListResult, name: string): McpServerHealth | undefined {
+  const key = name.toLowerCase();
+  return result.health.find((entry) => entry.name.toLowerCase() === key);
+}
+
+export function healthFromTest(test: McpTestResult): McpServerHealth {
+  return {
+    name: test.name,
+    ok: test.ok,
+    toolCount: test.tools.length,
+    ...(test.problem ? { problem: test.problem } : {}),
+    ...(test.needsSignIn ? { needsSignIn: true } : {}),
+    testedAt: test.testedAt,
+  };
+}
+
+/** The list with this server's last test replaced by `test`. */
+export function mergeHealth(health: readonly McpServerHealth[], test: McpTestResult): McpServerHealth[] {
+  const key = test.name.toLowerCase();
+  return [...health.filter((entry) => entry.name.toLowerCase() !== key), healthFromTest(test)];
+}
+
+export type McpStatusTone = "ok" | "problem" | "warning" | "unknown";
+export type McpStatus = { tone: McpStatusTone; label: string };
+
+export function toolCountText(count: number): string {
+  return count === 1 ? "1 tool" : `${count} tools`;
+}
+
+/** What the status dot says: sign-in first, then the last test. */
+export function serverStatus(result: McpListResult, name: string): McpStatus {
+  const signIn = signInFor(result, name);
+  if (signIn && !signIn.signedIn) {
+    return { tone: "warning", label: signIn.expired ? "Sign-in expired" : "Not signed in" };
+  }
+  const health = healthFor(result, name);
+  if (!health) return { tone: "unknown", label: "Not tested" };
+  if (health.ok) return { tone: "ok", label: `Working, ${toolCountText(health.toolCount)}` };
+  if (health.needsSignIn) return { tone: "warning", label: health.problem ?? "Not signed in" };
+  return { tone: "problem", label: health.problem ?? "Not working" };
+}
+
+/** The server with these tools turned off. An empty list is left out of the saved file. */
+export function withDisabledTools<T extends McpServerConfig>(server: T, disabled: readonly string[]): T {
+  const { disabledTools: _previous, ...rest } = server;
+  return (disabled.length > 0 ? { ...rest, disabledTools: [...disabled] } : rest) as T;
+}
+
+/** The server limited to these project paths. An empty list means every project and is left out. */
+export function withProjects<T extends McpServerConfig>(server: T, projects: readonly string[]): T {
+  const { projects: _previous, ...rest } = server;
+  return (projects.length > 0 ? { ...rest, projects: [...projects] } : rest) as T;
+}
+
+/** The last part of a path, for projects ZLI no longer lists. */
+export function pathName(path: string): string {
+  return (
+    path
+      .replace(/[\\/]+$/u, "")
+      .split(/[\\/]/u)
+      .pop() || path
+  );
+}
+
+export function sameProjectPath(left: string, right: string): boolean {
+  const normal = (path: string) => path.replace(/\\/gu, "/").replace(/\/+$/u, "").toLowerCase();
+  return normal(left) === normal(right);
+}
+
+/** Project names for the saved paths, using the name ZLI shows when it knows the project. */
+export function projectNames(paths: readonly string[], projects: readonly { name: string; path: string }[]): string[] {
+  return paths.map((path) => projects.find((project) => sameProjectPath(project.path, path))?.name ?? pathName(path));
+}
+
+export function projectCountText(count: number): string {
+  return count === 1 ? "1 project" : `${count} projects`;
+}
+
+export const PROJECT_LIMIT_NOTE =
+  "Cursor and Droid, and Gemini, Kimi Code, and Qwen Code in terminals, read servers from settings shared by every project, so they skip servers limited to some projects.";
+
+export function urlHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+/** The catalog entry whose address is on the same host, for logos and titles of plugin servers. */
+export function catalogEntryForUrl(url: string) {
+  const host = urlHost(url).toLowerCase();
+  return MCP_CATALOG.find(
+    (entry) => entry.template.transport === "http" && urlHost(entry.template.url).toLowerCase() === host,
+  );
 }
 
 /** The sign-in state for one server, matched by name. */
@@ -124,6 +253,7 @@ export function draftFromServer(server: McpServerConfig): McpDraft {
         .join("\n"),
       oauth: server.oauth,
       enabled: server.enabled,
+      ...shared(server),
     };
   }
   return {
@@ -135,6 +265,16 @@ export function draftFromServer(server: McpServerConfig): McpDraft {
       .map(([key, value]) => `${key}=${value}`)
       .join("\n"),
     enabled: server.enabled,
+    ...shared(server),
+  };
+}
+
+function shared(server: McpServerConfig): Pick<McpDraft, "limitProjects" | "projects" | "disabledTools"> {
+  const projects = server.projects ?? [];
+  return {
+    limitProjects: projects.length > 0,
+    projects: [...projects],
+    disabledTools: [...(server.disabledTools ?? [])],
   };
 }
 
@@ -184,25 +324,42 @@ export function headersFromText(text: string): { headers: Record<string, string>
 }
 
 function serverFromDraft(draft: McpDraft): McpServerConfig | { problem: string } {
+  if (draft.limitProjects && draft.projects.length === 0) {
+    return { problem: "Pick at least one project, or choose All projects." };
+  }
+  const finish = (server: McpServerConfig) =>
+    withProjects(withDisabledTools(server, draft.disabledTools), draft.limitProjects ? draft.projects : []);
   const name = draft.name.trim();
   if (draft.transport === "http") {
     const headers = headersFromText(draft.headers);
     if ("problem" in headers) return headers;
-    return {
+    return finish({
       name,
       enabled: draft.enabled,
       transport: "http",
       url: draft.url.trim(),
       headers: headers.headers,
       oauth: draft.oauth,
-    };
+    });
   }
   const env = envFromText(draft.env);
   if ("problem" in env) return env;
-  return { name, enabled: draft.enabled, command: draft.command.trim(), args: argsFromText(draft.args), env: env.env };
+  return finish({
+    name,
+    enabled: draft.enabled,
+    command: draft.command.trim(),
+    args: argsFromText(draft.args),
+    env: env.env,
+  });
 }
 
-const FIELD_PREFIXES: Record<string, string> = { env: "Environment: ", args: "Arguments: ", headers: "Headers: " };
+const FIELD_PREFIXES: Record<string, string> = {
+  env: "Environment: ",
+  args: "Arguments: ",
+  headers: "Headers: ",
+  projects: "Projects: ",
+  disabledTools: "Tools: ",
+};
 
 /** The list with `server` added, or replacing the one at `index`, or the first problem in plain words. */
 export function applyServer(
@@ -296,11 +453,18 @@ export function useMcpServers(): {
   reopenSignIn(name: string): Promise<string | undefined>;
   signOut(name: string): Promise<McpListResult>;
   pending: Readonly<Record<string, PendingSignIn>>;
+  /** Starts the server and lists its tools. Rejects only when the runtime could not run the test. */
+  test(name: string): Promise<McpTestResult>;
+  /** The last test result per server name, with the tools it listed. */
+  tests: Readonly<Record<string, McpTestResult>>;
+  testing: Readonly<Record<string, boolean>>;
 } {
   const { dispatch, bridge } = useRuntime();
   const [state, setState] = useState<McpServersState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [pending, setPending] = useState<Record<string, PendingSignIn>>({});
+  const [tests, setTests] = useState<Record<string, McpTestResult>>({});
+  const [testing, setTesting] = useState<Record<string, boolean>>({});
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
   const mounted = useRef(true);
@@ -405,6 +569,33 @@ export function useMcpServers(): {
     [dispatch],
   );
 
+  const test = useCallback(
+    async (name: string) => {
+      setTesting((current) => ({ ...current, [name]: true }));
+      try {
+        const reply = await testMcpServer(dispatch, name);
+        if (mounted.current) {
+          setTests((current) => ({ ...current, [name]: reply }));
+          setState((current) =>
+            current.status === "ready"
+              ? { status: "ready", result: { ...current.result, health: mergeHealth(current.result.health, reply) } }
+              : current,
+          );
+        }
+        return reply;
+      } finally {
+        if (mounted.current) {
+          setTesting((current) => {
+            const next = { ...current };
+            delete next[name];
+            return next;
+          });
+        }
+      }
+    },
+    [dispatch],
+  );
+
   return {
     state,
     reload: () => setAttempt((value) => value + 1),
@@ -415,5 +606,8 @@ export function useMcpServers(): {
     reopenSignIn,
     signOut,
     pending,
+    test,
+    tests,
+    testing,
   };
 }

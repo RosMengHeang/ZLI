@@ -46,6 +46,10 @@ export type PluginComponents = z.infer<typeof PluginComponents>;
 
 const ConfigValues = z.record(z.string().max(200), z.string().max(8_000));
 
+/** Where an installed plugin came from: ZLI's own list, Anthropic's plugin directory, or anywhere else. */
+export const PluginOrigin = z.enum(["zli-catalog", "anthropic-directory", "other"]);
+export type PluginOrigin = z.infer<typeof PluginOrigin>;
+
 /** Handled directly by the runtime server; none of these reach the event log. */
 export const PluginCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("plugins.list") }),
@@ -56,6 +60,8 @@ export const PluginCommand = z.discriminatedUnion("type", [
     names: z.array(PluginName).min(1).max(50),
     /** Values for each plugin's settings, by plugin name. */
     config: z.record(z.string(), ConfigValues).optional(),
+    /** The list the person picked it from. The runtime checks the claim before it keeps it. */
+    origin: PluginOrigin.optional(),
   }),
   z.object({ type: z.literal("plugins.setEnabled"), name: PluginName, enabled: z.boolean() }),
   /** Blank values keep what is saved, so a secret never has to be shown again to keep it. */
@@ -64,6 +70,20 @@ export const PluginCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("plugins.remove"), name: PluginName }),
   /** Prompts and actions from enabled plugins, for the "/" list and the command palette. */
   z.object({ type: z.literal("plugins.contributions") }),
+  /** Plugins in Anthropic's official directory. Replies with PluginDirectoryResult. */
+  z.object({ type: z.literal("plugins.directory") }),
+  /** Asks GitHub whether installed plugins changed. Replies with PluginListResult. */
+  z.object({ type: z.literal("plugins.checkUpdates") }),
+  /** Writes chosen skills and MCP servers as a Claude Code plugin folder. Replies with PluginExportResult. */
+  z.object({
+    type: z.literal("plugins.export"),
+    folder: z.string().trim().min(1, "Pick a folder.").max(2_000),
+    name: PluginName,
+    displayName: z.string().trim().max(100).optional(),
+    description: z.string().trim().max(1_000).optional(),
+    skills: z.array(z.string().max(200)).max(500),
+    servers: z.array(z.string().max(64)).max(50),
+  }),
 ]);
 export type PluginCommand = z.infer<typeof PluginCommand>;
 export const PLUGIN_COMMAND_TYPES = [
@@ -75,6 +95,9 @@ export const PLUGIN_COMMAND_TYPES = [
   "plugins.update",
   "plugins.remove",
   "plugins.contributions",
+  "plugins.directory",
+  "plugins.checkUpdates",
+  "plugins.export",
 ] as const;
 
 export const PluginSummary = z.object({
@@ -93,6 +116,16 @@ export const PluginSummary = z.object({
   configured: z.array(z.string()),
   /** Why parts of the plugin do not reach agents, such as a missing setting or a name another server uses. */
   problems: z.array(z.string()),
+  origin: PluginOrigin,
+  /** GitHub plugins can be checked for updates. Local ones are read again from their folder. */
+  sourceKind: z.enum(["github", "local"]),
+  /** The commit the installed files came from, for GitHub plugins. */
+  commit: z.string().optional(),
+  /** Installed from a fixed commit, so there are no updates to check for. */
+  pinned: z.boolean().optional(),
+  /** Set once updates were checked: true when the plugin's folder on GitHub has newer commits. */
+  updateAvailable: z.boolean().optional(),
+  checkedAt: z.string().optional(),
 });
 export type PluginSummary = z.infer<typeof PluginSummary>;
 
@@ -132,6 +165,34 @@ export const PluginInstallPreview = z.object({
   elsewhere: z.array(z.object({ name: z.string(), description: z.string(), source: z.string() })),
 });
 export type PluginInstallPreview = z.infer<typeof PluginInstallPreview>;
+
+export const PluginDirectoryEntry = z.object({
+  name: z.string(),
+  title: z.string(),
+  description: z.string(),
+  publisher: z.string().optional(),
+  category: z.string().optional(),
+  homepage: z.string().optional(),
+  /** What to pass to plugins.previewInstall. Missing when ZLI cannot install it. */
+  source: z.string().optional(),
+  /** Why ZLI cannot install it, in a sentence. */
+  unsupported: z.string().optional(),
+});
+export type PluginDirectoryEntry = z.infer<typeof PluginDirectoryEntry>;
+
+export const PluginDirectoryResult = z.object({
+  entries: z.array(PluginDirectoryEntry),
+  fetchedAt: z.string(),
+  problem: z.string().optional(),
+});
+export type PluginDirectoryResult = z.infer<typeof PluginDirectoryResult>;
+
+export const PluginExportResult = z.object({
+  folder: z.string(),
+  /** Paths written, relative to the folder. */
+  files: z.array(z.string()),
+});
+export type PluginExportResult = z.infer<typeof PluginExportResult>;
 
 export const PluginPrompt = z.object({
   plugin: z.string(),

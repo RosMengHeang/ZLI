@@ -120,6 +120,36 @@ describe("RemotePtyFactory", () => {
     ]);
   });
 
+  it("ignores writes, resizes, and stops that fail because the terminal already exited", async () => {
+    const connection = new FakeConnection();
+    const factory = new RemotePtyFactory({ connect: async () => connection });
+    const pty = await factory.spawn({
+      terminalId,
+      worktreeId,
+      title: "shell",
+      cwd: "/work/tree",
+      shell: "/bin/bash",
+      cols: 120,
+      rows: 32,
+    });
+    const closed = new Error("Terminal daemon connection closed.");
+    connection.request = async () => {
+      throw closed;
+    };
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      pty.write("ls\n");
+      pty.resize(100, 30);
+      pty.kill();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+    expect(unhandled).toEqual([]);
+  });
+
   it("preserves output emitted while the initial daemon snapshot is attaching", async () => {
     const connection = new FakeConnection(false, true, true);
     const factory = new RemotePtyFactory({ connect: async () => connection });

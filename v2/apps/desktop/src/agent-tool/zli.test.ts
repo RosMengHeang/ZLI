@@ -23,6 +23,11 @@ describe("zli command", () => {
       action: "agentstart",
       input: { provider: "claude-code", prompt: "Write docs", mode: "terminal", worktree: "same", model: "opus" },
     });
+    expect(parseZliArgs(["connect", "github", "to", "open", "a", "PR"])).toEqual({
+      kind: "call",
+      action: "agentconnect",
+      input: { service: "github", reason: "to open a PR" },
+    });
     expect(parseZliArgs(["--help"])).toEqual({ kind: "help" });
     expect(parseZliArgs(["mcp"])).toEqual({ kind: "mcp" });
   });
@@ -31,6 +36,7 @@ describe("zli command", () => {
     expect(() => parseZliArgs(["send", "abcd1234"])).toThrow(new ZliUsageError("send needs a message."));
     expect(() => parseZliArgs(["read", "x", "--limit", "0"])).toThrow("--limit must be a whole number above 0.");
     expect(() => parseZliArgs(["agents", "--tab", "1"])).toThrow("Unknown option --tab.");
+    expect(() => parseZliArgs(["connect"])).toThrow("connect needs a service such as github or linear.");
   });
 
   it("prints terminal output as text and other results as JSON", async () => {
@@ -38,6 +44,11 @@ describe("zli command", () => {
     const io = { stdout: (text: string) => printed.push(text), stderr: (text: string) => printed.push(`err:${text}`) };
     await runZli({ kind: "call", action: "agentread", input: {} }, async () => ({ output: "$ npm test" }), io);
     await runZli({ kind: "call", action: "agentlist", input: {} }, async () => ({ agents: [] }), io);
+    await runZli(
+      { kind: "call", action: "agentconnect", input: {} },
+      async () => ({ status: "asked", message: "Asked the person to connect GitHub in ZLI." }),
+      io,
+    );
     const code = await runZli(
       { kind: "call", action: "agentsend", input: {} },
       async () => {
@@ -45,7 +56,12 @@ describe("zli command", () => {
       },
       io,
     );
-    expect(printed).toEqual(["$ npm test\n", '{\n  "agents": []\n}\n', "err:That agent is you.\n"]);
+    expect(printed).toEqual([
+      "$ npm test\n",
+      '{\n  "agents": []\n}\n',
+      "Asked the person to connect GitHub in ZLI.\n",
+      "err:That agent is you.\n",
+    ]);
     expect(code).toBe(1);
   });
 });
@@ -60,8 +76,14 @@ describe("zli MCP server", () => {
   };
 
   it("lists only the tools Settings allow", async () => {
-    expect(await listNames("full")).toEqual(["list_agents", "read_agent", "message_agent", "start_agent"]);
-    expect(await listNames("read")).toEqual(["list_agents", "read_agent"]);
+    expect(await listNames("full")).toEqual([
+      "list_agents",
+      "read_agent",
+      "message_agent",
+      "start_agent",
+      "connect_service",
+    ]);
+    expect(await listNames("read")).toEqual(["list_agents", "read_agent", "connect_service"]);
     expect(await listNames("off")).toEqual([]);
   });
 

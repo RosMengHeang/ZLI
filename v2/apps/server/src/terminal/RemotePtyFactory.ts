@@ -82,15 +82,23 @@ class RemotePtyProcess implements PtyProcess {
   ) {}
 
   write(data: string): void {
-    void this.connection.request({ type: "terminal.write", terminalId: this.terminalId, data });
+    this.send({ type: "terminal.write", terminalId: this.terminalId, data });
   }
 
   resize(cols: number, rows: number): void {
-    void this.connection.request({ type: "terminal.resize", terminalId: this.terminalId, cols, rows });
+    this.send({ type: "terminal.resize", terminalId: this.terminalId, cols, rows });
   }
 
   kill(): void {
-    void this.connection.request({ type: "terminal.stop", terminalId: this.terminalId });
+    this.send({ type: "terminal.stop", terminalId: this.terminalId });
+  }
+
+  /**
+   * Nobody waits on these requests. When the terminal exits, closing the connection rejects any still
+   * pending, and an unhandled rejection would stop the whole runtime.
+   */
+  private send(message: unknown): void {
+    this.connection.request(message).catch(() => undefined);
   }
 
   onData(listener: (data: string) => void): () => void {

@@ -5,7 +5,7 @@ import {
   acpMcpServer,
   agentEnv,
   type BrowserToolConfig,
-  type McpServerSpec,
+  type McpServerSource,
   zliMcpServerSpecs,
 } from "../browser-tool/browserTool.js";
 import { approvalAllowed } from "./ClaudeCodeProviderAdapter.js";
@@ -31,7 +31,7 @@ export type AcpProviderConfig = {
   /** Offered to every session as an MCP server, with its shell shim on PATH. */
   browserTool?: BrowserToolConfig;
   /** MCP servers added in Settings, read when each session starts. */
-  mcpServers?: () => readonly McpServerSpec[];
+  mcpServers?: McpServerSource;
 };
 
 type AcpSessionClient = Pick<
@@ -73,7 +73,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
         const env = { ...(browserTool ? agentEnv(browserTool, worktreeId) : {}), ...account?.env };
         const specs = [
           ...(browserTool ? zliMcpServerSpecs(browserTool, worktreeId) : []),
-          ...(config.mcpServers?.() ?? []),
+          ...((await config.mcpServers?.(worktreeId ? { worktreeId } : {})) ?? []),
         ];
         return AcpClient.start({
           ...input,

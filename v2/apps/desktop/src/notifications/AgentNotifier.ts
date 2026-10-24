@@ -16,6 +16,8 @@ export type NotifierHost = {
   isFocused(): boolean;
   /** Brings the window forward and selects the session. */
   activate(sessionId: string): void;
+  /** Brings the window forward and opens Settings at a connector, a catalog id or a server name. */
+  openConnector(connectorId: string): void;
 };
 
 const MAX_REMEMBERED_KEYS = 500;
@@ -56,6 +58,15 @@ export class AgentNotifier {
       if (!focused && (alert.kind === "approval" || alert.kind === "user-input")) flash = true;
     }
     if (flash) this.host.flashFrame(true);
+  }
+
+  /** An agent asked the person to connect a service. Shown even while the window has focus. */
+  connectorRequest(request: { title: string; body: string; connectorId: string }): void {
+    const settings = this.settings();
+    if (!settings.enabled) return;
+    this.host.show({ title: request.title, body: request.body, silent: !settings.sound }, () =>
+      this.host.openConnector(request.connectorId),
+    );
   }
 
   windowFocused(): void {

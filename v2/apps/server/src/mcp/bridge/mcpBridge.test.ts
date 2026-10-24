@@ -72,7 +72,12 @@ function server(rest: Handler = () => status(500)): Handler {
 
 function harness(
   handler: Handler,
-  options: { token?: (force: boolean) => string | undefined; headers?: Record<string, string> } = {},
+  options: {
+    token?: (force: boolean) => string | undefined;
+    headers?: Record<string, string>;
+    hiddenTools?: string[];
+    onSignInRejected?: (token: string) => void;
+  } = {},
 ) {
   const input = new PassThrough();
   const output: unknown[] = [];
@@ -99,6 +104,8 @@ function harness(
     input,
     output: { write: (line: string) => output.push(JSON.parse(line)) },
     log: (message) => logs.push(message),
+    ...(options.hiddenTools ? { hiddenTools: options.hiddenTools } : {}),
+    ...(options.onSignInRejected ? { onSignInRejected: options.onSignInRejected } : {}),
   });
   return {
     input,
@@ -432,5 +439,52 @@ describe("readSse", () => {
       { event: "message", data: "one\ntwo", id: "7" },
       { event: "message", data: "tail", id: "7" },
     ]);
+  });
+});
+
+describe("runMcpBridge extras", () => {
+  it("hides turned-off tools from lists and refuses calls to them without asking the server", async () => {
+    const bridge = harness(
+      server((call) => {
+        const body = call.body as { id: number; method: string };
+        return json({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: body.method === "tools/list" ? { tools: [{ name: "search" }, { name: "delete" }] } : { ok: true },
+        });
+      }),
+      { hiddenTools: ["delete"] },
+    );
+    bridge.send(INIT, INITIALIZED, { jsonrpc: "2.0", id: 1, method: "tools/list" });
+    await bridge.waitForOutput(2);
+    bridge.send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "delete" } });
+    await bridge.waitForOutput(3);
+    expect(bridge.output.slice(1)).toEqual([
+      { jsonrpc: "2.0", id: 1, result: { tools: [{ name: "search" }] } },
+      { jsonrpc: "2.0", id: 2, error: { code: -32602, message: "delete is turned off for Linear in ZLI." } },
+    ]);
+    expect(bridge.posts().some((call) => (call.body as { id?: number }).id === 2)).toBe(false);
+    await bridge.end();
+  });
+
+  it("reports the token the server still turned down after a forced refresh", async () => {
+    const rejected: string[] = [];
+    const bridge = harness(() => status(401), {
+      token: (force) => (force ? "fresh" : "stale"),
+      onSignInRejected: (token) => {
+        rejected.push(token);
+      },
+    });
+    bridge.send(INIT);
+    await bridge.waitForOutput(1);
+    expect(rejected).toEqual(["fresh"]);
+    await bridge.end();
+
+    const none: string[] = [];
+    const signedOut = harness(() => status(401), { onSignInRejected: (token) => void none.push(token) });
+    signedOut.send(INIT);
+    await signedOut.waitForOutput(1);
+    expect(none).toEqual([]);
+    await signedOut.end();
   });
 });

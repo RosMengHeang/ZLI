@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyTool, diffLineCounts, displayPath, editLines, patchLines, toolActivity } from "./toolActivity.js";
+import {
+  classifyTool,
+  diffLineCounts,
+  displayPath,
+  editLines,
+  patchLines,
+  toolActivity,
+  toolConnector,
+} from "./toolActivity.js";
 
 describe("classifyTool", () => {
   it.each([
@@ -228,5 +236,50 @@ describe("edit line counts", () => {
     expect(
       toolActivity({ callId: "c2", name: "Bash", input: { command: "ls" }, status: "running" }),
     ).not.toHaveProperty("command");
+  });
+});
+
+describe("toolConnector", () => {
+  const signIn =
+    "MCP error -32001: my-linear needs you to sign in. Open ZLI Settings, then Connectors or MCP servers, and sign in again.";
+
+  it("finds the server that needs a sign-in in a failed call's error", () => {
+    const activity = toolActivity({
+      callId: "m1",
+      name: "mcp__my-linear__list_issues",
+      status: "failed",
+      output: signIn,
+    });
+    expect(activity.connector).toEqual({ server: "my-linear", reason: "sign-in" });
+    expect(activity.detail).toBe(signIn);
+    expect(toolConnector({ callId: "m2", name: "linear.list_issues", status: "completed", output: signIn })).toBe(
+      undefined,
+    );
+    expect(toolConnector({ callId: "m3", name: "Bash", status: "failed", output: "exit 1" })).toBe(undefined);
+  });
+
+  it("keeps the service an agent asks to connect, as its catalog id when it has one", () => {
+    expect(
+      toolActivity({
+        callId: "r1",
+        name: "mcp__zli__connect_service",
+        input: { service: "GitHub" },
+        status: "running",
+      }),
+    ).toMatchObject({ title: "Ask to connect GitHub", connector: { server: "github", reason: "request" } });
+    expect(
+      toolConnector({ callId: "r2", name: "zli.connect_service", input: { service: "my-db" }, status: "completed" }),
+    ).toEqual({ server: "my-db", reason: "request" });
+    expect(
+      toolConnector({ callId: "r3", name: "connect_service", input: { service: "linear" }, status: "failed" }),
+    ).toBe(undefined);
+    expect(
+      toolConnector({
+        callId: "r4",
+        name: "mcp__other__connect_service",
+        input: { service: "x" },
+        status: "completed",
+      }),
+    ).toBe(undefined);
   });
 });

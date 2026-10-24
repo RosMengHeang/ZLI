@@ -426,6 +426,7 @@ describe("ProviderReactor", () => {
         title: "npm test",
         detail: "1 failed\n\n",
         status: "failed",
+        connector: { server: "linear", reason: "sign-in" },
       },
     });
     adapter.emit({
@@ -456,6 +457,7 @@ describe("ProviderReactor", () => {
         detail: "1 failed",
         status: "failed",
         textOffset: 15,
+        connector: { server: "linear", reason: "sign-in" },
       },
       {
         activityId: expect.stringMatching(new RegExp(`^${threadId}:[0-9a-f]{40}$`, "u")),

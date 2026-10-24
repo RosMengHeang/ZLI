@@ -1,6 +1,6 @@
 import { posix, win32 } from "node:path";
 
-import type { ThreadActivityKind } from "@zli-v2/contracts";
+import { MCP_CATALOG, type ThreadActivityConnector, type ThreadActivityKind } from "@zli-v2/contracts";
 
 /** A provider-neutral view of one tool call, as parsed from a CLI's structured stream. */
 export type ToolCallUpdate = {
@@ -24,6 +24,7 @@ export type ProviderActivity = {
   files?: string[];
   lines?: LineCounts;
   command?: string;
+  connector?: ThreadActivityConnector;
 };
 
 const MAX_TITLE = 500;
@@ -89,8 +90,14 @@ export function toolActivity(update: ToolCallUpdate, cwd?: string): ProviderActi
   const kind = classifyTool(update.name, input);
   const files =
     kind === "file-read" || kind === "file-edit" ? toolPaths(input).map((path) => displayPath(path, cwd)) : [];
+  const connector = toolConnector(update);
   const title =
-    clip(toolTitle(kind, update.name, input, files, cwd), MAX_TITLE) || humanName(update.name) || "Tool call";
+    (connector?.reason === "request"
+      ? clip(`Ask to connect ${connectorTitle(connector.server)}`, MAX_TITLE)
+      : undefined) ||
+    clip(toolTitle(kind, update.name, input, files, cwd), MAX_TITLE) ||
+    humanName(update.name) ||
+    "Tool call";
   const showDetail = update.status === "failed" || (kind !== "file-read" && kind !== "file-edit");
   const detail = showDetail ? tail(update.output) : undefined;
   const command = kind === "command" ? commandText(input) : undefined;
@@ -104,7 +111,37 @@ export function toolActivity(update: ToolCallUpdate, cwd?: string): ProviderActi
     ...(files.length > 0 ? { files: [...new Set(files)].slice(0, 100) } : {}),
     ...(lines && (lines.added > 0 || lines.removed > 0) ? { lines } : {}),
     ...(command && command !== title ? { command: clip(command, MAX_COMMAND) } : {}),
+    ...(connector ? { connector } : {}),
   };
+}
+
+/** connect_service from the built-in zli server, bare (Cursor), as zli.connect_service (Codex), or mcp__zli__ (Claude). */
+const CONNECT_TOOL_NAMES = new Set(["connectservice", "zliconnectservice", "mcpzliconnectservice"]);
+const SIGN_IN_MARKER = /([A-Za-z0-9_-]{1,64}) needs you to sign in\. Open ZLI Settings/u;
+
+/**
+ * The connector a call is about: a server that failed because it needs a sign-in (the ZLI bridge
+ * says so in its error), or the service the agent asked for with connect_service.
+ */
+export function toolConnector(update: ToolCallUpdate): ThreadActivityConnector | undefined {
+  if (CONNECT_TOOL_NAMES.has(normalizeName(update.name))) {
+    const service = update.input?.service;
+    if (update.status === "failed" || typeof service !== "string" || !service.trim()) return undefined;
+    const name = service.trim().slice(0, 100);
+    return { server: catalogEntry(name)?.id ?? name, reason: "request" };
+  }
+  if (update.status !== "failed" || !update.output) return undefined;
+  const server = SIGN_IN_MARKER.exec(update.output)?.[1];
+  return server ? { server, reason: "sign-in" } : undefined;
+}
+
+function catalogEntry(name: string) {
+  const key = name.toLowerCase();
+  return MCP_CATALOG.find((entry) => entry.id === key || entry.title.toLowerCase() === key);
+}
+
+function connectorTitle(server: string): string {
+  return catalogEntry(server)?.title ?? server;
 }
 
 const OLD_TEXT_KEYS = ["old_string", "old_str", "oldString", "old_text", "oldText"];

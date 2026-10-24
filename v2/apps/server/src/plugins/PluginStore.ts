@@ -3,18 +3,25 @@ import { chmod, lstat, mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import type {
-  McpServerConfig,
-  PluginContributions,
-  PluginInstallPreview,
-  PluginListResult,
-  PluginSummary,
+import {
+  type McpServerConfig,
+  PLUGIN_CATALOG,
+  type PluginContributions,
+  type PluginDirectoryResult,
+  type PluginExportResult,
+  type PluginInstallPreview,
+  type PluginListResult,
+  PluginOrigin,
+  type PluginSummary,
 } from "@zli-v2/contracts";
 
 import { isPlainObject, writeFileAtomic } from "../browser-tool/browserTool.js";
 import {
   downloadGithubFiles,
+  GithubRateLimitError,
   type GithubSkillSource,
+  isCommitSha,
+  latestGithubCommit,
   parseGithubSkillSource,
   sourceKey,
 } from "../skills/githubSource.js";
@@ -31,6 +38,8 @@ import {
   scanPlugins,
 } from "./pluginPackage.js";
 import { type PluginContext, pluginServerConfig, substitute } from "./pluginRuntime.js";
+import { exportPlugin, type PluginExportRequest, type PluginExportSources } from "./exportPlugin.js";
+import { PluginDirectory } from "./pluginDirectory.js";
 
 type StoredPlugin = {
   enabled: boolean;
@@ -38,7 +47,14 @@ type StoredPlugin = {
   installedAt: string;
   descriptor: PluginDescriptor;
   config: Record<string, string>;
+  /** For GitHub plugins: the newest commit that touched the plugin's folder when it was installed. */
+  commit?: string;
+  /** The branch, tag, or commit the source asked for. */
+  ref?: string;
+  origin?: PluginOrigin;
 };
+
+type InstallMeta = Pick<StoredPlugin, "commit" | "ref" | "origin">;
 
 type StoredFile = { version: 1; plugins: Record<string, StoredPlugin> };
 
@@ -48,6 +64,12 @@ const PREVIEW_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHED_PREVIEWS = 3;
 const SKIPPED_DIRS = new Set([".git", "node_modules"]);
 const MAX_DEPTH = 20;
+const UPDATE_CHECK_TTL_MS = 30 * 60 * 1000;
+const UPDATE_CHECK_LIMITED = "GitHub limited update checks. Try again later.";
+const CATALOG_KEYS = PLUGIN_CATALOG.flatMap((entry) => {
+  const key = matchKey(entry.source);
+  return key ? [key] : [];
+});
 
 export type PluginStoreOptions = {
   /** Installed plugins, one folder each. */
@@ -68,6 +90,8 @@ export type PluginStoreOptions = {
   skillConflicts?: (name: string) => readonly string[];
   /** Runs after a change so agent settings and skill folders pick it up. */
   onChange?: () => Promise<void>;
+  /** The person's skills and MCP servers, for exporting them as a plugin. */
+  exportSources?: PluginExportSources;
 };
 
 /**
@@ -80,8 +104,18 @@ export class PluginStore {
   private problem: string | undefined;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly previews = new Map<string, { at: number; scan: PluginScan; label: string }>();
+  /** The newest commit GitHub reported for each plugin's folder, and when. */
+  private readonly updateChecks = new Map<string, { at: number; latest: string }>();
+  /** Newer sources Anthropic's directory lists for pinned plugins installed from it, by plugin name. */
+  private readonly directoryMoves = new Map<string, string>();
+  private readonly pluginDirectory: PluginDirectory;
 
-  constructor(private readonly options: PluginStoreOptions) {}
+  constructor(private readonly options: PluginStoreOptions) {
+    this.pluginDirectory = new PluginDirectory({
+      ...(options.fetch ? { fetch: options.fetch } : {}),
+      ...(options.now ? { now: options.now } : {}),
+    });
+  }
 
   async load(): Promise<void> {
     let text: string;
@@ -130,6 +164,9 @@ export class PluginStore {
           }
         }
         problems.push(...descriptor.warnings);
+        const github = githubSourceOf(plugin.source);
+        const pinned = github ? isCommitSha(github.ref) : false;
+        const check = this.updateChecks.get(name);
         return {
           name,
           displayName: descriptor.displayName,
@@ -144,6 +181,17 @@ export class PluginStore {
           config: descriptor.config,
           configured: Object.keys(plugin.config).filter((key) => plugin.config[key] !== ""),
           problems,
+          origin: this.originOf(plugin),
+          sourceKind: github ? "github" : "local",
+          ...(plugin.commit ? { commit: plugin.commit } : {}),
+          ...(pinned ? { pinned } : {}),
+          ...(github && check
+            ? {
+                ...(plugin.commit ? { updateAvailable: !pinned && check.latest !== plugin.commit } : {}),
+                checkedAt: new Date(check.at).toISOString(),
+              }
+            : {}),
+          ...(this.directoryMoves.has(name) ? { updateAvailable: true } : {}),
         };
       });
     return { plugins, pluginsPath: this.options.pluginsDir, ...(this.problem ? { problem: this.problem } : {}) };
@@ -206,10 +254,15 @@ export class PluginStore {
     };
   }
 
+  /**
+   * `origin` is the list the person picked the plugin from. A claim to come from Anthropic's directory is
+   * kept only when the directory lists the source.
+   */
   install(
     text: string,
     names: readonly string[],
     config: Readonly<Record<string, Readonly<Record<string, string>>>> = {},
+    origin?: PluginOrigin,
   ): Promise<string[]> {
     return this.serialize(async () => {
       const source = parseSource(text);
@@ -220,8 +273,19 @@ export class PluginStore {
         if (candidate.problem) throw new PluginError(`${name}: ${candidate.problem}`);
         return candidate;
       });
-      for (const candidate of chosen) {
-        await this.place(candidate, sourceFor(source, candidate.root), config[candidate.descriptor.name] ?? {});
+      if (origin === "anthropic-directory") await this.pluginDirectory.get();
+      const placed = await Promise.all(
+        chosen.map(async (candidate) => {
+          const stored = sourceFor(source, candidate.root);
+          return {
+            candidate,
+            stored,
+            meta: { ...(await this.commitOf(source, candidate.root)), origin: this.matchOrigin(stored) },
+          };
+        }),
+      );
+      for (const { candidate, stored, meta } of placed) {
+        await this.place(candidate, stored, config[candidate.descriptor.name] ?? {}, meta);
       }
       await this.afterChange();
       return chosen.map((candidate) => candidate.descriptor.name);
@@ -231,19 +295,87 @@ export class PluginStore {
   update(name: string): Promise<void> {
     return this.serialize(async () => {
       const plugin = this.require(name);
-      const source = parseSource(plugin.source);
+      const moved = this.directoryMoves.get(name);
+      const text = moved ?? plugin.source;
+      const source = parseSource(text);
       const { scan } = await this.scan(source, false);
       const candidate =
         scan.candidates.find((entry) => entry.descriptor.name === name) ??
         (scan.candidates.length === 1 ? scan.candidates[0] : undefined);
-      if (!candidate) throw new PluginError(`${plugin.source} no longer has the plugin ${name}.`);
+      if (!candidate) throw new PluginError(`${text} no longer has the plugin ${name}.`);
       if (candidate.problem) throw new PluginError(candidate.problem);
       if (candidate.descriptor.name !== name) {
-        throw new PluginError(`${plugin.source} now holds ${candidate.descriptor.name}. Install it as a new plugin.`);
+        throw new PluginError(`${text} now holds ${candidate.descriptor.name}. Install it as a new plugin.`);
       }
-      await this.place(candidate, plugin.source, {});
+      const origin = moved ? "anthropic-directory" : plugin.origin;
+      const meta = {
+        ...(await this.commitOf(source, candidate.root)),
+        ...(origin ? { origin } : {}),
+      };
+      await this.place(candidate, moved ? sourceFor(source, candidate.root) : plugin.source, {}, meta);
       await this.afterChange();
     });
+  }
+
+  /**
+   * Asks GitHub for the newest commit in each GitHub plugin's folder, at most once every 30 minutes per
+   * plugin. Plugins installed from a fixed commit are never asked about, but those from Anthropic's
+   * directory are compared with the commit the directory lists now.
+   */
+  async checkUpdates(): Promise<PluginListResult> {
+    const now = (this.options.now ?? Date.now)();
+    let limited = false;
+    await Promise.all(
+      Object.entries(this.plugins).map(async ([name, plugin]) => {
+        const source = githubSourceOf(plugin.source);
+        if (!source) return;
+        const cached = this.updateChecks.get(name);
+        if (cached && now - cached.at < UPDATE_CHECK_TTL_MS) return;
+        if (isCommitSha(source.ref)) {
+          this.updateChecks.set(name, { at: now, latest: plugin.commit ?? (source.ref ?? "").toLowerCase() });
+          return;
+        }
+        try {
+          const latest = await latestGithubCommit(source, this.githubOptions());
+          if (latest && this.plugins[name] === plugin) this.updateChecks.set(name, { at: now, latest });
+        } catch (error) {
+          if (!(error instanceof GithubRateLimitError)) throw error;
+          limited = true;
+        }
+      }),
+    );
+    await this.checkDirectoryMoves();
+    const list = await this.list();
+    return limited && !list.problem ? { ...list, problem: UPDATE_CHECK_LIMITED } : list;
+  }
+
+  private async checkDirectoryMoves(): Promise<void> {
+    const pinned = Object.entries(this.plugins).filter(([, plugin]) => {
+      const source = githubSourceOf(plugin.source);
+      return source !== undefined && isCommitSha(source.ref) && this.originOf(plugin) === "anthropic-directory";
+    });
+    if (pinned.length === 0) return;
+    const { entries } = await this.pluginDirectory.get();
+    if (entries.length === 0) return;
+    for (const [name, plugin] of pinned) {
+      const listed = entries.find((entry) => entry.name === name)?.source;
+      if (listed && listed.toLowerCase() !== plugin.source.toLowerCase() && this.plugins[name] === plugin) {
+        this.directoryMoves.set(name, listed);
+      } else {
+        this.directoryMoves.delete(name);
+      }
+    }
+  }
+
+  /** Anthropic's plugin directory, fetched at most once an hour. */
+  directory(): Promise<PluginDirectoryResult> {
+    return this.pluginDirectory.get();
+  }
+
+  exportPlugin(request: PluginExportRequest): Promise<PluginExportResult> {
+    const sources = this.options.exportSources;
+    if (!sources) return Promise.reject(new PluginError("Exporting plugins is not available here."));
+    return exportPlugin(request, sources);
   }
 
   setEnabled(name: string, enabled: boolean): Promise<void> {
@@ -265,6 +397,8 @@ export class PluginStore {
     return this.serialize(async () => {
       this.require(name);
       delete this.plugins[name];
+      this.updateChecks.delete(name);
+      this.directoryMoves.delete(name);
       await this.write();
       await rm(this.folder(name), { recursive: true, force: true });
       await rm(join(this.options.dataDir, name), { recursive: true, force: true });
@@ -348,18 +482,60 @@ export class PluginStore {
     return { servers, skills, problems };
   }
 
-  private async place(candidate: PluginPackage, source: string, values: Readonly<Record<string, string>>) {
+  private async place(
+    candidate: PluginPackage,
+    source: string,
+    values: Readonly<Record<string, string>>,
+    meta: InstallMeta,
+  ) {
     const name = candidate.descriptor.name;
     const previous = this.plugins[name];
     await replaceFolder(this.folder(name), (temp) => writeSkillFiles(temp, candidate.files));
     await mkdir(join(this.options.dataDir, name), { recursive: true });
+    this.updateChecks.delete(name);
+    this.directoryMoves.delete(name);
     this.plugins[name] = {
       enabled: previous?.enabled ?? true,
       source,
       installedAt: new Date((this.options.now ?? Date.now)()).toISOString(),
       descriptor: candidate.descriptor,
       config: mergeConfig(candidate.descriptor, previous?.config ?? {}, values),
+      ...(meta.commit ? { commit: meta.commit } : {}),
+      ...(meta.ref ? { ref: meta.ref } : {}),
+      ...(meta.origin ? { origin: meta.origin } : {}),
     };
+  }
+
+  /** The commit a GitHub plugin's folder is at. Not finding it never stops an install. */
+  private async commitOf(source: ParsedSource, root: string): Promise<Pick<StoredPlugin, "commit" | "ref">> {
+    if (source.kind !== "github") return {};
+    const { ref } = source.source;
+    if (isCommitSha(ref)) return { commit: (ref ?? "").toLowerCase(), ...(ref ? { ref } : {}) };
+    const path = [source.source.path, root].filter(Boolean).join("/");
+    const commit = await latestGithubCommit({ ...source.source, path }, this.githubOptions()).catch(() => undefined);
+    return { ...(commit ? { commit } : {}), ...(ref ? { ref } : {}) };
+  }
+
+  private githubOptions(): { fetch?: typeof fetch; token?: string | undefined } {
+    return { ...(this.options.fetch ? { fetch: this.options.fetch } : {}), token: this.options.githubToken };
+  }
+
+  /** ZLI's own list wins, then Anthropic's directory, by owner, repository, and folder. */
+  private matchOrigin(source: string): PluginOrigin {
+    const key = matchKey(source);
+    if (!key) return "other";
+    if (CATALOG_KEYS.some((base) => within(key, base))) return "zli-catalog";
+    const listed = this.pluginDirectory.knownSources().some((entry) => {
+      const base = matchKey(entry);
+      return base !== undefined && within(key, base);
+    });
+    return listed ? "anthropic-directory" : "other";
+  }
+
+  private originOf(plugin: StoredPlugin): PluginOrigin {
+    const matched = this.matchOrigin(plugin.source);
+    if (matched !== "other") return matched;
+    return plugin.origin === "anthropic-directory" ? plugin.origin : "other";
   }
 
   private async scan(source: ParsedSource, useCache: boolean): Promise<{ scan: PluginScan; label: string }> {
@@ -449,6 +625,25 @@ function parseSource(text: string): ParsedSource {
   return { kind: "github", source };
 }
 
+function githubSourceOf(text: string): GithubSkillSource | undefined {
+  try {
+    const source = parseSource(text);
+    return source.kind === "github" ? source.source : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** owner/repo/folder in lowercase, ignoring the ref, for telling where a GitHub plugin came from. */
+function matchKey(text: string): string | undefined {
+  const source = githubSourceOf(text);
+  return source ? `${source.owner}/${source.repo}${source.path ? `/${source.path}` : ""}`.toLowerCase() : undefined;
+}
+
+function within(key: string, base: string): boolean {
+  return key === base || key.startsWith(`${base}/`);
+}
+
 /** Where `update` reads the plugin again: its own folder in the source. */
 function sourceFor(source: ParsedSource, root: string): string {
   if (source.kind === "local") return root ? join(source.path, ...root.split("/")) : source.path;
@@ -533,6 +728,7 @@ function storedPlugin(value: unknown): StoredPlugin | undefined {
         Object.entries(value.config).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
       )
     : {};
+  const origin = PluginOrigin.safeParse(value.origin);
   return {
     enabled: value.enabled !== false,
     source: typeof value.source === "string" ? value.source : "",
@@ -547,5 +743,8 @@ function storedPlugin(value: unknown): StoredPlugin | undefined {
       warnings: Array.isArray(descriptor.warnings) ? descriptor.warnings : [],
     },
     config,
+    ...(typeof value.commit === "string" && isCommitSha(value.commit) ? { commit: value.commit } : {}),
+    ...(typeof value.ref === "string" && value.ref ? { ref: value.ref } : {}),
+    ...(origin.success ? { origin: origin.data } : {}),
   };
 }

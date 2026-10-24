@@ -75,6 +75,22 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
     },
     required: ["provider", "prompt"],
   },
+  {
+    name: "connect_service",
+    title: "Ask to connect a service",
+    action: "agentconnect",
+    description:
+      "Ask the person to connect a service in ZLI, such as GitHub, Linear, Notion, Sentry, or Stripe, when your task needs its tools and you do not have them, or when one of its tools says it needs a sign-in. ZLI shows them a prompt to connect or sign in. The result says whether it is already connected, and what to do next: try again after a sign-in, or start a new session for a newly connected service.",
+    properties: {
+      service: {
+        type: "string",
+        description: "The service: a connector id such as github, linear, or notion, its name, or an MCP server name.",
+      },
+      reason: { type: "string", description: "One short sentence on what you need it for, shown to the person." },
+    },
+    required: ["service"],
+    readOnly: true,
+  },
 ];
 
 const READ_TOOL_NAMES = new Set(
@@ -87,7 +103,7 @@ export function createAgentMcpServer(call: ZliBrowserCall): McpServer {
   return createToolServer(call, {
     tools: AGENT_MCP_TOOLS,
     serverInfo: { name: "zli", title: "ZLI agents", version: ZLI_AGENT_TOOL_VERSION },
-    instructions: `${ROOM} Use list_agents to see who else is working in this project, read_agent to check on them, message_agent to coordinate, and start_agent to hand off a separate task.`,
+    instructions: `${ROOM} Use list_agents to see who else is working in this project, read_agent to check on them, message_agent to coordinate, and start_agent to hand off a separate task. Use connect_service when you need a service such as GitHub or Linear that you have no tools for, or that needs a sign-in.`,
     targetProperties: {
       cwd: {
         type: "string",

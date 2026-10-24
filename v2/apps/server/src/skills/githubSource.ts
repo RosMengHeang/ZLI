@@ -73,6 +73,54 @@ export function sourceKey(source: GithubSkillSource): string {
   return `${source.owner}/${source.repo}@${source.ref ?? ""}:${source.path}`.toLowerCase();
 }
 
+/** A full commit id, which never moves, unlike a branch or tag. */
+export function isCommitSha(ref: string | undefined): boolean {
+  return ref !== undefined && /^[0-9a-f]{40}$/iu.test(ref);
+}
+
+/** GitHub refused a request because of its rate limit. */
+export class GithubRateLimitError extends SkillError {}
+
+const COMMIT_TIMEOUT_MS = 20_000;
+
+/**
+ * The newest commit that touched `source.path` on its ref, or undefined when GitHub has none or cannot be
+ * reached. Throws GithubRateLimitError when GitHub refuses because of its rate limit.
+ */
+export async function latestGithubCommit(
+  source: GithubSkillSource,
+  options: { fetch?: typeof fetch; token?: string | undefined } = {},
+): Promise<string | undefined> {
+  const query = new URLSearchParams({ sha: source.ref || "HEAD", per_page: "1" });
+  if (source.path) query.set("path", source.path);
+  const url = `https://api.github.com/repos/${source.owner}/${source.repo}/commits?${query}`;
+  let response: Response;
+  try {
+    response = await (options.fetch ?? fetch)(url, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": "ZLI",
+        "X-GitHub-Api-Version": "2022-11-28",
+        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      },
+      signal: AbortSignal.timeout(COMMIT_TIMEOUT_MS),
+    });
+  } catch {
+    return undefined;
+  }
+  if (response.status === 429 || (response.status === 403 && rateLimited(response.headers))) {
+    throw new GithubRateLimitError("GitHub limited the request. Try again later.");
+  }
+  if (!response.ok) return undefined;
+  try {
+    const body: unknown = await response.json();
+    const first = Array.isArray(body) ? (body[0] as { sha?: unknown } | undefined) : undefined;
+    return typeof first?.sha === "string" && isCommitSha(first.sha) ? first.sha.toLowerCase() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export type GithubDownload = {
   files: Map<string, Uint8Array>;
   links: Set<string>;
@@ -179,6 +227,12 @@ export async function downloadGithubFiles(
     gunzip.destroy();
   }
   return { files, links, oversized };
+}
+
+/** A 403 is a rate limit unless GitHub says requests are left and asks for no wait. */
+function rateLimited(headers: Headers): boolean {
+  const remaining = headers.get("x-ratelimit-remaining");
+  return remaining === null || remaining === "0" || headers.has("retry-after");
 }
 
 /** Groups downloaded files into skills. Exported for tests. */

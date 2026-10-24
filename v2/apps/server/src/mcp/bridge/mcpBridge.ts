@@ -1,5 +1,7 @@
 import { createInterface } from "node:readline";
 
+import { createToolFilter, type ToolFilter } from "./toolFilter.js";
+
 export type BridgeOptions = {
   /** Remote MCP server URL. */
   url: string;
@@ -13,6 +15,10 @@ export type BridgeOptions = {
   input: NodeJS.ReadableStream;
   output: { write(line: string): unknown };
   log?: (message: string) => void;
+  /** Tools the person turned off: left out of tools/list, and calls to them are refused. */
+  hiddenTools?: readonly string[];
+  /** The server turned down this token even after a forced refresh, so the saved login no longer works. */
+  onSignInRejected?: (token: string) => void | Promise<void>;
 };
 
 type JsonRpcId = string | number;
@@ -20,7 +26,7 @@ type Message = Record<string, unknown>;
 
 export type SseEvent = { event: string; data: string; id?: string };
 
-const SIGN_IN_CODE = -32001;
+export const SIGN_IN_CODE = -32001;
 const FAILURE_CODE = -32000;
 const DELETE_TIMEOUT_MS = 3_000;
 
@@ -43,10 +49,15 @@ class McpBridge {
   private firstPost = true;
   private serverStreamTried = false;
   private legacyEndpoint: URL | undefined;
+  private readonly filter: ToolFilter | undefined;
 
   constructor(private readonly options: BridgeOptions) {
     this.fetch = options.fetch ?? globalThis.fetch;
     this.log = options.log ?? (() => undefined);
+    this.filter =
+      options.hiddenTools && options.hiddenTools.length > 0
+        ? createToolFilter(options.name, options.hiddenTools)
+        : undefined;
   }
 
   async run(): Promise<void> {
@@ -65,7 +76,14 @@ class McpBridge {
     await this.close();
   }
 
-  private dispatch(message: unknown): void {
+  private dispatch(incoming: unknown): void {
+    let message = incoming;
+    if (this.filter) {
+      const { forward, reply } = this.filter.fromClient(incoming);
+      if (reply !== undefined) this.writeRaw(reply);
+      if (forward === undefined) return;
+      message = forward;
+    }
     if (isInitialize(message)) {
       this.initMessage = message;
       this.ready = this.ready.then(() => this.deliver(message)).catch((cause) => this.unexpected(cause));
@@ -99,8 +117,38 @@ class McpBridge {
   }
 
   private write(message: unknown): void {
+    this.writeRaw(this.filter ? this.filter.fromServer(message) : message);
+  }
+
+  private writeRaw(message: unknown): void {
     if (this.closed) return;
     this.options.output.write(`${JSON.stringify(message)}\n`);
+  }
+
+  /**
+   * Sends with the current token and, after a 401, once more with a forced refresh. Undefined when the
+   * server still wants a sign-in.
+   */
+  private async authorized(send: (token: string | undefined) => Promise<Response>): Promise<Response | undefined> {
+    const first = await this.token(false);
+    let response = await send(first);
+    if (response.status !== 401) return response;
+    await discard(response);
+    const forced = await this.token(true);
+    if (forced) {
+      response = await send(forced);
+      if (response.status !== 401) return response;
+      await discard(response);
+    }
+    const rejected = forced ?? first;
+    if (rejected && this.options.onSignInRejected) {
+      try {
+        await this.options.onSignInRejected(rejected);
+      } catch (cause) {
+        this.log(`Could not note the expired sign-in for ${this.options.name}: ${reason(cause)}`);
+      }
+    }
+    return undefined;
   }
 
   private async token(force: boolean): Promise<string | undefined> {
@@ -145,18 +193,13 @@ class McpBridge {
 
     let response: Response;
     try {
-      response = await post(await this.token(false));
-      if (response.status === 401) {
-        await discard(response);
-        const token = await this.token(true);
-        if (token) response = await post(token);
-        if (!token || response.status === 401) {
-          if (token) await discard(response);
-          this.firstPost = false;
-          this.fail(message, write, SIGN_IN_CODE, signInMessage(this.options.name));
-          return false;
-        }
+      const answered = await this.authorized(post);
+      if (!answered) {
+        this.firstPost = false;
+        this.fail(message, write, SIGN_IN_CODE, signInMessage(this.options.name));
+        return false;
       }
+      response = answered;
     } catch (cause) {
       if (this.closed) return false;
       this.fail(message, write, FAILURE_CODE, `${this.options.name} could not be reached: ${reason(cause)}.`);
@@ -307,17 +350,12 @@ class McpBridge {
       });
     let response: Response;
     try {
-      response = await open(await this.token(false));
-      if (response.status === 401) {
-        await discard(response);
-        const token = await this.token(true);
-        if (token) response = await open(token);
-        if (!token || response.status === 401) {
-          if (token) await discard(response);
-          this.fail(message, write, SIGN_IN_CODE, signInMessage(this.options.name));
-          return false;
-        }
+      const answered = await this.authorized(open);
+      if (!answered) {
+        this.fail(message, write, SIGN_IN_CODE, signInMessage(this.options.name));
+        return false;
       }
+      response = answered;
     } catch (cause) {
       if (this.closed) return false;
       this.fail(message, write, FAILURE_CODE, `${this.options.name} could not be reached: ${reason(cause)}.`);
@@ -377,16 +415,10 @@ class McpBridge {
       });
     };
     try {
-      let response = await post(await this.token(false));
-      if (response.status === 401) {
-        await discard(response);
-        const token = await this.token(true);
-        if (token) response = await post(token);
-        if (!token || response.status === 401) {
-          if (token) await discard(response);
-          this.fail(message, write, SIGN_IN_CODE, signInMessage(this.options.name));
-          return false;
-        }
+      const response = await this.authorized(post);
+      if (!response) {
+        this.fail(message, write, SIGN_IN_CODE, signInMessage(this.options.name));
+        return false;
       }
       await discard(response);
       if (!response.ok) {

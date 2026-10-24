@@ -53,6 +53,7 @@ export function AgentTile({
   onReviewSetup,
   onShowSetupOutput,
   onHandoff,
+  onOpenConnectors,
   run,
   onStartRuns,
   accountLabel,
@@ -75,6 +76,8 @@ export function AgentTile({
   onShowSetupOutput(): void;
   /** Absent when the chat has nothing to hand over yet. */
   onHandoff?: (() => void) | undefined;
+  /** Opens Settings at a connector, for a chat that needs one. */
+  onOpenConnectors?: ((connectorId?: string) => void) | undefined;
   /** Where this agent sits in a best-of run that is still being compared. */
   run?: RunPosition | undefined;
   onStartRuns?: ((request: StartRunsRequest) => Promise<string | undefined>) | undefined;
@@ -288,6 +291,7 @@ export function AgentTile({
             onOpenDiff={onOpenDiff}
             onRestart={() => void start("chat")}
             onHandoff={onHandoff}
+            onOpenConnectors={onOpenConnectors}
             onStartRuns={onStartRuns}
           />
         ) : (

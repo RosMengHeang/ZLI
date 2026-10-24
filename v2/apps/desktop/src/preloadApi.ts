@@ -274,6 +274,13 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
           const sessionId = (value as { sessionId?: unknown } | null)?.sessionId;
           if (typeof sessionId === "string" && sessionId.length > 0) listener({ sessionId });
         }),
+      /** Fires when the person clicks an agent's request to connect a service, with its catalog id or server name. */
+      onOpenConnector: (listener: (event: { connectorId: string }) => void) =>
+        ipc.on("zli:connectors:open", (_event, value) => {
+          const connectorId = (value as { connectorId?: unknown } | null)?.connectorId;
+          if (typeof connectorId === "string" && connectorId.length > 0 && connectorId.length <= 100)
+            listener({ connectorId });
+        }),
     },
     updates: {
       getStatus: async () => UpdateStatus.parse(await ipc.invoke("zli:updates:get-status")),

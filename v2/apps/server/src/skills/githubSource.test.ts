@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { fetchGithubSkills, parseGithubSkillSource } from "./githubSource.js";
+import {
+  fetchGithubSkills,
+  GithubRateLimitError,
+  isCommitSha,
+  latestGithubCommit,
+  parseGithubSkillSource,
+} from "./githubSource.js";
 import { fakeFetch, githubTarball } from "./testTarball.js";
 
 const skill = (name: string, description = `Does ${name}.`) =>
@@ -63,5 +69,62 @@ describe("GitHub skill sources", () => {
     await expect(
       fetchGithubSkills({ owner: "o", repo: "r", path: "" }, { fetch: fakeFetch(Buffer.alloc(0), [], 404) }),
     ).rejects.toThrow(/no repository, branch, or tag/u);
+  });
+});
+
+describe("GitHub commits", () => {
+  const sha = "0123456789abcdef0123456789abcdef01234567";
+
+  it("reads a commit id as the ref, with or without a folder", () => {
+    expect(parseGithubSkillSource(`https://github.com/o/r/tree/${sha}`)).toEqual({
+      owner: "o",
+      repo: "r",
+      ref: sha,
+      path: "",
+    });
+    expect(parseGithubSkillSource(`https://github.com/o/r/tree/${sha}/plugins/a`)).toEqual({
+      owner: "o",
+      repo: "r",
+      ref: sha,
+      path: "plugins/a",
+    });
+    expect(isCommitSha(sha)).toBe(true);
+    expect(isCommitSha("main")).toBe(false);
+    expect(isCommitSha(undefined)).toBe(false);
+  });
+
+  it("asks for the newest commit in a folder", async () => {
+    const seen: string[] = [];
+    const fetchCommits = (async (input: string | URL | Request, init?: RequestInit) => {
+      seen.push(`${String(input)} ${JSON.stringify(init?.headers ?? {})}`);
+      return Response.json([{ sha: sha.toUpperCase() }]);
+    }) as typeof fetch;
+    expect(
+      await latestGithubCommit(
+        { owner: "o", repo: "r", ref: "v1", path: "plugins/a" },
+        { fetch: fetchCommits, token: "t" },
+      ),
+    ).toBe(sha);
+    expect(seen[0]).toContain("https://api.github.com/repos/o/r/commits?sha=v1&per_page=1&path=plugins%2Fa");
+    expect(seen[0]).toContain("Bearer t");
+    await latestGithubCommit({ owner: "o", repo: "r", path: "" }, { fetch: fetchCommits });
+    expect(seen[1]).toContain("commits?sha=HEAD&per_page=1 ");
+  });
+
+  it("answers undefined when GitHub has nothing and throws on a rate limit", async () => {
+    const answer = (response: () => Response) => (async () => response()) as unknown as typeof fetch;
+    const source = { owner: "o", repo: "r", path: "" };
+    expect(await latestGithubCommit(source, { fetch: answer(() => Response.json([])) })).toBeUndefined();
+    expect(
+      await latestGithubCommit(source, { fetch: answer(() => new Response("", { status: 404 })) }),
+    ).toBeUndefined();
+    const offline = (async () => {
+      throw new Error("offline");
+    }) as typeof fetch;
+    expect(await latestGithubCommit(source, { fetch: offline })).toBeUndefined();
+    const limited = answer(() => new Response("", { status: 403, headers: { "x-ratelimit-remaining": "0" } }));
+    await expect(latestGithubCommit(source, { fetch: limited })).rejects.toBeInstanceOf(GithubRateLimitError);
+    const forbidden = answer(() => new Response("", { status: 403, headers: { "x-ratelimit-remaining": "40" } }));
+    expect(await latestGithubCommit(source, { fetch: forbidden })).toBeUndefined();
   });
 });

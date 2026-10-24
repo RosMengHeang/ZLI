@@ -62,10 +62,18 @@ function thread(threadId: string, worktreeId: string, status: string, createdAt:
 
 type Sent = { type: string; [key: string]: unknown };
 
-function harness(options: { access?: string; onCommand?: (command: Sent, state: RuntimeProjection) => void } = {}) {
+function harness(
+  options: {
+    access?: string;
+    onCommand?: (command: Sent, state: RuntimeProjection) => void;
+    servers?: unknown[];
+    signIns?: unknown[];
+  } = {},
+) {
   let state = baseProjection();
   const listeners = new Set<() => void>();
   const sent: Sent[] = [];
+  const asked: Array<{ title: string; body: string; connectorId: string }> = [];
   let ids = 0;
   const update = (next: RuntimeProjection) => {
     state = next;
@@ -84,9 +92,10 @@ function harness(options: { access?: string; onCommand?: (command: Sent, state: 
           commandId: request.commandId,
           accepted: true,
           result: {
-            servers: [],
+            servers: options.servers ?? [],
             agentAccess: options.access ?? "full",
             userSettings: { enabled: false, outcomes: [] },
+            signIns: options.signIns ?? [],
           },
         } as RpcResponse;
       sent.push(command);
@@ -104,9 +113,19 @@ function harness(options: { access?: string; onCommand?: (command: Sent, state: 
     sleep: async () => undefined,
     newId: () => `00000000-0000-4000-8000-${String(++ids).padStart(12, "0")}`,
     startTimeoutMs: 1_000,
+    askToConnect: (request) => asked.push(request),
   });
-  return { dispatch, sent, update, state: () => state };
+  return { dispatch, sent, asked, update, state: () => state };
 }
+
+const linear = {
+  name: "linear",
+  enabled: true,
+  transport: "http",
+  url: "https://mcp.linear.app/mcp",
+  headers: {},
+  oauth: true,
+};
 
 describe("agent control", () => {
   it("lists the running agents in the caller's project", async () => {
@@ -238,5 +257,55 @@ describe("agent control", () => {
     const blocked = read.dispatch("agentsend", { cwd: "/work/app", agent: PEER, text: "hi" });
     await expect(blocked).rejects.toBeInstanceOf(BrowserControlError);
     await expect(blocked).rejects.toThrow("not start or message them");
+    await expect(read.dispatch("agentconnect", { cwd: "/work/app", service: "github" })).resolves.toMatchObject({
+      status: "asked",
+    });
+    await expect(off.dispatch("agentconnect", { cwd: "/work/app", service: "github" })).rejects.toMatchObject({
+      status: 403,
+    });
+  });
+
+  it("asks the person to connect a catalog service and says what to do next", async () => {
+    const { dispatch, asked } = harness();
+    await expect(
+      dispatch("agentconnect", { cwd: "/work/app", service: "GitHub", reason: "I need to open a pull request." }),
+    ).resolves.toEqual({
+      status: "asked",
+      connector: "github",
+      message: "Asked the person to connect GitHub in ZLI. Once they connect, start a new session to use it.",
+    });
+    expect(asked).toEqual([
+      { title: "app", body: "Codex asks to connect GitHub. I need to open a pull request.", connectorId: "github" },
+    ]);
+  });
+
+  it("asks for a sign-in when the server is added but signed out, and does nothing when it is ready", async () => {
+    const signedOut = harness({ servers: [linear], signIns: [{ name: "linear", url: linear.url, signedIn: false }] });
+    await expect(signedOut.dispatch("agentconnect", { cwd: "/work/app", service: "linear" })).resolves.toMatchObject({
+      status: "asked",
+      message: "Asked the person to sign in to Linear in ZLI. Once they sign in, try again.",
+    });
+    expect(signedOut.asked).toEqual([
+      { title: "app", body: "Codex asks you to sign in to Linear.", connectorId: "linear" },
+    ]);
+
+    const ready = harness({ servers: [linear], signIns: [{ name: "linear", url: linear.url, signedIn: true }] });
+    await expect(ready.dispatch("agentconnect", { cwd: "/work/app", service: "Linear" })).resolves.toMatchObject({
+      status: "connected",
+    });
+    expect(ready.asked).toEqual([]);
+  });
+
+  it("finds servers the person added by name and rejects unknown services", async () => {
+    const custom = { name: "my-db", enabled: false, command: "db-mcp", args: [], env: {} };
+    const { dispatch, asked } = harness({ servers: [custom] });
+    await expect(dispatch("agentconnect", { cwd: "/elsewhere", service: "My-DB" })).resolves.toMatchObject({
+      status: "asked",
+      connector: "my-db",
+    });
+    expect(asked).toEqual([{ title: "ZLI", body: "An agent asks to connect my-db.", connectorId: "my-db" }]);
+    await expect(dispatch("agentconnect", { cwd: "/work/app", service: "nope" })).rejects.toThrow(
+      "ZLI has no connector called nope.",
+    );
   });
 });

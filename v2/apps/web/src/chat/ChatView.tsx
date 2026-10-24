@@ -27,6 +27,7 @@ import { latestContext } from "../usage/usage.js";
 import type { BestOfAgentOption } from "./BestOfPopover.js";
 import { ChatImageScope } from "./ChatImage.js";
 import { Composer, type ComposerAttachment, type ComposerBestOf } from "./Composer.js";
+import { ConnectorCard } from "./ConnectorCard.js";
 import { clearCodeReferences, removeCodeReference, useCodeReferences } from "./codeReferences.js";
 import { Markdown } from "./Markdown.js";
 import { RequestCard } from "./RequestCard.js";
@@ -41,6 +42,7 @@ export function ChatView({
   onOpenDiff,
   onRestart,
   onHandoff,
+  onOpenConnectors,
   onStartRuns,
 }: {
   projection: RuntimeProjection;
@@ -49,6 +51,8 @@ export function ChatView({
   onOpenDiff(path?: string): void;
   onRestart(): void;
   onHandoff?: (() => void) | undefined;
+  /** Opens Settings at a connector, a catalog id or a server name. */
+  onOpenConnectors?: ((connectorId?: string) => void) | undefined;
   /** Starts best-of runs from this chat. Absent where runs cannot start, such as a scratch chat. */
   onStartRuns?: ((request: StartRunsRequest) => Promise<string | undefined>) | undefined;
 }) {
@@ -262,6 +266,17 @@ export function ChatView({
         }
       : undefined;
 
+  const [dismissedConnectors, setDismissedConnectors] = useState<ReadonlySet<string>>(() => new Set());
+  const connectorActivity = useMemo(() => {
+    const latest = activities.findLast((activity) => activity.connector !== undefined);
+    return latest && !dismissedConnectors.has(latest.activityId) ? latest : undefined;
+  }, [activities, dismissedConnectors]);
+  const newChatForConnector = async () => {
+    // The agent loads its MCP servers when it starts, so a new connector needs a fresh chat.
+    if (!ended) await run({ type: "thread.stop", threadId: thread.threadId });
+    onRestart();
+  };
+
   const step = useMemo(() => (working ? currentStep(timeline) : undefined), [working, timeline]);
   const liveLabel =
     thread.status === "waiting" ? `${displayName} is waiting for you` : step ? liveStepLabel(step) : "Thinking";
@@ -336,6 +351,17 @@ export function ChatView({
               onAnswer={(answers) =>
                 run({ type: "thread.user-input", threadId: thread.threadId, requestId: request.requestId, answers })
               }
+            />
+          ) : null}
+          {connectorActivity?.connector ? (
+            <ConnectorCard
+              key={connectorActivity.activityId}
+              connector={connectorActivity.connector}
+              displayName={displayName}
+              onTryAgain={ended ? undefined : (text) => send(text, [])}
+              onNewChat={() => void newChatForConnector()}
+              onOpenConnectors={onOpenConnectors}
+              onDismiss={() => setDismissedConnectors((current) => new Set(current).add(connectorActivity.activityId))}
             />
           ) : null}
           {queued.length > 0 ? (

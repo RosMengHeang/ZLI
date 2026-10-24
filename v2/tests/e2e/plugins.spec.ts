@@ -40,7 +40,7 @@ test("installs a plugin from a folder and runs its action from the command palet
     await settings.getByRole("tab", { name: "Plugins" }).click();
     await expect(settings).toContainText("No plugins yet.");
 
-    await settings.getByRole("button", { name: "Install plugin" }).click();
+    await settings.getByRole("button", { name: "Install plugin", exact: true }).click();
     const form = settings.getByRole("form", { name: "Install a plugin" });
     await form.getByLabel("Source").fill(source);
     await form.getByRole("button", { name: "Look up" }).click();
@@ -65,11 +65,18 @@ test("installs a plugin from a folder and runs its action from the command palet
     if (process.platform !== "win32") expect((await stat(state)).mode & 0o777).toBe(0o600);
 
     await page.keyboard.press("Escape");
+    // Local e2e runs share Electron's profile, so an approval from an earlier run would skip the prompt.
+    await page.evaluate(() => localStorage.removeItem("zli.pluginActionApprovals"));
     await page.keyboard.press(shortcut);
     const palette = page.getByRole("dialog", { name: "Command palette" });
     await palette.getByRole("textbox", { name: "Search commands" }).fill("say hello");
     await expect(palette.getByRole("button", { name: "Say hello (hello-kit)" })).toBeVisible();
     await palette.getByRole("textbox", { name: "Search commands" }).press("Enter");
+    const confirm = page.getByRole("dialog", { name: "Run plugin action" });
+    await expect(confirm).toContainText("Run Say hello from Hello kit?");
+    await expect(confirm).toContainText("echo hello-from-plugin");
+    await expect(confirm).toContainText("Unknown source");
+    await confirm.getByRole("button", { name: "Run", exact: true }).click();
     await expect(page.getByRole("log", { name: "Terminal output" }).last()).toContainText("hello-from-plugin", {
       timeout: 20_000,
     });
