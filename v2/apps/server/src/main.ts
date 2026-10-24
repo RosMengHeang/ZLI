@@ -5,9 +5,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { EnvironmentId } from "@zli-v2/contracts";
-import { type BrowserToolConfig, browserToolConfigFromEnv } from "./browser-tool/browserTool.js";
+import { AccountStore } from "./accounts/AccountStore.js";
+import { type BrowserToolConfig, browserToolConfigFromEnv, zliMcpServerSpecs } from "./browser-tool/browserTool.js";
 import {
   registerBrowserToolInUserSettings,
+  syncAccountMcpServers,
   syncUserMcpServers,
   type UserSettingsOutcome,
 } from "./browser-tool/userSettings.js";
@@ -56,6 +58,7 @@ export type RuntimeProcess = {
   devServerReactor: DevServerReactor;
   mcpServers: McpServerStore;
   skills: SkillStore;
+  accounts: AccountStore;
   /** Settles once the browser tool is registered in agent user settings (empty when not configured). */
   browserToolRegistration: Promise<readonly UserSettingsOutcome[]>;
   token: string;
@@ -134,6 +137,21 @@ export async function startRuntime(options: {
       : {}),
   });
   await skills.load();
+  const accounts = new AccountStore({
+    path: join(dirname(databasePath), "accounts.json"),
+    dir: join(dirname(databasePath), "accounts"),
+    // A private config dir hides the user's own MCP settings, so agents that read servers only from there get ZLI's.
+    syncMcp: (provider, configDir, owned) =>
+      syncAccountMcpServers(
+        provider,
+        configDir,
+        [...(browserTool ? zliMcpServerSpecs(browserTool) : []), ...mcpServers.specs()],
+        owned,
+      ),
+  });
+  await accounts.load();
+  const resolveAccount = (provider: Parameters<AccountStore["resolve"]>[0], accountId?: string) =>
+    accounts.resolve(provider, accountId);
   const mcpOptions = { mcpServers: () => mcpServers.specs(), mcpConfigDir };
   const providerService = new ProviderService(
     createProviderRegistry(process.env, { ...(browserTool ? { browserTool } : {}), ...mcpOptions }),
@@ -147,11 +165,12 @@ export async function startRuntime(options: {
   };
   const terminalReactor = new TerminalReactor(engine, terminalService, {
     resolveAgentCli,
+    resolveAccount,
     ...(browserTool ? { browserTool } : {}),
     ...mcpOptions,
   });
   const checkpoints = new TurnCheckpoints(engine, new GitProcess({ maxOutputBytes: 4 * 1024 * 1024 }));
-  const providerReactor = new ProviderReactor(engine, providerService, checkpoints);
+  const providerReactor = new ProviderReactor(engine, providerService, checkpoints, { resolveAccount });
   const agentMessageReactor = new AgentMessageReactor(engine);
   const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
   const legacyImportReactor = new LegacyImportReactor(engine);
@@ -168,6 +187,7 @@ export async function startRuntime(options: {
     mcpServers,
     issues: { github: new GitHubIssues(), linear: linearIssues },
     skills,
+    accounts,
   });
   // Before the server accepts commands, so a setup started by a new request is never mistaken for a stale one.
   await worktreeSetup.reconcile();
@@ -207,6 +227,7 @@ export async function startRuntime(options: {
     devServerReactor,
     mcpServers,
     skills,
+    accounts,
     browserToolRegistration,
     token,
     close: async () => {
@@ -215,6 +236,7 @@ export async function startRuntime(options: {
       await mcpServers.waitForIdle();
       await linearIssues.waitForIdle();
       await skills.waitForIdle();
+      await accounts.waitForIdle();
       await worktreeReactor.waitForIdle();
       await terminalReactor.waitForIdle();
       await reviewReactor.waitForIdle();

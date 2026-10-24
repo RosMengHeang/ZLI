@@ -88,6 +88,12 @@ const paths = {
     </>
   ),
   code: <path d="m16 18 6-6-6-6M8 6l-6 6 6 6" />,
+  crosshair: (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M22 12h-4M6 12H2M12 6V2M12 22v-4" />
+    </>
+  ),
   smartphone: (
     <>
       <rect width="14" height="20" x="5" y="2" rx="2" />
@@ -245,6 +251,12 @@ const paths = {
       <path d="M12 8V4H8" />
       <rect width="16" height="12" x="4" y="8" rx="2" />
       <path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
+    </>
+  ),
+  user: (
+    <>
+      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
     </>
   ),
   bell: (

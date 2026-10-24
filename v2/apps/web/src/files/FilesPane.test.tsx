@@ -14,6 +14,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
+import { type ReviewComment, removeReviewComments, useReviewComments } from "../review/reviewComments.js";
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
 import { updateAppSettings } from "../settings/appSettings.js";
@@ -769,5 +770,57 @@ describe("FilesPane Ask agent", () => {
       editorMenu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
     expect(document.querySelector(".files-menu")).toBeNull();
+  });
+});
+
+describe("FilesPane review notes", () => {
+  it("adds a note on the selected lines, or on the cursor line, to the review comments", async () => {
+    const disk: Disk = new Map([["src/app.ts", { content: "one\ntwo\nthree\n", version: "v1" }]]);
+    const { bridge } = fakeRuntime(disk);
+    const { container } = await renderPane(bridge, { kind: "open", path: "src/app.ts", nonce: 1 });
+    let notes: readonly ReviewComment[] = [];
+    function Probe() {
+      notes = useReviewComments(worktree.worktreeId);
+      return null;
+    }
+    const probeHost = document.createElement("div");
+    const probe = createRoot(probeHost);
+    act(() => probe.render(<Probe />));
+
+    const view = editorView(container);
+    act(() => view.dispatch({ selection: { anchor: 4, head: 13 } }));
+    act(() => button(container, "Add review note").click());
+    const textarea = container.querySelector<HTMLTextAreaElement>(".file-note textarea");
+    expect(textarea?.getAttribute("aria-label")).toBe("Note on src/app.ts:2-3");
+    expect(document.activeElement).toBe(textarea);
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+    act(() => {
+      setValue?.call(textarea, "Rename these");
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => button(container, "Add note").click());
+    expect(container.querySelector(".file-note")).toBeNull();
+    expect(notes.map(({ path, anchor, excerpt, body }) => ({ path, anchor, excerpt, body }))).toEqual([
+      {
+        path: "src/app.ts",
+        anchor: { side: "new", start: 2, end: 3 },
+        excerpt: [" two", " three"],
+        body: "Rename these",
+      },
+    ]);
+
+    act(() => view.dispatch({ selection: { anchor: 1 } }));
+    act(() => button(container, "Add review note").click());
+    expect(container.querySelector(".file-note-location")?.textContent).toBe("Note on src/app.ts:1");
+    act(() => {
+      container
+        .querySelector(".file-note textarea")
+        ?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(container.querySelector(".file-note")).toBeNull();
+    expect(notes).toHaveLength(1);
+
+    act(() => removeReviewComments(notes.map((note) => note.id)));
+    act(() => probe.unmount());
   });
 });

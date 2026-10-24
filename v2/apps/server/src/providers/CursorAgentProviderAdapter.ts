@@ -12,7 +12,7 @@ import type {
 import { toolActivity } from "./toolActivity.js";
 
 type CursorClient = Pick<CursorAgentClient, "sendTurn" | "interruptTurn" | "transcript" | "subscribe" | "close">;
-type ClientStart = Pick<ProviderSessionStart, "cwd" | "permissionMode" | "model" | "worktreeId">;
+type ClientStart = Pick<ProviderSessionStart, "cwd" | "permissionMode" | "model" | "worktreeId" | "account">;
 
 export class CursorAgentProviderAdapter implements ProviderAdapter {
   readonly provider = "cursor-agent" as const;
@@ -39,6 +39,7 @@ export class CursorAgentProviderAdapter implements ProviderAdapter {
       ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
       ...(input.model ? { model: input.model } : {}),
       ...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
+      ...(input.account ? { account: input.account } : {}),
     });
     const session: ProviderSession = {
       threadId: input.threadId,

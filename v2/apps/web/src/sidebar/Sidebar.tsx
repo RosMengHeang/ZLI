@@ -1,7 +1,8 @@
-import type { ProjectProjection, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
+import type { Account, ProjectProjection, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { threadOccupiesWorktree } from "@zli-v2/contracts";
 import { useEffect, useState } from "react";
 
+import { accountLabel, sessionAccountId } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
 import { type PullRequestEntry, usePullRequestEntries } from "../review/pullRequestStore.js";
 import type { RunGroup, RunState } from "../sessions/bestOf.js";
@@ -97,6 +98,8 @@ type Props = {
   runGroups?: readonly RunGroup[];
   runStates?: ReadonlyMap<string, RunState>;
   onCompareRuns?(group: RunGroup): void;
+  /** Undefined until the saved accounts have loaded. */
+  accounts?: readonly Account[] | undefined;
 };
 
 const noGroups: readonly RunGroup[] = [];
@@ -125,6 +128,7 @@ export function Sidebar({
   runGroups = noGroups,
   runStates = noStates,
   onCompareRuns = () => undefined,
+  accounts,
 }: Props) {
   const newAgentShortcut = useShortcut("newAgent");
   const sidebarShortcut = useShortcut("toggleSidebar");
@@ -187,7 +191,9 @@ export function Sidebar({
   ) => {
     const worktree = projectWorktrees.find((entry) => entry.worktreeId === session.worktreeId);
     const title = sessionTitle(session, projection?.messages, projection?.providers);
+    const account = accountLabel(accounts, sessionAccountId(session));
     const provider = providerDisplayName(session.provider, projection?.providers);
+    const providerName = account ? `${provider} (${account})` : provider;
     const runStatus = runIndex === undefined ? undefined : (runStates.get(session.sessionId) ?? "running");
     const status = runStatus ? runStateLabel[runStatus] : sessionStatusLabel[session.status];
     const active = session.sessionId === activeSessionId;
@@ -200,10 +206,10 @@ export function Sidebar({
         <button
           className={`session-row${active ? " is-active" : ""}`}
           type="button"
-          aria-label={`${name}, ${provider}, ${status}${background ? ", in the background" : ""}`}
+          aria-label={`${name}, ${providerName}, ${status}${background ? ", in the background" : ""}`}
           aria-current={active ? "true" : undefined}
           onClick={() => onSelectSession(session)}
-          title={worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}
+          title={`${worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}${account ? `\nAccount: ${account}` : ""}`}
         >
           <ProviderMark provider={session.provider} size={14} />
           {runIndex === undefined ? (

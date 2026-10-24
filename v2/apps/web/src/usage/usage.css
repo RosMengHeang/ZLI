@@ -21,6 +21,7 @@
 .usage-table td.is-missing { color: var(--zli-dim); }
 .usage-name { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); }
 .usage-name > .provider-mark { flex: 0 0 auto; }
+.usage-account { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
 .usage-chat { display: flex; min-width: 0; flex-direction: column; }
 .usage-chat-title, .usage-chat-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .usage-chat-meta { color: var(--zli-dim); font-size: var(--zli-text-xs); }

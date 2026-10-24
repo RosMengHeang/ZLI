@@ -71,7 +71,7 @@ export function formatCommentsMessage(list: readonly ReviewComment[], branch: st
 }
 
 /** A fence longer than any run of backticks in the excerpt, so the excerpt cannot close it early. */
-function fenceFor(lines: readonly string[]): string {
+export function fenceFor(lines: readonly string[]): string {
   const longest = Math.max(
     0,
     ...lines.map((line) => Math.max(0, ...[...line.matchAll(/`+/gu)].map((m) => m[0].length))),

@@ -3,11 +3,16 @@ import { createServer, type Server as HttpServer, type IncomingMessage } from "n
 import type { AddressInfo } from "node:net";
 
 import {
+  ACCOUNT_COMMAND_TYPES,
+  type AccountCommand,
+  type AccountDraft,
+  type AccountListResult,
   type AgentToolAccess,
   CHECKPOINT_COMMAND_TYPES,
   type CheckpointCommand,
   ClientWireMessage,
   type EnvironmentDescriptor,
+  type ListedProviderKind,
   FILE_COMMAND_TYPES,
   type FileCommand,
   FileDataResult,
@@ -88,6 +93,13 @@ type RpcServerOptions = {
   };
   /** The skills from Settings. Without it, skills commands are answered as unavailable. */
   skills?: SkillStore;
+  /** Accounts per agent CLI. Without it, account commands are answered as unavailable. */
+  accounts?: {
+    list(): Promise<AccountListResult>;
+    save(account: AccountDraft): Promise<AccountListResult>;
+    delete(accountId: string): Promise<AccountListResult>;
+    setDefault(provider: ListedProviderKind, accountId?: string): Promise<AccountListResult>;
+  };
   host?: string;
   port?: number;
 };
@@ -105,6 +117,7 @@ export class RpcServer {
   private readonly checkpoints: RpcServerOptions["checkpoints"];
   private readonly mcpServers: RpcServerOptions["mcpServers"];
   private readonly skills: SkillStore | undefined;
+  private readonly accounts: RpcServerOptions["accounts"];
   private readonly host: string;
   private readonly port: number;
   private httpServer: HttpServer | undefined;
@@ -130,6 +143,7 @@ export class RpcServer {
     this.checkpoints = options.checkpoints;
     this.mcpServers = options.mcpServers;
     this.skills = options.skills;
+    this.accounts = options.accounts;
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
   }
@@ -444,6 +458,37 @@ export class RpcServer {
     return true;
   }
 
+  /** Accounts live in an owner-only file beside the database, outside the event log, since it holds keys. */
+  private async handleAccountCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isAccountCommand(command)) return false;
+    const reject = (code: RuntimeError["code"], message: string, retryable: boolean) =>
+      send(client, {
+        type: "response",
+        response: { commandId: request.commandId, accepted: false, error: { code, message, retryable } },
+      });
+    const store = this.accounts;
+    if (!store) {
+      reject("unavailable", "Accounts are not available here.", false);
+      return true;
+    }
+    try {
+      const result =
+        command.type === "accounts.list"
+          ? await store.list()
+          : command.type === "accounts.save"
+            ? await store.save(command.account)
+            : command.type === "accounts.delete"
+              ? await store.delete(command.accountId)
+              : await store.setDefault(command.provider, command.accountId);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch (error) {
+      // Messages come from the store, which never puts a key in one.
+      reject("invalid_request", error instanceof Error ? error.message : "The account was not saved.", false);
+    }
+    return true;
+  }
+
   private async runFileCommand(root: string, command: FileCommand): Promise<unknown> {
     switch (command.type) {
       case "files.list":
@@ -635,6 +680,7 @@ export class RpcServer {
         if (await this.handleProjectConfig(client, message.data.request)) return;
         if (await this.handleMcpCommand(client, message.data.request)) return;
         if (await this.handleSkillCommand(client, message.data.request)) return;
+        if (await this.handleAccountCommand(client, message.data.request)) return;
         try {
           let request: RpcRequest;
           try {
@@ -738,6 +784,10 @@ export class RpcServer {
         return;
     }
   }
+}
+
+function isAccountCommand(command: RpcRequest["command"]): command is AccountCommand {
+  return (ACCOUNT_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
 function isMcpCommand(command: RpcRequest["command"]): command is McpCommand {

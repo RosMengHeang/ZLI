@@ -314,6 +314,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             ...(command.permissionMode ? { permissionMode: command.permissionMode } : {}),
             ...(command.model ? { model: command.model } : {}),
             ...(command.sessionId ? { sessionId: command.sessionId } : {}),
+            ...(command.accountId ? { accountId: command.accountId } : {}),
           },
         },
       ];
@@ -619,6 +620,7 @@ function decideUsage(
         provider: thread.provider,
         ...(projectId ? { projectId } : {}),
         ...(thread.model ? { model: thread.model } : {}),
+        ...(thread.accountId ? { accountId: thread.accountId } : {}),
         usage: command.usage,
       },
     },
