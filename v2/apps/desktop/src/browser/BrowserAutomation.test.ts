@@ -291,4 +291,34 @@ describe("BrowserAutomation device emulation", () => {
       y: 200,
     });
   });
+
+  it("waits in the page for a picked element and treats a lost page as a cancelled pick", async () => {
+    const evaluations: Array<Record<string, unknown>> = [];
+    let answer: () => Promise<unknown> = async () => ({ result: { value: { selector: "main > button" } } });
+    const cdp: CdpClientLike = {
+      send: async (method, params) => {
+        if (method !== "Runtime.evaluate") return {};
+        evaluations.push(params as Record<string, unknown>);
+        return answer();
+      },
+      onMessage: () => () => undefined,
+    };
+    const automation = new BrowserAutomation(cdp);
+    await expect(automation.pickElement()).resolves.toEqual({ selector: "main > button" });
+    expect(evaluations[0]).toMatchObject({ awaitPromise: true, returnByValue: true });
+    expect(String(evaluations[0]?.expression)).toContain("__zliDesignPicker");
+
+    answer = async () => ({ result: { value: null } });
+    await expect(automation.pickElement()).resolves.toBeNull();
+    answer = async () => ({ exceptionDetails: { text: "Execution context was destroyed." } });
+    await expect(automation.pickElement()).resolves.toBeNull();
+    answer = async () => {
+      throw new Error("Target closed.");
+    };
+    await expect(automation.pickElement()).resolves.toBeNull();
+
+    answer = async () => ({ result: { value: true } });
+    await automation.cancelPick();
+    expect(String(evaluations.at(-1)?.expression)).toContain("__zliDesignPicker?.cancel()");
+  });
 });

@@ -45,6 +45,9 @@ export type ZliBridge = {
     screenshot(input: unknown): Promise<unknown>;
     inspectElement(input: unknown): Promise<unknown>;
     designInspect(input: unknown): Promise<unknown>;
+    /** Resolves with the selector of the element the person clicks, or null when the pick is cancelled. */
+    designPick?(browserTabId: string): Promise<unknown>;
+    designCancel?(browserTabId: string): Promise<unknown>;
     consoleEntries(browserTabId: string): Promise<readonly unknown[]>;
     networkEntries(browserTabId: string): Promise<readonly unknown[]>;
   };

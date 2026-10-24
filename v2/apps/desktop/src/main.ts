@@ -474,6 +474,12 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
     const parsed = BrowserSelectorInput.parse(input);
     return browserManager?.designInspect(parsed.browserTabId, { selector: parsed.selector });
   });
+  ipcMain.handle("zli:browser:design-pick", (_event, input: unknown) =>
+    browserManager?.designPick(BrowserTabIdInput.parse(input).browserTabId),
+  );
+  ipcMain.handle("zli:browser:design-cancel", (_event, input: unknown) =>
+    browserManager?.designCancel(BrowserTabIdInput.parse(input).browserTabId),
+  );
   ipcMain.handle("zli:browser:console", (_event, input: unknown) =>
     browserManager?.consoleEntries(BrowserTabIdInput.parse(input).browserTabId),
   );

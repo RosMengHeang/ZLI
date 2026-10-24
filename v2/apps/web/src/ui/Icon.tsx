@@ -88,6 +88,12 @@ const paths = {
     </>
   ),
   code: <path d="m16 18 6-6-6-6M8 6l-6 6 6 6" />,
+  crosshair: (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M22 12h-4M6 12H2M12 6V2M12 22v-4" />
+    </>
+  ),
   smartphone: (
     <>
       <rect width="14" height="20" x="5" y="2" rx="2" />

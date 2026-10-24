@@ -19,3 +19,18 @@
 .browser-device-bar > .btn:last-child { margin-left: auto; }
 .browser-surface { position: relative; min-height: 0; flex: 1; overflow: hidden; background: var(--zli-canvas); }
 .browser-empty { min-height: 100%; }
+.browser-design-hint { display: flex; align-items: center; gap: var(--zli-space-2); flex: 0 0 auto; min-height: 30px; padding: 0 var(--zli-space-2) 0 var(--zli-space-3); border-bottom: 1px solid var(--zli-border); background: var(--zli-accent-soft); color: var(--zli-text); font-size: var(--zli-text-sm); }
+.browser-design-hint > span { min-width: 0; flex: 1; }
+.browser-design { display: flex; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-2); max-height: 45%; padding: var(--zli-space-2) var(--zli-space-3) var(--zli-space-3); overflow: auto; border-top: 1px solid var(--zli-border); background: var(--zli-well); }
+.browser-design-header { display: flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.browser-design-title { min-width: 0; flex: 1; color: var(--zli-text); font-weight: 600; }
+.browser-design-status { display: inline-flex; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.browser-design-picks { display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0; padding: 0; list-style: none; }
+.browser-design-pick { display: flex; align-items: center; gap: var(--zli-space-2-5); min-width: 0; padding: var(--zli-space-1); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-raised); }
+.browser-design-thumb { display: grid; place-items: center; width: 56px; height: 40px; flex: 0 0 auto; border-radius: var(--zli-radius-sm); background: var(--zli-canvas); color: var(--zli-dim); object-fit: contain; }
+.browser-design-pick-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.browser-design-pick-name { overflow: hidden; color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.browser-design-pick-detail { display: flex; min-width: 0; gap: var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-xs); white-space: nowrap; }
+.browser-design-pick-detail code { min-width: 0; overflow: hidden; font-family: var(--zli-mono); text-overflow: ellipsis; }
+.browser-design-note { width: 100%; resize: vertical; }
+.browser-design-actions { display: flex; justify-content: flex-end; }

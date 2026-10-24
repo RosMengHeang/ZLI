@@ -1401,6 +1401,7 @@ function WorkspaceApp() {
                         obscured={overlayOpen}
                         reveal={browserReveal}
                         openRequest={browserOpen}
+                        onShowAgent={showAgent}
                       />
                     ) : (
                       <Suspense fallback={<LoadingState label="Loading the changes" />}>
