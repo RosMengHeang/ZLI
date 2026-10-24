@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 
 type EnvironmentChild = {
+  /** Ending it asks the server to stop its agents and exit. */
+  stdin?: { end(): void } | null;
   stdout: { on(event: "data", listener: (chunk: string | Buffer) => void): void };
   stderr: { on(event: "data", listener: (chunk: string | Buffer) => void): void };
   once(event: "error" | "close", listener: (...args: unknown[]) => void): void;
@@ -98,6 +100,27 @@ export class EnvironmentProcess {
     this.startPromise = undefined;
   }
 
+  /**
+   * Asks the server to stop its agents and exit, and kills it if it has not exited after `timeoutMs`.
+   * A child without a stdin pipe is killed right away.
+   */
+  async shutdown(timeoutMs = 5_000): Promise<void> {
+    const child = this.child;
+    if (!child) return;
+    const closed = new Promise<void>((resolveClose) => child.once("close", () => resolveClose()));
+    this.child = undefined;
+    this.startPromise = undefined;
+    if (!child.stdin) {
+      child.kill();
+      await closed;
+      return;
+    }
+    child.stdin.end();
+    const timer = setTimeout(() => child.kill(), timeoutMs);
+    await closed;
+    clearTimeout(timer);
+  }
+
   async stopAndWait(): Promise<void> {
     const child = this.child;
     if (!child) return;
@@ -114,12 +137,13 @@ function defaultLauncher(input: LaunchInput): EnvironmentChild {
     ...input.extraEnv,
     ZLI_DATABASE_PATH: input.databasePath,
     ZLI_RUNTIME_TOKEN: input.token,
+    ZLI_RUNTIME_STOP_ON_STDIN_END: "1",
   };
   if (runtimeNode) delete environment.ELECTRON_RUN_AS_NODE;
   else environment.ELECTRON_RUN_AS_NODE = "1";
   return spawn(runtimeNode ?? process.execPath, [input.serverEntryPath], {
     env: environment,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
     shell: false,
   });

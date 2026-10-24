@@ -61,6 +61,8 @@ export type UpdateServiceDependencies = {
   macCanAutoInstall: boolean;
   settings: UpdateSettingsHost;
   openExternal(url: string): Promise<unknown>;
+  /** Stops the runtime and the terminal daemon, which would otherwise keep the installer from replacing the app. */
+  prepareToInstall?: () => Promise<void>;
   now?: () => Date;
   timers?: Timers;
   log?: (level: "info" | "warn" | "error", message: string) => void;
@@ -195,6 +197,8 @@ export class UpdateService {
     if (this.state.status !== "ready" || !this.updater) return false;
     const updater = await this.updater;
     this.deps.log?.("info", `restarting to install ZLI ${this.state.version}`);
+    // electron-updater starts the installer before the app quits, so stop the app's processes first.
+    await this.deps.prepareToInstall?.();
     updater.quitAndInstall(true, true);
     return true;
   }

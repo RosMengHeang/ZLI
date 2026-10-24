@@ -33,6 +33,7 @@ import {
 import { WebSocket } from "ws";
 
 import { createAgentControlActions, isAgentControlAction } from "./agents/AgentControlActions.js";
+import { busyAgentCount, QuitController, quitWarning } from "./app/QuitController.js";
 import { BrowserAutomation } from "./browser/BrowserAutomation.js";
 import { createBrowserControlActions } from "./browser/BrowserControlActions.js";
 import { BrowserControlServer } from "./browser/BrowserControlServer.js";
@@ -49,7 +50,7 @@ import {
 import { type CaptureDependencies, captureSource, listCaptureSources, parseSourceId } from "./capture/WindowCapture.js";
 import { DesktopDiagnostics } from "./diagnostics/DesktopDiagnostics.js";
 import { registerAgentNotifications } from "./notifications/electronNotifications.js";
-import { ensureDesktopDaemon } from "./runtime/DesktopDaemon.js";
+import { ensureDesktopDaemon, shutdownDesktopDaemon } from "./runtime/DesktopDaemon.js";
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
 import { ensureScratchFolder } from "./scratch/ScratchFolder.js";
 import { shouldOpenExternal } from "./security/NavigationPolicy.js";
@@ -78,6 +79,7 @@ let browserControl: BrowserControlServer | undefined;
 let mainWindow: BrowserWindow | undefined;
 let approvedSupportBundleRoot: string | undefined;
 let scratchFolderPath: string | undefined;
+let daemonEndpointPath: string | undefined;
 /** Test launches record links instead of starting the system browser. */
 let lastExternalUrl: string | undefined;
 
@@ -98,9 +100,10 @@ async function main(): Promise<void> {
   const databasePath = process.env.ZLI_DATABASE_PATH ?? join(app.getPath("userData"), "runtime.sqlite");
   // Test launches keep scratch chats next to their throwaway database.
   scratchFolderPath = join(process.env.ZLI_DATABASE_PATH ? dirname(databasePath) : app.getPath("userData"), "Scratch");
+  daemonEndpointPath = `${databasePath}.daemon.json`;
   await ensureDesktopDaemon({
     entryPath: join(DESKTOP_DIST, "daemon-entry.js"),
-    endpointPath: `${databasePath}.daemon.json`,
+    endpointPath: daemonEndpointPath,
   });
   const browserToolPaths = await startBrowserControl(databasePath);
   environment = new EnvironmentProcess({
@@ -142,6 +145,12 @@ async function main(): Promise<void> {
   if (dockIcon) app.dock?.setIcon(dockIcon);
   const electronWindow = window as unknown as BrowserWindow;
   mainWindow = electronWindow;
+  // Closing the window goes through the quit, which may ask first and keep the window open.
+  electronWindow.on("close", (event) => {
+    if (quitController.exiting) return;
+    event.preventDefault();
+    app.quit();
+  });
   await registerAgentNotifications({
     window: electronWindow,
     runtime,
@@ -155,6 +164,7 @@ async function main(): Promise<void> {
       ? `${databasePath}.updates.json`
       : join(app.getPath("userData"), "update-settings.json"),
     openExternal: openExternalUrl,
+    prepareToInstall: () => quitController.stop(),
     log: (level, message) => desktopDiagnostics.record(level, message, { component: "updates" }),
   }).catch((error: unknown) => console.error("Update checks could not start", error));
   browserManager = new BrowserManager(
@@ -534,12 +544,47 @@ app.on("will-quit", () => {
   browserControl?.stop();
 });
 
-app.on("window-all-closed", () => {
-  browserManager?.closeAll({ persist: false });
-  runtime?.close();
-  environment?.stop();
-  if (process.platform !== "darwin") app.quit();
+const quitController = new QuitController({
+  quit: () => app.quit(),
+  // Test launches quit without asking, because nobody is there to answer the dialog.
+  busyAgents: () => (process.env.ZLI_TEST_PROVIDER === "mock" ? 0 : busyAgentCount(runtime?.projection())),
+  confirm: confirmQuit,
+  shutdown: shutdownRuntime,
+  log: (message, error) => console.error(message, error),
 });
+
+app.on("before-quit", (event) => quitController.beforeQuit(event));
+
+// ZLI has one window, and nothing reopens it, so closing it quits on every platform.
+app.on("window-all-closed", () => app.quit());
+
+async function confirmQuit(busyCount: number): Promise<boolean> {
+  const options: Electron.MessageBoxOptions = {
+    type: "warning",
+    message: "Quit ZLI?",
+    detail: quitWarning(busyCount),
+    buttons: ["Quit anyway", "Cancel"],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  };
+  const { response } =
+    mainWindow && !mainWindow.isDestroyed()
+      ? await dialog.showMessageBox(mainWindow, options)
+      : await dialog.showMessageBox(options);
+  return response === 0;
+}
+
+/** Stops chats, agent CLIs, and terminals, so nothing ZLI started keeps running after it quits. */
+async function shutdownRuntime(): Promise<void> {
+  browserManager?.closeAll({ persist: false });
+  // Closed first: a client that sees the server go away starts it again to reconnect.
+  runtime?.close();
+  runtime = undefined;
+  await environment?.shutdown();
+  // After the server, which would otherwise start a new daemon when this one goes away.
+  if (daemonEndpointPath) await shutdownDesktopDaemon({ endpointPath: daemonEndpointPath });
+}
 
 /**
  * Packaged builds keep renderer/ beside the app root. `electron apps/desktop/dist/main.js`

@@ -173,6 +173,22 @@ describe("UpdateService downloads", () => {
     expect(updater.installs).toEqual([[true, true]]);
   });
 
+  it("stops the app's processes before electron-updater starts the installer", async () => {
+    const order: string[] = [];
+    const { service, updater } = createService({
+      prepareToInstall: async () => {
+        order.push(`prepare:${updater.installs.length}`);
+      },
+    });
+    updater.available = { version: "0.2.0" };
+    await service.check();
+    updater.emit("update-downloaded", { version: "0.2.0" });
+
+    expect(await service.quitAndInstall()).toBe(true);
+    order.push(`installs:${updater.installs.length}`);
+    expect(order).toEqual(["prepare:0", "installs:1"]);
+  });
+
   it("offers the release page on unsigned macOS builds instead of downloading", async () => {
     const { service, updater, opened } = createService({ platform: "darwin" });
     updater.available = { version: "0.3.0", releaseNotes: [{ version: "0.3.0", note: "<p>New tiles</p>" }] };
