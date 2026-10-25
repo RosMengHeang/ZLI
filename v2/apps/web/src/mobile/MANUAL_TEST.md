@@ -159,7 +159,7 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
 - [ ] Open the panel on a Mac with Xcode.
   Expected: Setup shows Android and iOS side by side, and Xcode simulators are listed.
 - [ ] Boot a simulator.
-  Expected: the booting state with a running time, then the screen as screenshots, with the "Screenshots, about 1 per second" chip. Its tooltip says screenshots come faster for a few seconds after you use the simulator.
+  Expected: the booting state with a running time, then the screen as screenshots, with the "Screenshots" chip. Its tooltip says screenshots come faster for a few seconds after you use the simulator.
 - [ ] Tap, swipe, and type with idb installed.
   Expected: each one reaches the simulator. While dragging, a trail from the start point to the pointer shows on the screen, and the release sends a swipe.
 - [ ] Press the arrow keys and Tab with the screen focused.
@@ -179,7 +179,7 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
 - [ ] Close the simulator's window in the Simulator app (the simulator keeps running) and click Rotate.
   Expected: the Simulator app opens the window again and the simulator turns, or the banner asks you to open it in the Simulator app.
 - [ ] Experimental, off by default: quit ZLI, start it with `ZLI_MOBILE_IOS_VIDEO=1`, and open a booted simulator with idb installed.
-  Expected, if it works: the chip reads "Live", motion is smooth, and taps still land. If idb cannot stream, the chip reads "Screenshots, about 1 per second" and its tooltip starts with "Live video from idb is unavailable". Note which one happened, the Xcode and idb versions, and whether the picture breaks after Rotate (the stream keeps the size it started with).
+  Expected, if it works: the chip reads "Live", motion is smooth, and taps still land. If idb cannot stream, the chip reads "Screenshots" and its tooltip includes "Live video from idb is unavailable". Note which one happened, the Xcode and idb versions, and whether the picture breaks after Rotate (the stream keeps the size it started with).
 - [ ] Uninstall or rename idb, then click Refresh.
   Expected: Setup lists idb as missing with the install command. Screenshots still show; taps report that they need idb.
 
@@ -207,6 +207,6 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
 - [ ] Hardware acceleration off: turn off Hyper-V and Windows Hypervisor Platform (WHPX) on Windows.
   Expected: the acceleration warning in Setup and above the device, and a boot that either fails with the emulator's reason or runs slowly with the three-minute note.
 - [ ] scrcpy cannot start (block the scrcpy server download, or delete it while offline).
-  Expected: the screen falls back to screenshots, the chip reads "Screenshots, about 1 per second", and its tooltip gives the reason.
+  Expected: the screen falls back to screenshots, the chip reads "Screenshots", and its tooltip gives the reason.
 - [ ] WebCodecs unavailable (run with `--disable-features=WebCodecs`, or force a decode error).
   Expected: the panel polls screenshots itself, the note under the screen says the video could not be decoded, and input keeps working.

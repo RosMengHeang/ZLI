@@ -1,5 +1,8 @@
 /* ---------- Mobile ---------- */
 .mobile-toolbar { display: flex; align-items: center; gap: var(--zli-space-2); height: var(--zli-toolbar); flex: 0 0 auto; padding: 0 var(--zli-space-2) 0 var(--zli-space-3); border-bottom: 1px solid var(--zli-border); }
+.mobile-toolbar > * { flex-shrink: 0; }
+.mobile-toolbar > .mobile-device-picker { flex-shrink: 1; min-width: 64px; max-width: 50%; }
+.mobile-device-picker .picker-trigger-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-toolbar-spacer { flex: 1; }
 .mobile-mode-chip { min-width: 0; flex: 0 1 auto; }
 .mobile-mode-chip .badge-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

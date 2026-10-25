@@ -237,7 +237,11 @@ export type ScreenMode = { live: boolean; reason: string | undefined };
 
 export function screenModeChip(mode: ScreenMode): { label: string; tone: BadgeTone; title: string | undefined } {
   if (mode.live) return { label: "Live", tone: "success", title: undefined };
-  return { label: "Screenshots, about 1 per second", tone: "quiet", title: mode.reason };
+  return {
+    label: "Screenshots",
+    tone: "quiet",
+    title: mode.reason ? `About 1 per second. ${mode.reason}` : "About 1 per second.",
+  };
 }
 
 /** Schemes that carry no //, such as mailto:, which a typed URL keeps as is. */

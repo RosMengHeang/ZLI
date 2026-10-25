@@ -1264,8 +1264,8 @@ describe("MobilePane", () => {
       });
     });
     const chip = container.querySelector(".mobile-mode-chip");
-    expect(chip?.textContent).toBe("Screenshots, about 1 per second");
-    expect(chip?.getAttribute("title")).toBe("scrcpy could not start.");
+    expect(chip?.textContent).toBe("Screenshots");
+    expect(chip?.getAttribute("title")).toBe("About 1 per second. scrcpy could not start.");
   });
 
   it("shows the device picker with one device, and with none, so the toolbar keeps its shape", async () => {

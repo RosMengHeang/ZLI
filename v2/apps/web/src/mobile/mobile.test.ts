@@ -263,9 +263,14 @@ describe("mobile panel helpers", () => {
       title: undefined,
     });
     expect(screenModeChip({ live: false, reason: "No decoder." })).toEqual({
-      label: "Screenshots, about 1 per second",
+      label: "Screenshots",
       tone: "quiet",
-      title: "No decoder.",
+      title: "About 1 per second. No decoder.",
+    });
+    expect(screenModeChip({ live: false, reason: undefined })).toEqual({
+      label: "Screenshots",
+      tone: "quiet",
+      title: "About 1 per second.",
     });
   });
 

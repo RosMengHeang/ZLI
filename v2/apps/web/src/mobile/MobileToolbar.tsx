@@ -73,6 +73,7 @@ export function MobileToolbar({
   return (
     <div className="mobile-toolbar">
       <Picker<string>
+        className="mobile-device-picker"
         label="Device"
         tooltip={device ? "Choose a device" : "Connect a phone or set up the emulator first"}
         value={device?.deviceId ?? NO_DEVICE}
