@@ -3,24 +3,27 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 
 import type { MobileBridge } from "../runtime/bridge.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
-import { Badge, type BadgeTone } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
-import { Picker } from "../ui/Picker.js";
 import { Switch } from "../ui/Switch.js";
 import { DeviceScreen } from "./DeviceScreen.js";
 import { MobileControls } from "./MobileControls.js";
 import { MobileSetup } from "./MobileSetup.js";
+import { MobileToolbar } from "./MobileToolbar.js";
 import {
   accelerationProblem,
   androidNeedsInstall,
   deviceKindLabel,
   errorText,
+  formatElapsed,
   leaseNotice,
   pickDevice,
-  stateLabel,
+  type ScreenMode,
+  SLOW_BOOT_MS,
+  slowBootNote,
 } from "./mobile.js";
+import { useClock } from "./useClock.js";
 import { useMobileSettings } from "./useMobileSettings.js";
 import "./mobile.css";
 
@@ -60,6 +63,11 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
   const [busy, setBusy] = useState<Busy>();
   const [actionError, setActionError] = useState<string>();
   const takeOverRef = useRef<HTMLButtonElement>(null);
+  const [screenMode, setScreenMode] = useState<ScreenMode>();
+  /** When each device was first seen booting, so the elapsed time survives re-renders and device switches. */
+  const bootStartsRef = useRef(new Map<string, number>());
+  /** Devices the person cancelled, whose boot call then fails on purpose. */
+  const cancelledRef = useRef(new Set<string>());
 
   const setSelectedId = useCallback((deviceId: string) => {
     setSelectedIdState(deviceId);
@@ -115,7 +123,22 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
     }
   }, [revealKey]);
 
+  useEffect(() => {
+    const booting = new Set(
+      devices?.filter((candidate) => candidate.state === "booting").map(({ deviceId }) => deviceId),
+    );
+    for (const deviceId of bootStartsRef.current.keys())
+      if (!booting.has(deviceId)) bootStartsRef.current.delete(deviceId);
+  }, [devices]);
+
   const device = devices ? pickDevice(devices, selectedId) : undefined;
+  const now = useClock(device?.state === "booting" ? 1_000 : undefined);
+  let bootElapsed: number | undefined;
+  if (device?.state === "booting") {
+    const starts = bootStartsRef.current;
+    if (!starts.has(device.deviceId)) starts.set(device.deviceId, Date.now());
+    bootElapsed = Math.max(0, now - (starts.get(device.deviceId) ?? now));
+  }
   const lease = device ? leaseNotice(device) : undefined;
   const agentHolds = lease?.kind === "agent";
   const needsAndroid = status ? androidNeedsInstall(status.android) : false;
@@ -134,6 +157,38 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
   };
 
   const nudgeTakeOver = useCallback(() => takeOverRef.current?.focus(), []);
+
+  const bootDevice = (target: MobileDevice) =>
+    void run(
+      "boot",
+      async () => {
+        cancelledRef.current.delete(target.deviceId);
+        try {
+          await mobile.boot(target.deviceId);
+        } catch (cause) {
+          if (!cancelledRef.current.has(target.deviceId)) throw cause;
+        } finally {
+          cancelledRef.current.delete(target.deviceId);
+        }
+      },
+      `${target.name} did not boot.`,
+    );
+
+  const cancelBoot = (target: MobileDevice) => {
+    cancelledRef.current.add(target.deviceId);
+    void run(
+      "shutdown",
+      async () => {
+        try {
+          await mobile.shutdown(target.deviceId);
+        } catch (cause) {
+          cancelledRef.current.delete(target.deviceId);
+          throw cause;
+        }
+      },
+      `${target.name} could not be stopped.`,
+    );
+  };
 
   const saveScreenshot = (target: MobileDevice) =>
     run(
@@ -210,11 +265,25 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
           device={shown}
           inputBlocked={agentHolds}
           onBlockedInput={nudgeTakeOver}
+          onModeChange={setScreenMode}
         />
       );
     if (shown.state === "booting")
       return (
-        <LoadingState label={`Booting ${shown.name}. The first boot of a new virtual device can take a few minutes.`} />
+        <EmptyState
+          media={<span className="spinner" aria-hidden="true" />}
+          title={`Booting ${shown.name}${bootElapsed === undefined ? "" : `, ${formatElapsed(bootElapsed)}`}`}
+          detail={
+            shown.kind === "physical" ? undefined : (
+              <>
+                The first boot of a new virtual device can take a few minutes.
+                {bootElapsed !== undefined && bootElapsed >= SLOW_BOOT_MS ? (
+                  <span className="mobile-empty-note">{slowBootNote(shown)}</span>
+                ) : null}
+              </>
+            )
+          }
+        />
       );
     if (shown.state === "shutdown")
       return (
@@ -228,13 +297,7 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
           }
         >
           {shown.kind === "physical" ? null : (
-            <Button
-              variant="primary"
-              size="sm"
-              icon="play"
-              loading={busy === "boot"}
-              onClick={() => void run("boot", () => mobile.boot(shown.deviceId), `${shown.name} did not boot.`)}
-            >
+            <Button variant="primary" size="sm" icon="play" loading={busy === "boot"} onClick={() => bootDevice(shown)}>
               Boot
             </Button>
           )}
@@ -294,54 +357,21 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
           onClick={() => setShowSetup((current) => !current)}
         />
       </PaneHeader>
-      {device && !showSetup ? (
-        <div className="mobile-toolbar">
-          {devices && devices.length > 1 ? (
-            <Picker<string>
-              label="Device"
-              tooltip="Choose a device"
-              value={device.deviceId}
-              options={devices.map((candidate) => ({
-                value: candidate.deviceId,
-                label: candidate.name,
-                description: `${deviceKindLabel(candidate)}${candidate.osVersion ? ` ${candidate.osVersion}` : ""}, ${stateLabel(candidate.state).toLowerCase()}`,
-              }))}
-              onChange={setSelectedId}
-            >
-              <span className="picker-trigger-label">{device.name}</span>
-            </Picker>
-          ) : (
-            <span className="mobile-device-name" title={device.deviceId}>
-              {device.name}
-            </span>
-          )}
-          <Badge tone={stateTone(device)} dot={device.state !== "booting"} spinner={device.state === "booting"}>
-            {stateLabel(device.state)}
-          </Badge>
-          <span className="mobile-toolbar-spacer" />
-          {virtual && device.state === "shutdown" ? (
-            <Button
-              size="sm"
-              icon="play"
-              loading={busy === "boot"}
-              onClick={() => void run("boot", () => mobile.boot(device.deviceId), `${device.name} did not boot.`)}
-            >
-              Boot
-            </Button>
-          ) : null}
-          {virtual && online ? (
-            <Button
-              size="sm"
-              icon="square"
-              loading={busy === "shutdown"}
-              onClick={() =>
-                void run("shutdown", () => mobile.shutdown(device.deviceId), `${device.name} did not shut down.`)
-              }
-            >
-              Shut down
-            </Button>
-          ) : null}
-        </div>
+      {device && devices && !showSetup ? (
+        <MobileToolbar
+          devices={devices}
+          device={device}
+          bootElapsedMs={bootElapsed}
+          screenMode={screenMode}
+          booting={busy === "boot"}
+          stopping={busy === "shutdown"}
+          onSelect={setSelectedId}
+          onBoot={() => bootDevice(device)}
+          onShutdown={() =>
+            void run("shutdown", () => mobile.shutdown(device.deviceId), `${device.name} did not shut down.`)
+          }
+          onCancel={() => cancelBoot(device)}
+        />
       ) : null}
       {!showSetup && devices && devices.length > 0 && needsAndroid && !devices.some(isAndroidVirtual) ? (
         <div className="banner banner-info">
@@ -434,21 +464,6 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
 
 function isAndroidVirtual(device: MobileDevice): boolean {
   return device.platform === "android" && device.kind === "emulator";
-}
-
-function stateTone(device: MobileDevice): BadgeTone {
-  switch (device.state) {
-    case "online":
-      return "success";
-    case "booting":
-      return "info";
-    case "shutdown":
-      return "quiet";
-    case "offline":
-      return "danger";
-    case "unauthorized":
-      return "warning";
-  }
 }
 
 function readSelected(): string | undefined {

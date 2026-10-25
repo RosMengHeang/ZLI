@@ -18,6 +18,7 @@ import {
   framePoint,
   isPasteShortcut,
   keyInput,
+  type ScreenMode,
   sendTextInput,
   type TouchStep,
   wheelPixels,
@@ -51,12 +52,15 @@ export function DeviceScreen({
   device,
   inputBlocked,
   onBlockedInput,
+  onModeChange,
 }: {
   mobile: MobileBridge;
   device: MobileDevice;
   /** True while an agent holds the device; the person must take over first. */
   inputBlocked: boolean;
   onBlockedInput(): void;
+  /** Called with how the screen arrives once the stream says, and with undefined when this view goes away. */
+  onModeChange?: ((mode: ScreenMode | undefined) => void) | undefined;
 }) {
   const deviceId = device.deviceId;
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -213,6 +217,12 @@ export function DeviceScreen({
   );
 
   const video = info?.mode === "video" && decodeProblem === undefined;
+  const modeKnown = info !== undefined && ended === undefined && startError === undefined;
+  const modeReason = decodeProblem ?? info?.fallbackReason;
+  useEffect(() => {
+    onModeChange?.(modeKnown ? { live: video, reason: modeReason } : undefined);
+  }, [onModeChange, modeKnown, video, modeReason]);
+  useEffect(() => () => onModeChange?.(undefined), [onModeChange]);
   /** The backend builds a swipe from the press and release alone, so moves are not sent. */
   const pressAndReleaseOnly = info?.mode !== "video";
   // Screenshots shown in place of the video are full resolution; scrcpy measures touches in its own frame.
@@ -399,7 +409,6 @@ export function DeviceScreen({
     onKeyDown,
     onPaste,
   };
-  const note = decodeProblem ?? info?.fallbackReason;
 
   return (
     <div className="mobile-viewer">
@@ -437,7 +446,7 @@ export function DeviceScreen({
           </svg>
         ) : null}
       </div>
-      {note ? <p className="mobile-note">{note}</p> : null}
+      {modeReason ? <p className="mobile-note">{modeReason}</p> : null}
     </div>
   );
 }

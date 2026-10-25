@@ -525,6 +525,80 @@ describe("MobilePane", () => {
     expect(fake.mobile.startStream).toHaveBeenCalledWith(emulator.deviceId);
   });
 
+  it("counts the boot time, notes a slow boot, and cancels without reporting the stopped boot as a failure", async () => {
+    vi.useFakeTimers();
+    const off: MobileDevice = { ...emulator, state: "shutdown", serial: undefined };
+    const fake = createMobile({ devices: [off] });
+    let failBoot: ((cause: Error) => void) | undefined;
+    fake.mobile.boot.mockImplementation(
+      () =>
+        new Promise<MobileDevice>((_resolve, reject) => {
+          failBoot = reject;
+        }),
+    );
+    fake.mobile.shutdown.mockImplementation(async () => {
+      failBoot?.(new Error("Booting Pixel 8 was cancelled."));
+    });
+    const container = await render(bridgeWith(fake.mobile));
+    await click(button(container, "Boot"));
+    await act(async () => {
+      fake.publishDevices([{ ...off, state: "booting" }]);
+    });
+    expect(container.querySelector(".empty-state-title")?.textContent).toBe("Booting Pixel 8, 0:00");
+    expect(container.querySelector(".mobile-toolbar .badge")?.textContent).toBe("Booting 0:00");
+    expect(container.textContent).toContain("The first boot of a new virtual device can take a few minutes.");
+
+    await advance(42_000);
+    expect(container.querySelector(".empty-state-title")?.textContent).toBe("Booting Pixel 8, 0:42");
+    expect(container.textContent).not.toContain("taking longer than usual");
+    await advance(3 * 60_000);
+    expect(container.textContent).toContain("Open Setup to check that the emulator can use hardware acceleration.");
+
+    await click(button(container, "Cancel"));
+    expect(fake.mobile.shutdown).toHaveBeenCalledWith(off.deviceId);
+    await act(async () => {
+      fake.publishDevices([off]);
+    });
+    expect(container.textContent).toContain("Pixel 8 is off");
+    expect(container.querySelector("[role=alert]")).toBeNull();
+  });
+
+  it("reports a cancel that could not stop the boot", async () => {
+    const fake = createMobile({ devices: [{ ...emulator, state: "booting" }] });
+    fake.mobile.shutdown.mockRejectedValueOnce(new Error("The emulator for Pixel 8 could not be stopped."));
+    const container = await render(bridgeWith(fake.mobile));
+    await click(button(container, "Cancel"));
+    expect(container.querySelector("[role=alert]")?.textContent).toBe("The emulator for Pixel 8 could not be stopped.");
+  });
+
+  it("labels the screen Live for video and Screenshots with the reason otherwise", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    fake.mobile.startStream.mockResolvedValueOnce({
+      deviceId: emulator.deviceId,
+      mode: "video",
+      width: 1080,
+      height: 2400,
+    });
+    const container = await render(bridgeWith(fake.mobile));
+    expect(container.querySelector(".mobile-mode-chip")?.textContent).toBe("Live");
+
+    await act(async () => {
+      fake.stream({
+        type: "info",
+        info: {
+          deviceId: emulator.deviceId,
+          mode: "stills",
+          width: 0,
+          height: 0,
+          fallbackReason: "scrcpy could not start.",
+        },
+      });
+    });
+    const chip = container.querySelector(".mobile-mode-chip");
+    expect(chip?.textContent).toBe("Screenshots, about 1 per second");
+    expect(chip?.getAttribute("title")).toBe("scrcpy could not start.");
+  });
+
   it("selects the device an agent revealed", async () => {
     const second: MobileDevice = { ...emulator, deviceId: "android:R5CT", kind: "physical", name: "Galaxy S23" };
     const fake = createMobile({ devices: [emulator, second] });

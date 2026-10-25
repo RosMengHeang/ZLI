@@ -7,6 +7,7 @@ import {
   androidSituation,
   errorText,
   formatBytes,
+  formatElapsed,
   framePoint,
   isPasteShortcut,
   keyInput,
@@ -14,7 +15,9 @@ import {
   pickDevice,
   planDownload,
   progressPercent,
+  screenModeChip,
   sendTextInput,
+  slowBootNote,
   textChunks,
   wheelPixels,
   wheelSwipe,
@@ -202,6 +205,32 @@ describe("mobile panel helpers", () => {
     ).toEqual({
       bytes: 10,
       partial: true,
+    });
+  });
+
+  it("formats a boot's elapsed time as minutes and seconds", () => {
+    expect(formatElapsed(0)).toBe("0:00");
+    expect(formatElapsed(42_400)).toBe("0:42");
+    expect(formatElapsed(65_000)).toBe("1:05");
+    expect(formatElapsed(12 * 60_000 + 5_000)).toBe("12:05");
+    expect(formatElapsed(-1)).toBe("0:00");
+  });
+
+  it("points a slow Android boot at acceleration and a slow iOS boot at Simulator", () => {
+    expect(slowBootNote({ platform: "android" })).toContain("hardware acceleration");
+    expect(slowBootNote({ platform: "ios" })).toContain("Simulator app");
+  });
+
+  it("labels live video and screenshots, with the reason as the tooltip", () => {
+    expect(screenModeChip({ live: true, reason: undefined })).toEqual({
+      label: "Live",
+      tone: "success",
+      title: undefined,
+    });
+    expect(screenModeChip({ live: false, reason: "No decoder." })).toEqual({
+      label: "Screenshots, about 1 per second",
+      tone: "quiet",
+      title: "No decoder.",
     });
   });
 });

@@ -9,6 +9,7 @@ import type {
 } from "@zli-v2/contracts";
 
 import type { MobileBridge } from "../runtime/bridge.js";
+import type { BadgeTone } from "../ui/Badge.js";
 
 /** Electron prefixes errors from the main process with the channel name; the person only needs the reason. */
 export function errorText(cause: unknown, fallback: string): string {
@@ -174,6 +175,29 @@ export async function sendTextInput(
 
 export function isPasteShortcut(event: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean }): boolean {
   return (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "v";
+}
+
+/** A running time as m:ss, for example 0:42 or 12:05. */
+export function formatElapsed(milliseconds: number): string {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** After this long a boot is slow enough to suggest something may be wrong. */
+export const SLOW_BOOT_MS = 3 * 60_000;
+
+export function slowBootNote(device: Pick<MobileDevice, "platform">): string {
+  return device.platform === "android"
+    ? "This is taking longer than usual. Open Setup to check that the emulator can use hardware acceleration."
+    : "This is taking longer than usual. Check the Simulator app for a prompt or an error.";
+}
+
+/** How the screen is arriving: live video, or screenshots and the reason video is not available. */
+export type ScreenMode = { live: boolean; reason: string | undefined };
+
+export function screenModeChip(mode: ScreenMode): { label: string; tone: BadgeTone; title: string | undefined } {
+  if (mode.live) return { label: "Live", tone: "success", title: undefined };
+  return { label: "Screenshots, about 1 per second", tone: "quiet", title: mode.reason };
 }
 
 export function formatBytes(bytes: number): string {
