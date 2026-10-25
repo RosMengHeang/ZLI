@@ -126,7 +126,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await page.getByRole("button", { name: "Changes", exact: true }).click();
     await page.getByRole("button", { name: "Refresh changes" }).click();
     await expect(page.getByText("change.txt")).toBeVisible({ timeout: 20_000 });
-    await page.getByRole("button", { name: /change\.txt/iu }).click();
+    await page.locator(".review-file", { hasText: "change.txt" }).click();
     await expect(page.getByRole("region", { name: "Diff for change.txt" })).toContainText("integration change");
     const previousReviewUpdate = await page.evaluate(async (id) => {
       const projection = await window.zli?.runtime.getProjection();
@@ -134,7 +134,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     }, worktreeId);
     expect(previousReviewUpdate).not.toBe("");
     await page.getByLabel("Commit message").fill("exercise review flow");
-    await page.getByRole("button", { name: "Commit changes" }).click();
+    await page.getByRole("button", { name: "Commit all changes" }).click();
     await expect
       .poll(
         () =>

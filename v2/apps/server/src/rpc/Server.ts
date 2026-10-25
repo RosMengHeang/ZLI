@@ -21,6 +21,8 @@ import {
   FileReadResult,
   FileSearchResult,
   FileWriteResult,
+  GIT_CHANGES_COMMAND_TYPES,
+  type GitChangesCommand,
   ISSUE_COMMAND_TYPES,
   type IssueCommand,
   MCP_COMMAND_TYPES,
@@ -54,6 +56,7 @@ import { SignInError } from "../mcp/signIn/oauth.js";
 import { isPluginError, type PluginStore } from "../plugins/PluginStore.js";
 import { runPluginCommand } from "../plugins/runPluginCommand.js";
 import { unavailableProviderDiscovery } from "../providers/discoverCliProviders.js";
+import { GitChangesError, GitChangesService, runGitChangesCommand } from "../review/GitChangesService.js";
 import {
   PullRequestError,
   PullRequestService,
@@ -90,6 +93,7 @@ type RpcServerOptions = {
   /** Root for uploaded thread images. Without it, image uploads are rejected. */
   attachmentsDir?: string;
   pullRequestService?: PullRequestService;
+  gitChangesService?: GitChangesService;
   /** GitHub issues through gh, and Linear when a key path is configured. */
   issues?: IssueSources;
   /** Turn diffs and restores. Without it, checkpoint commands are answered as unavailable. */
@@ -120,6 +124,7 @@ export class RpcServer {
   private readonly discoverProviders: RpcServerOptions["discoverProviders"];
   private readonly attachmentsDir: string | undefined;
   private readonly pullRequestService: PullRequestService;
+  private readonly gitChangesService: GitChangesService;
   private readonly issues: IssueSources;
   private readonly checkpoints: RpcServerOptions["checkpoints"];
   private readonly mcpServers: RpcServerOptions["mcpServers"];
@@ -147,6 +152,7 @@ export class RpcServer {
     this.discoverProviders = options.discoverProviders;
     this.attachmentsDir = options.attachmentsDir;
     this.pullRequestService = options.pullRequestService ?? new PullRequestService();
+    this.gitChangesService = options.gitChangesService ?? new GitChangesService();
     this.issues = options.issues ?? defaultIssueSources();
     this.checkpoints = options.checkpoints;
     this.mcpServers = options.mcpServers;
@@ -573,6 +579,30 @@ export class RpcServer {
     return true;
   }
 
+  /** Staging, discard, and stash commands run git in the worktree and answer directly, outside the event log. */
+  private async handleGitChangesCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isGitChangesCommand(command)) return false;
+    try {
+      const result = await runGitChangesCommand(this.gitChangesService, await this.engine.projection(), command);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch (error) {
+      const message =
+        error instanceof GitChangesError
+          ? error.message
+          : `The Git command failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`;
+      send(client, {
+        type: "response",
+        response: {
+          commandId: request.commandId,
+          accepted: false,
+          error: { code: "invalid_request", message, retryable: false },
+        },
+      });
+    }
+    return true;
+  }
+
   /** Issue commands read GitHub or Linear and answer directly, outside the event log. */
   private async handleIssueCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
     const command = request.command;
@@ -704,6 +734,7 @@ export class RpcServer {
         if (this.terminalService && this.handleTerminalInput(client, message.data.request)) return;
         if (await this.handleFileCommand(client, message.data.request)) return;
         if (await this.handlePullRequestCommand(client, message.data.request)) return;
+        if (await this.handleGitChangesCommand(client, message.data.request)) return;
         if (await this.handleIssueCommand(client, message.data.request)) return;
         if (await this.handleCheckpointCommand(client, message.data.request)) return;
         if (await this.handleProjectConfig(client, message.data.request)) return;
@@ -893,6 +924,10 @@ function isFileCommand(command: RpcRequest["command"]): command is FileCommand {
 
 function isPullRequestCommand(command: RpcRequest["command"]): command is PullRequestCommand {
   return (PULL_REQUEST_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
+function isGitChangesCommand(command: RpcRequest["command"]): command is GitChangesCommand {
+  return (GIT_CHANGES_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
 function isIssueCommand(command: RpcRequest["command"]): command is IssueCommand {

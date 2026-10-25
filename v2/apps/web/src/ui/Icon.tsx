@@ -3,6 +3,12 @@ import type { SVGProps } from "react";
 const paths = {
   plus: <path d="M12 5v14M5 12h14" />,
   x: <path d="M18 6 6 18M6 6l12 12" />,
+  undo: (
+    <>
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+    </>
+  ),
   folder: (
     <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
   ),

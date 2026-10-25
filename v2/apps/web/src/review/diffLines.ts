@@ -58,6 +58,21 @@ export function parseDiffLines(lines: readonly string[]): DiffLine[] {
   });
 }
 
+/**
+ * Each hunk as Git printed it, from its `@@` line up to the next one, keyed by the index of its `@@` line. The
+ * server compares this text with the current diff before it stages or discards the hunk.
+ */
+export function hunkTexts(lines: readonly DiffLine[]): Map<number, { hunkIndex: number; text: string }> {
+  const hunks: Array<{ start: number; lines: string[] }> = [];
+  for (const line of lines) {
+    if (line.kind === "hunk") hunks.push({ start: line.index, lines: [line.text] });
+    else hunks.at(-1)?.lines.push(line.text);
+  }
+  return new Map(
+    hunks.map((hunk, hunkIndex) => [hunk.start, { hunkIndex, text: hunk.lines.join("\n").replace(/\n+$/u, "") }]),
+  );
+}
+
 export function isCommentable(line: DiffLine): boolean {
   return line.kind === "add" || line.kind === "del" || line.kind === "context";
 }
