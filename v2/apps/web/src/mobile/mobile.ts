@@ -38,6 +38,25 @@ export function deviceKindLabel(device: Pick<MobileDevice, "platform" | "kind">)
   return device.platform === "ios" ? "iOS Simulator" : "Android Emulator";
 }
 
+export type DeviceGroup = "Emulators" | "Phones" | "Simulators";
+
+const DEVICE_GROUPS: readonly DeviceGroup[] = ["Emulators", "Phones", "Simulators"];
+
+export function deviceGroup(device: Pick<MobileDevice, "kind">): DeviceGroup {
+  if (device.kind === "physical") return "Phones";
+  return device.kind === "simulator" ? "Simulators" : "Emulators";
+}
+
+/** The devices in picker order: emulators, then phones, then simulators, each kept in list order. */
+export function devicesInGroups(devices: readonly MobileDevice[]): MobileDevice[] {
+  return DEVICE_GROUPS.flatMap((group) => devices.filter((device) => deviceGroup(device) === group));
+}
+
+/** The platform, version, and state under a device's name in the picker, for example "Android 15, running". */
+export function deviceSummary(device: Pick<MobileDevice, "platform" | "osVersion" | "state">): string {
+  const platform = device.platform === "ios" ? "iOS" : "Android";
+  return `${platform}${device.osVersion ? ` ${device.osVersion}` : ""}, ${stateLabel(device.state).toLowerCase()}`;
+}
 /** Under this much time left, the agent banner counts down instead of naming the time. */
 const LEASE_COUNTDOWN_MS = 2 * 60_000;
 

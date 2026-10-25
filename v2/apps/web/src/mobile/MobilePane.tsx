@@ -63,7 +63,9 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
   const [statusError, setStatusError] = useState<string>();
   const { settings, error: settingsError, setAgentTools } = useMobileSettings(mobile);
   const [selectedId, setSelectedIdState] = useState<string | undefined>(() => readSelected());
-  const [showSetup, setShowSetup] = useState(false);
+  /** Setup is open, and why: from the wrench, or to add a virtual device. */
+  const [setupFor, setSetupFor] = useState<"setup" | "new-device">();
+  const showSetup = setupFor !== undefined;
   const [busy, setBusy] = useState<Busy>();
   const [actionError, setActionError] = useState<string>();
   const [notice, showNotice] = useNotice();
@@ -124,7 +126,7 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
   useEffect(() => {
     if (revealId) {
       setSelectedId(revealId);
-      setShowSetup(false);
+      setSetupFor(undefined);
     }
   }, [revealKey]);
 
@@ -218,7 +220,13 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
           </Button>
         </EmptyState>
       ) : status ? (
-        <MobileSetup mobile={mobile} status={status} noDevices={devices?.length === 0} onRecheck={refreshStatus} />
+        <MobileSetup
+          mobile={mobile}
+          status={status}
+          noDevices={devices?.length === 0}
+          addingDevice={setupFor === "new-device"}
+          onRecheck={refreshStatus}
+        />
       ) : (
         <LoadingState label="Checking what is installed" />
       )}
@@ -360,10 +368,10 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
           tooltip={showSetup ? "Back to the device" : "Android and iOS setup"}
           pressed={showSetup}
           disabled={!devices}
-          onClick={() => setShowSetup((current) => !current)}
+          onClick={() => setSetupFor((current) => (current ? undefined : "setup"))}
         />
       </PaneHeader>
-      {device && devices && !showSetup ? (
+      {devices && !showSetup ? (
         <MobileToolbar
           devices={devices}
           device={device}
@@ -372,11 +380,12 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
           booting={busy === "boot"}
           stopping={busy === "shutdown"}
           onSelect={setSelectedId}
-          onBoot={() => bootDevice(device)}
+          onNewDevice={() => setSetupFor("new-device")}
+          onBoot={() => device && bootDevice(device)}
           onShutdown={() =>
-            void run("shutdown", () => mobile.shutdown(device.deviceId), `${device.name} did not shut down.`)
+            device && void run("shutdown", () => mobile.shutdown(device.deviceId), `${device.name} did not shut down.`)
           }
-          onCancel={() => cancelBoot(device)}
+          onCancel={() => device && cancelBoot(device)}
         />
       ) : null}
       {!showSetup && devices && devices.length > 0 && needsAndroid && !devices.some(isAndroidVirtual) ? (
@@ -384,7 +393,7 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
           <Icon name="smartphone" size={14} />
           <span className="banner-message">The Android emulator is not set up on this computer.</span>
           <div className="banner-actions">
-            <Button size="xs" onClick={() => setShowSetup(true)}>
+            <Button size="xs" onClick={() => setSetupFor("setup")}>
               Set it up
             </Button>
           </div>

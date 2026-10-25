@@ -265,6 +265,20 @@ function menuItem(label: string): HTMLElement {
   return found;
 }
 
+function pickerOptions(): string[] {
+  return [...document.querySelectorAll('[role="option"]')].map(
+    (option) => option.querySelector(".picker-option-label")?.textContent ?? "",
+  );
+}
+
+function pickerOption(label: string): HTMLElement {
+  const found = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (option) => option.querySelector(".picker-option-label")?.textContent === label,
+  );
+  if (!found) throw new Error(`No option ${label}`);
+  return found;
+}
+
 function touches(fake: ReturnType<typeof createMobile>) {
   return fake.mobile.input.mock.calls.flatMap(([input]) =>
     input.type === "touch" ? [`${input.action} ${input.x},${input.y}`] : [],
@@ -809,6 +823,70 @@ describe("MobilePane", () => {
     expect(chip?.getAttribute("title")).toBe("scrcpy could not start.");
   });
 
+  it("shows the device picker with one device, and with none, so the toolbar keeps its shape", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    const picker = button(container, "Device: Pixel 8");
+    expect(picker.getAttribute("aria-disabled")).toBeNull();
+    await click(picker);
+    expect(pickerOptions()).toEqual(["Pixel 8", "New virtual device"]);
+
+    act(() => root?.unmount());
+    document.body.replaceChildren();
+    const empty = createMobile({ devices: [] });
+    const emptyContainer = await render(bridgeWith(empty.mobile));
+    const disabled = button(emptyContainer, "Device: No devices");
+    expect(disabled.getAttribute("aria-disabled")).toBe("true");
+    await click(disabled);
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+  });
+
+  it("groups the picker into emulators, phones, and simulators, and opens Setup for a new virtual device", async () => {
+    const phone: MobileDevice = {
+      deviceId: "android:R5CT",
+      platform: "android",
+      kind: "physical",
+      name: "Galaxy S23",
+      state: "unauthorized",
+      lease: null,
+    };
+    const simulator: MobileDevice = {
+      deviceId: "ios:UDID-1",
+      platform: "ios",
+      kind: "simulator",
+      name: "iPhone 16",
+      state: "shutdown",
+      osVersion: "18.2",
+      lease: null,
+    };
+    const fake = createMobile({ devices: [simulator, phone, emulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    await click(button(container, "Device: Pixel 8"));
+    const groups = [...document.querySelectorAll('[role="listbox"] > [role="group"]')].map((group) => {
+      const labelId = group.getAttribute("aria-labelledby");
+      return {
+        label: labelId ? document.getElementById(labelId)?.textContent : undefined,
+        options: [...group.querySelectorAll('[role="option"]')].map((option) => option.textContent),
+      };
+    });
+    expect(groups).toEqual([
+      { label: "Emulators", options: ["Pixel 8Android 15, running"] },
+      { label: "Phones", options: ["Galaxy S23Android, waiting for approval"] },
+      { label: "Simulators", options: ["iPhone 16iOS 18.2, off"] },
+      { label: undefined, options: ["New virtual device"] },
+    ]);
+
+    await click(pickerOption("New virtual device"));
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    expect(button(container, "Setup").getAttribute("aria-pressed")).toBe("true");
+    expect(container.textContent).toContain("Ready, with the virtual device Pixel_8.");
+    expect(container.textContent).toContain("To add another virtual device, run avdmanager create avd");
+    expect(container.querySelector(".mobile-toolbar")).toBeNull();
+
+    await click(button(container, "Setup"));
+    await click(button(container, "Setup"));
+    expect(container.textContent).not.toContain("To add another virtual device");
+  });
   it("selects the device an agent revealed", async () => {
     const second: MobileDevice = { ...emulator, deviceId: "android:R5CT", kind: "physical", name: "Galaxy S23" };
     const fake = createMobile({ devices: [emulator, second] });

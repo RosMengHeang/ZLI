@@ -1,6 +1,5 @@
 /* ---------- Mobile ---------- */
 .mobile-toolbar { display: flex; align-items: center; gap: var(--zli-space-2); height: var(--zli-toolbar); flex: 0 0 auto; padding: 0 var(--zli-space-2) 0 var(--zli-space-3); border-bottom: 1px solid var(--zli-border); }
-.mobile-device-name { min-width: 0; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-toolbar-spacer { flex: 1; }
 .mobile-body { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; background: var(--zli-canvas); }
 .mobile-scroll { min-height: 0; flex: 1; overflow: auto; }

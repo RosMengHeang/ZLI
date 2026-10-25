@@ -102,6 +102,9 @@ kbd {
 .picker-menu[data-side="bottom"] { transform-origin: top left; }
 @keyframes picker-in { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
 .picker-list { display: flex; min-height: 0; flex-direction: column; gap: 1px; overflow-y: auto; overscroll-behavior: contain; }
+.picker-group { display: flex; flex: 0 0 auto; flex-direction: column; gap: 1px; }
+.picker-group + .picker-group { margin-top: var(--zli-space-1); padding-top: var(--zli-space-1); border-top: 1px solid var(--zli-border); }
+.picker-group-label { padding: var(--zli-space-1) var(--zli-space-2) 2px; color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; line-height: var(--zli-leading-normal); }
 .picker-option {
   display: flex; width: 100%; flex: 0 0 auto; align-items: flex-start; gap: var(--zli-space-2-5); padding: 7px var(--zli-space-2);
   border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-text); cursor: pointer;

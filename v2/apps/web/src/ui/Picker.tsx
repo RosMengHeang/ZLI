@@ -8,6 +8,11 @@ export type PickerOption<T extends string> = {
   label: string;
   description?: string | undefined;
   icon?: ReactNode;
+  /**
+   * A heading the option sits under. Options sharing a group show together, in the order each group first
+   * appears; an option without one, when others have one, sits in an unlabelled section of its own.
+   */
+  group?: string | undefined;
 };
 
 type Placement = { left: number; maxHeight: number; minWidth: number } & ({ top: number } | { bottom: number });
@@ -57,6 +62,7 @@ export function Picker<T extends string>({
   const listId = useId();
   const current = options.find((option) => option.value === value);
   const withIcons = options.some((option) => option.icon !== undefined);
+  const sections = optionSections(options);
 
   const close = (returnFocus: boolean) => {
     setOpen(false);
@@ -147,6 +153,38 @@ export function Picker<T extends string>({
     next?.scrollIntoView?.({ block: "nearest" });
   };
 
+  const renderOption = (option: PickerOption<T>) => {
+    const selected = option.value === value;
+    return (
+      <button
+        key={option.value}
+        type="button"
+        role="option"
+        aria-selected={selected}
+        tabIndex={-1}
+        className="picker-option"
+        data-label={option.label}
+        onPointerMove={(event) => {
+          if (document.activeElement !== event.currentTarget) event.currentTarget.focus({ preventScroll: true });
+        }}
+        onClick={() => pick(option.value)}
+      >
+        {withIcons ? (
+          <span className="picker-option-icon" aria-hidden="true">
+            {option.icon}
+          </span>
+        ) : null}
+        <span className="picker-option-text">
+          <span className="picker-option-label">{option.label}</span>
+          {option.description ? <span className="picker-option-description">{option.description}</span> : null}
+        </span>
+        <span className="picker-option-check" aria-hidden="true">
+          {selected ? <Icon name="check" size={14} /> : null}
+        </span>
+      </button>
+    );
+  };
+
   return (
     <>
       <button
@@ -187,40 +225,27 @@ export function Picker<T extends string>({
               }
             >
               <div className="picker-list" id={listId} role="listbox" aria-label={label} onKeyDown={onMenuKeyDown}>
-                {options.map((option) => {
-                  const selected = option.value === value;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="option"
-                      aria-selected={selected}
-                      tabIndex={-1}
-                      className="picker-option"
-                      data-label={option.label}
-                      onPointerMove={(event) => {
-                        if (document.activeElement !== event.currentTarget)
-                          event.currentTarget.focus({ preventScroll: true });
-                      }}
-                      onClick={() => pick(option.value)}
-                    >
-                      {withIcons ? (
-                        <span className="picker-option-icon" aria-hidden="true">
-                          {option.icon}
-                        </span>
-                      ) : null}
-                      <span className="picker-option-text">
-                        <span className="picker-option-label">{option.label}</span>
-                        {option.description ? (
-                          <span className="picker-option-description">{option.description}</span>
-                        ) : null}
-                      </span>
-                      <span className="picker-option-check" aria-hidden="true">
-                        {selected ? <Icon name="check" size={14} /> : null}
-                      </span>
-                    </button>
-                  );
-                })}
+                {sections
+                  ? sections.map((section, index) => {
+                      const labelId = `${listId}-group-${index}`;
+                      return (
+                        // biome-ignore lint/a11y/useSemanticElements: a listbox groups its options with role="group"; a fieldset is for form fields.
+                        <div
+                          key={section.group ?? `section-${index}`}
+                          className="picker-group"
+                          role="group"
+                          aria-labelledby={section.group ? labelId : undefined}
+                        >
+                          {section.group ? (
+                            <div className="picker-group-label" id={labelId} role="presentation">
+                              {section.group}
+                            </div>
+                          ) : null}
+                          {section.options.map(renderOption)}
+                        </div>
+                      );
+                    })
+                  : options.map(renderOption)}
               </div>
               {footer ? <div className="picker-footer">{footer}</div> : null}
             </div>,
@@ -229,4 +254,18 @@ export function Picker<T extends string>({
         : null}
     </>
   );
+}
+
+type Section<T extends string> = { group: string | undefined; options: PickerOption<T>[] };
+
+/** The options in their sections, or undefined when no option names a group. */
+function optionSections<T extends string>(options: readonly PickerOption<T>[]): Section<T>[] | undefined {
+  if (!options.some((option) => option.group !== undefined)) return undefined;
+  const sections: Section<T>[] = [];
+  for (const option of options) {
+    const section = sections.find((candidate) => candidate.group === option.group);
+    if (section) section.options.push(option);
+    else sections.push({ group: option.group, options: [option] });
+  }
+  return sections;
 }

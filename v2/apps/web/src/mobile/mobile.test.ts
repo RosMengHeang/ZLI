@@ -5,6 +5,9 @@ import {
   accelerationProblem,
   androidNeedsInstall,
   androidSituation,
+  deviceGroup,
+  deviceSummary,
+  devicesInGroups,
   errorText,
   formatBytes,
   formatElapsed,
@@ -282,5 +285,19 @@ describe("mobile panel helpers", () => {
     expect(logLineCount("50")).toBe(50);
     expect(logLineCount("0")).toBe(1);
     expect(logLineCount("99999")).toBe(2_000);
+  });
+
+  it("groups devices as emulators, phones, then simulators, and sums up each one", () => {
+    const phone = { ...device("android:R5CT", "online"), kind: "physical" as const };
+    const simulator = { ...device("ios:UDID", "shutdown"), platform: "ios" as const, kind: "simulator" as const };
+    const emulator = device("android-avd:Pixel_8", "booting");
+    expect(devicesInGroups([simulator, phone, emulator]).map(({ deviceId }) => deviceId)).toEqual([
+      "android-avd:Pixel_8",
+      "android:R5CT",
+      "ios:UDID",
+    ]);
+    expect([emulator, phone, simulator].map(deviceGroup)).toEqual(["Emulators", "Phones", "Simulators"]);
+    expect(deviceSummary({ platform: "android", osVersion: "15", state: "online" })).toBe("Android 15, running");
+    expect(deviceSummary({ platform: "ios", state: "shutdown" })).toBe("iOS, off");
   });
 });

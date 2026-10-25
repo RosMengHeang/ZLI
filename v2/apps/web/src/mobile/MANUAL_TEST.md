@@ -83,6 +83,8 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
 
 ### Virtual device manager
 
+- [ ] Open the device picker with an emulator running and a USB phone connected, then with only one device.
+  Expected: Emulators and Phones headings, each device with its Android version and state, and "New virtual device" last. The picker shows with one device too. With no devices it reads "No devices" and does not open.
 - [ ] Open the virtual device manager from the device picker ("+ New virtual device") and from Setup.
   Expected: a list of virtual devices with Boot and Delete, and a Create form that offers installed system images only.
 - [ ] Create a device, boot it, then delete another one.

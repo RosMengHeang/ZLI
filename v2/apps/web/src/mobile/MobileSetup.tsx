@@ -24,12 +24,15 @@ export function MobileSetup({
   mobile,
   status,
   noDevices = false,
+  addingDevice = false,
   onRecheck,
 }: {
   mobile: MobileBridge;
   status: MobileSetupStatus;
   /** No device is listed at all, so a USB phone is worth suggesting as the other way in. */
   noDevices?: boolean;
+  /** The person asked for a new virtual device, so the Android section says how to add one. */
+  addingDevice?: boolean;
   /** Reads the status again. recheckAcceleration also reruns the emulator's acceleration check. */
   onRecheck(options?: { recheckAcceleration?: boolean }): Promise<void>;
 }) {
@@ -79,12 +82,20 @@ export function MobileSetup({
             onFinished={() => void recheck()}
           />
         ) : (
-          <p className="mobile-setup-ready">
-            <Icon name="check" size={13} />
-            {status.android.avds.length === 1
-              ? `Ready, with the virtual device ${status.android.avds[0]}.`
-              : `Ready, with ${status.android.avds.length} virtual devices.`}
-          </p>
+          <>
+            <p className="mobile-setup-ready">
+              <Icon name="check" size={13} />
+              {status.android.avds.length === 1
+                ? `Ready, with the virtual device ${status.android.avds[0]}.`
+                : `Ready, with ${status.android.avds.length} virtual devices.`}
+            </p>
+            {addingDevice ? (
+              <p className="mobile-setup-text">
+                To add another virtual device, run <code>avdmanager create avd</code> with one of your system images,
+                then refresh the device list.
+              </p>
+            ) : null}
+          </>
         )}
       </section>
       {status.host.os === "macos" ? (
