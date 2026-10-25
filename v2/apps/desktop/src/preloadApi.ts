@@ -15,6 +15,7 @@ import {
   BrowserTabProjection,
   type BrowserViewport,
   BrowserWaitForNetworkIdleInput,
+  MobileAccessStatus,
   RpcRequest,
   RpcResponse,
   RuntimeEventEnvelope,
@@ -280,6 +281,22 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
           const connectorId = (value as { connectorId?: unknown } | null)?.connectorId;
           if (typeof connectorId === "string" && connectorId.length > 0 && connectorId.length <= 100)
             listener({ connectorId });
+        }),
+    },
+    mobileAccess: {
+      getStatus: async () => MobileAccessStatus.parse(await ipc.invoke("zli:mobile:get-status")),
+      setEnabled: async (enabled: boolean) =>
+        MobileAccessStatus.parse(await ipc.invoke("zli:mobile:set-enabled", { enabled: enabled === true })),
+      /** Opens a new one-time pairing code, replacing any code still open. */
+      startPairing: async () => MobileAccessStatus.parse(await ipc.invoke("zli:mobile:start-pairing")),
+      cancelPairing: async () => MobileAccessStatus.parse(await ipc.invoke("zli:mobile:cancel-pairing")),
+      /** Forgets a paired phone and closes its connections. */
+      revoke: async (deviceId: string) =>
+        MobileAccessStatus.parse(await ipc.invoke("zli:mobile:revoke", { deviceId: String(deviceId).slice(0, 100) })),
+      onStatus: (listener: (status: MobileAccessStatus) => void) =>
+        ipc.on("zli:mobile:status", (_event, value) => {
+          const parsed = MobileAccessStatus.safeParse(value);
+          if (parsed.success) listener(parsed.data);
         }),
     },
     updates: {
