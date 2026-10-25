@@ -70,6 +70,21 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
 - [ ] Switch the toolbar's zoom between Fit and 100%, and scroll the stage with its scrollbars at 100%.
   Expected: 100% shows device pixels at their true size, with scrollbars when the screen is larger than the panel. The mouse wheel over the screen still scrolls the device. Taps land in the right place in both modes, including after scrolling the stage. Each device remembers its zoom after ZLI restarts.
 
+### Device frame
+
+- [ ] Look at a running phone emulator, then at a tablet emulator (for example Pixel Tablet).
+  Expected: the phone sits in a dark phone body with rounded corners, a punch-hole camera, and side keys on the right edge. The tablet has a wider bezel, a camera dot in the bezel, and no cutout on the screen.
+- [ ] Click Rotate.
+  Expected: the body turns with the screen. The side keys move to the top edge and the camera moves to the left.
+- [ ] Hover the side keys, then click Power and each volume key.
+  Expected: each key shows its name, and pressing it does what the hardware key does. While an agent holds the device, the Power tooltip reads "Power. Take over first." and clicking moves focus to Take over.
+- [ ] Tap near each corner of the screen and drag from the bezel onto the screen.
+  Expected: taps land where the pointer was, also with the frame on. Clicks on the bezel do nothing.
+- [ ] Switch to 100%.
+  Expected: the screen still shows device pixels at their true size, with the body around it.
+- [ ] Open "More device buttons" and turn off "Show device frame", then restart ZLI.
+  Expected: the screen shows without the body, and it stays that way after the restart. Turning it back on brings the frame back.
+
 ### Open URL, logs, and Expo
 
 - [ ] Click "Open URL" (the globe in the bottom bar), type `localhost:<port>` for a dev server running on the computer, and press Enter.
@@ -126,6 +141,8 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
   Expected: each one reaches the simulator. While dragging, a trail from the start point to the pointer shows on the screen, and the release sends a swipe.
 - [ ] Press the arrow keys and Tab with the screen focused.
   Expected: the simulator receives them.
+- [ ] Look at the device frame on an iPhone simulator with a Dynamic Island, then on an iPhone SE.
+  Expected: the newer iPhone shows a pill-shaped cutout at the top of the screen, and the SE shows none. Only the Power key responds; the volume keys are drawn but do nothing.
 - [ ] Open "More device buttons" and press Power.
   Expected: the simulator locks. The menu offers no Volume buttons, because idb cannot press them.
 - [ ] Tap through a few screens, then leave the simulator alone for a few seconds.

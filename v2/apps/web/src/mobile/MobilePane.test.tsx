@@ -621,6 +621,129 @@ describe("MobilePane", () => {
     expect(document.activeElement).toBe(button(container, "Take over"));
   });
 
+  it("draws a phone frame around the screen and maps taps on the screen, not the frame", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    await showStill(fake, emulator);
+    const body = container.querySelector<HTMLElement>(".mobile-device");
+    expect(body?.className).toBe("mobile-device is-framed is-phone is-portrait");
+    expect(container.querySelector(".mobile-zoom")?.classList.contains("is-framed")).toBe(true);
+    expect(body?.querySelector(".mobile-device-cutout.is-punch-hole")).not.toBeNull();
+    expect(
+      [...container.querySelectorAll(".mobile-device-key")].map((key) => [
+        key.getAttribute("aria-label"),
+        key.className,
+      ]),
+    ).toEqual([
+      ["Power", "mobile-device-key is-right"],
+      ["Volume up", "mobile-device-key is-right"],
+      ["Volume down", "mobile-device-key is-right"],
+    ]);
+    // The body is larger than the screen and starts further up and left; taps must use the screen's own box.
+    if (body)
+      body.getBoundingClientRect = () =>
+        ({ left: -12, top: -12, right: 282, bottom: 612, width: 294, height: 624 }) as DOMRect;
+    const screen = sizedScreen(container);
+    expect(body?.querySelector(".mobile-device-screen")?.contains(screen)).toBe(true);
+    await act(async () => {
+      pointer(screen, "pointerdown", 135, 300);
+      pointer(screen, "pointerup", 135, 300);
+    });
+    expect(touches(fake)).toEqual(["down 540,1200", "up 540,1200"]);
+
+    await act(async () => {
+      fake.stream({ type: "still", deviceId: emulator.deviceId, data: pixel, width: 2400, height: 1080 });
+    });
+    expect(container.querySelector(".mobile-device")?.className).toBe("mobile-device is-framed is-phone is-landscape");
+    expect([...container.querySelectorAll(".mobile-device-key")].map((key) => key.className)).toEqual([
+      "mobile-device-key is-top",
+      "mobile-device-key is-top",
+      "mobile-device-key is-top",
+    ]);
+  });
+
+  it("presses Power and Volume from the frame's side buttons, and sends the person to Take over while an agent holds it", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    await showStill(fake, emulator);
+    for (const [label, pressed] of [
+      ["Power", "power"],
+      ["Volume up", "volume_up"],
+      ["Volume down", "volume_down"],
+    ] as const) {
+      const key = container.querySelector<HTMLButtonElement>(`.mobile-device-key[aria-label="${label}"]`);
+      expect(key?.dataset.tooltip).toBe(label);
+      if (key) await click(key);
+      expect(fake.mobile.input).toHaveBeenLastCalledWith({
+        deviceId: emulator.deviceId,
+        type: "button",
+        button: pressed,
+      });
+    }
+
+    const held: MobileDevice = {
+      ...emulator,
+      lease: { ownerId: "s1", ownerLabel: "Codex", kind: "agent", acquiredAt: "2025-01-01T00:00:00.000Z" },
+    };
+    fake.mobile.input.mockClear();
+    await act(async () => fake.publishDevices([held]));
+    const power = container.querySelector<HTMLButtonElement>('.mobile-device-key[aria-label="Power"]');
+    expect(power?.dataset.tooltip).toBe("Power. Take over first.");
+    if (power) await click(power);
+    expect(fake.mobile.input).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(button(container, "Take over"));
+  });
+
+  it("draws an iPhone simulator with an island and Power only, since idb cannot press volume", async () => {
+    const simulator: MobileDevice = {
+      deviceId: "ios:UDID-1",
+      platform: "ios",
+      kind: "simulator",
+      name: "iPhone 16",
+      state: "online",
+      lease: null,
+    };
+    const fake = createMobile({ devices: [simulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    await act(async () => {
+      fake.stream({ type: "still", deviceId: simulator.deviceId, data: pixel, width: 1179, height: 2556 });
+    });
+    expect(container.querySelector(".mobile-device-cutout.is-island")).not.toBeNull();
+    expect(
+      [...container.querySelectorAll("button.mobile-device-key")].map((key) => key.getAttribute("aria-label")),
+    ).toEqual(["Power"]);
+    const drawn = [...container.querySelectorAll("span.mobile-device-key")];
+    expect(drawn.map((key) => [key.className, key.getAttribute("aria-hidden")])).toEqual([
+      ["mobile-device-key is-left is-static", "true"],
+      ["mobile-device-key is-left is-static", "true"],
+    ]);
+  });
+
+  it("turns the device frame off from the menu, remembers it, and turns it back on", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    await showStill(fake, emulator);
+    await click(button(container, "More device buttons"));
+    const toggle = document.querySelector<HTMLElement>('[role="menuitemcheckbox"]');
+    expect(toggle?.textContent).toBe("Show device frame");
+    expect(toggle?.getAttribute("aria-checked")).toBe("true");
+    if (toggle) await click(toggle);
+    expect(container.querySelector(".mobile-device.is-framed")).toBeNull();
+    expect(container.querySelector(".mobile-device-key")).toBeNull();
+    expect(container.querySelector("img.mobile-screen")).not.toBeNull();
+    expect(window.localStorage.getItem("zli.mobile.skin.v1")).toBe("off");
+
+    act(() => root?.unmount());
+    document.body.replaceChildren();
+    const again = await render(bridgeWith(fake.mobile));
+    await showStill(fake, emulator);
+    expect(again.querySelector(".mobile-device.is-framed")).toBeNull();
+    await click(button(again, "More device buttons"));
+    expect(document.querySelector('[role="menuitemcheckbox"]')?.getAttribute("aria-checked")).toBe("false");
+    await click(document.querySelector<HTMLElement>('[role="menuitemcheckbox"]') as HTMLElement);
+    expect(again.querySelector(".mobile-device.is-framed")).not.toBeNull();
+    expect(window.localStorage.getItem("zli.mobile.skin.v1")).toBeNull();
+  });
   it("opens a typed URL on the device and says when it forwarded a local port", async () => {
     vi.useFakeTimers();
     const fake = createMobile({ devices: [emulator] });
@@ -980,7 +1103,10 @@ describe("MobilePane", () => {
     });
     const screen = container.querySelector<HTMLImageElement>("img.mobile-screen");
     if (!screen) throw new Error("No screen");
-    expect(screen.style.width).toBe("1080px");
+    // In the frame the body takes the device pixels plus its bezel, and the screen fills its opening.
+    const body = container.querySelector<HTMLElement>(".mobile-device.is-framed");
+    expect([body?.style.width, body?.style.height]).toEqual(["1170px", "2490px"]);
+    expect(screen.style.width).toBe("");
     // Scrolled 100 pixels right and 400 down, the screen's box starts above and left of the stage.
     screen.getBoundingClientRect = () =>
       ({ left: -100, top: -400, right: 980, bottom: 2000, width: 1080, height: 2400 }) as DOMRect;
@@ -989,6 +1115,10 @@ describe("MobilePane", () => {
       pointer(screen, "pointerup", 440, 800);
     });
     expect(touches(fake)).toEqual(["down 540,1200", "up 540,1200"]);
+
+    await click(button(container, "More device buttons"));
+    await click(document.querySelector<HTMLElement>('[role="menuitemcheckbox"]') as HTMLElement);
+    expect(container.querySelector<HTMLImageElement>("img.mobile-screen")?.style.width).toBe("1080px");
 
     act(() => root?.unmount());
     document.body.replaceChildren();

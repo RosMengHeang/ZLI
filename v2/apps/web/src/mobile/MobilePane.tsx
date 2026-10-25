@@ -29,6 +29,7 @@ import {
   slowBootNote,
 } from "./mobile.js";
 import { useClock } from "./useClock.js";
+import { useDeviceFrame } from "./useDeviceFrame.js";
 import { useDeviceZoom } from "./useDeviceZoom.js";
 import { useMobileSettings } from "./useMobileSettings.js";
 import { useNotice } from "./useNotice.js";
@@ -177,6 +178,7 @@ function MobilePaneBody({
   const acceleration = status ? accelerationProblem(status.android) : undefined;
 
   const [zoom, setZoom] = useDeviceZoom(device?.deviceId);
+  const [showFrame, setShowFrame] = useDeviceFrame();
 
   const run = async (kind: Busy, operation: () => Promise<unknown>, fallback: string) => {
     setBusy((current) => new Set(current).add(kind));
@@ -349,6 +351,7 @@ function MobilePaneBody({
           onBlockedInput={nudgeTakeOver}
           onModeChange={setScreenMode}
           zoom={zoom}
+          showFrame={showFrame}
         />
       );
     if (shown.state === "booting")
@@ -559,6 +562,8 @@ function MobilePaneBody({
           onScreenshot={() => void saveScreenshot(device)}
           onCopyScreenshot={() => void copyScreenshot(device)}
           canRotate={android || status?.host.os === "macos"}
+          showFrame={showFrame}
+          onShowFrame={setShowFrame}
         />
       ) : null}
       {device && online && !showSetup ? (

@@ -10,8 +10,8 @@ type Row = "type" | "url";
 
 /**
  * The bar under a running device: its system buttons, Type text, Open URL, Rotate, the screenshot, and a menu
- * with Power, Volume, and Copy screenshot. Every control that sends input checks inputBlocked first, so an agent's lease sends the
- * person to Take over instead.
+ * with Power, Volume, Copy screenshot, and the device frame setting. Every control that sends input checks
+ * inputBlocked first, so an agent's lease sends the person to Take over instead.
  */
 export function MobileControls({
   mobile,
@@ -24,6 +24,8 @@ export function MobileControls({
   onScreenshot,
   onCopyScreenshot,
   canRotate,
+  showFrame,
+  onShowFrame,
 }: {
   mobile: Pick<MobileBridge, "input" | "openUrl">;
   device: MobileDevice;
@@ -38,6 +40,8 @@ export function MobileControls({
   screenshotBusy: boolean;
   onScreenshot(): void;
   onCopyScreenshot(): void;
+  showFrame: boolean;
+  onShowFrame(shown: boolean): void;
 }) {
   const android = device.platform === "android";
   const [row, setRow] = useState<Row>();
@@ -107,6 +111,13 @@ export function MobileControls({
       : []),
     "separator",
     { id: "copy-screenshot", label: "Copy screenshot", icon: "copy", disabled: screenshotBusy, run: onCopyScreenshot },
+    {
+      id: "device-frame",
+      label: "Show device frame",
+      icon: "smartphone",
+      checked: showFrame,
+      run: () => onShowFrame(!showFrame),
+    },
   ];
 
   return (

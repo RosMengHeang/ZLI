@@ -75,6 +75,27 @@ describe("MenuButton", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it("shows an on and off item as a checkbox with a check while it is on, reachable with the arrow keys", async () => {
+    const toggle = vi.fn();
+    const trigger = await render([
+      { id: "a", label: "First", run: vi.fn() },
+      { id: "frame", label: "Show frame", checked: true, run: toggle },
+      { id: "grid", label: "Show grid", checked: false, run: vi.fn() },
+    ]);
+    await act(async () => trigger.click());
+    const items = [...document.querySelectorAll(".menu-item")];
+    expect(items.map((item) => [item.getAttribute("role"), item.getAttribute("aria-checked")])).toEqual([
+      ["menuitem", null],
+      ["menuitemcheckbox", "true"],
+      ["menuitemcheckbox", "false"],
+    ]);
+    expect(items.map((item) => Boolean(item.querySelector(".menu-item-check")))).toEqual([false, true, false]);
+    key(document.activeElement as Element, "ArrowDown");
+    expect(focused()).toBe("Show frame");
+    await act(async () => (document.activeElement as HTMLElement).click());
+    expect(toggle).toHaveBeenCalledTimes(1);
+  });
+
   it("opens on the last item with ArrowUp and closes on Escape, Tab, or a click elsewhere", async () => {
     const trigger = await render([
       { id: "a", label: "First", run: vi.fn() },

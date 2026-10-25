@@ -13,6 +13,8 @@ import type { MobileBridge } from "../runtime/bridge.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, LoadingState } from "../ui/Pane.js";
+import { DeviceFrame } from "./DeviceFrame.js";
+import type { SideButtonName } from "./deviceSkin.js";
 import {
   errorText,
   framePoint,
@@ -55,6 +57,7 @@ export function DeviceScreen({
   onBlockedInput,
   onModeChange,
   zoom = "fit",
+  showFrame = false,
 }: {
   mobile: MobileBridge;
   device: MobileDevice;
@@ -64,6 +67,8 @@ export function DeviceScreen({
   /** Called with how the screen arrives once the stream says, and with undefined when this view goes away. */
   onModeChange?: ((mode: ScreenMode | undefined) => void) | undefined;
   zoom?: Zoom;
+  /** Draws a phone or tablet body around the screen, with side buttons that press the device's own. */
+  showFrame?: boolean;
 }) {
   const deviceId = device.deviceId;
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -79,7 +84,7 @@ export function DeviceScreen({
   /** The stream's own frame size, which touch positions are measured in while scrcpy carries input. */
   const streamSizeRef = useRef<Size | undefined>(undefined);
   const pointerDownRef = useRef(false);
-  /** Holds the screen and the trail, and is what a device frame would wrap; the stage around it scrolls at 100%. */
+  /** Holds the device frame, the screen, and the trail; the stage around it scrolls at 100%. */
   const zoomRef = useRef<HTMLDivElement>(null);
   const [screen, setScreen] = useState<HTMLElement | null>(null);
   /** Where a drag started and where the pointer is now, drawn while the screen shows screenshots. */
@@ -337,6 +342,13 @@ export function DeviceScreen({
     canvasRef.current = node;
     setScreen(node);
   }, []);
+  const pressSideButton = (button: SideButtonName) => {
+    if (inputBlocked) {
+      onBlockedInput();
+      return;
+    }
+    send({ deviceId, type: "button", button });
+  };
   const pasteText = (text: string) => {
     if (!text) return;
     if (inputBlocked) {
@@ -402,6 +414,7 @@ export function DeviceScreen({
       </EmptyState>
     );
 
+  const framed = showFrame && frame !== undefined;
   const screenProps = {
     className: `mobile-screen${inputBlocked ? " is-blocked" : ""}`,
     tabIndex: 0,
@@ -424,24 +437,33 @@ export function DeviceScreen({
       ) : null}
       <div className={`mobile-stage${zoom === "actual" ? " is-actual" : ""}`}>
         {!frame ? <LoadingState className="mobile-stage-loading" label={`Connecting to ${device.name}`} /> : null}
-        <div className="mobile-zoom" ref={zoomRef}>
-          {video ? (
-            <canvas
-              {...screenProps}
-              ref={canvasNode}
-              hidden={!frame}
-              style={frame ? screenStyle(frame, zoom) : undefined}
-            />
-          ) : still && frame ? (
-            <img
-              {...screenProps}
-              ref={setScreen}
-              src={still}
-              alt={`${device.name} screen`}
-              draggable={false}
-              style={screenStyle(frame, zoom)}
-            />
-          ) : null}
+        <div className={`mobile-zoom${framed ? " is-framed" : ""}`} ref={zoomRef}>
+          <DeviceFrame
+            device={device}
+            frame={frame}
+            shown={showFrame}
+            zoom={zoom}
+            blocked={inputBlocked}
+            onPress={pressSideButton}
+          >
+            {video ? (
+              <canvas
+                {...screenProps}
+                ref={canvasNode}
+                hidden={!frame}
+                style={frame ? screenStyle(frame, zoom, framed) : undefined}
+              />
+            ) : still && frame ? (
+              <img
+                {...screenProps}
+                ref={setScreen}
+                src={still}
+                alt={`${device.name} screen`}
+                draggable={false}
+                style={screenStyle(frame, zoom, framed)}
+              />
+            ) : null}
+          </DeviceFrame>
           {trail ? (
             <svg className="mobile-trail" aria-hidden="true">
               <line
@@ -463,8 +485,13 @@ export function DeviceScreen({
   );
 }
 
-/** 100% means one frame pixel per physical screen pixel, so a HiDPI display shows it at its true size. */
-function screenStyle(frame: Size, zoom: Zoom) {
+/**
+ * 100% means one frame pixel per physical screen pixel, so a HiDPI display shows it at its true size. In a
+ * device frame the body carries that size and the screen fills its opening.
+ */
+function screenStyle(frame: Size, zoom: Zoom, framed: boolean) {
   const aspectRatio = `${frame.width} / ${frame.height}`;
-  return zoom === "actual" ? { aspectRatio, width: frame.width / (window.devicePixelRatio || 1) } : { aspectRatio };
+  return zoom === "actual" && !framed
+    ? { aspectRatio, width: frame.width / (window.devicePixelRatio || 1) }
+    : { aspectRatio };
 }

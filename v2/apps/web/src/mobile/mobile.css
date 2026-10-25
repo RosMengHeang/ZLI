@@ -17,6 +17,50 @@
 .mobile-screen:focus-visible { box-shadow: 0 0 0 1px var(--zli-accent-line), 0 0 0 4px var(--zli-accent-soft); }
 .mobile-screen.is-blocked { cursor: not-allowed; }
 .is-actual .mobile-screen { position: relative; display: block; max-width: none; max-height: none; }
+/*
+ * The device frame. The body is sized from the screen: in Fit it fills the zoom box like the bare screen does,
+ * and at 100% it takes the pixel size DeviceFrame sets. Everything inside is measured in cqmin of the body, so
+ * the rim, corners, camera, and keys scale with it. Without a frame the wrappers take no box at all.
+ */
+.mobile-device:not(.is-framed), .mobile-device:not(.is-framed) > .mobile-device-screen { display: contents; }
+.mobile-zoom.is-framed { container-type: size; }
+.is-actual .mobile-zoom.is-framed { container-type: normal; }
+/* Hardware colors are mixed from the text and canvas tokens: brushed metal catching light at two corners, and black glass. */
+.mobile-device.is-framed { --skin-metal-light: color-mix(in srgb, var(--zli-text) 44%, var(--zli-canvas)); --skin-metal: color-mix(in srgb, var(--zli-text) 20%, var(--zli-canvas)); --skin-metal-dark: color-mix(in srgb, var(--zli-text) 9%, var(--zli-canvas)); --skin-glass: color-mix(in srgb, var(--zli-canvas) 30%, black); --skin-key-depth: max(2px, .9cqmin); position: absolute; inset: 0; width: min(100cqw, 100cqh * var(--skin-ratio)); height: min(100cqh, 100cqw / var(--skin-ratio)); margin: auto; container-type: size; isolation: isolate; border-radius: var(--skin-radius); background: linear-gradient(135deg, var(--skin-metal-light), var(--skin-metal) 16%, var(--skin-metal-dark) 50%, var(--skin-metal) 84%, var(--skin-metal-light)); }
+.is-actual .mobile-device.is-framed { position: relative; inset: auto; margin: 0; }
+.mobile-device-glass { position: absolute; z-index: -1; inset: var(--skin-rim); border-radius: calc(var(--skin-radius) - var(--skin-rim)); background: var(--skin-glass); box-shadow: inset 0 0 0 1px var(--zli-border); }
+.mobile-device.is-framed > .mobile-device-screen { position: absolute; overflow: hidden; border-radius: var(--skin-screen-radius); background: black; }
+.mobile-device.is-framed > .mobile-device-screen:has(> .mobile-screen:focus-visible) { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+.mobile-device.is-framed .mobile-screen { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; border-radius: 0; box-shadow: none; }
+/* The camera is drawn over the picture like the real cutout; pointer-events pass through so taps still map to the screen. */
+.mobile-device-cutout { position: absolute; background: black; pointer-events: none; }
+.mobile-device-cutout.is-punch-hole { width: 3.4cqmin; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle at 36% 34%, color-mix(in srgb, var(--zli-text) 16%, black) 0 14%, black 42%); }
+.is-portrait .mobile-device-cutout.is-punch-hole { top: 2.3cqmin; left: 50%; transform: translateX(-50%); }
+.is-landscape .mobile-device-cutout.is-punch-hole { top: 50%; left: 2.3cqmin; transform: translateY(-50%); }
+.mobile-device-cutout.is-island { border-radius: var(--zli-radius-pill); }
+.is-portrait .mobile-device-cutout.is-island { top: 2.2cqmin; left: 50%; width: 28cqmin; height: 8.2cqmin; transform: translateX(-50%); }
+.is-landscape .mobile-device-cutout.is-island { top: 50%; left: 2.2cqmin; width: 8.2cqmin; height: 28cqmin; transform: translateY(-50%); }
+.mobile-device-camera { position: absolute; width: 1.6cqmin; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle at 36% 34%, color-mix(in srgb, var(--zli-text) 18%, black) 0 18%, black 50%); transform: translate(-50%, -50%); pointer-events: none; }
+.is-portrait > .mobile-device-camera { left: 50%; }
+.is-landscape > .mobile-device-camera { top: 50%; }
+/* A key is a 10px hit area outside the body; ::before draws the thin key against the rim. */
+.mobile-device-key { position: absolute; padding: 0; border: 0; border-radius: var(--zli-radius-xs); background: transparent; cursor: pointer; }
+.mobile-device-key.is-right { left: 100%; width: 10px; }
+.mobile-device-key.is-left { right: 100%; width: 10px; }
+.mobile-device-key.is-top { bottom: 100%; height: 10px; }
+.mobile-device-key.is-bottom { top: 100%; height: 10px; }
+.mobile-device-key::before { content: ""; position: absolute; background: linear-gradient(var(--skin-key-angle, 90deg), var(--skin-metal), var(--skin-metal-light) 55%, var(--skin-metal)); transition: filter var(--zli-duration-fast) var(--zli-ease), transform var(--zli-duration-fast) var(--zli-ease); }
+.mobile-device-key.is-right::before { inset: 0 auto 0 0; width: var(--skin-key-depth); border-radius: 0 2px 2px 0; }
+.mobile-device-key.is-left::before { inset: 0 0 0 auto; width: var(--skin-key-depth); border-radius: 2px 0 0 2px; }
+.mobile-device-key.is-top::before { --skin-key-angle: 0deg; inset: auto 0 0; height: var(--skin-key-depth); border-radius: 2px 2px 0 0; }
+.mobile-device-key.is-bottom::before { --skin-key-angle: 0deg; inset: 0 0 auto; height: var(--skin-key-depth); border-radius: 0 0 2px 2px; }
+.mobile-device-key.is-static { cursor: default; pointer-events: none; }
+.mobile-device-key:not(.is-static):hover::before { filter: brightness(1.3); }
+.mobile-device-key.is-right:not(.is-static):active::before { transform: translateX(-1px); }
+.mobile-device-key.is-left:not(.is-static):active::before { transform: translateX(1px); }
+.mobile-device-key.is-top:not(.is-static):active::before { transform: translateY(1px); }
+.mobile-device-key.is-bottom:not(.is-static):active::before { transform: translateY(-1px); }
+.mobile-device.is-blocked .mobile-device-key { cursor: not-allowed; }
 /* A neutral trail with a dark edge, like Android's own touch display, so it reads on light and dark screens. */
 .mobile-trail { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .mobile-trail-shade { stroke: var(--zli-canvas); stroke-linecap: round; stroke-opacity: .5; stroke-width: 5; }

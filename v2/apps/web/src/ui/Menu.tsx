@@ -9,6 +9,8 @@ export type MenuItem = {
   label: string;
   icon?: IconName | undefined;
   disabled?: boolean | undefined;
+  /** Makes the item an on and off setting, shown with a check while it is on. */
+  checked?: boolean | undefined;
   run(): void;
 };
 /** A separator draws a rule between two runs of items. */
@@ -172,7 +174,9 @@ export function MenuButton({
                     <button
                       key={entry.id}
                       type="button"
-                      role="menuitem"
+                      {...(entry.checked === undefined
+                        ? { role: "menuitem" }
+                        : { role: "menuitemcheckbox", "aria-checked": entry.checked })}
                       tabIndex={-1}
                       className="menu-item"
                       aria-disabled={entry.disabled || undefined}
@@ -188,6 +192,7 @@ export function MenuButton({
                     >
                       {entry.icon ? <Icon name={entry.icon} size={14} /> : null}
                       <span className="menu-item-label">{entry.label}</span>
+                      {entry.checked ? <Icon className="menu-item-check" name="check" size={14} /> : null}
                     </button>
                   ),
                 )}
@@ -201,5 +206,9 @@ export function MenuButton({
 }
 
 function enabledItems(menu: HTMLElement | null): HTMLElement[] {
-  return [...(menu?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])') ?? [])];
+  return [
+    ...(menu?.querySelectorAll<HTMLElement>(
+      ':is([role="menuitem"], [role="menuitemcheckbox"]):not([aria-disabled="true"])',
+    ) ?? []),
+  ];
 }
