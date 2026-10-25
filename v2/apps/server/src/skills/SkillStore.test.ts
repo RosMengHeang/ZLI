@@ -43,7 +43,10 @@ const projectRef = (path: string) => ({ projectId: "11111111-1111-4111-8111-1111
 describe("skill sync targets", () => {
   it("copies once into the shared folder and into Claude Code's own folder", () => {
     const targets = skillSyncTargets("/home/me", { KIMI_CODE_HOME: "/kimi" });
-    expect(targets.map((target) => target.path)).toEqual(["/home/me/.agents/skills", "/home/me/.claude/skills"]);
+    expect(targets.map((target) => target.path)).toEqual([
+      join("/home/me", ".agents", "skills"),
+      join("/home/me", ".claude", "skills"),
+    ]);
     expect(targets[0]?.agents).toEqual([
       "codex",
       "cursor-agent",
