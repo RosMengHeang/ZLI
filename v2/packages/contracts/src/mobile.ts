@@ -165,6 +165,35 @@ export const MobileStreamInfo = z.object({
 });
 export type MobileStreamInfo = z.infer<typeof MobileStreamInfo>;
 
+/** What the Mobile panel receives for a device it shows. Video frames are Annex B H.264 for WebCodecs. */
+export const MobileStreamEvent = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("info"), info: MobileStreamInfo }),
+  z.object({
+    type: z.literal("config"),
+    deviceId: z.string(),
+    codec: z.string().max(100),
+    width: z.number().int().nonnegative(),
+    height: z.number().int().nonnegative(),
+  }),
+  z.object({
+    type: z.literal("frame"),
+    deviceId: z.string(),
+    key: z.boolean(),
+    timestamp: z.number().nonnegative(),
+    data: z.instanceof(Uint8Array),
+  }),
+  z.object({
+    type: z.literal("still"),
+    deviceId: z.string(),
+    /** Base64 PNG. */
+    data: z.string(),
+    width: z.number().int().nonnegative(),
+    height: z.number().int().nonnegative(),
+  }),
+  z.object({ type: z.literal("ended"), deviceId: z.string(), reason: z.string().max(2_000) }),
+]);
+export type MobileStreamEvent = z.infer<typeof MobileStreamEvent>;
+
 export const MobileScreenshot = z.object({
   data: z.string(),
   mimeType: z.literal("image/png"),

@@ -1,6 +1,16 @@
 import type {
   BrowserTabProjection,
   BrowserViewport,
+  MobileDevice,
+  MobilePanelInput,
+  MobileRevealEvent,
+  MobileScreenshot,
+  MobileSettings,
+  MobileSetupPlan,
+  MobileSetupProgress,
+  MobileSetupStatus,
+  MobileStreamEvent,
+  MobileStreamInfo,
   RpcResponse,
   RuntimeProjection,
   TerminalAttachSnapshot,
@@ -51,6 +61,8 @@ export type ZliBridge = {
     consoleEntries(browserTabId: string): Promise<readonly unknown[]>;
     networkEntries(browserTabId: string): Promise<readonly unknown[]>;
   };
+  /** Present in the desktop app, which runs the emulators and simulators. */
+  mobile?: MobileBridge;
   dialog: {
     openProject(): Promise<string | undefined>;
     saveSupportBundle(): Promise<string | undefined>;
@@ -83,6 +95,29 @@ export type ZliBridge = {
     whatsNew(): Promise<WhatsNew | undefined>;
     dismissWhatsNew(): Promise<void>;
   };
+};
+
+export type MobileBridge = {
+  status(options?: { recheckAcceleration?: boolean }): Promise<MobileSetupStatus>;
+  setupPlan(): Promise<MobileSetupPlan>;
+  setupProgress(): Promise<MobileSetupProgress>;
+  runSetup(acceptedLicenses: readonly string[]): Promise<void>;
+  cancelSetup(): Promise<void>;
+  onSetupProgress(listener: (progress: MobileSetupProgress) => void): () => void;
+  devices(): Promise<MobileDevice[]>;
+  onDevices(listener: (devices: MobileDevice[]) => void): () => void;
+  boot(deviceId: string): Promise<MobileDevice>;
+  shutdown(deviceId: string): Promise<void>;
+  startStream(deviceId: string): Promise<MobileStreamInfo>;
+  stopStream(deviceId: string): Promise<void>;
+  onStream(listener: (event: MobileStreamEvent) => void): () => void;
+  input(input: MobilePanelInput): Promise<void>;
+  takeOver(deviceId: string): Promise<void>;
+  release(deviceId: string): Promise<void>;
+  screenshot(deviceId: string): Promise<MobileScreenshot>;
+  getSettings(): Promise<MobileSettings>;
+  setSettings(patch: Partial<MobileSettings>): Promise<MobileSettings>;
+  onReveal(listener: (event: MobileRevealEvent) => void): () => void;
 };
 
 export type NotificationSettings = { enabled: boolean; sound: boolean };

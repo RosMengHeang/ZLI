@@ -15,6 +15,18 @@ import {
   BrowserTabProjection,
   type BrowserViewport,
   BrowserWaitForNetworkIdleInput,
+  MobileDevice,
+  MobileDeviceIdInput,
+  MobilePanelInput,
+  MobileRevealEvent,
+  MobileScreenshot,
+  MobileSettings,
+  MobileSetupPlan,
+  MobileSetupProgress,
+  MobileSetupRunInput,
+  MobileSetupStatus,
+  MobileStreamEvent,
+  MobileStreamInfo,
   RpcRequest,
   RpcResponse,
   RuntimeEventEnvelope,
@@ -35,6 +47,61 @@ type IpcBridge = {
   invoke(channel: string, payload?: unknown): Promise<unknown>;
   on(channel: string, listener: (event: unknown, value: unknown) => void): () => void;
 };
+
+function createMobileApi(ipc: IpcBridge) {
+  const device = (deviceId: string) => MobileDeviceIdInput.parse({ deviceId });
+  const listen =
+    <T>(channel: string, schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } }) =>
+    (listener: (value: T) => void) =>
+      ipc.on(channel, (_event, value) => {
+        const parsed = schema.safeParse(value);
+        if (parsed.success) listener(parsed.data);
+      });
+  return {
+    status: async (options: { recheckAcceleration?: boolean } = {}) =>
+      MobileSetupStatus.parse(
+        await ipc.invoke("zli:mobile:status", { recheckAcceleration: options.recheckAcceleration === true }),
+      ),
+    setupPlan: async () => MobileSetupPlan.parse(await ipc.invoke("zli:mobile:setup-plan")),
+    setupProgress: async () => MobileSetupProgress.parse(await ipc.invoke("zli:mobile:setup-progress")),
+    /** Resolves when setup ends; progress arrives through onSetupProgress meanwhile. */
+    runSetup: async (acceptedLicenses: readonly string[]) => {
+      await ipc.invoke("zli:mobile:setup-run", MobileSetupRunInput.parse({ acceptedLicenses: [...acceptedLicenses] }));
+    },
+    cancelSetup: async () => {
+      await ipc.invoke("zli:mobile:setup-cancel");
+    },
+    onSetupProgress: listen("zli:mobile:setup", MobileSetupProgress),
+    devices: async () => MobileDevice.array().parse(await ipc.invoke("zli:mobile:devices")),
+    onDevices: listen("zli:mobile:devices", MobileDevice.array()),
+    boot: async (deviceId: string) => MobileDevice.parse(await ipc.invoke("zli:mobile:boot", device(deviceId))),
+    shutdown: async (deviceId: string) => {
+      await ipc.invoke("zli:mobile:shutdown", device(deviceId));
+    },
+    startStream: async (deviceId: string) =>
+      MobileStreamInfo.parse(await ipc.invoke("zli:mobile:stream-start", device(deviceId))),
+    stopStream: async (deviceId: string) => {
+      await ipc.invoke("zli:mobile:stream-stop", device(deviceId));
+    },
+    onStream: listen("zli:mobile:stream", MobileStreamEvent),
+    input: async (input: MobilePanelInput) => {
+      await ipc.invoke("zli:mobile:input", MobilePanelInput.parse(input));
+    },
+    takeOver: async (deviceId: string) => {
+      await ipc.invoke("zli:mobile:take-over", device(deviceId));
+    },
+    release: async (deviceId: string) => {
+      await ipc.invoke("zli:mobile:release", device(deviceId));
+    },
+    screenshot: async (deviceId: string) =>
+      MobileScreenshot.parse(await ipc.invoke("zli:mobile:screenshot", device(deviceId))),
+    getSettings: async () => MobileSettings.parse(await ipc.invoke("zli:mobile:settings-get")),
+    setSettings: async (patch: Partial<MobileSettings>) =>
+      MobileSettings.parse(await ipc.invoke("zli:mobile:settings-set", MobileSettings.partial().parse(patch))),
+    /** Fires when an agent boots or drives a device, so the renderer can show the Mobile panel with it. */
+    onReveal: listen("zli:mobile:reveal", MobileRevealEvent),
+  };
+}
 
 /**
  * Keeps a copy of the main process projection by folding the events main forwards, so a streaming
@@ -227,6 +294,7 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
       networkEntries: (browserTabId: string) =>
         ipc.invoke("zli:browser:network", BrowserTabIdInput.parse({ browserTabId })),
     },
+    mobile: createMobileApi(ipc),
     dialog: {
       openProject: () => ipc.invoke("zli:dialog:open-project"),
       saveSupportBundle: async () => {

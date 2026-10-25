@@ -323,3 +323,39 @@ describe("preload API", () => {
     expect(listeners.has("zli:browser:reveal")).toBe(false);
   });
 });
+
+describe("preload mobile API", () => {
+  it("validates device ids before invoking main and passes valid stream events through", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const listeners = new Map<string, (event: unknown, value: unknown) => void>();
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        return channel === "zli:mobile:stream-start" ? { deviceId: "ios:1", mode: "stills", width: 0, height: 0 } : {};
+      },
+      on: (channel, listener) => {
+        listeners.set(channel, listener);
+        return () => listeners.delete(channel);
+      },
+    });
+    expect(await api.mobile.startStream("ios:1")).toEqual({ deviceId: "ios:1", mode: "stills", width: 0, height: 0 });
+    expect(calls).toEqual([{ channel: "zli:mobile:stream-start", payload: { deviceId: "ios:1" } }]);
+    await expect(api.mobile.takeOver("")).rejects.toThrow();
+    await expect(
+      api.mobile.input({ deviceId: "ios:1", type: "touch", action: "down", x: -5, y: 0 } as never),
+    ).rejects.toThrow();
+    expect(calls).toHaveLength(1);
+
+    const events: unknown[] = [];
+    api.mobile.onStream((event) => events.push(event));
+    const emit = listeners.get("zli:mobile:stream");
+    const frame = { type: "frame", deviceId: "android:1", key: true, timestamp: 1, data: new Uint8Array([0, 0, 1]) };
+    emit?.(undefined, frame);
+    emit?.(undefined, { type: "frame", deviceId: "android:1", key: true, timestamp: 1, data: "not bytes" });
+    emit?.(undefined, { type: "ended", deviceId: "android:1", reason: "The panel stopped showing this device." });
+    expect(events).toEqual([
+      frame,
+      { type: "ended", deviceId: "android:1", reason: "The panel stopped showing this device." },
+    ]);
+  });
+});

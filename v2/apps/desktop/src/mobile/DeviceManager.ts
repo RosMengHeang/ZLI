@@ -1,4 +1,4 @@
-import type { MobileDevice, MobilePanelInput, MobileStreamInfo } from "@zli-v2/contracts";
+import type { MobileDevice, MobilePanelInput, MobileStreamEvent, MobileStreamInfo } from "@zli-v2/contracts";
 import type { AndroidDriver } from "./AndroidDriver.js";
 import { ANDROID_KEYCODES } from "./adb.js";
 import { DeviceLeases, type LeaseOwner } from "./DeviceLeases.js";
@@ -16,13 +16,7 @@ import {
 } from "./scrcpy/protocol.js";
 import { ScrcpySession, type ScrcpySessionOptions } from "./scrcpy/ScrcpySession.js";
 
-/** What the Mobile panel receives for a device it shows. Video frames are Annex B H.264 for WebCodecs. */
-export type MobileStreamMessage =
-  | { type: "info"; info: MobileStreamInfo }
-  | { type: "config"; deviceId: string; codec: string; width: number; height: number }
-  | { type: "frame"; deviceId: string; key: boolean; timestamp: number; data: Uint8Array }
-  | { type: "still"; deviceId: string; data: string; width: number; height: number }
-  | { type: "ended"; deviceId: string; reason: string };
+export type MobileStreamMessage = MobileStreamEvent;
 
 export type DeviceManagerEvents = {
   readonly devices?: (devices: MobileDevice[]) => void;
@@ -251,7 +245,8 @@ export class DeviceManager {
         deviceId: device.deviceId,
         key: event.key,
         timestamp: Number(event.pts),
-        data: new Uint8Array(event.data.buffer, event.data.byteOffset, event.data.byteLength),
+        // A copy, because IPC clones a view's whole backing buffer, and small Buffers share an 8 KiB pool.
+        data: new Uint8Array(event.data),
       });
     };
     const start = this.#deps.startScrcpy ?? ScrcpySession.start;
