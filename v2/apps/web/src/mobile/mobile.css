@@ -71,6 +71,8 @@
 .mobile-type-row { display: flex; align-items: center; gap: var(--zli-space-2); flex: 0 0 auto; padding: var(--zli-space-1-5) var(--zli-space-2); border-top: 1px solid var(--zli-border); }
 .mobile-type-row .input { flex: 1; }
 .mobile-controls { display: flex; align-items: center; gap: var(--zli-space-1); height: var(--zli-toolbar); flex: 0 0 auto; padding: 0 var(--zli-space-2); border-top: 1px solid var(--zli-border); }
+/* A portrait pop-out window is too narrow for labeled nav buttons; the labels stay as accessible names. */
+@media (max-width: 400px) { .mobile-controls-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
 /* The notice fades in its last half second; reduced motion turns the fade off and it simply goes. */
 .mobile-notice .banner { animation: mobile-notice-fade 3s linear both; }
 @keyframes mobile-notice-fade { 0%, 83% { opacity: 1; } 100% { opacity: 0; } }
@@ -88,6 +90,14 @@
 .mobile-logs-list { height: 180px; margin: 0; padding: var(--zli-space-2) var(--zli-space-3); overflow: auto; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well); color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; white-space: pre-wrap; }
 .mobile-logs-list:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -1px; }
 .mobile-logs-empty { margin: 0; padding: var(--zli-space-2) var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); }
+/* The pop-out window: one device on the whole page, under a slim title bar that drags the window and clears the native window controls. */
+.mobile-window { display: flex; height: 100%; flex-direction: column; overflow: hidden; background: var(--zli-canvas); }
+.mobile-window-bar { display: flex; align-items: center; gap: var(--zli-space-1-5); height: var(--zli-toolbar); flex: 0 0 auto; padding: 0 calc(var(--zli-space-2) + 100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)) 0 max(var(--zli-space-3), env(titlebar-area-x, 0px)); border-bottom: 1px solid var(--zli-border); color: var(--zli-muted); -webkit-app-region: drag; }
+.mobile-window-bar :is(button, [role="menu"], [role="radiogroup"]) { -webkit-app-region: no-drag; }
+.mobile-window-title { min-width: 0; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-window-detail { min-width: 0; flex: 0 1000 auto; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+/* A portrait phone window leaves little room beside the native window controls, so the device name wins over its kind. */
+@media (max-width: 440px) { .mobile-window-detail { display: none; } }
 .mobile-footer { flex: 0 0 auto; padding: 0 var(--zli-space-3); border-top: 1px solid var(--zli-border); background: var(--zli-well); }
 .mobile-footer .switch-hint { line-height: var(--zli-leading-normal); }
 .mobile-setup { display: flex; flex-direction: column; gap: var(--zli-space-5); max-width: 560px; padding: var(--zli-space-4); }

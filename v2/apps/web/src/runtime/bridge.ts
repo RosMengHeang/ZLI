@@ -6,6 +6,8 @@ import type {
   MobileDevice,
   MobileOpenUrlResult,
   MobilePanelInput,
+  MobilePopOut,
+  MobilePopOutAspectInput,
   MobileRevealEvent,
   MobileScreenshot,
   MobileSettings,
@@ -130,6 +132,16 @@ export type MobileBridge = {
   getSettings(): Promise<MobileSettings>;
   setSettings(patch: Partial<MobileSettings>): Promise<MobileSettings>;
   onReveal(listener: (event: MobileRevealEvent) => void): () => void;
+  /** Pop-out windows exist only in the desktop app; without them the panel offers no Pop out. */
+  popOuts?(): Promise<MobilePopOut[]>;
+  onPopOuts?(listener: (popOuts: MobilePopOut[]) => void): () => void;
+  /** Opens the device in its own window, or focuses the window it already has. */
+  popOut?(deviceId: string): Promise<MobilePopOut[]>;
+  closePopOut?(deviceId: string): Promise<MobilePopOut[]>;
+  /** Keeps the device's window above other windows. */
+  pinPopOut?(deviceId: string, pinned: boolean): Promise<MobilePopOut[]>;
+  /** Tells the window the device's shape, so resizing keeps it. */
+  setPopOutAspect?(input: MobilePopOutAspectInput): Promise<void>;
 };
 
 export type NotificationSettings = { enabled: boolean; sound: boolean };

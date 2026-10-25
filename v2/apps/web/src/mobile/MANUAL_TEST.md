@@ -85,6 +85,29 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
 - [ ] Open "More device buttons" and turn off "Show device frame", then restart ZLI.
   Expected: the screen shows without the body, and it stays that way after the restart. Turning it back on brings the frame back.
 
+### Pop-out window
+
+- [ ] With a device running, click "Pop out" in the panel header.
+  Expected: a window about the size of a phone opens with the device name in its title bar, the framed screen, and the bottom bar. The panel says "<name> is open in its own window." and stops showing the screen. Taps and keys in the window reach the device.
+- [ ] Click "Pop out" again, or run "Pop out mobile device" from the command palette.
+  Expected: the existing window comes to the front. No second window opens for the same device.
+- [ ] On macOS, look at the window's title bar.
+  Expected: the traffic lights sit centered in the slim bar, and dragging the bar moves the window. On Windows and Linux the window controls sit on the right and nothing overlaps them.
+- [ ] Click the pin ("Keep on top"), then click into another app.
+  Expected: the window stays above other windows, and the pin shows as pressed. Clicking it again lets other windows cover it.
+- [ ] Click Rotate in the window.
+  Expected: the window reshapes to landscape and keeps its long side, and the frame turns with the screen. Rotating back returns it to portrait.
+- [ ] Move and resize the window, pin it, then quit and restart ZLI and pop the device out again.
+  Expected: the window opens where you left it, at the same size, still pinned. If that spot is no longer on any screen (for example a display was unplugged), it opens centered on the main display instead.
+- [ ] Click "Bring it back" in the panel, then pop out again and close the window with its close button.
+  Expected: both ways close the window and the panel shows the live screen again. "Show the window" brings the window to the front without closing it.
+- [ ] While an agent holds the device, look at the pop-out window.
+  Expected: the window shows the same agent banner as the panel, and Take over works from there.
+- [ ] Quit ZLI with a pop-out window open.
+  Expected: the window closes with ZLI and nothing keeps streaming.
+- [ ] Open ZLI in a browser instead of the desktop app.
+  Expected: there is no "Pop out" button and no "Pop out mobile device" command.
+
 ### Open URL, logs, and Expo
 
 - [ ] Click "Open URL" (the globe in the bottom bar), type `localhost:<port>` for a dev server running on the computer, and press Enter.

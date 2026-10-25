@@ -12,7 +12,7 @@ import {
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ZliBridge } from "./runtime/bridge.js";
+import type { MobileBridge, ZliBridge } from "./runtime/bridge.js";
 import { DEFAULT_SETTINGS, updateAppSettings } from "./settings/appSettings.js";
 import { AppShell } from "./shell/AppShell.js";
 
@@ -240,6 +240,52 @@ describe("AppShell", () => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
     expect(container.querySelector('[aria-label="Help and diagnostics"]')).toBeNull();
+  });
+
+  it("pops the selected mobile device out from the palette, and offers it only with pop-out windows", async () => {
+    const popOut = vi.fn(async (deviceId: string) => [{ deviceId, pinned: false }]);
+    const device = {
+      deviceId: "android-avd:Pixel_8",
+      platform: "android",
+      kind: "emulator",
+      name: "Pixel_8",
+      state: "online",
+      lease: null,
+    } as const;
+    const withoutPopOut = {
+      status: async () => {
+        throw new Error("not needed");
+      },
+      devices: async () => [device],
+      onDevices: () => () => undefined,
+      onReveal: () => () => undefined,
+      getSettings: async () => ({ agentTools: true }),
+      startStream: async (deviceId: string) => ({ deviceId, mode: "stills" as const, width: 0, height: 0 }),
+      stopStream: async () => undefined,
+      onStream: () => () => undefined,
+      popOuts: async () => [],
+      onPopOuts: () => () => undefined,
+    };
+    const mobile = { ...withoutPopOut, popOut } as unknown as MobileBridge;
+    const openPalette = async (container: HTMLElement) =>
+      act(async () => {
+        container.querySelector<HTMLButtonElement>(".command-trigger")?.click();
+      });
+
+    const plain = await render({ ...makeBridge(projection), mobile: withoutPopOut as unknown as MobileBridge });
+    await openPalette(plain);
+    expect(button(plain, "Focus mobile")).not.toBeUndefined();
+    expect(button(plain, "Pop out mobile device")).toBeUndefined();
+    document.body.replaceChildren();
+
+    const container = await render({ ...makeBridge(projection), mobile });
+    await openPalette(container);
+    await act(async () => {
+      button(container, "Pop out mobile device")?.click();
+    });
+    await vi.waitFor(() => expect(popOut).toHaveBeenCalledWith(device.deviceId));
+    expect(popOut).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("Pixel_8 is open in its own window.");
   });
 
   it("starts a new agent CLI in a terminal tile in the chosen worktree", async () => {

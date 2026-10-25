@@ -14,7 +14,7 @@ import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, LoadingState } from "../ui/Pane.js";
 import { DeviceFrame } from "./DeviceFrame.js";
-import type { SideButtonName } from "./deviceSkin.js";
+import { deviceSkin, type SideButtonName, skinGeometry } from "./deviceSkin.js";
 import {
   errorText,
   framePoint,
@@ -58,6 +58,7 @@ export function DeviceScreen({
   onModeChange,
   zoom = "fit",
   showFrame = false,
+  onAspect,
 }: {
   mobile: MobileBridge;
   device: MobileDevice;
@@ -69,6 +70,8 @@ export function DeviceScreen({
   zoom?: Zoom;
   /** Draws a phone or tablet body around the screen, with side buttons that press the device's own. */
   showFrame?: boolean;
+  /** Called with the width over the height of what is drawn, the body when framed, once the size is known. */
+  onAspect?: ((aspect: number) => void) | undefined;
 }) {
   const deviceId = device.deviceId;
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -224,6 +227,16 @@ export function DeviceScreen({
     },
     [mobile],
   );
+
+  const frameWidth = frame?.width;
+  const frameHeight = frame?.height;
+  const { platform, name } = device;
+  useEffect(() => {
+    if (!onAspect || !frameWidth || !frameHeight) return;
+    const size = { width: frameWidth, height: frameHeight };
+    const drawn = showFrame ? skinGeometry(deviceSkin({ platform, name }, size), size) : size;
+    onAspect(drawn.width / drawn.height);
+  }, [onAspect, frameWidth, frameHeight, showFrame, platform, name]);
 
   const video = info?.mode === "video" && decodeProblem === undefined;
   const modeKnown = info !== undefined && ended === undefined && startError === undefined;

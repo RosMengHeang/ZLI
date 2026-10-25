@@ -150,15 +150,15 @@ export function MobileControls({
       <nav className="mobile-controls" aria-label="Device buttons">
         {android ? (
           <Button size="sm" variant="ghost" icon="arrowLeft" onClick={() => press("back")}>
-            Back
+            <span className="mobile-controls-label">Back</span>
           </Button>
         ) : null}
         <Button size="sm" variant="ghost" icon="circle" onClick={() => press("home")}>
-          Home
+          <span className="mobile-controls-label">Home</span>
         </Button>
         {android ? (
           <Button size="sm" variant="ghost" icon="square" onClick={() => press("recents")}>
-            Recents
+            <span className="mobile-controls-label">Recents</span>
           </Button>
         ) : null}
         <span className="mobile-toolbar-spacer" />

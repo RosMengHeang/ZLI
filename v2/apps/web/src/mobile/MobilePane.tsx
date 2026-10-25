@@ -1,4 +1,4 @@
-import type { MobileDevice, MobileSetupStatus } from "@zli-v2/contracts";
+import type { MobileDevice, MobilePopOut, MobileSetupStatus } from "@zli-v2/contracts";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import type { MobileBridge } from "../runtime/bridge.js";
@@ -9,6 +9,7 @@ import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
 import { Switch } from "../ui/Switch.js";
 import { DeviceScreen } from "./DeviceScreen.js";
 import { ExpoBanner } from "./ExpoBanner.js";
+import { LeaseBanner } from "./LeaseBanner.js";
 import { MobileControls } from "./MobileControls.js";
 import { MobileLogsDrawer } from "./MobileLogsDrawer.js";
 import { MobileSetup } from "./MobileSetup.js";
@@ -25,9 +26,9 @@ import {
   pickDevice,
   type ScreenMode,
   SLOW_BOOT_MS,
-  screenshotBlob,
   slowBootNote,
 } from "./mobile.js";
+import { copyScreenshot, saveScreenshot } from "./screenshots.js";
 import { useClock } from "./useClock.js";
 import { useDeviceFrame } from "./useDeviceFrame.js";
 import { useDeviceZoom } from "./useDeviceZoom.js";
@@ -43,17 +44,20 @@ const SELECTED_KEY = "zli.mobile.device.v1";
 /** How often the agent lease banner rechecks its countdown. */
 const LEASE_TICK_MS = 15_000;
 
-type Busy = "boot" | "shutdown" | "lease" | "screenshot";
-
-const CLIPBOARD_IMAGE_ERROR = "ZLI could not put the image on the clipboard. Save the screenshot instead.";
+type Busy = "boot" | "shutdown" | "lease" | "screenshot" | "popout";
 
 export function MobilePane({
   reveal,
   devServers = [],
+  popOutRequest,
+  onPopOutRequestDone,
 }: {
   reveal?: MobileReveal | undefined;
   /** The current worktree's dev servers, newest first, so the pane can offer to open Expo on a device. */
   devServers?: readonly DevServerHint[] | undefined;
+  /** Set to pop the selected device out into its own window once the device list is in. */
+  popOutRequest?: number | undefined;
+  onPopOutRequestDone?: (() => void) | undefined;
 }) {
   const { bridge } = useRuntime();
   const mobile = bridge?.mobile;
@@ -68,17 +72,29 @@ export function MobilePane({
         />
       </div>
     );
-  return <MobilePaneBody mobile={mobile} reveal={reveal} devServers={devServers} />;
+  return (
+    <MobilePaneBody
+      mobile={mobile}
+      reveal={reveal}
+      devServers={devServers}
+      popOutRequest={popOutRequest}
+      onPopOutRequestDone={onPopOutRequestDone}
+    />
+  );
 }
 
 function MobilePaneBody({
   mobile,
   reveal,
   devServers,
+  popOutRequest,
+  onPopOutRequestDone,
 }: {
   mobile: MobileBridge;
   reveal: MobileReveal | undefined;
   devServers: readonly DevServerHint[];
+  popOutRequest: number | undefined;
+  onPopOutRequestDone: (() => void) | undefined;
 }) {
   const [devices, setDevices] = useState<MobileDevice[]>();
   const [devicesError, setDevicesError] = useState<string>();
@@ -179,6 +195,14 @@ function MobilePaneBody({
 
   const [zoom, setZoom] = useDeviceZoom(device?.deviceId);
   const [showFrame, setShowFrame] = useDeviceFrame();
+  /** Devices shown in their own desktop window, which this pane then does not stream. */
+  const [popOuts, setPopOuts] = useState<readonly MobilePopOut[]>([]);
+  useEffect(() => {
+    const unsubscribe = mobile.onPopOuts?.(setPopOuts);
+    mobile.popOuts?.().then(setPopOuts, () => undefined);
+    return unsubscribe;
+  }, [mobile]);
+  const poppedOut = device ? popOuts.some((entry) => entry.deviceId === device.deviceId) : false;
 
   const run = async (kind: Busy, operation: () => Promise<unknown>, fallback: string) => {
     setBusy((current) => new Set(current).add(kind));
@@ -197,6 +221,30 @@ function MobilePaneBody({
   };
 
   const nudgeTakeOver = useCallback(() => takeOverRef.current?.focus(), []);
+
+  const popOut = (target: MobileDevice) => {
+    const open = mobile.popOut;
+    if (!open) return;
+    void run(
+      "popout",
+      async () => setPopOuts(await open(target.deviceId)),
+      `${target.name} could not open in its own window.`,
+    );
+  };
+  const bringBack = (target: MobileDevice) => {
+    const close = mobile.closePopOut;
+    if (!close) return;
+    void run("popout", async () => setPopOuts(await close(target.deviceId)), "ZLI could not close the window.");
+  };
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each request pops out once the device list is in.
+  useEffect(() => {
+    if (popOutRequest === undefined || !devices) return;
+    onPopOutRequestDone?.();
+    if (!device) return;
+    if (device.state === "online") popOut(device);
+    else setActionError(`${device.name} needs to be running to open in its own window.`);
+  }, [popOutRequest, devices !== undefined]);
 
   const bootDevice = (target: MobileDevice) =>
     void run(
@@ -230,33 +278,18 @@ function MobilePaneBody({
     );
   };
 
-  const saveScreenshot = (target: MobileDevice) =>
+  const saveShot = (target: MobileDevice) =>
     run(
       "screenshot",
-      async () => {
-        const shot = await mobile.screenshot(target.deviceId);
-        const link = document.createElement("a");
-        link.href = `data:${shot.mimeType};base64,${shot.data}`;
-        link.download = `${fileSafe(target.name)}-${fileStamp(new Date())}.png`;
-        link.click();
-        showNotice(`Saved ${link.download}`);
-      },
+      async () => showNotice(`Saved ${await saveScreenshot(mobile, target)}`),
       "The screenshot could not be taken.",
     );
 
-  const copyScreenshot = (target: MobileDevice) =>
+  const copyShot = (target: MobileDevice) =>
     run(
       "screenshot",
       async () => {
-        if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") throw new Error(CLIPBOARD_IMAGE_ERROR);
-        const image = mobile.screenshot(target.deviceId).then(screenshotBlob);
-        // The clipboard takes writes only right after a click, so the write starts now and waits for the image.
-        const written = navigator.clipboard.write([new ClipboardItem({ "image/png": image })]).then(
-          () => true,
-          () => false,
-        );
-        await image;
-        if (!(await written)) throw new Error(CLIPBOARD_IMAGE_ERROR);
+        await copyScreenshot(mobile, target);
         showNotice("Copied the screenshot.");
       },
       "The screenshot could not be copied.",
@@ -341,6 +374,17 @@ function MobilePaneBody({
   else body = deviceBody(device);
 
   function deviceBody(shown: MobileDevice): ReactNode {
+    if (shown.state === "online" && poppedOut)
+      return (
+        <EmptyState icon="externalLink" title={`${shown.name} is open in its own window.`}>
+          <Button size="sm" loading={busy.has("popout")} onClick={() => bringBack(shown)}>
+            Bring it back
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => popOut(shown)}>
+            Show the window
+          </Button>
+        </EmptyState>
+      );
     if (shown.state === "online")
       return (
         <DeviceScreen
@@ -428,6 +472,23 @@ function MobilePaneBody({
   return (
     <div className="tool-pane mobile-pane">
       <PaneHeader icon="smartphone" title="Mobile" detail={device && !showSetup ? deviceKindLabel(device) : undefined}>
+        {mobile.popOut && device && !showSetup ? (
+          <IconButton
+            icon="externalLink"
+            size="sm"
+            iconSize={14}
+            label="Pop out"
+            tooltip={
+              !online
+                ? `${device.name} needs to be running to open in its own window`
+                : poppedOut
+                  ? "Show its window"
+                  : "Open this device in its own window"
+            }
+            disabled={!online || busy.has("popout")}
+            onClick={() => popOut(device)}
+          />
+        ) : null}
         <IconButton
           icon="reload"
           size="sm"
@@ -487,35 +548,17 @@ function MobilePaneBody({
         </div>
       ) : null}
       {!showSetup && device && lease ? (
-        <div className={`banner ${lease.kind === "agent" ? "banner-warning" : "banner-info"}`} role="status">
-          <Icon name={lease.kind === "agent" ? "bot" : "user"} size={14} />
-          <span className="banner-message">{lease.text}</span>
-          <div className="banner-actions">
-            {lease.kind === "agent" ? (
-              <Button
-                ref={takeOverRef}
-                size="xs"
-                variant="primary"
-                loading={busy.has("lease")}
-                onClick={() =>
-                  void run("lease", () => mobile.takeOver(device.deviceId), "ZLI could not give you control.")
-                }
-              >
-                Take over
-              </Button>
-            ) : (
-              <Button
-                size="xs"
-                loading={busy.has("lease")}
-                onClick={() =>
-                  void run("lease", () => mobile.release(device.deviceId), "ZLI could not hand the device back.")
-                }
-              >
-                Hand back to agents
-              </Button>
-            )}
-          </div>
-        </div>
+        <LeaseBanner
+          lease={lease}
+          busy={busy.has("lease")}
+          takeOverRef={takeOverRef}
+          onTakeOver={() =>
+            void run("lease", () => mobile.takeOver(device.deviceId), "ZLI could not give you control.")
+          }
+          onRelease={() =>
+            void run("lease", () => mobile.release(device.deviceId), "ZLI could not hand the device back.")
+          }
+        />
       ) : null}
       {device && online && expo && !showSetup ? (
         <ExpoBanner
@@ -549,7 +592,7 @@ function MobilePaneBody({
         </div>
       ) : null}
       <div className="mobile-body">{body}</div>
-      {device && online && !showSetup ? (
+      {device && online && !showSetup && !poppedOut ? (
         <MobileControls
           key={device.deviceId}
           mobile={mobile}
@@ -559,8 +602,8 @@ function MobilePaneBody({
           onError={setActionError}
           onNotice={showNotice}
           screenshotBusy={busy.has("screenshot")}
-          onScreenshot={() => void saveScreenshot(device)}
-          onCopyScreenshot={() => void copyScreenshot(device)}
+          onScreenshot={() => void saveShot(device)}
+          onCopyScreenshot={() => void copyShot(device)}
           canRotate={android || status?.host.os === "macos"}
           showFrame={showFrame}
           onShowFrame={setShowFrame}
@@ -602,13 +645,4 @@ function readSelected(): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-function fileSafe(name: string): string {
-  return name.replace(/[^A-Za-z0-9._-]+/gu, "-").replace(/^-+|-+$/gu, "") || "device";
-}
-
-function fileStamp(date: Date): string {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
 }

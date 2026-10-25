@@ -5,6 +5,7 @@ import type {
   MobileAvdList,
   MobileDevice,
   MobilePanelInput,
+  MobilePopOut,
   MobileSettings,
   MobileSetupPlan,
   MobileSetupProgress,
@@ -744,6 +745,67 @@ describe("MobilePane", () => {
     expect(again.querySelector(".mobile-device.is-framed")).not.toBeNull();
     expect(window.localStorage.getItem("zli.mobile.skin.v1")).toBeNull();
   });
+
+  it("offers Pop out only when the desktop app has pop-out windows", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    expect(() => button(container, "Pop out")).toThrow("No button Pop out");
+  });
+
+  it("pops the device out, shows that it is in its own window instead of a second stream, and brings it back", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    const popOutListeners = new Set<(popOuts: MobilePopOut[]) => void>();
+    const publishPopOuts = (popOuts: MobilePopOut[]) => {
+      for (const listener of popOutListeners) listener(popOuts);
+    };
+    const popOut = vi.fn(async (deviceId: string) => [{ deviceId, pinned: false }]);
+    const closePopOut = vi.fn(async (_deviceId: string): Promise<MobilePopOut[]> => []);
+    const mobile: MobileBridge = {
+      ...fake.mobile,
+      popOuts: async () => [],
+      onPopOuts: (listener) => {
+        popOutListeners.add(listener);
+        return () => popOutListeners.delete(listener);
+      },
+      popOut,
+      closePopOut,
+    };
+    const container = await render(bridgeWith(mobile));
+    await showStill(fake, emulator);
+    expect(fake.mobile.startStream).toHaveBeenCalledTimes(1);
+
+    await click(button(container, "Pop out"));
+    expect(popOut).toHaveBeenCalledWith(emulator.deviceId);
+    expect(container.textContent).toContain("Pixel 8 is open in its own window.");
+    expect(container.querySelector(".mobile-screen")).toBeNull();
+    expect(fake.mobile.stopStream).toHaveBeenCalledWith(emulator.deviceId);
+    expect(() => button(container, "More device buttons")).toThrow();
+
+    await click(button(container, "Show the window"));
+    expect(popOut).toHaveBeenCalledTimes(2);
+    await click(button(container, "Bring it back"));
+    expect(closePopOut).toHaveBeenCalledWith(emulator.deviceId);
+    expect(container.textContent).not.toContain("is open in its own window");
+    expect(fake.mobile.startStream).toHaveBeenCalledTimes(2);
+
+    // A window closed from its own title bar gives the device back the same way.
+    await act(async () => publishPopOuts([{ deviceId: emulator.deviceId, pinned: true }]));
+    expect(container.textContent).toContain("Pixel 8 is open in its own window.");
+    await act(async () => publishPopOuts([]));
+    await showStill(fake, emulator);
+    expect(container.querySelector("img.mobile-screen")).not.toBeNull();
+  });
+
+  it("disables Pop out until the device runs", async () => {
+    const fake = createMobile({ devices: [{ ...emulator, state: "shutdown" }] });
+    const popOut = vi.fn(async (deviceId: string) => [{ deviceId, pinned: false }]);
+    const container = await render(bridgeWith({ ...fake.mobile, popOut }));
+    expect(button(container, "Pop out").disabled).toBe(true);
+    expect(button(container, "Pop out").getAttribute("data-tooltip")).toBe(
+      "Pixel 8 needs to be running to open in its own window",
+    );
+  });
+
   it("opens a typed URL on the device and says when it forwarded a local port", async () => {
     vi.useFakeTimers();
     const fake = createMobile({ devices: [emulator] });

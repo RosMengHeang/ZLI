@@ -164,6 +164,8 @@ function WorkspaceApp() {
   const [browserReveal, setBrowserReveal] = useState<BrowserReveal>();
   const [browserOpen, setBrowserOpen] = useState<BrowserOpenRequest>();
   const [mobileReveal, setMobileReveal] = useState<MobileReveal>();
+  /** Set by the palette, so the Mobile pane pops its selected device out once it has the device list. */
+  const [mobilePopOutRequest, setMobilePopOutRequest] = useState<number>();
   const [filesFocus, setFilesFocus] = useState<FilesFocus>();
   const [quickOpen, setQuickOpen] = useState(false);
   /** Setup approvals the person closed without answering; they stay reachable from the sidebar. */
@@ -334,6 +336,7 @@ function WorkspaceApp() {
     });
   }, [bridge, focusWorktree]);
   const mobileAvailable = Boolean(bridge?.mobile);
+  const mobilePopOutAvailable = Boolean(bridge?.mobile?.popOut);
   useEffect(() => {
     if (!bridge?.mobile) return;
     let key = 0;
@@ -1322,6 +1325,19 @@ function WorkspaceApp() {
           } satisfies PaletteCommand,
         ]
       : []),
+    ...(mobilePopOutAvailable
+      ? [
+          {
+            label: "Pop out mobile device",
+            icon: "externalLink",
+            group: "View",
+            action: () => {
+              setSidePane("mobile");
+              setMobilePopOutRequest(Date.now());
+            },
+          } satisfies PaletteCommand,
+        ]
+      : []),
     {
       label: "Focus changes",
       icon: "diff",
@@ -1615,7 +1631,12 @@ function WorkspaceApp() {
                         onShowAgent={showAgent}
                       />
                     ) : sidePane === "mobile" ? (
-                      <MobilePane reveal={mobileReveal} devServers={mobileDevServers} />
+                      <MobilePane
+                        reveal={mobileReveal}
+                        devServers={mobileDevServers}
+                        popOutRequest={mobilePopOutRequest}
+                        onPopOutRequestDone={() => setMobilePopOutRequest(undefined)}
+                      />
                     ) : (
                       <Suspense fallback={<LoadingState label="Loading the changes" />}>
                         <ReviewPane worktree={contextWorktree} focus={reviewFocus} onShowAgent={showAgent} />
