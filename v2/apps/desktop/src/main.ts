@@ -32,7 +32,11 @@ import {
 } from "electron";
 import { WebSocket } from "ws";
 
-import { createAgentControlActions, isAgentControlAction } from "./agents/AgentControlActions.js";
+import {
+  type AgentControlHost,
+  createAgentControlActions,
+  isAgentControlAction,
+} from "./agents/AgentControlActions.js";
 import { busyAgentCount, QuitController, quitWarning } from "./app/QuitController.js";
 import { BrowserAutomation } from "./browser/BrowserAutomation.js";
 import { createBrowserControlActions } from "./browser/BrowserControlActions.js";
@@ -47,6 +51,7 @@ import {
   createInputWaker,
   type WakeableWebContents,
 } from "./browser/HiddenRendering.js";
+import { createProjectCheckout } from "./browser/projectCheckout.js";
 import { type CaptureDependencies, captureSource, listCaptureSources, parseSourceId } from "./capture/WindowCapture.js";
 import { DesktopDiagnostics } from "./diagnostics/DesktopDiagnostics.js";
 import type { AgentNotifier } from "./notifications/AgentNotifier.js";
@@ -268,18 +273,20 @@ async function startBrowserControl(databasePath: string): Promise<BrowserToolPat
     connectScript: join(DESKTOP_DIST, "zli-connect.js"),
     shimDir: process.env.ZLI_DATABASE_PATH ? `${databasePath}.bin` : join(userData, "bin"),
   };
+  const runtimeCommand: AgentControlHost["command"] = (request) =>
+    runtime ? runtime.command(request) : Promise.reject(new Error("ZLI's runtime is still starting."));
   const browserActions = createBrowserControlActions({
     manager: () => browserManager,
     worktrees: () => runtime?.projection()?.worktrees ?? [],
     reveal: (event) => {
       if (mainWindow && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send("zli:browser:reveal", event);
     },
+    checkoutFor: createProjectCheckout({ projection: () => runtime?.projection(), command: runtimeCommand }),
   });
   const agentActions = createAgentControlActions({
     projection: () => runtime?.projection(),
     subscribe: (listener) => runtime?.subscribe(() => listener()) ?? (() => undefined),
-    command: (request) =>
-      runtime ? runtime.command(request) : Promise.reject(new Error("ZLI's runtime is still starting.")),
+    command: runtimeCommand,
     askToConnect: (request) => notifier?.connectorRequest(request),
   });
   // The zli agent tool shares this service and endpoint file with zli-browser, so agents need one variable.

@@ -57,6 +57,7 @@ export class DroidProviderAdapter implements ProviderAdapter {
     const result = await context.client.sendTurn({
       text: input.text,
       ...(input.model ? { model: input.model } : {}),
+      ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
       ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
     });
     return { turnId: result.providerTurnId };

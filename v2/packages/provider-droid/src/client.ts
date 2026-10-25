@@ -141,19 +141,20 @@ export class DroidClient {
   }
 
   /**
-   * Each turn is its own process, so a turn-level model simply replaces -m for that run. A
-   * permission mode applies to this turn and every later one.
+   * Each turn is its own process, so a turn-level model or reasoning level only applies to that
+   * run. A permission mode applies to this turn and every later one.
    */
   async sendTurn(input: {
     text: string;
     model?: string;
+    reasoningEffort?: string;
     permissionMode?: DroidPermissionMode;
   }): Promise<DroidTurnResult> {
     this.assertOpen();
     if (this.active) throw new DroidProviderError("request_failed", "Droid CLI already has a turn in progress.");
     if (input.permissionMode) this.permissionMode = input.permissionMode;
     const providerTurnId = randomUUID();
-    const peer = this.spawnTurn(input.model?.trim() || this.model);
+    const peer = this.spawnTurn(input.model?.trim() || this.model, input.reasoningEffort?.trim() || undefined);
     this.active = { id: providerTurnId, text: "", sawText: false, tools: new Map() };
     try {
       peer.write(input.text);
@@ -185,12 +186,13 @@ export class DroidClient {
     await this.stopPeer();
   }
 
-  private spawnTurn(model: string | undefined): DroidPeer {
+  private spawnTurn(model: string | undefined, reasoningEffort: string | undefined): DroidPeer {
     const spawnProcess = this.spawnProcess ?? defaultSpawn;
     const args = droidTurnArgs({
       cwd: this.cwd,
       permissionMode: this.permissionMode,
       ...(model ? { model } : {}),
+      ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(this.sessionId ? { sessionId: this.sessionId } : {}),
     });
     let child: DroidChild;

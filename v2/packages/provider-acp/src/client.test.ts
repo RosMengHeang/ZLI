@@ -300,6 +300,35 @@ describe("AcpClient handshake", () => {
     expect(agent.requests("session/set_config_option")).toHaveLength(1);
   });
 
+  it("reports thought_level values and sets the level a turn asks for", async () => {
+    const agent = new FakeAgent(
+      { protocolVersion: 1 },
+      {
+        sessionId: "s1",
+        configOptions: [
+          {
+            id: "effort",
+            category: "thought_level",
+            type: "select",
+            currentValue: "medium",
+            options: [{ value: "low" }, { value: "medium" }, { value: "high" }],
+          },
+        ],
+      },
+    );
+    agent.handlers.set("session/set_config_option", (params) => ({
+      configOptions: [{ id: "effort", category: "thought_level", currentValue: params.value, options: [] }],
+    }));
+    const { client } = await harness(agent);
+    expect(client.reasoningEfforts).toEqual(["low", "medium", "high"]);
+    await client.sendTurn({ text: "hi", reasoningEffort: "high" });
+    expect(agent.requests("session/set_config_option")[0]?.params).toEqual({
+      sessionId: "s1",
+      configId: "effort",
+      value: "high",
+    });
+  });
+
   it("uses session/set_model when only the legacy models list is advertised", async () => {
     const agent = new FakeAgent(
       { protocolVersion: 1 },

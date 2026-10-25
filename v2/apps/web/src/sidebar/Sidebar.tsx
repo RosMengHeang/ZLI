@@ -364,9 +364,13 @@ export function Sidebar({
                   </button>
                   <IconButton
                     label="Create worktree"
+                    {...(project.git === false
+                      ? { tooltip: "Worktrees need Git. This folder is not a Git repository." }
+                      : {})}
                     icon="plus"
                     size="xs"
                     iconSize={13}
+                    disabled={project.git === false}
                     onClick={() => onCreateWorktree(project)}
                   />
                 </div>

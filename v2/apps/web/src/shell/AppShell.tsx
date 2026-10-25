@@ -65,8 +65,8 @@ import { groupFinished, useRunStates } from "../sessions/useRunStates.js";
 import { forgetSession, useWorkbenchState } from "../sessions/workbench.js";
 import { resolveLaunchDefaults, useAppSettings } from "../settings/appSettings.js";
 import { ExpiredSignInNotice } from "../settings/ExpiredSignInNotice.js";
-import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
 import type { IntegrationsView } from "../settings/IntegrationsSection.js";
+import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
 import { SettingsDialog, type SettingsSection } from "../settings/SettingsDialog.js";
 import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
 import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
@@ -178,14 +178,15 @@ function WorkspaceApp() {
     () => (projection ? deriveSessions(projection, workbench.pending) : []),
     [projection, workbench.pending],
   );
-  const readyWorktreeIds = useMemo(
-    () =>
-      (projection?.worktrees ?? [])
-        .filter((worktree) => worktree.status === "ready")
-        .map((worktree) => worktree.worktreeId)
-        .sort(),
-    [projection?.worktrees],
-  );
+  const readyWorktreeIds = useMemo(() => {
+    const withoutGit = new Set(
+      (projection?.projects ?? []).filter((project) => project.git === false).map((project) => project.projectId),
+    );
+    return (projection?.worktrees ?? [])
+      .filter((worktree) => worktree.status === "ready" && !withoutGit.has(worktree.projectId))
+      .map((worktree) => worktree.worktreeId)
+      .sort();
+  }, [projection?.worktrees, projection?.projects]);
   // Keeps the sidebar's pull request and CI badges current; checks still running are revisited sooner.
   usePullRequestPolling(dispatch, readyWorktreeIds);
   const tiles = useMemo(
@@ -1128,6 +1129,18 @@ function WorkspaceApp() {
     });
   };
 
+  const openBrowserInProject = async (projectId: string) => {
+    const project = projection?.projects.find((candidate) => candidate.projectId === projectId);
+    if (!projection || !project) return;
+    try {
+      const checkout = await ensureCheckout(dispatch, projection, project);
+      if ("error" in checkout) showError(checkout.error);
+      else setSelectedWorktreeId(checkout.worktreeId);
+    } catch (cause) {
+      showError(cause instanceof Error ? cause.message : "The project folder could not be opened.");
+    }
+  };
+
   /** Runs in the current worktree, or else in the project's own checkout. */
   const startPluginAction = async (action: PluginAction) => {
     const project = contextProject ?? projection?.projects[0];
@@ -1582,6 +1595,8 @@ function WorkspaceApp() {
                         reveal={browserReveal}
                         openRequest={browserOpen}
                         onShowAgent={showAgent}
+                        projects={projection?.projects}
+                        onOpenProject={openBrowserInProject}
                       />
                     ) : (
                       <Suspense fallback={<LoadingState label="Loading the changes" />}>

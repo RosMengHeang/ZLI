@@ -530,3 +530,31 @@ describe("turn usage", () => {
     expect(() => decide(projection("/work/tree"), usage(10))).toThrow(DomainError);
   });
 });
+
+describe("projects without Git", () => {
+  const projectId = ProjectId.parse("00000000-0000-4000-8000-000000000403");
+  const plain = (git: boolean | undefined): RuntimeProjection => ({
+    ...projection("/work/app"),
+    worktrees: [],
+    projects: [{ projectId, path: "/work/app", name: "app", ...(git === undefined ? {} : { git }) }],
+  });
+  const create: RuntimeCommand = {
+    type: "worktree.create",
+    worktreeId,
+    projectId,
+    path: "/work/app-worktrees/feature",
+    workspaceRoot: "/work/app-worktrees",
+    branch: "feature",
+  };
+
+  it("records whether the folder is a Git repository", () => {
+    expect(decide(plain(undefined), { type: "project.git", projectId, git: false })).toEqual([
+      { type: "project.git.changed", projectId, git: false },
+    ]);
+  });
+
+  it("refuses a new worktree for a folder that is not a Git repository", () => {
+    expect(() => decide(plain(false), create)).toThrow(/not a Git repository/u);
+    expect(decide(plain(undefined), create)[0]?.type).toBe("worktree.create.requested");
+  });
+});

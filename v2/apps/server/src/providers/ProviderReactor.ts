@@ -147,7 +147,10 @@ export class ProviderReactor {
         return;
       }
       await this.status(intent.thread.threadId, "idle", {
-        capabilities: this.service.getCapabilities(session.provider),
+        capabilities: {
+          ...this.service.getCapabilities(session.provider),
+          ...(session.reasoningEfforts?.length ? { reasoningEfforts: [...session.reasoningEfforts] } : {}),
+        },
       });
     } catch (error) {
       await this.fail(intent.thread.threadId, error, "Provider session failed to start.");
@@ -155,7 +158,7 @@ export class ProviderReactor {
   }
 
   private async send(intent: SendIntent): Promise<void> {
-    const { threadId, text, model, permissionMode } = intent;
+    const { threadId, text, model, reasoningEffort, permissionMode } = intent;
     const attachments = intent.attachments ?? [];
     await this.message(threadId, "user", text, undefined, attachments);
     // Taken before the provider sees the message, so none of the turn's edits can land first.
@@ -165,6 +168,7 @@ export class ProviderReactor {
         threadId: ThreadId.parse(threadId),
         text: promptWithAttachments(text, attachments),
         ...(model ? { model } : {}),
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(permissionMode ? { permissionMode } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
       });

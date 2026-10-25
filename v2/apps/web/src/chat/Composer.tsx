@@ -35,6 +35,9 @@ import {
   textByteLength,
 } from "./pastedText.js";
 import { permissionHint, permissionIcon, permissionLabel, permissionOptions } from "./permissions.js";
+import { DEFAULT_REASONING, reasoningLabel, reasoningOptions } from "./reasoning.js";
+
+const NO_LEVELS: readonly string[] = [];
 
 const CapturePicker = lazy(() => import("./CapturePicker.js").then((module) => ({ default: module.CapturePicker })));
 
@@ -104,6 +107,10 @@ export function Composer({
   model,
   modelLocked,
   onModelChange,
+  reasoningLevels = NO_LEVELS,
+  defaultReasoning,
+  reasoningEffort,
+  onReasoningEffortChange,
   permissionMode,
   onPermissionModeChange,
   projectId,
@@ -126,6 +133,12 @@ export function Composer({
   /** The provider cannot switch models inside a running session. */
   modelLocked: boolean;
   onModelChange(model: string | undefined): void;
+  /** Levels the current model takes. Empty hides the picker. */
+  reasoningLevels?: readonly string[] | undefined;
+  /** The model's own level, when the agent says. */
+  defaultReasoning?: string | undefined;
+  reasoningEffort?: string | undefined;
+  onReasoningEffortChange?(level: string | undefined): void;
   permissionMode: PermissionMode;
   /** Absent when the provider keeps its permission mode for the whole session. */
   onPermissionModeChange?: ((mode: PermissionMode) => void) | undefined;
@@ -168,6 +181,10 @@ export function Composer({
   imagesRef.current = images;
   const modelChoices = useMemo(() => modelOptions(models, model), [models, model]);
   const modelLabel = modelChoices.find((option) => option.value === (model ?? DEFAULT_MODEL))?.label ?? model;
+  const reasoningChoices = useMemo(
+    () => reasoningOptions(reasoningLevels, defaultReasoning),
+    [reasoningLevels, defaultReasoning],
+  );
 
   useEffect(
     () => () => {
@@ -592,6 +609,22 @@ export function Composer({
           <ModelMark id={model} label={modelLabel} size={13} />
           <span className="picker-trigger-label">{modelLabel}</span>
         </Picker>
+        {reasoningLevels.length > 0 && onReasoningEffortChange ? (
+          <Picker
+            label="Reasoning"
+            className="composer-reasoning"
+            value={reasoningEffort ?? DEFAULT_REASONING}
+            options={reasoningChoices}
+            onChange={(next) => onReasoningEffortChange(next || undefined)}
+            tooltip="How much the model thinks before it answers. Applies from your next message."
+            footer="Applies from your next message."
+          >
+            <Icon name="sparkle" size={13} />
+            <span className="picker-trigger-label">
+              {reasoningEffort ? reasoningLabel(reasoningEffort) : "Default"}
+            </span>
+          </Picker>
+        ) : null}
         {onPermissionModeChange ? (
           <Picker
             label="Permissions"

@@ -19,6 +19,7 @@ import {
 } from "@zli-v2/contracts";
 
 import { resolveTerminalCwd, TerminalCwdError } from "../terminal/terminalCwd.js";
+import { NOT_GIT_WORKTREE_MESSAGE } from "../worktrees/WorktreeService.js";
 
 export type DomainErrorCode =
   | "project_exists"
@@ -58,6 +59,7 @@ export type DomainDecision = Extract<
     type:
       | "project.registered"
       | "project.archived"
+      | "project.git.changed"
       | "worktree.create.requested"
       | "worktree.imported"
       | "worktree.status.changed"
@@ -140,9 +142,13 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
         throw new DomainError("unsupported_command", "Archive worktrees before archiving the project.");
       }
       return [{ type: "project.archived", projectId: command.projectId }];
+    case "project.git":
+      assertProject(projection, command.projectId);
+      return [{ type: "project.git.changed", projectId: command.projectId, git: command.git }];
     case "worktree.create": {
       const project = projection.projects.find((entry) => entry.projectId === command.projectId);
       if (!project) throw new DomainError("project_missing", `Project does not exist: ${command.projectId}`);
+      if (project.git === false) throw new DomainError("unsupported_command", NOT_GIT_WORKTREE_MESSAGE);
       if (projection.worktrees.some((worktree) => worktree.worktreeId === command.worktreeId)) {
         throw new DomainError("worktree_exists", `Worktree already exists: ${command.worktreeId}`);
       }
@@ -342,6 +348,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
         threadId: command.threadId,
         text: command.text,
         ...(command.model ? { model: command.model } : {}),
+        ...(command.reasoningEffort ? { reasoningEffort: command.reasoningEffort } : {}),
         ...(command.permissionMode ? { permissionMode: command.permissionMode } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
       };
@@ -738,6 +745,7 @@ function sendRequested(
     threadId: ThreadId;
     text: string;
     model?: string | undefined;
+    reasoningEffort?: string | undefined;
     permissionMode?: PermissionMode | undefined;
     attachments?: readonly ThreadAttachment[] | undefined;
   },
@@ -750,6 +758,7 @@ function sendRequested(
     threadId: input.threadId,
     text: input.text,
     ...(input.model ? { model: input.model } : {}),
+    ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
     ...(permissionChanged(thread, input.permissionMode) && input.permissionMode
       ? { permissionMode: input.permissionMode }
       : {}),

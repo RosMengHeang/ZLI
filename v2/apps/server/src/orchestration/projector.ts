@@ -61,6 +61,14 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
       };
     case "project.archive.requested":
       return { ...projection, lastSequence: envelope.sequence };
+    case "project.git.changed":
+      return {
+        ...projection,
+        projects: projection.projects.map((project) =>
+          project.projectId === event.projectId ? { ...project, git: event.git } : project,
+        ),
+        lastSequence: envelope.sequence,
+      };
     case "worktree.create.requested":
       return {
         ...projection,

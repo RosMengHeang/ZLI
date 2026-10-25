@@ -219,6 +219,7 @@ button.step-row:hover:not(:disabled) { background: var(--zli-hover); }
 .composer-badge.is-full-access { color: var(--zli-muted); }
 .composer-footer .picker-trigger { min-width: 0; }
 .composer-model .picker-trigger-label { max-width: 200px; }
+.composer-reasoning .picker-trigger-label { max-width: 90px; }
 .composer-spacer { flex: 1; }
 .composer-context { padding: 0 var(--zli-space-1-5); color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .composer-context.is-full { color: var(--zli-amber); }
@@ -288,7 +289,7 @@ button.step-row:hover:not(:disabled) { background: var(--zli-hover); }
 }
 @container tile (max-width: 400px) {
   .composer-badge { padding: 0 var(--zli-space-1); font-size: 0; gap: 0; }
-  .composer-permission .picker-trigger-label { display: none; }
+  .composer-permission .picker-trigger-label, .composer-reasoning .picker-trigger-label { display: none; }
 }
 
 /* ---------- Images in replies ---------- */

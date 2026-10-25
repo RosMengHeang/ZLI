@@ -75,6 +75,15 @@ export class ProjectionStore {
         };
         break;
       }
+      case "project.git.changed":
+        this.#projection = {
+          ...current,
+          projects: current.projects.map((project) =>
+            project.projectId === event.projectId ? { ...project, git: event.git } : project,
+          ),
+          lastSequence: envelope.sequence,
+        };
+        break;
       case "project.archived":
         this.#projection = {
           ...current,

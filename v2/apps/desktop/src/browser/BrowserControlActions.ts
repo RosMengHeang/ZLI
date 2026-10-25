@@ -15,9 +15,9 @@ import {
   BrowserControlTarget,
   BrowserControlViewportInput,
   BrowserControlWaitInput,
-  browserViewportForPreset,
   type BrowserTabProjection,
   type BrowserViewport,
+  browserViewportForPreset,
 } from "@zli-v2/contracts";
 
 import { isAllowedBrowserNavigation } from "../security/NavigationPolicy.js";
@@ -58,6 +58,8 @@ export type BrowserControlHost = {
   manager(): BrowserControlManager | undefined;
   worktrees(): readonly BrowserControlWorktree[];
   reveal(event: { browserTabId: string; worktreeId: string }): void;
+  /** The checkout of the project containing cwd, added when no ready worktree contains it. */
+  checkoutFor?(cwd: string): Promise<BrowserControlWorktree | undefined>;
   readonly platform?: NodeJS.Platform;
   /** How long open and navigate wait for the page before returning with status "loading". */
   readonly loadTimeoutMs?: number;
@@ -148,6 +150,18 @@ export function createBrowserControlActions(host: BrowserControlHost): BrowserCo
     return { manager, worktree, tab, browserTabId: tab.browserTabId };
   };
 
+  /** Opening a page may add the project's checkout; other actions need a tab, so they never do. */
+  const resolveForOpen = async (input: BrowserControlTarget): Promise<BrowserControlWorktree> => {
+    try {
+      return resolveBrowserControlWorktree(input, host.worktrees(), platform);
+    } catch (cause) {
+      if (input.worktreeId || !input.cwd || !host.checkoutFor) throw cause;
+      const checkout = await host.checkoutFor(input.cwd);
+      if (!checkout) throw cause;
+      return checkout;
+    }
+  };
+
   const navigateBounded = async (manager: BrowserControlManager, browserTabId: string, url: string) => {
     // loadURL resolves at did-finish-load, slightly before did-stop-loading marks the tab idle.
     const navigation = manager
@@ -188,7 +202,7 @@ export function createBrowserControlActions(host: BrowserControlHost): BrowserCo
     open: async (input) => {
       const parsed = BrowserControlOpenInput.parse(input);
       const manager = requireManager();
-      const worktree = resolveBrowserControlWorktree(parsed, host.worktrees(), platform);
+      const worktree = await resolveForOpen(parsed);
       const url = normalizeAgentUrl(parsed.url);
       const tabs = manager.list(worktree.worktreeId);
       let tab: BrowserTabProjection | undefined;

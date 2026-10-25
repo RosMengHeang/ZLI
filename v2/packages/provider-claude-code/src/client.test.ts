@@ -238,6 +238,24 @@ describe("ClaudeCodeClient", () => {
     expect(peer.written).toHaveLength(3);
   });
 
+  it("sets the reasoning level only when it changes and clears it for a turn without one", async () => {
+    const { client, peer } = await startedClient();
+    await client.sendTurn({ text: "Hi", reasoningEffort: "max" });
+    expect(JSON.parse(peer.written[1] ?? "{}")).toMatchObject({
+      type: "control_request",
+      request: { subtype: "apply_flag_settings", settings: { effortLevel: "max" } },
+    });
+    peer.emit({ type: "result", subtype: "success", result: "ok" });
+    await client.sendTurn({ text: "Same", reasoningEffort: "max" });
+    expect(JSON.parse(peer.written[3] ?? "{}")).toMatchObject({ type: "user", message: { content: "Same" } });
+    peer.emit({ type: "result", subtype: "success", result: "ok" });
+    await client.sendTurn({ text: "Default" });
+    expect(JSON.parse(peer.written[4] ?? "{}")).toMatchObject({
+      request: { subtype: "apply_flag_settings", settings: { effortLevel: null } },
+    });
+    expect(peer.written).toHaveLength(6);
+  });
+
   it("does not hang when session init never arrives", async () => {
     const peer = new FakePeer();
     const started = Date.now();
