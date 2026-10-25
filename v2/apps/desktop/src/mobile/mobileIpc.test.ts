@@ -27,10 +27,16 @@ function handlers() {
     ios: new FakeDriver("ios", []),
     scrcpyServer: async () => "/zli/scrcpy-server",
   });
-  const service = { manager, setup: {}, status: async () => ({}) } as unknown as MobileService;
+  const avds = {
+    list: vi.fn(async () => ({ avds: [] })),
+    create: vi.fn(async (_input: unknown) => ({ avds: [] })),
+    delete: vi.fn(async (_input: unknown) => ({ avds: [] })),
+  };
+  const service = { manager, setup: {}, avds, status: async () => ({}) } as unknown as MobileService;
   const settings = { get: vi.fn(async () => ({ agentTools: true })), set: vi.fn(async () => ({ agentTools: false })) };
   return {
     android,
+    avds,
     logs,
     manager,
     settings,
@@ -105,5 +111,19 @@ describe("mobile IPC handlers", () => {
     const stopped = mobileIpcHandlers({ service: () => undefined, settings: () => undefined });
     expect(() => stopped["zli:mobile:devices"]?.(undefined)).toThrow("ZLI's mobile service is not running.");
     expect(() => stopped["zli:mobile:settings-get"]?.(undefined)).toThrow("ZLI's mobile service is not running.");
+  });
+  it("parses virtual device requests before they reach avdmanager", async () => {
+    const { avds, handle } = handlers();
+    const image = "system-images;android-35;google_apis;x86_64";
+    expect(await handle["zli:mobile:avd-list"]?.(undefined)).toEqual({ avds: [] });
+    await handle["zli:mobile:avd-create"]?.({ name: "Pixel_9", systemImage: image, device: "pixel_8" });
+    await handle["zli:mobile:avd-delete"]?.({ name: "Pixel_9" });
+    expect(avds.create).toHaveBeenCalledWith({ name: "Pixel_9", systemImage: image, device: "pixel_8" });
+    expect(avds.delete).toHaveBeenCalledWith({ name: "Pixel_9" });
+    expect(() => handle["zli:mobile:avd-create"]?.({ name: "Pixel 9", systemImage: image })).toThrow();
+    expect(() => handle["zli:mobile:avd-create"]?.({ name: "Pixel_9", systemImage: `${image} --force` })).toThrow();
+    expect(() => handle["zli:mobile:avd-delete"]?.({ name: "--all" })).toThrow();
+    expect(avds.create).toHaveBeenCalledTimes(1);
+    expect(avds.delete).toHaveBeenCalledTimes(1);
   });
 });

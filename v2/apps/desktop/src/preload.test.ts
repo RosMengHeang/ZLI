@@ -385,4 +385,36 @@ describe("preload mobile API", () => {
     await expect(api.mobile.launch("android:1", "com.example; reboot")).rejects.toThrow();
     expect(calls).toHaveLength(3);
   });
+
+  it("validates virtual device names and images before invoking main and parses the device list", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const list = {
+      avdmanager: true,
+      avds: [{ name: "Pixel_9", displayName: "Pixel 9", systemImage: "system-images;android-35;google_apis;x86_64" }],
+      systemImages: ["system-images;android-35;google_apis;x86_64"],
+      deviceProfiles: [{ id: "pixel_7", name: "Pixel 7" }],
+      defaultDeviceProfile: "pixel_7",
+    };
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        return channel === "zli:mobile:avd-delete" ? { ...list, avds: [] } : list;
+      },
+      on: () => () => undefined,
+    });
+    expect(await api.mobile.listAvds()).toEqual(list);
+    const image = "system-images;android-35;google_apis;x86_64";
+    expect(await api.mobile.createAvd({ name: "Pixel_9", systemImage: image, device: "pixel_7" })).toEqual(list);
+    expect((await api.mobile.deleteAvd("Pixel_9")).avds).toEqual([]);
+    expect(calls).toEqual([
+      { channel: "zli:mobile:avd-list", payload: undefined },
+      { channel: "zli:mobile:avd-create", payload: { name: "Pixel_9", systemImage: image, device: "pixel_7" } },
+      { channel: "zli:mobile:avd-delete", payload: { name: "Pixel_9" } },
+    ]);
+
+    await expect(api.mobile.createAvd({ name: "Pixel 9", systemImage: image })).rejects.toThrow();
+    await expect(api.mobile.createAvd({ name: "Pixel_9", systemImage: "android-35" })).rejects.toThrow();
+    await expect(api.mobile.deleteAvd("../Pixel_9")).rejects.toThrow();
+    expect(calls).toHaveLength(3);
+  });
 });

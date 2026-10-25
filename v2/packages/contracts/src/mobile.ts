@@ -128,6 +128,57 @@ export const MobileSetupProgress = z.object({
 });
 export type MobileSetupProgress = z.infer<typeof MobileSetupProgress>;
 
+/** What avdmanager accepts as a virtual device name. It also becomes a file name and an emulator argument. */
+export const MobileAvdName = z
+  .string()
+  .min(1, "Give the virtual device a name.")
+  .max(60, "Use at most 60 characters.")
+  // A leading dash would read as an option to avdmanager and the emulator.
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/u, "Use letters, digits, and _ . - only, starting with a letter or digit.");
+export type MobileAvdName = z.infer<typeof MobileAvdName>;
+
+/** An installed system image as an sdkmanager package id, such as system-images;android-35;google_apis;x86_64. */
+export const MobileSystemImageId = z
+  .string()
+  .max(200)
+  .regex(/^system-images;[A-Za-z0-9_.-]+;[A-Za-z0-9_.-]+;[A-Za-z0-9_.-]+$/u, "That is not a system image id.");
+
+/** A hardware profile id from avdmanager list device, such as pixel_7. */
+export const MobileDeviceProfileId = z
+  .string()
+  .min(1)
+  .max(80)
+  .regex(/^[A-Za-z0-9_.-]+$/u, "That is not a device profile id.");
+
+export const MobileAvd = z.object({
+  name: z.string().min(1).max(200),
+  displayName: z.string().max(200),
+  systemImage: z.string().max(200).optional(),
+});
+export type MobileAvd = z.infer<typeof MobileAvd>;
+
+export const MobileAvdList = z.object({
+  /** Without avdmanager, virtual devices can be listed but not created or deleted. */
+  avdmanager: z.boolean(),
+  avds: z.array(MobileAvd).max(500),
+  /** Only images already installed; creating a device never downloads one. */
+  systemImages: z.array(z.string().max(200)).max(500),
+  /** Hardware profiles to offer, the default first. */
+  deviceProfiles: z.array(z.object({ id: MobileDeviceProfileId, name: z.string().min(1).max(200) })).max(50),
+  defaultDeviceProfile: MobileDeviceProfileId,
+});
+export type MobileAvdList = z.infer<typeof MobileAvdList>;
+
+export const MobileAvdCreateInput = z.object({
+  name: MobileAvdName,
+  systemImage: MobileSystemImageId,
+  device: MobileDeviceProfileId.optional(),
+});
+export type MobileAvdCreateInput = z.infer<typeof MobileAvdCreateInput>;
+
+export const MobileAvdDeleteInput = z.object({ name: MobileAvdName });
+export type MobileAvdDeleteInput = z.infer<typeof MobileAvdDeleteInput>;
+
 /** Settings the person controls. agentTools off hides the zli-mobile tools from agents and refuses their calls. */
 export const MobileSettings = z.object({ agentTools: z.boolean() });
 export type MobileSettings = z.infer<typeof MobileSettings>;

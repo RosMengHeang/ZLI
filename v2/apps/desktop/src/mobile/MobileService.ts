@@ -2,9 +2,10 @@ import { join } from "node:path";
 
 import type { MobileIosStatus, MobileSetupProgress, MobileSetupStatus } from "@zli-v2/contracts";
 
-import { AndroidDriver, type AndroidTools } from "./AndroidDriver.js";
+import { AndroidDriver, type AndroidTools, androidDeviceId } from "./AndroidDriver.js";
 import { avdHome, detectAndroidSdk, listAvds, toolProbe } from "./AndroidSdk.js";
 import { AndroidEnvironment, AndroidSetup, sdkToolEnv, zliSdkRoot } from "./AndroidSetup.js";
+import { AvdManager } from "./AvdManager.js";
 import { DeviceManager, type DeviceManagerEvents } from "./DeviceManager.js";
 import { downloadVerified, type FetchLike } from "./download.js";
 import {
@@ -83,6 +84,7 @@ export type MobileService = {
   readonly manager: DeviceManager;
   readonly setup: AndroidSetup;
   readonly environment: AndroidEnvironment;
+  readonly avds: AvdManager;
   status(options?: { recheckAcceleration?: boolean }): Promise<MobileSetupStatus>;
   dispose(): Promise<void>;
 };
@@ -175,10 +177,24 @@ export function createMobileService(options: MobileServiceOptions): MobileServic
     },
   });
 
+  const avds = new AvdManager({
+    environment,
+    isRunning: async (name) => {
+      const deviceId = androidDeviceId({ avdName: name });
+      return (await manager.list()).some((device) => device.deviceId === deviceId && device.state !== "shutdown");
+    },
+    onChange: async () => {
+      androidTools = undefined;
+      await manager.list();
+    },
+    setupRunning: () => setup.running,
+  });
+
   return {
     manager,
     setup,
     environment,
+    avds,
     status: async (statusOptions = {}) => {
       const [android, ios] = await Promise.all([environment.inspect(statusOptions), resolveIos()]);
       return { host: { os: options.os, arch: options.arch }, android: android.status, ios: ios.status };

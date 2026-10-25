@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   MOBILE_CONTROL_ACTIONS,
+  MobileAvdCreateInput,
+  MobileAvdDeleteInput,
+  MobileAvdName,
   MobileControlLaunchInput,
   MobileControlSwipeInput,
   MobileControlTapInput,
@@ -67,5 +70,31 @@ describe("mobile contracts", () => {
     expect(MobileOpenUrlResult.parse({ reversedPort: 8081 })).toEqual({ reversedPort: 8081 });
     expect(MobileOpenUrlResult.safeParse({ reversedPort: 70_000 }).success).toBe(false);
     expect(MobileLogLines.safeParse(Array.from({ length: 2_001 }, () => "line")).success).toBe(false);
+  });
+
+  it("takes virtual device names avdmanager accepts, at most 60 characters", () => {
+    for (const name of ["Pixel_8", "ZLI-Pixel.35", "a"]) expect(MobileAvdName.safeParse(name).success).toBe(true);
+    for (const name of ["", "Pixel 8", "a;reboot", "../avd", "-rf", "$(x)", "é", "x".repeat(61)])
+      expect(MobileAvdName.safeParse(name).success).toBe(false);
+    expect(MobileAvdName.safeParse("x".repeat(60)).success).toBe(true);
+    expect(MobileAvdName.safeParse("Pixel 8").error?.issues[0]?.message).toBe(
+      "Use letters, digits, and _ . - only, starting with a letter or digit.",
+    );
+    expect(
+      MobileAvdCreateInput.parse({ name: "Pixel_9", systemImage: "system-images;android-35;google_apis;x86_64" }),
+    ).toEqual({ name: "Pixel_9", systemImage: "system-images;android-35;google_apis;x86_64" });
+    expect(
+      MobileAvdCreateInput.safeParse({ name: "Pixel_9", systemImage: "system-images;android-35;x86_64 --force" })
+        .success,
+    ).toBe(false);
+    expect(
+      MobileAvdCreateInput.safeParse({
+        name: "Pixel_9",
+        systemImage: "system-images;android-35;google_apis;x86_64",
+        device: "pixel 7",
+      }).success,
+    ).toBe(false);
+    expect(MobileAvdDeleteInput.safeParse({ name: "Pixel_8" }).success).toBe(true);
+    expect(MobileAvdDeleteInput.safeParse({ name: "-rf" }).success).toBe(false);
   });
 });

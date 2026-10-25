@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import type {
+  MobileAvdCreateInput,
+  MobileAvdList,
   MobileDevice,
   MobilePanelInput,
   MobileSettings,
@@ -87,8 +89,26 @@ const plan: MobileSetupPlan = {
   avdName: "ZLI_Pixel",
 };
 
+function avdListFor(status: MobileSetupStatus): MobileAvdList {
+  return {
+    avdmanager: status.android.avdmanager.found,
+    avds: status.android.avds.map((name) => ({
+      name,
+      displayName: name.replaceAll("_", " "),
+      systemImage: "system-images;android-35;google_apis;x86_64",
+    })),
+    systemImages: status.android.systemImages,
+    deviceProfiles: [
+      { id: "pixel_7", name: "Pixel 7" },
+      { id: "pixel_8", name: "Pixel 8" },
+    ],
+    defaultDeviceProfile: "pixel_7",
+  };
+}
+
 function createMobile(options: { devices: MobileDevice[]; status?: MobileSetupStatus }) {
   let devices = options.devices;
+  let avdList = avdListFor(options.status ?? readyStatus());
   let settings: MobileSettings = { agentTools: true };
   const deviceListeners = new Set<(next: MobileDevice[]) => void>();
   const streamListeners = new Set<(event: MobileStreamEvent) => void>();
@@ -109,6 +129,18 @@ function createMobile(options: { devices: MobileDevice[]; status?: MobileSetupSt
       setupListeners.add(listener);
       return () => setupListeners.delete(listener);
     },
+    listAvds: vi.fn(async (): Promise<MobileAvdList> => avdList),
+    createAvd: vi.fn(async (input: MobileAvdCreateInput): Promise<MobileAvdList> => {
+      avdList = {
+        ...avdList,
+        avds: [...avdList.avds, { name: input.name, displayName: input.name.replaceAll("_", " ") }],
+      };
+      return avdList;
+    }),
+    deleteAvd: vi.fn(async (name: string): Promise<MobileAvdList> => {
+      avdList = { ...avdList, avds: avdList.avds.filter((avd) => avd.name !== name) };
+      return avdList;
+    }),
     devices: vi.fn(async () => devices),
     onDevices: (listener: (next: MobileDevice[]) => void) => {
       deviceListeners.add(listener);

@@ -1,4 +1,6 @@
 import {
+  MobileAvdCreateInput,
+  MobileAvdDeleteInput,
   MobileDeviceIdInput,
   MobilePanelInput,
   MobilePanelLaunchInput,
@@ -18,7 +20,7 @@ export type MobileIpcHandler = (input: unknown) => unknown;
  * renderer is not trusted to have run the preload's own checks.
  */
 export function mobileIpcHandlers(deps: {
-  service(): Pick<MobileService, "manager" | "setup" | "status"> | undefined;
+  service(): Pick<MobileService, "manager" | "setup" | "status" | "avds"> | undefined;
   settings(): Pick<MobileSettingsStore, "get" | "set"> | undefined;
 }): Record<string, MobileIpcHandler> {
   const service = () => {
@@ -49,6 +51,9 @@ export function mobileIpcHandlers(deps: {
       service().setup.cancel();
       return { accepted: true };
     },
+    "zli:mobile:avd-list": () => service().avds.list(),
+    "zli:mobile:avd-create": (input) => service().avds.create(MobileAvdCreateInput.parse(input)),
+    "zli:mobile:avd-delete": (input) => service().avds.delete(MobileAvdDeleteInput.parse(input)),
     "zli:mobile:devices": () => manager().list(),
     "zli:mobile:boot": (input) => manager().boot(deviceId(input)),
     "zli:mobile:shutdown": async (input) => {

@@ -1,6 +1,8 @@
 import type {
   BrowserTabProjection,
   BrowserViewport,
+  MobileAvdCreateInput,
+  MobileAvdList,
   MobileDevice,
   MobileOpenUrlResult,
   MobilePanelInput,
@@ -105,6 +107,11 @@ export type MobileBridge = {
   runSetup(acceptedLicenses: readonly string[]): Promise<void>;
   cancelSetup(): Promise<void>;
   onSetupProgress(listener: (progress: MobileSetupProgress) => void): () => void;
+  /** Android virtual devices, the installed system images, and the hardware profiles to create one with. */
+  listAvds(): Promise<MobileAvdList>;
+  createAvd(input: MobileAvdCreateInput): Promise<MobileAvdList>;
+  /** Refused while the device is booting or running. */
+  deleteAvd(name: string): Promise<MobileAvdList>;
   devices(): Promise<MobileDevice[]>;
   onDevices(listener: (devices: MobileDevice[]) => void): () => void;
   boot(deviceId: string): Promise<MobileDevice>;

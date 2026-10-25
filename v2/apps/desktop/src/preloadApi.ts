@@ -15,6 +15,9 @@ import {
   BrowserTabProjection,
   type BrowserViewport,
   BrowserWaitForNetworkIdleInput,
+  MobileAvdCreateInput,
+  MobileAvdDeleteInput,
+  MobileAvdList,
   MobileDevice,
   MobileDeviceIdInput,
   MobileLogLines,
@@ -77,6 +80,12 @@ function createMobileApi(ipc: IpcBridge) {
       await ipc.invoke("zli:mobile:setup-cancel");
     },
     onSetupProgress: listen("zli:mobile:setup", MobileSetupProgress),
+    listAvds: async () => MobileAvdList.parse(await ipc.invoke("zli:mobile:avd-list")),
+    createAvd: async (input: MobileAvdCreateInput) =>
+      MobileAvdList.parse(await ipc.invoke("zli:mobile:avd-create", MobileAvdCreateInput.parse(input))),
+    /** Refused while the device is booting or running. */
+    deleteAvd: async (name: string) =>
+      MobileAvdList.parse(await ipc.invoke("zli:mobile:avd-delete", MobileAvdDeleteInput.parse({ name }))),
     devices: async () => MobileDevice.array().parse(await ipc.invoke("zli:mobile:devices")),
     onDevices: listen("zli:mobile:devices", MobileDevice.array()),
     boot: async (deviceId: string) => MobileDevice.parse(await ipc.invoke("zli:mobile:boot", device(deviceId))),
