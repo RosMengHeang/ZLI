@@ -7,9 +7,12 @@ function mono(d: string): Logo {
 }
 
 /**
- * Official product marks. Path data comes from @lobehub/icons (MIT) and, for Droid, from factory.ai.
- * Single-color marks use currentColor so they follow the row's text color; marks that are known by
- * their color keep it.
+ * Official product marks. Path data comes from @lobehub/icons-static-svg 1.97.0 and, for Droid, from
+ * factory.ai. Single-color marks use currentColor so they follow the row's text color; marks that are
+ * known by their color keep it. The marks are trademarks of their owners, shown only to identify each
+ * agent CLI.
+ *
+ * @license MIT. Copyright (c) 2023 LobeHub. https://github.com/lobehub/lobe-icons/blob/master/LICENSE
  */
 const logos: Record<string, Logo> = {
   "claude-code": {

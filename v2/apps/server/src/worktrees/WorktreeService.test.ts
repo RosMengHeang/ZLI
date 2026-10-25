@@ -32,7 +32,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-describe("Orca-style worktree lifecycle", () => {
+describe("worktree lifecycle", () => {
   it("creates a worktree through argument-safe git and reports lifecycle states", async () => {
     const { repoPath, worktreesPath } = await createRepository();
     const states: string[] = [];
