@@ -2,7 +2,7 @@ import type { MobilePanelInput } from "@zli-v2/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AndroidDriver } from "./AndroidDriver.js";
-import { DeviceManager, type MobileStreamMessage, scrcpyMessagesFor } from "./DeviceManager.js";
+import { DeviceManager, type IosVideoStarter, type MobileStreamMessage, scrcpyMessagesFor } from "./DeviceManager.js";
 import { FakeDriver } from "./FakeDriver.js";
 import { FakeProcessRunner } from "./FakeProcessRunner.js";
 import { encodeInjectKeycode, encodeInjectText, encodeRotateDevice, KeyAction } from "./scrcpy/protocol.js";
@@ -109,7 +109,7 @@ describe("device manager", () => {
     ios.size = { width: 1080, height: 2400 };
     await devices.startStream(iphone.deviceId);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    ios.size = { width: 540, height: 1200 };
+    ios.points = { width: 540, height: 1200 };
     const touch = (action: "down" | "up", x: number, y: number): MobilePanelInput => ({
       deviceId: iphone.deviceId,
       type: "touch",
@@ -142,6 +142,115 @@ describe("device manager", () => {
       "tap android-avd:Pixel_7 100,100",
       "swipe android-avd:Pixel_7 100,100 100,112 100",
     ]);
+  });
+
+  it("takes simulator screenshots faster for a few seconds after input, then slows back down", async () => {
+    let clock = 10_000;
+    const waits: number[] = [];
+    const wakeups: Array<() => void> = [];
+    const ios = new FakeDriver("ios", [iphone]);
+    const shots = vi.spyOn(ios, "screenshot");
+    const devices = new DeviceManager({
+      android: androidFake() as unknown as AndroidDriver,
+      ios,
+      scrcpyServer: async () => "/zli/scrcpy-server",
+      now: () => clock,
+      sleep: (milliseconds) => {
+        waits.push(milliseconds);
+        return new Promise<void>((resolve) => wakeups.push(resolve));
+      },
+    });
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const info = await devices.startStream(iphone.deviceId);
+    expect(info.fallbackReason).toMatch(/faster for a few seconds after you use them/u);
+    await settle();
+    expect(waits).toEqual([1_000]);
+
+    await devices.panelInput({ deviceId: iphone.deviceId, type: "button", button: "home" });
+    await settle();
+    // The input ends the idle wait at once, and the next waits are short.
+    expect(shots).toHaveBeenCalledTimes(2);
+    expect(waits).toEqual([1_000, 300]);
+    clock += 1_000;
+    wakeups.at(-1)?.();
+    await settle();
+    expect(waits.at(-1)).toBe(300);
+    clock += 2_500;
+    wakeups.at(-1)?.();
+    await settle();
+    expect(waits.at(-1)).toBe(1_000);
+    expect(shots).toHaveBeenCalledTimes(4);
+    await devices.stopStream(iphone.deviceId);
+  });
+
+  it("keeps Android screenshot mode at its steady rate after input", async () => {
+    const waits: number[] = [];
+    const devices = new DeviceManager({
+      android: androidFake() as unknown as AndroidDriver,
+      ios: new FakeDriver("ios", [iphone]),
+      scrcpyServer: async () => "/zli/scrcpy-server",
+      startScrcpy: async () => {
+        throw new Error("adb forward failed");
+      },
+      sleep: (milliseconds) => {
+        waits.push(milliseconds);
+        return new Promise<void>(() => undefined);
+      },
+    });
+    await devices.startStream(pixel.deviceId);
+    await devices.panelInput({ deviceId: pixel.deviceId, type: "button", button: "home" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(waits).toEqual([1_000]);
+  });
+
+  it("streams a simulator through the iOS video seam when it is on, with taps still going through the driver", async () => {
+    const ios = new FakeDriver("ios", [iphone]);
+    ios.size = { width: 1179, height: 2556 };
+    const messages: MobileStreamMessage[] = [];
+    let handlers: Parameters<IosVideoStarter>[1] | undefined;
+    const closed: string[] = [];
+    const devices = new DeviceManager({
+      android: androidFake() as unknown as AndroidDriver,
+      ios,
+      scrcpyServer: async () => "/zli/scrcpy-server",
+      events: { stream: (message) => messages.push(message) },
+      sleep: () => new Promise<void>(() => undefined),
+      iosVideo: async (_device, next) => {
+        handlers = next;
+        return { closed: false, close: async (reason) => void closed.push(reason ?? "") };
+      },
+    });
+    const info = await devices.startStream(iphone.deviceId);
+    expect(info).toEqual({ deviceId: iphone.deviceId, mode: "video", width: 1179, height: 2556 });
+    const sps = Buffer.from([0, 0, 0, 1, 0x67, 0x64, 0x00, 0x28]);
+    handlers?.onVideo({ type: "frame", key: true, pts: 0n, data: Buffer.from([1, 2, 3]), config: sps });
+    expect(messages.filter((message) => message.type !== "info")).toEqual([
+      { type: "config", deviceId: iphone.deviceId, codec: "avc1.640028", width: 1179, height: 2556 },
+      { type: "frame", deviceId: iphone.deviceId, key: true, timestamp: 0, data: new Uint8Array([1, 2, 3]) },
+    ]);
+    ios.points = { width: 393, height: 852 };
+    await devices.panelInput({ deviceId: iphone.deviceId, type: "touch", action: "down", x: 600, y: 1200 });
+    await devices.panelInput({ deviceId: iphone.deviceId, type: "touch", action: "up", x: 600, y: 1200 });
+    expect(ios.actions).toEqual([`tap ${iphone.deviceId} ${(600 * 393) / 1179},${(1200 * 852) / 2556}`]);
+    await devices.stopStream(iphone.deviceId);
+    expect(closed).toEqual(["The panel stopped showing this device."]);
+  });
+
+  it("falls back to screenshots with the reason when the iOS video seam cannot start", async () => {
+    const devices = new DeviceManager({
+      android: androidFake() as unknown as AndroidDriver,
+      ios: new FakeDriver("ios", [iphone]),
+      scrcpyServer: async () => "/zli/scrcpy-server",
+      sleep: () => new Promise<void>(() => undefined),
+      iosVideo: async () => {
+        throw new Error("This needs idb.");
+      },
+    });
+    const info = await devices.startStream(iphone.deviceId);
+    expect(info.mode).toBe("stills");
+    expect(info.fallbackReason).toBe(
+      "Live video from idb is unavailable, so the panel shows screenshots: This needs idb.",
+    );
   });
 
   it("cancels a boot when the device is shut down while booting", async () => {

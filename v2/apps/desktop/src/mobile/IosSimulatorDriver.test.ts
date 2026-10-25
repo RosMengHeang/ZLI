@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { FakeProcessRunner } from "./FakeProcessRunner.js";
-import { IosSimulatorDriver, parseIdbDescribe, parseSimctlDevices } from "./IosSimulatorDriver.js";
+import {
+  IosSimulatorDriver,
+  parseIdbDescribe,
+  parseSimctlDevices,
+  SIMULATOR_ROTATE_SCRIPT,
+  simulatorRotateError,
+} from "./IosSimulatorDriver.js";
 import type { ProcessRunner, RunOptions } from "./ProcessRunner.js";
 
 const SIMCTL = JSON.stringify({
@@ -143,7 +149,7 @@ describe("iOS simulator driver", () => {
     const [iphone] = await ios.list();
     if (!iphone) throw new Error("missing iPhone");
     await expect(ios.tap(iphone, 10, 10, false)).rejects.toThrow(/needs idb/u);
-    await expect(ios.rotate(iphone, undefined)).rejects.toThrow(/cannot rotate/u);
+    await expect(ios.rotate(iphone, undefined)).rejects.toThrow("Rotating a simulator needs macOS.");
     await expect(ios.install(iphone, "/tmp/App.ipa")).rejects.toThrow(/\.app bundle/u);
   });
 
@@ -175,5 +181,101 @@ describe("iOS simulator driver", () => {
       await ios.press(iphone, button);
     expect(fake.argsOf("idb").map((args) => args.at(-1))).toEqual(["82", "81", "80", "79", "43"]);
     await expect(ios.press(iphone, "recents")).rejects.toThrow(/iOS has no recents button/u);
+  });
+  it("rotates through the Simulator app's shortcut with osascript, finding the window by device name", async () => {
+    const fake = runner();
+    const ios = new IosSimulatorDriver({
+      runner: fake,
+      tools: async () => ({ xcrun: "/usr/bin/xcrun", osascript: "/usr/bin/osascript" }),
+    });
+    const [iphone] = await ios.list();
+    if (!iphone) throw new Error("missing iPhone");
+    expect(await ios.rotate(iphone, undefined)).toBe("landscape");
+    expect(await ios.rotate(iphone, "landscape-reverse")).toBe("landscape-reverse");
+    expect(await ios.rotate(iphone, "landscape-reverse")).toBe("landscape-reverse");
+    expect(await ios.rotate(iphone, "portrait")).toBe("portrait");
+    const script = SIMULATOR_ROTATE_SCRIPT.flatMap((line) => ["-e", line]);
+    const calls = fake.argsOf("osascript");
+    expect(calls).toHaveLength(3);
+    expect(calls[0]).toEqual([...script, "iPhone 15", "124", "1"]);
+    expect(calls.map((args) => args.slice(-3))).toEqual([
+      ["iPhone 15", "124", "1"],
+      ["iPhone 15", "124", "2"],
+      ["iPhone 15", "124", "1"],
+    ]);
+    expect(SIMULATOR_ROTATE_SCRIPT).toContain("key code arrowKey using command down");
+  });
+
+  it("turns the other way for a single step back, and starts from portrait again after a boot", async () => {
+    const fake = runner();
+    const ios = new IosSimulatorDriver({
+      runner: fake,
+      tools: async () => ({ xcrun: "/usr/bin/xcrun", osascript: "/usr/bin/osascript" }),
+    });
+    const [iphone] = await ios.list();
+    if (!iphone) throw new Error("missing iPhone");
+    await ios.rotate(iphone, "landscape-reverse");
+    await ios.boot(iphone, {});
+    await ios.rotate(iphone, "landscape");
+    expect(fake.argsOf("osascript").map((args) => args.slice(-2))).toEqual([
+      ["123", "1"],
+      ["124", "1"],
+    ]);
+  });
+
+  it("explains the Accessibility permission when macOS refuses the keystroke", async () => {
+    const refusing = new FakeProcessRunner((command, args) => {
+      if (args.join(" ") === "simctl list devices --json") return { stdout: SIMCTL };
+      if (command.endsWith("osascript"))
+        return {
+          code: 1,
+          stderr: "execution error: System Events got an error: osascript is not allowed assistive access. (-1719)",
+        };
+      return undefined;
+    });
+    const ios = new IosSimulatorDriver({
+      runner: refusing,
+      tools: async () => ({ xcrun: "/usr/bin/xcrun", osascript: "/usr/bin/osascript" }),
+    });
+    const [iphone] = await ios.list();
+    if (!iphone) throw new Error("missing iPhone");
+    await expect(ios.rotate(iphone, undefined)).rejects.toThrow(
+      "Allow ZLI in System Settings > Privacy & Security > Accessibility to rotate simulators.",
+    );
+    // A failed rotation does not count, so the next try turns the same way.
+    await expect(ios.rotate(iphone, undefined)).rejects.toThrow(/Accessibility/u);
+    expect(refusing.argsOf("osascript").map((args) => args.at(-2))).toEqual(["124", "124"]);
+  });
+
+  it("maps each osascript failure to what the person can do", () => {
+    const message = (stderr: string) => simulatorRotateError(stderr, "iPhone 15").message;
+    expect(message("System Events got an error: ZLI is not allowed assistive access. (-25211)")).toMatch(
+      /Accessibility to rotate simulators/u,
+    );
+    expect(message("Not authorized to send Apple events to System Events. (-1743)")).toMatch(
+      /Privacy & Security > Automation/u,
+    );
+    expect(message("execution error: ZLI_NO_SIMULATOR_WINDOW (1001)")).toBe(
+      "Open iPhone 15 in the Simulator app, then rotate it again.",
+    );
+    expect(message("something else")).toBe("The Simulator app did not rotate iPhone 15: something else");
+    expect(simulatorRotateError("(-1719)", "iPhone 15").status).toBe(403);
+  });
+
+  it("starts idb's H.264 stream for the simulator, and needs idb for it", async () => {
+    const fake = runner();
+    const withIdb = new IosSimulatorDriver({
+      runner: fake,
+      tools: async () => ({ xcrun: "/usr/bin/xcrun", idb: "/opt/homebrew/bin/idb" }),
+    });
+    const [iphone] = await withIdb.list();
+    if (!iphone) throw new Error("missing iPhone");
+    const session = await withIdb.startVideo(iphone, { onVideo: () => undefined, onClose: () => undefined });
+    expect(fake.spawned[0]?.args).toEqual(["video-stream", "--udid", "AAAA-1111", "--format", "h264", "--fps", "30"]);
+    await session.close();
+    const without = new IosSimulatorDriver({ runner: runner(), tools: async () => ({ xcrun: "/usr/bin/xcrun" }) });
+    await expect(without.startVideo(iphone, { onVideo: () => undefined, onClose: () => undefined })).rejects.toThrow(
+      /needs idb/u,
+    );
   });
 });

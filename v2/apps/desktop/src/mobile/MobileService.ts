@@ -16,6 +16,7 @@ import {
   pathFor,
 } from "./host.js";
 import { IosSimulatorDriver, type IosTools } from "./IosSimulatorDriver.js";
+import { iosVideoEnabled } from "./IosVideoSource.js";
 import { createNodeProcessRunner, type ProcessRunner } from "./ProcessRunner.js";
 import { SCRCPY_SERVER_SHA256, SCRCPY_SERVER_URL, SCRCPY_VERSION } from "./scrcpy/protocol.js";
 
@@ -60,6 +61,7 @@ export async function detectIosTools(options: {
   }
   const searchPath = [options.env.PATH ?? "", ...(await iosToolSearchDirs(options.home, options.fs))].join(":");
   const idb = await findOnPath("idb", { PATH: searchPath }, "macos", options.fs);
+  const osascript = (await options.fs.exists("/usr/bin/osascript")) ? "/usr/bin/osascript" : undefined;
   const missing: string[] = [];
   if (!simctl) missing.push("Xcode with the iOS Simulator (install Xcode from the App Store, then open it once)");
   if (!idb)
@@ -67,7 +69,7 @@ export async function detectIosTools(options: {
       "idb, for taps, typing, and reading the screen (brew install facebook/fb/idb-companion and pip3 install fb-idb)",
     );
   return {
-    tools: { ...(simctl && xcrun ? { xcrun } : {}), ...(idb ? { idb } : {}) },
+    tools: { ...(simctl && xcrun ? { xcrun } : {}), ...(idb ? { idb } : {}), ...(osascript ? { osascript } : {}) },
     status: {
       supported: true,
       simctl: simctl && xcrun ? toolProbe(xcrun) : { found: false },
@@ -152,10 +154,12 @@ export function createMobileService(options: MobileServiceOptions): MobileServic
     return scrcpyDownload;
   };
 
+  const ios = new IosSimulatorDriver({ runner, tools: async () => (await resolveIos()).tools });
   const manager = new DeviceManager({
     android: new AndroidDriver({ runner, tools: resolveAndroidTools }),
-    ios: new IosSimulatorDriver({ runner, tools: async () => (await resolveIos()).tools }),
+    ios,
     scrcpyServer,
+    ...(iosVideoEnabled(options.env) ? { iosVideo: (device, handlers) => ios.startVideo(device, handlers) } : {}),
     ...(options.events ? { events: options.events } : {}),
   });
 

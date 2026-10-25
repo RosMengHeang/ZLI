@@ -109,15 +109,25 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
 - [ ] Open the panel on a Mac with Xcode.
   Expected: Setup shows Android and iOS side by side, and Xcode simulators are listed.
 - [ ] Boot a simulator.
-  Expected: the booting state with a running time, then the screen as screenshots about once a second, with the "Screenshots, about 1 per second" chip. Its tooltip says why.
+  Expected: the booting state with a running time, then the screen as screenshots, with the "Screenshots, about 1 per second" chip. Its tooltip says screenshots come faster for a few seconds after you use the simulator.
 - [ ] Tap, swipe, and type with idb installed.
   Expected: each one reaches the simulator. While dragging, a trail from the start point to the pointer shows on the screen, and the release sends a swipe.
 - [ ] Press the arrow keys and Tab with the screen focused.
   Expected: the simulator receives them.
 - [ ] Open "More device buttons" and press Power.
   Expected: the simulator locks. The menu offers no Volume buttons, because idb cannot press them.
-- [ ] Click Rotate.
-  Expected: until simulator rotation ships, Rotate is hidden for iOS. When it ships, the simulator turns, or a banner explains the Accessibility permission it needs.
+- [ ] Tap through a few screens, then leave the simulator alone for a few seconds.
+  Expected: right after each tap the screen updates within about half a second, and for a few seconds it keeps updating about three times a second. Once idle it drops back to about once a second.
+- [ ] Click Rotate the first time, before ZLI has the Accessibility permission.
+  Expected: a red banner says "Allow ZLI in System Settings > Privacy & Security > Accessibility to rotate simulators." macOS may also show its own prompt. There is no Open settings button; open System Settings yourself.
+- [ ] Allow ZLI (or the terminal running `pnpm run desktop:dev`) under Accessibility, and under Automation for System Events if macOS asks, then click Rotate twice.
+  Expected: the Simulator app comes to the front, the simulator turns to landscape, then back to portrait, and the panel's screen follows within a second.
+- [ ] Boot two simulators, open both in the Simulator app, select one in the panel, and click Rotate.
+  Expected: only the selected simulator turns.
+- [ ] Close the simulator's window in the Simulator app (the simulator keeps running) and click Rotate.
+  Expected: the Simulator app opens the window again and the simulator turns, or the banner asks you to open it in the Simulator app.
+- [ ] Experimental, off by default: quit ZLI, start it with `ZLI_MOBILE_IOS_VIDEO=1`, and open a booted simulator with idb installed.
+  Expected, if it works: the chip reads "Live", motion is smooth, and taps still land. If idb cannot stream, the chip reads "Screenshots, about 1 per second" and its tooltip starts with "Live video from idb is unavailable". Note which one happened, the Xcode and idb versions, and whether the picture breaks after Rotate (the stream keeps the size it started with).
 - [ ] Uninstall or rename idb, then click Refresh.
   Expected: Setup lists idb as missing with the install command. Screenshots still show; taps report that they need idb.
 

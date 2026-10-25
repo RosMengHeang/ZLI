@@ -520,6 +520,49 @@ describe("MobilePane", () => {
     expect(menuLabels()).toEqual(["Power", "Copy screenshot"]);
   });
 
+  it("rotates an iOS simulator on a Mac, and shows the Accessibility step when macOS refuses", async () => {
+    const simulator: MobileDevice = {
+      deviceId: "ios:UDID-1",
+      platform: "ios",
+      kind: "simulator",
+      name: "iPhone 16",
+      state: "online",
+      lease: null,
+    };
+    const fake = createMobile({
+      devices: [simulator],
+      status: { ...readyStatus(), host: { os: "macos", arch: "arm64" } },
+    });
+    const container = await render(bridgeWith(fake.mobile));
+    await click(button(container, "Rotate"));
+    expect(fake.mobile.input).toHaveBeenLastCalledWith({ deviceId: simulator.deviceId, type: "rotate" });
+
+    fake.mobile.input.mockRejectedValueOnce(
+      new Error(
+        "Error invoking remote method 'zli:mobile:input': MobileDriverError: Allow ZLI in System Settings > Privacy & Security > Accessibility to rotate simulators.",
+      ),
+    );
+    await click(button(container, "Rotate"));
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Allow ZLI in System Settings > Privacy & Security > Accessibility to rotate simulators.",
+    );
+  });
+
+  it("hides Rotate for a simulator when the host is not a Mac", async () => {
+    const simulator: MobileDevice = {
+      deviceId: "ios:UDID-1",
+      platform: "ios",
+      kind: "simulator",
+      name: "iPhone 16",
+      state: "online",
+      lease: null,
+    };
+    const fake = createMobile({ devices: [simulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    expect(() => button(container, "Rotate")).toThrow("No button Rotate");
+    expect(() => button(container, "Home")).not.toThrow();
+  });
+
   it("sends the person to Take over when they press Power while an agent holds the device", async () => {
     const held: MobileDevice = {
       ...emulator,

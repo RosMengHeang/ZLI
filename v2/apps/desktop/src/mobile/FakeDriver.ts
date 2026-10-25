@@ -8,6 +8,8 @@ export class FakeDriver implements MobileDriver {
   readonly actions: string[] = [];
   tree: UiTree = { nodes: [], depths: [] };
   size = { width: 1080, height: 2400 };
+  /** The size taps are measured in, when it differs from the screenshot's pixels, as iOS points do. */
+  points: { width: number; height: number } | undefined;
   screenshotError: Error | undefined;
   /** While true, boot leaves the device booting until shutdown stops it, as a slow emulator would. */
   holdBoot = false;
@@ -95,7 +97,7 @@ export class FakeDriver implements MobileDriver {
   }
 
   async screenSize(): Promise<{ width: number; height: number }> {
-    return this.size;
+    return this.points ?? this.size;
   }
 
   async dispose(): Promise<void> {

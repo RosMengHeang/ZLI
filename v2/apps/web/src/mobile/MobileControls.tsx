@@ -23,9 +23,12 @@ export function MobileControls({
   screenshotBusy,
   onScreenshot,
   onCopyScreenshot,
+  canRotate,
 }: {
   mobile: Pick<MobileBridge, "input" | "openUrl">;
   device: MobileDevice;
+  /** Android always rotates. A simulator rotates only on a Mac, through the Simulator app. */
+  canRotate: boolean;
   inputBlocked: boolean;
   onBlockedInput(): void;
   /** Shows an error in the pane's banner, or clears it with undefined. */
@@ -168,7 +171,7 @@ export function MobileControls({
           pressed={row === "url"}
           onClick={() => toggleRow("url")}
         />
-        {android ? <IconButton icon="rotate" size="sm" iconSize={14} label="Rotate" onClick={rotate} /> : null}
+        {canRotate ? <IconButton icon="rotate" size="sm" iconSize={14} label="Rotate" onClick={rotate} /> : null}
         <IconButton
           icon="download"
           size="sm"

@@ -508,6 +508,7 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
           screenshotBusy={busy.has("screenshot")}
           onScreenshot={() => void saveScreenshot(device)}
           onCopyScreenshot={() => void copyScreenshot(device)}
+          canRotate={android || status?.host.os === "macos"}
         />
       ) : null}
       {device && online && !showSetup ? (

@@ -18,6 +18,15 @@ import { ScrcpySession, type ScrcpySessionOptions } from "./scrcpy/ScrcpySession
 
 export type MobileStreamMessage = MobileStreamEvent;
 
+/** A video source the panel can stop, such as idb's H.264 stream of a simulator. */
+export type VideoSession = { close(reason?: string): Promise<void>; readonly closed: boolean };
+
+/** Starts live video for an iOS simulator, or throws to leave it on screenshots. */
+export type IosVideoStarter = (
+  device: MobileDevice,
+  handlers: { onVideo(event: VideoEvent): void; onClose(reason: string): void },
+) => Promise<VideoSession>;
+
 export type DeviceManagerEvents = {
   readonly devices?: (devices: MobileDevice[]) => void;
   readonly stream?: (message: MobileStreamMessage) => void;
@@ -33,6 +42,9 @@ export type DeviceManagerDeps = {
   readonly startScrcpy?: (options: ScrcpySessionOptions) => Promise<Pick<ScrcpySession, "send" | "close" | "closed">>;
   readonly stillIntervalMs?: number;
   readonly sleep?: (milliseconds: number) => Promise<void>;
+  readonly now?: () => number;
+  /** Present only while the iOS video path is turned on. Without it simulators show as screenshots. */
+  readonly iosVideo?: IosVideoStarter;
 };
 
 type Stream = {
@@ -41,13 +53,24 @@ type Stream = {
   width: number;
   height: number;
   session?: Pick<ScrcpySession, "send" | "close" | "closed">;
+  /** Live video that carries no input, so input still goes through the driver. */
+  video?: VideoSession;
   stopped: boolean;
+  /** Until when screenshots are taken faster, because the person just used the device. */
+  activeUntil: number;
+  /** Ends the wait between screenshots early. */
+  wake?: (() => void) | undefined;
   /** Where a stills-mode touch started, to tell a tap from a swipe on release. */
   touchStart?: { x: number; y: number; at: number } | undefined;
 };
 
 const TAP_SLOP_PX = 12;
 const DEFAULT_LOG_LINES = 200;
+/** Simulator screenshots are cheap, so for a few seconds after input they come about three times a second. */
+const ACTIVE_STILL_MS = 300;
+const ACTIVE_WINDOW_MS = 3_000;
+const IOS_STILLS_REASON =
+  "iOS simulators are shown as screenshots, about one a second, and faster for a few seconds after you use them.";
 
 /** Every device ZLI can see, who holds each one, and the live view the Mobile panel shows. */
 export class DeviceManager {
@@ -160,7 +183,7 @@ export class DeviceManager {
     if (existing && !existing.stopped) return this.#info(existing);
     const device = await this.find(deviceId);
     if (device.state !== "online") throw new MobileDriverError(`${device.name} is not running.`, 409);
-    const stream: Stream = { deviceId, mode: "stills", width: 0, height: 0, stopped: false };
+    const stream: Stream = { deviceId, mode: "stills", width: 0, height: 0, stopped: false, activeUntil: 0 };
     this.#streams.set(deviceId, stream);
     let fallbackReason: string | undefined;
     if (device.platform === "android") {
@@ -169,8 +192,14 @@ export class DeviceManager {
       } catch (cause) {
         fallbackReason = `Live video is unavailable, so the panel shows screenshots: ${cause instanceof Error ? cause.message : String(cause)}`;
       }
+    } else if (this.#deps.iosVideo) {
+      try {
+        await this.#startIosVideo(device, stream, this.#deps.iosVideo);
+      } catch (cause) {
+        fallbackReason = `Live video from idb is unavailable, so the panel shows screenshots: ${cause instanceof Error ? cause.message : String(cause)}`;
+      }
     } else {
-      fallbackReason = "iOS simulators are shown as screenshots about once a second.";
+      fallbackReason = IOS_STILLS_REASON;
     }
     if (stream.mode === "stills") void this.#pollStills(device, stream);
     const info = { ...this.#info(stream), ...(fallbackReason ? { fallbackReason: fallbackReason.slice(0, 500) } : {}) };
@@ -182,8 +211,10 @@ export class DeviceManager {
     const stream = this.#streams.get(deviceId);
     if (!stream) return;
     stream.stopped = true;
+    stream.wake?.();
     this.#streams.delete(deviceId);
     await stream.session?.close("The panel stopped showing this device.");
+    await stream.video?.close("The panel stopped showing this device.");
   }
 
   /** Input from the person in the Mobile panel. An agent's lease blocks it until the person takes over. */
@@ -197,31 +228,43 @@ export class DeviceManager {
     }
     const device = await this.find(input.deviceId);
     const driver = this.driverFor(device);
-    switch (input.type) {
-      case "touch":
-        await this.#stillsTouch(device, driver, stream, input);
-        return;
-      case "text":
-        await driver.type(device, input.text);
-        return;
-      case "button":
-        await driver.press(device, input.button);
-        return;
-      case "rotate":
-        await driver.rotate(device, undefined);
-        return;
+    try {
+      switch (input.type) {
+        case "touch":
+          await this.#stillsTouch(device, driver, stream, input);
+          return;
+        case "text":
+          await driver.type(device, input.text);
+          return;
+        case "button":
+          await driver.press(device, input.button);
+          return;
+        case "rotate":
+          await driver.rotate(device, undefined);
+          return;
+      }
+    } finally {
+      if (input.type !== "touch" || input.action === "up") this.#markActive(device);
     }
   }
 
   /** Opens a URL from the Mobile panel. On Android a localhost URL's port is forwarded to the device first. */
   async openUrl(deviceId: string, url: string): Promise<{ reversedPort?: number }> {
     const { device, driver } = await this.#forPanel(deviceId);
-    return driver.openUrl(device, url);
+    try {
+      return await driver.openUrl(device, url);
+    } finally {
+      this.#markActive(device);
+    }
   }
 
   async launch(deviceId: string, appId: string, options: { stop?: boolean } = {}): Promise<void> {
     const { device, driver } = await this.#forPanel(deviceId);
-    await driver.launch(device, appId, options.stop ? { stop: true } : {});
+    try {
+      await driver.launch(device, appId, options.stop ? { stop: true } : {});
+    } finally {
+      this.#markActive(device);
+    }
   }
 
   async logs(deviceId: string, query: { appId?: string; lines?: number; filter?: string } = {}): Promise<string[]> {
@@ -242,8 +285,46 @@ export class DeviceManager {
   async #startVideo(device: MobileDevice, stream: Stream): Promise<void> {
     const connection = await this.#deps.android.connection(device);
     const serverPath = await this.#deps.scrcpyServer();
+    const start = this.#deps.startScrcpy ?? ScrcpySession.start;
+    stream.session = await start({
+      ...connection,
+      serverPath,
+      onVideo: this.#videoEvents(device, stream),
+      onClose: (reason) => this.#videoEnded(device, stream, reason),
+    });
+    stream.mode = "video";
+  }
+
+  /**
+   * iOS video carries no input channel, so taps still go through idb like screenshot mode. The stream has no
+   * session event with its size, so one screenshot gives the frame size touches are measured in.
+   */
+  async #startIosVideo(device: MobileDevice, stream: Stream, start: IosVideoStarter): Promise<void> {
+    const shot = await this.driverFor(device).screenshot(device);
+    stream.width = shot.width;
+    stream.height = shot.height;
+    stream.video = await start(device, {
+      onVideo: this.#videoEvents(device, stream),
+      onClose: (reason) => this.#videoEnded(device, stream, reason),
+    });
+    if (stream.stopped) {
+      await stream.video.close();
+      return;
+    }
+    stream.mode = "video";
+  }
+
+  #videoEnded(device: MobileDevice, stream: Stream, reason: string): void {
+    if (stream.stopped) return;
+    stream.stopped = true;
+    this.#streams.delete(device.deviceId);
+    this.#deps.events?.stream?.({ type: "ended", deviceId: device.deviceId, reason });
+  }
+
+  /** Turns scrcpy's or idb's frames into the config and frame events the panel decodes. */
+  #videoEvents(device: MobileDevice, stream: Stream): (event: VideoEvent) => void {
     let codec: string | undefined;
-    const onVideo = (event: VideoEvent) => {
+    return (event: VideoEvent) => {
       if (stream.stopped) return;
       if (event.type === "session") {
         stream.width = event.width;
@@ -281,19 +362,6 @@ export class DeviceManager {
         data: new Uint8Array(event.data),
       });
     };
-    const start = this.#deps.startScrcpy ?? ScrcpySession.start;
-    stream.session = await start({
-      ...connection,
-      serverPath,
-      onVideo,
-      onClose: (reason) => {
-        if (stream.stopped) return;
-        stream.stopped = true;
-        this.#streams.delete(device.deviceId);
-        this.#deps.events?.stream?.({ type: "ended", deviceId: device.deviceId, reason });
-      },
-    });
-    stream.mode = "video";
   }
 
   async #pollStills(device: MobileDevice, stream: Stream): Promise<void> {
@@ -328,8 +396,29 @@ export class DeviceManager {
           break;
         }
       }
-      await sleep(this.#deps.stillIntervalMs ?? 1_000);
+      if (stream.stopped) break;
+      const idle = this.#deps.stillIntervalMs ?? 1_000;
+      const active = device.platform === "ios" && this.#now() < stream.activeUntil;
+      await Promise.race([
+        sleep(active ? Math.min(idle, ACTIVE_STILL_MS) : idle),
+        new Promise<void>((resolve) => {
+          stream.wake = resolve;
+        }),
+      ]);
+      stream.wake = undefined;
     }
+  }
+
+  /** After input on a simulator shown as screenshots, the next one comes now and the following ones faster. */
+  #markActive(device: MobileDevice): void {
+    const stream = this.#streams.get(device.deviceId);
+    if (!stream || stream.mode !== "stills" || device.platform !== "ios") return;
+    stream.activeUntil = this.#now() + ACTIVE_WINDOW_MS;
+    stream.wake?.();
+  }
+
+  #now(): number {
+    return this.#deps.now?.() ?? Date.now();
   }
 
   async #stillsTouch(

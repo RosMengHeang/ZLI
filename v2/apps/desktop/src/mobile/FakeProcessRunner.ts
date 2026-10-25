@@ -51,8 +51,9 @@ export class FakeProcess implements RunningProcess {
     this.exit(null);
   }
 
-  emit(text: string, stream: "stdout" | "stderr" = "stdout"): void {
-    for (const listener of stream === "stdout" ? this.#stdout : this.#stderr) listener(Buffer.from(text));
+  emit(output: string | Buffer, stream: "stdout" | "stderr" = "stdout"): void {
+    const chunk = Buffer.isBuffer(output) ? output : Buffer.from(output);
+    for (const listener of stream === "stdout" ? this.#stdout : this.#stderr) listener(chunk);
   }
 
   exit(code: number | null): void {

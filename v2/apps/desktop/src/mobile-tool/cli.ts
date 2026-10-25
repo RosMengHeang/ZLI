@@ -19,7 +19,7 @@ Usage:
   zli-mobile type <text> [--ref <ref>]
   zli-mobile press <button>                back, home, recents, power, volume_up, volume_down, enter, delete,
                                            tab, dpad_up, dpad_down, dpad_left, dpad_right.
-  zli-mobile rotate [orientation]          Android only. portrait, landscape, portrait-reverse, landscape-reverse.
+  zli-mobile rotate [orientation]          portrait, landscape, portrait-reverse, landscape-reverse.
   zli-mobile screenshot [file.png]
   zli-mobile logs [--app <id>] [--lines <n>] [--filter <text>]
   zli-mobile release                       Hand your devices back.

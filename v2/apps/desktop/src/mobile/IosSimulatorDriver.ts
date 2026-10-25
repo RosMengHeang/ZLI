@@ -13,7 +13,9 @@ import {
   type Orientation,
   type Screenshot,
 } from "./MobileDriver.js";
+import { type IdbVideoSession, startIdbVideo } from "./IosVideoSource.js";
 import { type ProcessRunner, runChecked } from "./ProcessRunner.js";
+import type { VideoEvent } from "./scrcpy/protocol.js";
 import type { UiTree } from "./uiTree.js";
 
 export type IosTools = {
@@ -21,6 +23,8 @@ export type IosTools = {
   readonly xcrun?: string;
   /** idb, the Facebook iOS Development Bridge client. */
   readonly idb?: string;
+  /** osascript, which rotates a simulator by sending the Simulator app its rotate shortcut. */
+  readonly osascript?: string;
 };
 
 export type IosDriverDeps = {
@@ -149,11 +153,81 @@ const IDB_BUTTONS: Partial<Record<MobileButton, string>> = { home: "HOME", power
 
 const IDB_MISSING = "This needs idb. Install it with: brew install facebook/fb/idb-companion && pip3 install fb-idb";
 
+/** Each Rotate Right in the Simulator app turns the device one step along this list. */
+const ROTATIONS: readonly Orientation[] = ["portrait", "landscape", "portrait-reverse", "landscape-reverse"];
+const KEY_LEFT_ARROW = 123;
+const KEY_RIGHT_ARROW = 124;
+
+/**
+ * simctl and idb cannot rotate a simulator, so this presses the Simulator app's own Rotate Left or Rotate
+ * Right shortcut (Command and an arrow key) through System Events. The window is found by the device's name,
+ * which is the whole title or the part before an en dash, so the right simulator turns when several are open.
+ * Arguments: device name, arrow key code, number of presses.
+ */
+export const SIMULATOR_ROTATE_SCRIPT = [
+  "on run argv",
+  "set deviceName to item 1 of argv",
+  "set arrowKey to (item 2 of argv) as integer",
+  "set presses to (item 3 of argv) as integer",
+  'tell application "Simulator" to activate',
+  'tell application "System Events"',
+  'tell process "Simulator"',
+  "set frontmost to true",
+  "set simWindow to missing value",
+  "repeat 20 times",
+  "repeat with candidate in windows",
+  "try",
+  "set windowName to name of candidate",
+  "if windowName is deviceName or windowName starts with (deviceName & space & (character id 8211)) then",
+  "set simWindow to contents of candidate",
+  "exit repeat",
+  "end if",
+  "end try",
+  "end repeat",
+  "if simWindow is not missing value then exit repeat",
+  "delay 0.25",
+  "end repeat",
+  'if simWindow is missing value then error "ZLI_NO_SIMULATOR_WINDOW" number 1001',
+  'perform action "AXRaise" of simWindow',
+  "repeat presses times",
+  "key code arrowKey using command down",
+  "delay 0.3",
+  "end repeat",
+  "end tell",
+  "end tell",
+  "end run",
+];
+
+/** Turns osascript's failure into what the person can do about it. */
+export function simulatorRotateError(stderr: string, deviceName: string): MobileDriverError {
+  if (/-1719|-25211|not allowed assistive access/iu.test(stderr))
+    return new MobileDriverError(
+      "Allow ZLI in System Settings > Privacy & Security > Accessibility to rotate simulators.",
+      403,
+    );
+  if (/-1743|not authori[sz]ed to send apple events/iu.test(stderr))
+    return new MobileDriverError(
+      "Allow ZLI to control System Events in System Settings > Privacy & Security > Automation to rotate simulators.",
+      403,
+    );
+  if (/ZLI_NO_SIMULATOR_WINDOW/u.test(stderr))
+    return new MobileDriverError(`Open ${deviceName} in the Simulator app, then rotate it again.`, 409);
+  return new MobileDriverError(
+    `The Simulator app did not rotate ${deviceName}: ${stderr.trim() || "osascript failed."}`,
+    500,
+  );
+}
+
 export class IosSimulatorDriver implements MobileDriver {
   readonly platform = "ios" as const;
   readonly #deps: IosDriverDeps;
   /** Boots in progress, so a shutdown can stop simctl waiting for a boot that will not finish. */
   readonly #booting = new Map<string, AbortController>();
+  /**
+   * The orientation ZLI last turned each simulator to, counted from portrait at boot. A rotation made by hand
+   * in the Simulator app is not seen, so the next one may turn the wrong way once.
+   */
+  readonly #orientations = new Map<string, Orientation>();
 
   constructor(deps: IosDriverDeps) {
     this.#deps = deps;
@@ -179,6 +253,7 @@ export class IosSimulatorDriver implements MobileDriver {
   async boot(device: DriverDevice, options: { window?: boolean; wipeData?: boolean }): Promise<DriverDevice> {
     const xcrun = await this.#xcrun();
     const udid = udidOf(device);
+    this.#orientations.delete(udid);
     if (options.wipeData) await runChecked(this.#deps.runner, xcrun, ["simctl", "erase", udid], { timeoutMs: 120_000 });
     const controller = new AbortController();
     this.#booting.set(udid, controller);
@@ -281,11 +356,42 @@ export class IosSimulatorDriver implements MobileDriver {
     );
   }
 
-  async rotate(_device: DriverDevice, _orientation: Orientation | undefined): Promise<Orientation> {
-    throw new MobileDriverError(
-      "simctl and idb cannot rotate a simulator. Rotate it in the Simulator app with Command and the arrow keys.",
-      501,
+  async rotate(device: DriverDevice, orientation: Orientation | undefined): Promise<Orientation> {
+    const udid = udidOf(this.#online(device));
+    const tools = await this.#deps.tools();
+    if (!tools.osascript) throw new MobileDriverError("Rotating a simulator needs macOS.", 501);
+    const current = this.#orientations.get(udid) ?? "portrait";
+    const target = orientation ?? (current.startsWith("portrait") ? "landscape" : "portrait");
+    const turns = (ROTATIONS.indexOf(target) - ROTATIONS.indexOf(current) + ROTATIONS.length) % ROTATIONS.length;
+    if (turns === 0) return target;
+    const [key, presses] = turns === 3 ? [KEY_LEFT_ARROW, 1] : [KEY_RIGHT_ARROW, turns];
+    const result = await this.#deps.runner.run(
+      tools.osascript,
+      [...SIMULATOR_ROTATE_SCRIPT.flatMap((line) => ["-e", line]), device.name, String(key), String(presses)],
+      { timeoutMs: 30_000 },
     );
+    if (result.timedOut) throw new MobileDriverError(`The Simulator app did not rotate ${device.name} in time.`, 504);
+    if (result.code !== 0) throw simulatorRotateError(result.stderr, device.name);
+    this.#orientations.set(udid, target);
+    return target;
+  }
+
+  /**
+   * Starts idb's H.264 stream of the simulator's screen. Only used when the iOS video path is turned on; see
+   * iosVideoEnabled.
+   */
+  async startVideo(
+    device: DriverDevice,
+    handlers: { onVideo(event: VideoEvent): void; onClose(reason: string): void },
+  ): Promise<IdbVideoSession> {
+    const tools = await this.#deps.tools();
+    if (!tools.idb) throw new MobileDriverError(IDB_MISSING, 409);
+    return startIdbVideo({
+      runner: this.#deps.runner,
+      idb: tools.idb,
+      udid: udidOf(this.#online(device)),
+      ...handlers,
+    });
   }
 
   async screenshot(device: DriverDevice): Promise<Screenshot> {
