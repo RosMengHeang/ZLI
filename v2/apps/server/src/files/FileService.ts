@@ -67,7 +67,9 @@ export class FileService {
   }
 
   private async listGit(root: string): Promise<FileListResult> {
-    const [listed, changes, prefix, numstat] = await Promise.all([
+    // allSettled, not all: an early failure must still wait for the other git processes. On Windows a running
+    // process holds its working folder open, so returning early leaves the folder locked.
+    const settled = await Promise.allSettled([
       runGitNullList(root, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]),
       runGitNullList(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames", "--", "."]),
       runGitNullList(root, ["rev-parse", "--show-prefix"]),
@@ -84,6 +86,11 @@ export class FileService {
         ".",
       ]).catch(() => ({ entries: [], truncated: false })),
     ]);
+    const failed = settled.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
+    const [listed, changes, prefix, numstat] = settled.map((result) =>
+      result.status === "fulfilled" ? result.value : { entries: [], truncated: false },
+    ) as [GitNullList, GitNullList, GitNullList, GitNullList];
     const statuses = parseStatus(changes.entries, prefix.entries[0]?.trim() ?? "");
     const counts = parseNumstat(numstat.entries);
     const paths = [...new Set([...listed.entries, ...statuses.keys()])].sort(comparePaths);
@@ -532,7 +539,9 @@ function statusFromCode(code: string): FileChangeStatus {
   return "modified";
 }
 
-async function runGitNullList(root: string, args: string[]): Promise<{ entries: string[]; truncated: boolean }> {
+type GitNullList = { entries: string[]; truncated: boolean };
+
+async function runGitNullList(root: string, args: string[]): Promise<GitNullList> {
   const chunks: Buffer[] = [];
   let bytes = 0;
   const result = await runGit(root, args, {
