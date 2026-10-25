@@ -49,9 +49,10 @@ test("adds MCP servers from the catalog and by remote URL", async () => {
     await form.getByRole("button", { name: "Add server" }).click();
     await expect(form).toHaveCount(0);
 
+    const windows = process.platform === "win32";
     const rows = settings.locator(".mcp-row-command");
     await expect(rows).toHaveText([
-      "npx -y @modelcontextprotocol/server-memory",
+      `${windows ? "cmd /c " : ""}npx -y @modelcontextprotocol/server-memory`,
       "https://api.githubcopilot.com/mcp/ · Authorization: ••••",
       "https://mcp.linear.app/mcp · sign in with browser",
     ]);
@@ -60,7 +61,13 @@ test("adds MCP servers from the catalog and by remote URL", async () => {
 
     const saved = JSON.parse(await readFile(join(root, "mcp-servers.json"), "utf8"));
     expect(saved.servers).toEqual([
-      { name: "memory", enabled: true, command: "npx", args: ["-y", "@modelcontextprotocol/server-memory"], env: {} },
+      {
+        name: "memory",
+        enabled: true,
+        command: windows ? "cmd" : "npx",
+        args: [...(windows ? ["/c", "npx"] : []), "-y", "@modelcontextprotocol/server-memory"],
+        env: {},
+      },
       {
         name: "github",
         enabled: true,
