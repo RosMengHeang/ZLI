@@ -177,6 +177,39 @@ describe("device manager", () => {
     expect(() => devices.acquireForAgent(pixel.deviceId, agent)).toThrow(/took over/u);
   });
 
+  it("opens URLs, reads logs, and launches apps for the panel, and refuses while an agent holds the device", async () => {
+    const { devices, android } = manager();
+    android.openUrl = async (device, url) => {
+      android.actions.push(`open ${device.deviceId} ${url}`);
+      return { reversedPort: 8081 };
+    };
+    expect(await devices.openUrl(pixel.deviceId, "exp://localhost:8081")).toEqual({ reversedPort: 8081 });
+    await devices.launch(pixel.deviceId, "com.example.app", { stop: true });
+    expect(await devices.logs(pixel.deviceId)).toEqual(["200 lines"]);
+    expect(await devices.logs(pixel.deviceId, { lines: 50, filter: "error" })).toEqual(["50 lines"]);
+    expect(android.actions).toEqual([
+      `open ${pixel.deviceId} exp://localhost:8081`,
+      `launch ${pixel.deviceId} com.example.app`,
+    ]);
+
+    devices.acquireForAgent(pixel.deviceId, agent);
+    const refusal = "The agent in app is driving this device. Take over to use it.";
+    await expect(devices.openUrl(pixel.deviceId, "https://example.com")).rejects.toThrow(refusal);
+    await expect(devices.launch(pixel.deviceId, "com.example.app")).rejects.toThrow(refusal);
+    await expect(devices.logs(pixel.deviceId)).rejects.toThrow(refusal);
+    expect(android.actions).toHaveLength(2);
+
+    devices.takeOver(pixel.deviceId);
+    await devices.openUrl(pixel.deviceId, "https://example.com");
+    expect(android.actions.at(-1)).toBe(`open ${pixel.deviceId} https://example.com`);
+  });
+
+  it("refuses panel Open URL and Logs on a device that is not running", async () => {
+    const { devices, android } = manager();
+    android.devices = [{ ...pixel, state: "shutdown" }];
+    await expect(devices.openUrl(pixel.deviceId, "https://example.com")).rejects.toThrow("Pixel 7 is not running.");
+    await expect(devices.logs(pixel.deviceId)).rejects.toThrow("Pixel 7 is not running.");
+  });
   it("sends arrows and Tab through scrcpy as Android keycodes", () => {
     const frame = { width: 720, height: 1600 };
     const keys = { dpad_up: 19, dpad_down: 20, dpad_left: 21, dpad_right: 22, tab: 61 } as const;

@@ -2,6 +2,7 @@ import type {
   BrowserTabProjection,
   BrowserViewport,
   MobileDevice,
+  MobileOpenUrlResult,
   MobilePanelInput,
   MobileRevealEvent,
   MobileScreenshot,
@@ -112,6 +113,10 @@ export type MobileBridge = {
   stopStream(deviceId: string): Promise<void>;
   onStream(listener: (event: MobileStreamEvent) => void): () => void;
   input(input: MobilePanelInput): Promise<void>;
+  /** Refused while an agent holds the device, like input. */
+  openUrl(deviceId: string, url: string): Promise<MobileOpenUrlResult>;
+  logs(deviceId: string, query?: { appId?: string; lines?: number; filter?: string }): Promise<string[]>;
+  launch(deviceId: string, appId: string, options?: { stop?: boolean }): Promise<void>;
   takeOver(deviceId: string): Promise<void>;
   release(deviceId: string): Promise<void>;
   screenshot(deviceId: string): Promise<MobileScreenshot>;

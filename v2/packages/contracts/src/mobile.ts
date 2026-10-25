@@ -339,6 +339,31 @@ export const MobileControlLogsInput = MobileControlDeviceInput.extend({
 });
 export type MobileControlLogsInput = z.infer<typeof MobileControlLogsInput>;
 
+/** Open URL from the Mobile panel: the agent tool's fields without its worktree target. */
+export const MobilePanelOpenUrlInput = MobileDeviceIdInput.extend({ url: MobileControlOpenUrlInput.shape.url });
+export type MobilePanelOpenUrlInput = z.infer<typeof MobilePanelOpenUrlInput>;
+
+export const MobileOpenUrlResult = z.object({
+  /** The localhost port forwarded to an Android device with adb reverse, so the device reaches this computer. */
+  reversedPort: z.number().int().min(1).max(65_535).optional(),
+});
+export type MobileOpenUrlResult = z.infer<typeof MobileOpenUrlResult>;
+
+export const MobilePanelLaunchInput = MobileDeviceIdInput.extend({
+  appId: MobileControlLaunchInput.shape.appId,
+  stop: MobileControlLaunchInput.shape.stop,
+});
+export type MobilePanelLaunchInput = z.infer<typeof MobilePanelLaunchInput>;
+
+/** The app id goes into an adb shell command on Android, so it takes the launch input's package name rule. */
+export const MobilePanelLogsInput = MobileDeviceIdInput.extend({
+  appId: MobileControlLaunchInput.shape.appId.optional(),
+  lines: MobileControlLogsInput.shape.lines,
+  filter: MobileControlLogsInput.shape.filter,
+});
+export type MobilePanelLogsInput = z.infer<typeof MobilePanelLogsInput>;
+
+export const MobileLogLines = z.array(z.string()).max(2_000);
 /** One element from the device's UI tree. ref is what mobile_tap and mobile_type take. */
 export type MobileUiNode = {
   ref: string;

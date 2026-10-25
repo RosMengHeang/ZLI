@@ -47,6 +47,7 @@ type Stream = {
 };
 
 const TAP_SLOP_PX = 12;
+const DEFAULT_LOG_LINES = 200;
 
 /** Every device ZLI can see, who holds each one, and the live view the Mobile panel shows. */
 export class DeviceManager {
@@ -187,12 +188,7 @@ export class DeviceManager {
 
   /** Input from the person in the Mobile panel. An agent's lease blocks it until the person takes over. */
   async panelInput(input: MobilePanelInput): Promise<void> {
-    const lease = this.leases.get(input.deviceId);
-    if (lease?.kind === "agent")
-      throw new MobileDriverError(
-        `${lease.ownerLabel || "An agent"} is driving this device. Take over to use it.`,
-        409,
-      );
+    this.#refuseWhileAgentHolds(input.deviceId);
     const stream = this.#streams.get(input.deviceId);
     const session = stream?.session && !stream.session.closed ? stream.session : undefined;
     if (stream && session) {
@@ -215,6 +211,26 @@ export class DeviceManager {
         await driver.rotate(device, undefined);
         return;
     }
+  }
+
+  /** Opens a URL from the Mobile panel. On Android a localhost URL's port is forwarded to the device first. */
+  async openUrl(deviceId: string, url: string): Promise<{ reversedPort?: number }> {
+    const { device, driver } = await this.#forPanel(deviceId);
+    return driver.openUrl(device, url);
+  }
+
+  async launch(deviceId: string, appId: string, options: { stop?: boolean } = {}): Promise<void> {
+    const { device, driver } = await this.#forPanel(deviceId);
+    await driver.launch(device, appId, options.stop ? { stop: true } : {});
+  }
+
+  async logs(deviceId: string, query: { appId?: string; lines?: number; filter?: string } = {}): Promise<string[]> {
+    const { device, driver } = await this.#forPanel(deviceId);
+    return driver.logs(device, {
+      lines: query.lines ?? DEFAULT_LOG_LINES,
+      ...(query.appId ? { appId: query.appId } : {}),
+      ...(query.filter ? { filter: query.filter } : {}),
+    });
   }
 
   async dispose(): Promise<void> {
@@ -344,6 +360,23 @@ export class DeviceManager {
     if (device.platform === "android" || stream.width === 0) return { x: 1, y: 1 };
     const size = await driver.screenSize(device);
     return { x: size.width / stream.width, y: size.height / stream.height };
+  }
+
+  #refuseWhileAgentHolds(deviceId: string): void {
+    const lease = this.leases.get(deviceId);
+    if (lease?.kind === "agent")
+      throw new MobileDriverError(
+        `${lease.ownerLabel || "An agent"} is driving this device. Take over to use it.`,
+        409,
+      );
+  }
+
+  /** A running device for a panel action, refused while an agent holds it, like panel input. */
+  async #forPanel(deviceId: string): Promise<{ device: MobileDevice; driver: MobileDriver }> {
+    this.#refuseWhileAgentHolds(deviceId);
+    const device = await this.find(deviceId);
+    if (device.state !== "online") throw new MobileDriverError(`${device.name} is not running.`, 409);
+    return { device, driver: this.driverFor(device) };
   }
 
   #info(stream: Stream): MobileStreamInfo {

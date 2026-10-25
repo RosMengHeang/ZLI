@@ -14,10 +14,6 @@ import {
   BrowserSetViewportInput,
   BrowserTabIdInput,
   BrowserWaitForNetworkIdleInput,
-  MobileDeviceIdInput,
-  MobilePanelInput,
-  MobileSettings,
-  MobileSetupRunInput,
   RpcRequest,
   TerminalId,
 } from "@zli-v2/contracts";
@@ -57,6 +53,7 @@ import { hostArch, hostOs } from "./mobile/host.js";
 import { createMobileControlActions, isMobileControlAction } from "./mobile/MobileControlActions.js";
 import { createMobileService, type MobileService } from "./mobile/MobileService.js";
 import { MobileSettingsStore } from "./mobile/MobileSettingsStore.js";
+import { mobileIpcHandlers } from "./mobile/mobileIpc.js";
 import type { AgentNotifier } from "./notifications/AgentNotifier.js";
 import { registerAgentNotifications } from "./notifications/electronNotifications.js";
 import { ensureDesktopDaemon, shutdownDesktopDaemon } from "./runtime/DesktopDaemon.js";
@@ -563,62 +560,9 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
 }
 
 function registerMobileIpc(): void {
-  const service = (): MobileService => {
-    if (!mobile) throw new Error("ZLI's mobile service is not running.");
-    return mobile;
-  };
-  const deviceId = (input: unknown) => MobileDeviceIdInput.parse(input).deviceId;
-  ipcMain.handle("zli:mobile:status", (_event, input: unknown) =>
-    service().status({
-      recheckAcceleration: (input as { recheckAcceleration?: unknown } | undefined)?.recheckAcceleration === true,
-    }),
-  );
-  ipcMain.handle("zli:mobile:setup-plan", () => service().setup.plan());
-  ipcMain.handle("zli:mobile:setup-progress", () => service().setup.progress);
-  // Resolves when setup ends. The panel follows each step through zli:mobile:setup events meanwhile.
-  ipcMain.handle("zli:mobile:setup-run", async (_event, input: unknown) => {
-    await service().setup.run(MobileSetupRunInput.parse(input).acceptedLicenses);
-    return { accepted: true };
-  });
-  ipcMain.handle("zli:mobile:setup-cancel", () => {
-    service().setup.cancel();
-    return { accepted: true };
-  });
-  ipcMain.handle("zli:mobile:devices", () => service().manager.list());
-  ipcMain.handle("zli:mobile:boot", async (_event, input: unknown) => service().manager.boot(deviceId(input)));
-  ipcMain.handle("zli:mobile:shutdown", async (_event, input: unknown) => {
-    await service().manager.shutdown(deviceId(input));
-    return { accepted: true };
-  });
-  ipcMain.handle("zli:mobile:stream-start", (_event, input: unknown) => service().manager.startStream(deviceId(input)));
-  ipcMain.handle("zli:mobile:stream-stop", async (_event, input: unknown) => {
-    await service().manager.stopStream(deviceId(input));
-    return { accepted: true };
-  });
-  ipcMain.handle("zli:mobile:input", async (_event, input: unknown) => {
-    await service().manager.panelInput(MobilePanelInput.parse(input));
-    return { accepted: true };
-  });
-  ipcMain.handle("zli:mobile:take-over", (_event, input: unknown) => {
-    service().manager.takeOver(deviceId(input));
-    return { accepted: true };
-  });
-  ipcMain.handle("zli:mobile:release", (_event, input: unknown) => {
-    service().manager.release(deviceId(input));
-    return { accepted: true };
-  });
-  ipcMain.handle("zli:mobile:screenshot", async (_event, input: unknown) => {
-    const shot = await service().manager.screenshot(deviceId(input));
-    return { data: shot.data.toString("base64"), mimeType: "image/png", width: shot.width, height: shot.height };
-  });
-  ipcMain.handle("zli:mobile:settings-get", () => {
-    if (!mobileSettings) throw new Error("ZLI's mobile service is not running.");
-    return mobileSettings.get();
-  });
-  ipcMain.handle("zli:mobile:settings-set", (_event, input: unknown) => {
-    if (!mobileSettings) throw new Error("ZLI's mobile service is not running.");
-    return mobileSettings.set(MobileSettings.partial().parse(input));
-  });
+  const handlers = mobileIpcHandlers({ service: () => mobile, settings: () => mobileSettings });
+  for (const [channel, handle] of Object.entries(handlers))
+    ipcMain.handle(channel, (_event, input: unknown) => handle(input));
 }
 
 async function openExternalUrl(url: string): Promise<void> {

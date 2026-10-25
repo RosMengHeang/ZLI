@@ -5,7 +5,12 @@ import {
   MobileControlLaunchInput,
   MobileControlSwipeInput,
   MobileControlTapInput,
+  MobileLogLines,
+  MobileOpenUrlResult,
   MobilePanelInput,
+  MobilePanelLaunchInput,
+  MobilePanelLogsInput,
+  MobilePanelOpenUrlInput,
   MobileSetupRunInput,
 } from "./mobile.js";
 
@@ -43,5 +48,24 @@ describe("mobile contracts", () => {
     for (const button of ["tab", "dpad_up", "dpad_down", "dpad_left", "dpad_right"])
       expect(MobilePanelInput.safeParse({ type: "button", deviceId: "d", button }).success).toBe(true);
     expect(MobileSetupRunInput.parse({ acceptedLicenses: ["android-sdk-license"] }).acceptedLicenses).toHaveLength(1);
+  });
+
+  it("parses panel Open URL, Launch, and Logs input without a worktree target", () => {
+    expect(MobilePanelOpenUrlInput.parse({ deviceId: "d", url: "exp://localhost:8081" })).toEqual({
+      deviceId: "d",
+      url: "exp://localhost:8081",
+    });
+    expect(MobilePanelOpenUrlInput.safeParse({ deviceId: "d", url: "" }).success).toBe(false);
+    expect(MobilePanelLaunchInput.safeParse({ deviceId: "d", appId: "com.example.app", stop: true }).success).toBe(
+      true,
+    );
+    expect(MobilePanelLaunchInput.safeParse({ deviceId: "d", appId: "com.example; reboot" }).success).toBe(false);
+    expect(MobilePanelLogsInput.parse({ deviceId: "d" })).toEqual({ deviceId: "d" });
+    expect(MobilePanelLogsInput.safeParse({ deviceId: "d", appId: "$(reboot)" }).success).toBe(false);
+    expect(MobilePanelLogsInput.safeParse({ deviceId: "d", lines: 2_001 }).success).toBe(false);
+    expect(MobilePanelLogsInput.safeParse({ deviceId: "d", filter: "" }).success).toBe(false);
+    expect(MobileOpenUrlResult.parse({ reversedPort: 8081 })).toEqual({ reversedPort: 8081 });
+    expect(MobileOpenUrlResult.safeParse({ reversedPort: 70_000 }).success).toBe(false);
+    expect(MobileLogLines.safeParse(Array.from({ length: 2_001 }, () => "line")).success).toBe(false);
   });
 });

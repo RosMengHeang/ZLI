@@ -358,4 +358,31 @@ describe("preload mobile API", () => {
       { type: "ended", deviceId: "android:1", reason: "The panel stopped showing this device." },
     ]);
   });
+
+  it("validates Open URL, Logs, and Launch before invoking main and parses their answers", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        if (channel === "zli:mobile:open-url") return { reversedPort: 8081 };
+        if (channel === "zli:mobile:logs") return ["I/zli: ready"];
+        return { accepted: true };
+      },
+      on: () => () => undefined,
+    });
+    expect(await api.mobile.openUrl("android:1", "exp://localhost:8081")).toEqual({ reversedPort: 8081 });
+    expect(await api.mobile.logs("android:1", { filter: "zli", lines: 50 })).toEqual(["I/zli: ready"]);
+    await api.mobile.launch("android:1", "com.example.app", { stop: true });
+    expect(calls).toEqual([
+      { channel: "zli:mobile:open-url", payload: { deviceId: "android:1", url: "exp://localhost:8081" } },
+      { channel: "zli:mobile:logs", payload: { deviceId: "android:1", filter: "zli", lines: 50 } },
+      { channel: "zli:mobile:launch", payload: { deviceId: "android:1", appId: "com.example.app", stop: true } },
+    ]);
+
+    await expect(api.mobile.openUrl("android:1", "")).rejects.toThrow();
+    await expect(api.mobile.logs("android:1", { lines: 0 })).rejects.toThrow();
+    await expect(api.mobile.logs("android:1", { appId: "a b" })).rejects.toThrow();
+    await expect(api.mobile.launch("android:1", "com.example; reboot")).rejects.toThrow();
+    expect(calls).toHaveLength(3);
+  });
 });

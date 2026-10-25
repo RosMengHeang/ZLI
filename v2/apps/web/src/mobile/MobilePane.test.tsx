@@ -124,6 +124,11 @@ function createMobile(options: { devices: MobileDevice[]; status?: MobileSetupSt
       return () => streamListeners.delete(listener);
     },
     input: vi.fn(async (_input: MobilePanelInput) => undefined),
+    openUrl: vi.fn(async (_deviceId: string, _url: string): Promise<{ reversedPort?: number }> => ({})),
+    logs: vi.fn(
+      async (_deviceId: string, _query?: { appId?: string; lines?: number; filter?: string }): Promise<string[]> => [],
+    ),
+    launch: vi.fn(async (_deviceId: string, _appId: string, _options?: { stop?: boolean }) => undefined),
     takeOver: vi.fn(async () => undefined),
     release: vi.fn(async () => undefined),
     screenshot: vi.fn(async () => ({ data: pixel, mimeType: "image/png" as const, width: 1080, height: 2400 })),

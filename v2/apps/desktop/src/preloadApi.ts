@@ -17,7 +17,12 @@ import {
   BrowserWaitForNetworkIdleInput,
   MobileDevice,
   MobileDeviceIdInput,
+  MobileLogLines,
+  MobileOpenUrlResult,
   MobilePanelInput,
+  MobilePanelLaunchInput,
+  MobilePanelLogsInput,
+  MobilePanelOpenUrlInput,
   MobileRevealEvent,
   MobileScreenshot,
   MobileSettings,
@@ -86,6 +91,16 @@ function createMobileApi(ipc: IpcBridge) {
     onStream: listen("zli:mobile:stream", MobileStreamEvent),
     input: async (input: MobilePanelInput) => {
       await ipc.invoke("zli:mobile:input", MobilePanelInput.parse(input));
+    },
+    /** Resolves with the localhost port forwarded to an Android device, when the URL needed one. */
+    openUrl: async (deviceId: string, url: string) =>
+      MobileOpenUrlResult.parse(
+        await ipc.invoke("zli:mobile:open-url", MobilePanelOpenUrlInput.parse({ deviceId, url })),
+      ),
+    logs: async (deviceId: string, query: { appId?: string; lines?: number; filter?: string } = {}) =>
+      MobileLogLines.parse(await ipc.invoke("zli:mobile:logs", MobilePanelLogsInput.parse({ ...query, deviceId }))),
+    launch: async (deviceId: string, appId: string, options: { stop?: boolean } = {}) => {
+      await ipc.invoke("zli:mobile:launch", MobilePanelLaunchInput.parse({ ...options, deviceId, appId }));
     },
     takeOver: async (deviceId: string) => {
       await ipc.invoke("zli:mobile:take-over", device(deviceId));
