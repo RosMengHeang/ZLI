@@ -38,18 +38,39 @@ export function deviceKindLabel(device: Pick<MobileDevice, "platform" | "kind">)
   return device.platform === "ios" ? "iOS Simulator" : "Android Emulator";
 }
 
-/** What the panel says about who holds a device, or nothing when it is free. */
+/** Under this much time left, the agent banner counts down instead of naming the time. */
+const LEASE_COUNTDOWN_MS = 2 * 60_000;
+
+/**
+ * What the panel says about who holds a device, or nothing when it is free. An agent's lease names when it
+ * ends in the local time zone, and counts down in its last two minutes.
+ */
 export function leaseNotice(
   device: Pick<MobileDevice, "lease">,
+  clock: { now?: number; locale?: string; timeZone?: string } = {},
 ): { kind: "agent" | "person"; text: string } | undefined {
   const lease = device.lease;
   if (!lease) return undefined;
   if (lease.kind === "person")
     return { kind: "person", text: "You have control. Agents cannot use this device until you hand it back." };
-  return {
-    kind: "agent",
-    text: `${lease.ownerLabel || "An agent"} is using this device. Take over to use it yourself.`,
-  };
+  const owner = lease.ownerLabel || "An agent";
+  const ends = lease.expiresAt === undefined ? Number.NaN : Date.parse(lease.expiresAt);
+  if (Number.isNaN(ends))
+    return { kind: "agent", text: `${owner} is using this device. Take over to use it yourself.` };
+  const left = ends - (clock.now ?? Date.now());
+  let until: string;
+  if (left >= LEASE_COUNTDOWN_MS) {
+    const time = new Intl.DateTimeFormat(clock.locale, {
+      hour: "numeric",
+      minute: "2-digit",
+      ...(clock.timeZone ? { timeZone: clock.timeZone } : {}),
+    }).format(ends);
+    until = `until ${time}`;
+  } else if (left >= 60_000) {
+    const minutes = Math.round(left / 60_000);
+    until = `for about ${minutes} more ${minutes === 1 ? "minute" : "minutes"}`;
+  } else until = "for less than a minute more";
+  return { kind: "agent", text: `${owner} is using this device ${until}. Take over to use it yourself.` };
 }
 
 /**

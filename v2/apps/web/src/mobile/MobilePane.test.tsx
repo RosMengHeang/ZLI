@@ -504,6 +504,27 @@ describe("MobilePane", () => {
     expect(fake.mobile.release).toHaveBeenCalledWith(held.deviceId);
   });
 
+  it("shows when the agent's lease ends, counts down, and clears when the list says it lapsed", async () => {
+    vi.useFakeTimers();
+    const expiresAt = new Date(Date.now() + 3 * 60_000).toISOString();
+    const held: MobileDevice = {
+      ...emulator,
+      lease: { ownerId: "s1", ownerLabel: "Claude", kind: "agent", acquiredAt: new Date().toISOString(), expiresAt },
+    };
+    const fake = createMobile({ devices: [held] });
+    const container = await render(bridgeWith(fake.mobile));
+    const banner = () => container.querySelector(".banner[role=status]")?.textContent ?? "";
+    expect(banner()).toMatch(/^Claude is using this device until .+\. Take over to use it yourself\.Take over$/u);
+
+    await advance(90_000);
+    expect(banner()).toContain("Claude is using this device for about 2 more minutes.");
+
+    await act(async () => {
+      fake.publishDevices([emulator]);
+    });
+    expect(banner()).toBe("");
+  });
+
   it("boots a device that is off and follows the list as it starts", async () => {
     const off: MobileDevice = { ...emulator, state: "shutdown", serial: undefined };
     const fake = createMobile({ devices: [off] });

@@ -31,6 +31,8 @@ import "./mobile.css";
 export type MobileReveal = { deviceId: string; key: number };
 
 const SELECTED_KEY = "zli.mobile.device.v1";
+/** How often the agent lease banner rechecks its countdown. */
+const LEASE_TICK_MS = 15_000;
 
 type Busy = "boot" | "shutdown" | "lease" | "screenshot";
 
@@ -132,14 +134,15 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
   }, [devices]);
 
   const device = devices ? pickDevice(devices, selectedId) : undefined;
-  const now = useClock(device?.state === "booting" ? 1_000 : undefined);
+  const agentLeaseEnds = device?.lease?.kind === "agent" && device.lease.expiresAt !== undefined;
+  const now = useClock(device?.state === "booting" ? 1_000 : agentLeaseEnds ? LEASE_TICK_MS : undefined);
   let bootElapsed: number | undefined;
   if (device?.state === "booting") {
     const starts = bootStartsRef.current;
     if (!starts.has(device.deviceId)) starts.set(device.deviceId, Date.now());
     bootElapsed = Math.max(0, now - (starts.get(device.deviceId) ?? now));
   }
-  const lease = device ? leaseNotice(device) : undefined;
+  const lease = device ? leaseNotice(device, { now }) : undefined;
   const agentHolds = lease?.kind === "agent";
   const needsAndroid = status ? androidNeedsInstall(status.android) : false;
   const acceleration = status ? accelerationProblem(status.android) : undefined;

@@ -151,6 +151,28 @@ describe("mobile panel helpers", () => {
     ).toBe("The agent in app is using this device. Take over to use it yourself.");
   });
 
+  it("says when an agent's lease ends, and counts down its last two minutes", () => {
+    const now = Date.parse("2025-01-01T14:27:00.000Z");
+    const held = (expiresAt: string) => ({
+      lease: { ownerId: "agent:1", ownerLabel: "Claude", kind: "agent" as const, acquiredAt: "", expiresAt },
+    });
+    const clock = { now, locale: "en-GB", timeZone: "UTC" };
+    expect(leaseNotice(held("2025-01-01T14:32:00.000Z"), clock)?.text).toBe(
+      "Claude is using this device until 14:32. Take over to use it yourself.",
+    );
+    expect(leaseNotice(held("2025-01-01T14:32:00.000Z"), { ...clock, locale: "en-US" })?.text).toContain(
+      "until 2:32 PM.",
+    );
+    expect(leaseNotice(held("2025-01-01T14:28:40.000Z"), clock)?.text).toBe(
+      "Claude is using this device for about 2 more minutes. Take over to use it yourself.",
+    );
+    expect(leaseNotice(held("2025-01-01T14:28:10.000Z"), clock)?.text).toContain("for about 1 more minute.");
+    expect(leaseNotice(held("2025-01-01T14:27:20.000Z"), clock)?.text).toContain("for less than a minute more.");
+    expect(
+      leaseNotice({ lease: { ownerId: "person", ownerLabel: "You", kind: "person", acquiredAt: "" } }, clock)?.text,
+    ).toBe("You have control. Agents cannot use this device until you hand it back.");
+  });
+
   it("keeps the remembered device, else prefers a running one", () => {
     const devices = [device("a", "shutdown"), device("b", "online")];
     expect(pickDevice(devices, "a")?.deviceId).toBe("a");
