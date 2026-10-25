@@ -152,6 +152,8 @@ const IDB_MISSING = "This needs idb. Install it with: brew install facebook/fb/i
 export class IosSimulatorDriver implements MobileDriver {
   readonly platform = "ios" as const;
   readonly #deps: IosDriverDeps;
+  /** Boots in progress, so a shutdown can stop simctl waiting for a boot that will not finish. */
+  readonly #booting = new Map<string, AbortController>();
 
   constructor(deps: IosDriverDeps) {
     this.#deps = deps;
@@ -178,13 +180,27 @@ export class IosSimulatorDriver implements MobileDriver {
     const xcrun = await this.#xcrun();
     const udid = udidOf(device);
     if (options.wipeData) await runChecked(this.#deps.runner, xcrun, ["simctl", "erase", udid], { timeoutMs: 120_000 });
-    if (device.state !== "online") {
-      const boot = await this.#deps.runner.run(xcrun, ["simctl", "boot", udid], { timeoutMs: 120_000 });
-      // simctl reports an already booted device as an error; that is the state wanted here.
-      if (boot.code !== 0 && !/current state: Booted/u.test(boot.stderr))
-        throw new MobileDriverError(`The simulator would not boot: ${boot.stderr.trim()}`, 500);
+    const controller = new AbortController();
+    this.#booting.set(udid, controller);
+    const { signal } = controller;
+    try {
+      if (device.state !== "online") {
+        const boot = await this.#deps.runner.run(xcrun, ["simctl", "boot", udid], { timeoutMs: 120_000, signal });
+        if (signal.aborted) throw new MobileDriverError(`${device.name} was shut down while booting.`, 409);
+        // simctl reports an already booted device as an error; that is the state wanted here.
+        if (boot.code !== 0 && !/current state: Booted/u.test(boot.stderr))
+          throw new MobileDriverError(`The simulator would not boot: ${boot.stderr.trim()}`, 500);
+      }
+      await runChecked(this.#deps.runner, xcrun, ["simctl", "bootstatus", udid, "-b"], {
+        timeoutMs: 300_000,
+        signal,
+      }).catch((cause: unknown) => {
+        if (signal.aborted) throw new MobileDriverError(`${device.name} was shut down while booting.`, 409);
+        throw cause;
+      });
+    } finally {
+      if (this.#booting.get(udid) === controller) this.#booting.delete(udid);
     }
-    await runChecked(this.#deps.runner, xcrun, ["simctl", "bootstatus", udid, "-b"], { timeoutMs: 300_000 });
     if (options.window)
       await this.#deps.runner.run("open", ["-a", "Simulator", "--args", "-CurrentDeviceUDID", udid], {
         timeoutMs: 30_000,
@@ -193,6 +209,7 @@ export class IosSimulatorDriver implements MobileDriver {
   }
 
   async shutdown(device: DriverDevice): Promise<void> {
+    this.#booting.get(udidOf(device))?.abort();
     const result = await this.#deps.runner.run(await this.#xcrun(), ["simctl", "shutdown", udidOf(device)], {
       timeoutMs: 60_000,
     });

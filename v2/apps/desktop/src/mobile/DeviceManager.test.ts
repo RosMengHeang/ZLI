@@ -123,6 +123,28 @@ describe("device manager", () => {
     ]);
   });
 
+  it("cancels a boot when the device is shut down while booting", async () => {
+    const ios = new FakeDriver("ios", [{ ...iphone, state: "shutdown" }]);
+    ios.holdBoot = true;
+    const states: string[] = [];
+    const watched = new DeviceManager({
+      android: androidFake() as unknown as AndroidDriver,
+      ios,
+      scrcpyServer: async () => "/zli/scrcpy-server",
+      events: { devices: (next) => states.push(next.find((device) => device.platform === "ios")?.state ?? "") },
+    });
+    const booting = watched.boot(iphone.deviceId);
+    const outcome = booting.catch((cause: unknown) => cause);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((await watched.list()).find((device) => device.deviceId === iphone.deviceId)?.state).toBe("booting");
+
+    await watched.shutdown(iphone.deviceId);
+    expect(String(await outcome)).toMatch(/Booting iPhone 16 was cancelled/u);
+    expect(ios.actions).toEqual(["boot ios:UDID-1", "shutdown ios:UDID-1"]);
+    expect(states.at(-1)).toBe("shutdown");
+    expect(states).toContain("booting");
+  });
+
   it("blocks panel input while an agent holds the device, until the person takes over", async () => {
     const { devices, android } = manager({ scrcpyFails: true });
     devices.acquireForAgent(pixel.deviceId, agent);

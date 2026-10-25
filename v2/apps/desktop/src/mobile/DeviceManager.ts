@@ -55,6 +55,8 @@ export class DeviceManager {
   readonly #streams = new Map<string, Stream>();
   #devices: MobileDevice[] = [];
   #listing: Promise<MobileDevice[]> | undefined;
+  /** Devices whose boot was stopped by a shutdown, so the boot reports a cancel instead of a failure. */
+  readonly #cancelledBoots = new Set<string>();
 
   constructor(deps: DeviceManagerDeps) {
     this.#deps = deps;
@@ -101,18 +103,31 @@ export class DeviceManager {
       entry.deviceId === deviceId ? { ...entry, state: "booting" } : entry,
     );
     this.#publish();
+    this.#cancelledBoots.delete(deviceId);
     try {
       await this.driverFor(device).boot(device, options);
+    } catch (cause) {
+      if (this.#cancelledBoots.has(deviceId)) throw new MobileDriverError(`Booting ${device.name} was cancelled.`, 409);
+      throw cause;
     } finally {
+      this.#cancelledBoots.delete(deviceId);
       await this.list();
     }
     return this.find(deviceId);
   }
 
+  /** Shuts a device down, or cancels its boot while it is still booting. */
   async shutdown(deviceId: string): Promise<void> {
     const device = await this.find(deviceId);
-    await this.stopStream(deviceId);
-    await this.driverFor(device).shutdown(device);
+    const booting = device.state === "booting";
+    if (booting) this.#cancelledBoots.add(deviceId);
+    try {
+      await this.stopStream(deviceId);
+      await this.driverFor(device).shutdown(device);
+    } catch (cause) {
+      if (booting) this.#cancelledBoots.delete(deviceId);
+      throw cause;
+    }
     this.leases.release(deviceId);
     await this.list();
   }

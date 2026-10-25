@@ -9,6 +9,9 @@ export class FakeDriver implements MobileDriver {
   tree: UiTree = { nodes: [], depths: [] };
   size = { width: 1080, height: 2400 };
   screenshotError: Error | undefined;
+  /** While true, boot leaves the device booting until shutdown stops it, as a slow emulator would. */
+  holdBoot = false;
+  readonly #heldBoots = new Map<string, () => void>();
 
   constructor(
     readonly platform: MobilePlatform,
@@ -21,6 +24,12 @@ export class FakeDriver implements MobileDriver {
 
   async boot(device: DriverDevice): Promise<DriverDevice> {
     this.actions.push(`boot ${device.deviceId}`);
+    if (this.holdBoot) {
+      this.#setState(device.deviceId, "booting");
+      await new Promise<void>((_resolve, reject) => {
+        this.#heldBoots.set(device.deviceId, () => reject(new Error("The emulator stopped while booting.")));
+      });
+    }
     this.#setState(device.deviceId, "online");
     return { ...device, state: "online" };
   }
@@ -28,6 +37,8 @@ export class FakeDriver implements MobileDriver {
   async shutdown(device: DriverDevice): Promise<void> {
     this.actions.push(`shutdown ${device.deviceId}`);
     this.#setState(device.deviceId, "shutdown");
+    this.#heldBoots.get(device.deviceId)?.();
+    this.#heldBoots.delete(device.deviceId);
   }
 
   async install(device: DriverDevice, path: string): Promise<string> {

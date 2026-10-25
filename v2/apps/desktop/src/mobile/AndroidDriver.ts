@@ -75,6 +75,8 @@ export class AndroidDriver implements MobileDriver {
   readonly #deps: AndroidDriverDeps;
   readonly #avdNames = new Map<string, string | undefined>();
   readonly #started = new Map<string, RunningProcess>();
+  /** The serial each emulator ZLI started will have, known before adb lists it. */
+  readonly #startedSerials = new Map<string, string>();
   readonly #sleep: (milliseconds: number) => Promise<void>;
   readonly #now: () => number;
 
@@ -135,9 +137,12 @@ export class AndroidDriver implements MobileDriver {
       serial = `emulator-${port}`;
       process = this.#deps.runner.spawn(tools.emulator, emulatorBootArgs(avdName, port, options), { env: tools.env });
       this.#started.set(avdName, process);
+      this.#startedSerials.set(avdName, serial);
       this.#avdNames.set(serial, avdName);
       void process.exited.then(() => {
-        if (this.#started.get(avdName) === process) this.#started.delete(avdName);
+        if (this.#started.get(avdName) !== process) return;
+        this.#started.delete(avdName);
+        this.#startedSerials.delete(avdName);
       });
     }
     let output = "";
@@ -168,20 +173,41 @@ export class AndroidDriver implements MobileDriver {
     throw new MobileDriverError("The emulator did not finish booting within five minutes.", 504);
   }
 
+  /**
+   * Stops an emulator, including one that is still booting. The console's kill command lets it exit cleanly;
+   * an emulator ZLI started is killed outright when the console does not answer or it does not exit in time.
+   */
   async shutdown(device: DriverDevice): Promise<void> {
     if (device.kind === "physical") throw new MobileDriverError("ZLI does not turn off physical phones.");
     const avdName = device.deviceId.startsWith(AVD_PREFIX) ? device.deviceId.slice(AVD_PREFIX.length) : undefined;
     const process = avdName ? this.#started.get(avdName) : undefined;
-    if (device.serial) {
+    const serial = device.serial ?? (avdName ? this.#startedSerials.get(avdName) : undefined);
+    let killed = false;
+    let reason = "";
+    if (serial) {
       const tools = await this.#deps.tools();
-      await this.#deps.runner
-        .run(this.#adb(tools), ["-s", device.serial, "emu", "kill"], { env: tools.env, timeoutMs: 15_000 })
-        .catch(() => undefined);
+      const result = await this.#deps.runner
+        .run(this.#adb(tools), ["-s", serial, "emu", "kill"], { env: tools.env, timeoutMs: 15_000 })
+        .catch((cause: unknown) => ({ code: 1, stderr: cause instanceof Error ? cause.message : String(cause) }));
+      killed = result.code === 0;
+      reason = result.stderr.trim();
     }
     if (process) {
-      const stopped = await Promise.race([process.exited.then(() => true), this.#sleep(20_000).then(() => false)]);
-      if (!stopped) process.kill();
+      const stopped =
+        killed && (await Promise.race([process.exited.then(() => true), this.#sleep(20_000).then(() => false)]));
+      if (!stopped) {
+        process.kill();
+        await Promise.race([process.exited, this.#sleep(5_000)]);
+      }
+      return;
     }
+    if (killed || device.state === "shutdown") return;
+    throw new MobileDriverError(
+      serial
+        ? `The emulator did not stop${reason ? `: ${reason}` : "."} Close its window to stop it.`
+        : `ZLI did not start ${device.name} and cannot reach it to stop it. Close its window instead.`,
+      500,
+    );
   }
 
   async install(device: DriverDevice, path: string): Promise<string> {

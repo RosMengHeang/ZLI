@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { FakeProcessRunner } from "./FakeProcessRunner.js";
+import type { ProcessRunner, RunOptions } from "./ProcessRunner.js";
 import { IosSimulatorDriver, parseIdbDescribe, parseSimctlDevices } from "./IosSimulatorDriver.js";
 
 const SIMCTL = JSON.stringify({
@@ -97,6 +98,41 @@ describe("iOS simulator driver", () => {
     expect(fake.argsOf("xcrun").slice(1)).toEqual([
       ["simctl", "boot", "BBBB-2222"],
       ["simctl", "bootstatus", "BBBB-2222", "-b"],
+    ]);
+  });
+
+  it("stops waiting for a boot when the simulator is shut down while it boots", async () => {
+    const calls: { args: readonly string[]; options: RunOptions | undefined }[] = [];
+    const ok = { code: 0, stdout: Buffer.from(""), stderr: "", timedOut: false };
+    const runner: ProcessRunner = {
+      run: async (_command, args, options) => {
+        calls.push({ args, options });
+        if (args[1] !== "bootstatus") return ok;
+        // bootstatus waits for the boot; the runner kills it when its signal aborts.
+        return new Promise((resolve) =>
+          options?.signal?.addEventListener("abort", () => resolve({ ...ok, code: null }), { once: true }),
+        );
+      },
+      spawn: () => {
+        throw new Error("not used");
+      },
+    };
+    const ios = new IosSimulatorDriver({ runner, tools: async () => ({ xcrun: "/usr/bin/xcrun" }) });
+    const ipad = {
+      deviceId: "ios:BBBB-2222",
+      platform: "ios",
+      kind: "simulator",
+      name: "iPad Air",
+      state: "shutdown",
+    } as const;
+    const outcome = ios.boot(ipad, {}).catch((cause: unknown) => cause);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await ios.shutdown({ ...ipad, state: "booting" });
+    expect(String(await outcome)).toMatch(/iPad Air was shut down while booting/u);
+    expect(calls.map((call) => call.args.join(" "))).toEqual([
+      "simctl boot BBBB-2222",
+      "simctl bootstatus BBBB-2222 -b",
+      "simctl shutdown BBBB-2222",
     ]);
   });
 

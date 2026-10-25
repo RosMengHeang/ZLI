@@ -112,6 +112,80 @@ describe("Android driver", () => {
     ).rejects.toThrow(/requires hardware acceleration/u);
   });
 
+  it("cancels a boot in progress through the console of the emulator it started", async () => {
+    const tablet: DriverDevice = {
+      deviceId: "android-avd:Tablet",
+      platform: "android",
+      kind: "emulator",
+      name: "Tablet",
+      state: "shutdown",
+    };
+    const runner = new FakeProcessRunner((_command, args) => {
+      if (args[0] === "devices") return { stdout: "List of devices attached\nemulator-5554 device\n" };
+      if (args.join(" ") === "-s emulator-5554 emu avd name") return { stdout: "Pixel_7\r\nOK\r\n" };
+      if (args.join(" ") === "-s emulator-5556 emu kill") {
+        runner.spawned[0]?.exit(0);
+        return { stdout: "OK: killing emulator, bye bye\n" };
+      }
+      return { code: 1, stderr: "device offline" };
+    });
+    const android = new AndroidDriver({
+      runner,
+      tools: async () => tools,
+      sleep: () => new Promise((resolve) => setTimeout(resolve, 0)),
+      now: () => 0,
+    });
+    const booting = android.boot(tablet, {});
+    const failure = booting.catch((cause: unknown) => cause);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect((await android.list()).find((device) => device.deviceId === tablet.deviceId)?.state).toBe("booting");
+
+    await android.shutdown({ ...tablet, state: "booting" });
+    expect(runner.argsOf("adb")).toContainEqual(["-s", "emulator-5556", "emu", "kill"]);
+    expect(runner.spawned[0]?.killed).toBe(false);
+    expect(String(await failure)).toMatch(/stopped while booting/u);
+    expect((await android.list()).find((device) => device.deviceId === tablet.deviceId)?.state).toBe("shutdown");
+  });
+
+  it("kills the emulator process when its console does not answer", async () => {
+    const runner = new FakeProcessRunner((_command, args) => {
+      if (args[0] === "devices") return { stdout: "List of devices attached\n" };
+      return { code: 1, stderr: "connection refused" };
+    });
+    const android = new AndroidDriver({
+      runner,
+      tools: async () => tools,
+      sleep: () => new Promise((resolve) => setTimeout(resolve, 0)),
+      now: () => 0,
+    });
+    const tablet: DriverDevice = {
+      deviceId: "android-avd:Tablet",
+      platform: "android",
+      kind: "emulator",
+      name: "Tablet",
+      state: "shutdown",
+    };
+    const failure = android.boot(tablet, {}).catch((cause: unknown) => cause);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await android.shutdown({ ...tablet, state: "booting" });
+    expect(runner.spawned[0]?.killed).toBe(true);
+    expect(String(await failure)).toMatch(/stopped while booting/u);
+  });
+
+  it("says so when it cannot stop an emulator it did not start", async () => {
+    const { android } = driver(() => ({ code: 1, stderr: "connection refused" }));
+    await expect(android.shutdown(online)).rejects.toThrow(/did not stop: connection refused/u);
+    await expect(
+      android.shutdown({
+        deviceId: "android-avd:Tablet",
+        platform: "android",
+        kind: "emulator",
+        name: "Tablet",
+        state: "booting",
+      }),
+    ).rejects.toThrow(/cannot reach it/u);
+  });
+
   it("reverses localhost ports before opening a dev server URL", async () => {
     const { android, runner } = driver(() => ({ stdout: "Status: ok\n" }));
     expect(await android.openUrl(online, "http://localhost:8081/?platform=android")).toEqual({ reversedPort: 8081 });
