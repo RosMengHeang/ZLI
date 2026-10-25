@@ -32,6 +32,7 @@ import {
 import { IssuesSection } from "./IssuesSection.js";
 import { AccountsSection } from "./AccountsSection.js";
 import { IntegrationsSection, type IntegrationsView } from "./IntegrationsSection.js";
+import { MobileAccessSection } from "./MobileAccessSection.js";
 import { SectionHeader, SettingRow } from "./SectionHeader.js";
 import { SkillsSection } from "./SkillsSection.js";
 import "./settings.css";
@@ -47,6 +48,7 @@ export type SettingsSection =
   | "issues"
   | "shortcuts"
   | "notifications"
+  | "mobile"
   | "updates";
 
 const sections: { id: SettingsSection; label: string; icon: IconName }[] = [
@@ -60,6 +62,7 @@ const sections: { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: "issues", label: "Issues", icon: "issue" },
   { id: "shortcuts", label: "Shortcuts", icon: "command" },
   { id: "notifications", label: "Notifications", icon: "bell" },
+  { id: "mobile", label: "Mobile access", icon: "smartphone" },
   { id: "updates", label: "Updates", icon: "download" },
 ];
 
@@ -170,6 +173,7 @@ export function SettingsDialog({
           {section === "issues" ? <IssuesSection /> : null}
           {section === "shortcuts" ? <ShortcutSettings /> : null}
           {section === "notifications" ? <NotificationSection {...notifications} /> : null}
+          {section === "mobile" ? <MobileAccessSection /> : null}
           {section === "updates" ? <UpdatesSection updates={updates} onRestart={onRestartToUpdate} /> : null}
         </section>
       </div>
