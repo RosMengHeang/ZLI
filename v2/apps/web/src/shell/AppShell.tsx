@@ -348,6 +348,10 @@ function WorkspaceApp() {
     () => worktreeDevServers(projection?.devServers, contextWorktree?.worktreeId),
     [projection?.devServers, contextWorktree?.worktreeId],
   );
+  const mobileDevServers = useMemo(() => {
+    const titles = new Map(projection?.terminals.map((terminal) => [terminal.terminalId, terminal.title]));
+    return contextDevServers.map(({ port, url, terminalId }) => ({ port, url, name: titles.get(terminalId) }));
+  }, [contextDevServers, projection?.terminals]);
   const openDevServer = useCallback(
     (url: string) => {
       const worktreeId = contextWorktree?.worktreeId;
@@ -1611,7 +1615,7 @@ function WorkspaceApp() {
                         onShowAgent={showAgent}
                       />
                     ) : sidePane === "mobile" ? (
-                      <MobilePane reveal={mobileReveal} />
+                      <MobilePane reveal={mobileReveal} devServers={mobileDevServers} />
                     ) : (
                       <Suspense fallback={<LoadingState label="Loading the changes" />}>
                         <ReviewPane worktree={contextWorktree} focus={reviewFocus} onShowAgent={showAgent} />

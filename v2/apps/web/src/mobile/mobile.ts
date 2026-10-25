@@ -256,6 +256,28 @@ export function openedNotice(url: string, result: { reversedPort?: number | unde
     : `Opened ${url}. Forwarded localhost:${result.reversedPort} to the device.`;
 }
 
+/** A dev server the panel can offer to open on a device: its port, address, and the terminal it runs in. */
+export type DevServerHint = { port: number; url: string; name?: string | undefined };
+
+/** Metro's port, then the ports older Expo releases used for Metro and for the web build. */
+const EXPO_PORTS = [8081, 19000, 19006] as const;
+
+/**
+ * The Expo or Metro server among a worktree's dev servers, newest first, or undefined. A server counts when
+ * it is on an Expo port or its terminal's name says expo or metro. The web-only port 19006 is a last resort.
+ */
+export function expoServer(servers: readonly DevServerHint[]): DevServerHint | undefined {
+  const named = (server: DevServerHint) => /expo|metro/iu.test(server.name ?? "");
+  return (
+    servers.find((server) => named(server) || server.port === EXPO_PORTS[0] || server.port === EXPO_PORTS[1]) ??
+    servers.find((server) => server.port === EXPO_PORTS[2])
+  );
+}
+
+export function expoUrl(server: Pick<DevServerHint, "port">): string {
+  return `exp://localhost:${server.port}`;
+}
+
 /** The line count the Logs drawer asks for, from what was typed: 1 to 2,000, or 200 when it is not a number. */
 export function logLineCount(typed: string): number {
   const value = Number.parseInt(typed, 10);

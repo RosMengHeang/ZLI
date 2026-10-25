@@ -8,6 +8,7 @@ import { Icon } from "../ui/Icon.js";
 import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
 import { Switch } from "../ui/Switch.js";
 import { DeviceScreen } from "./DeviceScreen.js";
+import { ExpoBanner } from "./ExpoBanner.js";
 import { MobileControls } from "./MobileControls.js";
 import { MobileLogsDrawer } from "./MobileLogsDrawer.js";
 import { MobileSetup } from "./MobileSetup.js";
@@ -15,8 +16,10 @@ import { MobileToolbar } from "./MobileToolbar.js";
 import {
   accelerationProblem,
   androidNeedsInstall,
+  type DevServerHint,
   deviceKindLabel,
   errorText,
+  expoServer,
   formatElapsed,
   leaseNotice,
   pickDevice,
@@ -42,7 +45,14 @@ type Busy = "boot" | "shutdown" | "lease" | "screenshot";
 
 const CLIPBOARD_IMAGE_ERROR = "ZLI could not put the image on the clipboard. Save the screenshot instead.";
 
-export function MobilePane({ reveal }: { reveal?: MobileReveal | undefined }) {
+export function MobilePane({
+  reveal,
+  devServers = [],
+}: {
+  reveal?: MobileReveal | undefined;
+  /** The current worktree's dev servers, newest first, so the pane can offer to open Expo on a device. */
+  devServers?: readonly DevServerHint[] | undefined;
+}) {
   const { bridge } = useRuntime();
   const mobile = bridge?.mobile;
   if (!mobile)
@@ -56,10 +66,18 @@ export function MobilePane({ reveal }: { reveal?: MobileReveal | undefined }) {
         />
       </div>
     );
-  return <MobilePaneBody mobile={mobile} reveal={reveal} />;
+  return <MobilePaneBody mobile={mobile} reveal={reveal} devServers={devServers} />;
 }
 
-function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: MobileReveal | undefined }) {
+function MobilePaneBody({
+  mobile,
+  reveal,
+  devServers,
+}: {
+  mobile: MobileBridge;
+  reveal: MobileReveal | undefined;
+  devServers: readonly DevServerHint[];
+}) {
   const [devices, setDevices] = useState<MobileDevice[]>();
   const [devicesError, setDevicesError] = useState<string>();
   const [refreshing, setRefreshing] = useState(false);
@@ -382,6 +400,7 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
   const android = device?.platform === "android";
   const virtual = device ? device.kind !== "physical" : false;
   const online = device?.state === "online";
+  const expo = expoServer(devServers);
 
   return (
     <div className="tool-pane mobile-pane">
@@ -474,6 +493,17 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
             )}
           </div>
         </div>
+      ) : null}
+      {device && online && expo && !showSetup ? (
+        <ExpoBanner
+          mobile={mobile}
+          device={device}
+          server={expo}
+          inputBlocked={agentHolds}
+          onBlockedInput={nudgeTakeOver}
+          onError={setActionError}
+          onNotice={showNotice}
+        />
       ) : null}
       {actionError && !showSetup ? (
         <div className="banner banner-danger" role="alert">

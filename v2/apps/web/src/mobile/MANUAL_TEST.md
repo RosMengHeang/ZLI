@@ -78,8 +78,12 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
   Expected: matching logcat lines, newest at the bottom, refreshed every two seconds while the drawer is open. Copy all copies them and says how many. Closing and reopening ZLI's window in the same session keeps the drawer open.
 - [ ] While an agent holds the device, open the Logs drawer and click Refresh.
   Expected: the drawer asks you to take over, and focus moves to Take over.
-- [ ] Start an Expo app with `npx expo start` in the current worktree.
-  Expected: a banner says Expo is running on localhost:8081 and offers "Open on <device name>". Clicking it opens the app in Expo Go. Nothing opens without the click.
+- [ ] Start an Expo app with `npx expo start` in a ZLI terminal of the current worktree, with an emulator running.
+  Expected: once Expo prints "Web is waiting on http://localhost:8081" (or, with `--localhost`, "Metro waiting on exp://127.0.0.1:8081"), a banner says "Expo is running on localhost:8081." and offers "Open on <device name>". Clicking it opens the app in Expo Go and says it forwarded localhost:8081. Nothing opens without the click.
+- [ ] Dismiss the Expo banner with its close button, then switch panels and come back.
+  Expected: the banner stays hidden for the rest of the session and returns after ZLI restarts. It also hides while the device is off, and its button sends you to Take over while an agent holds the device.
+- [ ] Start Metro with `npx react-native start` instead.
+  Expected: no banner, because Metro prints no address to detect. Open `exp://localhost:8081` or the app yourself.
 
 ### Virtual device manager
 

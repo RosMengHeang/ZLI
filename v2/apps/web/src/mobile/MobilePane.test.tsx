@@ -16,6 +16,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { MobileBridge, ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
+import type { DevServerHint } from "./mobile.js";
 import { MobilePane, type MobileReveal } from "./MobilePane.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -178,18 +179,24 @@ afterEach(() => {
   window.sessionStorage.clear();
 });
 
-async function render(bridge: ZliBridge, reveal?: MobileReveal) {
+async function render(bridge: ZliBridge, reveal?: MobileReveal, devServers?: readonly DevServerHint[]) {
   const container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
   await act(async () => {
     root?.render(
       <RuntimeProvider bridge={bridge}>
-        <MobilePane reveal={reveal} />
+        <MobilePane reveal={reveal} devServers={devServers} />
       </RuntimeProvider>,
     );
   });
   return container;
+}
+
+function expoBanner(container: HTMLElement): HTMLElement | undefined {
+  return [...container.querySelectorAll<HTMLElement>(".banner")].find((banner) =>
+    banner.textContent?.includes("Expo is running"),
+  );
 }
 
 function button(container: HTMLElement, name: string): HTMLButtonElement {
@@ -620,7 +627,60 @@ describe("MobilePane", () => {
     expect(fake.mobile.openUrl).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(button(container, "Take over"));
   });
+  it("offers to open a detected Expo server on the running device, and stays dismissed for the session", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    fake.mobile.openUrl.mockResolvedValueOnce({ reversedPort: 8081 });
+    const servers = [
+      { port: 5173, url: "http://localhost:5173/" },
+      { port: 8081, url: "http://localhost:8081/" },
+    ];
+    let container = await render(bridgeWith(fake.mobile), undefined, servers);
+    expect(fake.mobile.openUrl).not.toHaveBeenCalled();
+    expect(expoBanner(container)?.getAttribute("role")).toBe("status");
+    expect(expoBanner(container)?.querySelector(".banner-message")?.textContent).toBe(
+      "Expo is running on localhost:8081.",
+    );
+    await click(button(container, "Open on Pixel 8"));
+    expect(fake.mobile.openUrl).toHaveBeenCalledWith(emulator.deviceId, "exp://localhost:8081");
+    expect(container.querySelector(".mobile-notice")?.textContent).toBe(
+      "Opened exp://localhost:8081. Forwarded localhost:8081 to the device.",
+    );
 
+    await click(button(container, "Dismiss the Expo banner"));
+    expect(expoBanner(container)).toBeUndefined();
+    act(() => root?.unmount());
+    container = await render(bridgeWith(fake.mobile), undefined, servers);
+    expect(expoBanner(container)).toBeUndefined();
+    act(() => root?.unmount());
+    container = await render(bridgeWith(fake.mobile), undefined, [{ port: 19000, url: "http://localhost:19000/" }]);
+    expect(expoBanner(container)?.textContent).toContain("Expo is running on localhost:19000.");
+  });
+
+  it("shows the Expo banner only for an Expo server and a running device", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    let container = await render(bridgeWith(fake.mobile), undefined, [{ port: 5173, url: "http://localhost:5173/" }]);
+    expect(expoBanner(container)).toBeUndefined();
+    act(() => root?.unmount());
+    container = await render(bridgeWith(fake.mobile), undefined, [
+      { port: 4000, url: "http://localhost:4000/", name: "expo start" },
+    ]);
+    expect(expoBanner(container)?.textContent).toContain("localhost:4000");
+    await act(async () => fake.publishDevices([{ ...emulator, state: "shutdown" }]));
+    expect(expoBanner(container)).toBeUndefined();
+    expect(fake.mobile.openUrl).not.toHaveBeenCalled();
+  });
+
+  it("sends the person to Take over when they open Expo while an agent holds the device", async () => {
+    const held: MobileDevice = {
+      ...emulator,
+      lease: { ownerId: "s1", ownerLabel: "Codex", kind: "agent", acquiredAt: "2025-01-01T00:00:00.000Z" },
+    };
+    const fake = createMobile({ devices: [held] });
+    const container = await render(bridgeWith(fake.mobile), undefined, [{ port: 8081, url: "http://localhost:8081/" }]);
+    await click(button(container, "Open on Pixel 8"));
+    expect(fake.mobile.openUrl).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(button(container, "Take over"));
+  });
   it("reads the device logs in the Logs drawer, filters them, copies them, and refreshes on a timer", async () => {
     vi.useFakeTimers();
     const writeText = vi.fn(async (_text: string) => undefined);

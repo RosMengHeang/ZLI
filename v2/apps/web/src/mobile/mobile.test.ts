@@ -11,6 +11,8 @@ import {
   deviceSummary,
   devicesInGroups,
   errorText,
+  expoServer,
+  expoUrl,
   formatBytes,
   formatElapsed,
   framePoint,
@@ -281,7 +283,22 @@ describe("mobile panel helpers", () => {
       "Opened http://localhost:3000. Forwarded localhost:3000 to the device.",
     );
   });
-
+  it("finds the Expo server by port or terminal name, newest first", () => {
+    const vite = { port: 5173, url: "http://localhost:5173/" };
+    const metro = { port: 8081, url: "http://localhost:8081/" };
+    const legacy = { port: 19000, url: "http://localhost:19000/" };
+    const web = { port: 19006, url: "http://localhost:19006/" };
+    const named = { port: 4000, url: "http://localhost:4000/", name: "npx expo start" };
+    expect(expoServer([])).toBeUndefined();
+    expect(expoServer([vite])).toBeUndefined();
+    expect(expoServer([vite, metro])).toBe(metro);
+    expect(expoServer([legacy, metro])).toBe(legacy);
+    expect(expoServer([web, metro])).toBe(metro);
+    expect(expoServer([vite, web])).toBe(web);
+    expect(expoServer([vite, named])).toBe(named);
+    expect(expoServer([{ ...vite, name: "Metro bundler" }])?.port).toBe(5173);
+    expect(expoUrl(metro)).toBe("exp://localhost:8081");
+  });
   it("reads 200 log lines unless told a number from 1 to 2,000", () => {
     expect(logLineCount("")).toBe(200);
     expect(logLineCount("many")).toBe(200);
