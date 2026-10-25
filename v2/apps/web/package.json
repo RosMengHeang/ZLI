@@ -26,6 +26,7 @@
     "@lezer/highlight": "1.2.5",
     "@xterm/addon-fit": "0.10.0",
     "@xterm/xterm": "5.5.0",
+    "@zli-v2/client-runtime": "workspace:*",
     "@zli-v2/contracts": "workspace:*",
     "@zli-v2/ui": "workspace:*",
     "dompurify": "3.4.17",

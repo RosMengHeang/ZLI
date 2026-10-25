@@ -186,6 +186,9 @@ importers:
       '@xterm/xterm':
         specifier: 5.5.0
         version: 5.5.0
+      '@zli-v2/client-runtime':
+        specifier: workspace:*
+        version: link:../../packages/client-runtime
       '@zli-v2/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
