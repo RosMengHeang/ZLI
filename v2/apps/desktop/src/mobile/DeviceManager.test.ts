@@ -1,5 +1,5 @@
 import type { MobilePanelInput } from "@zli-v2/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { AndroidDriver } from "./AndroidDriver.js";
 import { DeviceManager, type MobileStreamMessage, scrcpyMessagesFor } from "./DeviceManager.js";
@@ -59,6 +59,27 @@ describe("device manager", () => {
     expect(listed.map((device) => device.deviceId)).toEqual([pixel.deviceId, iphone.deviceId]);
     expect(listed[0]?.lease).toMatchObject({ ownerId: "agent:wt-1", kind: "agent" });
     expect(listed[1]?.lease).toBeNull();
+  });
+
+  it("publishes the device list when an agent's lease lapses", async () => {
+    vi.useFakeTimers();
+    try {
+      const published: (string | undefined)[] = [];
+      const watched = new DeviceManager({
+        android: androidFake() as unknown as AndroidDriver,
+        ios: new FakeDriver("ios", [iphone]),
+        scrcpyServer: async () => "/zli/scrcpy-server",
+        events: { devices: (next) => published.push(next[0]?.lease?.ownerId) },
+      });
+      await watched.list();
+      watched.acquireForAgent(pixel.deviceId, agent);
+      expect(published.at(-1)).toBe("agent:wt-1");
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(published.at(-1)).toBeUndefined();
+      await watched.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("streams Android video through scrcpy and sends panel input as control messages", async () => {

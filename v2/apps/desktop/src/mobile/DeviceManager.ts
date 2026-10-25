@@ -218,6 +218,7 @@ export class DeviceManager {
   }
 
   async dispose(): Promise<void> {
+    this.leases.dispose();
     await Promise.all([...this.#streams.keys()].map((deviceId) => this.stopStream(deviceId)));
     await Promise.all(this.drivers.map((driver) => driver.dispose().catch(() => undefined)));
   }

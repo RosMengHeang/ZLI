@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { FakeProcessRunner } from "./FakeProcessRunner.js";
-import type { ProcessRunner, RunOptions } from "./ProcessRunner.js";
 import { IosSimulatorDriver, parseIdbDescribe, parseSimctlDevices } from "./IosSimulatorDriver.js";
+import type { ProcessRunner, RunOptions } from "./ProcessRunner.js";
 
 const SIMCTL = JSON.stringify({
   devices: {
