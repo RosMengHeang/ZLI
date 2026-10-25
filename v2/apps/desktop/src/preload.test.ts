@@ -267,6 +267,47 @@ describe("preload API", () => {
     expect(listeners.has("zli:updates:status")).toBe(false);
   });
 
+  it("validates phone access status from main and sends only checked input", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const listeners = new Map<string, (event: unknown, value: unknown) => void>();
+    const status = {
+      enabled: true,
+      state: "listening",
+      hosts: ["192.168.1.20"],
+      port: 47321,
+      devices: [{ deviceId: "d1", name: "Pixel 9", pairedAt: "2026-01-02T03:04:05.000Z", connected: true }],
+    };
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        return status;
+      },
+      on: (channel, listener) => {
+        listeners.set(channel, listener);
+        return () => listeners.delete(channel);
+      },
+    });
+
+    expect(await api.mobileAccess.getStatus()).toEqual(status);
+    await api.mobileAccess.setEnabled("yes" as never);
+    await api.mobileAccess.startPairing();
+    await api.mobileAccess.revoke("d1");
+    expect(calls).toEqual([
+      { channel: "zli:mobile:get-status", payload: undefined },
+      { channel: "zli:mobile:set-enabled", payload: { enabled: false } },
+      { channel: "zli:mobile:start-pairing", payload: undefined },
+      { channel: "zli:mobile:revoke", payload: { deviceId: "d1" } },
+    ]);
+
+    const received: unknown[] = [];
+    const unsubscribe = api.mobileAccess.onStatus((next) => received.push(next));
+    listeners.get("zli:mobile:status")?.({}, { ...status, enabled: false, state: "off" });
+    listeners.get("zli:mobile:status")?.({}, { enabled: "maybe" });
+    expect(received).toHaveLength(1);
+    unsubscribe();
+    expect(listeners.has("zli:mobile:status")).toBe(false);
+  });
+
   it("hides native browser views through a dedicated channel", async () => {
     const calls: Array<{ channel: string; payload: unknown }> = [];
     const api = createPreloadApi({

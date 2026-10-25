@@ -25,7 +25,13 @@
     "verify": "pnpm run boundaries && pnpm run format:check && pnpm run lint && pnpm run test && pnpm run typecheck"
   },
   "pnpm": {
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-86w9-cpqp-85rv"
+      ]
+    },
     "overrides": {
+      "@expo/cli>zod": "4.6.7",
       "esbuild": "0.28.1",
       "http-cache-semantics": "4.3.0",
       "source-map-js": "1.2.2"

@@ -51,6 +51,7 @@ import { type CaptureDependencies, captureSource, listCaptureSources, parseSourc
 import { DesktopDiagnostics } from "./diagnostics/DesktopDiagnostics.js";
 import type { AgentNotifier } from "./notifications/AgentNotifier.js";
 import { registerAgentNotifications } from "./notifications/electronNotifications.js";
+import { registerMobileAccess } from "./remote/electronMobileAccess.js";
 import { ensureDesktopDaemon, shutdownDesktopDaemon } from "./runtime/DesktopDaemon.js";
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
 import { ensureScratchFolder } from "./scratch/ScratchFolder.js";
@@ -85,6 +86,7 @@ let browserManager: BrowserManager | undefined;
 let browserControl: BrowserControlServer | undefined;
 let mainWindow: BrowserWindow | undefined;
 let notifier: AgentNotifier | undefined;
+let mobileAccess: { stop(): Promise<void> } | undefined;
 let approvedSupportBundleRoot: string | undefined;
 let scratchFolderPath: string | undefined;
 let daemonEndpointPath: string | undefined;
@@ -129,9 +131,10 @@ async function main(): Promise<void> {
     },
   });
   const descriptor = await environment.start();
+  const environmentId = process.env.ZLI_ENVIRONMENT_ID ?? DEFAULT_ENVIRONMENT_ID;
   runtime = await RuntimeClient.connect({
     token: descriptor.token,
-    environmentId: process.env.ZLI_ENVIRONMENT_ID ?? DEFAULT_ENVIRONMENT_ID,
+    environmentId,
     connectTransport: async () => connectWebSocket(((await environment?.start()) ?? descriptor).url),
   });
   await registerTestProject(runtime);
@@ -181,6 +184,21 @@ async function main(): Promise<void> {
     prepareToInstall: () => quitController.stop(),
     log: (level, message) => desktopDiagnostics.record(level, message, { component: "updates" }),
   }).catch((error: unknown) => console.error("Update checks could not start", error));
+  mobileAccess = await registerMobileAccess({
+    window: electronWindow,
+    settingsPath: process.env.ZLI_DATABASE_PATH
+      ? `${databasePath}.mobile-access.json`
+      : join(app.getPath("userData"), "mobile-access.json"),
+    upstream: async () => {
+      const current = (await environment?.start()) ?? descriptor;
+      return { url: current.url, token: current.token, environmentId };
+    },
+    projection: () => runtime?.projection(),
+    log: (level, message, detail) => desktopDiagnostics.record(level, message, { component: "mobile", ...detail }),
+  }).catch((error: unknown) => {
+    console.error("Phone access could not start", error);
+    return undefined;
+  });
   browserManager = new BrowserManager(
     {
       create: ({ session: browserSession }) =>
@@ -600,6 +618,7 @@ async function confirmQuit(busyCount: number): Promise<boolean> {
 /** Stops chats, agent CLIs, and terminals, so nothing ZLI started keeps running after it quits. */
 async function shutdownRuntime(): Promise<void> {
   browserManager?.closeAll({ persist: false });
+  await mobileAccess?.stop().catch(() => undefined);
   // Closed first: a client that sees the server go away starts it again to reconnect.
   runtime?.close();
   runtime = undefined;

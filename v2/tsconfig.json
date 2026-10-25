@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "apps/desktop" },
+    { "path": "apps/mobile" },
     { "path": "apps/server" },
     { "path": "apps/web" },
     { "path": "packages/client-runtime" },
@@ -10,6 +11,7 @@
     { "path": "packages/provider-cursor-agent" },
     { "path": "packages/provider-droid" },
     { "path": "packages/contracts" },
+    { "path": "packages/remote-protocol" },
     { "path": "packages/shared" },
     { "path": "packages/ui" }
   ]

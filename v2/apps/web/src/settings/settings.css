@@ -143,3 +143,14 @@
   .setting-row { grid-template-columns: minmax(0, 1fr); gap: var(--zli-space-2); }
   .setting-control { justify-content: flex-start; }
 }
+
+/* Mobile access: the pairing QR code is black on white with a quiet zone, because phone scanners expect that. */
+.mobile-pairing { display: grid; grid-template-columns: 168px minmax(0, 1fr); align-items: start; gap: var(--zli-space-5); padding: var(--zli-space-4); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-well); }
+.mobile-qr { display: block; width: 168px; height: 168px; border-radius: var(--zli-radius-md); }
+.mobile-pairing-copy { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-2); }
+.mobile-pairing-title { margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
+.mobile-pairing-actions { display: flex; flex-wrap: wrap; gap: var(--zli-space-1-5); margin-top: var(--zli-space-1); }
+.mobile-countdown { color: var(--zli-text); font-family: var(--zli-mono); font-variant-numeric: tabular-nums; }
+@media (max-width: 720px) {
+  .mobile-pairing { grid-template-columns: minmax(0, 1fr); justify-items: start; }
+}
