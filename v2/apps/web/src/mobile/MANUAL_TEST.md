@@ -58,8 +58,8 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
   Expected: each does what the hardware button does.
 - [ ] Click Rotate twice.
   Expected: the device turns to landscape, then back to portrait, and the screen keeps its aspect ratio.
-- [ ] Open the device buttons menu and press Power, Volume up, and Volume down.
-  Expected: the screen turns off and on, and the volume panel appears on the device.
+- [ ] Open "More device buttons" (the ⋯ button at the right of the bottom bar) and press Power, Volume up, and Volume down. Use the arrow keys and Enter for one of them, and Escape to close the menu once.
+  Expected: the screen turns off and on, and the volume panel appears on the device. Escape closes the menu and focus returns to the ⋯ button.
 
 ### Screenshots and zoom
 
@@ -110,6 +110,8 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
   Expected: each one reaches the simulator. While dragging, a trail from the start point to the pointer shows on the screen, and the release sends a swipe.
 - [ ] Press the arrow keys and Tab with the screen focused.
   Expected: the simulator receives them.
+- [ ] Open "More device buttons" and press Power.
+  Expected: the simulator locks. The menu offers no Volume buttons, because idb cannot press them.
 - [ ] Click Rotate.
   Expected: until simulator rotation ships, Rotate is hidden for iOS. When it ships, the simulator turns, or a banner explains the Accessibility permission it needs.
 - [ ] Uninstall or rename idb, then click Refresh.

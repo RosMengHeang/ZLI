@@ -247,6 +247,18 @@ async function advance(milliseconds: number) {
   });
 }
 
+function menuLabels(): string[] {
+  return [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent ?? "");
+}
+
+function menuItem(label: string): HTMLElement {
+  const found = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.textContent === label,
+  );
+  if (!found) throw new Error(`No menu item ${label}`);
+  return found;
+}
+
 function touches(fake: ReturnType<typeof createMobile>) {
   return fake.mobile.input.mock.calls.flatMap(([input]) =>
     input.type === "touch" ? [`${input.action} ${input.x},${input.y}`] : [],
@@ -451,6 +463,54 @@ describe("MobilePane", () => {
     Reflect.deleteProperty(navigator, "clipboard");
   });
 
+  it("presses Power and Volume from the device buttons menu", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    const more = button(container, "More device buttons");
+    for (const [label, pressed] of [
+      ["Power", "power"],
+      ["Volume up", "volume_up"],
+      ["Volume down", "volume_down"],
+    ] as const) {
+      await click(more);
+      expect(menuLabels()).toEqual(["Power", "Volume up", "Volume down"]);
+      await click(menuItem(label));
+      expect(fake.mobile.input).toHaveBeenLastCalledWith({
+        deviceId: emulator.deviceId,
+        type: "button",
+        button: pressed,
+      });
+      expect(document.querySelector('[role="menu"]')).toBeNull();
+    }
+  });
+
+  it("offers only Power on an iOS simulator, whose volume buttons idb cannot press", async () => {
+    const simulator: MobileDevice = {
+      deviceId: "ios:UDID-1",
+      platform: "ios",
+      kind: "simulator",
+      name: "iPhone 16",
+      state: "online",
+      lease: null,
+    };
+    const fake = createMobile({ devices: [simulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    await click(button(container, "More device buttons"));
+    expect(menuLabels()).toEqual(["Power"]);
+  });
+
+  it("sends the person to Take over when they press Power while an agent holds the device", async () => {
+    const held: MobileDevice = {
+      ...emulator,
+      lease: { ownerId: "s1", ownerLabel: "Codex", kind: "agent", acquiredAt: "2025-01-01T00:00:00.000Z" },
+    };
+    const fake = createMobile({ devices: [held] });
+    const container = await render(bridgeWith(fake.mobile));
+    await click(button(container, "More device buttons"));
+    await click(menuItem("Power"));
+    expect(fake.mobile.input).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(button(container, "Take over"));
+  });
   it("blocks input while an agent holds the device and hands control over on request", async () => {
     const held: MobileDevice = {
       ...emulator,

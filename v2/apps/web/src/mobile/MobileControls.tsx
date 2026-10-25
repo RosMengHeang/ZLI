@@ -3,11 +3,13 @@ import { useRef, useState } from "react";
 
 import type { MobileBridge } from "../runtime/bridge.js";
 import { Button, IconButton } from "../ui/Button.js";
+import { MenuButton, type MenuEntry } from "../ui/Menu.js";
 import { errorText, sendTextInput } from "./mobile.js";
 
 /**
- * The bar under a running device: its system buttons, Type text, Rotate, and the screenshot. Every control
- * that sends input checks inputBlocked first, so an agent's lease sends the person to Take over instead.
+ * The bar under a running device: its system buttons, Type text, Rotate, the screenshot, and a menu with Power and
+ * Volume. Every control that sends input checks inputBlocked first, so an agent's lease sends the person to Take
+ * over instead.
  */
 export function MobileControls({
   mobile,
@@ -65,6 +67,16 @@ export function MobileControls({
     setTyping(false);
     typeToggleRef.current?.focus();
   };
+  // idb can press the iOS lock button but has no volume buttons.
+  const menuItems: MenuEntry[] = [
+    { id: "power", label: "Power", icon: "power", run: () => press("power") },
+    ...(android
+      ? [
+          { id: "volume_up", label: "Volume up", icon: "volumeUp", run: () => press("volume_up") } as const,
+          { id: "volume_down", label: "Volume down", icon: "volumeDown", run: () => press("volume_down") } as const,
+        ]
+      : []),
+  ];
 
   return (
     <>
@@ -130,6 +142,7 @@ export function MobileControls({
           disabled={screenshotBusy}
           onClick={onScreenshot}
         />
+        <MenuButton label="More device buttons" icon="more" items={menuItems} />
       </nav>
     </>
   );

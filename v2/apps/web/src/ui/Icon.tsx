@@ -210,6 +210,24 @@ const paths = {
     </>
   ),
   play: <path d="M6 4v16l14-8Z" />,
+  power: (
+    <>
+      <path d="M12 2v10" />
+      <path d="M18.4 6.6a9 9 0 1 1-12.77.04" />
+    </>
+  ),
+  volumeUp: (
+    <>
+      <path d="M11 5 6 9H2v6h4l5 4Z" />
+      <path d="M15 12h6M18 9v6" />
+    </>
+  ),
+  volumeDown: (
+    <>
+      <path d="M11 5 6 9H2v6h4l5 4Z" />
+      <path d="M15 12h6" />
+    </>
+  ),
   bookmark: <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />,
   pencil: (
     <path d="M21.17 6.81a1 1 0 0 0-3.99-3.98L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5zM15 5l4 4" />
