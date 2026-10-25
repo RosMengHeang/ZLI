@@ -123,6 +123,8 @@ export const MobileSetupProgress = z.object({
   message: z.string().max(2_000),
   receivedBytes: z.number().int().nonnegative().optional(),
   totalBytes: z.number().int().nonnegative().optional(),
+  /** sdkmanager reports percentages rather than byte counts. */
+  percent: z.number().min(0).max(100).optional(),
 });
 export type MobileSetupProgress = z.infer<typeof MobileSetupProgress>;
 

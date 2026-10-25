@@ -1,0 +1,182 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!--
+ * Copyright (C) 2009 The Android Open Source Project
+ *
+ * Licensed under the Apache License, version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+-->
+<sdk:sdk-repository xmlns:sdk="http://schemas.android.com/sdk/android/repo/repository2/01" xmlns:common="http://schemas.android.com/repository/android/common/01" xmlns:sdk-common="http://schemas.android.com/sdk/android/repo/common/01" xmlns:generic="http://schemas.android.com/repository/android/generic/01" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <license id="android-sdk-license" type="text">Terms and Conditions
+
+(Trimmed for the test fixture.)</license>
+  <license id="android-sdk-preview-license" type="text">To get started with the Android SDK Preview, you must agree to the following terms and conditions.
+
+(Trimmed for the test fixture.)</license>
+  <channel id="channel-0">stable</channel>
+  <channel id="channel-1">beta</channel>
+  <channel id="channel-2">dev</channel>
+  <channel id="channel-3">canary</channel>
+  <remotePackage path="cmdline-tools;latest">
+    <type-details xsi:type="generic:genericDetailsType"/>
+    <revision>
+      <major>23</major>
+      <minor>0</minor>
+    </revision>
+    <display-name>Android SDK Command-line Tools (latest)</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <channelRef ref="channel-0"/>
+    <archives>
+      <archive>
+        <complete>
+          <size>181052239</size>
+          <checksum>e025545c62a8e64c7559119566a569fb1dec5f60</checksum>
+          <url>commandlinetools-linux-16111833_latest.zip</url>
+        </complete>
+        <host-os>linux</host-os>
+      </archive>
+      <archive>
+        <complete>
+          <size>155582504</size>
+          <checksum>112cf9618794a997ff273537d55bee02c22abffe</checksum>
+          <url>commandlinetools-mac_x86_64-16111833_latest.zip</url>
+        </complete>
+        <host-os>macosx</host-os>
+        <host-bits>64</host-bits>
+      </archive>
+      <archive>
+        <complete>
+          <size>154957218</size>
+          <checksum>57d04f2d75eb8e8fffc5000a987e5de4b5a63e9d</checksum>
+          <url>commandlinetools-win-16111833_latest.zip</url>
+        </complete>
+        <host-os>windows</host-os>
+      </archive>
+    </archives>
+  </remotePackage>
+  <remotePackage path="platform-tools">
+    <type-details xsi:type="generic:genericDetailsType"/>
+    <revision>
+      <major>37</major>
+      <minor>0</minor>
+      <micro>1</micro>
+    </revision>
+    <display-name>Android SDK Platform-Tools</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <channelRef ref="channel-0"/>
+    <archives>
+      <archive>
+        <complete>
+          <size>9054187</size>
+          <checksum>477254aa5f903c15cf51001717bdf347fb6b53e0</checksum>
+          <url>platform-tools_r37.0.1-linux.zip</url>
+        </complete>
+        <host-os>linux</host-os>
+      </archive>
+      <archive>
+        <complete>
+          <size>16110554</size>
+          <checksum>6ae73f4de6452dc57e62ec02b68eed92a4c21661</checksum>
+          <url>platform-tools_r37.0.1-darwin.zip</url>
+        </complete>
+        <host-os>macosx</host-os>
+      </archive>
+      <archive>
+        <complete>
+          <size>8044989</size>
+          <checksum>e03e78b1d80b396f1c3358e31251cb31740e1110</checksum>
+          <url>platform-tools_r37.0.1-win.zip</url>
+        </complete>
+        <host-os>windows</host-os>
+      </archive>
+    </archives>
+  </remotePackage>
+  <remotePackage path="emulator">
+    <type-details xsi:type="generic:genericDetailsType"/>
+    <revision>
+      <major>37</major>
+      <minor>3</minor>
+      <micro>5</micro>
+    </revision>
+    <display-name>Android Emulator</display-name>
+    <uses-license ref="android-sdk-preview-license"/>
+    <channelRef ref="channel-2"/>
+    <archives>
+      <archive>
+        <complete>
+          <size>353538566</size>
+          <checksum>a7e7c486f392cbf1a7502441b079b3f35493f134</checksum>
+          <url>emulator-linux_x64-16632760.zip</url>
+        </complete>
+        <host-os>linux</host-os>
+        <host-bits>64</host-bits>
+      </archive>
+      <archive>
+        <complete>
+          <size>493552179</size>
+          <checksum>b5e3a0083188388bf50060f895a5b5daba760e5d</checksum>
+          <url>emulator-darwin_x64-16632760.zip</url>
+        </complete>
+        <host-os>macosx</host-os>
+        <host-bits>64</host-bits>
+      </archive>
+      <archive>
+        <complete>
+          <size>459732447</size>
+          <checksum>5ecdf654031e9791e20c336c8d87d2238cb69f3a</checksum>
+          <url>emulator-windows_x64-16632760.zip</url>
+        </complete>
+        <host-os>windows</host-os>
+        <host-bits>64</host-bits>
+      </archive>
+    </archives>
+  </remotePackage>
+  <remotePackage path="emulator">
+    <type-details xsi:type="generic:genericDetailsType"/>
+    <revision>
+      <major>37</major>
+      <minor>2</minor>
+      <micro>12</micro>
+    </revision>
+    <display-name>Android Emulator</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <channelRef ref="channel-0"/>
+    <archives>
+      <archive>
+        <complete>
+          <size>349654171</size>
+          <checksum>cd7362ea55dfb86a418958138dc396e74165dd01</checksum>
+          <url>emulator-linux_x64-16428233.zip</url>
+        </complete>
+        <host-os>linux</host-os>
+        <host-bits>64</host-bits>
+      </archive>
+      <archive>
+        <complete>
+          <size>488731099</size>
+          <checksum>0c08fc22f41f2e63976f5503d593f821ff11e30b</checksum>
+          <url>emulator-darwin_x64-16428233.zip</url>
+        </complete>
+        <host-os>macosx</host-os>
+        <host-bits>64</host-bits>
+      </archive>
+      <archive>
+        <complete>
+          <size>455342868</size>
+          <checksum>488ed747e82de7e9bb5247becd1ac043c7e5e85d</checksum>
+          <url>emulator-windows_x64-16428233.zip</url>
+        </complete>
+        <host-os>windows</host-os>
+        <host-bits>64</host-bits>
+      </archive>
+    </archives>
+  </remotePackage>
+</sdk:sdk-repository>
