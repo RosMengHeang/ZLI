@@ -9,7 +9,17 @@ import { combinePrompts } from "../prompts/prompts.js";
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
 import { PluginsSection } from "../settings/PluginsSection.js";
-import { actionTerminalCommand, componentSummary } from "./plugins.js";
+import { PluginActionDialog } from "./PluginActionDialog.js";
+import {
+  ACTION_APPROVALS_KEY,
+  actionApprovalKey,
+  actionTerminalCommand,
+  componentSummary,
+  isActionApproved,
+  originForSource,
+  parseActionApprovals,
+  rememberActionApproval,
+} from "./plugins.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -59,6 +69,99 @@ describe("plugin helpers", () => {
   });
 });
 
+describe("plugin action approvals", () => {
+  const action = { plugin: "kit", name: "Test", description: "", command: "npm test" };
+
+  function memoryStorage() {
+    const values = new Map<string, string>();
+    return {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => void values.set(key, value),
+      values,
+    };
+  }
+
+  it("hashes the plugin, action, and command, so a changed command asks again", async () => {
+    const key = await actionApprovalKey(action);
+    expect(key).toMatch(/^[0-9a-f]{64}$/u);
+    expect(await actionApprovalKey({ ...action })).toBe(key);
+    expect(await actionApprovalKey({ ...action, command: "npm test && curl x" })).not.toBe(key);
+    expect(await actionApprovalKey({ ...action, plugin: "other" })).not.toBe(key);
+    expect(await actionApprovalKey({ ...action, name: "Build" })).not.toBe(key);
+  });
+
+  it("remembers approvals without storing the command", async () => {
+    const storage = memoryStorage();
+    const key = (await actionApprovalKey(action)) as string;
+    expect(isActionApproved(key, storage)).toBe(false);
+    rememberActionApproval(key, storage);
+    rememberActionApproval(key, storage);
+    expect(isActionApproved(key, storage)).toBe(true);
+    const stored = storage.values.get(ACTION_APPROVALS_KEY) ?? "";
+    expect(JSON.parse(stored)).toEqual([key]);
+    expect(stored).not.toContain("npm test");
+    const changed = (await actionApprovalKey({ ...action, command: "rm -rf ~" })) as string;
+    expect(isActionApproved(changed, storage)).toBe(false);
+  });
+
+  it("ignores stored values that are not approvals", () => {
+    expect(parseActionApprovals(null)).toEqual([]);
+    expect(parseActionApprovals("not json")).toEqual([]);
+    expect(parseActionApprovals(JSON.stringify(["a".repeat(64), "short", 4]))).toEqual(["a".repeat(64)]);
+  });
+
+  it("treats catalog sources as picked by ZLI", () => {
+    const source = "https://github.com/figma/mcp-server-guide/tree/main";
+    expect(originForSource(source)).toBe("zli-catalog");
+    expect(originForSource(`${source}/`, "other")).toBe("zli-catalog");
+    expect(originForSource("acme/kit")).toBe("other");
+    expect(originForSource("acme/kit", "anthropic-directory")).toBe("anthropic-directory");
+  });
+});
+
+describe("PluginActionDialog", () => {
+  it("shows the exact command and where the plugin came from, and remembers by default", async () => {
+    const runs: boolean[] = [];
+    let canceled = 0;
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const render = (canRemember: boolean) =>
+      act(async () => {
+        root.render(
+          <PluginActionDialog
+            action={{ plugin: "kit", name: "Deploy", description: "", command: "npm run deploy -- --prod" }}
+            pluginName="Kit"
+            origin="other"
+            canRemember={canRemember}
+            onRun={(remember) => runs.push(remember)}
+            onCancel={() => {
+              canceled += 1;
+            }}
+          />,
+        );
+      });
+    await render(true);
+    expect(container.querySelector(".dialog-title")?.textContent).toBe("Run Deploy from Kit?");
+    expect(container.querySelector("pre code")?.textContent).toBe("npm run deploy -- --prod");
+    expect(container.textContent).toContain("Unknown source");
+    const box = container.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    expect(box?.checked).toBe(true);
+    expect(box?.closest("label")?.textContent).toContain("Don't ask again for this command");
+    expect(document.activeElement?.textContent).toBe("Cancel");
+
+    await act(async () => button(container, "Run").click());
+    await act(async () => box?.click());
+    await act(async () => button(container, "Run").click());
+    await act(async () => button(container, "Cancel").click());
+    expect(runs).toEqual([true, false]);
+    expect(canceled).toBe(1);
+
+    await render(false);
+    expect(container.querySelector('input[type="checkbox"]')).toBeNull();
+  });
+});
+
 function setValue(element: HTMLInputElement, value: string) {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(element, value);
   element.dispatchEvent(new Event("input", { bubbles: true }));
@@ -86,6 +189,8 @@ const kit: PluginSummary = {
   config: [{ key: "token", title: "API token", type: "string", sensitive: true, required: true }],
   configured: [],
   problems: ["Add API token in the plugin's settings."],
+  origin: "other",
+  sourceKind: "github",
 };
 
 describe("PluginsSection", () => {

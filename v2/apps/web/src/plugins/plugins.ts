@@ -1,9 +1,13 @@
 import {
+  PLUGIN_CATALOG,
   type PluginAction,
   PluginContributions,
+  PluginDirectoryResult,
+  PluginExportResult,
   PluginInstallPreview,
   PluginInstallResult,
   PluginListResult,
+  type PluginOrigin,
   type RpcResponse,
 } from "@zli-v2/contracts";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
@@ -31,8 +35,32 @@ export function previewPluginInstall(dispatch: Dispatch, source: string): Promis
   return request(dispatch, { type: "plugins.previewInstall", source }, PluginInstallPreview);
 }
 
-export function installPlugins(dispatch: Dispatch, source: string, names: readonly string[]) {
-  return request(dispatch, { type: "plugins.install", source, names }, PluginInstallResult);
+export function installPlugins(dispatch: Dispatch, source: string, names: readonly string[], origin?: PluginOrigin) {
+  return request(
+    dispatch,
+    { type: "plugins.install", source, names, ...(origin ? { origin } : {}) },
+    PluginInstallResult,
+  );
+}
+
+export function pluginDirectory(dispatch: Dispatch): Promise<PluginDirectoryResult> {
+  return request(dispatch, { type: "plugins.directory" }, PluginDirectoryResult);
+}
+
+export function checkPluginUpdates(dispatch: Dispatch): Promise<PluginListResult> {
+  return request(dispatch, { type: "plugins.checkUpdates" }, PluginListResult);
+}
+
+export type PluginExportInput = {
+  folder: string;
+  name: string;
+  description?: string;
+  skills: readonly string[];
+  servers: readonly string[];
+};
+
+export function exportPluginFolder(dispatch: Dispatch, input: PluginExportInput): Promise<PluginExportResult> {
+  return request(dispatch, { type: "plugins.export", ...input }, PluginExportResult);
 }
 
 export function setPluginEnabled(dispatch: Dispatch, name: string, enabled: boolean) {
@@ -69,6 +97,82 @@ export function componentSummary(components: {
 }
 
 export const formatLabel = { zli: "ZLI", claude: "Claude Code", codex: "Codex", folder: "Folder" } as const;
+
+export const originLabel: Record<PluginOrigin, string> = {
+  "zli-catalog": "Picked by ZLI",
+  "anthropic-directory": "Anthropic directory",
+  other: "Unknown source",
+};
+
+export const UNKNOWN_SOURCE_TIP = "ZLI did not check this plugin. Install plugins only from people you trust.";
+
+/** ZLI's own list when the source is one of its entries, else the list the person picked it from. */
+export function originForSource(source: string, picked: PluginOrigin = "other"): PluginOrigin {
+  const trimmed = source.trim().replace(/\/+$/u, "");
+  return PLUGIN_CATALOG.some((entry) => entry.source === trimmed) ? "zli-catalog" : picked;
+}
+
+export const ACTION_APPROVALS_KEY = "zli.pluginActionApprovals";
+const MAX_ACTION_APPROVALS = 500;
+
+type ApprovalStorage = Pick<Storage, "getItem" | "setItem">;
+
+function defaultStorage(): ApprovalStorage | undefined {
+  try {
+    return typeof window === "undefined" ? undefined : window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A SHA-256 of the plugin, action name, and command. The command can hold plugin settings, so only the
+ * hash is stored. Undefined when this window cannot hash, so the action always asks.
+ */
+export async function actionApprovalKey(
+  action: Pick<PluginAction, "plugin" | "name" | "command">,
+): Promise<string | undefined> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) return undefined;
+  try {
+    const data = new TextEncoder().encode(JSON.stringify([action.plugin, action.name, action.command]));
+    const digest = new Uint8Array(await subtle.digest("SHA-256", data));
+    return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return undefined;
+  }
+}
+
+export function parseActionApprovals(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value)
+      ? value.filter((entry): entry is string => typeof entry === "string" && /^[0-9a-f]{64}$/u.test(entry))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function isActionApproved(key: string, storage = defaultStorage()): boolean {
+  try {
+    return parseActionApprovals(storage?.getItem(ACTION_APPROVALS_KEY) ?? null).includes(key);
+  } catch {
+    return false;
+  }
+}
+
+/** Remembers the newest approvals first and drops the oldest past the cap. */
+export function rememberActionApproval(key: string, storage = defaultStorage()): void {
+  if (!storage) return;
+  try {
+    const kept = parseActionApprovals(storage.getItem(ACTION_APPROVALS_KEY)).filter((entry) => entry !== key);
+    storage.setItem(ACTION_APPROVALS_KEY, JSON.stringify([key, ...kept].slice(0, MAX_ACTION_APPROVALS)));
+  } catch {
+    // A full or blocked storage only means the next run asks again.
+  }
+}
 
 export type PluginsState =
   | { status: "loading" }

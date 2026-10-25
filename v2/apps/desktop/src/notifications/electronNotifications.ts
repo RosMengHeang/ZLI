@@ -15,12 +15,17 @@ export async function registerAgentNotifications(options: {
   window: BrowserWindow;
   runtime: RuntimeClient;
   settingsPath: string;
-}): Promise<void> {
+}): Promise<AgentNotifier> {
   const { window, runtime } = options;
   const store = new NotificationSettingsStore(options.settingsPath);
   await store.load();
   // Electron drops click handlers of notifications that are garbage collected, so live ones are kept.
   const live = new Set<Notification>();
+  const bringForward = () => {
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+  };
   const host: NotifierHost = {
     show: ({ title, body, silent }, onClick) => {
       if (!Notification.isSupported()) return;
@@ -55,10 +60,13 @@ export async function registerAgentNotifications(options: {
     isFocused: () => !window.isDestroyed() && window.isFocused(),
     activate: (sessionId) => {
       if (window.isDestroyed()) return;
-      if (window.isMinimized()) window.restore();
-      window.show();
-      window.focus();
+      bringForward();
       window.webContents.send("zli:notifications:activate", { sessionId });
+    },
+    openConnector: (connectorId) => {
+      if (window.isDestroyed()) return;
+      bringForward();
+      window.webContents.send("zli:connectors:open", { connectorId });
     },
   };
   const notifier = new AgentNotifier(host, () => store.current());
@@ -80,4 +88,5 @@ export async function registerAgentNotifications(options: {
         : [];
     notifier.setViewing(ids.slice(0, 200));
   });
+  return notifier;
 }

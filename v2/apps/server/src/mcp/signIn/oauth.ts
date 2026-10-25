@@ -321,6 +321,7 @@ export async function tokenRequest(
   }
   if (!response.ok || !isPlainObject(parsed) || typeof parsed.access_token !== "string" || parsed.error) {
     const error = new SignInError(`${host} did not finish the sign-in. ${oauthErrorText(parsed)}`.trim());
+    Object.assign(error, { status: response.status });
     if (isPlainObject(parsed) && typeof parsed.error === "string") Object.assign(error, { code: parsed.error });
     throw error;
   }

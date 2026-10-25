@@ -13,6 +13,7 @@ import type { AccountResolver } from "../accounts/AccountStore.js";
 import {
   type BrowserToolConfig,
   browserToolEnv,
+  type McpServerSource,
   type McpServerSpec,
   zliMcpServerSpecs,
   opencodeConfigContent,
@@ -39,7 +40,7 @@ export type TerminalReactorOptions = {
   /** When set, every terminal can run `zli-browser` and agent CLIs get it as an MCP server. */
   browserTool?: BrowserToolConfig;
   /** MCP servers added in Settings, read at each launch so a change applies to the next agent. */
-  mcpServers?: () => readonly McpServerSpec[];
+  mcpServers?: McpServerSource;
   /** Where per-launch MCP config files go when there is no browser tool. */
   mcpConfigDir?: string;
   writeMcpConfig?: typeof writeAgentMcpConfig;
@@ -231,21 +232,25 @@ export class TerminalReactor {
       file = undefined;
     }
     if (!file) throw new AgentLaunchError(agentCliMissingMessage(agent.provider));
-    const specs = login ? [] : this.mcpSpecs(worktreeId);
+    const specs = login
+      ? []
+      : this.mcpSpecs(worktreeId, this.options.mcpServers ? await this.addedMcpServers(worktreeId) : []);
     if (specs.length === 0) return { file, args, env: {} };
     const mcp = await this.mcpLaunch(specs, agent, worktreeId);
     return { file, args: [...args, ...mcp.args], env: mcp.env };
   }
 
-  private mcpSpecs(worktreeId: string): McpServerSpec[] {
+  private mcpSpecs(worktreeId: string, added: readonly McpServerSpec[]): McpServerSpec[] {
     const browserTool = this.options.browserTool;
-    let added: readonly McpServerSpec[] = [];
-    try {
-      added = this.options.mcpServers?.() ?? [];
-    } catch {
-      added = [];
-    }
     return [...(browserTool ? zliMcpServerSpecs(browserTool, worktreeId) : []), ...added];
+  }
+
+  private async addedMcpServers(worktreeId: string): Promise<readonly McpServerSpec[]> {
+    try {
+      return (await this.options.mcpServers?.({ worktreeId })) ?? [];
+    } catch {
+      return [];
+    }
   }
 
   /** MCP servers are extras; a failure to prepare them never blocks the agent from starting. */

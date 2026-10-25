@@ -1,0 +1,31 @@
+/* Plugin gallery */
+.plugin-gallery { display: flex; flex-direction: column; gap: var(--zli-space-3); }
+.plugin-gallery-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--zli-space-2); }
+.plugin-gallery-head h3 { margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
+.plugin-card-publisher { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.plugin-card-unsupported { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.plugin-directory { display: flex; flex-direction: column; gap: var(--zli-space-2-5); }
+.plugin-directory-note { margin: 0; color: var(--zli-amber); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.plugin-row .skill-row-title { flex-wrap: wrap; }
+.plugin-row-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); }
+.plugin-warning { margin: 0; color: var(--zli-amber); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.plugin-legend { display: flex; align-items: center; gap: var(--zli-space-1-5); }
+
+/* Share my setup */
+.plugin-export-list { display: flex; min-width: 0; flex-direction: column; margin: 0; padding: 0; border: 0; }
+.plugin-export-list > legend { margin-bottom: var(--zli-space-1); padding: 0; }
+.plugin-export-list .skill-candidate { padding: var(--zli-space-1-5) 0; }
+.plugin-folder-field { display: flex; align-items: flex-end; gap: var(--zli-space-1-5); }
+.plugin-folder-field > .field { min-width: 0; flex: 1; }
+.plugin-folder-hint { margin-top: calc(-1 * var(--zli-space-2)); }
+.plugin-export-saved { display: flex; align-items: center; gap: var(--zli-space-2); margin: 0; color: var(--zli-green); font-size: var(--zli-text-sm); overflow-wrap: anywhere; }
+
+/* Action confirm */
+.plugin-action-confirm { gap: var(--zli-space-2-5); }
+.plugin-action-source { display: flex; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.plugin-action-command {
+  max-height: 200px; margin: 0; padding: var(--zli-space-2) var(--zli-space-3); overflow: auto;
+  border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well);
+}
+.plugin-action-command code { color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-sm); overflow-wrap: anywhere; white-space: pre-wrap; }
+.check-field.plugin-remember input { accent-color: var(--zli-accent); }

@@ -36,6 +36,8 @@ export type SignInStatus = {
   via?: SignInMethod;
   account?: string;
   signedInAt?: string;
+  /** The server turned the saved login down. */
+  expired?: boolean;
 };
 
 export type SignInStart = { status: "done" } | { status: "open"; attemptId: string; url: string; code?: string };
@@ -94,8 +96,11 @@ export class McpSignIns {
     try {
       names = await readdir(this.options.dir);
     } catch {
+      this.cache.clear();
       return;
     }
+    // A full reread: bridges may have refreshed, expired, or removed logins since the last one.
+    this.cache.clear();
     for (const name of names) {
       if (!name.endsWith(".json") || name === CLIENTS_FILE) continue;
       const stored = await readSignIn(join(this.options.dir, name));
@@ -111,6 +116,14 @@ export class McpSignIns {
 
   status(serverUrl: string): SignInStatus {
     const stored = this.cache.get(normalizeServerUrl(serverUrl));
+    if (stored?.expiredAt) {
+      return {
+        signedIn: false,
+        expired: true,
+        via: stored.via,
+        ...(stored.account ? { account: stored.account } : {}),
+      };
+    }
     if (!stored || !signInUsable(stored, this.now())) return { signedIn: false };
     return {
       signedIn: true,
@@ -123,7 +136,7 @@ export class McpSignIns {
   /** The last known access token, for agents reached without the bridge. */
   accessToken(serverUrl: string): string | undefined {
     const stored = this.cache.get(normalizeServerUrl(serverUrl));
-    return stored && signInUsable(stored, this.now()) ? stored.accessToken : undefined;
+    return stored && !stored.expiredAt && signInUsable(stored, this.now()) ? stored.accessToken : undefined;
   }
 
   /** Rereads one login, which a bridge may have refreshed since. */

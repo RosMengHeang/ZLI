@@ -10,6 +10,7 @@ import {
   codexMcpArgs,
   codexServerConfig,
   codexThreadConfig,
+  type McpServerSource,
   type McpServerSpec,
   zliMcpServerSpecs,
   writeAgentMcpConfig,
@@ -125,7 +126,7 @@ export type ProviderRegistryOptions = {
   /** When set, every chat agent gets the zli-browser MCP server and shell command. */
   browserTool?: BrowserToolConfig;
   /** MCP servers added in Settings, read when each chat starts. */
-  mcpServers?: () => readonly McpServerSpec[];
+  mcpServers?: McpServerSource;
   /** Where per-chat MCP config files go when there is no browser tool. */
   mcpConfigDir?: string;
   writeMcpConfig?: typeof writeAgentMcpConfig;
@@ -139,23 +140,23 @@ export function createProviderRegistry(
   const browserTool = options.browserTool;
   const writeMcpConfig = options.writeMcpConfig ?? writeAgentMcpConfig;
   const mcpConfigDir = browserTool?.mcpConfigDir ?? options.mcpConfigDir;
-  const addedServers = (): readonly McpServerSpec[] => {
+  const addedServers = async (worktreeId: string | undefined): Promise<readonly McpServerSpec[]> => {
     try {
-      return options.mcpServers?.() ?? [];
+      return (await options.mcpServers?.(worktreeId ? { worktreeId } : {})) ?? [];
     } catch {
       return [];
     }
   };
-  const allServers = (worktreeId: string | undefined) => [
+  const allServers = async (worktreeId: string | undefined) => [
     ...(browserTool ? zliMcpServerSpecs(browserTool, worktreeId) : []),
-    ...addedServers(),
+    ...(await addedServers(worktreeId)),
   ];
   const browserEnv = (worktreeId: string | undefined, account?: ProviderAccount) => {
     const merged = { ...(browserTool ? agentEnv(browserTool, worktreeId, env) : {}), ...account?.env };
     return Object.keys(merged).length > 0 ? { env: merged } : {};
   };
   const claudeMcpConfig = async (worktreeId: string | undefined) => {
-    const specs = allServers(worktreeId);
+    const specs = await allServers(worktreeId);
     if (!mcpConfigDir || specs.length === 0) return {};
     try {
       return { mcpConfig: await writeMcpConfig(mcpConfigDir, "claude", worktreeId, specs) };
@@ -165,11 +166,11 @@ export function createProviderRegistry(
   };
   // One app server serves every Codex thread, so servers from Settings join per thread and edits
   // reach the next thread without restarting it.
-  const codexThreadOverrides = (worktreeId: string | undefined) => {
+  const codexThreadOverrides = async (worktreeId: string | undefined) => {
     const config = Object.assign(
       {},
       ...(browserTool ? zliMcpServerSpecs(browserTool, worktreeId).map(codexThreadConfig) : []),
-      ...addedServers().map(codexServerConfig),
+      ...(await addedServers(worktreeId)).map(codexServerConfig),
     );
     return Object.keys(config).length > 0 ? config : undefined;
   };
@@ -199,7 +200,7 @@ export function createProviderRegistry(
           ...input,
           command: await resolveCursorCommand(),
           ...browserEnv(worktreeId, account),
-          ...(allServers(worktreeId).length > 0 ? { approveMcps: true } : {}),
+          ...((await allServers(worktreeId)).length > 0 ? { approveMcps: true } : {}),
         }),
     }),
     new DroidProviderAdapter({
@@ -212,7 +213,7 @@ export function createProviderRegistry(
           ...config,
           resolveCommand: () => resolveAcpCommand(config.provider),
           ...(browserTool ? { browserTool } : {}),
-          ...(options.mcpServers ? { mcpServers: addedServers } : {}),
+          ...(options.mcpServers ? { mcpServers: (context) => addedServers(context.worktreeId) } : {}),
         }),
     ),
   ]);

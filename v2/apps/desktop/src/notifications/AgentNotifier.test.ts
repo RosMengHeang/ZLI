@@ -31,6 +31,7 @@ function setup(initial: Partial<NotificationSettings> = {}) {
   const badges: number[] = [];
   const flashes: boolean[] = [];
   const activated: string[] = [];
+  const connectors: string[] = [];
   let focused = false;
   const host: NotifierHost = {
     show: (notification, onClick) =>
@@ -39,6 +40,7 @@ function setup(initial: Partial<NotificationSettings> = {}) {
     flashFrame: (flash) => flashes.push(flash),
     isFocused: () => focused,
     activate: (sessionId) => activated.push(sessionId),
+    openConnector: (connectorId) => connectors.push(connectorId),
   };
   const notifier = new AgentNotifier(host, () => settings);
   return {
@@ -48,6 +50,7 @@ function setup(initial: Partial<NotificationSettings> = {}) {
     badges,
     flashes,
     activated,
+    connectors,
     focus: (value: boolean) => {
       focused = value;
     },
@@ -100,6 +103,19 @@ describe("AgentNotifier", () => {
     notifier.update(projection("idle"));
     shown[0]?.click();
     expect(activated).toEqual(["s1"]);
+  });
+
+  it("shows an agent's connect request even with focus, and opens the connector when clicked", () => {
+    const { notifier, shown, connectors, focus } = setup();
+    focus(true);
+    notifier.connectorRequest({ title: "app", body: "Codex asks to connect GitHub.", connectorId: "github" });
+    expect(shown.map((entry) => entry.title)).toEqual(["app"]);
+    shown[0]?.click();
+    expect(connectors).toEqual(["github"]);
+
+    const off = setup({ enabled: false });
+    off.notifier.connectorRequest({ title: "app", body: "x", connectorId: "github" });
+    expect(off.shown).toEqual([]);
   });
 
   it("keeps the badge at the number of waiting agents and flashes for new requests in the background", () => {

@@ -69,6 +69,8 @@ export type ZliBridge = {
     setSettings(patch: Partial<NotificationSettings>): Promise<NotificationSettings>;
     setViewing(sessionIds: readonly string[]): Promise<unknown>;
     onActivate(listener: (event: { sessionId: string }) => void): () => void;
+    /** Fires when the person clicks an agent's request to connect a service. */
+    onOpenConnector?(listener: (event: { connectorId: string }) => void): () => void;
   };
   updates?: {
     getStatus(): Promise<UpdateStatus>;

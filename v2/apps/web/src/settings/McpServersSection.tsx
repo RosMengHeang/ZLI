@@ -1,24 +1,32 @@
-import { AgentToolAccess, isHttpServer, type McpServerConfig } from "@zli-v2/contracts";
-import { useRef, useState } from "react";
+import { AgentToolAccess, type McpServerConfig } from "@zli-v2/contracts";
+import { Fragment, useRef, useState } from "react";
 
 import { Button, IconButton } from "../ui/Button.js";
 import { Field, Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
+import { McpImportPanel } from "./McpImportPanel.js";
+import { McpProjectsField, useKnownProjects } from "./McpProjectPicker.js";
+import { McpStatusDot } from "./McpStatusDot.js";
+import { McpToolsPanel } from "./McpToolsPanel.js";
 import {
   AGENT_ACCESS_LABELS,
   applyDraft,
-  applyServer,
   draftFromServer,
   EMPTY_DRAFT,
   type McpDraft,
   type McpTransport,
-  serverSummary,
+  pluginSignIns as pluginSignInsOf,
+  projectCountText,
+  projectNames,
   SIGN_IN_CANCELED,
+  serverStatus,
+  serverSummary,
   settingsProblems,
   signedInText,
   signInFor,
   TRANSPORT_LABELS,
   useMcpServers,
+  withDisabledTools,
 } from "./mcpServers.js";
 import { SectionHeader } from "./SectionHeader.js";
 
@@ -27,8 +35,13 @@ type Editing = { index?: number; draft: McpDraft };
 const SETTINGS_AGENTS = "Cursor, Droid, Gemini, Kimi Code, and Qwen Code";
 
 export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): void }) {
-  const { state, reload, save, setAgentAccess, signIn, cancelSignIn, signOut, pending } = useMcpServers();
+  const { state, reload, save, setAgentAccess, signIn, cancelSignIn, signOut, pending, test, tests, testing } =
+    useMcpServers();
+  const knownProjects = useKnownProjects();
   const [signInProblems, setSignInProblems] = useState<Record<string, string>>({});
+  const [openTools, setOpenTools] = useState<ReadonlySet<string>>(new Set());
+  const [importing, setImporting] = useState(false);
+  const [imported, setImported] = useState<string>();
   const [editing, setEditing] = useState<Editing>();
   const [problem, setProblem] = useState<string>();
   const [saveError, setSaveError] = useState<string>();
@@ -73,9 +86,8 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
 
   const { servers, userSettings, agentAccess, problem: storeProblem } = state.result;
   const problems = settingsProblems(userSettings.outcomes);
-  const pluginSignIns = state.result.signIns.filter(
-    (entry) => !servers.some((server) => server.name.toLowerCase() === entry.name.toLowerCase()),
-  );
+  const pluginSignIns = pluginSignInsOf(state.result);
+  const result = state.result;
 
   const runSignIn = async (name: string, work: () => Promise<unknown>) => {
     setSignInProblems((current) => ({ ...current, [name]: "" }));
@@ -104,19 +116,79 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
       );
     }
     const text = signedInText(entry);
-    return text ? (
-      <span className="mcp-row-actions">
-        <span className="mcp-row-signin is-signed-in">{text}</span>
-        <Button size="xs" variant="ghost" onClick={() => void runSignIn(name, () => signOut(name))}>
-          Sign out
-        </Button>
-      </span>
-    ) : (
+    if (text) {
+      return (
+        <span className="mcp-row-actions">
+          <span className="mcp-row-signin is-signed-in">{text}</span>
+          <Button size="xs" variant="ghost" onClick={() => void runSignIn(name, () => signOut(name))}>
+            Sign out
+          </Button>
+        </span>
+      );
+    }
+    if (entry.expired) {
+      return (
+        <span className="mcp-row-actions">
+          <span className="mcp-row-signin is-expired">Sign-in expired</span>
+          <Button size="xs" variant="primary" onClick={() => void runSignIn(name, () => signIn(name))}>
+            Sign in again
+          </Button>
+        </span>
+      );
+    }
+    return (
       <Button size="xs" variant="primary" onClick={() => void runSignIn(name, () => signIn(name))}>
         Sign in
       </Button>
     );
   };
+
+  const setToolsOpen = (name: string, open: boolean) =>
+    setOpenTools((current) => {
+      const next = new Set(current);
+      if (open) next.add(name);
+      else next.delete(name);
+      return next;
+    });
+
+  const runTest = async (name: string) => {
+    setSignInProblems((current) => ({ ...current, [name]: "" }));
+    try {
+      await test(name);
+      setToolsOpen(name, true);
+    } catch (error) {
+      setSignInProblems((current) => ({
+        ...current,
+        [name]: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  };
+
+  const testButton = (name: string) => (
+    <Button
+      size="xs"
+      variant="ghost"
+      loading={Boolean(testing[name])}
+      aria-label={`Test ${name}`}
+      tooltip={testing[name] ? "Starting the server. Local servers can take a while the first time." : undefined}
+      onClick={() => void runTest(name)}
+    >
+      Test
+    </Button>
+  );
+
+  /** The title line: name, status dot, and a chip when the server is limited to some projects. */
+  const rowTitle = (name: string, projects?: readonly string[]) => (
+    <span className="mcp-row-title">
+      <strong>{name}</strong>
+      <McpStatusDot status={serverStatus(result, name)} />
+      {projects && projects.length > 0 ? (
+        <span className="mcp-chip" data-tooltip={projectNames(projects, knownProjects).join(", ")}>
+          {projectCountText(projects.length)}
+        </span>
+      ) : null}
+    </span>
+  );
 
   const signInProblem = (name: string) =>
     signInProblems[name] ? (
@@ -145,6 +217,7 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
   const startEdit = (index?: number) => {
     setConfirmDelete(undefined);
     setProblem(undefined);
+    setImporting(false);
     const server = index === undefined ? undefined : servers[index];
     setEditing(
       index !== undefined && server ? { index, draft: draftFromServer(server) } : { draft: { ...EMPTY_DRAFT } },
@@ -162,6 +235,9 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
     setProblem(undefined);
     if (await persist(applied.servers)) setEditing(undefined);
   };
+
+  const saveDisabledTools = (name: string, disabledTools: string[]) =>
+    persist(servers.map((entry) => (entry.name === name ? withDisabledTools(entry, disabledTools) : entry)));
 
   const setDraft = (patch: Partial<McpDraft>) =>
     setEditing((current) => (current ? { ...current, draft: { ...current.draft, ...patch } } : current));
@@ -211,69 +287,83 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
       {servers.length > 0 ? (
         <ul className="mcp-rows">
           {servers.map((server, index) => (
-            <li className={`mcp-row${server.enabled ? "" : " is-off"}`} key={server.name}>
-              <input
-                className="switch"
-                type="checkbox"
-                role="switch"
-                checked={server.enabled}
-                aria-checked={server.enabled}
-                aria-label={`Give agents ${server.name}`}
-                disabled={saving}
-                onChange={(event) =>
-                  void persist(
-                    servers.map((entry, at) => (at === index ? { ...entry, enabled: event.target.checked } : entry)),
-                  )
-                }
-              />
-              <span className="mcp-row-copy">
-                <strong>{server.name}</strong>
-                <span className="mcp-row-command" title={serverSummary(server)}>
-                  {serverSummary(server)}
+            <Fragment key={server.name}>
+              <li className={`mcp-row${server.enabled ? "" : " is-off"}`}>
+                <input
+                  className="switch"
+                  type="checkbox"
+                  role="switch"
+                  checked={server.enabled}
+                  aria-checked={server.enabled}
+                  aria-label={`Give agents ${server.name}`}
+                  disabled={saving}
+                  onChange={(event) =>
+                    void persist(
+                      servers.map((entry, at) => (at === index ? { ...entry, enabled: event.target.checked } : entry)),
+                    )
+                  }
+                />
+                <span className="mcp-row-copy">
+                  {rowTitle(server.name, server.projects)}
+                  <span className="mcp-row-command" title={serverSummary(server)}>
+                    {serverSummary(server)}
+                  </span>
                 </span>
-              </span>
-              {confirmDelete === server.name ? null : signInControls(server.name)}
-              {confirmDelete === server.name ? (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    className="is-danger"
-                    disabled={saving}
-                    onClick={async () => {
-                      if (await persist(servers.filter((_, at) => at !== index))) {
-                        setConfirmDelete(undefined);
-                        if (editing?.index === index) setEditing(undefined);
-                      }
-                    }}
-                  >
-                    Remove
-                  </Button>
-                  <Button variant="ghost" size="xs" onClick={() => setConfirmDelete(undefined)}>
-                    Keep
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <IconButton
-                    label={`Edit ${server.name}`}
-                    icon="pencil"
-                    size="xs"
-                    iconSize={12}
-                    disabled={saving}
-                    onClick={() => startEdit(index)}
+                {confirmDelete === server.name ? null : signInControls(server.name)}
+                {confirmDelete === server.name ? null : testButton(server.name)}
+                {confirmDelete === server.name ? (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="is-danger"
+                      disabled={saving}
+                      onClick={async () => {
+                        if (await persist(servers.filter((_, at) => at !== index))) {
+                          setConfirmDelete(undefined);
+                          if (editing?.index === index) setEditing(undefined);
+                        }
+                      }}
+                    >
+                      Remove
+                    </Button>
+                    <Button variant="ghost" size="xs" onClick={() => setConfirmDelete(undefined)}>
+                      Keep
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <IconButton
+                      label={`Edit ${server.name}`}
+                      icon="pencil"
+                      size="xs"
+                      iconSize={12}
+                      disabled={saving}
+                      onClick={() => startEdit(index)}
+                    />
+                    <IconButton
+                      label={`Remove ${server.name}`}
+                      icon="trash"
+                      size="xs"
+                      iconSize={12}
+                      disabled={saving}
+                      onClick={() => setConfirmDelete(server.name)}
+                    />
+                  </>
+                )}
+              </li>
+              {openTools.has(server.name) && tests[server.name] ? (
+                <li className="mcp-row-tools">
+                  <McpToolsPanel
+                    test={tests[server.name] as NonNullable<(typeof tests)[string]>}
+                    disabledTools={server.disabledTools ?? []}
+                    saving={saving}
+                    onChange={(disabledTools) => saveDisabledTools(server.name, disabledTools)}
+                    onClose={() => setToolsOpen(server.name, false)}
                   />
-                  <IconButton
-                    label={`Remove ${server.name}`}
-                    icon="trash"
-                    size="xs"
-                    iconSize={12}
-                    disabled={saving}
-                    onClick={() => setConfirmDelete(server.name)}
-                  />
-                </>
-              )}
-            </li>
+                </li>
+              ) : null}
+            </Fragment>
           ))}
         </ul>
       ) : null}
@@ -285,15 +375,26 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
           <h3 className="mcp-subhead">From plugins</h3>
           <ul className="mcp-rows">
             {pluginSignIns.map((entry) => (
-              <li className="mcp-row" key={entry.name}>
-                <span className="mcp-row-copy">
-                  <strong>{entry.name}</strong>
-                  <span className="mcp-row-command" title={entry.url}>
-                    {entry.url}
+              <Fragment key={entry.name}>
+                <li className="mcp-row">
+                  <span className="mcp-row-copy">
+                    {rowTitle(entry.name)}
+                    <span className="mcp-row-command" title={entry.url}>
+                      {entry.url}
+                    </span>
                   </span>
-                </span>
-                {signInControls(entry.name)}
-              </li>
+                  {signInControls(entry.name)}
+                  {testButton(entry.name)}
+                </li>
+                {openTools.has(entry.name) && tests[entry.name] ? (
+                  <li className="mcp-row-tools">
+                    <McpToolsPanel
+                      test={tests[entry.name] as NonNullable<(typeof tests)[string]>}
+                      onClose={() => setToolsOpen(entry.name, false)}
+                    />
+                  </li>
+                ) : null}
+              </Fragment>
             ))}
           </ul>
           {pluginSignIns.map((entry) => (
@@ -413,6 +514,11 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
               </Field>
             </>
           )}
+          <McpProjectsField
+            limit={editing.draft.limitProjects}
+            selected={editing.draft.projects}
+            onChange={(patch) => setDraft(patch)}
+          />
           {problem || saveError ? (
             <p className="inline-error" role="alert">
               <Icon name="alert" size={13} />
@@ -435,8 +541,17 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
             </Button>
           </div>
         </form>
+      ) : importing ? (
+        <McpImportPanel
+          servers={servers}
+          onSave={save}
+          onDone={(message) => {
+            setImporting(false);
+            setImported(message);
+          }}
+        />
       ) : (
-        <div className="settings-actions">
+        <div className="settings-actions mcp-actions">
           <Button size="sm" icon="plus" disabled={saving} onClick={() => startEdit()}>
             Add server
           </Button>
@@ -445,21 +560,30 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
               Browse connectors
             </Button>
           ) : null}
+          <Button
+            size="sm"
+            icon="download"
+            disabled={saving}
+            onClick={() => {
+              setImported(undefined);
+              setConfirmDelete(undefined);
+              setImporting(true);
+            }}
+          >
+            Import from other apps
+          </Button>
         </div>
       )}
+      {imported && !importing ? (
+        <p className="settings-footnote" role="status">
+          {imported}
+        </p>
+      ) : null}
       <p className="settings-footnote">
         {userSettings.enabled
           ? `${SETTINGS_AGENTS} only read servers from their own settings files, so ZLI writes enabled servers there and removes the ones it added.`
           : `${SETTINGS_AGENTS} only read servers from their own settings files, and ZLI is set to leave those files alone.`}
       </p>
-      {servers.some(
-        (server) => server.enabled && isHttpServer(server) && !server.oauth && Object.keys(server.headers).length > 0,
-      ) ? (
-        <p className="settings-footnote">
-          Goose in a terminal cannot send headers, so it skips remote servers that need them. Turn on Sign in with
-          browser for a server and Goose reaches it through ZLI instead.
-        </p>
-      ) : null}
       {problems.length > 0 ? (
         <ul className="mcp-settings-problems">
           {problems.map((line) => (

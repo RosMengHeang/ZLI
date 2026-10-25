@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, stat } from "node:fs/promises";
 
 import { isPlainObject, writeFileAtomic } from "../../browser-tool/browserTool.js";
-import { type ClientAuth, type FetchLike, tokenRequest } from "./oauth.js";
+import { type ClientAuth, type FetchLike, oauthErrorCode, tokenRequest } from "./oauth.js";
 
 export type SignInMethod = "browser" | "github-cli" | "github-code";
 
@@ -17,6 +17,8 @@ export type StoredSignIn = {
   scope?: string;
   account?: string;
   signedInAt: string;
+  /** Set when the server turned the login down; signing in again clears it. */
+  expiredAt?: string;
   /** What a refresh needs. Missing for logins that cannot be refreshed. */
   refresh?: {
     tokenEndpoint: string;
@@ -97,7 +99,17 @@ async function withLock<T>(path: string, work: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Trades the refresh token for new tokens and saves them. Keeps the old refresh token when none comes back. */
+/** Whether a failed token request means the login itself is no longer accepted, not a passing network problem. */
+export function refreshRejected(error: unknown): boolean {
+  if (oauthErrorCode(error) === "invalid_grant") return true;
+  const status = isPlainObject(error) ? error.status : undefined;
+  return status === 400 || status === 401;
+}
+
+/**
+ * Trades the refresh token for new tokens and saves them. Keeps the old refresh token when none comes back.
+ * When the server turns the refresh token down, the login is marked expired before the error is thrown.
+ */
 export async function refreshSignIn(
   path: string,
   stored: StoredSignIn,
@@ -105,23 +117,33 @@ export async function refreshSignIn(
 ): Promise<StoredSignIn> {
   const refresh = stored.refresh;
   if (!refresh || !stored.refreshToken) return stored;
-  const tokens = await tokenRequest(
-    refresh.tokenEndpoint,
-    { grant_type: "refresh_token", refresh_token: stored.refreshToken, resource: refresh.resource },
-    {
-      clientId: refresh.clientId,
-      auth: refresh.auth,
-      ...(refresh.clientSecret ? { clientSecret: refresh.clientSecret } : {}),
-    },
-    options.fetch,
-    options.now,
-  );
+  let tokens: Awaited<ReturnType<typeof tokenRequest>>;
+  try {
+    tokens = await tokenRequest(
+      refresh.tokenEndpoint,
+      { grant_type: "refresh_token", refresh_token: stored.refreshToken, resource: refresh.resource },
+      {
+        clientId: refresh.clientId,
+        auth: refresh.auth,
+        ...(refresh.clientSecret ? { clientSecret: refresh.clientSecret } : {}),
+      },
+      options.fetch,
+      options.now,
+    );
+  } catch (error) {
+    if (refreshRejected(error) && !stored.expiredAt) {
+      const now = options.now ?? Date.now;
+      await writeSignIn(path, { ...stored, expiredAt: new Date(now()).toISOString() }).catch(() => undefined);
+    }
+    throw error;
+  }
   const next: StoredSignIn = {
     ...stored,
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken ?? stored.refreshToken,
     ...(tokens.scope ? { scope: tokens.scope } : {}),
   };
+  delete next.expiredAt;
   if (tokens.expiresAt === undefined) delete next.expiresAt;
   else next.expiresAt = tokens.expiresAt;
   await writeSignIn(path, next);
@@ -129,8 +151,26 @@ export async function refreshSignIn(
 }
 
 /**
+ * Marks the login expired after the server turned `rejectedToken` down. Does nothing when another process
+ * saved a different token meanwhile, since that one may still work.
+ */
+export async function markSignInExpired(
+  path: string,
+  rejectedToken: string,
+  options: { now?: () => number } = {},
+): Promise<void> {
+  const now = options.now ?? Date.now;
+  await withLock(path, async () => {
+    const current = await readSignIn(path);
+    if (!current || current.expiredAt || current.accessToken !== rejectedToken) return;
+    await writeSignIn(path, { ...current, expiredAt: new Date(now()).toISOString() });
+  });
+}
+
+/**
  * A working access token from the saved login, refreshed first when it is about to run out or when
- * `force` says the server just turned it down. Undefined when there is no usable login.
+ * `force` says the server just turned it down. Undefined when there is no usable login. An expired login
+ * gives no token unless `force` asks to try its refresh token once more.
  */
 export async function freshAccessToken(
   path: string,
@@ -139,17 +179,20 @@ export async function freshAccessToken(
   const now = options.now ?? Date.now;
   const first = await readSignIn(path);
   if (!first) return undefined;
+  if (first.expiredAt && !options.force) return undefined;
   if (!options.force && !needsRefresh(first, now())) return first.accessToken;
   if (!first.refreshToken || !first.refresh) return options.force ? undefined : first.accessToken;
   return withLock(path, async () => {
     const current = await readSignIn(path);
     if (!current) return undefined;
     // Another process refreshed while this one waited for the lock.
-    if (current.accessToken !== first.accessToken && !needsRefresh(current, now())) return current.accessToken;
+    if (current.accessToken !== first.accessToken && !current.expiredAt && !needsRefresh(current, now())) {
+      return current.accessToken;
+    }
     try {
       return (await refreshSignIn(path, current, options)).accessToken;
-    } catch {
-      return options.force ? undefined : current.accessToken;
+    } catch (error) {
+      return options.force || refreshRejected(error) ? undefined : current.accessToken;
     }
   });
 }

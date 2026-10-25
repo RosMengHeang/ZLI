@@ -67,6 +67,40 @@
 .settings-panel .inline-error { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: 0; }
 .settings-panel .inline-error svg { flex: 0 0 auto; margin-top: 3px; }
 .mcp-oauth input { accent-color: var(--zli-accent); }
+.mcp-row-title { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); }
+.mcp-status-dot { display: inline-block; width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--zli-disabled); }
+.mcp-status-dot.is-ok { background: var(--zli-green); }
+.mcp-status-dot.is-problem { background: var(--zli-red); }
+.mcp-status-dot.is-warning { background: var(--zli-amber); }
+.mcp-chip { flex: 0 0 auto; padding: 0 var(--zli-space-1-5); border: 1px solid var(--zli-border); border-radius: 999px; color: var(--zli-muted); font-size: var(--zli-text-2xs); line-height: 16px; white-space: nowrap; }
+.mcp-row-tools { padding: 0 0 var(--zli-space-3); }
+.mcp-row-tools + .mcp-row { border-top: 1px solid var(--zli-border); }
+.mcp-tools { display: flex; flex-direction: column; gap: var(--zli-space-2); padding: var(--zli-space-2-5) var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-surface); }
+.mcp-tools-head { display: flex; align-items: center; gap: var(--zli-space-2); }
+.mcp-tools-count { color: var(--zli-muted); font-size: var(--zli-text-sm); font-weight: 500; }
+.mcp-tools-list { display: flex; max-height: 240px; flex-direction: column; margin: 0; padding: 0; overflow: auto; list-style: none; }
+.mcp-tool { display: flex; align-items: center; gap: var(--zli-space-3); padding: var(--zli-space-1-5) 0; }
+.mcp-tool + .mcp-tool { border-top: 1px solid var(--zli-border); }
+.mcp-tool > .switch { flex: 0 0 auto; }
+.mcp-tool-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
+.mcp-tool-name { overflow: hidden; color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.mcp-tool.is-off .mcp-tool-name { color: var(--zli-dim); }
+.mcp-tool-desc { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.mcp-projects { display: flex; flex-direction: column; gap: var(--zli-space-1-5); }
+.mcp-projects > legend { margin-bottom: var(--zli-space-1); }
+.mcp-choice { display: flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-text); font-size: var(--zli-text-sm); cursor: pointer; }
+.mcp-choice input, .mcp-project input { margin: 0; accent-color: var(--zli-accent); }
+.mcp-project-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0 0 0 var(--zli-space-5); list-style: none; }
+.mcp-project { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); padding: 3px 0; cursor: pointer; }
+.mcp-project-copy { display: flex; min-width: 0; flex-direction: column; }
+.mcp-project-name { color: var(--zli-text); font-size: var(--zli-text-sm); }
+.mcp-project-path { overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.mcp-actions { flex-wrap: wrap; gap: var(--zli-space-1-5); }
+.mcp-import-title { margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
+.mcp-import-name { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); }
+.mcp-import-exists { color: var(--zli-dim); font-size: var(--zli-text-xs); white-space: nowrap; }
+.mcp-import-path { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.mcp-import-note { color: var(--zli-amber); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
 .mcp-settings-problems { display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0; padding: 0; color: var(--zli-amber); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); list-style: none; overflow-wrap: anywhere; }
 
 .skill-row-title { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); }

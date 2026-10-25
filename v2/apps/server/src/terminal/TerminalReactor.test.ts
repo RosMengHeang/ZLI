@@ -373,6 +373,7 @@ describe("TerminalReactor", () => {
     const written: Array<{ dir: string; kind: string; names: string[] }> = [];
     const github = { name: "github", command: "npx", args: ["-y", "gh-mcp"], env: { TOKEN: "t" } };
     let servers = [github];
+    const asked: unknown[] = [];
     const { engine, reactor, worktreeId } = await setup(
       {
         spawn: async (input) => {
@@ -382,7 +383,10 @@ describe("TerminalReactor", () => {
       },
       {
         resolveAgentCli: async (provider) => `C:\\bin\\${provider}.exe`,
-        mcpServers: () => servers,
+        mcpServers: async (context) => {
+          asked.push(context);
+          return servers;
+        },
         mcpConfigDir: "C:\\ZLI\\data\\mcp",
         env: {},
         writeMcpConfig: async (dir, kind, id, specs) => {
@@ -421,6 +425,8 @@ describe("TerminalReactor", () => {
     expect(spawned[1]?.args).toEqual(["--dangerously-bypass-approvals-and-sandbox", ...codexMcpArgs(github)]);
     // A server removed in Settings is gone from the next launch.
     expect(spawned[2]?.args).toEqual(["--dangerously-bypass-approvals-and-sandbox"]);
+    // The worktree picks the project, which decides which project-limited servers the agent gets.
+    expect(asked).toEqual([{ worktreeId }, { worktreeId }, { worktreeId }]);
   });
 
   it("projects a PTY exit once", async () => {

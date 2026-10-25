@@ -93,7 +93,7 @@
 .connector-card-foot { display: flex; min-height: 26px; align-items: center; gap: var(--zli-space-1-5); }
 .connector-spacer { flex: 1; }
 .connector-status { display: inline-flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
-.connector-status.is-connected { color: var(--zli-green); }
+.connector-status.is-done { color: var(--zli-green); }
 .connector-status.is-pending { color: var(--zli-text); }
 .connector-code { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-sm); }
 .connector-code strong { color: var(--zli-text); font-family: var(--zli-mono); letter-spacing: .04em; }
@@ -116,3 +116,41 @@
 .mcp-row-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); }
 .mcp-row-signin { color: var(--zli-dim); font-size: var(--zli-text-xs); white-space: nowrap; }
 .mcp-row-signin.is-signed-in { color: var(--zli-green); }
+.mcp-row-signin.is-expired, .connector-status.is-warning { color: var(--zli-amber); }
+.connector-card-meta { display: flex; min-height: 20px; align-items: center; gap: var(--zli-space-1-5); }
+.connector-health { color: var(--zli-dim); font-size: var(--zli-text-xs); white-space: nowrap; }
+.connector-card-meta .connector-link:disabled { color: var(--zli-dim); cursor: default; text-decoration: none; }
+.connector-card-meta .spinner { width: 10px; height: 10px; flex-basis: 10px; }
+.mcp-projects-picker { position: relative; display: inline-flex; }
+.mcp-projects-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 var(--zli-space-1-5);
+  border: 1px solid var(--zli-border);
+  border-radius: var(--zli-radius-sm);
+  background: transparent;
+  color: var(--zli-muted);
+  font: inherit;
+  font-size: var(--zli-text-xs);
+  cursor: pointer;
+}
+.mcp-projects-button:hover:not(:disabled) { border-color: var(--zli-border-strong); color: var(--zli-text); }
+.mcp-projects-button[aria-expanded="true"] { border-color: var(--zli-border-strong); background: var(--zli-active); color: var(--zli-text); }
+.mcp-projects-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  display: flex;
+  width: 260px;
+  flex-direction: column;
+  gap: var(--zli-space-1);
+  padding: var(--zli-space-2) var(--zli-space-2-5);
+  border-radius: var(--zli-radius-md);
+  background: var(--zli-overlay);
+  box-shadow: var(--zli-shadow-pop);
+}
+.mcp-projects-popover .mcp-project-list { padding-left: 0; }
+.mcp-projects-note { margin: var(--zli-space-1) 0 0; color: var(--zli-dim); font-size: var(--zli-text-2xs); line-height: var(--zli-leading-normal); }

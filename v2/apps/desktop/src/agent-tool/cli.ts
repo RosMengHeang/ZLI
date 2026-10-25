@@ -14,6 +14,7 @@ Usage:
       --same-worktree              Work in this worktree instead of a new one.
       --branch <name>              Branch name for the new worktree.
       --model <id>                 Model to use.
+  zli connect <service> [reason]   Ask the person to connect a service such as github or linear.
 
 Options for every command:
   --cwd <dir>        Directory used to pick the ZLI worktree (default: current directory).
@@ -97,6 +98,12 @@ export function parseZliArgs(argv: readonly string[]): ZliCommand {
       if (text("branch") !== undefined) input.branch = text("branch");
       if (text("model") !== undefined) input.model = text("model");
       return { kind: "call", action: "agentstart", input };
+    case "connect": {
+      input.service = need(rest[0], "a service such as github or linear");
+      const reason = rest.slice(1).join(" ").trim();
+      if (reason) input.reason = reason;
+      return { kind: "call", action: "agentconnect", input };
+    }
     default:
       throw new ZliUsageError(`Unknown command ${command}. Run zli --help.`);
   }
@@ -116,7 +123,13 @@ export async function runZli(command: ZliCommand, call: ZliBrowserCall, io: ZliI
   if (command.kind === "mcp") throw new Error("Use serveMcpOverStdio for the mcp command.");
   try {
     const result = await call(command.action, command.input);
-    const output = isRecord(result) && typeof result.output === "string" ? result.output : undefined;
+    const output = !isRecord(result)
+      ? undefined
+      : typeof result.output === "string"
+        ? result.output
+        : command.action === "agentconnect" && typeof result.message === "string"
+          ? result.message
+          : undefined;
     io.stdout(output !== undefined ? `${output}\n` : `${JSON.stringify(result ?? null, null, 2)}\n`);
     return 0;
   } catch (cause) {

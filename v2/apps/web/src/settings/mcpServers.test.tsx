@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { CommandId, type McpServerConfig } from "@zli-v2/contracts";
+import { CommandId, McpListResult, type McpServerConfig, type McpTestResult } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
@@ -15,9 +15,15 @@ import {
   EMPTY_DRAFT,
   envFromText,
   headersFromText,
+  mergeHealth,
+  pluginSignIns,
+  serverStatus,
   serverSummary,
   settingsProblems,
+  withDisabledTools,
+  withProjects,
 } from "./mcpServers.js";
+import { applyImports, defaultImportChoice } from "./McpImportPanel.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -372,5 +378,354 @@ describe("McpServersSection", () => {
       "github",
     ]);
     expect(container.textContent).toContain("ZLI is set to leave those files alone");
+  });
+});
+
+const testedAt = "2025-01-02T03:04:05.000Z";
+
+const toolsReply = (name: string): McpTestResult => ({
+  name,
+  ok: true,
+  tools: [{ name: "search_issues", description: "Find issues." }, { name: "create_issue" }],
+  testedAt,
+});
+
+describe("MCP status, tools, and projects helpers", () => {
+  const linear: McpServerConfig = {
+    name: "linear",
+    enabled: true,
+    transport: "http",
+    url: "https://mcp.linear.app/mcp",
+    headers: {},
+    oauth: true,
+  };
+  const list = (patch: Partial<McpListResult> = {}) =>
+    McpListResult.parse({
+      servers: [github, linear],
+      agentAccess: "full",
+      userSettings: { enabled: true, outcomes: [] },
+      ...patch,
+    });
+
+  it("says what the status dot means", () => {
+    expect(serverStatus(list(), "github")).toEqual({ tone: "unknown", label: "Not tested" });
+    expect(serverStatus(list({ health: [{ name: "github", ok: true, toolCount: 1, testedAt }] }), "github")).toEqual({
+      tone: "ok",
+      label: "Working, 1 tool",
+    });
+    expect(
+      serverStatus(
+        list({ health: [{ name: "github", ok: false, toolCount: 0, problem: "npx was not found.", testedAt }] }),
+        "github",
+      ),
+    ).toEqual({ tone: "problem", label: "npx was not found." });
+    const signIn = { name: "linear", url: linear.url, signedIn: false };
+    expect(serverStatus(list({ signIns: [signIn] }), "linear")).toEqual({ tone: "warning", label: "Not signed in" });
+    expect(serverStatus(list({ signIns: [{ ...signIn, expired: true }] }), "linear")).toEqual({
+      tone: "warning",
+      label: "Sign-in expired",
+    });
+  });
+
+  it("merges a test into the health list by name and lists plugin sign-ins", () => {
+    const merged = mergeHealth(
+      [
+        { name: "GitHub", ok: false, toolCount: 0, testedAt },
+        { name: "docs", ok: true, toolCount: 4, testedAt },
+      ],
+      toolsReply("github"),
+    );
+    expect(merged.map((entry) => [entry.name, entry.ok, entry.toolCount])).toEqual([
+      ["docs", true, 4],
+      ["github", true, 2],
+    ]);
+    const result = list({
+      signIns: [
+        { name: "linear", url: linear.url, signedIn: true },
+        { name: "acme", url: "https://mcp.acme.dev/mcp", signedIn: false },
+      ],
+    });
+    expect(pluginSignIns(result).map((entry) => entry.name)).toEqual(["acme"]);
+  });
+
+  it("leaves empty tool and project lists out of the saved server", () => {
+    expect(withDisabledTools({ ...github, disabledTools: ["a"] }, [])).toEqual(github);
+    expect(withDisabledTools(github, ["a"])).toEqual({ ...github, disabledTools: ["a"] });
+    expect(withProjects({ ...github, projects: ["/repo"] }, [])).toEqual(github);
+    expect(applyDraft([], { ...draftFromServer({ ...github, disabledTools: ["x"] }) }, undefined)).toEqual({
+      servers: [{ ...github, disabledTools: ["x"] }],
+    });
+    expect(applyDraft([], { ...draftFromServer(github), limitProjects: true }, undefined)).toEqual({
+      problem: "Pick at least one project, or choose All projects.",
+    });
+    expect(applyDraft([], { ...draftFromServer(github), limitProjects: true, projects: ["/repo"] }, undefined)).toEqual(
+      { servers: [{ ...github, projects: ["/repo"] }] },
+    );
+    expect(
+      applyDraft([], { ...draftFromServer(github), limitProjects: false, projects: ["/repo"] }, undefined),
+    ).toEqual({ servers: [github] });
+  });
+
+  it("picks import candidates and appends them", () => {
+    const memory: McpServerConfig = { name: "memory", enabled: true, command: "npx", args: [], env: {} };
+    const candidate = (server: McpServerConfig, exists = false) => ({
+      app: "cursor" as const,
+      appLabel: "Cursor",
+      path: "/home/a/.cursor/mcp.json",
+      server,
+      exists,
+    });
+    expect(defaultImportChoice([candidate(github, true), candidate(memory), candidate(memory)])).toEqual([
+      false,
+      true,
+      false,
+    ]);
+    expect(applyImports([github], [memory])).toEqual({ servers: [github, memory] });
+    expect(applyImports([github], [memory, memory])).toEqual({ problem: "memory: memory is listed twice." });
+  });
+});
+
+type Command = { type: string; servers?: McpServerConfig[]; name?: string; attemptId?: string };
+
+function fakeBridge(
+  handle: (command: Command) => unknown,
+  projects: { projectId: string; path: string; name: string }[] = [],
+): ZliBridge {
+  return {
+    runtime: {
+      dispatch: async (request: { commandId: string; command: Command }) => ({
+        commandId: CommandId.parse(request.commandId),
+        accepted: true as const,
+        result: await handle(request.command),
+      }),
+      getProjection: async () => (projects.length > 0 ? { lastSequence: 1, projects } : undefined),
+      onProjection: () => () => undefined,
+    },
+    app: { getVersion: async () => "0", quit: async () => undefined, openExternal: async () => undefined },
+  } as unknown as ZliBridge;
+}
+
+async function renderSection(bridge: ZliBridge): Promise<HTMLElement> {
+  const container = document.createElement("div");
+  document.body.append(container);
+  await act(async () => {
+    createRoot(container).render(
+      <RuntimeProvider bridge={bridge}>
+        <McpServersSection />
+      </RuntimeProvider>,
+    );
+  });
+  return container;
+}
+
+describe("McpServersSection tests, tools, projects, and import", () => {
+  it("tests a server, lists its tools, and turns single tools off", async () => {
+    let servers: McpServerConfig[] = [github];
+    let health: McpListResult["health"] = [];
+    const saves: McpServerConfig[][] = [];
+    const list = () =>
+      McpListResult.parse({
+        servers,
+        agentAccess: "full",
+        userSettings: { enabled: true, outcomes: [] },
+        health,
+        signIns: [{ name: "plugin-docs", url: "https://docs.example.com/mcp", signedIn: true, account: "ada" }],
+      });
+    const container = await renderSection(
+      fakeBridge((command) => {
+        if (command.type === "mcp.test") {
+          const reply = toolsReply(command.name ?? "");
+          health = [{ name: reply.name, ok: true, toolCount: reply.tools.length, testedAt }];
+          return reply;
+        }
+        if (command.type === "mcp.save") {
+          servers = command.servers ?? [];
+          saves.push(servers);
+          health = [];
+        }
+        return list();
+      }),
+    );
+
+    expect(
+      container.querySelectorAll(".mcp-rows")[1]?.querySelector(".mcp-status-dot")?.getAttribute("aria-label"),
+    ).toBe("Not tested");
+    await act(async () => button(container, "Test github").click());
+    const panel = container.querySelector('section[aria-label="Tools in github"]') as HTMLElement;
+    expect(panel.textContent).toContain("2 of 2 tools on");
+    expect(panel.textContent).toContain("search_issues");
+    expect(panel.textContent).toContain("Find issues.");
+    expect(container.querySelector('[aria-label="Working, 2 tools"]')).not.toBeNull();
+
+    await act(async () =>
+      panel.querySelector<HTMLInputElement>('input[aria-label="Let agents use create_issue"]')?.click(),
+    );
+    expect(saves.at(-1)).toEqual([{ ...github, disabledTools: ["create_issue"] }]);
+    const updated = container.querySelector('section[aria-label="Tools in github"]') as HTMLElement;
+    expect(updated.textContent).toContain("1 of 2 tools on");
+    expect(updated.textContent).toContain("Changes apply to agents started after you save.");
+    await act(async () => button(updated, "Turn all on").click());
+    expect(saves.at(-1)).toEqual([github]);
+
+    await act(async () => button(container, "Test plugin-docs").click());
+    const pluginPanel = container.querySelector('section[aria-label="Tools in plugin-docs"]') as HTMLElement;
+    expect(pluginPanel.textContent).toContain("Plugin servers use every tool.");
+    expect(pluginPanel.querySelector('input[role="switch"]')).toBeNull();
+    await act(async () => button(pluginPanel, "Hide tools in plugin-docs").click());
+    expect(container.querySelector('section[aria-label="Tools in plugin-docs"]')).toBeNull();
+  });
+
+  it("limits a server to some projects", async () => {
+    let servers: McpServerConfig[] = [github];
+    const container = await renderSection(
+      fakeBridge(
+        (command) => {
+          if (command.type === "mcp.save") servers = command.servers ?? [];
+          return McpListResult.parse({ servers, agentAccess: "full", userSettings: { enabled: true, outcomes: [] } });
+        },
+        [
+          { projectId: "00000000-0000-4000-8000-000000000001", path: "/work/repo", name: "repo" },
+          { projectId: "00000000-0000-4000-8000-000000000002", path: "/work/site", name: "site" },
+        ],
+      ),
+    );
+    await act(async () => button(container, "Edit github").click());
+    const form = container.querySelector("form") as HTMLFormElement;
+    expect(form.textContent).toContain("Cursor and Droid, and Gemini, Kimi Code, and Qwen Code in terminals");
+    const [all, some] = [...form.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    expect(all?.checked).toBe(true);
+    await act(async () => some?.click());
+    await act(async () => form.requestSubmit());
+    expect(form.textContent).toContain("Pick at least one project, or choose All projects.");
+    await act(async () => form.querySelector<HTMLInputElement>('input[aria-label="site"]')?.click());
+    await act(async () => form.requestSubmit());
+    expect(servers).toEqual([{ ...github, projects: ["/work/site"] }]);
+    const chip = container.querySelector(".mcp-chip");
+    expect(chip?.textContent).toBe("1 project");
+    expect(chip?.getAttribute("data-tooltip")).toBe("site");
+
+    await act(async () => button(container, "Edit github").click());
+    const again = container.querySelector("form") as HTMLFormElement;
+    await act(async () => again.querySelector<HTMLInputElement>('input[type="radio"]')?.click());
+    await act(async () => again.requestSubmit());
+    expect(servers).toEqual([github]);
+  });
+
+  it("imports servers from other apps", async () => {
+    let servers: McpServerConfig[] = [github];
+    const memory: McpServerConfig = {
+      name: "memory",
+      enabled: true,
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-memory"],
+      env: {},
+    };
+    const container = await renderSection(
+      fakeBridge((command) => {
+        if (command.type === "mcp.import.scan") {
+          return {
+            found: [
+              { app: "cursor", appLabel: "Cursor", path: "/home/a/.cursor/mcp.json", server: memory, exists: false },
+              { app: "cursor", appLabel: "Cursor", path: "/home/a/.cursor/mcp.json", server: github, exists: true },
+              {
+                app: "claude-code",
+                appLabel: "Claude Code",
+                path: "/home/a/.claude.json",
+                server: {
+                  name: "docs",
+                  enabled: true,
+                  transport: "http",
+                  url: "https://docs.example.com/mcp",
+                  headers: {},
+                  oauth: false,
+                },
+                exists: false,
+                note: "Sign in again in ZLI after importing.",
+              },
+            ],
+            problems: ["Windsurf: the file is not plain JSON."],
+          };
+        }
+        if (command.type === "mcp.save") servers = command.servers ?? [];
+        return McpListResult.parse({ servers, agentAccess: "full", userSettings: { enabled: true, outcomes: [] } });
+      }),
+    );
+    await act(async () => button(container, "Import from other apps").click());
+    const panel = container.querySelector('section[aria-label="Import from other apps"]') as HTMLElement;
+    expect([...panel.querySelectorAll("legend")].map((node) => node.textContent)).toEqual(["Cursor", "Claude Code"]);
+    expect(panel.textContent).toContain("Already in ZLI");
+    expect(panel.textContent).toContain("/home/a/.claude.json");
+    expect(panel.textContent).toContain("Sign in again in ZLI after importing.");
+    expect(panel.textContent).toContain("Windsurf: the file is not plain JSON.");
+    const check = (label: string) => panel.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
+    expect(check("Import github from Cursor")?.disabled).toBe(true);
+    expect(check("Import memory from Cursor")?.checked).toBe(true);
+    expect(button(panel, "Import 2 servers")).toBeTruthy();
+    await act(async () => check("Import docs from Claude Code")?.click());
+    await act(async () => button(panel, "Import 1 server").click());
+    expect(servers).toEqual([github, memory]);
+    expect(container.querySelector('section[aria-label="Import from other apps"]')).toBeNull();
+    expect(container.textContent).toContain("Imported 1 server.");
+  });
+
+  it("says when no other app has servers", async () => {
+    const container = await renderSection(
+      fakeBridge((command) =>
+        command.type === "mcp.import.scan"
+          ? { found: [], problems: [] }
+          : McpListResult.parse({ servers: [], agentAccess: "full", userSettings: { enabled: true, outcomes: [] } }),
+      ),
+    );
+    await act(async () => button(container, "Import from other apps").click());
+    expect(container.textContent).toContain(
+      "No servers found in Claude Desktop, Claude Code, Cursor, VS Code, or Windsurf.",
+    );
+    await act(async () => button(container, "Close").click());
+    expect(button(container, "Import from other apps")).toBeTruthy();
+  });
+
+  it("asks to sign in again when a sign-in expired, and has no Goose footnote", async () => {
+    const linear: McpServerConfig = {
+      name: "linear",
+      enabled: true,
+      transport: "http",
+      url: "https://mcp.linear.app/mcp",
+      headers: {},
+      oauth: true,
+    };
+    const context7: McpServerConfig = {
+      name: "context7",
+      enabled: true,
+      transport: "http",
+      url: "https://mcp.context7.com/mcp",
+      headers: { Authorization: "Bearer x" },
+      oauth: false,
+    };
+    let signedIn = false;
+    const list = () =>
+      McpListResult.parse({
+        servers: [linear, context7],
+        agentAccess: "full",
+        userSettings: { enabled: true, outcomes: [] },
+        signIns: [
+          signedIn
+            ? { name: "linear", url: linear.url, signedIn: true, via: "browser", account: "ada" }
+            : { name: "linear", url: linear.url, signedIn: false, expired: true },
+        ],
+      });
+    const container = await renderSection(
+      fakeBridge((command) => {
+        if (command.type === "mcp.signIn") {
+          signedIn = true;
+          return { status: "done", list: list() };
+        }
+        return list();
+      }),
+    );
+    expect(container.textContent).not.toContain("Goose");
+    expect(container.querySelector(".mcp-row-signin.is-expired")?.textContent).toBe("Sign-in expired");
+    expect(container.querySelector('.mcp-status-dot[aria-label="Sign-in expired"]')).not.toBeNull();
+    await act(async () => button(container, "Sign in again").click());
+    expect(container.querySelector(".mcp-row-signin")?.textContent).toBe("Signed in as ada");
   });
 });

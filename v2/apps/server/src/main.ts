@@ -6,7 +6,13 @@ import { fileURLToPath } from "node:url";
 
 import { EnvironmentId, type McpServerConfig } from "@zli-v2/contracts";
 import { AccountStore } from "./accounts/AccountStore.js";
-import { type BrowserToolConfig, browserToolConfigFromEnv, zliMcpServerSpecs } from "./browser-tool/browserTool.js";
+import {
+  type BrowserToolConfig,
+  browserToolConfigFromEnv,
+  type McpServerContext,
+  type McpServerSpec,
+  zliMcpServerSpecs,
+} from "./browser-tool/browserTool.js";
 import {
   registerBrowserToolInUserSettings,
   syncAccountMcpServers,
@@ -124,6 +130,11 @@ export async function startRuntime(options: {
       await mcpServers.refresh();
       await skills.syncUserSettings();
     },
+    exportSources: {
+      skills: async (): Promise<Array<{ name: string; path: string }>> =>
+        (await skills.libraryNames()).map((name) => ({ name, path: join(skills.libraryPath(), name) })),
+      servers: (): McpServerConfig[] => mcpServers.list().servers,
+    },
   });
   await plugins.load();
   const signIns = new McpSignIns({
@@ -135,6 +146,7 @@ export async function startRuntime(options: {
     path: join(dirname(databasePath), "mcp-servers.json"),
     extraServers: (taken): McpServerConfig[] => plugins.mcpServers(taken),
     signIns,
+    importFrom: { home: userHome },
     ...(browserTool?.connectScript
       ? { connectTool: { command: browserTool.command, script: browserTool.connectScript } }
       : {}),
@@ -183,7 +195,20 @@ export async function startRuntime(options: {
   await accounts.load();
   const resolveAccount = (provider: Parameters<AccountStore["resolve"]>[0], accountId?: string) =>
     accounts.resolve(provider, accountId);
-  const mcpOptions = { mcpServers: () => mcpServers.specs(), mcpConfigDir };
+  // Servers limited to some projects are matched against the root of the worktree's project.
+  const projectPathFor = async (worktreeId: string | undefined): Promise<string | undefined> => {
+    if (!worktreeId) return undefined;
+    const projection = await engine.projection();
+    const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === worktreeId);
+    return worktree ? projection.projects.find((project) => project.projectId === worktree.projectId)?.path : undefined;
+  };
+  const mcpOptions = {
+    mcpServers: async ({ worktreeId }: McpServerContext): Promise<McpServerSpec[]> => {
+      const projectPath = await projectPathFor(worktreeId).catch(() => undefined);
+      return mcpServers.specs(projectPath ? { projectPath } : {});
+    },
+    mcpConfigDir,
+  };
   const providerService = new ProviderService(
     createProviderRegistry(process.env, { ...(browserTool ? { browserTool } : {}), ...mcpOptions }),
   );

@@ -176,6 +176,16 @@ export type ThreadUsageRecord = z.infer<typeof ThreadUsageRecord>;
 export const ThreadActivityKind = z.enum(["command", "file-read", "file-edit", "search", "web", "tool"]);
 export type ThreadActivityKind = z.infer<typeof ThreadActivityKind>;
 
+/**
+ * A connector a tool call is about. sign-in: the call failed until the person signs in to the server.
+ * request: the agent asked the person to connect it. server is a server name or a catalog id.
+ */
+export const ThreadActivityConnector = z.object({
+  server: z.string().min(1).max(100),
+  reason: z.enum(["sign-in", "request"]),
+});
+export type ThreadActivityConnector = z.infer<typeof ThreadActivityConnector>;
+
 /** One tool call inside a turn. Updates with the same activityId replace earlier ones. */
 export const ThreadActivityProjection = z.object({
   activityId: z.string().min(1).max(200),
@@ -196,5 +206,6 @@ export const ThreadActivityProjection = z.object({
     .optional(),
   /** How much of the turn's reply had arrived when the call started, which places it inside the reply. */
   textOffset: z.number().int().min(0).max(100_000_000).optional(),
+  connector: ThreadActivityConnector.optional(),
 });
 export type ThreadActivityProjection = z.infer<typeof ThreadActivityProjection>;

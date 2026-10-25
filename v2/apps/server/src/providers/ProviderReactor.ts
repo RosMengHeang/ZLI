@@ -450,6 +450,7 @@ export class ProviderReactor {
             ...(lines ? { lines } : {}),
             ...(activity.command?.trim() ? { command: activity.command.trim().slice(0, 2_000) } : {}),
             ...(turnId ? { textOffset: textOffset ?? 0 } : {}),
+            ...(activity.connector ? { connector: activity.connector } : {}),
           },
         },
       })

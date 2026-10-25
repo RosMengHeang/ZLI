@@ -2,11 +2,15 @@ import { randomUUID } from "node:crypto";
 
 import {
   AgentControlAction,
+  AgentControlConnectInput,
   AgentControlListInput,
   AgentControlReadInput,
   AgentControlSendInput,
   AgentControlStartInput,
   type AgentToolAccess,
+  catalogEntryServer,
+  isHttpServer,
+  MCP_CATALOG,
   McpListResult,
   READ_AGENT_CONTROL_ACTIONS,
   type RpcResponse,
@@ -37,6 +41,8 @@ export type AgentControlHost = {
   readonly startTimeoutMs?: number;
   /** How long an agent CLI gets to draw its prompt before the first message is typed into it. */
   readonly terminalPromptDelayMs?: number;
+  /** Tells the person an agent wants a service connected. connectorId is a catalog id or a server name. */
+  askToConnect?(request: { title: string; body: string; connectorId: string }): void;
 };
 
 export type AgentSummary = {
@@ -367,12 +373,71 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     };
   };
 
+  const connect = async (raw: unknown) => {
+    const input = AgentControlConnectInput.parse(raw);
+    const key = input.service.toLowerCase();
+    const listed = McpListResult.parse(await run({ type: "mcp.list" }));
+    const entry = MCP_CATALOG.find((candidate) => candidate.id === key || candidate.title.toLowerCase() === key);
+    const server = entry
+      ? catalogEntryServer(entry, listed.servers)
+      : listed.servers.find((candidate) => candidate.name.toLowerCase() === key);
+    if (!entry && !server)
+      throw new BrowserControlError(
+        `ZLI has no connector called ${input.service}. Use one of: ${MCP_CATALOG.map((candidate) => candidate.id).join(", ")}.`,
+        404,
+      );
+    const title = entry?.title ?? server?.name ?? input.service;
+    const connector = entry?.id ?? server?.name ?? input.service;
+    const signedIn = server ? listed.signIns.find((state) => state.name === server.name)?.signedIn === true : false;
+    const needsSignIn = server?.enabled === true && isHttpServer(server) && server.oauth && !signedIn;
+    if (server?.enabled && !needsSignIn)
+      return {
+        status: "connected",
+        connector,
+        message: `${title} is already connected in ZLI. If its tools are missing here, it was added after this session started, so start a new session to use it.`,
+      };
+
+    let agentName = "An agent";
+    let projectName: string | undefined;
+    const state = host.projection();
+    if (state) {
+      try {
+        const { worktree, project } = caller(input, state);
+        projectName = project.name;
+        const neighbors = projectAgents(state, project.projectId, worktree.worktreeId).filter(
+          (agent) => agent.sameWorktree,
+        );
+        if (neighbors.length === 1 && neighbors[0]) agentName = neighbors[0].providerName;
+      } catch {
+        // An agent outside a ZLI worktree can still ask; the notification just names less.
+      }
+    }
+    const ask = needsSignIn ? `asks you to sign in to ${title}` : `asks to connect ${title}`;
+    host.askToConnect?.({
+      title: projectName ?? "ZLI",
+      body: `${agentName} ${ask}.${input.reason ? ` ${input.reason}` : ""}`,
+      connectorId: connector,
+    });
+    return needsSignIn
+      ? {
+          status: "asked",
+          connector,
+          message: `Asked the person to sign in to ${title} in ZLI. Once they sign in, try again.`,
+        }
+      : {
+          status: "asked",
+          connector,
+          message: `Asked the person to connect ${title} in ZLI. Once they connect, start a new session to use it.`,
+        };
+  };
+
   const handlers: Record<AgentControlAction, (input: unknown) => Promise<unknown>> = {
     agentaccess: async () => ({ access: await currentAccess() }),
     agentlist: list,
     agentread: read,
     agentsend: send,
     agentstart: start,
+    agentconnect: connect,
   };
 
   return async (action, input) => {

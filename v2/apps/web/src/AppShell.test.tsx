@@ -355,6 +355,69 @@ describe("AppShell", () => {
       sent.findIndex((command) => command.type === "worktree.remove"),
     );
   });
+
+  it("asks before a plugin action runs a command, then remembers the approval", async () => {
+    const dispatched: unknown[] = [];
+    const bridge = makeBridge(projection, dispatched);
+    const action = { plugin: "kit", name: "Test", description: "", command: "npm test" };
+    const kit = {
+      name: "kit",
+      displayName: "Kit",
+      description: "",
+      format: "claude",
+      enabled: true,
+      path: "/data/plugins/kit",
+      source: "https://github.com/acme/kit",
+      installedAt: "2025-01-01T00:00:00.000Z",
+      components: { skills: [], mcpServers: [], prompts: [], actions: [action], ignored: [] },
+      config: [],
+      configured: [],
+      problems: [],
+      origin: "other",
+      sourceKind: "github",
+    };
+    bridge.runtime.dispatch = async (request: unknown) => {
+      dispatched.push(request);
+      const { type } = (request as { command: { type: string } }).command;
+      const result =
+        type === "plugins.contributions"
+          ? { prompts: [], actions: [action] }
+          : type === "plugins.list"
+            ? { plugins: [kit], pluginsPath: "/data/plugins" }
+            : undefined;
+      return {
+        commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"),
+        accepted: true as const,
+        ...(result ? { result } : {}),
+      };
+    };
+    const container = await render(bridge);
+    const runFromPalette = async () => {
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>(".command-trigger")?.click();
+      });
+      await act(async () => {
+        button(container, "Test (kit)")?.click();
+      });
+    };
+    const terminals = () => commands(dispatched).filter((command) => command.type === "terminal.create");
+
+    await runFromPalette();
+    const dialog = container.querySelector('[role="dialog"][aria-label="Run plugin action"]');
+    expect(dialog?.querySelector(".dialog-title")?.textContent).toBe("Run Test from Kit?");
+    expect(dialog?.querySelector("pre code")?.textContent).toBe("npm test");
+    expect(dialog?.textContent).toContain("Unknown source");
+    expect(terminals()).toHaveLength(0);
+    await act(async () => {
+      button(container, "Run")?.click();
+    });
+    expect(container.querySelector('[aria-label="Run plugin action"]')).toBeNull();
+    expect(terminals()).toEqual([expect.objectContaining({ args: ["-lc", "npm test"], worktreeId })]);
+
+    await runFromPalette();
+    expect(container.querySelector('[aria-label="Run plugin action"]')).toBeNull();
+    expect(terminals()).toHaveLength(2);
+  });
 });
 
 describe("Settings", () => {

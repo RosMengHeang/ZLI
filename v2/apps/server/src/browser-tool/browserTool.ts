@@ -42,6 +42,14 @@ export type McpHttpServerSpec = {
 
 export type McpServerSpec = McpStdioServerSpec | McpHttpServerSpec;
 
+/** Where an agent is about to start, so servers limited to some projects reach only agents there. */
+export type McpServerContext = { worktreeId?: string };
+
+/** MCP servers added in Settings, read at each launch so a change applies to the next agent. */
+export type McpServerSource = (
+  context: McpServerContext,
+) => readonly McpServerSpec[] | Promise<readonly McpServerSpec[]>;
+
 export function isHttpSpec(spec: McpServerSpec): spec is McpHttpServerSpec {
   return spec.transport === "http";
 }
@@ -292,7 +300,7 @@ export function gooseExtension(spec: McpStdioServerSpec, platform: NodeJS.Platfo
 
 /**
  * Goose flags for one server. Its streamable HTTP flag takes only a URL, so remote servers that need
- * headers are left out; with sign-in (OAuth) they arrive as a stdio bridge instead.
+ * headers are left out. In the desktop app they arrive as a stdio connect bridge instead.
  */
 export function gooseMcpArgs(spec: McpServerSpec, platform: NodeJS.Platform = process.platform): string[] {
   if (!isHttpSpec(spec)) return ["--with-extension", gooseExtension(spec, platform)];

@@ -11,6 +11,7 @@ export * from "./import.js";
 export * from "./issues.js";
 export * from "./mcp.js";
 export * from "./mcpCatalog.js";
+export * from "./pluginCatalog.js";
 export * from "./plugins.js";
 export * from "./projectConfig.js";
 export * from "./projections.js";

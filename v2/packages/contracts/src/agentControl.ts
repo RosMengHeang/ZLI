@@ -12,12 +12,24 @@ export type AgentToolAccess = z.infer<typeof AgentToolAccess>;
 export const DEFAULT_AGENT_TOOL_ACCESS: AgentToolAccess = "full";
 
 /** Served by the same control service as the browser tool, under their own action names. */
-export const AGENT_CONTROL_ACTIONS = ["agentaccess", "agentlist", "agentread", "agentsend", "agentstart"] as const;
+export const AGENT_CONTROL_ACTIONS = [
+  "agentaccess",
+  "agentlist",
+  "agentread",
+  "agentsend",
+  "agentstart",
+  "agentconnect",
+] as const;
 export const AgentControlAction = z.enum(AGENT_CONTROL_ACTIONS);
 export type AgentControlAction = z.infer<typeof AgentControlAction>;
 
-/** Read-only actions, allowed when access is "read". */
-export const READ_AGENT_CONTROL_ACTIONS: readonly AgentControlAction[] = ["agentaccess", "agentlist", "agentread"];
+/** Actions allowed when access is "read". Asking the person to connect a service changes nothing by itself. */
+export const READ_AGENT_CONTROL_ACTIONS: readonly AgentControlAction[] = [
+  "agentaccess",
+  "agentlist",
+  "agentread",
+  "agentconnect",
+];
 
 const AgentRef = z.string().trim().min(1, "Name the agent with an id from list_agents.").max(100);
 
@@ -51,3 +63,10 @@ export const AgentControlStartInput = AgentControlListInput.extend({
   model: z.string().trim().min(1).max(200).optional(),
 });
 export type AgentControlStartInput = z.infer<typeof AgentControlStartInput>;
+
+export const AgentControlConnectInput = AgentControlListInput.extend({
+  /** A connector id such as github, its name, or the name of a server the person added. */
+  service: z.string().trim().min(1, "Name the service, such as github or linear.").max(100),
+  reason: z.string().trim().max(500).optional(),
+});
+export type AgentControlConnectInput = z.infer<typeof AgentControlConnectInput>;

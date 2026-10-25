@@ -518,3 +518,61 @@ describe("authenticated local RPC server", () => {
     socket.close();
   });
 });
+
+describe("MCP commands", () => {
+  it("runs connection tests and import scans, and says when they are not available", async () => {
+    const database = new Database({ path: ":memory:" });
+    const engine = new Engine({ database, environment });
+    const list = {
+      servers: [],
+      agentAccess: "full" as const,
+      userSettings: { enabled: false, outcomes: [] },
+      signIns: [],
+      health: [],
+    };
+    let reloaded = 0;
+    const tested = { name: "github", ok: true, tools: [{ name: "search" }], testedAt: "2025-03-01T10:00:00.000Z" };
+    const server = new RpcServer({
+      engine,
+      environment,
+      token: "test-token",
+      mcpServers: {
+        list: () => list,
+        save: async () => list,
+        setAgentAccess: async () => list,
+        reloadSignIns: async () => {
+          reloaded += 1;
+        },
+        test: async (name) => ({ ...tested, name }),
+      },
+    });
+    await server.start();
+    resources.push({ database, server });
+    const socket = await connected(server);
+    const send = (index: number, command: Record<string, unknown>) =>
+      socket.send(
+        JSON.stringify({
+          type: "command",
+          request: { protocolVersion: 1, commandId: `00000000-0000-4000-8000-00000000090${index}`, command },
+        }),
+      );
+
+    send(1, { type: "mcp.test", name: "github" });
+    await expect(nextMessage(socket)).resolves.toMatchObject({
+      type: "response",
+      response: { accepted: true, result: tested },
+    });
+    send(2, { type: "mcp.import.scan" });
+    await expect(nextMessage(socket)).resolves.toMatchObject({
+      type: "response",
+      response: {
+        accepted: false,
+        error: { code: "invalid_request", message: "Importing servers is not available here." },
+      },
+    });
+    send(3, { type: "mcp.list" });
+    await expect(nextMessage(socket)).resolves.toMatchObject({ response: { accepted: true, result: list } });
+    expect(reloaded).toBe(1);
+    socket.close();
+  });
+});

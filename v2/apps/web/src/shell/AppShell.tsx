@@ -1,5 +1,8 @@
 import {
   type Account,
+  MCP_CATALOG,
+  type PluginAction,
+  type PluginOrigin,
   type ProjectProjection,
   type RuntimeProjection,
   type SetupDecision,
@@ -24,7 +27,15 @@ import type { AskAgentTarget, FilesFocus } from "../files/FilesPane.js";
 import { QuickOpen } from "../files/QuickOpen.js";
 import { type IssueLink, issuePrompt, rememberIssueLink } from "../issues/issueStart.js";
 import { useAgentNotifications } from "../notifications/useAgentNotifications.js";
-import { actionTerminalCommand, usePluginContributions } from "../plugins/plugins.js";
+import { PluginActionDialog } from "../plugins/PluginActionDialog.js";
+import {
+  actionApprovalKey,
+  actionTerminalCommand,
+  isActionApproved,
+  listPlugins,
+  rememberActionApproval,
+  usePluginContributions,
+} from "../plugins/plugins.js";
 import { PromptsDialog } from "../prompts/PromptsDialog.js";
 import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.js";
 import { usePullRequestPolling } from "../review/pullRequestStore.js";
@@ -53,6 +64,7 @@ import {
 import { groupFinished, useRunStates } from "../sessions/useRunStates.js";
 import { forgetSession, useWorkbenchState } from "../sessions/workbench.js";
 import { resolveLaunchDefaults, useAppSettings } from "../settings/appSettings.js";
+import { ExpiredSignInNotice } from "../settings/ExpiredSignInNotice.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
 import { SettingsDialog, type SettingsSection } from "../settings/SettingsDialog.js";
 import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
@@ -131,9 +143,17 @@ function WorkspaceApp() {
   const [legacyImportBatchId, setLegacyImportBatchId] = useState<string>();
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>();
+  const [focusConnector, setFocusConnector] = useState<string>();
+  const [settingsKey, setSettingsKey] = useState(0);
   const [usageOpen, setUsageOpen] = useState(false);
   const [closeRequest, setCloseRequest] = useState<AgentSession>();
   const [deleteRequest, setDeleteRequest] = useState<AgentSession>();
+  const [actionRequest, setActionRequest] = useState<{
+    action: PluginAction;
+    pluginName: string;
+    origin: PluginOrigin;
+    key: string | undefined;
+  }>();
   const [handoffRequest, setHandoffRequest] = useState<AgentSession>();
   const [compareGroupId, setCompareGroupId] = useState<string>();
   const [keepRequest, setKeepRequest] = useState<{ group: RunGroup; session: AgentSession }>();
@@ -369,8 +389,22 @@ function WorkspaceApp() {
   const toggleDrawer = () => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }));
   const openSettings = (section: SettingsSection = "agents") => {
     setPaletteOpen(false);
+    setFocusConnector(undefined);
     setSettingsSection(section);
   };
+  /** Opens Settings at a connector; a server name that is not in the catalog opens MCP servers. */
+  const openConnectors = useCallback((connectorId?: string) => {
+    const entry = connectorId ? MCP_CATALOG.find((candidate) => candidate.id === connectorId.toLowerCase()) : undefined;
+    setPaletteOpen(false);
+    setFocusConnector(entry?.id);
+    // A new key reopens a dialog that is already showing, so it lands on the connector.
+    setSettingsKey((key) => key + 1);
+    setSettingsSection(connectorId && !entry ? "mcp" : "connectors");
+  }, []);
+  useEffect(
+    () => bridge?.notifications?.onOpenConnector?.(({ connectorId }) => openConnectors(connectorId)),
+    [bridge, openConnectors],
+  );
   const openUsage = () => {
     setPaletteOpen(false);
     setUsageOpen(true);
@@ -400,6 +434,7 @@ function WorkspaceApp() {
       setUsageOpen(false);
       setCloseRequest(undefined);
       setDeleteRequest(undefined);
+      setActionRequest(undefined);
       setHandoffRequest(undefined);
       setCompareGroupId(undefined);
       setKeepRequest(undefined);
@@ -1071,8 +1106,26 @@ function WorkspaceApp() {
     });
   };
 
+  /** Asks first unless the person already approved this exact command from this plugin. */
+  const runPluginAction = async (action: PluginAction) => {
+    const key = await actionApprovalKey(action);
+    if (key && isActionApproved(key)) {
+      await startPluginAction(action);
+      return;
+    }
+    const plugin = await listPlugins(dispatch)
+      .then((result) => result.plugins.find((entry) => entry.name === action.plugin))
+      .catch(() => undefined);
+    setActionRequest({
+      action,
+      pluginName: plugin?.displayName ?? action.plugin,
+      origin: plugin?.origin ?? "other",
+      key,
+    });
+  };
+
   /** Runs in the current worktree, or else in the project's own checkout. */
-  const runPluginAction = async (action: (typeof pluginActions)[number]) => {
+  const startPluginAction = async (action: PluginAction) => {
     const project = contextProject ?? projection?.projects[0];
     if (!projection || !project) return;
     try {
@@ -1306,6 +1359,7 @@ function WorkspaceApp() {
     usageOpen ||
     closeRequest !== undefined ||
     deleteRequest !== undefined ||
+    actionRequest !== undefined ||
     handoffRequest !== undefined ||
     workbench.groups.some((group) => group.groupId === compareGroupId) ||
     keepRequest !== undefined ||
@@ -1410,6 +1464,7 @@ function WorkspaceApp() {
               <IconButton label="Dismiss message" icon="x" size="sm" onClick={() => setNotice(undefined)} />
             </div>
           ) : null}
+          {bridge ? <ExpiredSignInNotice onSignInAgain={openConnectors} /> : null}
           <AttentionPanel items={projection?.attention ?? []} />
           {!bridge ? (
             <DisconnectedState />
@@ -1467,6 +1522,7 @@ function WorkspaceApp() {
                           onReviewSetup={() => reviewSetup(session.worktreeId)}
                           onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
                           onHandoff={handoffTarget(session) ? () => setHandoffRequest(session) : undefined}
+                          onOpenConnectors={openConnectors}
                           run={runPosition(workbench.groups, session.sessionId)}
                           onStartRuns={
                             runPosition(workbench.groups, session.sessionId)
@@ -1571,9 +1627,11 @@ function WorkspaceApp() {
         )}
         {settingsSection ? (
           <SettingsDialog
+            key={settingsKey}
             projection={projection}
             initialProjectId={contextProject?.projectId}
             initialSection={settingsSection}
+            focusConnector={focusConnector}
             notifications={{ settings: notifications.settings, update: (patch) => void notifications.update(patch) }}
             updates={updates}
             onRestartToUpdate={restartToUpdate}
@@ -1623,6 +1681,21 @@ function WorkspaceApp() {
             onCancel={() => setDeleteRequest(undefined)}
           />
         )}
+        {actionRequest ? (
+          <PluginActionDialog
+            action={actionRequest.action}
+            pluginName={actionRequest.pluginName}
+            origin={actionRequest.origin}
+            canRemember={actionRequest.key !== undefined}
+            onRun={(remember) => {
+              const { action, key } = actionRequest;
+              setActionRequest(undefined);
+              if (remember && key) rememberActionApproval(key);
+              void startPluginAction(action);
+            }}
+            onCancel={() => setActionRequest(undefined)}
+          />
+        ) : null}
         {handoffSession && handoffWorktree && projection ? (
           <Suspense fallback={null}>
             <HandoffDialog

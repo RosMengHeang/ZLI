@@ -167,6 +167,183 @@ describe("PluginStore", () => {
   });
 });
 
+describe("plugin updates and origins", () => {
+  const sha1 = "1111111111111111111111111111111111111111";
+  const sha2 = "2222222222222222222222222222222222222222";
+  const pinnedSha = "3333333333333333333333333333333333333333";
+
+  function github(options: { files: Parameters<typeof githubTarball>[0]; directory?: unknown }) {
+    const state = { latest: sha1, commitCalls: 0, limited: false, seen: [] as string[] };
+    const tarball = githubTarball(options.files);
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      state.seen.push(url);
+      if (url.includes("/tarball")) return new Response(new Uint8Array(tarball));
+      if (url.includes("/commits?")) {
+        state.commitCalls += 1;
+        if (state.limited) return new Response("", { status: 403, headers: { "x-ratelimit-remaining": "0" } });
+        return Response.json([{ sha: state.latest }]);
+      }
+      if (url.includes("marketplace.json")) return Response.json(options.directory ?? { plugins: [] });
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+    return { state, fetchImpl };
+  }
+
+  const market = [
+    { path: "plugins/two/commands/a.md", text: "A" },
+    { path: "plugins/two/.claude-plugin/plugin.json", text: JSON.stringify({ name: "two" }) },
+  ];
+
+  it("records the commit, reports updates once GitHub has a newer one, and clears them after updating", async () => {
+    let now = Date.parse("2025-01-01T00:00:00.000Z");
+    const { state, fetchImpl } = github({ files: market });
+    const { store, options } = await setup({ fetch: fetchImpl, now: () => now });
+    await store.install("acme/market/plugins/two", ["two"]);
+    expect(state.seen).toContain(
+      "https://api.github.com/repos/acme/market/commits?sha=HEAD&per_page=1&path=plugins%2Ftwo",
+    );
+    let [summary] = (await store.list()).plugins;
+    expect(summary).toEqual(expect.objectContaining({ sourceKind: "github", origin: "other", commit: sha1 }));
+    expect(summary?.updateAvailable).toBeUndefined();
+    expect(JSON.parse(await readFile(options.statePath, "utf8")).plugins.two).toEqual(
+      expect.objectContaining({ commit: sha1, origin: "other" }),
+    );
+
+    [summary] = (await store.checkUpdates()).plugins;
+    expect(summary).toEqual(expect.objectContaining({ updateAvailable: false, checkedAt: "2025-01-01T00:00:00.000Z" }));
+
+    state.latest = sha2;
+    now += 10 * 60 * 1000;
+    [summary] = (await store.checkUpdates()).plugins;
+    expect(state.commitCalls).toBe(2);
+    expect(summary?.updateAvailable).toBe(false);
+
+    now += 25 * 60 * 1000;
+    [summary] = (await store.checkUpdates()).plugins;
+    expect(state.commitCalls).toBe(3);
+    expect(summary?.updateAvailable).toBe(true);
+
+    await store.update("two");
+    [summary] = (await store.list()).plugins;
+    expect(summary?.commit).toBe(sha2);
+    expect(summary?.updateAvailable).toBeUndefined();
+    expect(summary?.checkedAt).toBeUndefined();
+
+    const reloaded = new PluginStore(options);
+    await reloaded.load();
+    expect((await reloaded.list()).plugins[0]).toEqual(expect.objectContaining({ commit: sha2, sourceKind: "github" }));
+  });
+
+  it("reports a GitHub rate limit without failing and never checks pinned or local plugins", async () => {
+    let now = 0;
+    const { state, fetchImpl } = github({ files: market });
+    const { store, source } = await setup({ fetch: fetchImpl, now: () => now });
+    await store.install(`https://github.com/acme/market/tree/${pinnedSha}/plugins/two`, ["two"]);
+    await store.install(source, ["kit"]);
+    expect(state.commitCalls).toBe(0);
+    let result = await store.checkUpdates();
+    expect(state.commitCalls).toBe(0);
+    expect(result.problem).toBeUndefined();
+    const byName = () => Object.fromEntries(result.plugins.map((plugin) => [plugin.name, plugin]));
+    expect(byName().two).toEqual(
+      expect.objectContaining({ pinned: true, commit: pinnedSha, updateAvailable: false, sourceKind: "github" }),
+    );
+    expect(byName().kit).toEqual(expect.objectContaining({ sourceKind: "local", origin: "other" }));
+    expect(byName().kit?.updateAvailable).toBeUndefined();
+
+    await store.remove("two");
+    await store.install("acme/market/plugins/two", ["two"]);
+    state.limited = true;
+    now += 31 * 60 * 1000;
+    result = await store.checkUpdates();
+    expect(result.problem).toBe("GitHub limited update checks. Try again later.");
+    expect(result.plugins.map((plugin) => plugin.name)).toEqual(["kit", "two"]);
+    expect(byName().two?.updateAvailable).toBeUndefined();
+  });
+
+  it("marks plugins from ZLI's catalog and from Anthropic's directory", async () => {
+    const files = [
+      { path: "plugins/code-review/commands/code-review.md", text: "Review." },
+      { path: "plugins/code-review/.claude-plugin/plugin.json", text: JSON.stringify({ name: "code-review" }) },
+      ...market,
+    ];
+    const directory = {
+      plugins: [{ name: "two", source: { source: "github", repo: "acme/market", path: "plugins/two" } }],
+    };
+    const { fetchImpl } = github({ files, directory });
+    const { store } = await setup({ fetch: fetchImpl });
+    await store.install("https://github.com/anthropics/claude-plugins-official/tree/v2/plugins/code-review", [
+      "code-review",
+    ]);
+    await store.install("acme/market/plugins/two", ["two"], {}, "anthropic-directory");
+    const origins = Object.fromEntries((await store.list()).plugins.map((plugin) => [plugin.name, plugin.origin]));
+    expect(origins).toEqual({ "code-review": "zli-catalog", two: "anthropic-directory" });
+    expect((await store.directory()).entries.map((entry) => entry.name)).toEqual(["two"]);
+
+    // A claim the directory does not back is not kept.
+    const other = await setup({ fetch: github({ files, directory: { plugins: [] } }).fetchImpl });
+    await other.store.install("acme/market/plugins/two", ["two"], {}, "anthropic-directory");
+    expect((await other.store.list()).plugins[0]?.origin).toBe("other");
+  });
+
+  it("offers the commit Anthropic's directory lists now for a pinned plugin installed from it", async () => {
+    let now = 0;
+    const listed = { source: "github", repo: "acme/market", path: "plugins/two", sha: pinnedSha };
+    const directory = { plugins: [{ name: "two", source: listed }] };
+    const { fetchImpl } = github({ files: market, directory });
+    const { store } = await setup({ fetch: fetchImpl, now: () => now });
+    const pinnedSource = `https://github.com/acme/market/tree/${pinnedSha}/plugins/two`;
+    await store.install(pinnedSource, ["two"], {}, "anthropic-directory");
+    let [summary] = (await store.checkUpdates()).plugins;
+    expect(summary).toEqual(
+      expect.objectContaining({ origin: "anthropic-directory", pinned: true, updateAvailable: false }),
+    );
+
+    listed.sha = sha2;
+    now += 61 * 60 * 1000;
+    [summary] = (await store.checkUpdates()).plugins;
+    expect(summary?.updateAvailable).toBe(true);
+
+    await store.update("two");
+    [summary] = (await store.list()).plugins;
+    expect(summary).toEqual(
+      expect.objectContaining({
+        source: `https://github.com/acme/market/tree/${sha2}/plugins/two`,
+        commit: sha2,
+        pinned: true,
+        origin: "anthropic-directory",
+      }),
+    );
+    expect(summary?.updateAvailable).toBeUndefined();
+  });
+
+  it("reads plugin settings saved before updates and origins existed", async () => {
+    const { options } = await setup();
+    await mkdir(dirname(options.statePath), { recursive: true });
+    await writeFile(
+      options.statePath,
+      JSON.stringify({
+        version: 1,
+        plugins: {
+          old: {
+            enabled: true,
+            source: "https://github.com/acme/old",
+            installedAt: "2024-01-01T00:00:00.000Z",
+            descriptor: { name: "old", displayName: "Old", description: "", format: "folder", skills: [] },
+            config: {},
+          },
+        },
+      }),
+    );
+    const store = new PluginStore(options);
+    await store.load();
+    const [summary] = (await store.list()).plugins;
+    expect(summary).toEqual(expect.objectContaining({ name: "old", origin: "other", sourceKind: "github" }));
+    expect(summary?.commit).toBeUndefined();
+  });
+});
+
 describe("plugin servers in the MCP list", () => {
   it("adds plugin servers after the person's own and writes header files for sign-in servers", async () => {
     const root = await mkdtemp(join(tmpdir(), "zli-plugin-mcp-"));

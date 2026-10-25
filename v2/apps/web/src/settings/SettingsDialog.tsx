@@ -78,6 +78,8 @@ type Props = {
   projection: RuntimeProjection | undefined;
   initialProjectId?: string | undefined;
   initialSection?: SettingsSection;
+  /** A catalog id the Connectors section opens on. */
+  focusConnector?: string | undefined;
   notifications: { settings: NotificationSettings | undefined; update(patch: Partial<NotificationSettings>): void };
   updates?: Updates | undefined;
   onRestartToUpdate?(): void;
@@ -90,6 +92,7 @@ export function SettingsDialog({
   projection,
   initialProjectId,
   initialSection = "agents",
+  focusConnector,
   notifications,
   updates,
   onRestartToUpdate = () => undefined,
@@ -163,7 +166,9 @@ export function SettingsDialog({
           ) : null}
           {section === "worktrees" ? <WorktreeSettings projection={projection} /> : null}
           {section === "files" ? <FilesSettings /> : null}
-          {section === "connectors" ? <ConnectorsSection onOpenMcpServers={() => setSection("mcp")} /> : null}
+          {section === "connectors" ? (
+            <ConnectorsSection onOpenMcpServers={() => setSection("mcp")} focusConnector={focusConnector} />
+          ) : null}
           {section === "mcp" ? <McpServersSection onOpenConnectors={() => setSection("connectors")} /> : null}
           {section === "skills" ? <SkillsSection projection={projection} initialProjectId={initialProjectId} /> : null}
           {section === "plugins" ? <PluginsSection /> : null}

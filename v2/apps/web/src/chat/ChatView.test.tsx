@@ -128,6 +128,48 @@ describe("ChatView", () => {
     expect(onOpenDiff).toHaveBeenLastCalledWith("src/helper.ts");
   });
 
+  it("offers a sign-in for the latest call that needed one, and hides it on Not now", async () => {
+    const turnId = thread.activeTurnId as string;
+    const linear = {
+      name: "linear",
+      enabled: true,
+      transport: "http",
+      url: "https://mcp.linear.app/mcp",
+      headers: {},
+      oauth: true,
+    };
+    const { container, dispatched } = await render(
+      projectionWith({
+        threads: [{ ...thread, status: "idle" }],
+        activities: [
+          {
+            activityId: "a1",
+            threadId,
+            turnId,
+            kind: "tool",
+            title: "list_issues",
+            status: "failed",
+            connector: { server: "linear", reason: "sign-in" },
+          },
+        ] as RuntimeProjection["activities"],
+      }),
+      vi.fn(),
+      (command) =>
+        command.type === "mcp.list"
+          ? {
+              servers: [linear],
+              agentAccess: "full",
+              userSettings: { enabled: true, outcomes: [] },
+              signIns: [{ name: "linear", url: linear.url, signedIn: false }],
+            }
+          : undefined,
+    );
+    expect(dispatched.map((request) => request.command.type)).toContain("mcp.list");
+    expect(container.querySelector(".chat-connector")?.textContent).toContain("Linear needs you to sign in");
+    await act(async () => button(container, "Not now")?.click());
+    expect(container.querySelector(".chat-connector")).toBeNull();
+  });
+
   it("places steps inside the reply, shows the running step, and stops the turn", async () => {
     const turnId = thread.activeTurnId as string;
     const { container, dispatched } = await render(

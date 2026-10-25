@@ -213,6 +213,12 @@ describe("preload API", () => {
     expect(activated).toEqual([{ sessionId: "s1" }]);
     unsubscribe();
     expect(listeners.has("zli:notifications:activate")).toBe(false);
+
+    const connectors: unknown[] = [];
+    api.notifications.onOpenConnector((event) => connectors.push(event));
+    listeners.get("zli:connectors:open")?.({}, { connectorId: "github" });
+    listeners.get("zli:connectors:open")?.({}, { connectorId: 3 });
+    expect(connectors).toEqual([{ connectorId: "github" }]);
   });
 
   it("validates update status from main and sends only a boolean auto-install setting", async () => {

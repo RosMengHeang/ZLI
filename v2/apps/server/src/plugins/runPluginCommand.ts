@@ -10,7 +10,7 @@ export async function runPluginCommand(store: PluginStore, command: PluginComman
     case "plugins.previewInstall":
       return store.previewInstall(command.source);
     case "plugins.install": {
-      const installed = await store.install(command.source, command.names, command.config ?? {});
+      const installed = await store.install(command.source, command.names, command.config ?? {}, command.origin);
       return { ...(await store.list()), installed };
     }
     case "plugins.setEnabled":
@@ -27,5 +27,18 @@ export async function runPluginCommand(store: PluginStore, command: PluginComman
       return store.list();
     case "plugins.contributions":
       return store.contributions();
+    case "plugins.directory":
+      return store.directory();
+    case "plugins.checkUpdates":
+      return store.checkUpdates();
+    case "plugins.export":
+      return store.exportPlugin({
+        folder: command.folder,
+        name: command.name,
+        displayName: command.displayName,
+        description: command.description,
+        skills: command.skills,
+        servers: command.servers,
+      });
   }
 }

@@ -49,6 +49,7 @@ import {
 } from "./browser/HiddenRendering.js";
 import { type CaptureDependencies, captureSource, listCaptureSources, parseSourceId } from "./capture/WindowCapture.js";
 import { DesktopDiagnostics } from "./diagnostics/DesktopDiagnostics.js";
+import type { AgentNotifier } from "./notifications/AgentNotifier.js";
 import { registerAgentNotifications } from "./notifications/electronNotifications.js";
 import { ensureDesktopDaemon, shutdownDesktopDaemon } from "./runtime/DesktopDaemon.js";
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
@@ -83,6 +84,7 @@ let runtime: RuntimeClient | undefined;
 let browserManager: BrowserManager | undefined;
 let browserControl: BrowserControlServer | undefined;
 let mainWindow: BrowserWindow | undefined;
+let notifier: AgentNotifier | undefined;
 let approvedSupportBundleRoot: string | undefined;
 let scratchFolderPath: string | undefined;
 let daemonEndpointPath: string | undefined;
@@ -159,13 +161,16 @@ async function main(): Promise<void> {
     event.preventDefault();
     app.quit();
   });
-  await registerAgentNotifications({
+  notifier = await registerAgentNotifications({
     window: electronWindow,
     runtime,
     settingsPath: process.env.ZLI_DATABASE_PATH
       ? `${databasePath}.notifications.json`
       : join(app.getPath("userData"), "notification-settings.json"),
-  }).catch((error: unknown) => console.error("Agent notifications could not start", error));
+  }).catch((error: unknown) => {
+    console.error("Agent notifications could not start", error);
+    return undefined;
+  });
   await registerUpdates({
     window: electronWindow,
     settingsPath: process.env.ZLI_DATABASE_PATH
@@ -274,6 +279,7 @@ async function startBrowserControl(databasePath: string): Promise<BrowserToolPat
     subscribe: (listener) => runtime?.subscribe(() => listener()) ?? (() => undefined),
     command: (request) =>
       runtime ? runtime.command(request) : Promise.reject(new Error("ZLI's runtime is still starting.")),
+    askToConnect: (request) => notifier?.connectorRequest(request),
   });
   // The zli agent tool shares this service and endpoint file with zli-browser, so agents need one variable.
   browserControl = new BrowserControlServer({

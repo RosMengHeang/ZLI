@@ -1,11 +1,14 @@
-import type { PluginInstallPreview, PluginSummary } from "@zli-v2/contracts";
-import { useRef, useState } from "react";
+import type { PluginInstallPreview, PluginOrigin, PluginSummary } from "@zli-v2/contracts";
+import { useEffect, useRef, useState } from "react";
 
+import { OriginBadge } from "../plugins/OriginBadge.js";
 import {
+  checkPluginUpdates,
   componentSummary,
   configurePlugin,
   formatLabel,
   installPlugins,
+  originForSource,
   previewPluginInstall,
   removePlugin,
   setPluginEnabled,
@@ -16,10 +19,19 @@ import { Badge } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Field } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
+import { PluginExportForm } from "./PluginExportForm.js";
+import { PluginGallery } from "./PluginGallery.js";
 import { SectionHeader } from "./SectionHeader.js";
 import { formatBytes } from "./skills.js";
+import "../plugins/plugins.css";
 
-type Installing = { source: string; preview?: PluginInstallPreview; selected: string[] };
+type Installing = {
+  source: string;
+  /** The list it was picked from. Unset when the person typed the source. */
+  origin?: PluginOrigin;
+  preview?: PluginInstallPreview;
+  selected: string[];
+};
 type Configuring = { name: string; values: Record<string, string> };
 
 export function PluginsSection() {
@@ -29,7 +41,26 @@ export function PluginsSection() {
   const [confirmRemove, setConfirmRemove] = useState<string>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState<string>();
+  const [exporting, setExporting] = useState(false);
+  const [saved, setSaved] = useState<string>();
+  const [checkProblem, setCheckProblem] = useState<string>();
   const sourceRef = useRef<HTMLInputElement>(null);
+  const installRef = useRef<HTMLFormElement>(null);
+  const checked = useRef(false);
+
+  // Checks for updates once per visit, without holding up the list.
+  useEffect(() => {
+    if (state.status !== "ready" || checked.current) return;
+    checked.current = true;
+    const before = state.result.problem;
+    void apply(async (send) => {
+      const list = await checkPluginUpdates(send);
+      if (!list.problem || list.problem === before) return list;
+      setCheckProblem(list.problem);
+      const { problem: _problem, ...rest } = list;
+      return before ? { ...rest, problem: before } : rest;
+    }).catch(() => undefined);
+  }, [state, apply]);
 
   const header = (
     <SectionHeader title="Plugins">
@@ -86,6 +117,8 @@ export function PluginsSection() {
     setInstalling(undefined);
     setConfiguring(undefined);
     setConfirmRemove(undefined);
+    setExporting(false);
+    setSaved(undefined);
     setError(undefined);
   };
 
@@ -95,18 +128,24 @@ export function PluginsSection() {
     requestAnimationFrame(() => sourceRef.current?.focus());
   };
 
-  const lookUp = () =>
+  const lookUp = (source: string) =>
     run("install", async () => {
-      if (!installing) return;
-      const preview = await previewPluginInstall(dispatch, installing.source);
+      const preview = await previewPluginInstall(dispatch, source);
       const selected = preview.candidates.filter((candidate) => !candidate.problem).map((candidate) => candidate.name);
-      setInstalling((current) => (current ? { ...current, preview, selected } : current));
+      setInstalling((current) => (current?.source === source ? { ...current, preview, selected } : current));
     });
+
+  const installFromGallery = (source: string, origin: PluginOrigin) => {
+    closeForms();
+    setInstalling({ source, origin, selected: [] });
+    requestAnimationFrame(() => installRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" }));
+    void lookUp(source);
+  };
 
   const install = async () => {
     if (!installing?.preview) return;
-    const { source, selected } = installing;
-    const done = await run("install", () => apply((send) => installPlugins(send, source, selected)));
+    const { source, selected, origin } = installing;
+    const done = await run("install", () => apply((send) => installPlugins(send, source, selected, origin)));
     if (!done) return;
     setInstalling(undefined);
     const needsSettings = installing.preview.candidates.find(
@@ -126,6 +165,41 @@ export function PluginsSection() {
   const pluginRow = (plugin: PluginSummary) => {
     const summary = componentSummary(plugin.components);
     const rowBusy = busy !== undefined;
+    const update = () => void run(`update:${plugin.name}`, () => apply((send) => updatePlugin(send, plugin.name)));
+    const updating = busy === `update:${plugin.name}`;
+    const updateControl = plugin.updateAvailable ? (
+      <Button
+        size="xs"
+        variant="primary"
+        loading={updating}
+        disabled={rowBusy}
+        aria-label={`Update ${plugin.displayName}`}
+        onClick={update}
+      >
+        Update
+      </Button>
+    ) : plugin.pinned ? null : plugin.sourceKind === "local" ? (
+      <Button
+        size="xs"
+        variant="ghost"
+        loading={updating}
+        disabled={rowBusy}
+        aria-label={`Reload ${plugin.displayName} from its folder`}
+        onClick={update}
+      >
+        Reload from folder
+      </Button>
+    ) : plugin.updateAvailable === undefined ? (
+      <IconButton
+        label={`Update ${plugin.displayName}`}
+        tooltip="Download it again from its source"
+        icon="reload"
+        size="xs"
+        iconSize={12}
+        disabled={rowBusy}
+        onClick={update}
+      />
+    ) : null;
     return (
       <li className={`mcp-row plugin-row${plugin.enabled ? "" : " is-off"}`} key={plugin.name}>
         <input
@@ -147,6 +221,8 @@ export function PluginsSection() {
             <strong>{plugin.displayName}</strong>
             <Badge>{formatLabel[plugin.format]}</Badge>
             {plugin.version ? <Badge tone="info">v{plugin.version}</Badge> : null}
+            <OriginBadge origin={plugin.origin} />
+            {plugin.updateAvailable ? <Badge tone="info">Update available</Badge> : null}
           </span>
           <span className="mcp-row-detail">{plugin.description || "No description."}</span>
           {summary ? <span className="mcp-row-detail">{summary}</span> : null}
@@ -201,15 +277,7 @@ export function PluginsSection() {
                 }}
               />
             ) : null}
-            <IconButton
-              label={`Update ${plugin.displayName}`}
-              tooltip="Download it again from its source"
-              icon="reload"
-              size="xs"
-              iconSize={12}
-              disabled={rowBusy}
-              onClick={() => void run(`update:${plugin.name}`, () => apply((send) => updatePlugin(send, plugin.name)))}
-            />
+            {updateControl}
             <IconButton
               label={`Remove ${plugin.displayName}`}
               icon="trash"
@@ -236,11 +304,15 @@ export function PluginsSection() {
         </p>
       ) : null}
 
+      <h3 className="mcp-subhead">Your plugins</h3>
       {result.plugins.length > 0 ? (
         <ul className="mcp-rows">{result.plugins.map(pluginRow)}</ul>
       ) : (
-        <p className="settings-empty">No plugins yet. Install one from GitHub or from a folder on this computer.</p>
+        <p className="settings-empty">
+          No plugins yet. Pick one below, or install one from GitHub or a folder on this computer.
+        </p>
       )}
+      {checkProblem ? <p className="settings-footnote">{checkProblem}</p> : null}
 
       {error && !installing && !configuring ? (
         <p className="inline-error" role="alert">
@@ -305,11 +377,12 @@ export function PluginsSection() {
         </form>
       ) : installing ? (
         <form
+          ref={installRef}
           className="mcp-editor"
           aria-label="Install a plugin"
           onSubmit={(event) => {
             event.preventDefault();
-            void lookUp();
+            void lookUp(installing.source);
           }}
         >
           <Field
@@ -328,6 +401,7 @@ export function PluginsSection() {
           {installing.preview ? (
             <InstallChoices
               preview={installing.preview}
+              origin={originForSource(installing.source, installing.origin)}
               selected={installing.selected}
               onChange={(selected) => setInstalling((current) => (current ? { ...current, selected } : current))}
             />
@@ -367,13 +441,47 @@ export function PluginsSection() {
             )}
           </div>
         </form>
+      ) : exporting ? (
+        <PluginExportForm
+          onCancel={closeForms}
+          onSaved={(done) => {
+            setExporting(false);
+            setSaved(done.folder);
+          }}
+        />
       ) : (
-        <div className="settings-actions skill-actions">
-          <Button size="sm" icon="download" disabled={busy !== undefined} onClick={startInstall}>
-            Install plugin
-          </Button>
-        </div>
+        <>
+          {saved ? (
+            <p className="plugin-export-saved" role="status">
+              <Icon name="check" size={13} />
+              Saved to {saved}.
+            </p>
+          ) : null}
+          <div className="settings-actions skill-actions">
+            <Button size="sm" icon="download" disabled={busy !== undefined} onClick={startInstall}>
+              Install plugin
+            </Button>
+            <Button
+              size="sm"
+              icon="upload"
+              disabled={busy !== undefined}
+              onClick={() => {
+                closeForms();
+                setExporting(true);
+              }}
+            >
+              Share my setup
+            </Button>
+          </div>
+        </>
       )}
+
+      <PluginGallery
+        installed={new Set(result.plugins.map((plugin) => plugin.name))}
+        disabled={busy !== undefined}
+        loadingSource={busy === "install" && !installing?.preview ? installing?.source : undefined}
+        onInstall={installFromGallery}
+      />
 
       <p className="settings-footnote">
         Plugin skills are copied with your own skills, and plugin MCP servers start with your own servers. Your own
@@ -386,18 +494,24 @@ export function PluginsSection() {
 
 function InstallChoices({
   preview,
+  origin,
   selected,
   onChange,
 }: {
   preview: PluginInstallPreview;
+  origin: PluginOrigin;
   selected: readonly string[];
   onChange(selected: string[]): void;
 }) {
+  const runsCode = preview.candidates.some(
+    (candidate) => candidate.components.actions.length > 0 || candidate.components.mcpServers.length > 0,
+  );
   return (
     <>
       <fieldset className="skill-candidates">
-        <legend className="field-label">
+        <legend className="field-label plugin-legend">
           {preview.marketplace ? `${preview.marketplace}, in ${preview.label}` : `Found in ${preview.label}`}
+          <OriginBadge origin={origin} />
         </legend>
         {preview.candidates.length === 0 ? (
           <p className="settings-empty">This catalog lists no plugins stored in the same repository.</p>
@@ -461,6 +575,12 @@ function InstallChoices({
             ))}
           </ul>
         </div>
+      ) : null}
+      {origin === "other" && runsCode ? (
+        <p className="plugin-warning" role="note">
+          <Icon name="alert" size={13} /> This plugin can run commands on your computer. Install it only if you trust
+          where it came from.
+        </p>
       ) : null}
       <p className="settings-footnote">
         Plugins run code on this computer through their MCP servers and actions. Install only ones you trust.
