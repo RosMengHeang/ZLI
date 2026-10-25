@@ -27,6 +27,7 @@ export type ShortcutId =
   | "toggleDrawer"
   | "toggleFiles"
   | "toggleBrowser"
+  | "toggleMobile"
   | "toggleChanges"
   | "settings";
 
@@ -62,6 +63,7 @@ const shortcutIds: readonly ShortcutId[] = [
   "toggleDrawer",
   "toggleFiles",
   "toggleBrowser",
+  "toggleMobile",
   "toggleChanges",
   "settings",
 ];

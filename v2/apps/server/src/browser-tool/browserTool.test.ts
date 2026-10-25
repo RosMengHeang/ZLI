@@ -71,6 +71,16 @@ describe("browserToolConfigFromEnv", () => {
     expect(browserToolConfigFromEnv({ ...fullEnv, ZLI_AGENT_TOOL_SCRIPT: "zli.js" })).not.toHaveProperty("agentScript");
   });
 
+  it("adds the mobile tool script when the desktop passes an absolute one", () => {
+    expect(
+      browserToolConfigFromEnv({ ...fullEnv, ZLI_MOBILE_TOOL_SCRIPT: "/opt/zli/resources/zli-mobile.js" })
+        ?.mobileScript,
+    ).toBe("/opt/zli/resources/zli-mobile.js");
+    expect(browserToolConfigFromEnv({ ...fullEnv, ZLI_MOBILE_TOOL_SCRIPT: "zli-mobile.js" })).not.toHaveProperty(
+      "mobileScript",
+    );
+  });
+
   it("adds the connect bridge script when the desktop passes an absolute one", () => {
     expect(
       browserToolConfigFromEnv({ ...fullEnv, ZLI_CONNECT_TOOL_SCRIPT: "/opt/zli/resources/zli-connect.js" })
@@ -135,6 +145,16 @@ describe("MCP server definitions", () => {
       ELECTRON_RUN_AS_NODE: "1",
       ZLI_BROWSER_CONTROL_FILE: config.controlFile,
     });
+  });
+
+  it("adds the zli-mobile server after the others when its script is bundled", () => {
+    const specs = zliMcpServerSpecs({
+      ...config,
+      agentScript: "C:\\ZLI\\zli.js",
+      mobileScript: "C:\\ZLI\\zli-mobile.js",
+    });
+    expect(specs.map((spec) => spec.name)).toEqual(["zli-browser", "zli", "zli-mobile"]);
+    expect(specs[2]?.args).toEqual(["C:\\ZLI\\zli-mobile.js", "mcp"]);
   });
 
   it("adds the zli agent server beside the browser when its script is bundled", () => {

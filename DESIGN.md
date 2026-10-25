@@ -26,7 +26,7 @@ comes from real project, process, or Git state.
   and spinners.
 - `v2/apps/web/src/ui` has the React side of those primitives: `Button`,
   `IconButton`, `Kbd`, `Tooltip`, `Dialog`, `Segmented`, `Switch`, `Badge`, `Field`,
-  `Select`, `Picker`, `ProviderMark`, `ModelMark`, `PaneHeader`, `EmptyState`, and
+  `Select`, `Picker`, `Menu`, `ProviderMark`, `ModelMark`, `PaneHeader`, `EmptyState`, and
   `LoadingState`.
 - Each feature keeps its own stylesheet next to its components, for example
   `sidebar/sidebar.css`, `sessions/tile.css`, `chat/chat.css`, and
@@ -212,6 +212,8 @@ not cover, add it to the primitives instead of styling it locally.
 - Pickers open above their trigger when there is room, focus the selected
   option, move with the arrow keys, Home, End, or a typed letter, and close on
   Escape, Tab, a pick, or a click outside, giving focus back to the trigger.
+  Long lists can sort options under small dim group headings; arrow keys move
+  straight across groups.
 
 ## States
 

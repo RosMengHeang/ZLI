@@ -1,6 +1,21 @@
 import type {
   BrowserTabProjection,
   BrowserViewport,
+  MobileAvdCreateInput,
+  MobileAvdList,
+  MobileDevice,
+  MobileOpenUrlResult,
+  MobilePanelInput,
+  MobilePopOut,
+  MobilePopOutAspectInput,
+  MobileRevealEvent,
+  MobileScreenshot,
+  MobileSettings,
+  MobileSetupPlan,
+  MobileSetupProgress,
+  MobileSetupStatus,
+  MobileStreamEvent,
+  MobileStreamInfo,
   RpcResponse,
   RuntimeProjection,
   TerminalAttachSnapshot,
@@ -51,6 +66,8 @@ export type ZliBridge = {
     consoleEntries(browserTabId: string): Promise<readonly unknown[]>;
     networkEntries(browserTabId: string): Promise<readonly unknown[]>;
   };
+  /** Present in the desktop app, which runs the emulators and simulators. */
+  mobile?: MobileBridge;
   dialog: {
     openProject(): Promise<string | undefined>;
     saveSupportBundle(): Promise<string | undefined>;
@@ -83,6 +100,48 @@ export type ZliBridge = {
     whatsNew(): Promise<WhatsNew | undefined>;
     dismissWhatsNew(): Promise<void>;
   };
+};
+
+export type MobileBridge = {
+  status(options?: { recheckAcceleration?: boolean }): Promise<MobileSetupStatus>;
+  setupPlan(): Promise<MobileSetupPlan>;
+  setupProgress(): Promise<MobileSetupProgress>;
+  runSetup(acceptedLicenses: readonly string[]): Promise<void>;
+  cancelSetup(): Promise<void>;
+  onSetupProgress(listener: (progress: MobileSetupProgress) => void): () => void;
+  /** Android virtual devices, the installed system images, and the hardware profiles to create one with. */
+  listAvds(): Promise<MobileAvdList>;
+  createAvd(input: MobileAvdCreateInput): Promise<MobileAvdList>;
+  /** Refused while the device is booting or running. */
+  deleteAvd(name: string): Promise<MobileAvdList>;
+  devices(): Promise<MobileDevice[]>;
+  onDevices(listener: (devices: MobileDevice[]) => void): () => void;
+  boot(deviceId: string): Promise<MobileDevice>;
+  shutdown(deviceId: string): Promise<void>;
+  startStream(deviceId: string): Promise<MobileStreamInfo>;
+  stopStream(deviceId: string): Promise<void>;
+  onStream(listener: (event: MobileStreamEvent) => void): () => void;
+  input(input: MobilePanelInput): Promise<void>;
+  /** Refused while an agent holds the device, like input. */
+  openUrl(deviceId: string, url: string): Promise<MobileOpenUrlResult>;
+  logs(deviceId: string, query?: { appId?: string; lines?: number; filter?: string }): Promise<string[]>;
+  launch(deviceId: string, appId: string, options?: { stop?: boolean }): Promise<void>;
+  takeOver(deviceId: string): Promise<void>;
+  release(deviceId: string): Promise<void>;
+  screenshot(deviceId: string): Promise<MobileScreenshot>;
+  getSettings(): Promise<MobileSettings>;
+  setSettings(patch: Partial<MobileSettings>): Promise<MobileSettings>;
+  onReveal(listener: (event: MobileRevealEvent) => void): () => void;
+  /** Pop-out windows exist only in the desktop app; without them the panel offers no Pop out. */
+  popOuts?(): Promise<MobilePopOut[]>;
+  onPopOuts?(listener: (popOuts: MobilePopOut[]) => void): () => void;
+  /** Opens the device in its own window, or focuses the window it already has. */
+  popOut?(deviceId: string): Promise<MobilePopOut[]>;
+  closePopOut?(deviceId: string): Promise<MobilePopOut[]>;
+  /** Keeps the device's window above other windows. */
+  pinPopOut?(deviceId: string, pinned: boolean): Promise<MobilePopOut[]>;
+  /** Tells the window the device's shape, so resizing keeps it. */
+  setPopOutAspect?(input: MobilePopOutAspectInput): Promise<void>;
 };
 
 export type NotificationSettings = { enabled: boolean; sound: boolean };

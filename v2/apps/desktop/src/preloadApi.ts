@@ -15,6 +15,29 @@ import {
   BrowserTabProjection,
   type BrowserViewport,
   BrowserWaitForNetworkIdleInput,
+  MobileAvdCreateInput,
+  MobileAvdDeleteInput,
+  MobileAvdList,
+  MobileDevice,
+  MobileDeviceIdInput,
+  MobileLogLines,
+  MobileOpenUrlResult,
+  MobilePanelInput,
+  MobilePanelLaunchInput,
+  MobilePanelLogsInput,
+  MobilePanelOpenUrlInput,
+  MobilePopOutAspectInput,
+  MobilePopOutList,
+  MobilePopOutPinInput,
+  MobileRevealEvent,
+  MobileScreenshot,
+  MobileSettings,
+  MobileSetupPlan,
+  MobileSetupProgress,
+  MobileSetupRunInput,
+  MobileSetupStatus,
+  MobileStreamEvent,
+  MobileStreamInfo,
   RpcRequest,
   RpcResponse,
   RuntimeEventEnvelope,
@@ -35,6 +58,91 @@ type IpcBridge = {
   invoke(channel: string, payload?: unknown): Promise<unknown>;
   on(channel: string, listener: (event: unknown, value: unknown) => void): () => void;
 };
+
+function createMobileApi(ipc: IpcBridge) {
+  const device = (deviceId: string) => MobileDeviceIdInput.parse({ deviceId });
+  const listen =
+    <T>(channel: string, schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } }) =>
+    (listener: (value: T) => void) =>
+      ipc.on(channel, (_event, value) => {
+        const parsed = schema.safeParse(value);
+        if (parsed.success) listener(parsed.data);
+      });
+  return {
+    status: async (options: { recheckAcceleration?: boolean } = {}) =>
+      MobileSetupStatus.parse(
+        await ipc.invoke("zli:mobile:status", { recheckAcceleration: options.recheckAcceleration === true }),
+      ),
+    setupPlan: async () => MobileSetupPlan.parse(await ipc.invoke("zli:mobile:setup-plan")),
+    setupProgress: async () => MobileSetupProgress.parse(await ipc.invoke("zli:mobile:setup-progress")),
+    /** Resolves when setup ends; progress arrives through onSetupProgress meanwhile. */
+    runSetup: async (acceptedLicenses: readonly string[]) => {
+      await ipc.invoke("zli:mobile:setup-run", MobileSetupRunInput.parse({ acceptedLicenses: [...acceptedLicenses] }));
+    },
+    cancelSetup: async () => {
+      await ipc.invoke("zli:mobile:setup-cancel");
+    },
+    onSetupProgress: listen("zli:mobile:setup", MobileSetupProgress),
+    listAvds: async () => MobileAvdList.parse(await ipc.invoke("zli:mobile:avd-list")),
+    createAvd: async (input: MobileAvdCreateInput) =>
+      MobileAvdList.parse(await ipc.invoke("zli:mobile:avd-create", MobileAvdCreateInput.parse(input))),
+    /** Refused while the device is booting or running. */
+    deleteAvd: async (name: string) =>
+      MobileAvdList.parse(await ipc.invoke("zli:mobile:avd-delete", MobileAvdDeleteInput.parse({ name }))),
+    devices: async () => MobileDevice.array().parse(await ipc.invoke("zli:mobile:devices")),
+    onDevices: listen("zli:mobile:devices", MobileDevice.array()),
+    boot: async (deviceId: string) => MobileDevice.parse(await ipc.invoke("zli:mobile:boot", device(deviceId))),
+    shutdown: async (deviceId: string) => {
+      await ipc.invoke("zli:mobile:shutdown", device(deviceId));
+    },
+    startStream: async (deviceId: string) =>
+      MobileStreamInfo.parse(await ipc.invoke("zli:mobile:stream-start", device(deviceId))),
+    stopStream: async (deviceId: string) => {
+      await ipc.invoke("zli:mobile:stream-stop", device(deviceId));
+    },
+    onStream: listen("zli:mobile:stream", MobileStreamEvent),
+    input: async (input: MobilePanelInput) => {
+      await ipc.invoke("zli:mobile:input", MobilePanelInput.parse(input));
+    },
+    /** Resolves with the localhost port forwarded to an Android device, when the URL needed one. */
+    openUrl: async (deviceId: string, url: string) =>
+      MobileOpenUrlResult.parse(
+        await ipc.invoke("zli:mobile:open-url", MobilePanelOpenUrlInput.parse({ deviceId, url })),
+      ),
+    logs: async (deviceId: string, query: { appId?: string; lines?: number; filter?: string } = {}) =>
+      MobileLogLines.parse(await ipc.invoke("zli:mobile:logs", MobilePanelLogsInput.parse({ ...query, deviceId }))),
+    launch: async (deviceId: string, appId: string, options: { stop?: boolean } = {}) => {
+      await ipc.invoke("zli:mobile:launch", MobilePanelLaunchInput.parse({ ...options, deviceId, appId }));
+    },
+    takeOver: async (deviceId: string) => {
+      await ipc.invoke("zli:mobile:take-over", device(deviceId));
+    },
+    release: async (deviceId: string) => {
+      await ipc.invoke("zli:mobile:release", device(deviceId));
+    },
+    screenshot: async (deviceId: string) =>
+      MobileScreenshot.parse(await ipc.invoke("zli:mobile:screenshot", device(deviceId))),
+    getSettings: async () => MobileSettings.parse(await ipc.invoke("zli:mobile:settings-get")),
+    setSettings: async (patch: Partial<MobileSettings>) =>
+      MobileSettings.parse(await ipc.invoke("zli:mobile:settings-set", MobileSettings.partial().parse(patch))),
+    /** Fires when an agent boots or drives a device, so the renderer can show the Mobile panel with it. */
+    onReveal: listen("zli:mobile:reveal", MobileRevealEvent),
+    popOuts: async () => MobilePopOutList.parse(await ipc.invoke("zli:mobile:popout-list")),
+    onPopOuts: listen("zli:mobile:popouts", MobilePopOutList),
+    /** Opens the device in its own window, or focuses the window it already has. */
+    popOut: async (deviceId: string) =>
+      MobilePopOutList.parse(await ipc.invoke("zli:mobile:popout-open", device(deviceId))),
+    closePopOut: async (deviceId: string) =>
+      MobilePopOutList.parse(await ipc.invoke("zli:mobile:popout-close", device(deviceId))),
+    pinPopOut: async (deviceId: string, pinned: boolean) =>
+      MobilePopOutList.parse(
+        await ipc.invoke("zli:mobile:popout-pin", MobilePopOutPinInput.parse({ deviceId, pinned })),
+      ),
+    setPopOutAspect: async (input: MobilePopOutAspectInput) => {
+      await ipc.invoke("zli:mobile:popout-aspect", MobilePopOutAspectInput.parse(input));
+    },
+  };
+}
 
 /**
  * Keeps a copy of the main process projection by folding the events main forwards, so a streaming
@@ -227,6 +335,7 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
       networkEntries: (browserTabId: string) =>
         ipc.invoke("zli:browser:network", BrowserTabIdInput.parse({ browserTabId })),
     },
+    mobile: createMobileApi(ipc),
     dialog: {
       openProject: () => ipc.invoke("zli:dialog:open-project"),
       saveSupportBundle: async () => {

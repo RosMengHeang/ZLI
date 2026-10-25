@@ -323,3 +323,144 @@ describe("preload API", () => {
     expect(listeners.has("zli:browser:reveal")).toBe(false);
   });
 });
+
+describe("preload mobile API", () => {
+  it("validates device ids before invoking main and passes valid stream events through", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const listeners = new Map<string, (event: unknown, value: unknown) => void>();
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        return channel === "zli:mobile:stream-start" ? { deviceId: "ios:1", mode: "stills", width: 0, height: 0 } : {};
+      },
+      on: (channel, listener) => {
+        listeners.set(channel, listener);
+        return () => listeners.delete(channel);
+      },
+    });
+    expect(await api.mobile.startStream("ios:1")).toEqual({ deviceId: "ios:1", mode: "stills", width: 0, height: 0 });
+    expect(calls).toEqual([{ channel: "zli:mobile:stream-start", payload: { deviceId: "ios:1" } }]);
+    await expect(api.mobile.takeOver("")).rejects.toThrow();
+    await expect(
+      api.mobile.input({ deviceId: "ios:1", type: "touch", action: "down", x: -5, y: 0 } as never),
+    ).rejects.toThrow();
+    expect(calls).toHaveLength(1);
+
+    const events: unknown[] = [];
+    api.mobile.onStream((event) => events.push(event));
+    const emit = listeners.get("zli:mobile:stream");
+    const frame = { type: "frame", deviceId: "android:1", key: true, timestamp: 1, data: new Uint8Array([0, 0, 1]) };
+    emit?.(undefined, frame);
+    emit?.(undefined, { type: "frame", deviceId: "android:1", key: true, timestamp: 1, data: "not bytes" });
+    emit?.(undefined, { type: "ended", deviceId: "android:1", reason: "The panel stopped showing this device." });
+    expect(events).toEqual([
+      frame,
+      { type: "ended", deviceId: "android:1", reason: "The panel stopped showing this device." },
+    ]);
+  });
+
+  it("validates Open URL, Logs, and Launch before invoking main and parses their answers", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        if (channel === "zli:mobile:open-url") return { reversedPort: 8081 };
+        if (channel === "zli:mobile:logs") return ["I/zli: ready"];
+        return { accepted: true };
+      },
+      on: () => () => undefined,
+    });
+    expect(await api.mobile.openUrl("android:1", "exp://localhost:8081")).toEqual({ reversedPort: 8081 });
+    expect(await api.mobile.logs("android:1", { filter: "zli", lines: 50 })).toEqual(["I/zli: ready"]);
+    await api.mobile.launch("android:1", "com.example.app", { stop: true });
+    expect(calls).toEqual([
+      { channel: "zli:mobile:open-url", payload: { deviceId: "android:1", url: "exp://localhost:8081" } },
+      { channel: "zli:mobile:logs", payload: { deviceId: "android:1", filter: "zli", lines: 50 } },
+      { channel: "zli:mobile:launch", payload: { deviceId: "android:1", appId: "com.example.app", stop: true } },
+    ]);
+
+    await expect(api.mobile.openUrl("android:1", "")).rejects.toThrow();
+    await expect(api.mobile.logs("android:1", { lines: 0 })).rejects.toThrow();
+    await expect(api.mobile.logs("android:1", { appId: "a b" })).rejects.toThrow();
+    await expect(api.mobile.launch("android:1", "com.example; reboot")).rejects.toThrow();
+    expect(calls).toHaveLength(3);
+  });
+
+  it("validates virtual device names and images before invoking main and parses the device list", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const list = {
+      avdmanager: true,
+      avds: [{ name: "Pixel_9", displayName: "Pixel 9", systemImage: "system-images;android-35;google_apis;x86_64" }],
+      systemImages: ["system-images;android-35;google_apis;x86_64"],
+      deviceProfiles: [{ id: "pixel_7", name: "Pixel 7" }],
+      defaultDeviceProfile: "pixel_7",
+    };
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        return channel === "zli:mobile:avd-delete" ? { ...list, avds: [] } : list;
+      },
+      on: () => () => undefined,
+    });
+    expect(await api.mobile.listAvds()).toEqual(list);
+    const image = "system-images;android-35;google_apis;x86_64";
+    expect(await api.mobile.createAvd({ name: "Pixel_9", systemImage: image, device: "pixel_7" })).toEqual(list);
+    expect((await api.mobile.deleteAvd("Pixel_9")).avds).toEqual([]);
+    expect(calls).toEqual([
+      { channel: "zli:mobile:avd-list", payload: undefined },
+      { channel: "zli:mobile:avd-create", payload: { name: "Pixel_9", systemImage: image, device: "pixel_7" } },
+      { channel: "zli:mobile:avd-delete", payload: { name: "Pixel_9" } },
+    ]);
+
+    await expect(api.mobile.createAvd({ name: "Pixel 9", systemImage: image })).rejects.toThrow();
+    await expect(api.mobile.createAvd({ name: "Pixel_9", systemImage: "android-35" })).rejects.toThrow();
+    await expect(api.mobile.deleteAvd("../Pixel_9")).rejects.toThrow();
+    expect(calls).toHaveLength(3);
+  });
+
+  it("validates pop-out window requests and drops malformed pop-out events", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const listeners = new Map<string, (event: unknown, value: unknown) => void>();
+    const pixel = "android-avd:Pixel_8";
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        if (channel === "zli:mobile:popout-close") return [];
+        if (channel === "zli:mobile:popout-aspect") return { accepted: true };
+        return [{ deviceId: pixel, pinned: channel === "zli:mobile:popout-pin" }];
+      },
+      on: (channel, listener) => {
+        listeners.set(channel, listener);
+        return () => listeners.delete(channel);
+      },
+    });
+    expect(await api.mobile.popOut(pixel)).toEqual([{ deviceId: pixel, pinned: false }]);
+    expect(await api.mobile.pinPopOut(pixel, true)).toEqual([{ deviceId: pixel, pinned: true }]);
+    await api.mobile.setPopOutAspect({ deviceId: pixel, aspect: 0.47, extraWidth: 24, extraHeight: 96 });
+    expect(await api.mobile.closePopOut(pixel)).toEqual([]);
+    expect(await api.mobile.popOuts()).toEqual([{ deviceId: pixel, pinned: false }]);
+    expect(calls).toEqual([
+      { channel: "zli:mobile:popout-open", payload: { deviceId: pixel } },
+      { channel: "zli:mobile:popout-pin", payload: { deviceId: pixel, pinned: true } },
+      {
+        channel: "zli:mobile:popout-aspect",
+        payload: { deviceId: pixel, aspect: 0.47, extraWidth: 24, extraHeight: 96 },
+      },
+      { channel: "zli:mobile:popout-close", payload: { deviceId: pixel } },
+      { channel: "zli:mobile:popout-list", payload: undefined },
+    ]);
+    await expect(api.mobile.popOut("")).rejects.toThrow();
+    await expect(api.mobile.pinPopOut(pixel, "yes" as never)).rejects.toThrow();
+    await expect(
+      api.mobile.setPopOutAspect({ deviceId: pixel, aspect: -1, extraWidth: 0, extraHeight: 0 }),
+    ).rejects.toThrow();
+    expect(calls).toHaveLength(5);
+
+    const changes: unknown[] = [];
+    api.mobile.onPopOuts((popOuts) => changes.push(popOuts));
+    const emit = listeners.get("zli:mobile:popouts");
+    emit?.(undefined, [{ deviceId: pixel, pinned: true }]);
+    emit?.(undefined, [{ deviceId: pixel }]);
+    expect(changes).toEqual([[{ deviceId: pixel, pinned: true }]]);
+  });
+});

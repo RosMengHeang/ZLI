@@ -5,7 +5,7 @@ import { AgentToolAccess } from "./agentControl.js";
 /** Server names agents accept in every config format: Codex TOML keys, Claude tool prefixes, JSON keys. */
 export const MCP_SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/u;
 /** Names ZLI uses for its own servers. */
-export const RESERVED_MCP_SERVER_NAMES: readonly string[] = ["zli", "zli-browser"];
+export const RESERVED_MCP_SERVER_NAMES: readonly string[] = ["zli", "zli-browser", "zli-mobile"];
 export const MAX_MCP_SERVERS = 50;
 /** HTTP header names (RFC 9110 tokens). */
 export const MCP_HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,256}$/u;

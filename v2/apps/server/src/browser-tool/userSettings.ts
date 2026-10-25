@@ -11,7 +11,9 @@ import {
   isHttpSpec,
   isPlainObject,
   type McpServerSpec,
+  MOBILE_MCP_SERVER,
   mcpServerSpec,
+  mobileMcpServerSpec,
   writeFileAtomic,
 } from "./browserTool.js";
 
@@ -103,8 +105,11 @@ export async function registerBrowserToolInUserSettings(
 ): Promise<UserSettingsOutcome[]> {
   const outcomes: UserSettingsOutcome[] = [];
   const agentSpec = agentMcpServerSpec(config);
-  const agentEntry = (provider: UserSettingsProvider): Record<string, unknown> =>
-    agentSpec ? { [AGENT_MCP_SERVER]: userSettingsEntry(provider, agentSpec) } : {};
+  const mobileSpec = mobileMcpServerSpec(config);
+  const agentEntry = (provider: UserSettingsProvider): Record<string, unknown> => ({
+    ...(agentSpec ? { [AGENT_MCP_SERVER]: userSettingsEntry(provider, agentSpec) } : {}),
+    ...(mobileSpec ? { [MOBILE_MCP_SERVER]: userSettingsEntry(provider, mobileSpec) } : {}),
+  });
   for (const target of userSettingsTargets(config, options.home, options.env)) {
     const { outcome } = await applySafely(
       target.provider,

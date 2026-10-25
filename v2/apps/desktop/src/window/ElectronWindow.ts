@@ -36,20 +36,36 @@ export function secureWebPreferences(preloadPath: string, partition?: string): R
 
 /** The renderer's top bar height, so the native chrome lines up with the app around it. */
 const TITLE_BAR_HEIGHT = 44;
+/** macOS draws its traffic lights 14px tall. */
+const TRAFFIC_LIGHT_HEIGHT = 14;
 
 /**
  * The renderer draws its own title bar, so the native one and its menu row are hidden. Windows and
- * Linux keep native window controls through the overlay; macOS keeps its traffic lights. Menu
- * accelerators still work without the visible menu.
+ * Linux keep native window controls through the overlay; macOS keeps its traffic lights, centered in
+ * the bar. Menu accelerators still work without the visible menu.
  */
-export function titleBarOptions(platform: NodeJS.Platform): Record<string, unknown> {
+export function titleBarOptions(platform: NodeJS.Platform, height = TITLE_BAR_HEIGHT): Record<string, unknown> {
   if (platform === "darwin") {
-    return { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 15 }, titleBarOverlay: true };
+    const y = Math.round((height - TRAFFIC_LIGHT_HEIGHT) / 2);
+    return { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y }, titleBarOverlay: true };
   }
   return {
     titleBarStyle: "hidden",
-    titleBarOverlay: { color: themeColors.canvas, symbolColor: themeColors.muted, height: TITLE_BAR_HEIGHT },
+    titleBarOverlay: { color: themeColors.canvas, symbolColor: themeColors.muted, height },
   };
+}
+
+/** Keeps a window that shows the app on the app's own pages: no new windows, and no navigation away. */
+export function applyNavigationPolicy(window: BrowserWindowLike, appOrigin: string): void {
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.on("will-navigate", (event, url) => {
+    if (!isAllowedMainNavigation(url, appOrigin)) event.preventDefault();
+  });
+  // Reply previews are sandboxed frames; a link inside one would otherwise load the web page in place.
+  window.webContents.on("will-frame-navigate", (event) => {
+    if (!event.isMainFrame && !isAllowedSubframeNavigation(event.url)) event.preventDefault();
+  });
+  window.webContents.on("render-process-gone", () => window.webContents.reload());
 }
 
 export function createMainWindow(
@@ -71,14 +87,6 @@ export function createMainWindow(
     ...titleBarOptions(platform),
     webPreferences: secureWebPreferences(preloadPath),
   });
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  window.webContents.on("will-navigate", (event, url) => {
-    if (!isAllowedMainNavigation(url, appOrigin)) event.preventDefault();
-  });
-  // Reply previews are sandboxed frames; a link inside one would otherwise load the web page in place.
-  window.webContents.on("will-frame-navigate", (event) => {
-    if (!event.isMainFrame && !isAllowedSubframeNavigation(event.url)) event.preventDefault();
-  });
-  window.webContents.on("render-process-gone", () => window.webContents.reload());
+  applyNavigationPolicy(window, appOrigin);
   return window;
 }
