@@ -5,12 +5,12 @@ import {
   failedLogExcerpt,
   formatBody,
   hunkTail,
-  parsePullRequestLink,
-  parseReviewComments,
   type ProcessResult,
   type ProcessRunner,
   PullRequestError,
   PullRequestService,
+  parsePullRequestLink,
+  parseReviewComments,
   redactSecrets,
   summarizeChecks,
 } from "./PullRequestService.js";
@@ -458,6 +458,144 @@ describe("PullRequestService.comments", () => {
       return undefined;
     });
     await expect(new PullRequestService(runner).comments(INPUT)).rejects.toThrow(PullRequestError);
+  });
+});
+
+describe("PullRequestService.merge", () => {
+  const OPEN = JSON.stringify({ ...JSON.parse(PR_JSON), isDraft: false });
+  const MERGED = JSON.stringify({ ...JSON.parse(PR_JSON), isDraft: false, state: "MERGED" });
+
+  function mergeRunner(overrides: Handler = () => undefined) {
+    let merged = false;
+    return fakeRunner((call) => {
+      const override = overrides(call);
+      if (override) return override;
+      const line = `${call.command} ${call.args.join(" ")}`;
+      if (line.startsWith("gh pr view")) return ok(merged ? MERGED : OPEN);
+      if (line.startsWith("gh pr merge")) {
+        merged = true;
+        return ok();
+      }
+      return undefined;
+    });
+  }
+
+  it("squash merges the pull request and removes the branch from origin", async () => {
+    const { runner, calls } = mergeRunner();
+    const result = await new PullRequestService(runner).merge(INPUT, { method: "squash", deleteBranch: true });
+    expect(result).toEqual({
+      pullRequest: { number: 12, url: "https://github.com/acme/app/pull/12", state: "MERGED", isDraft: false },
+      branchDeleted: true,
+    });
+    const lines = calls.map((call) => `${call.command} ${call.args.join(" ")}`);
+    expect(lines).toContain("gh pr merge 12 --squash");
+    expect(lines).toContain("git push origin --delete feature/pr");
+    expect(lines.some((line) => line.includes("--delete-branch"))).toBe(false);
+  });
+
+  it("keeps the branch when asked and passes the chosen method", async () => {
+    const { runner, calls } = mergeRunner();
+    const result = await new PullRequestService(runner).merge(INPUT, { method: "rebase", deleteBranch: false });
+    expect(result.branchDeleted).toBe(false);
+    const lines = calls.map((call) => `${call.command} ${call.args.join(" ")}`);
+    expect(lines).toContain("gh pr merge 12 --rebase");
+    expect(lines.some((line) => line.startsWith("git push"))).toBe(false);
+  });
+
+  it("counts a branch origin already removed as deleted", async () => {
+    const { runner } = mergeRunner(({ args }) =>
+      args.includes("--delete") ? fail("error: unable to delete 'feature/pr': remote ref does not exist") : undefined,
+    );
+    const result = await new PullRequestService(runner).merge(INPUT, { method: "merge", deleteBranch: true });
+    expect(result.branchDeleted).toBe(true);
+  });
+
+  it("refuses drafts and explains what blocked a merge", async () => {
+    const draft = new PullRequestService(
+      fakeRunner(({ args }) => (args[1] === "view" ? ok(PR_JSON) : undefined)).runner,
+    );
+    await expect(draft.merge(INPUT, { method: "squash", deleteBranch: false })).rejects.toThrow(/is a draft/u);
+
+    const { runner } = mergeRunner(({ args }) =>
+      args[1] === "merge"
+        ? fail("X Pull request acme/app#12 is not mergeable: the base branch policy prohibits the merge.")
+        : undefined,
+    );
+    await expect(
+      new PullRequestService(runner).merge(INPUT, { method: "squash", deleteBranch: false }),
+    ).rejects.toThrow(/has conflicts|blocked merging/u);
+  });
+});
+
+describe("PullRequestService branches, fetch, and pull", () => {
+  const REFS = [
+    "refs/heads/feature/pr",
+    "refs/heads/main",
+    "refs/remotes/origin/HEAD",
+    "refs/remotes/origin/main",
+    "refs/remotes/origin/release/1.0",
+    "refs/remotes/origin/-bad",
+  ].join("\n");
+
+  function branchRunner(overrides: Handler = () => undefined) {
+    return fakeRunner((call) => {
+      const override = overrides(call);
+      if (override) return override;
+      if (call.args[0] === "for-each-ref") return ok(`${REFS}\n`);
+      if (call.args[0] === "fetch") return ok();
+      return undefined;
+    });
+  }
+
+  it("lists local and origin branches with the current and default ones", async () => {
+    const { runner } = branchRunner();
+    await expect(new PullRequestService(runner).branches(INPUT)).resolves.toEqual({
+      current: "feature/pr",
+      defaultBranch: "main",
+      local: ["feature/pr", "main"],
+      remote: ["main", "release/1.0"],
+    });
+  });
+
+  it("fetches with prune before listing", async () => {
+    const { runner, calls } = branchRunner();
+    const result = await new PullRequestService(runner).fetch(INPUT);
+    expect(result.remote).toEqual(["main", "release/1.0"]);
+    expect(calls.map((call) => call.args.join(" "))).toContain("fetch --prune origin");
+  });
+
+  it("reports refused credentials on fetch without echoing the remote", async () => {
+    const { runner } = branchRunner(({ args }) =>
+      args[0] === "fetch"
+        ? fail("fatal: Authentication failed for 'https://user:secret@example.com/acme/app.git/'")
+        : undefined,
+    );
+    const error = await new PullRequestService(runner).fetch(INPUT).catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(PullRequestError);
+    expect(String(error)).toMatch(/refused the credentials/u);
+    expect(String(error)).not.toContain("secret");
+  });
+
+  it("fast-forwards the branch and counts the new commits", async () => {
+    const { runner, calls } = fakeRunner(({ args }) => {
+      if (args.join(" ") === "rev-parse --verify --quiet HEAD") return ok("abc123\n");
+      if (args[0] === "pull") return ok("Fast-forward\n");
+      if (args[0] === "rev-list") return ok("3\n");
+      return undefined;
+    });
+    await expect(new PullRequestService(runner).pull(INPUT)).resolves.toEqual({ branch: "feature/pr", commits: 3 });
+    expect(calls.map((call) => call.args.join(" "))).toContain("pull --ff-only origin feature/pr");
+  });
+
+  it("explains a diverged branch and a branch origin does not have", async () => {
+    const diverged = fakeRunner(({ args }) =>
+      args[0] === "pull" ? fail("fatal: Not possible to fast-forward, aborting.") : undefined,
+    ).runner;
+    await expect(new PullRequestService(diverged).pull(INPUT)).rejects.toThrow(/both have commits/u);
+    const unpushed = fakeRunner(({ args }) =>
+      args[0] === "pull" ? fail("fatal: couldn't find remote ref feature/pr") : undefined,
+    ).runner;
+    await expect(new PullRequestService(unpushed).pull(INPUT)).rejects.toThrow(/Push it first/u);
   });
 });
 

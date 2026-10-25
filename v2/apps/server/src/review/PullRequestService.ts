@@ -1,4 +1,6 @@
 import {
+  GitBranchesResult,
+  GitPullResult,
   type PullRequestCheck,
   PullRequestCheckLogResult,
   type PullRequestCheckState,
@@ -6,6 +8,8 @@ import {
   PullRequestCommentsResult,
   PullRequestCreateResult,
   PullRequestInfo,
+  type PullRequestMergeMethod,
+  PullRequestMergeResult,
   type PullRequestProblem,
   PullRequestPushResult,
   type PullRequestReviewComment,
@@ -53,6 +57,7 @@ const PR_FIELDS = "url,state,isDraft,number,statusCheckRollup,reviewDecision";
 const MAX_THREADS = 100;
 const MAX_THREAD_COMMENTS = 50;
 const MAX_REVIEWS = 30;
+const MAX_BRANCHES = 1_000;
 const MAX_COMMENT_CHARS = 20_000;
 const MAX_HUNK_LINES = 12;
 const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
@@ -223,6 +228,105 @@ export class PullRequestService {
     return PullRequestCommentsResult.parse({ number: pullRequest.number, url: pullRequest.url, ...parsed });
   }
 
+  /**
+   * Merges the branch's pull request on GitHub. gh's own --delete-branch is not used: it also checks out the
+   * base branch here, which fails when another worktree has it. The branch is removed from origin instead.
+   */
+  async merge(
+    input: PullRequestInput,
+    request: { method: PullRequestMergeMethod; deleteBranch: boolean },
+  ): Promise<PullRequestMergeResult> {
+    const cwd = input.worktreePath;
+    const branch = await this.currentBranch(cwd);
+    if (!branch) throw new PullRequestError(DETACHED);
+    const problem = await this.ghProblem(cwd);
+    if (problem) throw new PullRequestError(problem.message);
+    const open = await this.view(cwd, branch);
+    if (!open) throw new PullRequestError("This branch has no pull request yet.");
+    if (open.state !== "OPEN") {
+      throw new PullRequestError(
+        `Pull request #${open.number} is already ${open.state === "MERGED" ? "merged" : "closed"}.`,
+      );
+    }
+    if (open.isDraft) {
+      throw new PullRequestError(`Pull request #${open.number} is a draft. Mark it ready for review on GitHub first.`);
+    }
+    const merged = await this.gh(["pr", "merge", String(open.number), `--${request.method}`], cwd, {
+      timeoutMs: PUSH_TIMEOUT_MS,
+    });
+    if (merged.code !== 0) throw new PullRequestError(mergeFailure(open.number, merged));
+    let branchDeleted = false;
+    if (request.deleteBranch) {
+      const deleted = await this.runner("git", ["push", "origin", "--delete", branch], {
+        cwd,
+        timeoutMs: PUSH_TIMEOUT_MS,
+      });
+      // A repository set to delete merged branches may have removed it already.
+      branchDeleted = deleted.code === 0 || /remote ref does not exist/iu.test(deleted.stderr);
+    }
+    const pullRequest = (await this.view(cwd, String(open.number))) ?? { ...open, state: "MERGED" as const };
+    return PullRequestMergeResult.parse({ pullRequest, branchDeleted });
+  }
+
+  /** Local branches and origin's branches, most recently committed first. */
+  async branches(input: PullRequestInput): Promise<GitBranchesResult> {
+    const cwd = input.worktreePath;
+    const current = await this.currentBranch(cwd);
+    const defaultBranch = await this.originDefaultBranch(cwd);
+    const refs = await this.git(
+      ["for-each-ref", "--sort=-committerdate", "--format=%(refname)", "refs/heads", "refs/remotes/origin"],
+      cwd,
+    );
+    if (refs.code !== 0) throw new PullRequestError(gitFailure("could not list the branches", refs));
+    const local: string[] = [];
+    const remote: string[] = [];
+    for (const line of refs.stdout.split(/\r?\n/u)) {
+      const ref = line.trim();
+      const [list, name] = ref.startsWith("refs/heads/")
+        ? [local, ref.slice("refs/heads/".length)]
+        : ref.startsWith("refs/remotes/origin/")
+          ? [remote, ref.slice("refs/remotes/origin/".length)]
+          : [undefined, ""];
+      if (!list || name === "HEAD" || !isSafeRef(name) || list.length >= MAX_BRANCHES) continue;
+      list.push(name);
+    }
+    return GitBranchesResult.parse({
+      ...(current ? { current } : {}),
+      ...(defaultBranch && isSafeRef(defaultBranch) ? { defaultBranch } : {}),
+      local,
+      remote,
+    });
+  }
+
+  async fetch(input: PullRequestInput): Promise<GitBranchesResult> {
+    const cwd = input.worktreePath;
+    if (!(await this.hasOrigin(cwd))) throw new PullRequestError(NO_ORIGIN);
+    const fetched = await this.runner("git", ["fetch", "--prune", "origin"], { cwd, timeoutMs: PUSH_TIMEOUT_MS });
+    if (fetched.code !== 0) throw new PullRequestError(remoteFailure("Fetching from origin", fetched));
+    return this.branches(input);
+  }
+
+  /** Fast-forwards the checked-out branch to origin's copy. Diverged branches are left for the person to resolve. */
+  async pull(input: PullRequestInput): Promise<GitPullResult> {
+    const cwd = input.worktreePath;
+    const branch = await this.currentBranch(cwd);
+    if (!branch) throw new PullRequestError(DETACHED);
+    if (!(await this.hasOrigin(cwd))) throw new PullRequestError(NO_ORIGIN);
+    const head = await this.git(["rev-parse", "--verify", "--quiet", "HEAD"], cwd);
+    const before = head.code === 0 ? head.stdout.trim() : undefined;
+    const pulled = await this.runner("git", ["pull", "--ff-only", "origin", branch], {
+      cwd,
+      timeoutMs: PUSH_TIMEOUT_MS,
+    });
+    if (pulled.code !== 0) throw new PullRequestError(pullFailure(branch, pulled));
+    let commits = 0;
+    if (before) {
+      const count = await this.git(["rev-list", "--count", `${before}..HEAD`], cwd);
+      commits = count.code === 0 ? Number.parseInt(count.stdout.trim(), 10) || 0 : 0;
+    }
+    return GitPullResult.parse({ branch, commits });
+  }
+
   private async view(cwd: string, target: string): Promise<PullRequestInfo | undefined> {
     const view = await this.gh(["pr", "view", target, "--json", PR_FIELDS], cwd);
     return view.code === 0 ? parsePullRequest(view.stdout) : undefined;
@@ -334,6 +438,14 @@ export async function runPullRequestCommand(
         base: command.base,
         draft: command.draft,
       });
+    case "review.pr.merge":
+      return service.merge(input, { method: command.method, deleteBranch: command.deleteBranch });
+    case "review.git.branches":
+      return service.branches(input);
+    case "review.git.fetch":
+      return service.fetch(input);
+    case "review.git.pull":
+      return service.pull(input);
   }
 }
 
@@ -373,12 +485,54 @@ function gitFailure(action: string, result: ProcessResult): string {
   return `Git ${action}.${detail ? ` ${detail}` : ""}`;
 }
 
+const AUTH_FAILURE = /authentication failed|could not read username|permission denied|denied to|403/iu;
+const CREDENTIALS_REFUSED =
+  "origin refused the credentials. Check that git fetch and git push work for this repository in a terminal, then try again.";
+
+function remoteFailure(action: string, result: ProcessResult): string {
+  if (AUTH_FAILURE.test(`${result.stderr}\n${result.stdout}`)) return CREDENTIALS_REFUSED;
+  const detail = lastLines(result.stderr);
+  return `${action} failed.${detail ? ` ${detail}` : ""}`;
+}
+
+function pullFailure(branch: string, result: ProcessResult): string {
+  const output = `${result.stderr}\n${result.stdout}`;
+  if (/couldn't find remote ref/iu.test(output)) return `origin has no branch ${branch} yet. Push it first.`;
+  if (/not possible to fast-forward|diverg/iu.test(output)) {
+    return `${branch} and origin/${branch} both have commits the other lacks. Rebase or merge them in a terminal, then try again.`;
+  }
+  if (/would be overwritten|commit your changes or stash/iu.test(output)) {
+    return "The pull would overwrite uncommitted changes. Commit or stash them first.";
+  }
+  return remoteFailure(`Pulling ${branch} from origin`, result);
+}
+
+function mergeFailure(number: number, result: ProcessResult): string {
+  const output = `${result.stderr}\n${result.stdout}`;
+  if (/merge conflict|not mergeable|conflicts?/iu.test(output)) {
+    return `Pull request #${number} has conflicts with its base branch. Pull the base into this branch, resolve them, and push.`;
+  }
+  if (/required status check|review is required|base branch policy|--auto/iu.test(output)) {
+    return `GitHub blocked merging #${number}: the base branch needs passing checks or an approving review first.`;
+  }
+  return ghFailure(`could not merge #${number}`, result);
+}
+
+function isSafeRef(value: string): boolean {
+  try {
+    assertRef(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function pushFailure(branch: string, result: ProcessResult): string {
   const output = `${result.stderr}\n${result.stdout}`;
   if (/\[rejected\]|non-fast-forward|fetch first|\[remote rejected\]/iu.test(output)) {
     return `origin rejected the push of ${branch}. The remote branch has commits this worktree does not have, or a rule on origin blocked it. Pull or rebase onto origin/${branch}, then try again.`;
   }
-  if (/authentication failed|could not read username|permission denied|denied to|403/iu.test(output)) {
+  if (AUTH_FAILURE.test(output)) {
     return "origin refused the credentials for this push. Check that git push works for this repository in a terminal, then try again.";
   }
   const detail = lastLines(result.stderr);
