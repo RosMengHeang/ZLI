@@ -12,7 +12,8 @@ export function PaneHeader({
 }: {
   icon: IconName;
   title: string;
-  detail?: string | undefined;
+  /** Text is shown dimmed in mono; a node, such as a menu trigger, is shown as is. */
+  detail?: ReactNode;
   children?: ReactNode;
 }) {
   return (
@@ -20,11 +21,13 @@ export function PaneHeader({
       <div className="pane-title">
         <Icon name={icon} size={14} />
         <h2 title={title}>{title}</h2>
-        {detail ? (
+        {typeof detail === "string" && detail ? (
           <span className="pane-detail" title={detail}>
             {detail}
           </span>
-        ) : null}
+        ) : (
+          (detail ?? null)
+        )}
       </div>
       {children ? <div className="pane-actions">{children}</div> : null}
     </div>

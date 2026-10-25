@@ -63,6 +63,10 @@ describe("ProjectionStore", () => {
     expect(store.current()?.worktrees[0]?.status).toBe("ready");
     expect(store.current()?.reviews?.[0]?.state).toBe("changes");
     expect(store.current()?.lastSequence).toBe(3);
+    expect(store.apply(envelope(4, { type: "worktree.branch.changed", worktreeId: id("11"), branch: "topic" }))).toBe(
+      "applied",
+    );
+    expect(store.current()?.worktrees[0]).toMatchObject({ branch: "topic", status: "ready" });
   });
 
   it("applies browser tab updates as they arrive, including device viewports", () => {

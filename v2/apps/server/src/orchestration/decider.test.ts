@@ -89,6 +89,35 @@ describe("thread cwd", () => {
   });
 });
 
+describe("worktree branch", () => {
+  it("records a switched or renamed branch and ignores one that did not change", () => {
+    const state = projection("/repo/tree");
+    const [event] = decide(state, { type: "worktree.branch", worktreeId, branch: "topic" });
+    expect(event).toEqual({ type: "worktree.branch.changed", worktreeId, branch: "topic" });
+    if (!event) throw new Error("missing event");
+    const next = projectEvent(state, {
+      protocolVersion: 1,
+      sequence: 1,
+      eventId: EventId.parse("00000000-0000-4000-8000-000000000416"),
+      occurredAt: "2026-10-20T10:00:00.000Z",
+      event,
+    });
+    expect(next.worktrees[0]).toMatchObject({ branch: "topic", status: "ready" });
+    expect(decide(next, { type: "worktree.branch", worktreeId, branch: "topic" })).toEqual([]);
+  });
+
+  it("rejects an unsafe branch name and an unknown worktree", () => {
+    expect(() => decide(projection("/repo/tree"), { type: "worktree.branch", worktreeId, branch: "-x" })).toThrow();
+    expect(() =>
+      decide(projection("/repo/tree"), {
+        type: "worktree.branch",
+        worktreeId: WorktreeId.parse("00000000-0000-4000-8000-000000000499"),
+        branch: "topic",
+      }),
+    ).toThrow(DomainError);
+  });
+});
+
 describe("one live agent per worktree", () => {
   const projectId = ProjectId.parse("00000000-0000-4000-8000-000000000403");
   const occupiedId = worktreeId;

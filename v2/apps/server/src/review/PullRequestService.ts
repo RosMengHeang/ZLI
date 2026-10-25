@@ -1,6 +1,8 @@
 import {
   GitBranchesResult,
+  type GitLocalBranch,
   GitPullResult,
+  type GitUpstream,
   type PullRequestCheck,
   PullRequestCheckLogResult,
   type PullRequestCheckState,
@@ -21,6 +23,7 @@ import {
   PullRequestStatusResult,
   PullRequestUpdateResult,
   type RuntimeProjection,
+  type WorktreeProjection,
 } from "@zli-v2/contracts";
 import { spawnCli } from "@zli-v2/shared";
 
@@ -64,6 +67,7 @@ const MAX_REVIEWS = 30;
 const MAX_BRANCHES = 1_000;
 const MAX_COMMENT_CHARS = 20_000;
 const MAX_HUNK_LINES = 12;
+const BRANCH_FORMAT = "%(refname)%00%(upstream:short)%00%(upstream:track,nobracket)%00%(worktreepath)";
 const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
@@ -127,13 +131,17 @@ export class PullRequestService {
     if (!branch) return result({ code: "detached", message: DETACHED });
     if (!(await this.hasOrigin(cwd))) return result({ code: "no_origin", message: NO_ORIGIN });
 
-    const subjects = await this.subjectsSince(cwd, base);
+    const [subjects, upstream] = await Promise.all([this.subjectsSince(cwd, base), this.upstreamOf(cwd, branch)]);
     const defaults = {
       title: subjects?.at(-1) ?? branch,
       body: formatBody(subjects ?? []),
       base,
     };
-    const extra = { defaults, ...(subjects ? { commitsAhead: subjects.length } : {}) };
+    const extra = {
+      defaults,
+      ...(subjects ? { commitsAhead: subjects.length } : {}),
+      ...(upstream ? { upstream } : {}),
+    };
 
     const problem = await this.ghProblem(cwd);
     if (problem) return result(problem, extra);
@@ -402,36 +410,6 @@ export class PullRequestService {
     return pullRequest;
   }
 
-  /** Local branches and origin's branches, most recently committed first. */
-  async branches(input: PullRequestInput): Promise<GitBranchesResult> {
-    const cwd = input.worktreePath;
-    const current = await this.currentBranch(cwd);
-    const defaultBranch = await this.originDefaultBranch(cwd);
-    const refs = await this.git(
-      ["for-each-ref", "--sort=-committerdate", "--format=%(refname)", "refs/heads", "refs/remotes/origin"],
-      cwd,
-    );
-    if (refs.code !== 0) throw new PullRequestError(gitFailure("could not list the branches", refs));
-    const local: string[] = [];
-    const remote: string[] = [];
-    for (const line of refs.stdout.split(/\r?\n/u)) {
-      const ref = line.trim();
-      const [list, name] = ref.startsWith("refs/heads/")
-        ? [local, ref.slice("refs/heads/".length)]
-        : ref.startsWith("refs/remotes/origin/")
-          ? [remote, ref.slice("refs/remotes/origin/".length)]
-          : [undefined, ""];
-      if (!list || name === "HEAD" || !isSafeRef(name) || list.length >= MAX_BRANCHES) continue;
-      list.push(name);
-    }
-    return GitBranchesResult.parse({
-      ...(current ? { current } : {}),
-      ...(defaultBranch && isSafeRef(defaultBranch) ? { defaultBranch } : {}),
-      local,
-      remote,
-    });
-  }
-
   async fetch(input: PullRequestInput): Promise<GitBranchesResult> {
     const cwd = input.worktreePath;
     if (!(await this.hasOrigin(cwd))) throw new PullRequestError(NO_ORIGIN);
@@ -459,6 +437,184 @@ export class PullRequestService {
       commits = count.code === 0 ? Number.parseInt(count.stdout.trim(), 10) || 0 : 0;
     }
     return GitPullResult.parse({ branch, commits });
+  }
+
+  /**
+   * Local branches and origin's branches, most recently committed first, with how each local branch
+   * stands against its upstream and which other worktree has it checked out.
+   */
+  async branches(input: PullRequestInput): Promise<GitBranchesResult> {
+    const cwd = input.worktreePath;
+    const current = await this.currentBranch(cwd);
+    const defaultBranch = await this.originDefaultBranch(cwd);
+    const refs = await this.git(
+      ["for-each-ref", "--sort=-committerdate", `--format=${BRANCH_FORMAT}`, "refs/heads", "refs/remotes/origin"],
+      cwd,
+    );
+    if (refs.code !== 0) throw new PullRequestError(gitFailure("could not list the branches", refs));
+    const local: string[] = [];
+    const remote: string[] = [];
+    const details: Record<string, GitLocalBranch> = {};
+    for (const line of refs.stdout.split(/\r?\n/u)) {
+      const [ref = "", upstreamName = "", track = "", worktreePath = ""] = line.trim().split("\0");
+      const [list, name] = ref.startsWith("refs/heads/")
+        ? [local, ref.slice("refs/heads/".length)]
+        : ref.startsWith("refs/remotes/origin/")
+          ? [remote, ref.slice("refs/remotes/origin/".length)]
+          : [undefined, ""];
+      if (!list || name === "HEAD" || !isSafeRef(name) || list.length >= MAX_BRANCHES) continue;
+      list.push(name);
+      if (list !== local) continue;
+      const upstream = parseUpstream(upstreamName, track);
+      const elsewhere = name !== current && worktreePath ? worktreePath : undefined;
+      if (upstream || elsewhere) {
+        details[name] = { ...(upstream ? { upstream } : {}), ...(elsewhere ? { worktreePath: elsewhere } : {}) };
+      }
+    }
+    return GitBranchesResult.parse({
+      ...(current ? { current } : {}),
+      ...(defaultBranch && isSafeRef(defaultBranch) ? { defaultBranch } : {}),
+      local,
+      remote,
+      ...(Object.keys(details).length > 0 ? { details } : {}),
+    });
+  }
+
+  /** Creates a local branch that tracks nothing, so the first push sets its own upstream on origin. */
+  async createBranch(
+    input: PullRequestInput,
+    request: { name: string; from?: string | undefined; switchTo: boolean },
+  ): Promise<GitBranchesResult> {
+    const cwd = input.worktreePath;
+    const name = await this.assertNewBranchName(cwd, request.name);
+    const from = request.from?.trim() || undefined;
+    if (from) {
+      if (!isSafeRef(from)) throw new PullRequestError(`${from} is not a branch or commit ZLI can start from.`);
+      const resolved = await this.git(["rev-parse", "--verify", "--quiet", `${from}^{commit}`], cwd);
+      if (resolved.code !== 0) throw new PullRequestError(`There is no branch or commit named ${from}.`);
+    }
+    if (await this.localBranchExists(cwd, name)) {
+      throw new PullRequestError(`A branch named ${name} already exists. Pick another name or switch to it.`);
+    }
+    const start = from ? [from] : [];
+    if (request.switchTo) {
+      const switched = await this.git(["switch", "--no-track", "-c", name, ...start], cwd);
+      if (switched.code !== 0) throw new PullRequestError(switchFailure(name, switched));
+    } else {
+      const created = await this.git(["branch", "--no-track", name, ...start], cwd);
+      if (created.code !== 0) throw new PullRequestError(gitFailure(`could not create ${name}`, created));
+    }
+    return this.branches(input);
+  }
+
+  /** Checks out a local branch, or `origin/<name>` as a local branch that tracks it. */
+  async switchBranch(input: PullRequestInput, requested: string): Promise<GitBranchesResult> {
+    const cwd = input.worktreePath;
+    if (!isSafeRef(requested)) throw new PullRequestError(`${requested} is not a branch name ZLI can check out.`);
+    let name = requested;
+    let args = ["switch", name];
+    if (!(await this.localBranchExists(cwd, name))) {
+      const remoteName = requested.startsWith("origin/") ? requested.slice("origin/".length) : undefined;
+      const onOrigin =
+        !!remoteName &&
+        (await this.git(["show-ref", "--verify", "--quiet", `refs/remotes/origin/${remoteName}`], cwd)).code === 0;
+      if (!remoteName || !onOrigin) throw new PullRequestError(`There is no branch named ${requested}.`);
+      name = remoteName;
+      args = (await this.localBranchExists(cwd, name))
+        ? ["switch", name]
+        : ["switch", "-c", name, "--track", `origin/${name}`];
+    }
+    if (name === (await this.currentBranch(cwd))) return this.branches(input);
+    const switched = await this.git(args, cwd);
+    if (switched.code !== 0) throw new PullRequestError(switchFailure(name, switched));
+    return this.branches(input);
+  }
+
+  /** Renames a local branch. Its copy on origin, if any, keeps the old name. */
+  async renameBranch(input: PullRequestInput, request: { from: string; to: string }): Promise<GitBranchesResult> {
+    const cwd = input.worktreePath;
+    const from = request.from;
+    if (!isSafeRef(from) || !(await this.localBranchExists(cwd, from))) {
+      throw new PullRequestError(`There is no local branch named ${from}.`);
+    }
+    const to = await this.assertNewBranchName(cwd, request.to);
+    if (to === from) return this.branches(input);
+    if (await this.localBranchExists(cwd, to)) throw new PullRequestError(`A branch named ${to} already exists.`);
+    const elsewhere = (await this.branches(input)).details?.[from]?.worktreePath;
+    if (elsewhere) {
+      throw new PullRequestError(
+        `${from} is checked out in another worktree at ${elsewhere}. Rename it from that worktree instead.`,
+      );
+    }
+    const renamed = await this.git(["branch", "-m", from, to], cwd);
+    if (renamed.code !== 0) throw new PullRequestError(gitFailure(`could not rename ${from}`, renamed));
+    return this.branches(input);
+  }
+
+  /** Deletes a local branch, and with `remote` its copy on origin. The checked-out branch is never deleted. */
+  async deleteBranch(
+    input: PullRequestInput,
+    request: { name: string; force: boolean; remote: boolean },
+  ): Promise<GitBranchesResult> {
+    const cwd = input.worktreePath;
+    const name = request.name;
+    if (!isSafeRef(name)) throw new PullRequestError(`${name} is not a branch name ZLI can delete.`);
+    const current = await this.currentBranch(cwd);
+    if (name === current) {
+      throw new PullRequestError(`${name} is checked out in this worktree. Switch to another branch, then delete it.`);
+    }
+    const local = await this.localBranchExists(cwd, name);
+    if (!local && !request.remote) throw new PullRequestError(`There is no local branch named ${name}.`);
+    if (request.remote && !(await this.hasOrigin(cwd))) throw new PullRequestError(NO_ORIGIN);
+    if (local) {
+      const deleted = await this.git(["branch", request.force ? "-D" : "-d", name], cwd);
+      if (deleted.code !== 0) throw new PullRequestError(deleteFailure(name, current, deleted));
+    }
+    if (request.remote) {
+      const pushed = await this.runner("git", ["push", "origin", "--delete", name], {
+        cwd,
+        timeoutMs: PUSH_TIMEOUT_MS,
+      });
+      if (pushed.code !== 0 && !/remote ref does not exist/iu.test(pushed.stderr)) {
+        const failure = remoteFailure(`Deleting ${name} on origin`, pushed);
+        throw new PullRequestError(local ? `Deleted ${name} on this computer. ${failure}` : failure);
+      }
+    }
+    return this.branches(input);
+  }
+
+  /** A name for a new local branch, as Git would store it; throws a message the person can act on. */
+  private async assertNewBranchName(cwd: string, value: string): Promise<string> {
+    const name = value.trim();
+    if (!name) throw new PullRequestError("Enter a branch name.");
+    if (name === "HEAD" || name.startsWith("origin/")) {
+      throw new PullRequestError(
+        `${name} would be confused with ${name === "HEAD" ? "HEAD" : "a branch on origin"}. Pick another name.`,
+      );
+    }
+    const checked = isSafeRef(name) ? await this.git(["check-ref-format", "--branch", name], cwd) : undefined;
+    // --branch also expands shorthands such as @{-1}; only a name Git keeps as typed is accepted.
+    if (checked?.code !== 0 || checked.stdout.trim() !== name) {
+      throw new PullRequestError(
+        `${name} is not a valid branch name. Branch names cannot contain spaces, "..", or any of ~ ^ : ? * [ \\.`,
+      );
+    }
+    return name;
+  }
+
+  private async localBranchExists(cwd: string, name: string): Promise<boolean> {
+    return (await this.git(["show-ref", "--verify", "--quiet", `refs/heads/${name}`], cwd)).code === 0;
+  }
+
+  /** How the branch stands against its upstream; undefined when it tracks nothing or Git cannot say. */
+  private async upstreamOf(cwd: string, branch: string): Promise<GitUpstream | undefined> {
+    const result = await this.git(
+      ["for-each-ref", "--format=%(upstream:short)%00%(upstream:track,nobracket)", `refs/heads/${branch}`],
+      cwd,
+    );
+    if (result.code !== 0) return undefined;
+    const [name = "", track = ""] = result.stdout.trim().split("\0");
+    return parseUpstream(name, track);
   }
 
   private async view(cwd: string, target: string): Promise<PullRequestInfo | undefined> {
@@ -543,8 +699,66 @@ export class PullRequestService {
   }
 }
 
-/** Runs one pull request command against the worktree it names. */
+/**
+ * Branches checked out in the project's worktrees that differ from what the projection records: the
+ * current branch of the worktree the command ran in, and branches Git reports checked out elsewhere.
+ */
+export function branchChanges(
+  projection: RuntimeProjection,
+  worktree: WorktreeProjection,
+  result: GitBranchesResult,
+): { worktreeId: WorktreeProjection["worktreeId"]; branch: string }[] {
+  const changes: { worktreeId: WorktreeProjection["worktreeId"]; branch: string }[] = [];
+  if (result.current && result.current !== worktree.branch) {
+    changes.push({ worktreeId: worktree.worktreeId, branch: result.current });
+  }
+  const byPath = new Map<string, string>();
+  for (const [name, detail] of Object.entries(result.details ?? {})) {
+    if (detail.worktreePath) byPath.set(comparablePath(detail.worktreePath), name);
+  }
+  if (byPath.size === 0) return changes;
+  for (const other of projection.worktrees) {
+    if (other.worktreeId === worktree.worktreeId || other.projectId !== worktree.projectId) continue;
+    if (other.status !== "ready") continue;
+    const branch = byPath.get(comparablePath(other.path));
+    if (branch && branch !== other.branch) changes.push({ worktreeId: other.worktreeId, branch });
+  }
+  return changes;
+}
+
+function comparablePath(value: string): string {
+  const path = value.replaceAll("\\", "/").replace(/\/+$/u, "");
+  return process.platform === "win32" || process.platform === "darwin" ? path.toLowerCase() : path;
+}
+
+const BRANCH_RESULT_COMMANDS = new Set<PullRequestCommand["type"]>([
+  "review.git.branches",
+  "review.git.fetch",
+  "review.git.createBranch",
+  "review.git.switchBranch",
+  "review.git.renameBranch",
+  "review.git.deleteBranch",
+]);
+
+/**
+ * Runs one pull request command against the worktree it names. `onBranches` sees every branch list a
+ * command answers with, so the caller can record a branch that was switched or renamed.
+ */
 export async function runPullRequestCommand(
+  service: PullRequestService,
+  projection: RuntimeProjection,
+  command: PullRequestCommand,
+  onBranches?: (worktree: WorktreeProjection, result: GitBranchesResult) => Promise<void>,
+): Promise<unknown> {
+  const result = await runCommand(service, projection, command);
+  if (onBranches && BRANCH_RESULT_COMMANDS.has(command.type)) {
+    const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === command.worktreeId);
+    if (worktree) await onBranches(worktree, result as GitBranchesResult);
+  }
+  return result;
+}
+
+async function runCommand(
   service: PullRequestService,
   projection: RuntimeProjection,
   command: PullRequestCommand,
@@ -580,6 +794,14 @@ export async function runPullRequestCommand(
       return service.fetch(input);
     case "review.git.pull":
       return service.pull(input);
+    case "review.git.createBranch":
+      return service.createBranch(input, { name: command.name, from: command.from, switchTo: command.switchTo });
+    case "review.git.switchBranch":
+      return service.switchBranch(input, command.name);
+    case "review.git.renameBranch":
+      return service.renameBranch(input, { from: command.from, to: command.to });
+    case "review.git.deleteBranch":
+      return service.deleteBranch(input, { name: command.name, force: command.force, remote: command.remote });
     case "review.pr.review":
       return service.review(input, { event: command.event, body: command.body });
     case "review.pr.comment":
@@ -660,6 +882,57 @@ function mergeFailure(number: number, result: ProcessResult): string {
     return `GitHub blocked merging #${number}: the base branch needs passing checks or an approving review first.`;
   }
   return ghFailure(`could not merge #${number}`, result);
+}
+
+const ELSEWHERE = /(?:checked out|used by worktree) at '([^']+)'/iu;
+
+function switchFailure(branch: string, result: ProcessResult): string {
+  const output = `${result.stderr}\n${result.stdout}`;
+  const elsewhere = ELSEWHERE.exec(output)?.[1];
+  if (elsewhere) {
+    return `${branch} is checked out in another worktree at ${elsewhere}. A branch can be checked out in one worktree at a time, so work on it there or switch that worktree to another branch first.`;
+  }
+  if (/would be overwritten/iu.test(output)) {
+    const files = output
+      .split(/\r?\n/u)
+      .filter((line) => /^\t\S/u.test(line))
+      .map((line) => line.trim());
+    const named =
+      files.length > 0
+        ? ` in ${files.slice(0, 3).join(", ")}${files.length > 3 ? ` and ${files.length - 3} more` : ""}`
+        : "";
+    return `Switching to ${branch} would overwrite uncommitted changes${named}. Commit or stash them, then switch again.`;
+  }
+  if (/resolve your current index|unmerged|merge in progress/iu.test(output)) {
+    return "This worktree has unresolved merge conflicts. Finish or abort the merge before switching branches.";
+  }
+  return gitFailure(`could not switch to ${branch}`, result);
+}
+
+function deleteFailure(branch: string, current: string | undefined, result: ProcessResult): string {
+  const output = `${result.stderr}\n${result.stdout}`;
+  const elsewhere = ELSEWHERE.exec(output)?.[1];
+  if (elsewhere) {
+    return `${branch} is checked out in another worktree at ${elsewhere}. Remove that worktree or switch it to another branch, then delete ${branch}.`;
+  }
+  if (/not fully merged/iu.test(output)) {
+    return `${branch} has commits that are not merged into ${current ?? "HEAD"} or its upstream. Turn on Delete unmerged commits to delete it anyway.`;
+  }
+  return gitFailure(`could not delete ${branch}`, result);
+}
+
+/** Reads `%(upstream:short)` and `%(upstream:track,nobracket)`, for example "ahead 2, behind 1" or "gone". */
+export function parseUpstream(name: string, track: string): GitUpstream | undefined {
+  const upstream = name.trim();
+  if (!upstream || !isSafeRef(upstream)) return undefined;
+  const value = track.trim();
+  const count = (word: string) => Number.parseInt(new RegExp(`${word} (\\d+)`, "u").exec(value)?.[1] ?? "0", 10);
+  return {
+    name: upstream,
+    ahead: count("ahead"),
+    behind: count("behind"),
+    ...(value === "gone" ? { gone: true } : {}),
+  };
 }
 
 function isSafeRef(value: string): boolean {

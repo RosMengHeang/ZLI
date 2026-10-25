@@ -70,6 +70,15 @@ describe("PullRequestService.status", () => {
     });
   });
 
+  it("reports how the branch stands against its upstream", async () => {
+    const { runner, calls } = fakeRunner(({ args }) =>
+      args[0] === "for-each-ref" ? ok("origin/feature/pr\0ahead 1, behind 3\n") : undefined,
+    );
+    const status = await new PullRequestService(runner).status(INPUT);
+    expect(status.upstream).toEqual({ name: "origin/feature/pr", ahead: 1, behind: 3 });
+    expect(calls.find((call) => call.args[0] === "for-each-ref")?.args.at(-1)).toBe("refs/heads/feature/pr");
+  });
+
   it("reports an existing pull request for the branch", async () => {
     const { runner, calls } = fakeRunner(({ command, args }) =>
       command === "gh" && args[0] === "pr" ? ok(PR_JSON) : undefined,
@@ -544,8 +553,9 @@ describe("PullRequestService.merge", () => {
 
 describe("PullRequestService branches, fetch, and pull", () => {
   const REFS = [
-    "refs/heads/feature/pr",
-    "refs/heads/main",
+    "refs/heads/feature/pr\0origin/feature/pr\0ahead 2, behind 1\0/repo/feature",
+    "refs/heads/main\0origin/main\0\0/repo/main",
+    "refs/heads/old\0origin/old\0gone\0",
     "refs/remotes/origin/HEAD",
     "refs/remotes/origin/main",
     "refs/remotes/origin/release/1.0",
@@ -567,8 +577,25 @@ describe("PullRequestService branches, fetch, and pull", () => {
     await expect(new PullRequestService(runner).branches(INPUT)).resolves.toEqual({
       current: "feature/pr",
       defaultBranch: "main",
-      local: ["feature/pr", "main"],
+      local: ["feature/pr", "main", "old"],
       remote: ["main", "release/1.0"],
+      details: {
+        "feature/pr": { upstream: { name: "origin/feature/pr", ahead: 2, behind: 1 } },
+        main: { upstream: { name: "origin/main", ahead: 0, behind: 0 }, worktreePath: "/repo/main" },
+        old: { upstream: { name: "origin/old", ahead: 0, behind: 0, gone: true } },
+      },
+    });
+  });
+
+  it("reads branches from refs that carry no upstream fields", async () => {
+    const { runner } = branchRunner(({ args }) =>
+      args[0] === "for-each-ref" ? ok("refs/heads/main\nrefs/remotes/origin/main\n") : undefined,
+    );
+    await expect(new PullRequestService(runner).branches(INPUT)).resolves.toEqual({
+      current: "feature/pr",
+      defaultBranch: "main",
+      local: ["main"],
+      remote: ["main"],
     });
   });
 

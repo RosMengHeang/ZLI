@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { accountLabel, sessionAccountId } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
+import { trackDescription, trackText } from "../review/branches.js";
 import { type PullRequestEntry, usePullRequestEntries } from "../review/pullRequestStore.js";
 import type { RunGroup, RunState } from "../sessions/bestOf.js";
 import { runStateLabel } from "../sessions/bestOf.js";
@@ -49,6 +50,19 @@ function pullRequestBadge(
           ? `${state}, checks running`
           : `${state}, checks passed`;
   return { label: `#${pullRequest.number}`, tone, title: `Pull request ${detail.toLowerCase()}` };
+}
+
+/** Commits to push and pull, from the status lookup the sidebar already polls for pull requests. */
+function WorktreeTrack({ entry, branch }: { entry: PullRequestEntry | undefined; branch: string }) {
+  const upstream = entry?.status?.branch === branch ? entry.status.upstream : undefined;
+  const text = upstream?.gone ? "" : trackText(upstream);
+  if (!text) return null;
+  return (
+    <span className="worktree-track" title={trackDescription(upstream)}>
+      <span aria-hidden="true">{text}</span>
+      <span className="sr-only">{trackDescription(upstream)}</span>
+    </span>
+  );
 }
 
 function WorktreePrBadge({ entry }: { entry: PullRequestEntry | undefined }) {
@@ -415,6 +429,7 @@ export function Sidebar({
                             >
                               <span className={`status-dot ${dotClass}`} aria-hidden="true" />
                               <span className="worktree-name">{worktree.branch}</span>
+                              <WorktreeTrack entry={prEntries.get(worktree.worktreeId)} branch={worktree.branch} />
                               {checkout ? <span className="worktree-kind">checkout</span> : null}
                               <WorktreePrBadge entry={prEntries.get(worktree.worktreeId)} />
                               <span

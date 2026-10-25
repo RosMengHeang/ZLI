@@ -58,6 +58,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     errorMessage: z.string().min(1).optional(),
     branch: z.string().min(1).optional(),
   }),
+  z.object({ type: z.literal("worktree.branch.changed"), worktreeId: WorktreeId, branch: z.string().min(1) }),
   z.object({ type: z.literal("worktree.removed"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("worktree.archived"), worktreeId: WorktreeId }),
   z.object({

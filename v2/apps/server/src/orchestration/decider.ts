@@ -63,6 +63,7 @@ export type DomainDecision = Extract<
       | "worktree.create.requested"
       | "worktree.imported"
       | "worktree.status.changed"
+      | "worktree.branch.changed"
       | "worktree.remove.requested"
       | "worktree.archive.requested"
       | "worktree.removed"
@@ -234,6 +235,13 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           ...(command.branch ? { branch: command.branch } : {}),
         },
       ];
+    case "worktree.branch": {
+      assertWorktree(projection, command.worktreeId);
+      assertSafeRef(command.branch);
+      const current = projection.worktrees.find((worktree) => worktree.worktreeId === command.worktreeId);
+      if (current?.branch === command.branch) return [];
+      return [{ type: "worktree.branch.changed", worktreeId: command.worktreeId, branch: command.branch }];
+    }
     case "worktree.cancel":
       assertWorktree(projection, command.worktreeId);
       return [{ type: "worktree.status.changed", worktreeId: command.worktreeId, status: "cancelling" }];

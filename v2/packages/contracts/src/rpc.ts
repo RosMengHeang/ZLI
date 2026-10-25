@@ -90,6 +90,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     errorMessage: z.string().min(1).optional(),
     branch: z.string().min(1).optional(),
   }),
+  /** Records the branch now checked out in the worktree, after it was switched or renamed. */
+  z.object({ type: z.literal("worktree.branch"), worktreeId: WorktreeId, branch: z.string().min(1).max(255) }),
   z.object({
     type: z.literal("terminal.create"),
     terminalId: TerminalId,

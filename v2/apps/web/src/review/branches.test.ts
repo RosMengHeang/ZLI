@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { baseBranchOptions, branchOptions, defaultBranchOf } from "./branches.js";
+import { baseBranchOptions, branchOptions, defaultBranchOf, trackDescription, trackText } from "./branches.js";
 import { compareDefaultOf } from "./ReviewPane.js";
 
 const BRANCHES = {
@@ -9,6 +9,19 @@ const BRANCHES = {
   local: ["feature/pr", "release", "main"],
   remote: ["release", "main", "feature/pr"],
 };
+
+describe("upstream counts", () => {
+  it("shows commits to push and pull as arrows and in words", () => {
+    const upstream = { name: "origin/a", ahead: 2, behind: 1 };
+    expect(trackText(upstream)).toBe("↑2 ↓1");
+    expect(trackText({ ...upstream, ahead: 0 })).toBe("↓1");
+    expect(trackText({ ...upstream, ahead: 0, behind: 0 })).toBe("");
+    expect(trackText(undefined)).toBe("");
+    expect(trackDescription(upstream)).toBe("2 commits to push, 1 commit to pull against origin/a.");
+    expect(trackDescription({ ...upstream, ahead: 0, behind: 0 })).toBe("Up to date with origin/a.");
+    expect(trackDescription({ ...upstream, gone: true })).toBe("origin/a no longer exists.");
+  });
+});
 
 describe("branch choices", () => {
   it("lists local branches with the default on top and leaves out the current one", () => {

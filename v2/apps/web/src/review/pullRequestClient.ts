@@ -247,3 +247,54 @@ export function runStashAction(
     GitStashResult,
   );
 }
+
+export function createBranch(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { name: string; from?: string | undefined; switchTo: boolean },
+): Promise<GitBranchesResult> {
+  return request(
+    dispatch,
+    {
+      type: "review.git.createBranch",
+      worktreeId: WorktreeId.parse(worktreeId),
+      name: input.name,
+      ...(input.from ? { from: input.from } : {}),
+      switchTo: input.switchTo,
+    },
+    GitBranchesResult,
+  );
+}
+
+/** `name` is a local branch, or `origin/<name>` to check out a local branch that tracks it. */
+export function switchBranch(dispatch: Dispatch, worktreeId: string, name: string): Promise<GitBranchesResult> {
+  return request(
+    dispatch,
+    { type: "review.git.switchBranch", worktreeId: WorktreeId.parse(worktreeId), name },
+    GitBranchesResult,
+  );
+}
+
+export function renameBranch(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { from: string; to: string },
+): Promise<GitBranchesResult> {
+  return request(
+    dispatch,
+    { type: "review.git.renameBranch", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    GitBranchesResult,
+  );
+}
+
+export function deleteBranch(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { name: string; force: boolean; remote: boolean },
+): Promise<GitBranchesResult> {
+  return request(
+    dispatch,
+    { type: "review.git.deleteBranch", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    GitBranchesResult,
+  );
+}

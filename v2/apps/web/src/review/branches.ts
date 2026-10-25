@@ -1,4 +1,4 @@
-import type { GitBranchesResult } from "@zli-v2/contracts";
+import type { GitBranchesResult, GitUpstream } from "@zli-v2/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { PickerOption } from "../ui/Picker.js";
@@ -11,6 +11,8 @@ export type BranchState = {
   error: string | undefined;
   reload(): Promise<void>;
   fetch(): Promise<boolean>;
+  /** Shows a branch list an action answered with, so the list does not need to be read again. */
+  apply(result: GitBranchesResult): void;
 };
 
 /** The worktree's branches, read when the worktree changes and again on request. */
@@ -52,7 +54,32 @@ export function useBranches(dispatch: Dispatch, worktreeId: string | undefined, 
     error,
     reload: useCallback(async () => void (await load("list")), [load]),
     fetch: useCallback(() => load("fetch"), [load]),
+    apply: useCallback((result: GitBranchesResult) => {
+      latest.current += 1;
+      setBranches(result);
+      setLoading(undefined);
+      setError(undefined);
+    }, []),
   };
+}
+
+/** Commits to push and to pull, as `↑2 ↓1`; empty when the branch matches its upstream. */
+export function trackText(upstream: GitUpstream | undefined): string {
+  if (!upstream) return "";
+  return [upstream.ahead > 0 ? `↑${upstream.ahead}` : "", upstream.behind > 0 ? `↓${upstream.behind}` : ""]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** The same counts in words, for tooltips and screen readers. */
+export function trackDescription(upstream: GitUpstream | undefined): string | undefined {
+  if (!upstream) return undefined;
+  if (upstream.gone) return `${upstream.name} no longer exists.`;
+  const parts = [
+    upstream.ahead > 0 ? `${upstream.ahead} commit${upstream.ahead === 1 ? "" : "s"} to push` : "",
+    upstream.behind > 0 ? `${upstream.behind} commit${upstream.behind === 1 ? "" : "s"} to pull` : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? `${parts.join(", ")} against ${upstream.name}.` : `Up to date with ${upstream.name}.`;
 }
 
 /** The branch a picker starts on: origin's default, then main or master, then the first other branch. */
