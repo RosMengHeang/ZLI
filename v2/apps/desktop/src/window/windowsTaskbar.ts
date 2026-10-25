@@ -1,6 +1,16 @@
 /** Matches appId in electron-builder.yml, which the installer writes into the Start menu and taskbar shortcuts. */
 export const WINDOWS_APP_ID = "dev.zli.desktop";
 
+/**
+ * The app ID a launch runs under. Development launches must not share the installer's ID: Windows picks
+ * a taskbar icon from any shortcut carrying the window's ID, and pinning a development window writes one
+ * that points at electron.exe, which then gives the installed ZLI Electron's icon too. An executable path
+ * is the ID Windows accepts for unregistered apps, so development toasts still show.
+ */
+export function windowsAppId(execPath: string, packaged: boolean): string {
+  return packaged ? WINDOWS_APP_ID : execPath;
+}
+
 export type WindowsAppDetails = {
   appId: string;
   appIconPath: string;

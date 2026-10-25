@@ -58,7 +58,7 @@ import { shouldOpenExternal } from "./security/NavigationPolicy.js";
 import { registerUpdates } from "./updates/electronUpdates.js";
 import { resolveAppAsset } from "./window/ElectronProtocol.js";
 import { type BrowserWindowConstructor, createMainWindow } from "./window/ElectronWindow.js";
-import { WINDOWS_APP_ID, windowsAppDetails } from "./window/windowsTaskbar.js";
+import { windowsAppDetails, windowsAppId } from "./window/windowsTaskbar.js";
 
 const DEFAULT_ENVIRONMENT_ID = "00000000-0000-4000-8000-000000000001";
 const APP_ORIGIN = "zli-v2://app";
@@ -74,7 +74,7 @@ protocol.registerSchemesAsPrivileged([
 // Windows ties a window to a taskbar button when the window is created. Set any later, the window keeps
 // Electron's own ID and shows as a second button with Electron's icon beside the pinned ZLI shortcut.
 // Toasts also need this ID, since it matches the Start menu shortcut.
-if (process.platform === "win32") app.setAppUserModelId(WINDOWS_APP_ID);
+if (process.platform === "win32") app.setAppUserModelId(windowsAppId(process.execPath, app.isPackaged));
 
 // Integration tests turn motion off so a click never lands on a dialog that is still animating in.
 if (process.env.ZLI_REDUCED_MOTION === "1") app.commandLine.appendSwitch("force-prefers-reduced-motion");
@@ -99,6 +99,10 @@ function appIcon(name: string): string | undefined {
 
 async function main(): Promise<void> {
   await app.whenReady();
+  // Packaged macOS builds take the dock icon from the bundle. A development launch shows Electron's until
+  // this runs, so it goes before the daemon and server start rather than after the window opens.
+  const dockIcon = process.platform === "darwin" && !app.isPackaged ? appIcon("icon.png") : undefined;
+  if (dockIcon) app.dock?.setIcon(dockIcon);
   const rendererRoot = process.env.ZLI_RENDERER_ROOT ?? defaultRendererRoot();
   protocol.handle("zli-v2", (request) => {
     const asset = resolveAppAsset(rendererRoot, request.url);
@@ -148,9 +152,6 @@ async function main(): Promise<void> {
     process.platform,
     appIcon("icon-square.png"),
   );
-  // Packaged macOS builds take the dock icon from the bundle; a development launch would show Electron's.
-  const dockIcon = process.platform === "darwin" && !app.isPackaged ? appIcon("icon.png") : undefined;
-  if (dockIcon) app.dock?.setIcon(dockIcon);
   const electronWindow = window as unknown as BrowserWindow;
   mainWindow = electronWindow;
   const taskbarDetails = process.platform === "win32" ? windowsAppDetails(process.execPath, app.isPackaged) : undefined;

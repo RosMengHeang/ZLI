@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { WINDOWS_APP_ID, windowsAppDetails } from "./windowsTaskbar.js";
+import { WINDOWS_APP_ID, windowsAppDetails, windowsAppId } from "./windowsTaskbar.js";
+
+describe("windowsAppId", () => {
+  it("uses the installer's app ID for installed builds", () => {
+    expect(windowsAppId("C:\\Programs\\ZLI\\ZLI.exe", true)).toBe(WINDOWS_APP_ID);
+  });
+
+  it("keeps development launches off the installer's app ID", () => {
+    const electron = "C:\\repo\\node_modules\\electron\\dist\\electron.exe";
+    expect(windowsAppId(electron, false)).toBe(electron);
+  });
+});
 
 describe("windowsAppDetails", () => {
   it("points an installed build's taskbar button at ZLI.exe under the installer's app ID", () => {

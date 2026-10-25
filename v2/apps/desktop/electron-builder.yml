@@ -41,5 +41,8 @@ mac:
 linux:
   executableName: zli
   icon: build/icon-square.png
+  # Electron uses desktopName from package.json as the Wayland app_id and X11 WM_CLASS. Docks link the
+  # running window to the desktop entry, and its icon, only when the entry's name and StartupWMClass match it.
+  syncDesktopName: true
   target:
     - AppImage
