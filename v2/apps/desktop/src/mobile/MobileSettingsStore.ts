@@ -23,8 +23,11 @@ export class MobileSettingsStore {
     return this.#cache;
   }
 
-  async set(patch: Partial<MobileSettings>): Promise<MobileSettings> {
-    const next = MobileSettings.parse({ ...(await this.get()), ...patch });
+  async set(
+    patch: { readonly [Key in keyof MobileSettings]?: MobileSettings[Key] | undefined },
+  ): Promise<MobileSettings> {
+    const changes = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
+    const next = MobileSettings.parse({ ...(await this.get()), ...changes });
     await mkdir(dirname(this.#path), { recursive: true });
     const temporary = `${this.#path}.${process.pid}.tmp`;
     await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, "utf8");
