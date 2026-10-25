@@ -85,7 +85,7 @@ describe("PluginStore", () => {
 
     await store.configure("kit", { token: "s3cret" });
     expect(store.mcpServers(new Set())).toContainEqual(
-      expect.objectContaining({ name: "local", command: join(folder, "bin/run"), env: { TOKEN: "s3cret" } }),
+      expect.objectContaining({ name: "local", command: `${folder}/bin/run`, env: { TOKEN: "s3cret" } }),
     );
     // A blank value keeps the saved secret.
     await store.configure("kit", { token: "" });
