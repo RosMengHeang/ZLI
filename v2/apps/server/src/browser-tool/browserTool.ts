@@ -6,6 +6,8 @@ import { dirname, isAbsolute, join } from "node:path";
 export const BROWSER_MCP_SERVER = "zli-browser";
 /** MCP server that lets agents see, read, start, and message the other agents in their project. */
 export const AGENT_MCP_SERVER = "zli";
+/** MCP server that drives the emulators, simulators, and phones in ZLI's Mobile panel. */
+export const MOBILE_MCP_SERVER = "zli-mobile";
 
 export type BrowserToolConfig = {
   /** Electron executable that runs the tool script with ELECTRON_RUN_AS_NODE. */
@@ -13,6 +15,8 @@ export type BrowserToolConfig = {
   script: string;
   /** The bundled `zli` agent tool script, run the same way. */
   agentScript?: string;
+  /** The bundled `zli-mobile` device tool script, run the same way. */
+  mobileScript?: string;
   /** The bundled `zli-connect` MCP sign-in bridge script, run the same way. */
   connectScript?: string;
   /** Endpoint file the tool reads to reach the browser control service. */
@@ -68,10 +72,12 @@ export function browserToolConfigFromEnv(env: NodeJS.ProcessEnv = process.env): 
   if (![command, script, controlFile, shimDir].every((value) => isAbsolute(value))) return undefined;
   const agentScript = env.ZLI_AGENT_TOOL_SCRIPT?.trim();
   const connectScript = env.ZLI_CONNECT_TOOL_SCRIPT?.trim();
+  const mobileScript = env.ZLI_MOBILE_TOOL_SCRIPT?.trim();
   return {
     command,
     script,
     ...(agentScript && isAbsolute(agentScript) ? { agentScript } : {}),
+    ...(mobileScript && isAbsolute(mobileScript) ? { mobileScript } : {}),
     ...(connectScript && isAbsolute(connectScript) ? { connectScript } : {}),
     controlFile,
     shimDir,
@@ -98,10 +104,16 @@ export function agentMcpServerSpec(config: BrowserToolConfig, worktreeId?: strin
   return { ...mcpServerSpec(config, worktreeId), name: AGENT_MCP_SERVER, args: [config.agentScript, "mcp"] };
 }
 
-/** Every MCP server ZLI itself provides: the browser, and the agent tool when it was bundled. */
+export function mobileMcpServerSpec(config: BrowserToolConfig, worktreeId?: string): McpStdioServerSpec | undefined {
+  if (!config.mobileScript) return undefined;
+  return { ...mcpServerSpec(config, worktreeId), name: MOBILE_MCP_SERVER, args: [config.mobileScript, "mcp"] };
+}
+
+/** Every MCP server ZLI itself provides: the browser, plus the agent and mobile tools when they were bundled. */
 export function zliMcpServerSpecs(config: BrowserToolConfig, worktreeId?: string): McpStdioServerSpec[] {
   const agent = agentMcpServerSpec(config, worktreeId);
-  return [mcpServerSpec(config, worktreeId), ...(agent ? [agent] : [])];
+  const mobile = mobileMcpServerSpec(config, worktreeId);
+  return [mcpServerSpec(config, worktreeId), ...(agent ? [agent] : []), ...(mobile ? [mobile] : [])];
 }
 
 /**

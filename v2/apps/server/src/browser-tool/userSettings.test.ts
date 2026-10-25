@@ -47,6 +47,18 @@ async function readJson(path: string): Promise<unknown> {
 }
 
 describe("registerBrowserToolInUserSettings", () => {
+  it("registers zli-mobile beside zli-browser when the mobile tool is bundled", async () => {
+    const dir = await home();
+    const mobileScript = "C:\\ZLI\\resources\\zli-mobile.js";
+    await registerBrowserToolInUserSettings(
+      { ...config, mobileScript },
+      { home: dir, env: {}, isInstalled: installed("cursor-agent") },
+    );
+    expect(await readJson(join(dir, ".cursor", "mcp.json"))).toEqual({
+      mcpServers: { "zli-browser": stdio, "zli-mobile": { ...stdio, args: [mobileScript, "mcp"] } },
+    });
+  });
+
   it("creates settings for installed CLIs and skips CLIs that are absent with no config dir", async () => {
     const dir = await home();
     const outcomes = await registerBrowserToolInUserSettings(config, {
