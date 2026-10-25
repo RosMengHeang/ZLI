@@ -412,7 +412,7 @@ export class DeviceManager {
   /** After input on a simulator shown as screenshots, the next one comes now and the following ones faster. */
   #markActive(device: MobileDevice): void {
     const stream = this.#streams.get(device.deviceId);
-    if (!stream || stream.mode !== "stills" || device.platform !== "ios") return;
+    if (stream?.mode !== "stills" || device.platform !== "ios") return;
     stream.activeUntil = this.#now() + ACTIVE_WINDOW_MS;
     stream.wake?.();
   }
