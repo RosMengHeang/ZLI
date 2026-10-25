@@ -8,6 +8,8 @@ import {
   TerminalId,
 } from "@zli-v2/contracts";
 
+import { accountLoginArgs } from "../accounts/accountEnv.js";
+import type { AccountResolver } from "../accounts/AccountStore.js";
 import {
   type BrowserToolConfig,
   browserToolEnv,
@@ -43,6 +45,8 @@ export type TerminalReactorOptions = {
   writeMcpConfig?: typeof writeAgentMcpConfig;
   /** The environment agent settings such as OPENCODE_CONFIG_CONTENT are merged with. */
   env?: NodeJS.ProcessEnv;
+  /** The environment for an agent's account; without it every agent uses the usual login. */
+  resolveAccount?: AccountResolver;
 };
 
 type AgentCommand = { file: string; args: string[]; env: Record<string, string> };
@@ -129,12 +133,18 @@ export class TerminalReactor {
       const worktreePath = intent.worktreePath ?? (await this.worktreePath(intent.terminal.worktreeId));
       if (!worktreePath) throw new Error(`Worktree does not exist: ${intent.terminal.worktreeId}`);
       const worktreeId = intent.terminal.worktreeId;
-      const agent = intent.terminal.agent ? await this.agentCommand(intent.terminal.agent, worktreeId) : undefined;
+      const launch = intent.terminal.agent;
+      const resolveAccount = this.options.resolveAccount;
+      // An await with no resolver would still delay the spawn past callers that only wait on the engine.
+      const account = launch && resolveAccount ? await resolveAccount(launch.provider, launch.accountId) : undefined;
+      if (launch?.login && !account) throw new AgentLaunchError("Choose an account to sign in to.");
+      const agent = launch ? await this.agentCommand(launch, worktreeId) : undefined;
       const browserTool = this.options.browserTool;
       const envOverrides = {
         ...(agent ? AGENT_PTY_ENV : {}),
         ...(browserTool ? browserToolEnv(browserTool, worktreeId) : {}),
         ...agent?.env,
+        ...account?.env,
       };
       await this.service.create({
         terminalId: intent.terminal.terminalId,
@@ -211,7 +221,9 @@ export class TerminalReactor {
   }
 
   private async agentCommand(agent: TerminalAgentLaunch, worktreeId: string): Promise<AgentCommand> {
-    const args = buildAgentArgs(agent);
+    const login = agent.login ? accountLoginArgs(agent.provider) : undefined;
+    if (agent.login && !login) throw new AgentLaunchError("This agent has no sign-in that ZLI can start.");
+    const args = login ?? buildAgentArgs(agent);
     let file: string | undefined;
     try {
       file = await this.options.resolveAgentCli?.(agent.provider);
@@ -219,7 +231,7 @@ export class TerminalReactor {
       file = undefined;
     }
     if (!file) throw new AgentLaunchError(agentCliMissingMessage(agent.provider));
-    const specs = this.mcpSpecs(worktreeId);
+    const specs = login ? [] : this.mcpSpecs(worktreeId);
     if (specs.length === 0) return { file, args, env: {} };
     const mcp = await this.mcpLaunch(specs, agent, worktreeId);
     return { file, args: [...args, ...mcp.args], env: mcp.env };

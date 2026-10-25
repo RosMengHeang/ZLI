@@ -81,3 +81,21 @@ describe("usage totals", () => {
     expect(formatCost(1.234)).toBe("$1.23");
   });
 });
+
+describe("groupUsage by account", () => {
+  it("gives each saved account its own row and keeps the usual login on the provider's", () => {
+    const at = "2026-09-20T10:00:00.000Z";
+    const rows = groupUsage(
+      [
+        record("x", "codex", at, { inputTokens: 10 }),
+        { ...record("y", "codex", at, { inputTokens: 30 }), accountId: "work" },
+        { ...record("z", "codex", at, { inputTokens: 5 }), accountId: "usual" },
+      ],
+      "provider",
+    );
+    expect(rows.map((row) => [row.key, row.accountId, row.totals.inputTokens])).toEqual([
+      ["codex:work", "work", 30],
+      ["codex", undefined, 15],
+    ]);
+  });
+});

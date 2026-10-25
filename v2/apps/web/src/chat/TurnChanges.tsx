@@ -1,6 +1,7 @@
 import type { CheckpointDiffResult, ThreadCheckpoint, TurnCheckpointFile } from "@zli-v2/contracts";
 import { type KeyboardEvent, memo, useRef, useState } from "react";
 import { isMarkdownPath } from "../files/fileViewModes.js";
+import { DiffView } from "../review/DiffView.js";
 import { parseDiffLines, patchBody } from "../review/diffLines.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Button } from "../ui/Button.js";
@@ -22,16 +23,19 @@ const kindLabel: Partial<Record<TurnCheckpointFile["kind"], string>> = {
 
 /**
  * What one turn changed on disk, with each file's diff on demand and a way to undo the turn.
- * Markdown files open in the Files panel to read, and images open full size.
+ * Markdown files open in the Files panel to read, and images open full size. With a worktree, the
+ * diff lines take review comments like the Changes panel.
  */
 export const TurnChanges = memo(function TurnChanges({
   checkpoint,
+  worktreeId,
   displayName,
   branch,
   restoreBlocked,
   onOpenFile,
 }: {
   checkpoint: ThreadCheckpoint;
+  worktreeId?: string | undefined;
   displayName: string;
   branch: string;
   /** Why restoring is not possible right now, for example while an agent is working. */
@@ -152,7 +156,9 @@ export const TurnChanges = memo(function TurnChanges({
                   <LineCounts additions={file.additions} deletions={file.deletions} />
                 )}
               </button>
-              {open ? <TurnDiff path={file.path} state={diffs[file.path] ?? { kind: "loading" }} /> : null}
+              {open ? (
+                <TurnDiff path={file.path} worktreeId={worktreeId} state={diffs[file.path] ?? { kind: "loading" }} />
+              ) : null}
             </li>
           );
         })}
@@ -186,7 +192,7 @@ function LineCounts({ additions, deletions }: { additions: number; deletions: nu
   );
 }
 
-function TurnDiff({ path, state }: { path: string; state: DiffState }) {
+function TurnDiff({ path, worktreeId, state }: { path: string; worktreeId: string | undefined; state: DiffState }) {
   if (state.kind === "loading") {
     return (
       <p className="turn-diff-note" role="status">
@@ -205,7 +211,15 @@ function TurnDiff({ path, state }: { path: string; state: DiffState }) {
   const { diff } = state;
   if (diff.binary) return <p className="turn-diff-note">Binary file. There is no text diff to show.</p>;
   if (!diff.patch.trim()) return <p className="turn-diff-note">Only the name or file mode changed.</p>;
-  const lines = parseDiffLines(patchBody(diff.patch.replace(/\r?\n$/u, "")));
+  const patch = diff.patch.replace(/\r?\n$/u, "");
+  if (worktreeId) {
+    return (
+      <div className="turn-diff-review">
+        <DiffView worktreeId={worktreeId} diff={{ path, patch, binary: false, truncated: diff.truncated }} />
+      </div>
+    );
+  }
+  const lines = parseDiffLines(patchBody(patch));
   return (
     <section className="turn-diff" aria-label={`Diff for ${path}`}>
       <div className="turn-diff-lines">

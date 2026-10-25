@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { SessionId, TerminalId, WorktreeId } from "./ids.js";
+import { AccountId, SessionId, TerminalId, WorktreeId } from "./ids.js";
 import { ListedProviderKind, PermissionMode } from "./provider.js";
 
 /**
@@ -17,6 +17,9 @@ export const TerminalAgentLaunch = z.object({
   provider: ListedProviderKind,
   model: z.string().min(1).max(200).optional(),
   permissionMode: PermissionMode.optional(),
+  accountId: AccountId.optional(),
+  /** Runs the CLI's sign-in command for the account instead of the agent. */
+  login: z.boolean().optional(),
 });
 export type TerminalAgentLaunch = z.infer<typeof TerminalAgentLaunch>;
 

@@ -8,11 +8,23 @@ import {
 } from "@zli-v2/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DevServerBar, devServerLabel, originOf } from "../devservers/DevServers.js";
+import { SendToAgentDialog } from "../review/SendToAgentDialog.js";
+import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
+import type { SessionMode } from "../sessions/sessions.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, PaneHeader } from "../ui/Pane.js";
 import { Picker } from "../ui/Picker.js";
+import { DesignPanel } from "./DesignPanel.js";
+import {
+  type DesignPick,
+  designAttachments,
+  formatDesignMessage,
+  MAX_DESIGN_PICKS,
+  parseDesignInspection,
+  pickedSelector,
+} from "./designMode.js";
 import "./browser.css";
 
 const DEFAULT_PROFILE_ID = "00000000-0000-4000-8000-000000000002";
@@ -32,23 +44,34 @@ type Props = {
   /** A tab an agent opened that the pane should bring to the front once it belongs to this worktree. */
   reveal?: BrowserReveal | undefined;
   openRequest?: BrowserOpenRequest | undefined;
+  onShowAgent?: ((sessionId: string, mode: SessionMode) => void) | undefined;
 };
 
 const selectBrowserTabs = (projection: RuntimeProjection | undefined) => projection?.browserTabs;
 const selectDevServers = (projection: RuntimeProjection | undefined) => projection?.devServers;
 
-export function BrowserPane({ worktree, obscured = false, reveal, openRequest }: Props) {
+export function BrowserPane({ worktree, obscured: obscuredByApp = false, reveal, openRequest, onShowAgent }: Props) {
   const { bridge } = useRuntime();
   const browserTabs = useRuntimeSelector(selectBrowserTabs);
   const allDevServers = useRuntimeSelector(selectDevServers);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const urlEditedRef = useRef(false);
-  const obscuredRef = useRef(obscured);
+  const obscuredRef = useRef(obscuredByApp);
   const [tab, setTab] = useState<BrowserTabProjection>();
   const [url, setUrlState] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [inspecting, setInspecting] = useState(false);
+  const [picks, setPicks] = useState<DesignPick[]>([]);
+  const [designNote, setDesignNote] = useState("");
+  const [sendingDesign, setSendingDesign] = useState(false);
+  /** The tab a pick is waiting on, so a pick that ends after the tab changed is dropped. */
+  const pickingTabRef = useRef<string | undefined>(undefined);
+  const canDesign = typeof bridge?.browser.designPick === "function";
+  // The native view draws over the DOM, so it is hidden while the send dialog is open.
+  const obscured = obscuredByApp || sendingDesign;
   const worktreeId = worktree?.worktreeId;
   const showUrl = useCallback((value: string) => {
     urlEditedRef.current = false;
@@ -91,6 +114,9 @@ export function BrowserPane({ worktree, obscured = false, reveal, openRequest }:
     setTab(undefined);
     showUrl("");
     setError(undefined);
+    setPicks([]);
+    setDesignNote("");
+    setSendingDesign(false);
   }, [showUrl, worktreeId]);
 
   useEffect(() => {
@@ -348,6 +374,58 @@ export function BrowserPane({ worktree, obscured = false, reveal, openRequest }:
     }
   };
 
+  const stopPicking = useCallback(() => {
+    const browserTabId = pickingTabRef.current;
+    pickingTabRef.current = undefined;
+    setPicking(false);
+    if (browserTabId) void bridge?.browser.designCancel?.(browserTabId).catch(() => undefined);
+  }, [bridge]);
+
+  const startPicking = async () => {
+    const designPick = bridge?.browser.designPick;
+    if (!bridge || !designPick || !tab || pickingTabRef.current) return;
+    const browserTabId = tab.browserTabId;
+    pickingTabRef.current = browserTabId;
+    setPicking(true);
+    setError(undefined);
+    try {
+      const selector = pickedSelector(await designPick(browserTabId));
+      if (!selector || pickingTabRef.current !== browserTabId) return;
+      setInspecting(true);
+      const pick = parseDesignInspection(
+        await bridge.browser.designInspect({ browserTabId, selector }),
+        selector,
+        makeCommandId(),
+      );
+      if (!pick) throw new Error("The picked element could not be read. Try picking it again.");
+      setPicks((current) => [...current, pick].slice(-MAX_DESIGN_PICKS));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The element could not be picked.");
+    } finally {
+      if (pickingTabRef.current === browserTabId) {
+        pickingTabRef.current = undefined;
+        setPicking(false);
+      }
+      setInspecting(false);
+    }
+  };
+
+  const pickTabId = tab?.browserTabId;
+  // A pick belongs to the page it started on; switching tabs or closing the pane ends it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pickTabId is the trigger to stop.
+  useEffect(() => () => stopPicking(), [pickTabId, stopPicking]);
+
+  useEffect(() => {
+    if (!picking) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      stopPicking();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [picking, stopPicking]);
+
   return (
     <div className="tool-pane browser-pane">
       <PaneHeader icon="globe" title={tab?.title || "Browser"} detail={worktree?.branch}>
@@ -452,6 +530,18 @@ export function BrowserPane({ worktree, obscured = false, reveal, openRequest }:
             {busy ? "Opening" : tab ? "Go" : "Open"}
           </Button>
         </form>
+        {canDesign ? (
+          <IconButton
+            icon="crosshair"
+            size="sm"
+            iconSize={14}
+            disabled={!tab || inspecting || (!picking && picks.length >= MAX_DESIGN_PICKS)}
+            onClick={() => (picking ? stopPicking() : void startPicking())}
+            pressed={picking}
+            label="Pick element"
+            tooltip={picking ? "Stop picking" : "Pick an element to change"}
+          />
+        ) : null}
         <IconButton
           icon="smartphone"
           size="sm"
@@ -521,6 +611,15 @@ export function BrowserPane({ worktree, obscured = false, reveal, openRequest }:
           onOpen={(target) => void openDevServer(target)}
         />
       ) : null}
+      {picking ? (
+        <div className="browser-design-hint" role="status">
+          <Icon name="crosshair" size={13} />
+          <span>Click an element in the page. Esc cancels.</span>
+          <Button size="xs" variant="ghost" onClick={stopPicking}>
+            Cancel
+          </Button>
+        </div>
+      ) : null}
       {(error ?? tab?.loadError) && (
         <div className="banner banner-danger" role="alert">
           <Icon name="alert" size={14} />
@@ -565,6 +664,42 @@ export function BrowserPane({ worktree, obscured = false, reveal, openRequest }:
           />
         ) : null}
       </div>
+      {picks.length > 0 ? (
+        <DesignPanel
+          picks={picks}
+          note={designNote}
+          picking={picking}
+          inspecting={inspecting}
+          canPick={!!tab}
+          onNoteChange={setDesignNote}
+          onPickAnother={() => void startPicking()}
+          onRemove={(id) => setPicks((current) => current.filter((pick) => pick.id !== id))}
+          onClear={() => {
+            setPicks([]);
+            setDesignNote("");
+          }}
+          onSend={() => {
+            if (picking) stopPicking();
+            setSendingDesign(true);
+          }}
+        />
+      ) : null}
+      {sendingDesign && worktree && picks.length > 0 ? (
+        <SendToAgentDialog
+          label="Send picked elements"
+          title={`Send ${picks.length} element${picks.length === 1 ? "" : "s"}`}
+          worktree={worktree}
+          message={formatDesignMessage(picks, designNote, worktree.branch)}
+          attachments={designAttachments(picks)}
+          noAgentMessage={`No agent is running in ${worktree.branch}. Start one with New agent, then send the elements. They stay here until then.`}
+          onSent={() => {
+            setPicks([]);
+            setDesignNote("");
+          }}
+          onClose={() => setSendingDesign(false)}
+          onShowAgent={onShowAgent}
+        />
+      ) : null}
     </div>
   );
 }

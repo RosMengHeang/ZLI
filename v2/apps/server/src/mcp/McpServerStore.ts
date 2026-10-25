@@ -1,15 +1,18 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import {
   AgentToolAccess,
   DEFAULT_AGENT_TOOL_ACCESS,
+  isHttpServer,
+  MCP_REMOTE_PACKAGE,
   type McpListResult,
   type McpServerConfig,
   McpServerList,
   type McpSettingsOutcome,
 } from "@zli-v2/contracts";
 
-import { isPlainObject, type McpServerSpec, writeFileAtomic } from "../browser-tool/browserTool.js";
+import { isPlainObject, type McpServerSpec, writeFileAtomic, writeFileIfChanged } from "../browser-tool/browserTool.js";
 import type { UserSettingsOwnership } from "../browser-tool/userSettings.js";
 
 /** Copies the enabled servers into agents that read MCP servers only from their own settings files. */
@@ -25,9 +28,57 @@ type StoredFile = {
   agentAccess: AgentToolAccess;
 };
 
-export function mcpLaunchSpec(server: McpServerConfig): McpServerSpec {
-  return { name: server.name, command: server.command, args: [...server.args], env: { ...server.env } };
+/**
+ * The server as agents launch it. A sign-in (OAuth) server runs through mcp-remote, which handles the
+ * browser login and token refresh, so it works in every agent the same way. Its headers go in
+ * `headerFile` when given, which keeps them out of the process list.
+ */
+export function mcpLaunchSpec(
+  server: McpServerConfig,
+  options: { headerFile?: string; platform?: NodeJS.Platform } = {},
+): McpServerSpec {
+  if (!isHttpServer(server)) {
+    return { name: server.name, command: server.command, args: [...server.args], env: { ...server.env } };
+  }
+  if (!server.oauth) return { transport: "http", name: server.name, url: server.url, headers: { ...server.headers } };
+  const headers = Object.entries(server.headers);
+  const headerArgs =
+    headers.length === 0
+      ? []
+      : options.headerFile
+        ? ["--header-file", options.headerFile]
+        : headers.flatMap(([name, value]) => ["--header", `${name}:${value}`]);
+  const args = [
+    "-y",
+    MCP_REMOTE_PACKAGE,
+    server.url,
+    ...(server.url.startsWith("http:") ? ["--allow-http"] : []),
+    ...headerArgs,
+  ];
+  // npx is a .cmd shim on Windows, and agents start servers without a shell.
+  return (options.platform ?? process.platform) === "win32"
+    ? { name: server.name, command: "cmd", args: ["/c", "npx", ...args], env: {} }
+    : { name: server.name, command: "npx", args, env: {} };
 }
+
+/** mcp-remote header file contents: one `Name: value` per line. */
+export function mcpRemoteHeaderFile(headers: Readonly<Record<string, string>>): string {
+  return Object.entries(headers)
+    .map(([name, value]) => `${name}: ${value}\n`)
+    .join("");
+}
+
+function needsHeaderFile(server: McpServerConfig): boolean {
+  return isHttpServer(server) && server.oauth && Object.keys(server.headers).length > 0;
+}
+
+function copyServer(server: McpServerConfig): McpServerConfig {
+  return isHttpServer(server)
+    ? { ...server, headers: { ...server.headers } }
+    : { ...server, args: [...server.args], env: { ...server.env } };
+}
+
+const HEADER_FILE_SUFFIX = ".headers";
 
 /**
  * The MCP servers the person added in Settings, kept in one JSON file beside the database. Agents read
@@ -41,7 +92,14 @@ export class McpServerStore {
   private problem: string | undefined;
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly options: { path: string; syncUserSettings?: McpUserSettingsSync }) {}
+  constructor(
+    private readonly options: {
+      path: string;
+      syncUserSettings?: McpUserSettingsSync;
+      /** Servers from other sources, such as plugins. `taken` holds the lowercase names of the person's own servers, which win. */
+      extraServers?: (taken: ReadonlySet<string>) => McpServerConfig[];
+    },
+  ) {}
 
   async load(): Promise<void> {
     let text: string;
@@ -70,11 +128,19 @@ export class McpServerStore {
     }
     this.servers = servers.data;
     this.owned = isPlainObject(parsed) ? ownedFrom(parsed.owned) : {};
+    await this.writeHeaderFiles();
   }
 
   /** Enabled servers in the form agent launches use. */
   specs(): McpServerSpec[] {
-    return this.servers.filter((server) => server.enabled).map(mcpLaunchSpec);
+    return [...this.servers.filter((server) => server.enabled), ...this.extraServers()].map((server) =>
+      mcpLaunchSpec(server, needsHeaderFile(server) ? { headerFile: this.headerFile(server.name) } : {}),
+    );
+  }
+
+  /** Where mcp-remote reads one sign-in server's headers. */
+  headerFile(name: string): string {
+    return join(this.headerDir(), `${name}${HEADER_FILE_SUFFIX}`);
   }
 
   agentAccess(): AgentToolAccess {
@@ -83,7 +149,7 @@ export class McpServerStore {
 
   list(): McpListResult {
     return {
-      servers: this.servers.map((server) => ({ ...server, args: [...server.args], env: { ...server.env } })),
+      servers: this.servers.map(copyServer),
       agentAccess: this.access,
       userSettings: { enabled: this.options.syncUserSettings !== undefined, outcomes: [...this.outcomes] },
       ...(this.problem ? { problem: this.problem } : {}),
@@ -96,6 +162,7 @@ export class McpServerStore {
       await this.write(next);
       this.servers = next;
       this.problem = undefined;
+      await this.writeHeaderFiles();
       await this.sync();
       return this.list();
     });
@@ -113,6 +180,14 @@ export class McpServerStore {
         throw error;
       }
       return this.list();
+    });
+  }
+
+  /** Picks up a change in the extra servers: rewrites their header files and agent settings. */
+  refresh(): Promise<void> {
+    return this.serialize(async () => {
+      await this.writeHeaderFiles();
+      await this.sync();
     });
   }
 
@@ -134,6 +209,16 @@ export class McpServerStore {
     return run;
   }
 
+  private extraServers(): McpServerConfig[] {
+    const extra = this.options.extraServers;
+    if (!extra) return [];
+    try {
+      return extra(new Set(this.servers.map((server) => server.name.toLowerCase())));
+    } catch {
+      return [];
+    }
+  }
+
   private async sync(): Promise<void> {
     const sync = this.options.syncUserSettings;
     if (!sync) return;
@@ -148,6 +233,32 @@ export class McpServerStore {
       this.owned = result.owned;
       // The list itself is already saved; a lost ownership record only means a later delete leaves an entry.
       await this.write().catch(() => undefined);
+    }
+  }
+
+  private headerDir(): string {
+    return join(dirname(this.options.path), "mcp-headers");
+  }
+
+  /** Keeps one private file per sign-in server with headers and removes the rest. A failure only affects that server. */
+  private async writeHeaderFiles(): Promise<void> {
+    const wanted = [...this.servers, ...this.extraServers()].filter(needsHeaderFile);
+    const keep = new Set(wanted.map((server) => `${server.name}${HEADER_FILE_SUFFIX}`));
+    for (const server of wanted) {
+      if (!isHttpServer(server)) continue;
+      await writeFileIfChanged(this.headerFile(server.name), mcpRemoteHeaderFile(server.headers), {
+        mode: 0o600,
+      }).catch(() => undefined);
+    }
+    let names: string[];
+    try {
+      names = await readdir(this.headerDir());
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      if (!name.endsWith(HEADER_FILE_SUFFIX) || keep.has(name)) continue;
+      await rm(join(this.headerDir(), name), { force: true }).catch(() => undefined);
     }
   }
 

@@ -1,4 +1,5 @@
 import {
+  type Account,
   type ListedProviderKind,
   type PermissionMode,
   type ProjectProjection,
@@ -7,7 +8,9 @@ import {
 } from "@zli-v2/contracts";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
+import { accountOptions, defaultAccountId, launchAccountId } from "../accounts/accounts.js";
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
+import { ISSUE_SOURCE_NAMES, type IssueRef, issueBranchName } from "../issues/issueStart.js";
 import { permissionHint, permissionIcon, permissionLabel, permissionOptions } from "../chat/permissions.js";
 import {
   branchFromTemplate,
@@ -24,8 +27,10 @@ import { ModelMark, modelOptions } from "../ui/ModelMark.js";
 import { Picker } from "../ui/Picker.js";
 import { checkoutWorktree, type LaunchOptions, type Placement, safeBranchName } from "./launch.js";
 import type { SessionMode } from "./sessions.js";
+import "../issues/issues.css";
 
 const LAST_LAUNCH_KEY = "zli.lastLaunch.v1";
+const noAccounts: readonly Account[] = [];
 
 function readLastLaunch(): LaunchDefaults {
   try {
@@ -42,7 +47,12 @@ function readLastLaunch(): LaunchDefaults {
 export type NewAgentRequest = LaunchOptions & {
   project: ProjectProjection;
   placement: Placement;
+  /** Sent to the agent once it is ready. */
+  prompt?: string;
 };
+
+/** Starting values when the agent is started from an issue. */
+export type NewAgentPrefill = { issue: IssueRef; prompt: string };
 
 export const viewOptions: readonly ChoiceOption<SessionMode>[] = [
   { value: "terminal", label: "Terminal", icon: "terminal" },
@@ -58,12 +68,16 @@ export function NewAgentDialog({
   projection,
   initialProject,
   initialWorktreeId,
+  prefill,
+  accounts = noAccounts,
   onClose,
   onSubmit,
 }: {
   projection: RuntimeProjection;
   initialProject: ProjectProjection | undefined;
   initialWorktreeId: string | undefined;
+  prefill?: NewAgentPrefill | undefined;
+  accounts?: readonly Account[];
   onClose(): void;
   onSubmit(request: NewAgentRequest): Promise<string | undefined>;
 }) {
@@ -77,6 +91,8 @@ export function NewAgentDialog({
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(initial.permissionMode ?? "full-access");
   const [model, setModel] = useState(initial.model ?? "");
   const [showMissing, setShowMissing] = useState(false);
+  // Unset follows the agent's default account, which can change while the dialog is open.
+  const [pickedAccount, setPickedAccount] = useState<string>();
   const installed = listed.filter((entry) => entry.status === "found");
   const missing = listed.filter((entry) => entry.status !== "found");
   const shownProviders = installed.length === 0 || showMissing ? [...installed, ...missing] : installed;
@@ -92,11 +108,16 @@ export function NewAgentDialog({
         worktree.status === "bootstrapping"),
   );
   const [placementKind, setPlacementKind] = useState<Placement["kind"]>(() =>
-    initialWorktreeId && projectWorktrees.some((worktree) => worktree.worktreeId === initialWorktreeId)
+    !prefill && initialWorktreeId && projectWorktrees.some((worktree) => worktree.worktreeId === initialWorktreeId)
       ? "existing"
       : "new",
   );
-  const [branch, setBranch] = useState(() => branchFromTemplate(settings.branchTemplate, provider));
+  const branchFor = (agent: ListedProviderKind | undefined) =>
+    prefill
+      ? issueBranchName(settings.branchTemplate, agent, prefill.issue)
+      : branchFromTemplate(settings.branchTemplate, agent);
+  const [branch, setBranch] = useState(() => branchFor(provider));
+  const [prompt, setPrompt] = useState(prefill?.prompt ?? "");
   const [branchEdited, setBranchEdited] = useState(false);
   const [baseRef, setBaseRef] = useState("");
   const [existingId, setExistingId] = useState<string | undefined>(
@@ -120,6 +141,8 @@ export function NewAgentDialog({
     placementKind === "checkout" ? checkout?.worktreeId : placementKind === "existing" ? existingId : undefined;
   const sharing = sharedWorktreeId !== undefined && worktreeHasLiveThread(projection.threads, sharedWorktreeId);
   const newBranch = placementKind === "new" ? safeBranchName(branch) : "";
+  const accountChoices = accountOptions(accounts, provider);
+  const shownAccount = provider ? (pickedAccount ?? defaultAccountId(accounts, provider)) : "";
 
   const placementOptions: ChoiceOption<Placement["kind"]>[] = [
     {
@@ -134,8 +157,9 @@ export function NewAgentDialog({
       : []),
   ];
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: branchFor only reads the template and the prefill.
   useEffect(() => {
-    if (!branchEdited) setBranch(branchFromTemplate(settings.branchTemplate, provider));
+    if (!branchEdited) setBranch(branchFor(provider));
   }, [provider, branchEdited, settings.branchTemplate]);
 
   const chooseProject = (nextId: typeof projectId) => {
@@ -161,6 +185,7 @@ export function NewAgentDialog({
   const submit = async () => {
     if (launching.current || !ready || !project || !provider) return;
     launching.current = true;
+    const accountId = launchAccountId(accounts, provider, pickedAccount);
     const placement: Placement =
       placementKind === "new"
         ? { kind: "new", branch, baseRef }
@@ -183,6 +208,8 @@ export function NewAgentDialog({
         mode,
         permissionMode,
         ...(model && !modelUnsupported ? { model } : {}),
+        ...(prompt.trim() ? { prompt: prompt.trim() } : {}),
+        ...(accountId ? { accountId } : {}),
       });
     } catch (cause) {
       failure = cause instanceof Error ? cause.message : String(cause);
@@ -251,6 +278,7 @@ export function NewAgentDialog({
                   onChange={(next) => {
                     setProvider(next as ListedProviderKind);
                     setModel("");
+                    setPickedAccount(undefined);
                   }}
                 />
                 {installed.length > 0 && missing.length > 0 ? (
@@ -266,6 +294,18 @@ export function NewAgentDialog({
               </>
             )}
           </FormSection>
+
+          {accountChoices.length > 0 ? (
+            <FormSection label="Account" htmlFor={`${ids}-account`}>
+              <Select<string>
+                id={`${ids}-account`}
+                label="Account"
+                value={shownAccount}
+                options={accountChoices.map((option) => ({ ...option, icon: <Icon name="user" size={15} /> }))}
+                onChange={setPickedAccount}
+              />
+            </FormSection>
+          ) : null}
 
           <FormSection label="View" hint={viewHint[mode]}>
             <ChoiceSegmented<SessionMode>
@@ -375,6 +415,30 @@ export function NewAgentDialog({
               </Picker>
             </FormSection>
           </div>
+
+          {prefill ? (
+            <FormSection
+              label="First message"
+              htmlFor={`${ids}-prompt`}
+              hint="Sent to the agent as soon as it is ready. Edit it as you like."
+            >
+              <p className="new-agent-issue">
+                <Icon name="issue" size={14} />
+                <span>
+                  From {ISSUE_SOURCE_NAMES[prefill.issue.source]} issue{" "}
+                  <span className="issue-ref">{prefill.issue.reference}</span>
+                </span>
+              </p>
+              <textarea
+                id={`${ids}-prompt`}
+                className="textarea new-agent-prompt"
+                aria-label="First message"
+                rows={8}
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+              />
+            </FormSection>
+          ) : null}
 
           {error ? (
             <p className="inline-error" role="alert">

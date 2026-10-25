@@ -225,6 +225,8 @@ export function branchFromTemplate(
   const filled = template
     .replaceAll("{agent}", agent)
     .replaceAll("{random}", () => random())
-    .replaceAll("{date}", date);
+    .replaceAll("{date}", date)
+    // Only agents started from an issue fill {issue}; everywhere else it is left out.
+    .replaceAll("{issue}", "");
   return sanitizeBranch(filled) || `${agent}-${random()}`;
 }

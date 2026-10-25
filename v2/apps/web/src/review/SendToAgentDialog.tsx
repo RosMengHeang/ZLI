@@ -1,4 +1,4 @@
-import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
+import type { AttachmentMimeType, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { type KeyboardEvent, type ReactNode, useMemo, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
@@ -10,6 +10,10 @@ import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Icon } from "../ui/Icon.js";
 import { terminalPaste } from "./reviewComments.js";
+import "./review.css";
+
+/** A file sent along with the message; only chat agents receive these. */
+export type SendAttachment = { name: string; mimeType: AttachmentMimeType; dataBase64: string };
 
 export type SendTarget = {
   key: string;
@@ -65,6 +69,7 @@ export function SendToAgentDialog({
   title,
   worktree,
   message,
+  attachments = [],
   preparing,
   notice,
   noAgentMessage,
@@ -76,6 +81,7 @@ export function SendToAgentDialog({
   title: string;
   worktree: WorktreeProjection;
   message: string;
+  attachments?: readonly SendAttachment[] | undefined;
   /** Shown in place of the preview while the message is still being put together. */
   preparing?: string | undefined;
   /** Something the person should know about the message before sending it. */
@@ -104,7 +110,13 @@ export function SendToAgentDialog({
     try {
       let command: Record<string, unknown>;
       if (selected.mode === "chat") {
-        command = { type: "thread.queue", queueId: makeCommandId(), threadId: selected.threadId, text: message };
+        command = {
+          type: "thread.queue",
+          queueId: makeCommandId(),
+          threadId: selected.threadId,
+          text: message,
+          ...(attachments.length > 0 ? { attachments } : {}),
+        };
       } else {
         // Showing the terminal mounts its view, which knows whether the program reads bracketed paste.
         onShowAgent?.(selected.sessionId, "terminal");
@@ -213,9 +225,13 @@ export function SendToAgentDialog({
         <div className="dialog-footer">
           <span className="dialog-footer-note">
             {selected?.mode === "terminal"
-              ? "Pasted at the agent's prompt without pressing Enter, so you can read it first."
+              ? attachments.length > 0
+                ? "Pasted at the agent's prompt without the images, which only chat agents receive."
+                : "Pasted at the agent's prompt without pressing Enter, so you can read it first."
               : selected
-                ? "Sent as a chat message."
+                ? attachments.length > 0
+                  ? `Sent as a chat message with ${attachments.length} image${attachments.length === 1 ? "" : "s"}.`
+                  : "Sent as a chat message."
                 : ""}
           </span>
           <Button variant="ghost" onClick={onClose} disabled={sending}>

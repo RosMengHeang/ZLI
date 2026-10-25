@@ -4,6 +4,9 @@ import {
   actionsJob,
   failedLogExcerpt,
   formatBody,
+  hunkTail,
+  parsePullRequestLink,
+  parseReviewComments,
   type ProcessResult,
   type ProcessRunner,
   PullRequestError,
@@ -330,6 +333,162 @@ describe("PullRequestService.checkLog", () => {
   });
 });
 
+describe("PullRequestService.comments", () => {
+  const graphql = JSON.stringify({
+    data: {
+      repository: {
+        pullRequest: {
+          reviewThreads: {
+            nodes: [
+              {
+                id: "T1",
+                isResolved: false,
+                isOutdated: false,
+                path: "src/app.ts",
+                line: 14,
+                startLine: 12,
+                comments: {
+                  nodes: [
+                    {
+                      author: { login: "ana" },
+                      body: "Handle the empty list.",
+                      url: "https://github.com/acme/app/pull/12#discussion_r1",
+                      diffHunk: "@@ -10,3 +10,5 @@\n const a = 1;\n+const b = 2;",
+                    },
+                    { author: null, body: "  Agreed.  " },
+                  ],
+                },
+              },
+              {
+                id: "T2",
+                isResolved: true,
+                path: "src/done.ts",
+                line: 3,
+                comments: { nodes: [{ author: { login: "ana" }, body: "Fixed already." }] },
+              },
+              {
+                id: "T3",
+                isResolved: false,
+                isOutdated: true,
+                path: "src/old.ts",
+                line: null,
+                originalLine: 7,
+                comments: { nodes: [{ author: { login: "bo" }, body: "Rename this." }] },
+              },
+            ],
+          },
+          reviews: {
+            nodes: [
+              { id: "R1", author: { login: "ana" }, state: "CHANGES_REQUESTED", body: "Needs tests." },
+              { id: "R2", author: { login: "bo" }, state: "APPROVED", body: "" },
+              { id: "R3", author: { login: "bo" }, state: "DISMISSED", body: "Old." },
+            ],
+          },
+        },
+      },
+    },
+  });
+
+  it("reads unresolved threads and written reviews through the GraphQL API", async () => {
+    const { runner, calls } = fakeRunner(({ args }) => {
+      if (args.join(" ") === "pr view feature/pr --json number,url") return ok(PR_JSON);
+      if (args[0] === "api") return ok(graphql);
+      return undefined;
+    });
+    const result = await new PullRequestService(runner).comments(INPUT);
+    expect(result).toEqual({
+      number: 12,
+      url: "https://github.com/acme/app/pull/12",
+      threads: [
+        {
+          id: "T1",
+          path: "src/app.ts",
+          line: 14,
+          startLine: 12,
+          outdated: false,
+          diffHunk: "@@ -10,3 +10,5 @@\n const a = 1;\n+const b = 2;",
+          comments: [
+            {
+              author: "ana",
+              body: "Handle the empty list.",
+              url: "https://github.com/acme/app/pull/12#discussion_r1",
+            },
+            { author: "ghost", body: "Agreed." },
+          ],
+        },
+        {
+          id: "T3",
+          path: "src/old.ts",
+          line: 7,
+          outdated: true,
+          comments: [{ author: "bo", body: "Rename this." }],
+        },
+      ],
+      reviews: [{ id: "R1", author: "ana", state: "CHANGES_REQUESTED", body: "Needs tests." }],
+    });
+    const api = calls.find((call) => call.args[0] === "api");
+    expect(api?.args.slice(0, 3)).toEqual(["api", "graphql", "-f"]);
+    expect(api?.args.slice(4)).toEqual(["-f", "owner=acme", "-f", "name=app", "-F", "number=12"]);
+  });
+
+  it("passes the host of a GitHub Enterprise pull request", async () => {
+    const { runner, calls } = fakeRunner(({ args }) => {
+      if (args[0] === "pr") return ok(JSON.stringify({ number: 4, url: "https://ghe.example.com/acme/app/pull/4" }));
+      if (args[0] === "api") return ok(graphql);
+      return undefined;
+    });
+    await new PullRequestService(runner).comments(INPUT);
+    expect(calls.find((call) => call.args[0] === "api")?.args.slice(0, 4)).toEqual([
+      "api",
+      "graphql",
+      "--hostname",
+      "ghe.example.com",
+    ]);
+  });
+
+  it("explains a branch without a pull request", async () => {
+    const { runner } = fakeRunner();
+    await expect(new PullRequestService(runner).comments(INPUT)).rejects.toThrow("no pull request yet");
+  });
+
+  it("explains a failed API call", async () => {
+    const { runner } = fakeRunner(({ args }) => {
+      if (args[0] === "pr") return ok(PR_JSON);
+      if (args[0] === "api") return fail("HTTP 502: Bad Gateway");
+      return undefined;
+    });
+    await expect(new PullRequestService(runner).comments(INPUT)).rejects.toThrow(PullRequestError);
+  });
+});
+
+describe("review comment helpers", () => {
+  it("reads only https pull request links with safe names", () => {
+    expect(parsePullRequestLink(PR_JSON)).toEqual({
+      host: "github.com",
+      owner: "acme",
+      repo: "app",
+      number: 12,
+      url: "https://github.com/acme/app/pull/12",
+    });
+    expect(parsePullRequestLink(JSON.stringify({ number: 1, url: "http://github.com/a/b/pull/1" }))).toBeUndefined();
+    expect(parsePullRequestLink(JSON.stringify({ number: 1, url: "https://github.com/-a/b/pull/1" }))).toBeUndefined();
+    expect(parsePullRequestLink("not json")).toBeUndefined();
+  });
+
+  it("rejects an answer without a pull request", () => {
+    expect(parseReviewComments(JSON.stringify({ data: { repository: null } }))).toBeUndefined();
+    expect(parseReviewComments("{")).toBeUndefined();
+  });
+
+  it("keeps the end of a long hunk", () => {
+    const hunk = ["@@ -1,20 +1,20 @@", ...Array.from({ length: 20 }, (_, index) => ` line ${index}`)].join("\n");
+    const tail = hunkTail(hunk).split("\n");
+    expect(tail).toHaveLength(12);
+    expect(tail[0]).toBe(" line 8");
+    expect(tail.at(-1)).toBe(" line 19");
+    expect(hunkTail("@@ -1 +1 @@\n+one\n")).toBe("@@ -1 +1 @@\n+one");
+  });
+});
 describe("helpers", () => {
   it("keeps the latest run of a check reported twice and lists failures first", () => {
     const checks = summarizeChecks([

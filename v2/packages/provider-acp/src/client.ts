@@ -84,13 +84,20 @@ export type AcpChild = {
   kill(signal?: NodeJS.Signals): boolean;
 };
 
-/** ACP stdio MCP server passed in session/new; env is a list of name/value pairs. */
-export type AcpMcpServer = {
-  name: string;
-  command: string;
-  args: readonly string[];
-  env: ReadonlyArray<{ name: string; value: string }>;
-};
+/** ACP MCP server passed in session/new; env and headers are lists of name/value pairs. */
+export type AcpMcpServer =
+  | {
+      name: string;
+      command: string;
+      args: readonly string[];
+      env: ReadonlyArray<{ name: string; value: string }>;
+    }
+  | {
+      type: "http";
+      name: string;
+      url: string;
+      headers: ReadonlyArray<{ name: string; value: string }>;
+    };
 
 export type AcpSpawnOptions = {
   cwd: string;
@@ -340,9 +347,12 @@ export class AcpClient {
     }
     this.imageInput = init.data.agentCapabilities?.promptCapabilities?.image === true;
     this.authDescription = init.data.authMethods?.find((method) => method.description?.trim())?.description?.trim();
+    // Agents must accept stdio servers; HTTP ones only when they say so, or session/new may fail outright.
+    const http = init.data.agentCapabilities?.mcpCapabilities?.http === true;
+    const offered = http ? mcpServers : mcpServers.filter((server) => !("type" in server && server.type === "http"));
     let created: unknown;
     try {
-      created = await this.connection.request("session/new", { cwd: this.cwd, mcpServers }, this.timeoutMs);
+      created = await this.connection.request("session/new", { cwd: this.cwd, mcpServers: offered }, this.timeoutMs);
     } catch (error) {
       if (isAuthError(error)) throw new AcpProviderError("auth_required", this.authMessage(error), { cause: error });
       throw error;

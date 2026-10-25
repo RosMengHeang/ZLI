@@ -41,5 +41,9 @@ export type CommandId = z.infer<typeof CommandId>;
 export const EventId = id<"EventId">();
 export type EventId = z.infer<typeof EventId>;
 
+/** Accounts are named by the runtime, and "usual" names the person's own login, so this is not a uuid. */
+export const AccountId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/u);
+export type AccountId = z.infer<typeof AccountId>;
+
 export const ApprovalRequestId = id<"ApprovalRequestId">();
 export type ApprovalRequestId = z.infer<typeof ApprovalRequestId>;

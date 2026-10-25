@@ -1,4 +1,4 @@
-import type { RuntimeProjection } from "@zli-v2/contracts";
+import type { Account, RuntimeProjection } from "@zli-v2/contracts";
 import { type KeyboardEvent, useId, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
@@ -29,26 +29,38 @@ import {
   updateAppSettings,
   useAppSettings,
 } from "./appSettings.js";
+import { IssuesSection } from "./IssuesSection.js";
+import { AccountsSection } from "./AccountsSection.js";
 import { McpServersSection } from "./McpServersSection.js";
+import { PluginsSection } from "./PluginsSection.js";
 import { SectionHeader, SettingRow } from "./SectionHeader.js";
+import { SkillsSection } from "./SkillsSection.js";
 import "./settings.css";
 
 export type SettingsSection =
   | "agents"
+  | "accounts"
   | "projects"
   | "worktrees"
   | "files"
   | "mcp"
+  | "skills"
+  | "plugins"
+  | "issues"
   | "shortcuts"
   | "notifications"
   | "updates";
 
 const sections: { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: "agents", label: "New agents", icon: "squarePen" },
+  { id: "accounts", label: "Accounts", icon: "user" },
   { id: "projects", label: "Projects", icon: "folder" },
   { id: "worktrees", label: "Worktrees", icon: "branch" },
   { id: "files", label: "Files", icon: "fileText" },
   { id: "mcp", label: "MCP servers", icon: "wrench" },
+  { id: "skills", label: "Skills", icon: "sparkle" },
+  { id: "plugins", label: "Plugins", icon: "puzzle" },
+  { id: "issues", label: "Issues", icon: "issue" },
   { id: "shortcuts", label: "Shortcuts", icon: "command" },
   { id: "notifications", label: "Notifications", icon: "bell" },
   { id: "updates", label: "Updates", icon: "download" },
@@ -66,6 +78,8 @@ type Props = {
   notifications: { settings: NotificationSettings | undefined; update(patch: Partial<NotificationSettings>): void };
   updates?: Updates | undefined;
   onRestartToUpdate?(): void;
+  /** Opens a terminal that runs the agent's sign-in for a sign-in account. */
+  onSignIn?(account: Account): Promise<string | undefined>;
   onClose(): void;
 };
 
@@ -76,6 +90,7 @@ export function SettingsDialog({
   notifications,
   updates,
   onRestartToUpdate = () => undefined,
+  onSignIn,
   onClose,
 }: Props) {
   const [section, setSection] = useState<SettingsSection>(initialSection);
@@ -137,12 +152,18 @@ export function SettingsDialog({
           aria-labelledby={`${tabsId}-${section}`}
         >
           {section === "agents" ? <AgentDefaults projection={projection} /> : null}
+          {section === "accounts" ? (
+            <AccountsSection projection={projection} {...(onSignIn ? { onSignIn } : {})} />
+          ) : null}
           {section === "projects" ? (
             <ProjectDefaults projection={projection} initialProjectId={initialProjectId} />
           ) : null}
           {section === "worktrees" ? <WorktreeSettings projection={projection} /> : null}
           {section === "files" ? <FilesSettings /> : null}
           {section === "mcp" ? <McpServersSection /> : null}
+          {section === "skills" ? <SkillsSection projection={projection} initialProjectId={initialProjectId} /> : null}
+          {section === "plugins" ? <PluginsSection /> : null}
+          {section === "issues" ? <IssuesSection /> : null}
           {section === "shortcuts" ? <ShortcutSettings /> : null}
           {section === "notifications" ? <NotificationSection {...notifications} /> : null}
           {section === "updates" ? <UpdatesSection updates={updates} onRestart={onRestartToUpdate} /> : null}
@@ -353,7 +374,8 @@ function WorktreeSettings({ projection }: { projection: RuntimeProjection | unde
           description={
             <>
               <code>{"{agent}"}</code> is the agent, <code>{"{random}"}</code> four random characters, and{" "}
-              <code>{"{date}"}</code> today as YYYYMMDD.
+              <code>{"{date}"}</code> today as YYYYMMDD. Agents started from an issue get a name like
+              issue-123-fix-login, placed at <code>{"{issue}"}</code> if the template has it.
             </>
           }
         >

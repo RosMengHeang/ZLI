@@ -5,7 +5,13 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { BrowserToolConfig } from "./browserTool.js";
-import { registerBrowserToolInUserSettings, syncUserMcpServers, type UserSettingsProvider } from "./userSettings.js";
+import {
+  accountSettingsFile,
+  registerBrowserToolInUserSettings,
+  syncAccountMcpServers,
+  syncUserMcpServers,
+  type UserSettingsProvider,
+} from "./userSettings.js";
 
 const config: BrowserToolConfig = {
   command: "C:\\ZLI\\ZLI.exe",
@@ -225,5 +231,66 @@ describe("syncUserMcpServers", () => {
     const failed = await syncUserMcpServers([], added.owned, options);
     expect(failed.outcomes.find((outcome) => outcome.provider === "droid")?.status).toBe("skipped-invalid");
     expect(failed.owned).toEqual(added.owned);
+  });
+  it("writes remote servers in each agent's own format and drops the old transport's keys", async () => {
+    const dir = await home();
+    const options = {
+      home: dir,
+      env: {},
+      isInstalled: installed("cursor-agent", "droid", "kimi", "gemini", "qwen"),
+    };
+    const cursor = join(dir, ".cursor", "mcp.json");
+    await mkdir(join(dir, ".cursor"));
+    await writeFile(
+      cursor,
+      JSON.stringify({ mcpServers: { linear: { command: "old", args: [], env: {}, disabled: true } } }),
+      "utf8",
+    );
+    const remote = {
+      transport: "http" as const,
+      name: "linear",
+      url: "https://mcp.linear.app/mcp",
+      headers: { Authorization: "Bearer t" },
+    };
+    await syncUserMcpServers([remote], {}, options);
+    const headers = { Authorization: "Bearer t" };
+    expect(await readJson(cursor)).toEqual({
+      mcpServers: { linear: { url: remote.url, headers, disabled: true } },
+    });
+    expect(await readJson(join(dir, ".factory", "mcp.json"))).toEqual({
+      mcpServers: { linear: { type: "http", url: remote.url, headers } },
+    });
+    expect(await readJson(join(dir, ".kimi-code", "mcp.json"))).toEqual({
+      mcpServers: { linear: { url: remote.url, headers } },
+    });
+    for (const file of [".gemini", ".qwen"]) {
+      expect(await readJson(join(dir, file, "settings.json"))).toEqual({
+        mcpServers: { linear: { httpUrl: remote.url, headers } },
+      });
+    }
+    await syncUserMcpServers([{ ...remote, headers: {} }], {}, options);
+    expect(await readJson(join(dir, ".gemini", "settings.json"))).toEqual({
+      mcpServers: { linear: { httpUrl: remote.url } },
+    });
+  });
+});
+
+describe("syncAccountMcpServers", () => {
+  const github = { name: "github", command: "npx", args: ["-y", "gh-mcp"], env: {} };
+
+  it("writes servers into the settings file inside an account's own config folder", async () => {
+    const dir = await home();
+    expect(accountSettingsFile("cursor-agent", dir)).toBe(join(dir, "mcp.json"));
+    expect(accountSettingsFile("gemini", dir)).toBe(join(dir, ".gemini", "settings.json"));
+    expect(accountSettingsFile("qwen", dir)).toBe(join(dir, "settings.json"));
+    expect(accountSettingsFile("codex", dir)).toBeUndefined();
+
+    const owned = await syncAccountMcpServers("kimi", dir, [github], []);
+    expect(owned).toEqual(["github"]);
+    expect(await readJson(join(dir, "mcp.json"))).toMatchObject({ mcpServers: { github: { command: "npx" } } });
+
+    expect(await syncAccountMcpServers("kimi", dir, [], owned ?? [])).toEqual([]);
+    expect(await readJson(join(dir, "mcp.json"))).toEqual({ mcpServers: {} });
+    await expect(syncAccountMcpServers("codex", dir, [github], [])).resolves.toBeUndefined();
   });
 });

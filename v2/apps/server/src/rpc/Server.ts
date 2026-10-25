@@ -3,11 +3,16 @@ import { createServer, type Server as HttpServer, type IncomingMessage } from "n
 import type { AddressInfo } from "node:net";
 
 import {
+  ACCOUNT_COMMAND_TYPES,
+  type AccountCommand,
+  type AccountDraft,
+  type AccountListResult,
   type AgentToolAccess,
   CHECKPOINT_COMMAND_TYPES,
   type CheckpointCommand,
   ClientWireMessage,
   type EnvironmentDescriptor,
+  type ListedProviderKind,
   FILE_COMMAND_TYPES,
   type FileCommand,
   FileDataResult,
@@ -16,16 +21,22 @@ import {
   FileReadResult,
   FileSearchResult,
   FileWriteResult,
+  ISSUE_COMMAND_TYPES,
+  type IssueCommand,
   MCP_COMMAND_TYPES,
   type McpCommand,
   type McpListResult,
   type McpServerConfig,
+  PLUGIN_COMMAND_TYPES,
+  type PluginCommand,
   type ProviderDiscovery,
   PULL_REQUEST_COMMAND_TYPES,
   type PullRequestCommand,
   type RpcRequest,
   type RuntimeError,
   type RuntimeProjection,
+  SKILL_COMMAND_TYPES,
+  type SkillCommand,
   TerminalId,
   type TerminalReadResult,
 } from "@zli-v2/contracts";
@@ -33,7 +44,10 @@ import { type RawData, WebSocket, WebSocketServer } from "ws";
 
 import { CheckpointError, type TurnCheckpoints } from "../checkpoints/TurnCheckpoints.js";
 import { errorCode, FileService, FileServiceError } from "../files/FileService.js";
+import { defaultIssueSources, IssueError, type IssueSources, runIssueCommand } from "../issues/IssueService.js";
 import type { Engine } from "../orchestration/Engine.js";
+import { isPluginError, type PluginStore } from "../plugins/PluginStore.js";
+import { runPluginCommand } from "../plugins/runPluginCommand.js";
 import { unavailableProviderDiscovery } from "../providers/discoverCliProviders.js";
 import {
   PullRequestError,
@@ -42,6 +56,9 @@ import {
   runPullRequestCommand,
 } from "../review/PullRequestService.js";
 import type { TerminalService, TerminalSubscription } from "../terminal/TerminalService.js";
+import { runSkillCommand } from "../skills/runSkillCommand.js";
+import { SkillError } from "../skills/skillFolders.js";
+import type { SkillStore } from "../skills/SkillStore.js";
 import { readableTerminalText } from "../terminal/terminalText.js";
 import { readZliConfig } from "../worktrees/zliConfig.js";
 import { AttachmentError, storeThreadAttachments } from "./attachments.js";
@@ -68,6 +85,8 @@ type RpcServerOptions = {
   /** Root for uploaded thread images. Without it, image uploads are rejected. */
   attachmentsDir?: string;
   pullRequestService?: PullRequestService;
+  /** GitHub issues through gh, and Linear when a key path is configured. */
+  issues?: IssueSources;
   /** Turn diffs and restores. Without it, checkpoint commands are answered as unavailable. */
   checkpoints?: Pick<TurnCheckpoints, "run">;
   /** The MCP servers from Settings. Without it, MCP commands are answered as unavailable. */
@@ -75,6 +94,17 @@ type RpcServerOptions = {
     list(): McpListResult;
     save(servers: readonly McpServerConfig[]): Promise<McpListResult>;
     setAgentAccess(access: AgentToolAccess): Promise<McpListResult>;
+  };
+  /** The skills from Settings. Without it, skills commands are answered as unavailable. */
+  skills?: SkillStore;
+  /** Installed plugins. Without it, plugin commands are answered as unavailable. */
+  plugins?: PluginStore;
+  /** Accounts per agent CLI. Without it, account commands are answered as unavailable. */
+  accounts?: {
+    list(): Promise<AccountListResult>;
+    save(account: AccountDraft): Promise<AccountListResult>;
+    delete(accountId: string): Promise<AccountListResult>;
+    setDefault(provider: ListedProviderKind, accountId?: string): Promise<AccountListResult>;
   };
   host?: string;
   port?: number;
@@ -89,8 +119,12 @@ export class RpcServer {
   private readonly discoverProviders: RpcServerOptions["discoverProviders"];
   private readonly attachmentsDir: string | undefined;
   private readonly pullRequestService: PullRequestService;
+  private readonly issues: IssueSources;
   private readonly checkpoints: RpcServerOptions["checkpoints"];
   private readonly mcpServers: RpcServerOptions["mcpServers"];
+  private readonly skills: SkillStore | undefined;
+  private readonly plugins: PluginStore | undefined;
+  private readonly accounts: RpcServerOptions["accounts"];
   private readonly host: string;
   private readonly port: number;
   private httpServer: HttpServer | undefined;
@@ -112,8 +146,12 @@ export class RpcServer {
     this.discoverProviders = options.discoverProviders;
     this.attachmentsDir = options.attachmentsDir;
     this.pullRequestService = options.pullRequestService ?? new PullRequestService();
+    this.issues = options.issues ?? defaultIssueSources();
     this.checkpoints = options.checkpoints;
     this.mcpServers = options.mcpServers;
+    this.skills = options.skills;
+    this.plugins = options.plugins;
+    this.accounts = options.accounts;
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
   }
@@ -400,6 +438,90 @@ export class RpcServer {
     return true;
   }
 
+  /** Skills live in folders on disk, outside the event log. */
+  private async handleSkillCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isSkillCommand(command)) return false;
+    const store = this.skills;
+    const reject = (error: RuntimeError) =>
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: false, error } });
+    if (!store) {
+      reject({ code: "unavailable", message: "Skills are not available here.", retryable: false });
+      return true;
+    }
+    try {
+      const result = await runSkillCommand(store, command, async (projectId) => {
+        const projection = await this.engine.projection();
+        return projection.projects.find((candidate) => candidate.projectId === projectId)?.path;
+      });
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reject(
+        error instanceof SkillError
+          ? { code: "invalid_request", message, retryable: false }
+          : { code: "internal", message: `The skill change did not go through. ${message}`, retryable: true },
+      );
+    }
+    return true;
+  }
+
+  /** Plugins live in folders beside the database, outside the event log. */
+  private async handlePluginCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isPluginCommand(command)) return false;
+    const store = this.plugins;
+    const reject = (error: RuntimeError) =>
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: false, error } });
+    if (!store) {
+      reject({ code: "unavailable", message: "Plugins are not available here.", retryable: false });
+      return true;
+    }
+    try {
+      const result = await runPluginCommand(store, command);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reject(
+        isPluginError(error)
+          ? { code: "invalid_request", message, retryable: false }
+          : { code: "internal", message: `The plugin change did not go through. ${message}`, retryable: true },
+      );
+    }
+    return true;
+  }
+
+  /** Accounts live in an owner-only file beside the database, outside the event log, since it holds keys. */
+  private async handleAccountCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isAccountCommand(command)) return false;
+    const reject = (code: RuntimeError["code"], message: string, retryable: boolean) =>
+      send(client, {
+        type: "response",
+        response: { commandId: request.commandId, accepted: false, error: { code, message, retryable } },
+      });
+    const store = this.accounts;
+    if (!store) {
+      reject("unavailable", "Accounts are not available here.", false);
+      return true;
+    }
+    try {
+      const result =
+        command.type === "accounts.list"
+          ? await store.list()
+          : command.type === "accounts.save"
+            ? await store.save(command.account)
+            : command.type === "accounts.delete"
+              ? await store.delete(command.accountId)
+              : await store.setDefault(command.provider, command.accountId);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch (error) {
+      // Messages come from the store, which never puts a key in one.
+      reject("invalid_request", error instanceof Error ? error.message : "The account was not saved.", false);
+    }
+    return true;
+  }
+
   private async runFileCommand(root: string, command: FileCommand): Promise<unknown> {
     switch (command.type) {
       case "files.list":
@@ -443,6 +565,30 @@ export class RpcServer {
         error instanceof PullRequestError
           ? error.message
           : `The pull request command failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`;
+      send(client, {
+        type: "response",
+        response: {
+          commandId: request.commandId,
+          accepted: false,
+          error: { code: "invalid_request", message, retryable: false },
+        },
+      });
+    }
+    return true;
+  }
+
+  /** Issue commands read GitHub or Linear and answer directly, outside the event log. */
+  private async handleIssueCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isIssueCommand(command)) return false;
+    try {
+      const result = await runIssueCommand(this.issues, await this.engine.projection(), command);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch (error) {
+      const message =
+        error instanceof IssueError
+          ? error.message
+          : `The issue command failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`;
       send(client, {
         type: "response",
         response: {
@@ -562,9 +708,13 @@ export class RpcServer {
         if (this.terminalService && this.handleTerminalInput(client, message.data.request)) return;
         if (await this.handleFileCommand(client, message.data.request)) return;
         if (await this.handlePullRequestCommand(client, message.data.request)) return;
+        if (await this.handleIssueCommand(client, message.data.request)) return;
         if (await this.handleCheckpointCommand(client, message.data.request)) return;
         if (await this.handleProjectConfig(client, message.data.request)) return;
         if (await this.handleMcpCommand(client, message.data.request)) return;
+        if (await this.handleSkillCommand(client, message.data.request)) return;
+        if (await this.handlePluginCommand(client, message.data.request)) return;
+        if (await this.handleAccountCommand(client, message.data.request)) return;
         try {
           let request: RpcRequest;
           try {
@@ -670,8 +820,20 @@ export class RpcServer {
   }
 }
 
+function isAccountCommand(command: RpcRequest["command"]): command is AccountCommand {
+  return (ACCOUNT_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
 function isMcpCommand(command: RpcRequest["command"]): command is McpCommand {
   return (MCP_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
+function isPluginCommand(command: RpcRequest["command"]): command is PluginCommand {
+  return (PLUGIN_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
+function isSkillCommand(command: RpcRequest["command"]): command is SkillCommand {
+  return (SKILL_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
 function isFileCommand(command: RpcRequest["command"]): command is FileCommand {
@@ -680,6 +842,10 @@ function isFileCommand(command: RpcRequest["command"]): command is FileCommand {
 
 function isPullRequestCommand(command: RpcRequest["command"]): command is PullRequestCommand {
   return (PULL_REQUEST_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
+function isIssueCommand(command: RpcRequest["command"]): command is IssueCommand {
+  return (ISSUE_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
 function isCheckpointCommand(command: RpcRequest["command"]): command is CheckpointCommand {

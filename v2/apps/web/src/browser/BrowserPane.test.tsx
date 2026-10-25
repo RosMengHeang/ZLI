@@ -263,6 +263,88 @@ describe("BrowserPane", () => {
     expect(container.querySelector<HTMLInputElement>('input[aria-label="Browser URL"]')?.value).toBe(otherTab.url);
   });
 
+  it("hides Pick element without the desktop design mode bridge", async () => {
+    const fake = createBridge(baseTab);
+    const { container } = await renderPane(fake.bridge, false);
+    expect(container.querySelector('button[aria-label="Device size"]')).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Pick element"]')).toBeNull();
+  });
+
+  it("picks an element, collects the request, and opens the send dialog over a hidden page", async () => {
+    const fake = createBridge(baseTab);
+    let finishPick: ((value: unknown) => void) | undefined;
+    const designPick = vi.fn(
+      () =>
+        new Promise<unknown>((resolve) => {
+          finishPick = resolve;
+        }),
+    );
+    const designInspect = vi.fn(async () => ({
+      tag: "button",
+      name: "Save",
+      url: baseTab.url,
+      html: '<button id="save">Save</button>',
+      styles: { color: "rgb(0, 0, 0)" },
+      bounds: { x: 10, y: 20, width: 80, height: 30 },
+      screenshot: { data: "aGVsbG8=", mimeType: "image/png" },
+    }));
+    Object.assign(fake.bridge.browser, { designPick, designInspect, designCancel: vi.fn(async () => undefined) });
+    const { container } = await renderPane(fake.bridge, false);
+    const pickButton = container.querySelector<HTMLButtonElement>('button[aria-label="Pick element"]');
+    await act(async () => {
+      pickButton?.click();
+    });
+    expect(designPick).toHaveBeenCalledWith(baseTab.browserTabId);
+    expect(pickButton?.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector(".browser-design-hint")?.textContent).toContain("Esc cancels");
+
+    await act(async () => {
+      finishPick?.({ selector: "#save" });
+    });
+    expect(designInspect).toHaveBeenCalledWith({ browserTabId: baseTab.browserTabId, selector: "#save" });
+    expect(pickButton?.getAttribute("aria-pressed")).toBe("false");
+    const panel = container.querySelector('[aria-label="Picked elements"]');
+    expect(panel?.textContent).toContain("1 element picked");
+    expect(panel?.textContent).toContain('<button> "Save"');
+    expect(panel?.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,aGVsbG8=");
+
+    const send = [...(panel?.querySelectorAll("button") ?? [])].find(
+      (button) => button.textContent === "Send to agent",
+    );
+    expect(send?.disabled).toBe(true);
+    const note = panel?.querySelector<HTMLTextAreaElement>('textarea[aria-label="What should change?"]');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(note, "Make it green.");
+      note?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    fake.calls.length = 0;
+    await act(async () => {
+      send?.click();
+    });
+    expect(fake.calls).toContain("hide");
+    const dialog = document.querySelector('[role="dialog"][aria-label="Send picked elements"]');
+    const preview = dialog?.querySelector(".send-preview")?.textContent ?? "";
+    expect(preview).toContain("What should change:\nMake it green.");
+    expect(preview).toContain("Selector: `#save`");
+  });
+
+  it("cancels a pick with Escape", async () => {
+    const fake = createBridge(baseTab);
+    const designCancel = vi.fn(async () => undefined);
+    Object.assign(fake.bridge.browser, { designPick: vi.fn(() => new Promise(() => undefined)), designCancel });
+    const { container } = await renderPane(fake.bridge, false);
+    const pickButton = container.querySelector<HTMLButtonElement>('button[aria-label="Pick element"]');
+    await act(async () => {
+      pickButton?.click();
+    });
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(designCancel).toHaveBeenCalledWith(baseTab.browserTabId);
+    expect(pickButton?.getAttribute("aria-pressed")).toBe("false");
+    expect(container.querySelector(".browser-design-hint")).toBeNull();
+  });
+
   it("shows a page load failure reported by the tab", async () => {
     const fake = createBridge({
       ...baseTab,

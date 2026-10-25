@@ -1,4 +1,5 @@
 import {
+  type Account,
   type ProjectProjection,
   type RuntimeProjection,
   type SetupDecision,
@@ -9,6 +10,7 @@ import {
 } from "@zli-v2/contracts";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { accountLabel, launchAccountId, sessionAccountId, useAccounts } from "../accounts/accounts.js";
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
 import { AttentionPanel } from "../attention/AttentionPanel.js";
 import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
@@ -20,10 +22,13 @@ import { devServerCommands } from "../devservers/DevServers.js";
 import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
 import type { AskAgentTarget, FilesFocus } from "../files/FilesPane.js";
 import { QuickOpen } from "../files/QuickOpen.js";
+import { type IssueLink, issuePrompt, rememberIssueLink } from "../issues/issueStart.js";
 import { useAgentNotifications } from "../notifications/useAgentNotifications.js";
+import { actionTerminalCommand, usePluginContributions } from "../plugins/plugins.js";
 import { PromptsDialog } from "../prompts/PromptsDialog.js";
 import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.js";
 import { usePullRequestPolling } from "../review/pullRequestStore.js";
+import { ReviewNotesPill } from "../review/ReviewNotesPill.js";
 import type { ReviewFocus } from "../review/ReviewPane.js";
 import { getBridge, type NotificationSettings, type ZliBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
@@ -34,8 +39,8 @@ import { CompareRunsDialog } from "../sessions/CompareRunsDialog.js";
 import { firstMessageStep, TERMINAL_FIRST_MESSAGE_DELAY_MS, terminalFirstMessage } from "../sessions/firstMessage.js";
 import type { HandoffRequest } from "../sessions/HandoffDialog.js";
 import { canHandOff, inlineFirstMessage } from "../sessions/handoff.js";
-import { createWorktree, ensureCheckout, samePath, startSessionAgent } from "../sessions/launch.js";
-import { NewAgentDialog, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
+import { createWorktree, ensureCheckout, samePath, startAccountSignIn, startSessionAgent } from "../sessions/launch.js";
+import { NewAgentDialog, type NewAgentPrefill, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
 import {
   type AgentSession,
   deriveSessions,
@@ -80,6 +85,9 @@ const FilesPane = lazy(() => import("../files/FilesPane.js").then((module) => ({
 const HandoffDialog = lazy(() =>
   import("../sessions/HandoffDialog.js").then((module) => ({ default: module.HandoffDialog })),
 );
+const IssuesDialog = lazy(() =>
+  import("../issues/IssuesDialog.js").then((module) => ({ default: module.IssuesDialog })),
+);
 const UsageDialog = lazy(() => import("../usage/UsageDialog.js").then((module) => ({ default: module.UsageDialog })));
 // The diff viewer and pull request tools load the first time the Changes panel opens.
 const ReviewPane = lazy(() => import("../review/ReviewPane.js").then((module) => ({ default: module.ReviewPane })));
@@ -101,6 +109,8 @@ function WorkspaceApp() {
   const projection = useShellProjection();
   const [workbench, updateWorkbench] = useWorkbenchState();
   const settings = useAppSettings();
+  const { state: accountsState, accounts } = useAccounts();
+  const loadedAccounts = accountsState.status === "ready" ? accounts : undefined;
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string>();
   const [sidePane, setSidePane] = useState<SidePane>();
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
@@ -109,6 +119,9 @@ function WorkspaceApp() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [worktreeDialogProject, setWorktreeDialogProject] = useState<ProjectProjection>();
   const [newAgentProject, setNewAgentProject] = useState<ProjectProjection | "default">();
+  const [issuesProject, setIssuesProject] = useState<ProjectProjection | "default">();
+  /** The issue the open New agent dialog was started from. */
+  const [issueStart, setIssueStart] = useState<{ link: Omit<IssueLink, "linkedAt">; prefill: NewAgentPrefill }>();
   const [notice, setNotice] = useState<{
     message: string;
     tone: "danger" | "info";
@@ -180,6 +193,7 @@ function WorkspaceApp() {
     projection?.worktrees.find((worktree) => worktree.status === "ready");
   const contextProject = projection?.projects.find((project) => project.projectId === contextWorktree?.projectId);
   const hasProjects = (projection?.projects.length ?? 0) > 0;
+  const pluginActions = usePluginContributions(paletteOpen).actions;
 
   const focusSession = useCallback(
     (session: AgentSession) => {
@@ -341,6 +355,15 @@ function WorkspaceApp() {
     [hasProjects],
   );
 
+  const openIssues = useCallback(
+    (project?: ProjectProjection) => {
+      if (!hasProjects) return;
+      setPaletteOpen(false);
+      setIssuesProject(project ?? "default");
+    },
+    [hasProjects],
+  );
+
   const toggleSidePane = (next: SidePane) => setSidePane((current) => (current === next ? undefined : next));
   const toggleSidebar = () => updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
   const toggleDrawer = () => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }));
@@ -369,6 +392,8 @@ function WorkspaceApp() {
       setQuickOpen(false);
       setWorktreeDialogProject(undefined);
       setNewAgentProject(undefined);
+      setIssuesProject(undefined);
+      setIssueStart(undefined);
       setLegacyImportBatchId(undefined);
       setHelpOpen(false);
       setSettingsSection(undefined);
@@ -444,6 +469,7 @@ function WorkspaceApp() {
               mode: launch.mode,
               permissionMode: launch.permissionMode ?? "full-access",
               ...(launch.model ? { model: launch.model } : {}),
+              ...(launch.accountId ? { accountId: launch.accountId } : {}),
               sessionId: launch.sessionId,
               worktreeId: worktree.worktreeId,
               cwd: worktree.path,
@@ -617,6 +643,7 @@ function WorkspaceApp() {
       if (!provider) throw new Error("No agent CLI is installed. Install one, then start a scratch chat.");
       const checkout = await ensureCheckout(dispatch, current, project);
       if ("error" in checkout) throw new Error(checkout.error);
+      const accountId = launchAccountId(accounts, provider, undefined);
       const launch: PendingLaunch = {
         sessionId: makeCommandId(),
         worktreeId: checkout.worktreeId,
@@ -624,6 +651,7 @@ function WorkspaceApp() {
         mode: "chat",
         permissionMode: defaults.permissionMode ?? "full-access",
         ...(defaults.provider === provider && defaults.model ? { model: defaults.model } : {}),
+        ...(accountId ? { accountId } : {}),
         createdAt: new Date().toISOString(),
       };
       updateWorkbench((state) => ({
@@ -789,8 +817,13 @@ function WorkspaceApp() {
       mode: request.mode,
       permissionMode: request.permissionMode,
       ...(request.model ? { model: request.model } : {}),
+      ...(request.prompt ? { prompt: request.prompt } : {}),
+      ...(request.accountId ? { accountId: request.accountId } : {}),
       createdAt: new Date().toISOString(),
     };
+    if (issueStart) {
+      rememberIssueLink(worktreeId, { ...issueStart.link, sessionId: launch.sessionId, linkedAt: launch.createdAt });
+    }
     updateWorkbench((state) => ({
       ...state,
       pending: [...state.pending, launch],
@@ -799,18 +832,26 @@ function WorkspaceApp() {
     }));
     setSelectedWorktreeId(worktreeId);
     setNewAgentProject(undefined);
+    setIssueStart(undefined);
     return undefined;
   };
   const submitHandoff = async (from: AgentSession, request: HandoffRequest): Promise<string | undefined> => {
     const worktree = findWorktree(from.worktreeId);
     if (worktree?.status !== "ready") return "The worktree for this agent is gone.";
     if (request.stopCurrent) await stopSession(from);
+    // The same agent keeps the same login; another agent gets its own default.
+    const accountId = launchAccountId(
+      accounts,
+      request.provider,
+      request.provider === from.provider ? sessionAccountId(from) : undefined,
+    );
     const launch: PendingLaunch = {
       sessionId: makeCommandId(),
       worktreeId: worktree.worktreeId,
       provider: request.provider,
       mode: request.mode,
       permissionMode: from.thread?.permissionMode ?? "full-access",
+      ...(accountId ? { accountId } : {}),
       prompt: request.message.text,
       promptFile: request.message.transcript,
       createdAt: new Date().toISOString(),
@@ -849,17 +890,25 @@ function WorkspaceApp() {
       created.push(result.worktreeId);
     }
     const createdAt = new Date().toISOString();
-    const launches: PendingLaunch[] = plan.map((run, index) => ({
-      sessionId: makeCommandId(),
-      worktreeId: created[index] ?? "",
-      provider: run.agent.provider,
-      mode: "chat",
-      permissionMode: request.permissionMode,
-      ...(run.agent.model ? { model: run.agent.model } : {}),
-      prompt: request.prompt,
-      fork: request.from,
-      createdAt,
-    }));
+    const launches: PendingLaunch[] = plan.map((run, index): PendingLaunch => {
+      const accountId = launchAccountId(
+        accounts,
+        run.agent.provider,
+        run.agent.provider === source.provider ? sessionAccountId(source) : undefined,
+      );
+      return {
+        sessionId: makeCommandId(),
+        worktreeId: created[index] ?? "",
+        provider: run.agent.provider,
+        mode: "chat",
+        permissionMode: request.permissionMode,
+        ...(run.agent.model ? { model: run.agent.model } : {}),
+        ...(accountId ? { accountId } : {}),
+        prompt: request.prompt,
+        fork: request.from,
+        createdAt,
+      };
+    });
     const group: RunGroup = {
       groupId: makeCommandId(),
       sourceSessionId: source.sessionId,
@@ -984,21 +1033,69 @@ function WorkspaceApp() {
     }));
   };
 
+  /** Runs the agent's sign-in in a tile, in the worktree in focus, so the person can finish it there. */
+  const signInAccount = async (account: Account): Promise<string | undefined> => {
+    const worktree = contextWorktree?.status === "ready" ? contextWorktree : undefined;
+    if (!projection || !worktree) return "Add a project first. Sign in runs in a terminal in one of its folders.";
+    const sessionId = makeCommandId();
+    const failure = await startAccountSignIn(dispatch, projection, {
+      provider: account.provider,
+      accountId: account.id,
+      sessionId,
+      worktreeId: worktree.worktreeId,
+      cwd: worktree.path,
+    });
+    if (failure) return failure;
+    setSettingsSection(undefined);
+    setSelectedWorktreeId(worktree.worktreeId);
+    updateWorkbench((state) => ({ ...state, activeSessionId: sessionId, maximizedSessionId: undefined }));
+    return undefined;
+  };
+
   const startInSession = (session: AgentSession, mode: SessionMode): Promise<string | undefined> => {
     const worktree = findWorktree(session.worktreeId);
     if (!projection || !worktree) return Promise.resolve("The worktree for this agent is gone.");
     if (worktree.status !== "ready") return Promise.resolve("The worktree is not ready yet.");
     if (!isSelectableProvider(session.provider)) return Promise.resolve("This agent is not supported.");
     const model = session.thread?.model ?? session.terminal?.agent?.model;
+    const accountId = sessionAccountId(session);
     return startSessionAgent(dispatch, projection, {
       provider: session.provider,
       mode,
       permissionMode: session.thread?.permissionMode ?? session.terminal?.agent?.permissionMode ?? "full-access",
       ...(model ? { model } : {}),
+      ...(accountId ? { accountId } : {}),
       sessionId: session.sessionId,
       worktreeId: worktree.worktreeId,
       cwd: worktree.path,
     });
+  };
+
+  /** Runs in the current worktree, or else in the project's own checkout. */
+  const runPluginAction = async (action: (typeof pluginActions)[number]) => {
+    const project = contextProject ?? projection?.projects[0];
+    if (!projection || !project) return;
+    try {
+      const worktree =
+        contextWorktree?.status === "ready" ? contextWorktree : await ensureCheckout(dispatch, projection, project);
+      if ("error" in worktree) {
+        showError(worktree.error);
+        return;
+      }
+      const response = await dispatch({
+        protocolVersion: 1,
+        commandId: makeCommandId(),
+        command: actionTerminalCommand(action, worktree),
+      });
+      if (response?.accepted === false) {
+        showError(response.error.message);
+        return;
+      }
+      setSelectedWorktreeId(worktree.worktreeId);
+      updateWorkbench((state) => ({ ...state, drawerOpen: true }));
+    } catch (cause) {
+      showError(cause instanceof Error ? cause.message : "The action could not start.");
+    }
   };
 
   const deferSetup = (setup: WorktreeSetupProjection) =>
@@ -1051,6 +1148,9 @@ function WorkspaceApp() {
             action: () => setWorktreeDialogProject(contextProject ?? projection?.projects[0]),
           },
         ]
+      : []),
+    ...(hasProjects
+      ? [{ label: "Start from issue", icon: "issue" as const, group: "Create" as const, action: () => openIssues() }]
       : []),
     { label: "Add project", icon: "folderPlus", group: "Create", action: () => void openProject() },
     ...(bridge?.scratch
@@ -1186,12 +1286,21 @@ function WorkspaceApp() {
       : []),
     ...notificationCommands(notifications.settings, (patch) => void notifications.update(patch)),
     ...devServerCommands(contextDevServers, openDevServer),
+    ...(hasProjects
+      ? pluginActions.map((action) => ({
+          label: `${action.name} (${action.plugin})`,
+          icon: "puzzle" as const,
+          group: "Plugins" as const,
+          action: () => void runPluginAction(action),
+        }))
+      : []),
   ];
   const otherOverlayOpen =
     paletteOpen ||
     quickOpen ||
     worktreeDialogProject !== undefined ||
     newAgentProject !== undefined ||
+    issuesProject !== undefined ||
     helpOpen ||
     settingsSection !== undefined ||
     usageOpen ||
@@ -1224,6 +1333,7 @@ function WorkspaceApp() {
           <Sidebar
             projection={projection}
             sessions={sessions}
+            accounts={loadedAccounts}
             activeSessionId={activeSession?.sessionId}
             backgroundSessionIds={backgroundSessionIds}
             activeWorktreeId={contextWorktree?.worktreeId}
@@ -1263,18 +1373,22 @@ function WorkspaceApp() {
             sidePane={sidePane}
             onShowSidebar={toggleSidebar}
             onNewAgent={() => openNewAgent()}
+            onOpenIssues={() => openIssues(contextProject)}
             onToggleDrawer={toggleDrawer}
             onToggleSidePane={toggleSidePane}
             onOpenPalette={() => setPaletteOpen(true)}
             devServers={contextDevServers}
             onOpenDevServer={openDevServer}
             updateNotice={
-              <UpdatePill
-                status={updates.status}
-                onRestart={restartToUpdate}
-                onOpenRelease={() => void updates.openReleasePage()}
-                onOpenSettings={() => openSettings("updates")}
-              />
+              <>
+                <ReviewNotesPill worktree={contextWorktree} onShowAgent={showAgent} />
+                <UpdatePill
+                  status={updates.status}
+                  onRestart={restartToUpdate}
+                  onOpenRelease={() => void updates.openReleasePage()}
+                  onOpenSettings={() => openSettings("updates")}
+                />
+              </>
             }
           />
           {notice ? (
@@ -1327,6 +1441,7 @@ function WorkspaceApp() {
                           key={session.sessionId}
                           projection={projection}
                           session={session}
+                          accountLabel={accountLabel(loadedAccounts, sessionAccountId(session))}
                           worktree={findWorktree(session.worktreeId)}
                           active={session.sessionId === activeSession?.sessionId}
                           maximized={maximized?.sessionId === session.sessionId}
@@ -1401,6 +1516,7 @@ function WorkspaceApp() {
                         obscured={overlayOpen}
                         reveal={browserReveal}
                         openRequest={browserOpen}
+                        onShowAgent={showAgent}
                       />
                     ) : (
                       <Suspense fallback={<LoadingState label="Loading the changes" />}>
@@ -1461,6 +1577,7 @@ function WorkspaceApp() {
             notifications={{ settings: notifications.settings, update: (patch) => void notifications.update(patch) }}
             updates={updates}
             onRestartToUpdate={restartToUpdate}
+            onSignIn={signInAccount}
             onClose={() => setSettingsSection(undefined)}
           />
         ) : null}
@@ -1469,6 +1586,7 @@ function WorkspaceApp() {
             <UsageDialog
               projection={projection}
               initialProjectId={contextProject?.projectId}
+              accounts={loadedAccounts}
               onClose={() => setUsageOpen(false)}
             />
           </Suspense>
@@ -1559,10 +1677,37 @@ function WorkspaceApp() {
               newAgentProject === "default" ? (contextProject ?? projection.projects[0]) : newAgentProject
             }
             initialWorktreeId={selectedWorktreeId ?? contextWorktree?.worktreeId}
-            onClose={() => setNewAgentProject(undefined)}
+            prefill={issueStart?.prefill}
+            onClose={() => {
+              setNewAgentProject(undefined);
+              setIssueStart(undefined);
+            }}
+            accounts={accounts}
             onSubmit={submitNewAgent}
           />
         )}
+        {issuesProject && projection ? (
+          <Suspense fallback={null}>
+            <IssuesDialog
+              projection={projection}
+              initialProject={issuesProject === "default" ? (contextProject ?? projection.projects[0]) : issuesProject}
+              onClose={() => setIssuesProject(undefined)}
+              onConnectLinear={() => {
+                setIssuesProject(undefined);
+                openSettings("issues");
+              }}
+              onStart={(project, issue) => {
+                const { source, key, reference, title, url } = issue;
+                setIssuesProject(undefined);
+                setIssueStart({
+                  link: { source, key, reference, title, url },
+                  prefill: { issue: { source, key, reference, title }, prompt: issuePrompt(issue) },
+                });
+                setNewAgentProject(project);
+              }}
+            />
+          </Suspense>
+        ) : null}
         {promptManager && projection ? (
           <PromptsDialog
             project={

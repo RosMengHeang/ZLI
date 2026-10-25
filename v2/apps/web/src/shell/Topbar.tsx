@@ -30,6 +30,7 @@ export function Topbar({
   sidePane,
   onShowSidebar,
   onNewAgent,
+  onOpenIssues,
   onToggleDrawer,
   onToggleSidePane,
   onOpenPalette,
@@ -45,6 +46,8 @@ export function Topbar({
   sidePane: SidePane | undefined;
   onShowSidebar(): void;
   onNewAgent(): void;
+  /** Opens the issue list for the project in view. */
+  onOpenIssues?(): void;
   onToggleDrawer(): void;
   onToggleSidePane(pane: SidePane): void;
   onOpenPalette(): void;
@@ -86,6 +89,9 @@ export function Topbar({
           New agent
         </Button>
       )}
+      {hasProjects && onOpenIssues ? (
+        <IconButton label="Issues" tooltip="Start from an issue" icon="issue" onClick={onOpenIssues} />
+      ) : null}
       <fieldset className="topbar-tools" aria-label="Panels">
         <ToolToggle
           label="Terminal"

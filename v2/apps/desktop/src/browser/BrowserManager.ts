@@ -311,9 +311,18 @@ export class BrowserManager {
     return this.#automation(browserTabId).inspectElement(input);
   }
   async designInspect(browserTabId: string, input: { selector: string }): Promise<DesignInspection> {
+    return this.#designMode(browserTabId).inspect(input);
+  }
+  async designPick(browserTabId: string): Promise<{ selector: string } | null> {
+    return this.#designMode(browserTabId).pick();
+  }
+  async designCancel(browserTabId: string): Promise<void> {
+    return this.#designMode(browserTabId).cancelPick();
+  }
+  #designMode(browserTabId: string): DesignMode {
     const tab = this.#require(browserTabId);
     if (!tab.designMode) throw new Error("Browser automation is not available for this tab.");
-    return tab.designMode.inspect(input);
+    return tab.designMode;
   }
   consoleEntries(browserTabId: string): readonly unknown[] {
     return this.#automation(browserTabId).consoleEntries();

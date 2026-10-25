@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import {
   CommandId,
+  type ListedProviderKind,
   ProviderKind,
   type RuntimeEventEnvelope,
   type ThreadAttachment,
@@ -11,7 +12,13 @@ import {
 
 import type { TurnCheckpoints, TurnStart } from "../checkpoints/TurnCheckpoints.js";
 import type { Engine } from "../orchestration/Engine.js";
-import type { ProviderEvent, ProviderService } from "./ProviderService.js";
+import type { ProviderAccount, ProviderEvent, ProviderService } from "./ProviderService.js";
+
+/** Turns a thread's account into the environment its agent runs with. Undefined means the usual login. */
+export type ThreadAccountResolver = (
+  provider: ListedProviderKind,
+  accountId?: string,
+) => Promise<ProviderAccount | undefined>;
 
 type StartIntent = Extract<RuntimeEventEnvelope["event"], { type: "thread.start.requested" }>;
 type SendIntent = Extract<RuntimeEventEnvelope["event"], { type: "thread.send.requested" }>;
@@ -56,6 +63,7 @@ export class ProviderReactor {
     private readonly engine: Engine,
     private readonly service: ProviderService,
     private readonly checkpoints?: Pick<TurnCheckpoints, "capture" | "record">,
+    private readonly options: { resolveAccount?: ThreadAccountResolver } = {},
   ) {
     this.unsubscribe = engine.subscribe((envelope) => this.onEvent(envelope));
     this.unsubscribeProvider = service.subscribe((event) => this.onProviderEvent(event));
@@ -123,13 +131,16 @@ export class ProviderReactor {
 
   private async start(intent: StartIntent): Promise<void> {
     try {
+      const provider = ProviderKind.parse(intent.thread.provider);
+      const account = await this.options.resolveAccount?.(provider, intent.thread.accountId);
       const session = await this.service.startSession({
-        provider: ProviderKind.parse(intent.thread.provider),
+        provider,
         threadId: intent.thread.threadId,
         cwd: intent.cwd,
         worktreeId: intent.thread.worktreeId,
         ...(intent.thread.permissionMode ? { permissionMode: intent.thread.permissionMode } : {}),
         ...(intent.thread.model ? { model: intent.thread.model } : {}),
+        ...(account ? { account } : {}),
       });
       if (this.deleted.has(intent.thread.threadId)) {
         await this.forget(intent.thread.threadId);

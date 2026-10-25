@@ -217,6 +217,11 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
         ipc.invoke("zli:browser:inspect", BrowserSelectorInput.parse(input)),
       designInspect: (input: { browserTabId: string; selector: string }) =>
         ipc.invoke("zli:browser:design-inspect", BrowserSelectorInput.parse(input)),
+      /** Waits for the person to click an element in the page; null when the pick is cancelled. */
+      designPick: (browserTabId: string) =>
+        ipc.invoke("zli:browser:design-pick", BrowserTabIdInput.parse({ browserTabId })),
+      designCancel: (browserTabId: string) =>
+        ipc.invoke("zli:browser:design-cancel", BrowserTabIdInput.parse({ browserTabId })),
       consoleEntries: (browserTabId: string) =>
         ipc.invoke("zli:browser:console", BrowserTabIdInput.parse({ browserTabId })),
       networkEntries: (browserTabId: string) =>

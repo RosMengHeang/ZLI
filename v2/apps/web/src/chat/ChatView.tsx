@@ -145,6 +145,7 @@ export function ChatView({
     <TurnChanges
       key={checkpoint.checkpointId}
       checkpoint={checkpoint}
+      worktreeId={thread.worktreeId}
       displayName={displayName}
       branch={worktree?.branch ?? "this worktree"}
       restoreBlocked={restoreBlocked}
