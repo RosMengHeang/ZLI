@@ -1,13 +1,13 @@
 import type { KeyboardEvent, PointerEvent } from "react";
 import { useState } from "react";
 
-export type PanelId = "files" | "review" | "browser";
+export type PanelId = "files" | "review" | "browser" | "mobile";
 
 const STORAGE_PREFIX = "zli.toolPanelWidth.";
 const MIN_WIDTH = 320;
 const STEP = 24;
 /** Files needs room for the tree beside the editor; the others read fine narrower. */
-const DEFAULT_WIDTHS: Record<PanelId, number> = { files: 640, browser: 560, review: 520 };
+const DEFAULT_WIDTHS: Record<PanelId, number> = { files: 640, browser: 560, mobile: 440, review: 520 };
 const DEFAULT_SHARE = 0.45;
 
 function maxWidth(): number {

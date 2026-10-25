@@ -9,15 +9,26 @@ import { Kbd } from "../ui/Kbd.js";
 import { ariaShortcut, shortcutText } from "../ui/shortcuts.js";
 import { useShortcuts } from "./keybindings.js";
 
-export type SidePane = "files" | "browser" | "review";
+export type SidePane = "files" | "browser" | "mobile" | "review";
 
-export const sidePaneLabel: Record<SidePane, string> = { files: "Files", browser: "Browser", review: "Changes" };
+export const sidePaneLabel: Record<SidePane, string> = {
+  files: "Files",
+  browser: "Browser",
+  mobile: "Mobile",
+  review: "Changes",
+};
 
-const sidePaneIcon: Record<SidePane, IconName> = { files: "folderTree", browser: "globe", review: "diff" };
+const sidePaneIcon: Record<SidePane, IconName> = {
+  files: "folderTree",
+  browser: "globe",
+  mobile: "smartphone",
+  review: "diff",
+};
 
 export const sidePaneShortcut = {
   files: "toggleFiles",
   browser: "toggleBrowser",
+  mobile: "toggleMobile",
   review: "toggleChanges",
 } as const satisfies Record<SidePane, ShortcutId>;
 
@@ -37,6 +48,7 @@ export function Topbar({
   devServers = [],
   onOpenDevServer,
   updateNotice,
+  mobileAvailable = false,
 }: {
   sidebarOpen: boolean;
   project: ProjectProjection | undefined;
@@ -56,7 +68,12 @@ export function Topbar({
   onOpenDevServer?(url: string): void;
   /** The update pill, shown before the panel toggles. */
   updateNotice?: ReactNode;
+  /** The Mobile panel exists only in the desktop app, which runs the emulators and simulators. */
+  mobileAvailable?: boolean;
 }) {
+  const panes: readonly SidePane[] = mobileAvailable
+    ? ["files", "browser", "mobile", "review"]
+    : ["files", "browser", "review"];
   const shortcuts = useShortcuts();
   return (
     <header className="topbar">
@@ -101,7 +118,7 @@ export function Topbar({
           onClick={onToggleDrawer}
         />
         <span className="toolbar-divider" aria-hidden="true" />
-        {(["files", "browser", "review"] as const).map((pane) => (
+        {panes.map((pane) => (
           <ToolToggle
             key={pane}
             label={sidePaneLabel[pane]}

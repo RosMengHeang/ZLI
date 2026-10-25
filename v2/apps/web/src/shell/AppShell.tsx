@@ -26,6 +26,7 @@ import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
 import type { AskAgentTarget, FilesFocus } from "../files/FilesPane.js";
 import { QuickOpen } from "../files/QuickOpen.js";
 import { type IssueLink, issuePrompt, rememberIssueLink } from "../issues/issueStart.js";
+import { MobilePane, type MobileReveal } from "../mobile/MobilePane.js";
 import { useAgentNotifications } from "../notifications/useAgentNotifications.js";
 import { PluginActionDialog } from "../plugins/PluginActionDialog.js";
 import {
@@ -162,6 +163,7 @@ function WorkspaceApp() {
   const [version, setVersion] = useState<string>();
   const [browserReveal, setBrowserReveal] = useState<BrowserReveal>();
   const [browserOpen, setBrowserOpen] = useState<BrowserOpenRequest>();
+  const [mobileReveal, setMobileReveal] = useState<MobileReveal>();
   const [filesFocus, setFilesFocus] = useState<FilesFocus>();
   const [quickOpen, setQuickOpen] = useState(false);
   /** Setup approvals the person closed without answering; they stay reachable from the sidebar. */
@@ -331,6 +333,16 @@ function WorkspaceApp() {
       focusWorktree(worktreeId);
     });
   }, [bridge, focusWorktree]);
+  const mobileAvailable = Boolean(bridge?.mobile);
+  useEffect(() => {
+    if (!bridge?.mobile) return;
+    let key = 0;
+    return bridge.mobile.onReveal(({ deviceId }) => {
+      key += 1;
+      setMobileReveal({ deviceId, key });
+      setSidePane("mobile");
+    });
+  }, [bridge]);
 
   const contextDevServers = useMemo(
     () => worktreeDevServers(projection?.devServers, contextWorktree?.worktreeId),
@@ -423,6 +435,9 @@ function WorkspaceApp() {
     toggleDrawer,
     toggleFiles: () => toggleSidePane("files"),
     toggleBrowser: () => toggleSidePane("browser"),
+    toggleMobile: () => {
+      if (mobileAvailable) toggleSidePane("mobile");
+    },
     toggleChanges: () => toggleSidePane("review"),
     settings: () => openSettings(),
     escape: () => {
@@ -1292,6 +1307,17 @@ function WorkspaceApp() {
       shortcut: shortcuts.toggleBrowser,
       action: () => setSidePane("browser"),
     },
+    ...(mobileAvailable
+      ? [
+          {
+            label: "Focus mobile",
+            icon: "smartphone",
+            group: "View",
+            shortcut: shortcuts.toggleMobile,
+            action: () => setSidePane("mobile"),
+          } satisfies PaletteCommand,
+        ]
+      : []),
     {
       label: "Focus changes",
       icon: "diff",
@@ -1442,6 +1468,7 @@ function WorkspaceApp() {
             onOpenPalette={() => setPaletteOpen(true)}
             devServers={contextDevServers}
             onOpenDevServer={openDevServer}
+            mobileAvailable={mobileAvailable}
             updateNotice={
               <>
                 <ReviewNotesPill worktree={contextWorktree} onShowAgent={showAgent} />
@@ -1583,6 +1610,8 @@ function WorkspaceApp() {
                         openRequest={browserOpen}
                         onShowAgent={showAgent}
                       />
+                    ) : sidePane === "mobile" ? (
+                      <MobilePane reveal={mobileReveal} />
                     ) : (
                       <Suspense fallback={<LoadingState label="Loading the changes" />}>
                         <ReviewPane worktree={contextWorktree} focus={reviewFocus} onShowAgent={showAgent} />
