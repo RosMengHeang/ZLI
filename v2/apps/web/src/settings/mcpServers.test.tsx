@@ -108,7 +108,7 @@ describe("MCP server drafts", () => {
       headers: { Authorization: "Bearer secret-token" },
       oauth: true,
     });
-    expect(summary).toBe("https://mcp.context7.com/mcp · Authorization: •••• · sign in with browser");
+    expect(summary).toBe("https://mcp.context7.com/mcp · Authorization: ••••");
     expect(summary).not.toContain("secret-token");
     expect(serverSummary(github)).toBe("npx -y gh-mcp");
   });
@@ -216,29 +216,61 @@ describe("McpServersSection", () => {
     expect(container.textContent).toContain("No servers yet.");
   });
 
-  it("adds a remote server and catalog servers", async () => {
+  it("adds a remote server and signs in to one through the browser", async () => {
     let servers: McpServerConfig[] = [];
+    let signedIn = false;
+    const opened: string[] = [];
+    const list = () => ({
+      servers,
+      agentAccess: "full",
+      userSettings: { enabled: true, outcomes: [] },
+      signIns: servers
+        .filter((server) => server.transport === "http" && server.oauth)
+        .map((server) => ({
+          name: server.name,
+          url: server.transport === "http" ? server.url : "",
+          signedIn,
+          ...(signedIn ? { via: "browser", account: "ada" } : {}),
+        })),
+    });
     const bridge = {
       runtime: {
-        dispatch: async (request: { commandId: string; command: { type: string; servers?: McpServerConfig[] } }) => {
-          if (request.command.type === "mcp.save") servers = request.command.servers ?? [];
-          return {
+        dispatch: async (request: {
+          commandId: string;
+          command: { type: string; servers?: McpServerConfig[]; name?: string; attemptId?: string };
+        }) => {
+          const reply = (result: unknown) => ({
             commandId: CommandId.parse(request.commandId),
             accepted: true as const,
-            result: { servers, agentAccess: "full", userSettings: { enabled: true, outcomes: [] } },
-          };
+            result,
+          });
+          if (request.command.type === "mcp.save") servers = request.command.servers ?? [];
+          if (request.command.type === "mcp.signIn") {
+            return reply({ status: "open", attemptId: "attempt-1", url: "https://auth.example.com/authorize?x=1" });
+          }
+          if (request.command.type === "mcp.signIn.wait") signedIn = true;
+          if (request.command.type === "mcp.signOut") signedIn = false;
+          return reply(list());
         },
         getProjection: async () => undefined,
         onProjection: () => () => undefined,
       },
-      app: { getVersion: async () => "0", quit: async () => undefined },
+      app: {
+        getVersion: async () => "0",
+        quit: async () => undefined,
+        openExternal: async (url: string) => {
+          opened.push(url);
+        },
+      },
     } as unknown as ZliBridge;
     const container = document.createElement("div");
     document.body.append(container);
+    let openedConnectors = false;
+    let root = createRoot(container);
     await act(async () => {
-      createRoot(container).render(
+      root.render(
         <RuntimeProvider bridge={bridge}>
-          <McpServersSection />
+          <McpServersSection onOpenConnectors={() => (openedConnectors = true)} />
         </RuntimeProvider>,
       );
     });
@@ -273,35 +305,33 @@ describe("McpServersSection", () => {
     );
     expect(container.textContent).not.toContain("ctx-secret");
 
-    await act(async () => button(container, "Browse catalog").click());
-    const catalog = container.querySelector('[aria-label="MCP server catalog"]') as HTMLElement;
-    expect(catalog.querySelector('[data-entry="context7"]')?.textContent).toContain("Added");
-    const search = catalog.querySelector<HTMLInputElement>('input[type="search"]') as HTMLInputElement;
-    await act(async () => setValue(search, "linear"));
-    expect([...catalog.querySelectorAll(".mcp-catalog-item")].map((item) => item.getAttribute("data-entry"))).toEqual([
-      "linear",
-    ]);
-    await act(async () => button(catalog, "Add Linear").click());
-    expect(servers.at(-1)).toEqual({
+    const linear = {
       name: "linear",
       enabled: true,
-      transport: "http",
+      transport: "http" as const,
       url: "https://mcp.linear.app/mcp",
       headers: {},
       oauth: true,
+    };
+    servers = [...servers, linear];
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <RuntimeProvider bridge={bridge}>
+          <McpServersSection onOpenConnectors={() => (openedConnectors = true)} />
+        </RuntimeProvider>,
+      );
     });
-    expect(catalog.querySelector('[data-entry="linear"]')?.textContent).toContain("Added");
+    expect(container.textContent).toContain("linear");
+    await act(async () => button(container, "Sign in").click());
+    expect(opened).toEqual(["https://auth.example.com/authorize?x=1"]);
+    expect(container.querySelector(".mcp-row-signin")?.textContent).toBe("Signed in as ada");
+    await act(async () => button(container, "Sign out").click());
+    expect(button(container, "Sign in")).toBeTruthy();
 
-    await act(async () => setValue(search, "github"));
-    await act(async () => button(catalog, "Add GitHub").click());
-    const githubForm = catalog.querySelector('form[aria-label="Add GitHub"]') as HTMLFormElement;
-    await act(async () => githubForm.requestSubmit());
-    expect(githubForm.textContent).toContain("Add the personal access token.");
-    const token = githubForm.querySelector<HTMLInputElement>('input[type="password"]') as HTMLInputElement;
-    await act(async () => setValue(token, "ghp_test"));
-    await act(async () => githubForm.requestSubmit());
-    expect(servers.at(-1)).toMatchObject({ name: "github", headers: { Authorization: "Bearer ghp_test" } });
-    expect(catalog.querySelector('[data-entry="github"]')?.textContent).toContain("Added");
+    await act(async () => button(container, "Browse connectors").click());
+    expect(openedConnectors).toBe(true);
   });
   it("shows why the list could not load and retries", async () => {
     let calls = 0;

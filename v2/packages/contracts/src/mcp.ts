@@ -9,8 +9,6 @@ export const RESERVED_MCP_SERVER_NAMES: readonly string[] = ["zli", "zli-browser
 export const MAX_MCP_SERVERS = 50;
 /** HTTP header names (RFC 9110 tokens). */
 export const MCP_HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,256}$/u;
-/** The mcp-remote release that bridges sign-in (OAuth) servers to stdio. Pinned so a new release cannot change it unseen. */
-export const MCP_REMOTE_PACKAGE = "mcp-remote@0.15.2";
 
 const EnvName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/u, "Environment names use letters, digits, and _.");
 const HeaderName = z.string().regex(MCP_HEADER_NAME_PATTERN, "Header names use letters, digits, and - only.");
@@ -74,8 +72,8 @@ export const McpHttpServerConfig = z.object({
     .record(HeaderName, HeaderValue)
     .refine((headers) => Object.keys(headers).length <= 32, "Use up to 32 headers."),
   /**
-   * Started through mcp-remote, which opens the browser to sign in and keeps the tokens, so servers that
-   * need OAuth work the same in every agent.
+   * Signs in through ZLI (OAuth). ZLI keeps the login and agents reach the server through ZLI's connect
+   * bridge, which adds a fresh token, so one sign-in works in every agent.
    */
   oauth: z.boolean(),
 });
@@ -108,9 +106,35 @@ export const McpCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("mcp.list") }),
   z.object({ type: z.literal("mcp.save"), servers: McpServerList }),
   z.object({ type: z.literal("mcp.agentAccess"), access: AgentToolAccess }),
+  /** Starts signing in to a sign-in server; replies with McpSignInStart. */
+  z.object({ type: z.literal("mcp.signIn"), name: ServerName }),
+  /** Replies with McpListResult once the browser sign-in is saved. */
+  z.object({ type: z.literal("mcp.signIn.wait"), attemptId: z.string().min(1).max(100) }),
+  z.object({ type: z.literal("mcp.signIn.cancel"), attemptId: z.string().min(1).max(100) }),
+  z.object({ type: z.literal("mcp.signOut"), name: ServerName }),
 ]);
 export type McpCommand = z.infer<typeof McpCommand>;
-export const MCP_COMMAND_TYPES = ["mcp.list", "mcp.save", "mcp.agentAccess"] as const;
+export const MCP_COMMAND_TYPES = [
+  "mcp.list",
+  "mcp.save",
+  "mcp.agentAccess",
+  "mcp.signIn",
+  "mcp.signIn.wait",
+  "mcp.signIn.cancel",
+  "mcp.signOut",
+] as const;
+
+/** How a sign-in server is signed in, for every server with `oauth` on, the person's and plugins'. */
+export const McpSignInState = z.object({
+  name: z.string(),
+  url: z.string(),
+  signedIn: z.boolean(),
+  /** browser: OAuth in the browser. github-cli: the GitHub CLI's login. github-code: GitHub device code. */
+  via: z.enum(["browser", "github-cli", "github-code"]).optional(),
+  account: z.string().optional(),
+  signedInAt: z.string().optional(),
+});
+export type McpSignInState = z.infer<typeof McpSignInState>;
 
 /** What happened to one agent's user settings file when ZLI copied the servers into it. */
 export const McpSettingsOutcome = z.object({
@@ -130,7 +154,20 @@ export const McpListResult = z.object({
     enabled: z.boolean(),
     outcomes: z.array(McpSettingsOutcome),
   }),
+  signIns: z.array(McpSignInState).default([]),
   /** Set when the saved list could not be read; saving replaces it. */
   problem: z.string().optional(),
 });
 export type McpListResult = z.infer<typeof McpListResult>;
+
+/** Reply to mcp.signIn: either done already, or a page to open (with a code to enter for GitHub). */
+export const McpSignInStart = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("done"), list: McpListResult }),
+  z.object({
+    status: z.literal("open"),
+    attemptId: z.string(),
+    url: z.string(),
+    code: z.string().optional(),
+  }),
+]);
+export type McpSignInStart = z.infer<typeof McpSignInStart>;

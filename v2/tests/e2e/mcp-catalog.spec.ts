@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 
 import { closeDesktop, createGitFixture, type DesktopFixture, launchDesktop } from "./desktop-fixtures.js";
 
-test("adds MCP servers from the catalog and by remote URL", async () => {
+test("adds connectors from the gallery and MCP servers by remote URL", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
   const { root, repo } = await createGitFixture();
   let fixture: DesktopFixture | undefined;
@@ -16,24 +16,27 @@ test("adds MCP servers from the catalog and by remote URL", async () => {
 
     await page.getByRole("button", { name: "Settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
-    await settings.getByRole("tab", { name: "MCP servers" }).click();
-    await expect(settings).toContainText("No servers yet.");
+    await settings.getByRole("tab", { name: "Connectors" }).click();
+    await expect(settings.locator('[data-entry="vercel"]')).toContainText("Vercel");
+    await expect(settings.locator('[data-entry="vercel"] .connector-logo')).toBeVisible();
 
-    await settings.getByRole("button", { name: "Browse catalog" }).click();
-    const catalog = settings.getByRole("region", { name: "MCP server catalog" });
-    await catalog.getByRole("searchbox", { name: "Search servers" }).fill("memory");
-    await expect(catalog.locator(".mcp-catalog-item")).toHaveCount(1);
-    await catalog.getByRole("button", { name: "Add Memory" }).click();
-    await expect(catalog.locator('[data-entry="memory"]')).toContainText("Added");
+    const search = settings.getByRole("searchbox", { name: "Search connectors" });
+    await search.fill("memory");
+    await expect(settings.locator(".connector-card")).toHaveCount(1);
+    await settings.getByRole("button", { name: "Add Memory" }).click();
+    await expect(settings.locator('[data-entry="memory"]')).toHaveAttribute("data-state", "connected");
 
-    await catalog.getByRole("searchbox", { name: "Search servers" }).fill("github");
-    await catalog.getByRole("button", { name: "Add GitHub" }).click();
-    const githubForm = catalog.getByRole("form", { name: "Add GitHub" });
+    await search.fill("github");
+    const github = settings.locator('[data-entry="github"]');
+    await github.getByRole("button", { name: "Use a token" }).click();
+    const githubForm = github.getByRole("form", { name: "Connect GitHub" });
     await githubForm.getByLabel("Personal access token").fill("ghp_e2e_secret");
-    await githubForm.getByRole("button", { name: "Add server" }).click();
-    await expect(catalog.locator('[data-entry="github"]')).toContainText("Added");
-    await catalog.getByRole("button", { name: "Done" }).click();
+    await githubForm.getByRole("button", { name: "Connect" }).click();
+    await expect(github).toHaveAttribute("data-state", "connected");
+    await search.fill("");
+    await expect(settings.getByRole("button", { name: "Connected (2)" })).toBeVisible();
 
+    await settings.getByRole("tab", { name: "MCP servers" }).click();
     await settings.getByRole("button", { name: "Add server" }).click();
     const form = settings.getByRole("form", { name: "New MCP server" });
     await form.getByLabel("Name").fill("linear");
@@ -54,8 +57,11 @@ test("adds MCP servers from the catalog and by remote URL", async () => {
     await expect(rows).toHaveText([
       `${windows ? "cmd /c " : ""}npx -y @modelcontextprotocol/server-memory`,
       "https://api.githubcopilot.com/mcp/ · Authorization: ••••",
-      "https://mcp.linear.app/mcp · sign in with browser",
+      "https://mcp.linear.app/mcp",
     ]);
+    await expect(
+      settings.locator(".mcp-row", { hasText: "mcp.linear.app" }).getByRole("button", { name: /Sign in/ }),
+    ).toBeVisible();
     await expect(settings).not.toContainText("ghp_e2e_secret");
     await expect(settings).toContainText("Goose in a terminal cannot send headers");
 
@@ -90,6 +96,9 @@ test("adds MCP servers from the catalog and by remote URL", async () => {
     const edit = settings.getByRole("form", { name: "Edit MCP server" });
     await expect(edit.getByLabel("URL")).toHaveValue("https://api.githubcopilot.com/mcp/");
     await edit.getByRole("button", { name: "Cancel" }).click();
+
+    await settings.getByRole("button", { name: "Browse connectors" }).click();
+    await expect(settings.getByRole("searchbox", { name: "Search connectors" })).toBeVisible();
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

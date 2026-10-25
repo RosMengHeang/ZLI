@@ -12,6 +12,7 @@ describe("zli-browser shims", () => {
     command: "C:\\Program Files\\ZLI\\ZLI.exe",
     script: "C:\\Program Files\\ZLI\\resources\\app.asar\\dist\\zli-browser.js",
     agentScript: "C:\\Program Files\\ZLI\\resources\\app.asar\\dist\\zli.js",
+    connectScript: "C:\\Program Files\\ZLI\\resources\\app.asar\\dist\\zli-connect.js",
     shimDir: "C:\\Users\\me\\AppData\\Roaming\\ZLI\\bin",
   };
 
@@ -21,6 +22,7 @@ describe("zli-browser shims", () => {
       ZLI_BROWSER_TOOL_COMMAND: paths.command,
       ZLI_BROWSER_TOOL_SCRIPT: paths.script,
       ZLI_AGENT_TOOL_SCRIPT: paths.agentScript,
+      ZLI_CONNECT_TOOL_SCRIPT: paths.connectScript,
       ZLI_BROWSER_SHIM_DIR: paths.shimDir,
     });
   });

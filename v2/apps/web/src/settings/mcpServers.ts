@@ -6,10 +6,13 @@ import {
   type McpServerConfig,
   McpServerList,
   type McpSettingsOutcome,
+  McpSignInStart,
+  type McpSignInState,
   type RpcResponse,
 } from "@zli-v2/contracts";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import { openExternalLink } from "../review/links.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 
@@ -46,13 +49,49 @@ export const TRANSPORT_LABELS: Record<McpTransport, string> = {
   http: "Remote server",
 };
 
-async function request(dispatch: Dispatch, command: Record<string, unknown>): Promise<McpListResult> {
+async function send(dispatch: Dispatch, command: Record<string, unknown>): Promise<unknown> {
   const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
   if (!response) throw new Error("ZLI is not connected to its runtime.");
   if (!response.accepted) throw new Error(response.error.message);
-  const parsed = McpListResult.safeParse(response.result);
-  if (!parsed.success) throw new Error("The runtime sent an unexpected reply. Restart ZLI and try again.");
+  return response.result;
+}
+
+const UNEXPECTED = "The runtime sent an unexpected reply. Restart ZLI and try again.";
+
+async function request(dispatch: Dispatch, command: Record<string, unknown>): Promise<McpListResult> {
+  const parsed = McpListResult.safeParse(await send(dispatch, command));
+  if (!parsed.success) throw new Error(UNEXPECTED);
   return parsed.data;
+}
+
+export async function startMcpSignIn(dispatch: Dispatch, name: string): Promise<McpSignInStart> {
+  const parsed = McpSignInStart.safeParse(await send(dispatch, { type: "mcp.signIn", name }));
+  if (!parsed.success) throw new Error(UNEXPECTED);
+  return parsed.data;
+}
+
+export function waitForMcpSignIn(dispatch: Dispatch, attemptId: string): Promise<McpListResult> {
+  return request(dispatch, { type: "mcp.signIn.wait", attemptId });
+}
+
+export function cancelMcpSignIn(dispatch: Dispatch, attemptId: string): Promise<McpListResult> {
+  return request(dispatch, { type: "mcp.signIn.cancel", attemptId });
+}
+
+export function signOutMcpServer(dispatch: Dispatch, name: string): Promise<McpListResult> {
+  return request(dispatch, { type: "mcp.signOut", name });
+}
+
+/** The sign-in state for one server, matched by name. */
+export function signInFor(result: McpListResult, name: string): McpSignInState | undefined {
+  const key = name.toLowerCase();
+  return result.signIns.find((entry) => entry.name.toLowerCase() === key);
+}
+
+/** "Signed in as octocat" or "Signed in", for the row or card. */
+export function signedInText(state: McpSignInState | undefined): string | undefined {
+  if (!state?.signedIn) return undefined;
+  return state.account ? `Signed in as ${state.account}` : "Signed in";
 }
 
 export function listMcpServers(dispatch: Dispatch): Promise<McpListResult> {
@@ -204,7 +243,7 @@ export function commandLine(server: { command: string; args: readonly string[] }
 export function serverSummary(server: McpServerConfig): string {
   if (!isHttpServer(server)) return commandLine(server);
   const headers = Object.keys(server.headers).map((name) => `${name}: ••••`);
-  return [server.url, ...headers, ...(server.oauth ? ["sign in with browser"] : [])].join(" · ");
+  return [server.url, ...headers].join(" · ");
 }
 
 /** Agents start npx without a shell, which on Windows needs cmd in front of it. */
@@ -240,15 +279,97 @@ export type McpServersState =
   | { status: "error"; message: string }
   | { status: "ready"; result: McpListResult };
 
+/** A sign-in waiting on the browser. `code` is the one to enter on the page, for GitHub. */
+export type PendingSignIn = { name: string; attemptId: string; url: string; code?: string };
+
+export const SIGN_IN_CANCELED = "Sign-in canceled.";
+
 export function useMcpServers(): {
   state: McpServersState;
   reload(): void;
   save(servers: readonly McpServerConfig[]): Promise<McpListResult>;
   setAgentAccess(access: AgentToolAccess): Promise<McpListResult>;
+  /** Signs in and resolves once it is saved. Rejects with the problem, or SIGN_IN_CANCELED. */
+  signIn(name: string): Promise<void>;
+  cancelSignIn(name: string): void;
+  /** Opens the sign-in page again, for when the browser tab was closed. */
+  reopenSignIn(name: string): Promise<string | undefined>;
+  signOut(name: string): Promise<McpListResult>;
+  pending: Readonly<Record<string, PendingSignIn>>;
 } {
-  const { dispatch } = useRuntime();
+  const { dispatch, bridge } = useRuntime();
   const [state, setState] = useState<McpServersState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
+  const [pending, setPending] = useState<Record<string, PendingSignIn>>({});
+  const pendingRef = useRef(pending);
+  pendingRef.current = pending;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const setPendingFor = useCallback((name: string, value: PendingSignIn | undefined) => {
+    if (!mounted.current) return;
+    setPending((current) => {
+      const next = { ...current };
+      if (value) next[name] = value;
+      else delete next[name];
+      return next;
+    });
+  }, []);
+
+  const signIn = useCallback(
+    async (name: string) => {
+      const start = await startMcpSignIn(dispatch, name);
+      if (start.status === "done") {
+        if (mounted.current) setState({ status: "ready", result: start.list });
+        return;
+      }
+      setPendingFor(name, {
+        name,
+        attemptId: start.attemptId,
+        url: start.url,
+        ...(start.code ? { code: start.code } : {}),
+      });
+      try {
+        if (start.code) await navigator.clipboard?.writeText(start.code).catch(() => undefined);
+        await openExternalLink(bridge, start.url);
+        const result = await waitForMcpSignIn(dispatch, start.attemptId);
+        if (mounted.current) setState({ status: "ready", result });
+      } finally {
+        setPendingFor(name, undefined);
+      }
+    },
+    [dispatch, bridge, setPendingFor],
+  );
+
+  const cancelSignIn = useCallback(
+    (name: string) => {
+      const attemptId = pendingRef.current[name]?.attemptId;
+      if (attemptId) void cancelMcpSignIn(dispatch, attemptId).catch(() => undefined);
+    },
+    [dispatch],
+  );
+
+  const reopenSignIn = useCallback(
+    async (name: string) => {
+      const url = pendingRef.current[name]?.url;
+      return url ? openExternalLink(bridge, url) : undefined;
+    },
+    [bridge],
+  );
+
+  const signOut = useCallback(
+    async (name: string) => {
+      const result = await signOutMcpServer(dispatch, name);
+      if (mounted.current) setState({ status: "ready", result });
+      return result;
+    },
+    [dispatch],
+  );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt is the retry trigger.
   useEffect(() => {
@@ -284,5 +405,15 @@ export function useMcpServers(): {
     [dispatch],
   );
 
-  return { state, reload: () => setAttempt((value) => value + 1), save, setAgentAccess };
+  return {
+    state,
+    reload: () => setAttempt((value) => value + 1),
+    save,
+    setAgentAccess,
+    signIn,
+    cancelSignIn,
+    reopenSignIn,
+    signOut,
+    pending,
+  };
 }

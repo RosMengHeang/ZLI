@@ -27,6 +27,7 @@ import {
   type McpCommand,
   type McpListResult,
   type McpServerConfig,
+  type McpSignInStart,
   PLUGIN_COMMAND_TYPES,
   type PluginCommand,
   type ProviderDiscovery,
@@ -46,6 +47,7 @@ import { CheckpointError, type TurnCheckpoints } from "../checkpoints/TurnCheckp
 import { errorCode, FileService, FileServiceError } from "../files/FileService.js";
 import { defaultIssueSources, IssueError, type IssueSources, runIssueCommand } from "../issues/IssueService.js";
 import type { Engine } from "../orchestration/Engine.js";
+import { SignInError } from "../mcp/signIn/oauth.js";
 import { isPluginError, type PluginStore } from "../plugins/PluginStore.js";
 import { runPluginCommand } from "../plugins/runPluginCommand.js";
 import { unavailableProviderDiscovery } from "../providers/discoverCliProviders.js";
@@ -90,11 +92,7 @@ type RpcServerOptions = {
   /** Turn diffs and restores. Without it, checkpoint commands are answered as unavailable. */
   checkpoints?: Pick<TurnCheckpoints, "run">;
   /** The MCP servers from Settings. Without it, MCP commands are answered as unavailable. */
-  mcpServers?: {
-    list(): McpListResult;
-    save(servers: readonly McpServerConfig[]): Promise<McpListResult>;
-    setAgentAccess(access: AgentToolAccess): Promise<McpListResult>;
-  };
+  mcpServers?: McpServerCommands;
   /** The skills from Settings. Without it, skills commands are answered as unavailable. */
   skills?: SkillStore;
   /** Installed plugins. Without it, plugin commands are answered as unavailable. */
@@ -414,24 +412,26 @@ export class RpcServer {
       return true;
     }
     try {
-      const result =
-        command.type === "mcp.list"
-          ? store.list()
-          : command.type === "mcp.save"
-            ? await store.save(command.servers)
-            : await store.setAgentAccess(command.access);
+      const result = await runMcpCommand(store, command);
       send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const signIn = command.type.startsWith("mcp.sign");
       send(client, {
         type: "response",
         response: {
           commandId: request.commandId,
           accepted: false,
-          error: {
-            code: "internal",
-            message: `MCP servers were not saved. ${error instanceof Error ? error.message : String(error)}`,
-            retryable: true,
-          },
+          error:
+            error instanceof SignInError
+              ? { code: "invalid_request", message, retryable: true }
+              : {
+                  code: "internal",
+                  message: signIn
+                    ? `The sign-in did not go through. ${message}`
+                    : `MCP servers were not saved. ${message}`,
+                  retryable: true,
+                },
         },
       });
     }
@@ -826,6 +826,36 @@ function isAccountCommand(command: RpcRequest["command"]): command is AccountCom
 
 function isMcpCommand(command: RpcRequest["command"]): command is McpCommand {
   return (MCP_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
+export type McpServerCommands = {
+  list(): McpListResult;
+  save(servers: readonly McpServerConfig[]): Promise<McpListResult>;
+  setAgentAccess(access: AgentToolAccess): Promise<McpListResult>;
+  signIn?(name: string): Promise<McpSignInStart>;
+  waitForSignIn?(attemptId: string): Promise<McpListResult>;
+  cancelSignIn?(attemptId: string): McpListResult;
+  signOut?(name: string): Promise<McpListResult>;
+};
+
+function runMcpCommand(store: McpServerCommands, command: McpCommand): Promise<McpListResult | McpSignInStart> {
+  const missing = () => Promise.reject(new SignInError("Signing in is not available here."));
+  switch (command.type) {
+    case "mcp.list":
+      return Promise.resolve(store.list());
+    case "mcp.save":
+      return store.save(command.servers);
+    case "mcp.agentAccess":
+      return store.setAgentAccess(command.access);
+    case "mcp.signIn":
+      return store.signIn ? store.signIn(command.name) : missing();
+    case "mcp.signIn.wait":
+      return store.waitForSignIn ? store.waitForSignIn(command.attemptId) : missing();
+    case "mcp.signIn.cancel":
+      return store.cancelSignIn ? Promise.resolve(store.cancelSignIn(command.attemptId)) : missing();
+    case "mcp.signOut":
+      return store.signOut ? store.signOut(command.name) : missing();
+  }
 }
 
 function isPluginCommand(command: RpcRequest["command"]): command is PluginCommand {

@@ -4,7 +4,6 @@ import { useRef, useState } from "react";
 import { Button, IconButton } from "../ui/Button.js";
 import { Field, Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
-import { McpCatalog } from "./McpCatalog.js";
 import {
   AGENT_ACCESS_LABELS,
   applyDraft,
@@ -14,7 +13,10 @@ import {
   type McpDraft,
   type McpTransport,
   serverSummary,
+  SIGN_IN_CANCELED,
   settingsProblems,
+  signedInText,
+  signInFor,
   TRANSPORT_LABELS,
   useMcpServers,
 } from "./mcpServers.js";
@@ -24,14 +26,14 @@ type Editing = { index?: number; draft: McpDraft };
 
 const SETTINGS_AGENTS = "Cursor, Droid, Gemini, Kimi Code, and Qwen Code";
 
-export function McpServersSection() {
-  const { state, reload, save, setAgentAccess } = useMcpServers();
+export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): void }) {
+  const { state, reload, save, setAgentAccess, signIn, cancelSignIn, signOut, pending } = useMcpServers();
+  const [signInProblems, setSignInProblems] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<Editing>();
   const [problem, setProblem] = useState<string>();
   const [saveError, setSaveError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string>();
-  const [browsing, setBrowsing] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
   const header = (
@@ -71,6 +73,58 @@ export function McpServersSection() {
 
   const { servers, userSettings, agentAccess, problem: storeProblem } = state.result;
   const problems = settingsProblems(userSettings.outcomes);
+  const pluginSignIns = state.result.signIns.filter(
+    (entry) => !servers.some((server) => server.name.toLowerCase() === entry.name.toLowerCase()),
+  );
+
+  const runSignIn = async (name: string, work: () => Promise<unknown>) => {
+    setSignInProblems((current) => ({ ...current, [name]: "" }));
+    try {
+      await work();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message !== SIGN_IN_CANCELED) setSignInProblems((current) => ({ ...current, [name]: message }));
+    }
+  };
+
+  /** Sign in, Cancel, or Sign out for a server that signs in through ZLI. */
+  const signInControls = (name: string) => {
+    const entry = signInFor(state.result, name);
+    if (!entry) return null;
+    if (pending[name]) {
+      return (
+        <span className="mcp-row-actions">
+          <span className="mcp-row-signin">
+            {pending[name]?.code ? `Enter code ${pending[name]?.code} in your browser` : "Finish in your browser"}
+          </span>
+          <Button size="xs" variant="ghost" onClick={() => cancelSignIn(name)}>
+            Cancel
+          </Button>
+        </span>
+      );
+    }
+    const text = signedInText(entry);
+    return text ? (
+      <span className="mcp-row-actions">
+        <span className="mcp-row-signin is-signed-in">{text}</span>
+        <Button size="xs" variant="ghost" onClick={() => void runSignIn(name, () => signOut(name))}>
+          Sign out
+        </Button>
+      </span>
+    ) : (
+      <Button size="xs" variant="primary" onClick={() => void runSignIn(name, () => signIn(name))}>
+        Sign in
+      </Button>
+    );
+  };
+
+  const signInProblem = (name: string) =>
+    signInProblems[name] ? (
+      <p className="inline-error" role="alert">
+        <Icon name="alert" size={13} />
+        {signInProblems[name]}
+      </p>
+    ) : null;
 
   const run = async (work: () => Promise<unknown>): Promise<boolean> => {
     setSaving(true);
@@ -89,7 +143,6 @@ export function McpServersSection() {
   const persist = (next: McpServerConfig[]) => run(() => save(next));
 
   const startEdit = (index?: number) => {
-    setBrowsing(false);
     setConfirmDelete(undefined);
     setProblem(undefined);
     const server = index === undefined ? undefined : servers[index];
@@ -108,21 +161,6 @@ export function McpServersSection() {
     }
     setProblem(undefined);
     if (await persist(applied.servers)) setEditing(undefined);
-  };
-
-  const addFromCatalog = async (server: McpServerConfig): Promise<string | undefined> => {
-    const applied = applyServer(servers, server, undefined);
-    if ("problem" in applied) return applied.problem;
-    setSaveError(undefined);
-    try {
-      setSaving(true);
-      await save(applied.servers);
-      return undefined;
-    } catch (error) {
-      return error instanceof Error ? error.message : String(error);
-    } finally {
-      setSaving(false);
-    }
   };
 
   const setDraft = (patch: Partial<McpDraft>) =>
@@ -194,6 +232,7 @@ export function McpServersSection() {
                   {serverSummary(server)}
                 </span>
               </span>
+              {confirmDelete === server.name ? null : signInControls(server.name)}
               {confirmDelete === server.name ? (
                 <>
                   <Button
@@ -238,7 +277,31 @@ export function McpServersSection() {
           ))}
         </ul>
       ) : null}
-      {saveError && !editing && !browsing ? (
+      {servers.map((server) => (
+        <div key={server.name}>{signInProblem(server.name)}</div>
+      ))}
+      {pluginSignIns.length > 0 ? (
+        <>
+          <h3 className="mcp-subhead">From plugins</h3>
+          <ul className="mcp-rows">
+            {pluginSignIns.map((entry) => (
+              <li className="mcp-row" key={entry.name}>
+                <span className="mcp-row-copy">
+                  <strong>{entry.name}</strong>
+                  <span className="mcp-row-command" title={entry.url}>
+                    {entry.url}
+                  </span>
+                </span>
+                {signInControls(entry.name)}
+              </li>
+            ))}
+          </ul>
+          {pluginSignIns.map((entry) => (
+            <div key={entry.name}>{signInProblem(entry.name)}</div>
+          ))}
+        </>
+      ) : null}
+      {saveError && !editing ? (
         <p className="inline-error" role="alert">
           <Icon name="alert" size={13} />
           {saveError}
@@ -307,8 +370,8 @@ export function McpServersSection() {
                 <span className="choice-copy">
                   <span className="choice-title">Sign in with browser (OAuth)</span>
                   <span className="choice-detail">
-                    For servers such as Linear, Notion, and Sentry. ZLI starts them through mcp-remote, which opens your
-                    browser to sign in the first time and keeps the login. Needs Node.js (npx) on PATH.
+                    For servers that ask you to sign in, such as Linear, Notion, and Sentry. After saving, use Sign in
+                    next to the server. ZLI keeps the login and gives every agent a fresh token.
                   </span>
                 </span>
               </label>
@@ -372,31 +435,16 @@ export function McpServersSection() {
             </Button>
           </div>
         </form>
-      ) : browsing ? (
-        <McpCatalog
-          servers={servers}
-          saving={saving}
-          saveError={saveError}
-          onAdd={addFromCatalog}
-          onClose={() => setBrowsing(false)}
-        />
       ) : (
         <div className="settings-actions">
           <Button size="sm" icon="plus" disabled={saving} onClick={() => startEdit()}>
             Add server
           </Button>
-          <Button
-            size="sm"
-            icon="search"
-            disabled={saving}
-            onClick={() => {
-              setConfirmDelete(undefined);
-              setSaveError(undefined);
-              setBrowsing(true);
-            }}
-          >
-            Browse catalog
-          </Button>
+          {onOpenConnectors ? (
+            <Button size="sm" icon="globe" disabled={saving} onClick={onOpenConnectors}>
+              Browse connectors
+            </Button>
+          ) : null}
         </div>
       )}
       <p className="settings-footnote">
@@ -409,7 +457,7 @@ export function McpServersSection() {
       ) ? (
         <p className="settings-footnote">
           Goose in a terminal cannot send headers, so it skips remote servers that need them. Turn on Sign in with
-          browser for a server to reach Goose through mcp-remote instead.
+          browser for a server and Goose reaches it through ZLI instead.
         </p>
       ) : null}
       {problems.length > 0 ? (
