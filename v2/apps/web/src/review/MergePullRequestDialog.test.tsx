@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 
-import { CommandId, EnvironmentId, ProjectId, type RuntimeProjection, WorktreeId } from "@zli-v2/contracts";
+import {
+  CommandId,
+  EnvironmentId,
+  ProjectId,
+  type PullRequestInfo,
+  type RuntimeProjection,
+  WorktreeId,
+} from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -22,15 +29,22 @@ const worktree = {
 const pullRequest = { number: 7, url: "https://github.com/acme/app/pull/7", state: "OPEN" as const, isDraft: false };
 const roots: Root[] = [];
 
-afterEach(async () => {
+async function cleanup() {
   await act(async () => {
     for (const root of roots.splice(0)) root.unmount();
   });
   document.body.replaceChildren();
+}
+
+afterEach(async () => {
+  await cleanup();
   localStorage.clear();
 });
 
-async function render(onMerged: (result: unknown) => void) {
+async function render(
+  onMerged: (result: unknown) => void,
+  options: { pullRequest?: PullRequestInfo; onAutoMerge?: (result: unknown) => void } = {},
+) {
   const commands: Record<string, unknown>[] = [];
   const projection = {
     environment: {
@@ -54,7 +68,10 @@ async function render(onMerged: (result: unknown) => void) {
         return {
           commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"),
           accepted: true,
-          result: { pullRequest: { ...pullRequest, state: "MERGED" }, branchDeleted: false },
+          result:
+            request.command.type === "review.pr.autoMerge"
+              ? { pullRequest: { ...pullRequest, autoMerge: { method: request.command.method } } }
+              : { pullRequest: { ...pullRequest, state: "MERGED" }, branchDeleted: false },
         };
       },
       getProjection: async () => projection,
@@ -70,9 +87,10 @@ async function render(onMerged: (result: unknown) => void) {
       <RuntimeProvider bridge={bridge}>
         <MergePullRequestDialog
           worktree={worktree}
-          pullRequest={pullRequest}
+          pullRequest={options.pullRequest ?? pullRequest}
           onClose={() => undefined}
           onMerged={onMerged}
+          onAutoMerge={options.onAutoMerge ?? (() => undefined)}
         />
       </RuntimeProvider>,
     );
@@ -100,5 +118,28 @@ describe("MergePullRequestDialog", () => {
 
     expect(commands.at(-1)).toMatchObject({ method: "rebase", deleteBranch: false });
     expect(localStorage.getItem("zli.review.mergeMethod")).toBe("rebase");
+  });
+
+  it("offers auto-merge only when GitHub is likely to block the merge", async () => {
+    await render(() => undefined);
+    expect(button("Merge when ready")).toBeUndefined();
+    await cleanup();
+
+    const onAutoMerge = vi.fn();
+    const blocked: PullRequestInfo = { ...pullRequest, checks: [{ name: "test", state: "pending" }] };
+    const commands = await render(() => undefined, { pullRequest: blocked, onAutoMerge });
+    await act(async () => button("Merge commit")?.click());
+    await act(async () => button("Merge when ready")?.click());
+
+    expect(commands.at(-1)).toMatchObject({ type: "review.pr.autoMerge", enabled: true, method: "merge" });
+    expect(onAutoMerge).toHaveBeenCalledWith({ pullRequest: { ...pullRequest, autoMerge: { method: "merge" } } });
+  });
+
+  it("says when auto-merge is already on", async () => {
+    await render(() => undefined, {
+      pullRequest: { ...pullRequest, reviewDecision: "REVIEW_REQUIRED", autoMerge: { method: "squash" } },
+    });
+    expect(document.body.textContent).toContain("Auto-merge is on (squash).");
+    expect(button("Merge when ready")).toBeUndefined();
   });
 });

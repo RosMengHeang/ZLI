@@ -8,9 +8,13 @@ import { closeDesktop, createGitFixture, type DesktopFixture, git, launchDesktop
 const PR_URL = "https://github.com/zli/fixture/pull/7";
 
 // Stands in for the GitHub CLI: signed in, no pull request until `gh pr create` runs, and every call logged.
+// Reviews and auto-merge rewrite pr.json the way GitHub would report them on the next `gh pr view`.
 const FAKE_GH = `#!/bin/sh
 state="$ZLI_FAKE_GH_STATE"
 printf '%s\\n' "$*" >> "$state/calls.log"
+edit_pr() {
+  sed "$1" "$state/pr.json" > "$state/pr.next" && mv "$state/pr.next" "$state/pr.json"
+}
 case "$1" in
   --version) echo "gh version 2.0.0 (fake)"; exit 0 ;;
   auth) exit 0 ;;
@@ -26,8 +30,29 @@ case "$1" in
         printf '{"url":"${PR_URL}","state":"OPEN","isDraft":%s,"number":7}' "$draft" > "$state/pr.json"
         echo "${PR_URL}"
         exit 0 ;;
+      review)
+        [ "$4" = "--approve" ] && edit_pr 's/"reviewDecision":"[A-Z_]*"/"reviewDecision":"APPROVED"/'
+        exit 0 ;;
+      comment) exit 0 ;;
+      merge)
+        case "$*" in
+          *--disable-auto*) edit_pr 's/"autoMergeRequest":{[^}]*}/"autoMergeRequest":null/'; exit 0 ;;
+          *--auto*) edit_pr 's/"autoMergeRequest":null/"autoMergeRequest":{"mergeMethod":"SQUASH"}/'; exit 0 ;;
+        esac ;;
     esac ;;
-  api) cat "$state/comments.json"; exit 0 ;;
+  api)
+    case "$*" in
+      *addPullRequestReviewThreadReply*)
+        printf '%s' '{"data":{"addPullRequestReviewThreadReply":{"comment":{"id":"C9","author":{"login":"me"},"body":"Thanks, fixed."}}}}'
+        exit 0 ;;
+      *unresolveReviewThread*)
+        printf '%s' '{"data":{"unresolveReviewThread":{"thread":{"id":"T1","isResolved":false}}}}'
+        exit 0 ;;
+      *resolveReviewThread*)
+        printf '%s' '{"data":{"resolveReviewThread":{"thread":{"id":"T1","isResolved":true}}}}'
+        exit 0 ;;
+    esac
+    cat "$state/comments.json"; exit 0 ;;
   run)
     printf '%s\n' \
       'test	UNKNOWN STEP	2026-01-01T00:00:00.0000000Z ##[group]Run pnpm test' \
@@ -324,6 +349,123 @@ test("reads a pull request's review comments and sends the picked ones to an age
         timeout: 20_000,
       },
     );
+  } finally {
+    if (fixture) await closeDesktop(fixture);
+  }
+});
+
+test("replies to and resolves a review thread, approves, and turns auto-merge on and off", async () => {
+  test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
+  test.skip(process.platform === "win32", "The stand-in GitHub CLI is a POSIX shell script.");
+  const { root, repo } = await createGitFixture();
+  const origin = join(root, "origin.git");
+  await git(root, ["init", "--bare", origin]);
+  await git(repo, ["remote", "add", "origin", origin]);
+  await git(repo, ["push", "-u", "origin", "main"]);
+  const binDir = join(root, "bin");
+  const ghState = join(root, "gh-state");
+  await mkdir(binDir, { recursive: true });
+  await mkdir(ghState, { recursive: true });
+  await writeFile(join(binDir, "gh"), FAKE_GH, "utf8");
+  await chmod(join(binDir, "gh"), 0o755);
+  await writeFile(
+    join(ghState, "pr.json"),
+    JSON.stringify({
+      url: PR_URL,
+      state: "OPEN",
+      isDraft: false,
+      number: 7,
+      reviewDecision: "REVIEW_REQUIRED",
+      autoMergeRequest: null,
+      statusCheckRollup: [{ __typename: "CheckRun", name: "test", workflowName: "CI", status: "IN_PROGRESS" }],
+    }),
+    "utf8",
+  );
+  await writeFile(
+    join(ghState, "comments.json"),
+    JSON.stringify({
+      data: {
+        repository: {
+          pullRequest: {
+            reviewThreads: {
+              nodes: [
+                {
+                  id: "T1",
+                  isResolved: false,
+                  isOutdated: false,
+                  path: "README.md",
+                  line: 1,
+                  viewerCanReply: true,
+                  viewerCanResolve: true,
+                  viewerCanUnresolve: true,
+                  comments: { nodes: [{ id: "C1", author: { login: "reviewer" }, body: "Make the title shorter." }] },
+                },
+              ],
+            },
+            reviews: { nodes: [] },
+          },
+        },
+      },
+    }),
+    "utf8",
+  );
+
+  let fixture: DesktopFixture | undefined;
+  try {
+    fixture = await launchDesktop(repo, root, {
+      env: { PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`, ZLI_FAKE_GH_STATE: ghState },
+    });
+    const page = fixture.page;
+    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    const createWorktree = page.getByRole("dialog", { name: "Create worktree" });
+    await createWorktree.getByLabel("Branch").fill("reviewing");
+    await createWorktree.getByRole("button", { name: "Create worktree" }).click();
+    const worktree = page.getByRole("button", { name: /reviewing/iu }).first();
+    await expect(worktree).toContainText("Ready", { timeout: 30_000 });
+    await worktree.click();
+
+    await page.getByRole("button", { name: "Changes", exact: true }).click();
+    await page.getByRole("button", { name: "Refresh changes" }).click();
+    const section = page.getByRole("group", { name: "Pull request" });
+    await expect(section).toContainText("#7", { timeout: 30_000 });
+    const calls = () => readFile(join(ghState, "calls.log"), "utf8");
+
+    await section.getByRole("button", { name: "Review comments" }).click();
+    const comments = section.getByRole("region", { name: "Pull request comments" });
+    await expect(comments).toContainText("1 open review comment", { timeout: 30_000 });
+    await comments.getByRole("button", { name: "Reply on README.md:1" }).click();
+    const reply = comments.getByRole("textbox", { name: "Reply on README.md:1" });
+    await expect(reply).toBeFocused();
+    await reply.fill("Thanks, fixed.");
+    await reply.press("Control+Enter");
+    await expect(comments).toContainText("1 more reply", { timeout: 30_000 });
+    await expect(reply).toHaveCount(0);
+    expect(await calls()).toContain("-f threadId=T1 -f body=Thanks, fixed.");
+
+    await comments.getByRole("button", { name: "Resolve thread on README.md:1" }).click();
+    await expect(comments).toContainText("Resolved", { timeout: 30_000 });
+    await expect(comments).toContainText("No open review comments");
+    await expect(comments.getByRole("button", { name: "Unresolve thread on README.md:1" })).toBeVisible();
+    expect(await calls()).toMatch(/mutation\(\$threadId: ID!\) \{\s+resolveReviewThread/u);
+
+    await section.getByRole("button", { name: "Review", exact: true }).click();
+    const review = page.getByRole("dialog", { name: "Review pull request" });
+    await review.getByRole("button", { name: "Approve" }).click();
+    await review.getByRole("button", { name: "Submit review" }).click();
+    await expect(review).toHaveCount(0, { timeout: 30_000 });
+    await expect(section).toContainText("Approved", { timeout: 30_000 });
+    expect(await calls()).toContain("pr review 7 --approve");
+
+    await section.getByRole("button", { name: "Merge PR" }).click();
+    const merge = page.getByRole("dialog", { name: "Merge pull request" });
+    await merge.getByRole("button", { name: "Merge when ready" }).click();
+    await expect(merge).toHaveCount(0, { timeout: 30_000 });
+    await expect(section).toContainText("Auto-merge is on", { timeout: 30_000 });
+    expect(await calls()).toContain("pr merge 7 --auto --squash");
+
+    await section.getByRole("button", { name: "Turn off auto-merge" }).click();
+    await expect(section).not.toContainText("Auto-merge is on", { timeout: 30_000 });
+    expect(await calls()).toContain("pr merge 7 --disable-auto");
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

@@ -1,4 +1,10 @@
-import type { PullRequestCheck, PullRequestInfo, PullRequestMergeResult, WorktreeProjection } from "@zli-v2/contracts";
+import type {
+  PullRequestCheck,
+  PullRequestInfo,
+  PullRequestMergeResult,
+  PullRequestUpdateResult,
+  WorktreeProjection,
+} from "@zli-v2/contracts";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import { useRuntime } from "../runtime/RuntimeProvider.js";
@@ -9,12 +15,16 @@ import { Icon } from "../ui/Icon.js";
 import { openExternalLink, useCopyFeedback } from "./links.js";
 import { PullRequestComments } from "./PullRequestComments.js";
 import { PullRequestDialog } from "./PullRequestDialog.js";
-import { readCheckLog } from "./pullRequestClient.js";
+import { readCheckLog, setAutoMerge } from "./pullRequestClient.js";
 import { recordPullRequest, refreshPullRequest, usePullRequestEntry } from "./pullRequestStore.js";
 import { SendToAgentDialog } from "./SendToAgentDialog.js";
 
 const MergePullRequestDialog = lazy(() =>
   import("./MergePullRequestDialog.js").then((module) => ({ default: module.MergePullRequestDialog })),
+);
+
+const ReviewPullRequestDialog = lazy(() =>
+  import("./ReviewPullRequestDialog.js").then((module) => ({ default: module.ReviewPullRequestDialog })),
 );
 
 const stateLabel: Record<PullRequestInfo["state"], string> = { OPEN: "Open", CLOSED: "Closed", MERGED: "Merged" };
@@ -53,6 +63,8 @@ export function PullRequestSection({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [turningOff, setTurningOff] = useState(false);
   const [linkError, setLinkError] = useState<string>();
   const [copyState, copy] = useCopyFeedback();
   const commitAfterClose = useRef(false);
@@ -66,7 +78,10 @@ export function PullRequestSection({
   }, [dispatch, worktreeId, checkKey]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: another worktree has other comments.
-  useEffect(() => setCommentsOpen(false), [worktreeId]);
+  useEffect(() => {
+    setCommentsOpen(false);
+    setReviewOpen(false);
+  }, [worktreeId]);
 
   // The dialog gives focus back to the Create PR button as it closes, so the commit field is
   // focused only once that has happened.
@@ -77,6 +92,21 @@ export function PullRequestSection({
   }, [dialogOpen, onCommitFirst]);
 
   const pullRequest = status?.pullRequest;
+  const updated = (result: PullRequestUpdateResult) => {
+    recordPullRequest(worktreeId, result.pullRequest);
+    void refreshPullRequest(dispatch, worktreeId, true);
+  };
+  const turnOffAutoMerge = async () => {
+    setTurningOff(true);
+    setLinkError(undefined);
+    try {
+      updated(await setAutoMerge(dispatch, worktreeId, { enabled: false }));
+    } catch (cause) {
+      setLinkError(cause instanceof Error ? cause.message : "Auto-merge could not be turned off.");
+    } finally {
+      setTurningOff(false);
+    }
+  };
   const problem = linkError ?? error ?? status?.problem?.message;
   const canCreate = !!status && !status.problem && !error && pullRequest?.state !== "OPEN";
 
@@ -110,6 +140,11 @@ export function PullRequestSection({
           ) : pullRequest.reviewDecision === "CHANGES_REQUESTED" ? (
             <Badge tone="danger" dot>
               Changes requested
+            </Badge>
+          ) : null}
+          {pullRequest.state === "OPEN" && pullRequest.autoMerge ? (
+            <Badge tone="info" dot>
+              Auto-merge is on
             </Badge>
           ) : null}
         </span>
@@ -147,6 +182,23 @@ export function PullRequestSection({
               onClick={() => setCommentsOpen((open) => !open)}
             >
               Review comments
+            </Button>
+          ) : null}
+          {pullRequest.state === "OPEN" ? (
+            <Button size="sm" icon="check" onClick={() => setReviewOpen(true)}>
+              Review
+            </Button>
+          ) : null}
+          {pullRequest.state === "OPEN" && pullRequest.autoMerge ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Turn off auto-merge"
+              tooltip="Turn off auto-merge"
+              loading={turningOff}
+              onClick={() => void turnOffAutoMerge()}
+            >
+              Turn off
             </Button>
           ) : null}
           {pullRequest.state === "OPEN" && !pullRequest.isDraft ? (
@@ -187,6 +239,23 @@ export function PullRequestSection({
               setMergeOpen(false);
               recordPullRequest(worktreeId, result.pullRequest);
               onMerged?.(result);
+            }}
+            onAutoMerge={(result) => {
+              setMergeOpen(false);
+              updated(result);
+            }}
+          />
+        </Suspense>
+      ) : null}
+      {reviewOpen && pullRequest?.state === "OPEN" ? (
+        <Suspense fallback={null}>
+          <ReviewPullRequestDialog
+            worktree={worktree}
+            pullRequest={pullRequest}
+            onClose={() => setReviewOpen(false)}
+            onReviewed={(result) => {
+              setReviewOpen(false);
+              updated(result);
             }}
           />
         </Suspense>

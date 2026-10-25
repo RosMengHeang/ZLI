@@ -86,7 +86,7 @@ describe("PullRequestService.status", () => {
       "view",
       "feature/pr",
       "--json",
-      "url,state,isDraft,number,statusCheckRollup,reviewDecision",
+      "url,state,isDraft,number,statusCheckRollup,reviewDecision,autoMergeRequest",
     ]);
   });
 
@@ -113,6 +113,21 @@ describe("PullRequestService.status", () => {
       { name: "test", workflow: "CI", state: "failed", url: "https://github.com/acme/app/actions/runs/5/job/9" },
       { name: "deploy/preview", state: "pending", url: "https://ci.example/1" },
     ]);
+  });
+
+  it("reports whether auto-merge is on", async () => {
+    const view = JSON.stringify({
+      ...JSON.parse(PR_JSON),
+      autoMergeRequest: { mergeMethod: "SQUASH", enabledBy: { login: "ana" }, enabledAt: "2026-01-01T00:00:00Z" },
+    });
+    const { runner } = fakeRunner(({ command, args }) => (command === "gh" && args[0] === "pr" ? ok(view) : undefined));
+    expect((await new PullRequestService(runner).status(INPUT)).pullRequest?.autoMerge).toEqual({
+      method: "squash",
+      enabledBy: "ana",
+    });
+    const off = JSON.stringify({ ...JSON.parse(PR_JSON), autoMergeRequest: null });
+    const plain = fakeRunner(({ command, args }) => (command === "gh" && args[0] === "pr" ? ok(off) : undefined));
+    expect((await new PullRequestService(plain.runner).status(INPUT)).pullRequest).not.toHaveProperty("autoMerge");
   });
 
   it("asks GitHub CLI whether it is signed in only once in a while", async () => {
@@ -599,6 +614,222 @@ describe("PullRequestService branches, fetch, and pull", () => {
   });
 });
 
+describe("PullRequestService reviews and comments", () => {
+  const OPEN = JSON.stringify({ ...JSON.parse(PR_JSON), isDraft: false });
+
+  function reviewRunner(overrides: Handler = () => undefined) {
+    return fakeRunner((call) => {
+      const override = overrides(call);
+      if (override) return override;
+      const line = `${call.command} ${call.args.join(" ")}`;
+      if (line.startsWith("gh pr view")) return ok(OPEN);
+      if (line.startsWith("gh pr review") || line.startsWith("gh pr comment") || line.startsWith("gh pr merge")) {
+        return ok();
+      }
+      return undefined;
+    });
+  }
+
+  it("approves with an optional body and passes the body as one argument", async () => {
+    const { runner, calls } = reviewRunner();
+    const service = new PullRequestService(runner);
+    const result = await service.review(INPUT, { event: "APPROVE", body: "  " });
+    expect(result.pullRequest.number).toBe(12);
+    expect(calls.find((call) => call.args[1] === "review")?.args).toEqual(["pr", "review", "12", "--approve"]);
+
+    await service.review(INPUT, { event: "REQUEST_CHANGES", body: "Handle the empty list; $(rm -rf /)" });
+    expect(calls.filter((call) => call.args[1] === "review").at(-1)?.args).toEqual([
+      "pr",
+      "review",
+      "12",
+      "--request-changes",
+      "--body",
+      "Handle the empty list; $(rm -rf /)",
+    ]);
+    await service.review(INPUT, { event: "COMMENT", body: "Looks close." });
+    expect(
+      calls
+        .filter((call) => call.args[1] === "review")
+        .at(-1)
+        ?.args.slice(3),
+    ).toEqual(["--comment", "--body", "Looks close."]);
+  });
+
+  it("asks for a body before requesting changes or commenting", async () => {
+    const { runner, calls } = reviewRunner();
+    const service = new PullRequestService(runner);
+    await expect(service.review(INPUT, { event: "REQUEST_CHANGES", body: " " })).rejects.toThrow(/what should change/u);
+    await expect(service.review(INPUT, { event: "COMMENT", body: "" })).rejects.toThrow(/Write the comment/u);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("explains that GitHub refuses reviews of your own pull request", async () => {
+    const own = (message: string) =>
+      reviewRunner(({ args }) =>
+        args[1] === "review" ? fail(`failed to create review: GraphQL: ${message}`) : undefined,
+      ).runner;
+    await expect(
+      new PullRequestService(own("Review Can not approve your own pull request (addPullRequestReview)")).review(INPUT, {
+        event: "APPROVE",
+        body: "",
+      }),
+    ).rejects.toThrow("GitHub does not let you approve your own pull request.");
+    await expect(
+      new PullRequestService(own("Review Can not request changes on your own pull request")).review(INPUT, {
+        event: "REQUEST_CHANGES",
+        body: "Fix it",
+      }),
+    ).rejects.toThrow("GitHub does not let you request changes on your own pull request.");
+    const other = reviewRunner(({ args }) =>
+      args[1] === "review" ? fail("HTTP 502 token: ghp_abcdefghijk") : undefined,
+    );
+    const error = (await new PullRequestService(other.runner)
+      .review(INPUT, { event: "APPROVE", body: "" })
+      .catch((cause: unknown) => cause)) as Error;
+    expect(error.message).toContain("GitHub CLI could not approve #12.");
+    expect(error.message).not.toContain("ghp_abcdefghijk");
+  });
+
+  it("refuses to review a merged pull request", async () => {
+    const merged = JSON.stringify({ ...JSON.parse(OPEN), state: "MERGED" });
+    const { runner, calls } = reviewRunner(({ args }) => (args[1] === "view" ? ok(merged) : undefined));
+    await expect(new PullRequestService(runner).review(INPUT, { event: "APPROVE", body: "" })).rejects.toThrow(
+      "already merged",
+    );
+    expect(calls.some((call) => call.args[1] === "review")).toBe(false);
+  });
+
+  it("comments on the pull request conversation", async () => {
+    const { runner, calls } = reviewRunner();
+    await new PullRequestService(runner).comment(INPUT, " Thanks, merging after CI. ");
+    expect(calls.find((call) => call.args[1] === "comment")?.args).toEqual([
+      "pr",
+      "comment",
+      "12",
+      "--body",
+      "Thanks, merging after CI.",
+    ]);
+    await expect(new PullRequestService(runner).comment(INPUT, "   ")).rejects.toThrow("Write the comment first.");
+  });
+
+  it("replies to a thread through a GraphQL mutation with the body as a variable", async () => {
+    const answer = JSON.stringify({
+      data: {
+        addPullRequestReviewThreadReply: {
+          comment: {
+            id: "PRRC_2",
+            author: { login: "me" },
+            body: "Done in the next commit.",
+            url: "https://github.com/acme/app/pull/12#discussion_r2",
+            createdAt: "2026-01-02T00:00:00Z",
+          },
+        },
+      },
+    });
+    const { runner, calls } = reviewRunner(({ args }) => (args[0] === "api" ? ok(answer) : undefined));
+    const result = await new PullRequestService(runner).reply(INPUT, {
+      threadId: "PRRT_kwDOAbc",
+      body: "Done in the next commit.",
+    });
+    expect(result).toEqual({
+      threadId: "PRRT_kwDOAbc",
+      comment: {
+        id: "PRRC_2",
+        author: "me",
+        body: "Done in the next commit.",
+        url: "https://github.com/acme/app/pull/12#discussion_r2",
+        createdAt: "2026-01-02T00:00:00Z",
+      },
+    });
+    const api = calls.find((call) => call.args[0] === "api");
+    expect(api?.args.slice(0, 3)).toEqual(["api", "graphql", "-f"]);
+    expect(api?.args[3]).toContain("addPullRequestReviewThreadReply");
+    expect(api?.args.slice(4)).toEqual(["-f", "threadId=PRRT_kwDOAbc", "-f", "body=Done in the next commit."]);
+  });
+
+  it("rejects thread ids GitHub would not issue before running anything", async () => {
+    const { runner, calls } = reviewRunner();
+    await expect(
+      new PullRequestService(runner).resolve(INPUT, { threadId: "T1 } mutation {", resolved: true }),
+    ).rejects.toThrow("not one GitHub uses");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("resolves and reopens threads", async () => {
+    const { runner, calls } = reviewRunner(({ args }) => {
+      if (args[0] !== "api") return undefined;
+      const resolving = (args[3] ?? "").includes(" resolveReviewThread");
+      const name = resolving ? "resolveReviewThread" : "unresolveReviewThread";
+      return ok(JSON.stringify({ data: { [name]: { thread: { id: "PRRT_1", isResolved: resolving } } } }));
+    });
+    const service = new PullRequestService(runner);
+    await expect(service.resolve(INPUT, { threadId: "PRRT_1", resolved: true })).resolves.toEqual({
+      threadId: "PRRT_1",
+      resolved: true,
+    });
+    await expect(service.resolve(INPUT, { threadId: "PRRT_1", resolved: false })).resolves.toEqual({
+      threadId: "PRRT_1",
+      resolved: false,
+    });
+    const api = calls.filter((call) => call.args[0] === "api");
+    expect(api[0]?.args[3]).toContain("resolveReviewThread(input: { threadId: $threadId })");
+    expect(api[1]?.args[3]).toContain("unresolveReviewThread");
+    expect(api[1]?.args.slice(4)).toEqual(["-f", "threadId=PRRT_1"]);
+  });
+
+  it("explains a missing thread and a thread the account may not change", async () => {
+    const missingThread = reviewRunner(({ args }) =>
+      args[0] === "api" ? fail("GraphQL: Could not resolve to a node with the global id of 'PRRT_x'") : undefined,
+    ).runner;
+    await expect(
+      new PullRequestService(missingThread).resolve(INPUT, { threadId: "PRRT_x", resolved: true }),
+    ).rejects.toThrow("could not find this review thread");
+    const forbidden = reviewRunner(({ args }) =>
+      args[0] === "api" ? fail("GraphQL: Resource not accessible by integration") : undefined,
+    ).runner;
+    await expect(new PullRequestService(forbidden).reply(INPUT, { threadId: "PRRT_x", body: "ok" })).rejects.toThrow(
+      "not allowed to change this thread",
+    );
+  });
+
+  it("turns auto-merge on with the method and off again", async () => {
+    let auto: unknown = null;
+    const { runner, calls } = reviewRunner(({ args }) => {
+      if (args[1] === "view") return ok(JSON.stringify({ ...JSON.parse(OPEN), autoMergeRequest: auto }));
+      if (args[1] === "merge") {
+        auto = args.includes("--disable-auto") ? null : { mergeMethod: "REBASE" };
+        return ok();
+      }
+      return undefined;
+    });
+    const service = new PullRequestService(runner);
+    const on = await service.autoMerge(INPUT, { enabled: true, method: "rebase" });
+    expect(on.pullRequest.autoMerge).toEqual({ method: "rebase" });
+    const off = await service.autoMerge(INPUT, { enabled: false });
+    expect(off.pullRequest).not.toHaveProperty("autoMerge");
+    const merges = calls.filter((call) => call.args[1] === "merge").map((call) => call.args.join(" "));
+    expect(merges).toEqual(["pr merge 12 --auto --rebase", "pr merge 12 --disable-auto"]);
+    await expect(service.autoMerge(INPUT, { enabled: true })).rejects.toThrow("Choose a merge method");
+  });
+
+  it("explains a repository without auto-merge and a pull request that can merge now", async () => {
+    const notAllowed = reviewRunner(({ args }) =>
+      args[1] === "merge"
+        ? fail("GraphQL: Auto merge is not allowed for this repository (enablePullRequestAutoMerge)")
+        : undefined,
+    ).runner;
+    await expect(
+      new PullRequestService(notAllowed).autoMerge(INPUT, { enabled: true, method: "squash" }),
+    ).rejects.toThrow("Auto-merge is turned off for this repository.");
+    const clean = reviewRunner(({ args }) =>
+      args[1] === "merge" ? fail("GraphQL: Pull request Pull request is in clean status") : undefined,
+    ).runner;
+    await expect(new PullRequestService(clean).autoMerge(INPUT, { enabled: true, method: "squash" })).rejects.toThrow(
+      "can be merged now",
+    );
+  });
+});
+
 describe("review comment helpers", () => {
   it("reads only https pull request links with safe names", () => {
     expect(parsePullRequestLink(PR_JSON)).toEqual({
@@ -611,6 +842,45 @@ describe("review comment helpers", () => {
     expect(parsePullRequestLink(JSON.stringify({ number: 1, url: "http://github.com/a/b/pull/1" }))).toBeUndefined();
     expect(parsePullRequestLink(JSON.stringify({ number: 1, url: "https://github.com/-a/b/pull/1" }))).toBeUndefined();
     expect(parsePullRequestLink("not json")).toBeUndefined();
+  });
+
+  it("keeps comment ids and what the viewer may do with a thread", () => {
+    const parsed = parseReviewComments(
+      JSON.stringify({
+        data: {
+          repository: {
+            pullRequest: {
+              reviewThreads: {
+                nodes: [
+                  {
+                    id: "PRRT_1",
+                    isResolved: false,
+                    path: "a.ts",
+                    line: 2,
+                    viewerCanReply: true,
+                    viewerCanResolve: false,
+                    viewerCanUnresolve: "yes",
+                    comments: { nodes: [{ id: "PRRC_1", author: { login: "ana" }, body: "Why?" }] },
+                  },
+                ],
+              },
+              reviews: { nodes: [] },
+            },
+          },
+        },
+      }),
+    );
+    expect(parsed?.threads).toEqual([
+      {
+        id: "PRRT_1",
+        path: "a.ts",
+        line: 2,
+        outdated: false,
+        comments: [{ id: "PRRC_1", author: "ana", body: "Why?" }],
+        viewerCanReply: true,
+        viewerCanResolve: false,
+      },
+    ]);
   });
 
   it("rejects an answer without a pull request", () => {

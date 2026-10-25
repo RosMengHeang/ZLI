@@ -106,7 +106,14 @@
 .pr-comment-location.is-mono { font-family: var(--zli-mono); }
 .pr-comment-body { display: -webkit-box; margin: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; white-space: pre-wrap; }
 .pr-comment-author { color: var(--zli-text); font-weight: 600; }
-.pr-comment-replies { color: var(--zli-dim); font-size: var(--zli-text-2xs); }.send-preview-loading { display: flex; align-items: center; gap: var(--zli-space-2); }
+.pr-comment-replies { color: var(--zli-dim); font-size: var(--zli-text-2xs); }
+.pr-comment.is-resolved .pr-comment-body { color: var(--zli-dim); }
+.pr-comment-actions { display: flex; flex-wrap: wrap; gap: var(--zli-space-1); margin-left: calc(var(--zli-space-1-5) * -1); }
+.pr-comment-form { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-1-5); margin-top: var(--zli-space-1); }
+.pr-comment-form .textarea { min-height: 56px; font-size: var(--zli-text-xs); }
+.pr-comment-form-actions { display: flex; justify-content: flex-end; gap: var(--zli-space-1); }
+.pr-review-body { min-height: 104px; font-size: var(--zli-text-sm); }
+.send-preview-loading { display: flex; align-items: center; gap: var(--zli-space-2); }
 .review-pr-state { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-muted); font-size: var(--zli-text-sm); }
 .review-pr-state > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-pr-state > svg { flex: 0 0 auto; color: var(--zli-dim); }
