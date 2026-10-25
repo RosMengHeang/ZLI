@@ -170,6 +170,7 @@ beforeAll(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   act(() => root?.unmount());
   root = undefined;
   document.body.replaceChildren();
@@ -493,7 +494,7 @@ describe("MobilePane", () => {
       ["Volume down", "volume_down"],
     ] as const) {
       await click(more);
-      expect(menuLabels()).toEqual(["Power", "Volume up", "Volume down"]);
+      expect(menuLabels()).toEqual(["Power", "Volume up", "Volume down", "Copy screenshot"]);
       await click(menuItem(label));
       expect(fake.mobile.input).toHaveBeenLastCalledWith({
         deviceId: emulator.deviceId,
@@ -516,7 +517,7 @@ describe("MobilePane", () => {
     const fake = createMobile({ devices: [simulator] });
     const container = await render(bridgeWith(fake.mobile));
     await click(button(container, "More device buttons"));
-    expect(menuLabels()).toEqual(["Power"]);
+    expect(menuLabels()).toEqual(["Power", "Copy screenshot"]);
   });
 
   it("sends the person to Take over when they press Power while an agent holds the device", async () => {
@@ -795,6 +796,117 @@ describe("MobilePane", () => {
     expect(container.querySelector("[role=alert]")?.textContent).toBe("The emulator for Pixel 8 could not be stopped.");
   });
 
+  it("keeps Cancel busy until the shutdown finishes, even after the stopped boot returns", async () => {
+    const off: MobileDevice = { ...emulator, state: "shutdown", serial: undefined };
+    const fake = createMobile({ devices: [off] });
+    let failBoot: ((cause: Error) => void) | undefined;
+    fake.mobile.boot.mockImplementation(
+      () =>
+        new Promise<MobileDevice>((_resolve, reject) => {
+          failBoot = reject;
+        }),
+    );
+    let finishShutdown: (() => void) | undefined;
+    fake.mobile.shutdown.mockImplementation(
+      () =>
+        new Promise<undefined>((resolve) => {
+          failBoot?.(new Error("Booting Pixel 8 was cancelled."));
+          finishShutdown = () => resolve(undefined);
+        }),
+    );
+    const container = await render(bridgeWith(fake.mobile));
+    await click(button(container, "Boot"));
+    await act(async () => {
+      fake.publishDevices([{ ...off, state: "booting" }]);
+    });
+    await click(button(container, "Cancel"));
+    expect(button(container, "Cancel").getAttribute("aria-busy")).toBe("true");
+    await act(async () => finishShutdown?.());
+    expect(button(container, "Cancel").getAttribute("aria-busy")).toBeNull();
+  });
+
+  it("switches a device to 100%, remembers it, and maps taps through the scrolled stage", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    await showStill(fake, emulator);
+    expect(container.querySelector(".mobile-stage")?.classList.contains("is-actual")).toBe(false);
+    expect(button(container, "Fit").getAttribute("aria-pressed")).toBe("true");
+
+    await click(button(container, "100%, device pixels"));
+    expect(container.querySelector(".mobile-stage")?.classList.contains("is-actual")).toBe(true);
+    expect(JSON.parse(window.localStorage.getItem("zli.mobile.zoom.v1") ?? "{}")).toEqual({
+      [emulator.deviceId]: "actual",
+    });
+    const screen = container.querySelector<HTMLImageElement>("img.mobile-screen");
+    if (!screen) throw new Error("No screen");
+    expect(screen.style.width).toBe("1080px");
+    // Scrolled 100 pixels right and 400 down, the screen's box starts above and left of the stage.
+    screen.getBoundingClientRect = () =>
+      ({ left: -100, top: -400, right: 980, bottom: 2000, width: 1080, height: 2400 }) as DOMRect;
+    await act(async () => {
+      pointer(screen, "pointerdown", 440, 800);
+      pointer(screen, "pointerup", 440, 800);
+    });
+    expect(touches(fake)).toEqual(["down 540,1200", "up 540,1200"]);
+
+    act(() => root?.unmount());
+    document.body.replaceChildren();
+    const again = await render(bridgeWith(createMobile({ devices: [emulator] }).mobile));
+    expect(again.querySelector(".mobile-stage")?.classList.contains("is-actual")).toBe(true);
+    await click(button(again, "Fit"));
+    expect(again.querySelector(".mobile-stage")?.classList.contains("is-actual")).toBe(false);
+    expect(window.localStorage.getItem("zli.mobile.zoom.v1")).toBe("{}");
+  });
+
+  it("names the saved screenshot in a short confirmation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 25, 14, 22, 33));
+    const clicked = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const fake = createMobile({ devices: [emulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    await click(button(container, "Save a screenshot"));
+    expect(clicked).toHaveBeenCalledTimes(1);
+    expect(container.querySelector(".mobile-notice")?.textContent).toBe("Saved Pixel-8-20261025-142233.png");
+    await advance(3_000);
+    expect(container.querySelector(".mobile-notice")?.textContent).toBe("");
+    clicked.mockRestore();
+  });
+
+  it("copies the screenshot to the clipboard as a PNG, and says when the clipboard refuses", async () => {
+    class FakeClipboardItem {
+      constructor(readonly items: Record<string, Promise<Blob>>) {}
+    }
+    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
+    const write = vi.fn(async (_items: FakeClipboardItem[]) => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { write } });
+    const fake = createMobile({ devices: [emulator] });
+    const container = await render(bridgeWith(fake.mobile));
+
+    await click(button(container, "More device buttons"));
+    expect(menuLabels()).toEqual(["Power", "Volume up", "Volume down", "Copy screenshot"]);
+    await click(menuItem("Copy screenshot"));
+    expect(fake.mobile.screenshot).toHaveBeenCalledWith(emulator.deviceId);
+    const image = await write.mock.calls[0]?.[0][0]?.items["image/png"];
+    expect(image?.type).toBe("image/png");
+    expect(image?.size).toBeGreaterThan(0);
+    expect(container.querySelector(".mobile-notice")?.textContent).toBe("Copied the screenshot.");
+
+    write.mockRejectedValueOnce(new DOMException("Write permission denied.", "NotAllowedError"));
+    await click(button(container, "More device buttons"));
+    await click(menuItem("Copy screenshot"));
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "ZLI could not put the image on the clipboard. Save the screenshot instead.",
+    );
+
+    vi.unstubAllGlobals();
+    await click(button(container, "More device buttons"));
+    await click(menuItem("Copy screenshot"));
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "ZLI could not put the image on the clipboard. Save the screenshot instead.",
+    );
+    Reflect.deleteProperty(navigator, "clipboard");
+  });
   it("labels the screen Live for video and Screenshots with the reason otherwise", async () => {
     const fake = createMobile({ devices: [emulator] });
     fake.mobile.startStream.mockResolvedValueOnce({

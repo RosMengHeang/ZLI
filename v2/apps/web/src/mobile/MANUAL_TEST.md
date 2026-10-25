@@ -64,11 +64,11 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
 ### Screenshots and zoom
 
 - [ ] Click "Save a screenshot".
-  Expected: a PNG named after the device and the time is saved, and a short "Saved" confirmation appears.
-- [ ] Copy the screenshot.
-  Expected: "Copied" feedback, and pasting into an image editor shows the device screen.
-- [ ] Switch between Fit and 100%.
-  Expected: 100% shows device pixels with scrollbars. Taps land in the right place in both modes, including after scrolling. The choice is remembered for the device.
+  Expected: a PNG named after the device and the time is saved, and "Saved <name>.png" shows for about three seconds, then fades.
+- [ ] Open "More device buttons" and pick "Copy screenshot", then paste into an image editor or a chat.
+  Expected: "Copied the screenshot." shows, and the paste is the device screen. If the clipboard refuses, the panel says so and suggests saving instead.
+- [ ] Switch the toolbar's zoom between Fit and 100%, and scroll the stage with its scrollbars at 100%.
+  Expected: 100% shows device pixels at their true size, with scrollbars when the screen is larger than the panel. The mouse wheel over the screen still scrolls the device. Taps land in the right place in both modes, including after scrolling the stage. Each device remembers its zoom after ZLI restarts.
 
 ### Open URL, logs, and Expo
 

@@ -24,6 +24,7 @@ import {
   wheelPixels,
   wheelSwipe,
 } from "./mobile.js";
+import type { Zoom } from "./useDeviceZoom.js";
 
 type Size = { width: number; height: number };
 type Point = { x: number; y: number };
@@ -53,6 +54,7 @@ export function DeviceScreen({
   inputBlocked,
   onBlockedInput,
   onModeChange,
+  zoom = "fit",
 }: {
   mobile: MobileBridge;
   device: MobileDevice;
@@ -61,6 +63,7 @@ export function DeviceScreen({
   onBlockedInput(): void;
   /** Called with how the screen arrives once the stream says, and with undefined when this view goes away. */
   onModeChange?: ((mode: ScreenMode | undefined) => void) | undefined;
+  zoom?: Zoom;
 }) {
   const deviceId = device.deviceId;
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -76,7 +79,8 @@ export function DeviceScreen({
   /** The stream's own frame size, which touch positions are measured in while scrcpy carries input. */
   const streamSizeRef = useRef<Size | undefined>(undefined);
   const pointerDownRef = useRef(false);
-  const stageRef = useRef<HTMLDivElement>(null);
+  /** Holds the screen and the trail, and is what a device frame would wrap; the stage around it scrolls at 100%. */
+  const zoomRef = useRef<HTMLDivElement>(null);
   const [screen, setScreen] = useState<HTMLElement | null>(null);
   /** Where a drag started and where the pointer is now, drawn while the screen shows screenshots. */
   const [trail, setTrail] = useState<{ from: Point; to: Point }>();
@@ -237,12 +241,12 @@ export function DeviceScreen({
     };
   };
   const trailPoint = (client: Point, screenRect: DOMRect): Point | undefined => {
-    const stage = stageRef.current?.getBoundingClientRect();
-    if (!stage) return undefined;
+    const box = zoomRef.current?.getBoundingClientRect();
+    if (!box) return undefined;
     // The trail stays on the screen even when the pointer leaves it mid-drag.
     const x = Math.max(screenRect.left, Math.min(screenRect.right, client.x));
     const y = Math.max(screenRect.top, Math.min(screenRect.bottom, client.y));
-    return { x: x - stage.left, y: y - stage.top };
+    return { x: x - box.left, y: y - box.top };
   };
 
   const onPointerDown = (event: PointerEvent<HTMLElement>) => {
@@ -418,35 +422,49 @@ export function DeviceScreen({
           <span className="banner-message">{inputError}</span>
         </div>
       ) : null}
-      <div className="mobile-stage" ref={stageRef}>
+      <div className={`mobile-stage${zoom === "actual" ? " is-actual" : ""}`}>
         {!frame ? <LoadingState className="mobile-stage-loading" label={`Connecting to ${device.name}`} /> : null}
-        {video ? (
-          <canvas
-            {...screenProps}
-            ref={canvasNode}
-            hidden={!frame}
-            style={frame ? { aspectRatio: `${frame.width} / ${frame.height}` } : undefined}
-          />
-        ) : still && frame ? (
-          <img
-            {...screenProps}
-            ref={setScreen}
-            src={still}
-            alt={`${device.name} screen`}
-            draggable={false}
-            style={{ aspectRatio: `${frame.width} / ${frame.height}` }}
-          />
-        ) : null}
-        {trail ? (
-          <svg className="mobile-trail" aria-hidden="true">
-            <line className="mobile-trail-shade" x1={trail.from.x} y1={trail.from.y} x2={trail.to.x} y2={trail.to.y} />
-            <line className="mobile-trail-line" x1={trail.from.x} y1={trail.from.y} x2={trail.to.x} y2={trail.to.y} />
-            <circle className="mobile-trail-start" cx={trail.from.x} cy={trail.from.y} r={4} />
-            <circle className="mobile-trail-end" cx={trail.to.x} cy={trail.to.y} r={9} />
-          </svg>
-        ) : null}
+        <div className="mobile-zoom" ref={zoomRef}>
+          {video ? (
+            <canvas
+              {...screenProps}
+              ref={canvasNode}
+              hidden={!frame}
+              style={frame ? screenStyle(frame, zoom) : undefined}
+            />
+          ) : still && frame ? (
+            <img
+              {...screenProps}
+              ref={setScreen}
+              src={still}
+              alt={`${device.name} screen`}
+              draggable={false}
+              style={screenStyle(frame, zoom)}
+            />
+          ) : null}
+          {trail ? (
+            <svg className="mobile-trail" aria-hidden="true">
+              <line
+                className="mobile-trail-shade"
+                x1={trail.from.x}
+                y1={trail.from.y}
+                x2={trail.to.x}
+                y2={trail.to.y}
+              />
+              <line className="mobile-trail-line" x1={trail.from.x} y1={trail.from.y} x2={trail.to.x} y2={trail.to.y} />
+              <circle className="mobile-trail-start" cx={trail.from.x} cy={trail.from.y} r={4} />
+              <circle className="mobile-trail-end" cx={trail.to.x} cy={trail.to.y} r={9} />
+            </svg>
+          ) : null}
+        </div>
       </div>
       {modeReason ? <p className="mobile-note">{modeReason}</p> : null}
     </div>
   );
+}
+
+/** 100% means one frame pixel per physical screen pixel, so a HiDPI display shows it at its true size. */
+function screenStyle(frame: Size, zoom: Zoom) {
+  const aspectRatio = `${frame.width} / ${frame.height}`;
+  return zoom === "actual" ? { aspectRatio, width: frame.width / (window.devicePixelRatio || 1) } : { aspectRatio };
 }

@@ -262,6 +262,12 @@ export function logLineCount(typed: string): number {
   return Number.isFinite(value) ? Math.max(1, Math.min(2_000, value)) : 200;
 }
 
+/** A screenshot from the bridge as image data the clipboard accepts. */
+export function screenshotBlob(shot: { data: string; mimeType: string }): Blob {
+  const bytes = Uint8Array.from(atob(shot.data), (character) => character.charCodeAt(0));
+  return new Blob([bytes], { type: shot.mimeType });
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
   if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)} MB`;

@@ -4,6 +4,7 @@ import { Badge, type BadgeTone } from "../ui/Badge.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Picker, type PickerOption } from "../ui/Picker.js";
+import { Segmented } from "../ui/Segmented.js";
 import {
   deviceGroup,
   deviceSummary,
@@ -13,20 +14,23 @@ import {
   screenModeChip,
   stateLabel,
 } from "./mobile.js";
+import type { Zoom } from "./useDeviceZoom.js";
 
 /** Picker values that are not devices. Device ids always carry a platform prefix, so these never collide. */
 const NEW_DEVICE = "new-virtual-device";
 const NO_DEVICE = "no-device";
 
 /**
- * The row under the pane header: which device, its state, how its screen arrives, and Boot, Cancel, or Shut down.
- * The picker shows even with one device or none, so the row keeps its shape.
+ * The row under the pane header: which device, its state, how its screen arrives, its zoom, and Boot, Cancel, or
+ * Shut down. The picker shows even with one device or none, so the row keeps its shape.
  */
 export function MobileToolbar({
   devices,
   device,
   bootElapsedMs,
   screenMode,
+  zoom,
+  onZoom,
   booting,
   stopping,
   onSelect,
@@ -40,6 +44,8 @@ export function MobileToolbar({
   /** How long the device has been booting, while it boots. */
   bootElapsedMs: number | undefined;
   screenMode: ScreenMode | undefined;
+  zoom: Zoom;
+  onZoom(zoom: Zoom): void;
   booting: boolean;
   stopping: boolean;
   onSelect(deviceId: string): void;
@@ -89,6 +95,17 @@ export function MobileToolbar({
         </Badge>
       ) : null}
       <span className="mobile-toolbar-spacer" />
+      {device?.state === "online" ? (
+        <Segmented<Zoom>
+          label="Zoom"
+          value={zoom}
+          options={[
+            { value: "fit", label: "Fit", tooltip: "Fit the screen to the panel" },
+            { value: "actual", label: "100%", ariaLabel: "100%, device pixels", tooltip: "Show device pixels at 100%" },
+          ]}
+          onChange={onZoom}
+        />
+      ) : null}
       {device && virtual && device.state === "shutdown" ? (
         <Button size="sm" icon="play" loading={booting} onClick={onBoot}>
           Boot

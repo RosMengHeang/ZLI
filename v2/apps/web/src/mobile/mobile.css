@@ -1,15 +1,22 @@
 /* ---------- Mobile ---------- */
 .mobile-toolbar { display: flex; align-items: center; gap: var(--zli-space-2); height: var(--zli-toolbar); flex: 0 0 auto; padding: 0 var(--zli-space-2) 0 var(--zli-space-3); border-bottom: 1px solid var(--zli-border); }
 .mobile-toolbar-spacer { flex: 1; }
+.mobile-mode-chip { min-width: 0; flex: 0 1 auto; }
+.mobile-mode-chip .badge-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-body { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; background: var(--zli-canvas); }
 .mobile-scroll { min-height: 0; flex: 1; overflow: auto; }
 .mobile-viewer { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .mobile-stage { position: relative; min-height: 0; flex: 1; }
 .mobile-stage-loading { position: absolute; inset: 0; }
+.mobile-stage.is-actual { overflow: auto; }
+.mobile-zoom { position: absolute; inset: var(--zli-space-3); }
+/* At 100% the zoom box hugs the screen and the stage scrolls; auto margins center it while it fits. */
+.is-actual .mobile-zoom { position: relative; inset: auto; width: fit-content; margin: var(--zli-space-3) auto; }
 /* Absolute with auto margins lets the screen keep its aspect ratio while fitting both the width and the height. */
-.mobile-screen { position: absolute; inset: var(--zli-space-3); max-width: calc(100% - 2 * var(--zli-space-3)); max-height: calc(100% - 2 * var(--zli-space-3)); margin: auto; border-radius: var(--zli-radius-lg); outline: none; box-shadow: 0 0 0 1px var(--zli-border-strong); cursor: pointer; touch-action: none; user-select: none; }
+.mobile-screen { position: absolute; inset: 0; max-width: 100%; max-height: 100%; margin: auto; border-radius: var(--zli-radius-lg); outline: none; box-shadow: 0 0 0 1px var(--zli-border-strong); cursor: pointer; touch-action: none; user-select: none; }
 .mobile-screen:focus-visible { box-shadow: 0 0 0 1px var(--zli-accent-line), 0 0 0 4px var(--zli-accent-soft); }
 .mobile-screen.is-blocked { cursor: not-allowed; }
+.is-actual .mobile-screen { position: relative; display: block; max-width: none; max-height: none; }
 /* A neutral trail with a dark edge, like Android's own touch display, so it reads on light and dark screens. */
 .mobile-trail { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .mobile-trail-shade { stroke: var(--zli-canvas); stroke-linecap: round; stroke-opacity: .5; stroke-width: 5; }

@@ -21,6 +21,7 @@ import {
   planDownload,
   progressPercent,
   screenModeChip,
+  screenshotBlob,
   sendTextInput,
   slowBootNote,
   textChunks,
@@ -299,5 +300,23 @@ describe("mobile panel helpers", () => {
     expect([emulator, phone, simulator].map(deviceGroup)).toEqual(["Emulators", "Phones", "Simulators"]);
     expect(deviceSummary({ platform: "android", osVersion: "15", state: "online" })).toBe("Android 15, running");
     expect(deviceSummary({ platform: "ios", state: "shutdown" })).toBe("iOS, off");
+  });
+
+  it("maps a pointer at 100% zoom through a screen scrolled partly out of view", () => {
+    const rect = { left: -100, top: -400, width: 1080, height: 2400 };
+    expect(framePoint({ x: 440, y: 800 }, rect, { width: 1080, height: 2400 })).toEqual({ x: 540, y: 1200 });
+    expect(framePoint({ x: -100, y: -400 }, rect, { width: 1080, height: 2400 })).toEqual({ x: 0, y: 0 });
+    expect(framePoint({ x: -101, y: 0 }, rect, { width: 1080, height: 2400 })).toBeUndefined();
+  });
+
+  it("turns a base64 screenshot into image bytes", async () => {
+    const blob = screenshotBlob({ data: btoa("\u0089PNG"), mimeType: "image/png" });
+    expect(blob.type).toBe("image/png");
+    const bytes = await new Promise<ArrayBuffer>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.readAsArrayBuffer(blob);
+    });
+    expect([...new Uint8Array(bytes)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
   });
 });

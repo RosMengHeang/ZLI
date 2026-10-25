@@ -10,7 +10,7 @@ type Row = "type" | "url";
 
 /**
  * The bar under a running device: its system buttons, Type text, Open URL, Rotate, the screenshot, and a menu
- * with Power and Volume. Every control that sends input checks inputBlocked first, so an agent's lease sends the
+ * with Power, Volume, and Copy screenshot. Every control that sends input checks inputBlocked first, so an agent's lease sends the
  * person to Take over instead.
  */
 export function MobileControls({
@@ -22,6 +22,7 @@ export function MobileControls({
   onNotice,
   screenshotBusy,
   onScreenshot,
+  onCopyScreenshot,
 }: {
   mobile: Pick<MobileBridge, "input" | "openUrl">;
   device: MobileDevice;
@@ -33,6 +34,7 @@ export function MobileControls({
   onNotice(message: string): void;
   screenshotBusy: boolean;
   onScreenshot(): void;
+  onCopyScreenshot(): void;
 }) {
   const android = device.platform === "android";
   const [row, setRow] = useState<Row>();
@@ -100,6 +102,8 @@ export function MobileControls({
           { id: "volume_down", label: "Volume down", icon: "volumeDown", run: () => press("volume_down") } as const,
         ]
       : []),
+    "separator",
+    { id: "copy-screenshot", label: "Copy screenshot", icon: "copy", disabled: screenshotBusy, run: onCopyScreenshot },
   ];
 
   return (

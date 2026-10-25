@@ -22,9 +22,11 @@ import {
   pickDevice,
   type ScreenMode,
   SLOW_BOOT_MS,
+  screenshotBlob,
   slowBootNote,
 } from "./mobile.js";
 import { useClock } from "./useClock.js";
+import { useDeviceZoom } from "./useDeviceZoom.js";
 import { useMobileSettings } from "./useMobileSettings.js";
 import { useNotice } from "./useNotice.js";
 import "./mobile.css";
@@ -37,6 +39,8 @@ const SELECTED_KEY = "zli.mobile.device.v1";
 const LEASE_TICK_MS = 15_000;
 
 type Busy = "boot" | "shutdown" | "lease" | "screenshot";
+
+const CLIPBOARD_IMAGE_ERROR = "ZLI could not put the image on the clipboard. Save the screenshot instead.";
 
 export function MobilePane({ reveal }: { reveal?: MobileReveal | undefined }) {
   const { bridge } = useRuntime();
@@ -66,7 +70,8 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
   /** Setup is open, and why: from the wrench, or to add a virtual device. */
   const [setupFor, setSetupFor] = useState<"setup" | "new-device">();
   const showSetup = setupFor !== undefined;
-  const [busy, setBusy] = useState<Busy>();
+  /** Actions still running. A set, because cancelling a boot overlaps the boot it stops. */
+  const [busy, setBusy] = useState<ReadonlySet<Busy>>(() => new Set());
   const [actionError, setActionError] = useState<string>();
   const [notice, showNotice] = useNotice();
   const takeOverRef = useRef<HTMLButtonElement>(null);
@@ -152,15 +157,21 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
   const needsAndroid = status ? androidNeedsInstall(status.android) : false;
   const acceleration = status ? accelerationProblem(status.android) : undefined;
 
+  const [zoom, setZoom] = useDeviceZoom(device?.deviceId);
+
   const run = async (kind: Busy, operation: () => Promise<unknown>, fallback: string) => {
-    setBusy(kind);
+    setBusy((current) => new Set(current).add(kind));
     setActionError(undefined);
     try {
       await operation();
     } catch (cause) {
       setActionError(errorText(cause, fallback));
     } finally {
-      setBusy(undefined);
+      setBusy((current) => {
+        const next = new Set(current);
+        next.delete(kind);
+        return next;
+      });
     }
   };
 
@@ -207,8 +218,27 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
         link.href = `data:${shot.mimeType};base64,${shot.data}`;
         link.download = `${fileSafe(target.name)}-${fileStamp(new Date())}.png`;
         link.click();
+        showNotice(`Saved ${link.download}`);
       },
       "The screenshot could not be taken.",
+    );
+
+  const copyScreenshot = (target: MobileDevice) =>
+    run(
+      "screenshot",
+      async () => {
+        if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") throw new Error(CLIPBOARD_IMAGE_ERROR);
+        const image = mobile.screenshot(target.deviceId).then(screenshotBlob);
+        // The clipboard takes writes only right after a click, so the write starts now and waits for the image.
+        const written = navigator.clipboard.write([new ClipboardItem({ "image/png": image })]).then(
+          () => true,
+          () => false,
+        );
+        await image;
+        if (!(await written)) throw new Error(CLIPBOARD_IMAGE_ERROR);
+        showNotice("Copied the screenshot.");
+      },
+      "The screenshot could not be copied.",
     );
 
   const setupView = (
@@ -280,6 +310,7 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
           inputBlocked={agentHolds}
           onBlockedInput={nudgeTakeOver}
           onModeChange={setScreenMode}
+          zoom={zoom}
         />
       );
     if (shown.state === "booting")
@@ -311,7 +342,13 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
           }
         >
           {shown.kind === "physical" ? null : (
-            <Button variant="primary" size="sm" icon="play" loading={busy === "boot"} onClick={() => bootDevice(shown)}>
+            <Button
+              variant="primary"
+              size="sm"
+              icon="play"
+              loading={busy.has("boot")}
+              onClick={() => bootDevice(shown)}
+            >
               Boot
             </Button>
           )}
@@ -377,8 +414,10 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
           device={device}
           bootElapsedMs={bootElapsed}
           screenMode={screenMode}
-          booting={busy === "boot"}
-          stopping={busy === "shutdown"}
+          zoom={zoom}
+          onZoom={setZoom}
+          booting={busy.has("boot")}
+          stopping={busy.has("shutdown")}
           onSelect={setSelectedId}
           onNewDevice={() => setSetupFor("new-device")}
           onBoot={() => device && bootDevice(device)}
@@ -415,7 +454,7 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
                 ref={takeOverRef}
                 size="xs"
                 variant="primary"
-                loading={busy === "lease"}
+                loading={busy.has("lease")}
                 onClick={() =>
                   void run("lease", () => mobile.takeOver(device.deviceId), "ZLI could not give you control.")
                 }
@@ -425,7 +464,7 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
             ) : (
               <Button
                 size="xs"
-                loading={busy === "lease"}
+                loading={busy.has("lease")}
                 onClick={() =>
                   void run("lease", () => mobile.release(device.deviceId), "ZLI could not hand the device back.")
                 }
@@ -466,8 +505,9 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
           onBlockedInput={nudgeTakeOver}
           onError={setActionError}
           onNotice={showNotice}
-          screenshotBusy={busy === "screenshot"}
+          screenshotBusy={busy.has("screenshot")}
           onScreenshot={() => void saveScreenshot(device)}
+          onCopyScreenshot={() => void copyScreenshot(device)}
         />
       ) : null}
       {device && online && !showSetup ? (
