@@ -5,7 +5,6 @@ import type { RuntimeClient } from "@zli-v2/client-runtime";
 import { AgentNotifier, type NotifierHost } from "./AgentNotifier.js";
 import { NotificationSettingsStore } from "./NotificationSettingsStore.js";
 
-const WINDOWS_APP_ID = "dev.zli.desktop";
 const MAX_LIVE_NOTIFICATIONS = 20;
 
 /**
@@ -18,9 +17,6 @@ export async function registerAgentNotifications(options: {
   settingsPath: string;
 }): Promise<void> {
   const { window, runtime } = options;
-  // Windows shows toasts only for an app whose AppUserModelID matches its Start menu shortcut,
-  // which electron-builder creates from appId.
-  if (process.platform === "win32") app.setAppUserModelId(WINDOWS_APP_ID);
   const store = new NotificationSettingsStore(options.settingsPath);
   await store.load();
   // Electron drops click handlers of notifications that are garbage collected, so live ones are kept.
