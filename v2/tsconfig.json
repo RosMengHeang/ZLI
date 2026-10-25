@@ -10,6 +10,7 @@
     { "path": "packages/provider-cursor-agent" },
     { "path": "packages/provider-droid" },
     { "path": "packages/contracts" },
+    { "path": "packages/remote-protocol" },
     { "path": "packages/shared" },
     { "path": "packages/ui" }
   ]
