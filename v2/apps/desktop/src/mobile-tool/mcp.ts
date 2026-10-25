@@ -133,7 +133,8 @@ export const MOBILE_MCP_TOOLS: readonly McpTool[] = [
     name: "mobile_rotate",
     title: "Rotate",
     action: "mobilerotate",
-    description: "Rotate the device to an orientation, or between portrait and landscape when none is given.",
+    description:
+      "Rotate an Android device to an orientation, or between portrait and landscape when none is given. iOS simulators cannot be rotated from here.",
     properties: {
       orientation: { type: "string", enum: ["portrait", "landscape", "portrait-reverse", "landscape-reverse"] },
     },
