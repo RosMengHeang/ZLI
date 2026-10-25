@@ -278,6 +278,36 @@ export function expoUrl(server: Pick<DevServerHint, "port">): string {
   return `exp://localhost:${server.port}`;
 }
 
+const IMAGE_TAGS: Record<string, string> = {
+  default: "AOSP",
+  google_apis: "Google APIs",
+  google_apis_playstore: "Google Play",
+  google_atd: "Google ATD",
+  aosp_atd: "AOSP ATD",
+};
+
+/** system-images;android-35;google_apis;x86_64 reads as "API 35, Google APIs, x86_64". */
+export function systemImageLabel(image: string): string {
+  const [, api = "", tag = "", abi = ""] = image.split(";");
+  const level = /^android-(\d+)$/u.exec(api)?.[1];
+  return [level ? `API ${level}` : api.replace(/^android-/u, ""), IMAGE_TAGS[tag] ?? tag.replaceAll("_", " "), abi]
+    .filter(Boolean)
+    .join(", ");
+}
+
+/** A free name such as Pixel_7_API_35 for a new virtual device, numbered when the name is taken. */
+export function suggestAvdName(profileName: string, image: string | undefined, taken: readonly string[]): string {
+  const level = image ? /;android-([A-Za-z0-9]+);/u.exec(image)?.[1] : undefined;
+  const base =
+    `${profileName}${level ? ` API ${level}` : ""}`
+      .replace(/[^A-Za-z0-9_.-]+/gu, "_")
+      .replace(/^[^A-Za-z0-9]+|_+$/gu, "")
+      .slice(0, 50) || "Device";
+  const used = new Set(taken.map((name) => name.toLowerCase()));
+  if (!used.has(base.toLowerCase())) return base;
+  for (let index = 2; ; index += 1) if (!used.has(`${base}_${index}`.toLowerCase())) return `${base}_${index}`;
+}
+
 /** The line count the Logs drawer asks for, from what was typed: 1 to 2,000, or 200 when it is not a number. */
 export function logLineCount(typed: string): number {
   const value = Number.parseInt(typed, 10);

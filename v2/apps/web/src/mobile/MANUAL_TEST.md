@@ -90,9 +90,17 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
 - [ ] Open the device picker with an emulator running and a USB phone connected, then with only one device.
   Expected: Emulators and Phones headings, each device with its Android version and state, and "New virtual device" last. The picker shows with one device too. With no devices it reads "No devices" and does not open.
 - [ ] Open the virtual device manager from the device picker ("+ New virtual device") and from Setup.
-  Expected: a list of virtual devices with Boot and Delete, and a Create form that offers installed system images only.
-- [ ] Create a device, boot it, then delete another one.
-  Expected: the list and the device picker update. Delete asks first and refuses while that device is running.
+  Expected: a "Virtual devices" section under Android with each device's system image and state, Boot for devices that are off, and Delete. From the picker, the Create form's Name field has focus.
+- [ ] In the Create form, pick a system image and a device profile, keep the suggested name (for example Pixel_7_API_35), and click Create.
+  Expected: the image list shows only images already installed, and says so. The profile list starts with Pixel 7 and adds the Pixel profiles your avdmanager knows. After up to a minute, "Created <name>." shows, and the new device appears in the list and in the device picker as Off.
+- [ ] Type a name with a space, or the name of an existing device.
+  Expected: a warning under the field and a disabled Create button.
+- [ ] Click Boot on the new device.
+  Expected: the panel goes back to the device view and boots it.
+- [ ] Click Delete on a running device, then on one that is off.
+  Expected: Delete is disabled while the device runs. For the one that is off, a confirm row asks "Delete it and its data?"; "Keep it" backs out, and Delete removes it from the list and the picker.
+- [ ] Use an SDK from Android Studio without the command-line tools (no avdmanager).
+  Expected: the list still shows with Boot, Delete is disabled, the Create form is gone, and a line explains that avdmanager comes with the command-line tools.
 
 ## Android USB phone
 

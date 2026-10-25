@@ -28,6 +28,8 @@ import {
   screenshotBlob,
   sendTextInput,
   slowBootNote,
+  suggestAvdName,
+  systemImageLabel,
   textChunks,
   urlToOpen,
   wheelPixels,
@@ -298,6 +300,18 @@ describe("mobile panel helpers", () => {
     expect(expoServer([vite, named])).toBe(named);
     expect(expoServer([{ ...vite, name: "Metro bundler" }])?.port).toBe(5173);
     expect(expoUrl(metro)).toBe("exp://localhost:8081");
+  });
+  it("labels system images and suggests a free name for a new virtual device", () => {
+    expect(systemImageLabel("system-images;android-35;google_apis;x86_64")).toBe("API 35, Google APIs, x86_64");
+    expect(systemImageLabel("system-images;android-34;google_apis_playstore;arm64-v8a")).toBe(
+      "API 34, Google Play, arm64-v8a",
+    );
+    expect(systemImageLabel("system-images;android-Baklava;custom_tag;x86_64")).toBe("Baklava, custom tag, x86_64");
+    const image = "system-images;android-35;google_apis;x86_64";
+    expect(suggestAvdName("Pixel 7", image, [])).toBe("Pixel_7_API_35");
+    expect(suggestAvdName("Pixel 7", image, ["pixel_7_api_35", "Pixel_7_API_35_2"])).toBe("Pixel_7_API_35_3");
+    expect(suggestAvdName("Pixel 9 Pro", undefined, [])).toBe("Pixel_9_Pro");
+    expect(suggestAvdName("", undefined, [])).toBe("Device");
   });
   it("reads 200 log lines unless told a number from 1 to 2,000", () => {
     expect(logLineCount("")).toBe(200);

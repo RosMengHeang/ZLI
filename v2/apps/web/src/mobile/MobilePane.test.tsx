@@ -225,6 +225,12 @@ async function render(bridge: ZliBridge, reveal?: MobileReveal, devServers?: rea
   return container;
 }
 
+function nameField(container: HTMLElement): HTMLInputElement {
+  const field = [...container.querySelectorAll<HTMLInputElement>(".mobile-avd-form input")][0];
+  if (!field) throw new Error("No name field");
+  return field;
+}
+
 function expoBanner(container: HTMLElement): HTMLElement | undefined {
   return [...container.querySelectorAll<HTMLElement>(".banner")].find((banner) =>
     banner.textContent?.includes("Expo is running"),
@@ -1127,12 +1133,109 @@ describe("MobilePane", () => {
     expect(document.querySelector('[role="listbox"]')).toBeNull();
     expect(button(container, "Setup").getAttribute("aria-pressed")).toBe("true");
     expect(container.textContent).toContain("Ready, with the virtual device Pixel_8.");
-    expect(container.textContent).toContain("To add another virtual device, run avdmanager create avd");
     expect(container.querySelector(".mobile-toolbar")).toBeNull();
+    expect(document.activeElement).toBe(nameField(container));
 
     await click(button(container, "Setup"));
     await click(button(container, "Setup"));
-    expect(container.textContent).not.toContain("To add another virtual device");
+    expect(container.textContent).toContain("Virtual devices");
+    expect(document.activeElement).not.toBe(nameField(container));
+  });
+
+  it("lists virtual devices with Boot and Delete, and deletes one only after a confirm step", async () => {
+    const off: MobileDevice = { ...emulator, deviceId: "android-avd:Pixel_9", name: "Pixel 9", state: "shutdown" };
+    const status = readyStatus();
+    status.android.avds = ["Pixel_8", "Pixel_9"];
+    const fake = createMobile({ devices: [emulator, off], status });
+    const container = await render(bridgeWith(fake.mobile));
+    await click(button(container, "Setup"));
+    const rows = [...container.querySelectorAll(".mobile-avd")].map((row) => row.textContent);
+    expect(rows).toEqual([
+      "Pixel 8API 35, Google APIs, x86_64, RunningDelete",
+      "Pixel 9API 35, Google APIs, x86_64, OffBootDelete",
+    ]);
+    expect(button(container, "Delete Pixel 8").disabled).toBe(true);
+    expect(button(container, "Delete Pixel 8").dataset.tooltip).toBe("Shut it down before deleting it");
+
+    await click(button(container, "Delete Pixel 9"));
+    expect(fake.mobile.deleteAvd).not.toHaveBeenCalled();
+    expect(container.querySelector('fieldset[aria-label="Delete Pixel 9?"]')?.textContent).toContain(
+      "Delete it and its data?",
+    );
+    await click(button(container, "Keep it"));
+    expect(container.querySelector('[aria-label="Delete Pixel 9?"]')).toBeNull();
+
+    fake.mobile.devices.mockClear();
+    fake.mobile.status.mockClear();
+    await click(button(container, "Delete Pixel 9"));
+    await click(button(container, "Delete Pixel 9 for good"));
+    expect(fake.mobile.deleteAvd).toHaveBeenCalledWith("Pixel_9");
+    expect([...container.querySelectorAll(".mobile-avd-name")].map((name) => name.textContent)).toEqual(["Pixel 8"]);
+    expect(container.textContent).toContain("Deleted Pixel 9.");
+    expect(fake.mobile.devices).toHaveBeenCalled();
+    expect(fake.mobile.status).toHaveBeenCalled();
+  });
+
+  it("creates a virtual device from an installed image and a device profile", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    await click(button(container, "Setup"));
+    expect(nameField(container).value).toBe("Pixel_7_API_35");
+    expect(container.textContent).toContain("Only system images already on this computer are listed.");
+    await click(button(container, "Device profile: Pixel 7"));
+    await click(pickerOption("Pixel 8"));
+    expect(nameField(container).value).toBe("Pixel_8_API_35");
+
+    await act(async () => typeInto(nameField(container), "Pixel 9"));
+    expect(container.textContent).toContain("Use letters, digits, and _ . - only, starting with a letter or digit.");
+    expect(button(container, "Create").disabled).toBe(true);
+    await act(async () => typeInto(nameField(container), "pixel_8"));
+    expect(container.textContent).toContain("A virtual device with this name already exists.");
+
+    await act(async () => typeInto(nameField(container), "Pixel_9"));
+    await click(button(container, "Create"));
+    expect(fake.mobile.createAvd).toHaveBeenCalledWith({
+      name: "Pixel_9",
+      systemImage: "system-images;android-35;google_apis;x86_64",
+      device: "pixel_8",
+    });
+    expect(container.textContent).toContain("Created Pixel_9. Boot it from the list.");
+    expect([...container.querySelectorAll(".mobile-avd-name")].map((name) => name.textContent)).toEqual([
+      "Pixel 8",
+      "Pixel 9",
+    ]);
+    expect(nameField(container).value).toBe("Pixel_8_API_35");
+
+    fake.mobile.createAvd.mockRejectedValueOnce(
+      new Error("Error invoking remote method 'zli:mobile:avd-create': Error: avdmanager create failed: no space"),
+    );
+    await click(button(container, "Create"));
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("avdmanager create failed: no space");
+  });
+
+  it("boots a virtual device from the list and goes back to the device view", async () => {
+    const off: MobileDevice = { ...emulator, deviceId: "android-avd:Pixel_9", name: "Pixel 9", state: "shutdown" };
+    const status = readyStatus();
+    status.android.avds = ["Pixel_8", "Pixel_9"];
+    const fake = createMobile({ devices: [emulator, off], status });
+    const container = await render(bridgeWith(fake.mobile));
+    await click(button(container, "Setup"));
+    await click(button(container, "Boot Pixel 9"));
+    expect(fake.mobile.boot).toHaveBeenCalledWith("android-avd:Pixel_9");
+    expect(button(container, "Setup").getAttribute("aria-pressed")).toBe("false");
+    expect(button(container, "Device: Pixel 9")).toBeDefined();
+  });
+
+  it("lists virtual devices without avdmanager but explains why it cannot create or delete them", async () => {
+    const status = readyStatus();
+    status.android.avdmanager = { found: false };
+    const fake = createMobile({ devices: [emulator], status });
+    const container = await render(bridgeWith(fake.mobile));
+    await click(button(container, "Setup"));
+    expect(container.textContent).toContain("Creating and deleting virtual devices needs avdmanager");
+    expect(container.querySelector(".mobile-avd-form")).toBeNull();
+    expect(button(container, "Delete Pixel 8").disabled).toBe(true);
+    expect(button(container, "Delete Pixel 8").dataset.tooltip).toBe("Needs avdmanager");
   });
   it("selects the device an agent revealed", async () => {
     const second: MobileDevice = { ...emulator, deviceId: "android:R5CT", kind: "physical", name: "Galaxy S23" };

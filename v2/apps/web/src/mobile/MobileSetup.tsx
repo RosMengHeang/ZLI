@@ -1,5 +1,5 @@
 import type { MobileAndroidStatus, MobileSetupPlan, MobileSetupProgress, MobileSetupStatus } from "@zli-v2/contracts";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import type { MobileBridge } from "../runtime/bridge.js";
 import { Button } from "../ui/Button.js";
@@ -24,15 +24,15 @@ export function MobileSetup({
   mobile,
   status,
   noDevices = false,
-  addingDevice = false,
+  virtualDevices,
   onRecheck,
 }: {
   mobile: MobileBridge;
   status: MobileSetupStatus;
   /** No device is listed at all, so a USB phone is worth suggesting as the other way in. */
   noDevices?: boolean;
-  /** The person asked for a new virtual device, so the Android section says how to add one. */
-  addingDevice?: boolean;
+  /** The virtual device manager, shown under the Android section. */
+  virtualDevices?: ReactNode;
   /** Reads the status again. recheckAcceleration also reruns the emulator's acceleration check. */
   onRecheck(options?: { recheckAcceleration?: boolean }): Promise<void>;
 }) {
@@ -82,22 +82,15 @@ export function MobileSetup({
             onFinished={() => void recheck()}
           />
         ) : (
-          <>
-            <p className="mobile-setup-ready">
-              <Icon name="check" size={13} />
-              {status.android.avds.length === 1
-                ? `Ready, with the virtual device ${status.android.avds[0]}.`
-                : `Ready, with ${status.android.avds.length} virtual devices.`}
-            </p>
-            {addingDevice ? (
-              <p className="mobile-setup-text">
-                To add another virtual device, run <code>avdmanager create avd</code> with one of your system images,
-                then refresh the device list.
-              </p>
-            ) : null}
-          </>
+          <p className="mobile-setup-ready">
+            <Icon name="check" size={13} />
+            {status.android.avds.length === 1
+              ? `Ready, with the virtual device ${status.android.avds[0]}.`
+              : `Ready, with ${status.android.avds.length} virtual devices.`}
+          </p>
         )}
       </section>
+      {virtualDevices}
       {status.host.os === "macos" ? (
         <IosSection status={status} rechecking={rechecking} onRecheck={() => void recheck()} />
       ) : (

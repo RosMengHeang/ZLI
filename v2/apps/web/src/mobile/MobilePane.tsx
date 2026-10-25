@@ -32,6 +32,7 @@ import { useClock } from "./useClock.js";
 import { useDeviceZoom } from "./useDeviceZoom.js";
 import { useMobileSettings } from "./useMobileSettings.js";
 import { useNotice } from "./useNotice.js";
+import { VirtualDevices } from "./VirtualDevices.js";
 import "./mobile.css";
 
 /** A device an agent booted or drove, which the pane should show once it is in the list. */
@@ -272,7 +273,26 @@ function MobilePaneBody({
           mobile={mobile}
           status={status}
           noDevices={devices?.length === 0}
-          addingDevice={setupFor === "new-device"}
+          virtualDevices={
+            // Until the first device exists, the setup card above creates it along with anything it needs.
+            !needsAndroid ? (
+              <VirtualDevices
+                mobile={mobile}
+                devices={devices ?? []}
+                focusCreate={setupFor === "new-device"}
+                booting={busy.has("boot")}
+                onBoot={(target) => {
+                  setSelectedId(target.deviceId);
+                  setSetupFor(undefined);
+                  bootDevice(target);
+                }}
+                onChanged={() => {
+                  void refreshDevices();
+                  void refreshStatus();
+                }}
+              />
+            ) : undefined
+          }
           onRecheck={refreshStatus}
         />
       ) : (
