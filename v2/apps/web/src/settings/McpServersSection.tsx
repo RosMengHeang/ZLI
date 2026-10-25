@@ -1,6 +1,8 @@
 import { AgentToolAccess, isHttpServer, MCP_CATALOG, type McpServerConfig } from "@zli-v2/contracts";
 import { Fragment, useRef, useState } from "react";
 
+import { useMobileSettings } from "../mobile/useMobileSettings.js";
+import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Field, Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
@@ -487,6 +489,7 @@ export function McpServersSection({
             </span>
           </span>
         </li>
+        <ZliMobileRow />
       </ul>
       <h3 className="mcp-subhead">Your MCP servers</h3>
       {servers.length === 0 ? (
@@ -635,5 +638,36 @@ export function McpServersSection({
         </ul>
       ) : null}
     </>
+  );
+}
+
+/** Shown only in the desktop app, where the device tools exist. */
+function ZliMobileRow() {
+  const { bridge } = useRuntime();
+  const mobile = bridge?.mobile;
+  const { settings, error, setAgentTools } = useMobileSettings(mobile);
+  if (!mobile) return null;
+  const on = settings?.agentTools ?? false;
+  return (
+    <li className={`mcp-row${settings && !on ? " is-off" : ""}`}>
+      <ZliLogo size={28} className="mcp-row-logo" />
+      <span className="mcp-row-copy">
+        <strong>zli-mobile</strong>
+        <span className="mcp-row-detail" role={error ? "alert" : undefined}>
+          {error ??
+            "Lets agents boot Android emulators and iOS simulators, install and open apps, tap, type, and read logs, all shown in the Mobile panel. Also available as the zli-mobile command in terminals."}
+        </span>
+      </span>
+      <input
+        className="switch"
+        type="checkbox"
+        role="switch"
+        checked={on}
+        aria-checked={on}
+        aria-label="Give agents zli-mobile"
+        disabled={!settings}
+        onChange={(event) => setAgentTools(event.target.checked)}
+      />
+    </li>
   );
 }
