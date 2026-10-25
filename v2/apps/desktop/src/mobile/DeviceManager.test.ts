@@ -95,6 +95,73 @@ describe("device manager", () => {
     expect(sent).toEqual([encodeInjectText("hi"), encodeRotateDevice()]);
   });
 
+  it("shares one stream between viewers and stops it with the last one", async () => {
+    const sessions: { closed: boolean; reason?: string }[] = [];
+    const devices = new DeviceManager({
+      android: androidFake() as unknown as AndroidDriver,
+      ios: new FakeDriver("ios", [iphone]),
+      scrcpyServer: async () => "/zli/scrcpy-server",
+      startScrcpy: async () => {
+        const session = { closed: false } as { closed: boolean; reason?: string };
+        sessions.push(session);
+        return {
+          send: () => true,
+          close: async (reason?: string) => {
+            session.closed = true;
+            if (reason) session.reason = reason;
+          },
+          get closed() {
+            return session.closed;
+          },
+        };
+      },
+    });
+    await devices.startStream(pixel.deviceId, "panel");
+    await devices.startStream(pixel.deviceId, "panel");
+    expect(sessions).toHaveLength(1);
+    // The new window's decoder needs the codec config, so the video starts over for both viewers.
+    await devices.startStream(pixel.deviceId, "window-7");
+    expect(sessions).toHaveLength(2);
+    expect(sessions[0]).toMatchObject({ closed: true, reason: "Another window started showing this device." });
+    expect(devices.viewerCount(pixel.deviceId)).toBe(2);
+    await devices.stopStream(pixel.deviceId, "panel");
+    expect(sessions[1]?.closed).toBe(false);
+    expect(devices.viewerCount(pixel.deviceId)).toBe(1);
+    await devices.stopStream(pixel.deviceId, "window-7");
+    expect(sessions[1]?.closed).toBe(true);
+    expect(devices.viewerCount(pixel.deviceId)).toBe(0);
+  });
+
+  it("lets viewers that join while the stream starts share it, and stops it for all without a viewer", async () => {
+    let starts = 0;
+    let closes = 0;
+    const devices = new DeviceManager({
+      android: androidFake() as unknown as AndroidDriver,
+      ios: new FakeDriver("ios", [iphone]),
+      scrcpyServer: async () => "/zli/scrcpy-server",
+      startScrcpy: async () => {
+        starts += 1;
+        return {
+          send: () => true,
+          close: async () => {
+            closes += 1;
+          },
+          closed: false,
+        };
+      },
+    });
+    const [first, second] = await Promise.all([
+      devices.startStream(pixel.deviceId, "panel"),
+      devices.startStream(pixel.deviceId, "window-7"),
+    ]);
+    expect(first.mode).toBe("video");
+    expect(second).toEqual(first);
+    expect(starts).toBe(1);
+    await devices.stopStream(pixel.deviceId);
+    expect(closes).toBe(1);
+    expect(devices.viewerCount(pixel.deviceId)).toBe(0);
+  });
+
   it("falls back to screenshots when scrcpy cannot start, and says why", async () => {
     const { devices, messages } = manager({ scrcpyFails: true });
     const info = await devices.startStream(pixel.deviceId);

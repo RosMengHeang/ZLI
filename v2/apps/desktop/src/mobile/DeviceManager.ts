@@ -49,6 +49,11 @@ export type DeviceManagerDeps = {
 
 type Stream = {
   readonly deviceId: string;
+  /** The windows showing this stream. It stops when the last one stops. */
+  readonly viewers: Set<string>;
+  /** Settles once the stream knows whether it carries video or screenshots. */
+  ready?: Promise<MobileStreamInfo>;
+  started: boolean;
   mode: "video" | "stills";
   width: number;
   height: number;
@@ -64,6 +69,8 @@ type Stream = {
   touchStart?: { x: number; y: number; at: number } | undefined;
 };
 
+/** The viewer a stream is started for when the caller does not name one. */
+export const PANEL_VIEWER = "panel";
 const TAP_SLOP_PX = 12;
 const DEFAULT_LOG_LINES = 200;
 /** Simulator screenshots are cheap, so for a few seconds after input they come about three times a second. */
@@ -175,16 +182,81 @@ export class DeviceManager {
   }
 
   /**
-   * Starts the panel's live view. Android uses scrcpy's H.264 stream; when scrcpy cannot start, and always
-   * on iOS, the panel gets screenshots instead, about once a second.
+   * Starts a live view of the device for one viewer, such as the Mobile panel or a pop-out window. Android uses
+   * scrcpy's H.264 stream; when scrcpy cannot start, and always on iOS, viewers get screenshots instead, about
+   * once a second. Viewers share one stream, which runs until the last of them stops it.
    */
-  async startStream(deviceId: string): Promise<MobileStreamInfo> {
+  async startStream(deviceId: string, viewer: string = PANEL_VIEWER): Promise<MobileStreamInfo> {
     const existing = this.#streams.get(deviceId);
-    if (existing && !existing.stopped) return this.#info(existing);
-    const device = await this.find(deviceId);
-    if (device.state !== "online") throw new MobileDriverError(`${device.name} is not running.`, 409);
-    const stream: Stream = { deviceId, mode: "stills", width: 0, height: 0, stopped: false, activeUntil: 0 };
+    if (existing && !existing.stopped) {
+      const joining = !existing.viewers.has(viewer);
+      const wasStarted = existing.started;
+      existing.viewers.add(viewer);
+      const info = existing.ready ? await existing.ready : this.#info(existing);
+      if (this.#streams.get(deviceId) !== existing) return this.startStream(deviceId, viewer);
+      if (!joining || !wasStarted || info.mode !== "video") return info;
+      // A decoder that joins running video has missed the codec config and would wait for the next key frame,
+      // which can be seconds away, so the video starts over for every viewer.
+      await this.#close(existing, "Another window started showing this device.");
+      return this.#open(deviceId, existing.viewers);
+    }
+    return this.#open(deviceId, new Set([viewer]));
+  }
+
+  /**
+   * Stops one viewer's share of the stream, and the stream itself once no viewer is left. Without a viewer the
+   * stream stops for everyone, as it must when the device shuts down.
+   */
+  async stopStream(deviceId: string, viewer?: string): Promise<void> {
+    const stream = this.#streams.get(deviceId);
+    if (!stream) return;
+    if (viewer !== undefined) {
+      stream.viewers.delete(viewer);
+      if (stream.viewers.size > 0) return;
+    }
+    await this.#close(stream, "The panel stopped showing this device.");
+  }
+
+  /** How many viewers share the device's stream, 0 when it is not running. */
+  viewerCount(deviceId: string): number {
+    const stream = this.#streams.get(deviceId);
+    return stream && !stream.stopped ? stream.viewers.size : 0;
+  }
+
+  async #close(stream: Stream, reason: string): Promise<void> {
+    stream.stopped = true;
+    stream.wake?.();
+    if (this.#streams.get(stream.deviceId) === stream) this.#streams.delete(stream.deviceId);
+    await stream.session?.close(reason);
+    await stream.video?.close(reason);
+  }
+
+  #open(deviceId: string, viewers: Set<string>): Promise<MobileStreamInfo> {
+    const stream: Stream = {
+      deviceId,
+      viewers,
+      started: false,
+      mode: "stills",
+      width: 0,
+      height: 0,
+      stopped: false,
+      activeUntil: 0,
+    };
     this.#streams.set(deviceId, stream);
+    const ready = this.#start(stream).finally(() => {
+      stream.started = true;
+    });
+    stream.ready = ready;
+    ready.catch(() => {
+      if (this.#streams.get(deviceId) === stream) this.#streams.delete(deviceId);
+      stream.stopped = true;
+    });
+    return ready;
+  }
+
+  async #start(stream: Stream): Promise<MobileStreamInfo> {
+    const device = await this.find(stream.deviceId);
+    if (device.state !== "online") throw new MobileDriverError(`${device.name} is not running.`, 409);
     let fallbackReason: string | undefined;
     if (device.platform === "android") {
       try {
@@ -205,16 +277,6 @@ export class DeviceManager {
     const info = { ...this.#info(stream), ...(fallbackReason ? { fallbackReason: fallbackReason.slice(0, 500) } : {}) };
     this.#deps.events?.stream?.({ type: "info", info });
     return info;
-  }
-
-  async stopStream(deviceId: string): Promise<void> {
-    const stream = this.#streams.get(deviceId);
-    if (!stream) return;
-    stream.stopped = true;
-    stream.wake?.();
-    this.#streams.delete(deviceId);
-    await stream.session?.close("The panel stopped showing this device.");
-    await stream.video?.close("The panel stopped showing this device.");
   }
 
   /** Input from the person in the Mobile panel. An agent's lease blocks it until the person takes over. */
