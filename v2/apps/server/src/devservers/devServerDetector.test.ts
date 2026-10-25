@@ -20,6 +20,8 @@ describe("detectDevServerUrls", () => {
       "** Angular Live Development Server is listening on localhost:4200, open your browser on http://localhost:4200/ **",
       "http://localhost:4200/",
     ],
+    ["Expo web", "› Web is waiting on http://localhost:8081", "http://localhost:8081/"],
+    ["Expo with --localhost", "› Metro waiting on exp://127.0.0.1:8081", "http://127.0.0.1:8081/"],
     ["Astro base path", " ┃ Local    http://localhost:4321/docs/", "http://localhost:4321/docs/"],
     [
       "an OSC 8 link",
@@ -33,6 +35,8 @@ describe("detectDevServerUrls", () => {
   it.each([
     ["a typed curl command", "$ curl http://localhost:3000/server"],
     ["a LAN address", "  ➜  Network: http://192.168.1.20:5173/"],
+    ["an Expo LAN address", "› Metro waiting on exp://192.168.1.20:8081"],
+    ["a script waiting for a server", "Waiting for http://localhost:3000 to respond"],
     ["a remote server", "Server running at https://example.com:443/"],
     ["an address without a port", "Server running at http://localhost/"],
     ["a line without an address", "Server ready in 412 ms"],
