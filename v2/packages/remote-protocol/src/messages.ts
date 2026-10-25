@@ -65,6 +65,9 @@ export const ServerControl = z.discriminatedUnion("type", [
     type: z.literal("gateway.ready"),
     desktopName: z.string().min(1).max(80),
     environmentId: EnvironmentId,
+    /** The addresses the desktop listens on now, so the phone can follow a changed LAN address. */
+    hosts: z.array(RemoteHost).max(8),
+    port: z.number().int().min(1).max(65_535),
   }),
 ]);
 export type ServerControl = z.infer<typeof ServerControl>;
