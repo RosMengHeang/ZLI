@@ -45,6 +45,12 @@ describe("ElectronWindow", () => {
     createMainWindow(FakeBrowserWindow, "/tmp/preload.js", "zli-v2://app", "win32");
     expect(created[0]).toMatchObject({ titleBarStyle: "hidden", titleBarOverlay: { height: 44 } });
     expect(titleBarOptions("darwin")).toMatchObject({ titleBarStyle: "hiddenInset", titleBarOverlay: true });
+    expect(titleBarOptions("darwin")).toMatchObject({ trafficLightPosition: { x: 16, y: 15 } });
+  });
+
+  it("centers the native window controls in a shorter title bar", () => {
+    expect(titleBarOptions("win32", 36)).toMatchObject({ titleBarOverlay: { height: 36 } });
+    expect(titleBarOptions("darwin", 36)).toMatchObject({ trafficLightPosition: { x: 16, y: 11 } });
   });
 
   it("sets the window icon only when one is given", () => {

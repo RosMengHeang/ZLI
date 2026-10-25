@@ -6,14 +6,25 @@ import {
   MobilePanelLaunchInput,
   MobilePanelLogsInput,
   MobilePanelOpenUrlInput,
+  MobilePopOutAspectInput,
+  MobilePopOutPinInput,
   MobileSettings,
   MobileSetupRunInput,
 } from "@zli-v2/contracts";
 
+import { PANEL_VIEWER } from "./DeviceManager.js";
 import type { MobileService } from "./MobileService.js";
 import type { MobileSettingsStore } from "./MobileSettingsStore.js";
+import type { PopOutWindows } from "./PopOutWindows.js";
 
-export type MobileIpcHandler = (input: unknown) => unknown;
+/** Which window sent the call, so each window's stream is started and stopped as its own viewer. */
+export type MobileIpcContext = { readonly viewer: string };
+export type MobileIpcHandler = (input: unknown, context?: MobileIpcContext) => unknown;
+
+/** The stream viewer for a window's renderer. */
+export function streamViewer(webContentsId: number): string {
+  return `window-${webContentsId}`;
+}
 
 /**
  * What each zli:mobile channel does with the renderer's payload. Every payload is parsed here, because the
@@ -22,6 +33,7 @@ export type MobileIpcHandler = (input: unknown) => unknown;
 export function mobileIpcHandlers(deps: {
   service(): Pick<MobileService, "manager" | "setup" | "status" | "avds"> | undefined;
   settings(): Pick<MobileSettingsStore, "get" | "set"> | undefined;
+  popOuts?(): Pick<PopOutWindows, "open" | "close" | "pin" | "setAspect" | "list"> | undefined;
 }): Record<string, MobileIpcHandler> {
   const service = () => {
     const current = deps.service();
@@ -31,6 +43,11 @@ export function mobileIpcHandlers(deps: {
   const settings = () => {
     const current = deps.settings();
     if (!current) throw new Error("ZLI's mobile service is not running.");
+    return current;
+  };
+  const popOuts = () => {
+    const current = deps.popOuts?.();
+    if (!current) throw new Error("ZLI's pop-out windows are not ready yet.");
     return current;
   };
   const manager = () => service().manager;
@@ -60,9 +77,21 @@ export function mobileIpcHandlers(deps: {
       await manager().shutdown(deviceId(input));
       return { accepted: true };
     },
-    "zli:mobile:stream-start": (input) => manager().startStream(deviceId(input)),
-    "zli:mobile:stream-stop": async (input) => {
-      await manager().stopStream(deviceId(input));
+    "zli:mobile:stream-start": (input, context) => manager().startStream(deviceId(input), context?.viewer),
+    "zli:mobile:stream-stop": async (input, context) => {
+      // Without a viewer, stopping would end the stream for every window showing the device.
+      await manager().stopStream(deviceId(input), context?.viewer ?? PANEL_VIEWER);
+      return { accepted: true };
+    },
+    "zli:mobile:popout-list": () => popOuts().list(),
+    "zli:mobile:popout-open": (input) => popOuts().open(deviceId(input)),
+    "zli:mobile:popout-close": (input) => popOuts().close(deviceId(input)),
+    "zli:mobile:popout-pin": (input) => {
+      const parsed = MobilePopOutPinInput.parse(input);
+      return popOuts().pin(parsed.deviceId, parsed.pinned);
+    },
+    "zli:mobile:popout-aspect": (input) => {
+      popOuts().setAspect(MobilePopOutAspectInput.parse(input));
       return { accepted: true };
     },
     "zli:mobile:input": async (input) => {

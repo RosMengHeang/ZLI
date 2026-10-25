@@ -417,4 +417,50 @@ describe("preload mobile API", () => {
     await expect(api.mobile.deleteAvd("../Pixel_9")).rejects.toThrow();
     expect(calls).toHaveLength(3);
   });
+
+  it("validates pop-out window requests and drops malformed pop-out events", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const listeners = new Map<string, (event: unknown, value: unknown) => void>();
+    const pixel = "android-avd:Pixel_8";
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        if (channel === "zli:mobile:popout-close") return [];
+        if (channel === "zli:mobile:popout-aspect") return { accepted: true };
+        return [{ deviceId: pixel, pinned: channel === "zli:mobile:popout-pin" }];
+      },
+      on: (channel, listener) => {
+        listeners.set(channel, listener);
+        return () => listeners.delete(channel);
+      },
+    });
+    expect(await api.mobile.popOut(pixel)).toEqual([{ deviceId: pixel, pinned: false }]);
+    expect(await api.mobile.pinPopOut(pixel, true)).toEqual([{ deviceId: pixel, pinned: true }]);
+    await api.mobile.setPopOutAspect({ deviceId: pixel, aspect: 0.47, extraWidth: 24, extraHeight: 96 });
+    expect(await api.mobile.closePopOut(pixel)).toEqual([]);
+    expect(await api.mobile.popOuts()).toEqual([{ deviceId: pixel, pinned: false }]);
+    expect(calls).toEqual([
+      { channel: "zli:mobile:popout-open", payload: { deviceId: pixel } },
+      { channel: "zli:mobile:popout-pin", payload: { deviceId: pixel, pinned: true } },
+      {
+        channel: "zli:mobile:popout-aspect",
+        payload: { deviceId: pixel, aspect: 0.47, extraWidth: 24, extraHeight: 96 },
+      },
+      { channel: "zli:mobile:popout-close", payload: { deviceId: pixel } },
+      { channel: "zli:mobile:popout-list", payload: undefined },
+    ]);
+    await expect(api.mobile.popOut("")).rejects.toThrow();
+    await expect(api.mobile.pinPopOut(pixel, "yes" as never)).rejects.toThrow();
+    await expect(
+      api.mobile.setPopOutAspect({ deviceId: pixel, aspect: -1, extraWidth: 0, extraHeight: 0 }),
+    ).rejects.toThrow();
+    expect(calls).toHaveLength(5);
+
+    const changes: unknown[] = [];
+    api.mobile.onPopOuts((popOuts) => changes.push(popOuts));
+    const emit = listeners.get("zli:mobile:popouts");
+    emit?.(undefined, [{ deviceId: pixel, pinned: true }]);
+    emit?.(undefined, [{ deviceId: pixel }]);
+    expect(changes).toEqual([[{ deviceId: pixel, pinned: true }]]);
+  });
 });

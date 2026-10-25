@@ -271,6 +271,25 @@ export type MobileScreenshot = z.infer<typeof MobileScreenshot>;
 export const MobileRevealEvent = z.object({ deviceId: z.string().min(1).max(300) });
 export type MobileRevealEvent = z.infer<typeof MobileRevealEvent>;
 
+/** A device shown in its own desktop window instead of the Mobile panel. pinned keeps the window on top. */
+export const MobilePopOut = z.object({ deviceId: MobileDeviceIdInput.shape.deviceId, pinned: z.boolean() });
+export type MobilePopOut = z.infer<typeof MobilePopOut>;
+export const MobilePopOutList = z.array(MobilePopOut).max(64);
+
+export const MobilePopOutPinInput = MobileDeviceIdInput.extend({ pinned: z.boolean() });
+export type MobilePopOutPinInput = z.infer<typeof MobilePopOutPinInput>;
+
+/**
+ * The device body's width over its height, and the room the window's bars and padding take around it, so the
+ * window keeps the device's shape while it is resized.
+ */
+export const MobilePopOutAspectInput = MobileDeviceIdInput.extend({
+  aspect: z.number().min(0.1).max(10),
+  extraWidth: z.number().int().min(0).max(4_000),
+  extraHeight: z.number().int().min(0).max(4_000),
+});
+export type MobilePopOutAspectInput = z.infer<typeof MobilePopOutAspectInput>;
+
 /** Served by the browser control service, under their own action names. Routes allow lowercase letters only. */
 export const MOBILE_CONTROL_ACTIONS = [
   "mobileaccess",

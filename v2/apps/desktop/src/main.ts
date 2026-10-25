@@ -53,7 +53,8 @@ import { hostArch, hostOs } from "./mobile/host.js";
 import { createMobileControlActions, isMobileControlAction } from "./mobile/MobileControlActions.js";
 import { createMobileService, type MobileService } from "./mobile/MobileService.js";
 import { MobileSettingsStore } from "./mobile/MobileSettingsStore.js";
-import { mobileIpcHandlers } from "./mobile/mobileIpc.js";
+import { mobileIpcHandlers, streamViewer } from "./mobile/mobileIpc.js";
+import { PopOutWindows, type PopOutWindowLike, type WindowBounds } from "./mobile/PopOutWindows.js";
 import type { AgentNotifier } from "./notifications/AgentNotifier.js";
 import { registerAgentNotifications } from "./notifications/electronNotifications.js";
 import { ensureDesktopDaemon, shutdownDesktopDaemon } from "./runtime/DesktopDaemon.js";
@@ -90,6 +91,7 @@ let browserManager: BrowserManager | undefined;
 let browserControl: BrowserControlServer | undefined;
 let mobile: MobileService | undefined;
 let mobileSettings: MobileSettingsStore | undefined;
+let popOuts: PopOutWindows | undefined;
 let mainWindow: BrowserWindow | undefined;
 let notifier: AgentNotifier | undefined;
 let approvedSupportBundleRoot: string | undefined;
@@ -161,6 +163,24 @@ async function main(): Promise<void> {
   );
   const electronWindow = window as unknown as BrowserWindow;
   mainWindow = electronWindow;
+  const rendererUrl = process.env.ZLI_RENDERER_URL ?? `${APP_ORIGIN}/index.html`;
+  popOuts = new PopOutWindows({
+    create: (options) => new BrowserWindow(options) as unknown as PopOutWindowLike,
+    preloadPath: join(DESKTOP_DIST, "preload.js"),
+    appOrigin: APP_ORIGIN,
+    rendererUrl,
+    platform: process.platform,
+    storePath: process.env.ZLI_DATABASE_PATH
+      ? `${databasePath}.mobile-popouts.json`
+      : join(app.getPath("userData"), "mobile-popouts.json"),
+    icon: appIcon("icon-square.png"),
+    deviceName: (deviceId) => mobile?.manager.cached().find((device) => device.deviceId === deviceId)?.name,
+    viewerFor: streamViewer,
+    stopViewer: async (deviceId, viewer) => mobile?.manager.stopStream(deviceId, viewer),
+    onChange: (list) => sendToMobileWindows("zli:mobile:popouts", list),
+    onScreen: (bounds) => screen.getAllDisplays().some((display) => overlaps(display.workArea, bounds)),
+    log: (message, error) => console.error(message, error),
+  });
   const taskbarDetails = process.platform === "win32" ? windowsAppDetails(process.execPath, app.isPackaged) : undefined;
   if (taskbarDetails) electronWindow.setAppDetails(taskbarDetails);
   // Closing the window goes through the quit, which may ask first and keep the window open.
@@ -252,7 +272,6 @@ async function main(): Promise<void> {
   // ready-to-show can fire before loadURL resolves, so the listener goes first. A window that misses it
   // stays hidden and Chromium stops drawing frames for it.
   window.once?.("ready-to-show", () => window.show?.());
-  const rendererUrl = process.env.ZLI_RENDERER_URL ?? `${APP_ORIGIN}/index.html`;
   if (window.loadURL) await window.loadURL(rendererUrl);
   if (window.isVisible?.() === false) window.show?.();
 }
@@ -299,9 +318,9 @@ async function startBrowserControl(databasePath: string): Promise<BrowserToolPat
     // downloading their own; only settings stay beside the throwaway database.
     mobileDir: join(userData, "mobile"),
     events: {
-      devices: (devices) => sendToWindow("zli:mobile:devices", devices),
-      stream: (message) => sendToWindow("zli:mobile:stream", message),
-      setup: (progress) => sendToWindow("zli:mobile:setup", progress),
+      devices: (devices) => sendToMobileWindows("zli:mobile:devices", devices),
+      stream: (message) => sendToMobileWindows("zli:mobile:stream", message),
+      setup: (progress) => sendToMobileWindows("zli:mobile:setup", progress),
     },
   });
   const settingsStore = mobileSettings;
@@ -560,9 +579,28 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
 }
 
 function registerMobileIpc(): void {
-  const handlers = mobileIpcHandlers({ service: () => mobile, settings: () => mobileSettings });
+  const handlers = mobileIpcHandlers({
+    service: () => mobile,
+    settings: () => mobileSettings,
+    popOuts: () => popOuts,
+  });
   for (const [channel, handle] of Object.entries(handlers))
-    ipcMain.handle(channel, (_event, input: unknown) => handle(input));
+    ipcMain.handle(channel, (event, input: unknown) => handle(input, { viewer: streamViewer(event.sender.id) }));
+}
+
+/** Device and stream events go to the main window and to every pop-out window showing a device. */
+function sendToMobileWindows(channel: string, payload: unknown): void {
+  if (mainWindow && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send(channel, payload);
+  for (const target of popOuts?.targets() ?? []) target.send?.(channel, payload);
+}
+
+function overlaps(area: WindowBounds, bounds: WindowBounds): boolean {
+  return (
+    bounds.x < area.x + area.width &&
+    bounds.x + bounds.width > area.x &&
+    bounds.y < area.y + area.height &&
+    bounds.y + bounds.height > area.y
+  );
 }
 
 async function openExternalUrl(url: string): Promise<void> {
@@ -648,6 +686,8 @@ async function confirmQuit(busyCount: number): Promise<boolean> {
 /** Stops chats, agent CLIs, and terminals, so nothing ZLI started keeps running after it quits. */
 async function shutdownRuntime(): Promise<void> {
   browserManager?.closeAll({ persist: false });
+  // Before the mobile service, so each window's bounds are saved and its stream share is let go first.
+  await popOuts?.closeAll().catch((error: unknown) => console.error("Pop-out windows did not close cleanly", error));
   // Emulators ZLI started would otherwise keep running, and scrcpy servers keep the device awake.
   await mobile?.dispose().catch((error: unknown) => console.error("Mobile devices did not stop cleanly", error));
   mobile = undefined;

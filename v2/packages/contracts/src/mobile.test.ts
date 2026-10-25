@@ -14,6 +14,9 @@ import {
   MobilePanelLaunchInput,
   MobilePanelLogsInput,
   MobilePanelOpenUrlInput,
+  MobilePopOutAspectInput,
+  MobilePopOutList,
+  MobilePopOutPinInput,
   MobileSetupRunInput,
 } from "./mobile.js";
 
@@ -96,5 +99,26 @@ describe("mobile contracts", () => {
     ).toBe(false);
     expect(MobileAvdDeleteInput.safeParse({ name: "Pixel_8" }).success).toBe(true);
     expect(MobileAvdDeleteInput.safeParse({ name: "-rf" }).success).toBe(false);
+  });
+
+  it("parses pop-out windows, their pin, and the device shape they keep", () => {
+    expect(MobilePopOutList.parse([{ deviceId: "android-avd:Pixel_8", pinned: true }])).toHaveLength(1);
+    expect(MobilePopOutList.safeParse([{ deviceId: "", pinned: false }]).success).toBe(false);
+    expect(MobilePopOutPinInput.safeParse({ deviceId: "d", pinned: "yes" }).success).toBe(false);
+    expect(MobilePopOutAspectInput.parse({ deviceId: "d", aspect: 0.47, extraWidth: 24, extraHeight: 120 })).toEqual({
+      deviceId: "d",
+      aspect: 0.47,
+      extraWidth: 24,
+      extraHeight: 120,
+    });
+    expect(MobilePopOutAspectInput.safeParse({ deviceId: "d", aspect: 0, extraWidth: 0, extraHeight: 0 }).success).toBe(
+      false,
+    );
+    expect(
+      MobilePopOutAspectInput.safeParse({ deviceId: "d", aspect: 1, extraWidth: -1, extraHeight: 0 }).success,
+    ).toBe(false);
+    expect(
+      MobilePopOutAspectInput.safeParse({ deviceId: "d", aspect: Number.NaN, extraWidth: 0, extraHeight: 0 }).success,
+    ).toBe(false);
   });
 });

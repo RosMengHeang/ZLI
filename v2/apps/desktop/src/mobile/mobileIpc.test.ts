@@ -4,7 +4,7 @@ import type { AndroidDriver } from "./AndroidDriver.js";
 import { DeviceManager } from "./DeviceManager.js";
 import { FakeDriver } from "./FakeDriver.js";
 import type { MobileService } from "./MobileService.js";
-import { mobileIpcHandlers } from "./mobileIpc.js";
+import { mobileIpcHandlers, streamViewer } from "./mobileIpc.js";
 
 const pixel = {
   deviceId: "android-avd:Pixel_8",
@@ -26,6 +26,7 @@ function handlers() {
     android: android as unknown as AndroidDriver,
     ios: new FakeDriver("ios", []),
     scrcpyServer: async () => "/zli/scrcpy-server",
+    startScrcpy: async () => ({ send: () => true, close: async () => undefined, closed: false }),
   });
   const avds = {
     list: vi.fn(async () => ({ avds: [] })),
@@ -125,5 +126,58 @@ describe("mobile IPC handlers", () => {
     expect(() => handle["zli:mobile:avd-delete"]?.({ name: "--all" })).toThrow();
     expect(avds.create).toHaveBeenCalledTimes(1);
     expect(avds.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts and stops streams as the window that asked, so one window never stops another's view", async () => {
+    const { manager, handle } = handlers();
+    const panel = { viewer: streamViewer(1) };
+    const popOut = { viewer: streamViewer(2) };
+    expect(panel.viewer).toBe("window-1");
+    await handle["zli:mobile:stream-start"]?.({ deviceId: pixel.deviceId }, panel);
+    await handle["zli:mobile:stream-start"]?.({ deviceId: pixel.deviceId }, popOut);
+    expect(manager.viewerCount(pixel.deviceId)).toBe(2);
+    await handle["zli:mobile:stream-stop"]?.({ deviceId: pixel.deviceId }, panel);
+    expect(manager.viewerCount(pixel.deviceId)).toBe(1);
+    await handle["zli:mobile:stream-stop"]?.({ deviceId: pixel.deviceId }, popOut);
+    expect(manager.viewerCount(pixel.deviceId)).toBe(0);
+  });
+
+  it("opens, pins, shapes, and closes pop-out windows with parsed payloads", async () => {
+    const popOuts = {
+      list: vi.fn(() => [{ deviceId: pixel.deviceId, pinned: false }]),
+      open: vi.fn(async (deviceId: string) => [{ deviceId, pinned: false }]),
+      close: vi.fn((_deviceId: string) => []),
+      pin: vi.fn(async (deviceId: string, pinned: boolean) => [{ deviceId, pinned }]),
+      setAspect: vi.fn(),
+    };
+    const handle = mobileIpcHandlers({ service: () => undefined, settings: () => undefined, popOuts: () => popOuts });
+    expect(await handle["zli:mobile:popout-open"]?.({ deviceId: pixel.deviceId })).toEqual([
+      { deviceId: pixel.deviceId, pinned: false },
+    ]);
+    expect(await handle["zli:mobile:popout-pin"]?.({ deviceId: pixel.deviceId, pinned: true })).toEqual([
+      { deviceId: pixel.deviceId, pinned: true },
+    ]);
+    expect(
+      handle["zli:mobile:popout-aspect"]?.({ deviceId: pixel.deviceId, aspect: 0.47, extraWidth: 24, extraHeight: 96 }),
+    ).toEqual({ accepted: true });
+    expect(popOuts.setAspect).toHaveBeenCalledWith({
+      deviceId: pixel.deviceId,
+      aspect: 0.47,
+      extraWidth: 24,
+      extraHeight: 96,
+    });
+    expect(handle["zli:mobile:popout-close"]?.({ deviceId: pixel.deviceId })).toEqual([]);
+    expect(handle["zli:mobile:popout-list"]?.(undefined)).toHaveLength(1);
+    expect(() => handle["zli:mobile:popout-open"]?.({ deviceId: "" })).toThrow();
+    expect(() => handle["zli:mobile:popout-pin"]?.({ deviceId: pixel.deviceId, pinned: "yes" })).toThrow();
+    expect(() =>
+      handle["zli:mobile:popout-aspect"]?.({ deviceId: pixel.deviceId, aspect: 50, extraWidth: 0, extraHeight: 0 }),
+    ).toThrow();
+    expect(popOuts.open).toHaveBeenCalledTimes(1);
+    expect(popOuts.setAspect).toHaveBeenCalledTimes(1);
+    const without = mobileIpcHandlers({ service: () => undefined, settings: () => undefined });
+    expect(() => without["zli:mobile:popout-open"]?.({ deviceId: pixel.deviceId })).toThrow(
+      "ZLI's pop-out windows are not ready yet.",
+    );
   });
 });

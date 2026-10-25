@@ -26,6 +26,9 @@ import {
   MobilePanelLaunchInput,
   MobilePanelLogsInput,
   MobilePanelOpenUrlInput,
+  MobilePopOutAspectInput,
+  MobilePopOutList,
+  MobilePopOutPinInput,
   MobileRevealEvent,
   MobileScreenshot,
   MobileSettings,
@@ -124,6 +127,20 @@ function createMobileApi(ipc: IpcBridge) {
       MobileSettings.parse(await ipc.invoke("zli:mobile:settings-set", MobileSettings.partial().parse(patch))),
     /** Fires when an agent boots or drives a device, so the renderer can show the Mobile panel with it. */
     onReveal: listen("zli:mobile:reveal", MobileRevealEvent),
+    popOuts: async () => MobilePopOutList.parse(await ipc.invoke("zli:mobile:popout-list")),
+    onPopOuts: listen("zli:mobile:popouts", MobilePopOutList),
+    /** Opens the device in its own window, or focuses the window it already has. */
+    popOut: async (deviceId: string) =>
+      MobilePopOutList.parse(await ipc.invoke("zli:mobile:popout-open", device(deviceId))),
+    closePopOut: async (deviceId: string) =>
+      MobilePopOutList.parse(await ipc.invoke("zli:mobile:popout-close", device(deviceId))),
+    pinPopOut: async (deviceId: string, pinned: boolean) =>
+      MobilePopOutList.parse(
+        await ipc.invoke("zli:mobile:popout-pin", MobilePopOutPinInput.parse({ deviceId, pinned })),
+      ),
+    setPopOutAspect: async (input: MobilePopOutAspectInput) => {
+      await ipc.invoke("zli:mobile:popout-aspect", MobilePopOutAspectInput.parse(input));
+    },
   };
 }
 
