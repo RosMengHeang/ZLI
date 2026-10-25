@@ -84,7 +84,12 @@ export function MobileToolbar({
         <span className="picker-trigger-label">{device?.name ?? "No devices"}</span>
       </Picker>
       {device ? (
-        <Badge tone={stateTone(device)} dot={device.state !== "booting"} spinner={device.state === "booting"}>
+        <Badge
+          tone={stateTone(device)}
+          dot={device.state !== "booting"}
+          spinner={device.state === "booting"}
+          {...(device.state === "online" ? { className: "mobile-state-badge", title: stateLabel(device.state) } : {})}
+        >
           {device.state === "booting" && bootElapsedMs !== undefined
             ? `${stateLabel(device.state)} ${formatElapsed(bootElapsedMs)}`
             : stateLabel(device.state)}

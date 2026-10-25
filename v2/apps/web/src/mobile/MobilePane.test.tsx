@@ -1250,6 +1250,9 @@ describe("MobilePane", () => {
     });
     const container = await render(bridgeWith(fake.mobile));
     expect(container.querySelector(".mobile-mode-chip")?.textContent).toBe("Live");
+    const state = container.querySelector(".mobile-toolbar .mobile-state-badge");
+    expect(state?.textContent).toBe("Running");
+    expect(state?.getAttribute("title")).toBe("Running");
 
     await act(async () => {
       fake.stream({
