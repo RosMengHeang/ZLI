@@ -17,7 +17,8 @@ Usage:
   zli-mobile tap <ref> [--long]            Or: zli-mobile tap --x <n> --y <n>.
   zli-mobile swipe <up|down|left|right>    Or: --from <x,y> --to <x,y>. Also --duration <ms>.
   zli-mobile type <text> [--ref <ref>]
-  zli-mobile press <button>                back, home, recents, power, volume_up, volume_down, enter, delete.
+  zli-mobile press <button>                back, home, recents, power, volume_up, volume_down, enter, delete,
+                                           tab, dpad_up, dpad_down, dpad_left, dpad_right.
   zli-mobile rotate [orientation]          Android only. portrait, landscape, portrait-reverse, landscape-reverse.
   zli-mobile screenshot [file.png]
   zli-mobile logs [--app <id>] [--lines <n>] [--filter <text>]

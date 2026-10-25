@@ -155,6 +155,19 @@ describe("Android driver", () => {
     ]);
   });
 
+  it("presses arrows and Tab as Android key events", async () => {
+    const { android, runner } = driver(() => undefined);
+    for (const button of ["dpad_up", "dpad_down", "dpad_left", "dpad_right", "tab"] as const)
+      await android.press(online, button);
+    expect(runner.argsOf("adb").map(shellOf)).toEqual([
+      "input keyevent 19",
+      "input keyevent 20",
+      "input keyevent 21",
+      "input keyevent 22",
+      "input keyevent 61",
+    ]);
+  });
+
   it("dumps the UI tree, retrying while the screen animates", async () => {
     let attempts = 0;
     const { android } = driver((_command, args) => {

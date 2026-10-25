@@ -5,7 +5,7 @@ import type { AndroidDriver } from "./AndroidDriver.js";
 import { DeviceManager, type MobileStreamMessage, scrcpyMessagesFor } from "./DeviceManager.js";
 import { FakeDriver } from "./FakeDriver.js";
 import { FakeProcessRunner } from "./FakeProcessRunner.js";
-import { encodeInjectText, encodeRotateDevice } from "./scrcpy/protocol.js";
+import { encodeInjectKeycode, encodeInjectText, encodeRotateDevice, KeyAction } from "./scrcpy/protocol.js";
 
 const pixel = {
   deviceId: "android-avd:Pixel_7",
@@ -132,6 +132,15 @@ describe("device manager", () => {
     await devices.panelInput(press);
     expect(android.actions).toEqual(["press android-avd:Pixel_7 home"]);
     expect(() => devices.acquireForAgent(pixel.deviceId, agent)).toThrow(/took over/u);
+  });
+
+  it("sends arrows and Tab through scrcpy as Android keycodes", () => {
+    const frame = { width: 720, height: 1600 };
+    const keys = { dpad_up: 19, dpad_down: 20, dpad_left: 21, dpad_right: 22, tab: 61 } as const;
+    for (const [button, keycode] of Object.entries(keys))
+      expect(
+        scrcpyMessagesFor({ deviceId: pixel.deviceId, type: "button", button: button as keyof typeof keys }, frame),
+      ).toEqual([encodeInjectKeycode(KeyAction.down, keycode), encodeInjectKeycode(KeyAction.up, keycode)]);
   });
 
   it("encodes a touch in the stream's frame size", () => {

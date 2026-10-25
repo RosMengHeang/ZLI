@@ -330,7 +330,7 @@ export function DeviceScreen({
   const screenProps = {
     className: `mobile-screen${inputBlocked ? " is-blocked" : ""}`,
     tabIndex: 0,
-    "aria-label": `${device.name} screen. Click to tap, drag to swipe, and type to send keys.`,
+    "aria-label": `${device.name} screen. Click to tap, drag or scroll to swipe, and type to send keys. Shift+Tab leaves the screen.`,
     onPointerDown,
     onPointerMove,
     onPointerUp,

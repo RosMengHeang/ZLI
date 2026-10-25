@@ -51,7 +51,18 @@ describe("mobile panel helpers", () => {
     expect(keyInput("d", { key: "a", ...plain })).toEqual({ deviceId: "d", type: "text", text: "a" });
     expect(keyInput("d", { key: "Backspace", ...plain })).toEqual({ deviceId: "d", type: "button", button: "delete" });
     expect(keyInput("d", { key: "a", ...plain, metaKey: true })).toBeUndefined();
-    expect(keyInput("d", { key: "ArrowLeft", ...plain })).toBeUndefined();
+    expect(keyInput("d", { key: "F5", ...plain })).toBeUndefined();
+  });
+
+  it("sends arrows and Tab as device buttons, and lets Shift+Tab leave the screen", () => {
+    const plain = { ctrlKey: false, metaKey: false, altKey: false };
+    const buttons = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab"].map((key) => {
+      const input = keyInput("d", { key, ...plain });
+      return input?.type === "button" ? input.button : undefined;
+    });
+    expect(buttons).toEqual(["dpad_up", "dpad_down", "dpad_left", "dpad_right", "tab"]);
+    expect(keyInput("d", { key: "Tab", ...plain, shiftKey: true })).toBeUndefined();
+    expect(keyInput("d", { key: "ArrowUp", ...plain, ctrlKey: true })).toBeUndefined();
   });
 
   it("turns a wheel burst into a swipe that moves content the way the wheel scrolls", () => {

@@ -136,7 +136,15 @@ function iosRole(type: string): string {
 }
 
 /** HID usage ids idb sends for keys that have no button. */
-const IDB_KEYS: Partial<Record<MobileButton, number>> = { enter: 40, delete: 42 };
+const IDB_KEYS: Partial<Record<MobileButton, number>> = {
+  enter: 40,
+  delete: 42,
+  tab: 43,
+  dpad_right: 79,
+  dpad_left: 80,
+  dpad_down: 81,
+  dpad_up: 82,
+};
 const IDB_BUTTONS: Partial<Record<MobileButton, string>> = { home: "HOME", power: "LOCK" };
 
 const IDB_MISSING = "This needs idb. Install it with: brew install facebook/fb/idb-companion && pip3 install fb-idb";
@@ -252,7 +260,7 @@ export class IosSimulatorDriver implements MobileDriver {
     const key = IDB_KEYS[button];
     if (key !== undefined) return void (await this.#idb(device, ["ui", "key", String(key)]));
     throw new MobileDriverError(
-      `iOS has no ${button.replaceAll("_", " ")} button ZLI can press. Use home, power, enter, or delete.`,
+      `iOS has no ${button.replaceAll("_", " ")} button ZLI can press. Use home, power, enter, delete, tab, or an arrow key.`,
     );
   }
 

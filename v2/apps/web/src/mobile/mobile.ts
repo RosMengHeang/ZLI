@@ -116,14 +116,27 @@ export function wheelPixels(
   return { x: event.deltaX, y: event.deltaY };
 }
 
-const KEY_BUTTONS: Record<string, MobileButton> = { Enter: "enter", Backspace: "delete", Escape: "back" };
+const KEY_BUTTONS: Record<string, MobileButton> = {
+  Enter: "enter",
+  Backspace: "delete",
+  Escape: "back",
+  Tab: "tab",
+  ArrowUp: "dpad_up",
+  ArrowDown: "dpad_down",
+  ArrowLeft: "dpad_left",
+  ArrowRight: "dpad_right",
+};
 
-/** The device input for a key pressed while the screen has focus. Shortcuts with Ctrl, Cmd, or Alt stay with ZLI. */
+/**
+ * The device input for a key pressed while the screen has focus. Shortcuts with Ctrl, Cmd, or Alt stay with
+ * ZLI, and Shift+Tab moves focus out of the screen so the keyboard is never trapped on the device.
+ */
 export function keyInput(
   deviceId: string,
-  event: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean },
+  event: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey?: boolean },
 ): MobilePanelInput | undefined {
   if (event.ctrlKey || event.metaKey || event.altKey) return undefined;
+  if (event.key === "Tab" && event.shiftKey) return undefined;
   const button = KEY_BUTTONS[event.key];
   if (button) return { deviceId, type: "button", button };
   if ([...event.key].length === 1) return { deviceId, type: "text", text: event.key };

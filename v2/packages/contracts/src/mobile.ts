@@ -136,7 +136,21 @@ export const DEFAULT_MOBILE_SETTINGS: MobileSettings = { agentTools: true };
 export const MobileDeviceIdInput = z.object({ deviceId: z.string().min(1).max(300) });
 export type MobileDeviceIdInput = z.infer<typeof MobileDeviceIdInput>;
 
-export const MobileButton = z.enum(["back", "home", "recents", "power", "volume_up", "volume_down", "enter", "delete"]);
+export const MobileButton = z.enum([
+  "back",
+  "home",
+  "recents",
+  "power",
+  "volume_up",
+  "volume_down",
+  "enter",
+  "delete",
+  "tab",
+  "dpad_up",
+  "dpad_down",
+  "dpad_left",
+  "dpad_right",
+]);
 export type MobileButton = z.infer<typeof MobileButton>;
 
 /** Input from the Mobile panel. Coordinates are device pixels. */

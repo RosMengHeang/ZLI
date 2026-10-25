@@ -281,6 +281,18 @@ describe("MobilePane", () => {
     });
     expect(fake.mobile.input).toHaveBeenLastCalledWith({ deviceId: emulator.deviceId, type: "text", text: "a" });
 
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    await act(async () => {
+      screen.dispatchEvent(tab);
+    });
+    expect(tab.defaultPrevented).toBe(true);
+    expect(fake.mobile.input).toHaveBeenLastCalledWith({ deviceId: emulator.deviceId, type: "button", button: "tab" });
+    const shiftTab = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
+    await act(async () => {
+      screen.dispatchEvent(shiftTab);
+    });
+    expect(shiftTab.defaultPrevented).toBe(false);
+
     await click(button(container, "Back"));
     expect(fake.mobile.input).toHaveBeenLastCalledWith({ deviceId: emulator.deviceId, type: "button", button: "back" });
   });

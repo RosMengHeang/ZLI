@@ -40,6 +40,8 @@ describe("mobile contracts", () => {
       MobilePanelInput.parse({ type: "touch", deviceId: "android:emulator-5554", action: "down", x: 1, y: 2 }),
     ).toMatchObject({ type: "touch" });
     expect(MobilePanelInput.safeParse({ type: "button", deviceId: "d", button: "explode" }).success).toBe(false);
+    for (const button of ["tab", "dpad_up", "dpad_down", "dpad_left", "dpad_right"])
+      expect(MobilePanelInput.safeParse({ type: "button", deviceId: "d", button }).success).toBe(true);
     expect(MobileSetupRunInput.parse({ acceptedLicenses: ["android-sdk-license"] }).acceptedLicenses).toHaveLength(1);
   });
 });

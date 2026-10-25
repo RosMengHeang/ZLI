@@ -126,4 +126,18 @@ describe("iOS simulator driver", () => {
       ["ui", "button", "--udid", "AAAA-1111", "HOME"],
     ]);
   });
+
+  it("presses arrows and Tab as idb key events, and refuses buttons iOS does not have", async () => {
+    const fake = runner();
+    const ios = new IosSimulatorDriver({
+      runner: fake,
+      tools: async () => ({ xcrun: "/usr/bin/xcrun", idb: "/opt/homebrew/bin/idb" }),
+    });
+    const [iphone] = await ios.list();
+    if (!iphone) throw new Error("missing iPhone");
+    for (const button of ["dpad_up", "dpad_down", "dpad_left", "dpad_right", "tab"] as const)
+      await ios.press(iphone, button);
+    expect(fake.argsOf("idb").map((args) => args.at(-1))).toEqual(["82", "81", "80", "79", "43"]);
+    await expect(ios.press(iphone, "recents")).rejects.toThrow(/iOS has no recents button/u);
+  });
 });

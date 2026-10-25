@@ -87,6 +87,11 @@ export const ANDROID_KEYCODES: Record<MobileButton, number> = {
   volume_down: 25,
   enter: 66,
   delete: 67,
+  tab: 61,
+  dpad_up: 19,
+  dpad_down: 20,
+  dpad_left: 21,
+  dpad_right: 22,
 };
 
 export const ANDROID_ROTATIONS = {
