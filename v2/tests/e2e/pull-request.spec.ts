@@ -90,7 +90,7 @@ test("creates a draft pull request from the Changes panel and opens it", async (
     await section.getByRole("button", { name: "Create PR" }).click();
     await expect(dialog.getByLabel("Title")).toHaveValue("Add a greeting");
     await expect(dialog.getByLabel("Description")).toHaveValue("- Add a greeting");
-    await expect(dialog.getByLabel("Base branch")).toHaveValue("main");
+    await expect(dialog.getByRole("button", { name: "Base branch: main" })).toBeVisible();
     await expect(dialog.getByRole("checkbox", { name: /Create as draft/u })).toBeChecked();
     await dialog.getByRole("button", { name: "Create PR" }).click();
     await expect(dialog).toContainText("Opened as a draft", { timeout: 30_000 });
