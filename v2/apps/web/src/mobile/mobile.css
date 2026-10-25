@@ -21,6 +21,23 @@
 .mobile-type-row { display: flex; align-items: center; gap: var(--zli-space-2); flex: 0 0 auto; padding: var(--zli-space-1-5) var(--zli-space-2); border-top: 1px solid var(--zli-border); }
 .mobile-type-row .input { flex: 1; }
 .mobile-controls { display: flex; align-items: center; gap: var(--zli-space-1); height: var(--zli-toolbar); flex: 0 0 auto; padding: 0 var(--zli-space-2); border-top: 1px solid var(--zli-border); }
+/* The notice fades in its last half second; reduced motion turns the fade off and it simply goes. */
+.mobile-notice .banner { animation: mobile-notice-fade 3s linear both; }
+@keyframes mobile-notice-fade { 0%, 83% { opacity: 1; } 100% { opacity: 0; } }
+.mobile-logs { flex: 0 0 auto; border-top: 1px solid var(--zli-border); }
+.mobile-logs-toggle { display: flex; align-items: center; gap: var(--zli-space-1-5); width: 100%; height: var(--zli-control-md); padding: 0 var(--zli-space-3); border: 0; background: transparent; color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-sm); text-align: left; }
+.mobile-logs-toggle:hover { color: var(--zli-text); }
+.mobile-logs-toggle:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+.mobile-logs-count { margin-left: auto; color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.mobile-logs-panel { display: flex; flex-direction: column; gap: var(--zli-space-2); padding: 0 var(--zli-space-2) var(--zli-space-2); }
+.mobile-logs-query { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1-5); }
+.mobile-logs-query .input { min-width: 0; flex: 1 1 96px; }
+.mobile-logs-query .mobile-logs-lines { flex: 0 0 72px; }
+.mobile-logs-auto { display: flex; align-items: center; gap: var(--zli-space-1); color: var(--zli-muted); font-size: var(--zli-text-xs); white-space: nowrap; }
+.mobile-logs-auto input { margin: 0; accent-color: var(--zli-accent); }
+.mobile-logs-list { height: 180px; margin: 0; padding: var(--zli-space-2) var(--zli-space-3); overflow: auto; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well); color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; white-space: pre-wrap; }
+.mobile-logs-list:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -1px; }
+.mobile-logs-empty { margin: 0; padding: var(--zli-space-2) var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .mobile-footer { flex: 0 0 auto; padding: 0 var(--zli-space-3); border-top: 1px solid var(--zli-border); background: var(--zli-well); }
 .mobile-footer .switch-hint { line-height: var(--zli-leading-normal); }
 .mobile-setup { display: flex; flex-direction: column; gap: var(--zli-space-5); max-width: 560px; padding: var(--zli-space-4); }

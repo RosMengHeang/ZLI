@@ -4,12 +4,14 @@ import { useRef, useState } from "react";
 import type { MobileBridge } from "../runtime/bridge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { MenuButton, type MenuEntry } from "../ui/Menu.js";
-import { errorText, sendTextInput } from "./mobile.js";
+import { errorText, openedNotice, sendTextInput, urlToOpen } from "./mobile.js";
+
+type Row = "type" | "url";
 
 /**
- * The bar under a running device: its system buttons, Type text, Rotate, the screenshot, and a menu with Power and
- * Volume. Every control that sends input checks inputBlocked first, so an agent's lease sends the person to Take
- * over instead.
+ * The bar under a running device: its system buttons, Type text, Open URL, Rotate, the screenshot, and a menu
+ * with Power and Volume. Every control that sends input checks inputBlocked first, so an agent's lease sends the
+ * person to Take over instead.
  */
 export function MobileControls({
   mobile,
@@ -17,23 +19,28 @@ export function MobileControls({
   inputBlocked,
   onBlockedInput,
   onError,
+  onNotice,
   screenshotBusy,
   onScreenshot,
 }: {
-  mobile: MobileBridge;
+  mobile: Pick<MobileBridge, "input" | "openUrl">;
   device: MobileDevice;
   inputBlocked: boolean;
   onBlockedInput(): void;
   /** Shows an error in the pane's banner, or clears it with undefined. */
   onError(message: string | undefined): void;
+  /** Shows a short confirmation that clears itself. */
+  onNotice(message: string): void;
   screenshotBusy: boolean;
   onScreenshot(): void;
 }) {
   const android = device.platform === "android";
-  const [typing, setTyping] = useState(false);
+  const [row, setRow] = useState<Row>();
   const [draft, setDraft] = useState("");
+  const [url, setUrl] = useState("");
   const [sending, setSending] = useState(false);
   const typeToggleRef = useRef<HTMLButtonElement>(null);
+  const urlToggleRef = useRef<HTMLButtonElement>(null);
 
   const press = (button: MobileButton) => {
     if (inputBlocked) return onBlockedInput();
@@ -49,6 +56,12 @@ export function MobileControls({
       .input({ deviceId: device.deviceId, type: "rotate" })
       .catch((cause: unknown) => onError(errorText(cause, "The device did not rotate.")));
   };
+  const closeRow = () => {
+    const toggle = row === "url" ? urlToggleRef : typeToggleRef;
+    setRow(undefined);
+    toggle.current?.focus();
+  };
+  const toggleRow = (next: Row) => (row === next ? closeRow() : setRow(next));
   const sendDraft = async () => {
     if (!draft || sending) return;
     if (inputBlocked) return onBlockedInput();
@@ -63,9 +76,20 @@ export function MobileControls({
       setSending(false);
     }
   };
-  const closeTyping = () => {
-    setTyping(false);
-    typeToggleRef.current?.focus();
+  const openTypedUrl = async () => {
+    const target = urlToOpen(url);
+    if (!target || sending) return;
+    if (inputBlocked) return onBlockedInput();
+    setSending(true);
+    onError(undefined);
+    try {
+      onNotice(openedNotice(target, await mobile.openUrl(device.deviceId, target)));
+      closeRow();
+    } catch (cause) {
+      onError(errorText(cause, "The device could not open that URL."));
+    } finally {
+      setSending(false);
+    }
   };
   // idb can press the iOS lock button but has no volume buttons.
   const menuItems: MenuEntry[] = [
@@ -80,33 +104,30 @@ export function MobileControls({
 
   return (
     <>
-      {typing ? (
-        <form
-          className="mobile-type-row"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void sendDraft();
-          }}
-        >
-          <input
-            className="input input-sm"
-            aria-label={`Text to type on ${device.name}`}
-            placeholder="Type text, then press Enter"
-            value={draft}
-            readOnly={sending}
-            // biome-ignore lint/a11y/noAutofocus: the field opens because the person asked to type.
-            autoFocus
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Escape") return;
-              event.preventDefault();
-              closeTyping();
-            }}
-          />
-          <Button type="submit" size="sm" loading={sending} disabled={!draft}>
-            Send
-          </Button>
-        </form>
+      {row === "type" ? (
+        <InputRow
+          label={`Text to type on ${device.name}`}
+          placeholder="Type text, then press Enter"
+          value={draft}
+          submitLabel="Send"
+          sending={sending}
+          onChange={setDraft}
+          onSubmit={() => void sendDraft()}
+          onClose={closeRow}
+        />
+      ) : null}
+      {row === "url" ? (
+        <InputRow
+          label={`URL to open on ${device.name}`}
+          placeholder="localhost:3000 or https://example.com"
+          value={url}
+          submitLabel="Open"
+          sending={sending}
+          url
+          onChange={setUrl}
+          onSubmit={() => void openTypedUrl()}
+          onClose={closeRow}
+        />
       ) : null}
       <nav className="mobile-controls" aria-label="Device buttons">
         {android ? (
@@ -129,9 +150,19 @@ export function MobileControls({
           size="sm"
           iconSize={14}
           label="Type text"
-          tooltip={typing ? "Close Type text" : "Type text on the device"}
-          pressed={typing}
-          onClick={() => (typing ? closeTyping() : setTyping(true))}
+          tooltip={row === "type" ? "Close Type text" : "Type text on the device"}
+          pressed={row === "type"}
+          onClick={() => toggleRow("type")}
+        />
+        <IconButton
+          ref={urlToggleRef}
+          icon="globe"
+          size="sm"
+          iconSize={14}
+          label="Open URL"
+          tooltip={row === "url" ? "Close Open URL" : "Open a URL on the device"}
+          pressed={row === "url"}
+          onClick={() => toggleRow("url")}
         />
         {android ? <IconButton icon="rotate" size="sm" iconSize={14} label="Rotate" onClick={rotate} /> : null}
         <IconButton
@@ -145,5 +176,60 @@ export function MobileControls({
         <MenuButton label="More device buttons" icon="more" items={menuItems} />
       </nav>
     </>
+  );
+}
+
+/** A one-line field above the controls. Enter submits and Escape closes it. */
+function InputRow({
+  label,
+  placeholder,
+  value,
+  submitLabel,
+  sending,
+  url = false,
+  onChange,
+  onSubmit,
+  onClose,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  submitLabel: string;
+  sending: boolean;
+  url?: boolean;
+  onChange(value: string): void;
+  onSubmit(): void;
+  onClose(): void;
+}) {
+  return (
+    <form
+      className="mobile-type-row"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <input
+        className="input input-sm"
+        aria-label={label}
+        placeholder={placeholder}
+        value={value}
+        readOnly={sending}
+        // type="url" would refuse localhost:3000, which has no scheme, so only the keyboard hint says URL.
+        {...(url ? { inputMode: "url" as const, spellCheck: false, autoCapitalize: "off" } : {})}
+        // biome-ignore lint/a11y/noAutofocus: the field opens because the person asked for it.
+        autoFocus
+        onFocus={(event) => event.currentTarget.select()}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return;
+          event.preventDefault();
+          onClose();
+        }}
+      />
+      <Button type="submit" size="sm" loading={sending} disabled={!value}>
+        {submitLabel}
+      </Button>
+    </form>
   );
 }

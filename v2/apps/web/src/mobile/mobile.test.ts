@@ -12,6 +12,8 @@ import {
   isPasteShortcut,
   keyInput,
   leaseNotice,
+  logLineCount,
+  openedNotice,
   pickDevice,
   planDownload,
   progressPercent,
@@ -19,6 +21,7 @@ import {
   sendTextInput,
   slowBootNote,
   textChunks,
+  urlToOpen,
   wheelPixels,
   wheelSwipe,
 } from "./mobile.js";
@@ -254,5 +257,30 @@ describe("mobile panel helpers", () => {
       tone: "quiet",
       title: "No decoder.",
     });
+  });
+
+  it("opens a typed address as http when it has no scheme, and keeps schemes it has", () => {
+    expect(urlToOpen("  localhost:3000 ")).toBe("http://localhost:3000");
+    expect(urlToOpen("example.com/a?b=1")).toBe("http://example.com/a?b=1");
+    expect(urlToOpen("https://example.com")).toBe("https://example.com");
+    expect(urlToOpen("exp://localhost:8081")).toBe("exp://localhost:8081");
+    expect(urlToOpen("mailto:me@example.com")).toBe("mailto:me@example.com");
+    expect(urlToOpen("tel:+15551234")).toBe("tel:+15551234");
+    expect(urlToOpen("   ")).toBeUndefined();
+  });
+
+  it("names the opened URL and the port it forwarded", () => {
+    expect(openedNotice("https://example.com", {})).toBe("Opened https://example.com.");
+    expect(openedNotice("http://localhost:3000", { reversedPort: 3000 })).toBe(
+      "Opened http://localhost:3000. Forwarded localhost:3000 to the device.",
+    );
+  });
+
+  it("reads 200 log lines unless told a number from 1 to 2,000", () => {
+    expect(logLineCount("")).toBe(200);
+    expect(logLineCount("many")).toBe(200);
+    expect(logLineCount("50")).toBe(50);
+    expect(logLineCount("0")).toBe(1);
+    expect(logLineCount("99999")).toBe(2_000);
   });
 });

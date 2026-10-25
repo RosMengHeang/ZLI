@@ -72,10 +72,12 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
 
 ### Open URL, logs, and Expo
 
-- [ ] Open `http://localhost:<port>` for a dev server running on the computer.
-  Expected: the page opens on the device, and the panel says it forwarded the port.
-- [ ] Open the Logs drawer, filter for a word, and turn on auto-refresh.
-  Expected: matching logcat lines, refreshed every two seconds while open. Copy all copies them.
+- [ ] Click "Open URL" (the globe in the bottom bar), type `localhost:<port>` for a dev server running on the computer, and press Enter.
+  Expected: the page opens in the device's browser, and a short confirmation says "Forwarded localhost:<port> to the device." Typing `https://example.com` opens without the forwarding note.
+- [ ] Open the Logs drawer under the bottom bar. Type a word in Filter and an app's package name, then press Enter. Turn on Auto-refresh.
+  Expected: matching logcat lines, newest at the bottom, refreshed every two seconds while the drawer is open. Copy all copies them and says how many. Closing and reopening ZLI's window in the same session keeps the drawer open.
+- [ ] While an agent holds the device, open the Logs drawer and click Refresh.
+  Expected: the drawer asks you to take over, and focus moves to Take over.
 - [ ] Start an Expo app with `npx expo start` in the current worktree.
   Expected: a banner says Expo is running on localhost:8081 and offers "Open on <device name>". Clicking it opens the app in Expo Go. Nothing opens without the click.
 

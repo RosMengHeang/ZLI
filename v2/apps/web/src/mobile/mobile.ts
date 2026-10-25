@@ -221,6 +221,28 @@ export function screenModeChip(mode: ScreenMode): { label: string; tone: BadgeTo
   return { label: "Screenshots, about 1 per second", tone: "quiet", title: mode.reason };
 }
 
+/** Schemes that carry no //, such as mailto:, which a typed URL keeps as is. */
+const OPAQUE_SCHEMES = /^(?:mailto|tel|sms|geo|intent|market):/iu;
+
+/** The URL to open for what was typed. Without a scheme, as in localhost:3000, it opens as http. */
+export function urlToOpen(typed: string): string | undefined {
+  const url = typed.trim();
+  if (!url) return undefined;
+  return /^[a-z][a-z\d+.-]*:\/\//iu.test(url) || OPAQUE_SCHEMES.test(url) ? url : `http://${url}`;
+}
+
+export function openedNotice(url: string, result: { reversedPort?: number | undefined }): string {
+  return result.reversedPort === undefined
+    ? `Opened ${url}.`
+    : `Opened ${url}. Forwarded localhost:${result.reversedPort} to the device.`;
+}
+
+/** The line count the Logs drawer asks for, from what was typed: 1 to 2,000, or 200 when it is not a number. */
+export function logLineCount(typed: string): number {
+  const value = Number.parseInt(typed, 10);
+  return Number.isFinite(value) ? Math.max(1, Math.min(2_000, value)) : 200;
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
   if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)} MB`;

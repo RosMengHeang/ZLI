@@ -9,6 +9,7 @@ import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
 import { Switch } from "../ui/Switch.js";
 import { DeviceScreen } from "./DeviceScreen.js";
 import { MobileControls } from "./MobileControls.js";
+import { MobileLogsDrawer } from "./MobileLogsDrawer.js";
 import { MobileSetup } from "./MobileSetup.js";
 import { MobileToolbar } from "./MobileToolbar.js";
 import {
@@ -25,6 +26,7 @@ import {
 } from "./mobile.js";
 import { useClock } from "./useClock.js";
 import { useMobileSettings } from "./useMobileSettings.js";
+import { useNotice } from "./useNotice.js";
 import "./mobile.css";
 
 /** A device an agent booted or drove, which the pane should show once it is in the list. */
@@ -64,6 +66,7 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
   const [showSetup, setShowSetup] = useState(false);
   const [busy, setBusy] = useState<Busy>();
   const [actionError, setActionError] = useState<string>();
+  const [notice, showNotice] = useNotice();
   const takeOverRef = useRef<HTMLButtonElement>(null);
   const [screenMode, setScreenMode] = useState<ScreenMode>();
   /** When each device was first seen booting, so the elapsed time survives re-renders and device switches. */
@@ -430,6 +433,14 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
           <span className="banner-message">{actionError}</span>
         </div>
       ) : null}
+      <div className="mobile-notice" role="status">
+        {notice && !showSetup ? (
+          <div key={notice.key} className="banner banner-info">
+            <Icon name="check" size={14} />
+            <span className="banner-message">{notice.text}</span>
+          </div>
+        ) : null}
+      </div>
       {devicesError && devices ? (
         <div className="banner banner-danger" role="alert">
           <Icon name="alert" size={14} />
@@ -445,8 +456,19 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
           inputBlocked={agentHolds}
           onBlockedInput={nudgeTakeOver}
           onError={setActionError}
+          onNotice={showNotice}
           screenshotBusy={busy === "screenshot"}
           onScreenshot={() => void saveScreenshot(device)}
+        />
+      ) : null}
+      {device && online && !showSetup ? (
+        <MobileLogsDrawer
+          key={`logs-${device.deviceId}`}
+          mobile={mobile}
+          device={device}
+          inputBlocked={agentHolds}
+          onBlockedInput={nudgeTakeOver}
+          onNotice={showNotice}
         />
       ) : null}
       <div className="mobile-footer">

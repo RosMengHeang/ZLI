@@ -174,6 +174,7 @@ afterEach(() => {
   root = undefined;
   document.body.replaceChildren();
   window.localStorage.clear();
+  window.sessionStorage.clear();
 });
 
 async function render(bridge: ZliBridge, reveal?: MobileReveal) {
@@ -514,6 +515,129 @@ describe("MobilePane", () => {
     await click(button(container, "More device buttons"));
     await click(menuItem("Power"));
     expect(fake.mobile.input).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(button(container, "Take over"));
+  });
+
+  it("opens a typed URL on the device and says when it forwarded a local port", async () => {
+    vi.useFakeTimers();
+    const fake = createMobile({ devices: [emulator] });
+    fake.mobile.openUrl.mockResolvedValueOnce({ reversedPort: 3000 });
+    const container = await render(bridgeWith(fake.mobile));
+    await click(button(container, "Open URL"));
+    const field = container.querySelector<HTMLInputElement>('input[aria-label="URL to open on Pixel 8"]');
+    if (!field) throw new Error("No URL field");
+    expect(document.activeElement).toBe(field);
+    await act(async () => typeInto(field, "localhost:3000"));
+    await click(button(container, "Open"));
+    expect(fake.mobile.openUrl).toHaveBeenCalledWith(emulator.deviceId, "http://localhost:3000");
+    expect(container.querySelector(".mobile-notice")?.textContent).toBe(
+      "Opened http://localhost:3000. Forwarded localhost:3000 to the device.",
+    );
+    expect(container.querySelector('input[aria-label="URL to open on Pixel 8"]')).toBeNull();
+    expect(document.activeElement).toBe(button(container, "Open URL"));
+    await advance(3_000);
+    expect(container.querySelector(".mobile-notice")?.textContent).toBe("");
+
+    fake.mobile.openUrl.mockRejectedValueOnce(
+      new Error("Error invoking remote method 'zli:mobile:open-url': Error: No app on the device opens that URL."),
+    );
+    await click(button(container, "Open URL"));
+    await click(button(container, "Open"));
+    expect(fake.mobile.openUrl).toHaveBeenLastCalledWith(emulator.deviceId, "http://localhost:3000");
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("No app on the device opens that URL.");
+  });
+
+  it("sends the person to Take over when they open a URL while an agent holds the device", async () => {
+    const held: MobileDevice = {
+      ...emulator,
+      lease: { ownerId: "s1", ownerLabel: "Codex", kind: "agent", acquiredAt: "2025-01-01T00:00:00.000Z" },
+    };
+    const fake = createMobile({ devices: [held] });
+    const container = await render(bridgeWith(fake.mobile));
+    await click(button(container, "Open URL"));
+    const field = container.querySelector<HTMLInputElement>('input[aria-label="URL to open on Pixel 8"]');
+    if (!field) throw new Error("No URL field");
+    await act(async () => typeInto(field, "https://example.com"));
+    await click(button(container, "Open"));
+    expect(fake.mobile.openUrl).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(button(container, "Take over"));
+  });
+
+  it("reads the device logs in the Logs drawer, filters them, copies them, and refreshes on a timer", async () => {
+    vi.useFakeTimers();
+    const writeText = vi.fn(async (_text: string) => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const fake = createMobile({ devices: [emulator] });
+    fake.mobile.logs.mockResolvedValue(["I/App: started", "E/App: crashed"]);
+    const container = await render(bridgeWith(fake.mobile));
+    const toggle = button(container, "Logs");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(fake.mobile.logs).not.toHaveBeenCalled();
+
+    await click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(fake.mobile.logs).toHaveBeenCalledWith(emulator.deviceId, { lines: 200 });
+    expect(container.querySelector(".mobile-logs-list")?.textContent).toBe("I/App: started\nE/App: crashed");
+    expect(window.sessionStorage.getItem("zli.mobile.logs.v1")).toBe("open");
+
+    const field = (name: string) => {
+      const found = container.querySelector<HTMLInputElement>(`.mobile-logs input[aria-label="${name}"]`);
+      if (!found) throw new Error(`No field ${name}`);
+      return found;
+    };
+    await act(async () => {
+      typeInto(field("Only lines containing"), " crashed ");
+      typeInto(field("Only this app"), "com.example.app");
+      typeInto(field("Lines"), "50");
+    });
+    await click(button(container, "Refresh logs"));
+    expect(fake.mobile.logs).toHaveBeenLastCalledWith(emulator.deviceId, {
+      lines: 50,
+      appId: "com.example.app",
+      filter: "crashed",
+    });
+
+    await act(async () => typeInto(field("Only this app"), "com.example; reboot"));
+    const calls = fake.mobile.logs.mock.calls.length;
+    await click(button(container, "Refresh logs"));
+    expect(fake.mobile.logs).toHaveBeenCalledTimes(calls);
+    expect(container.querySelector('.mobile-logs [role="alert"]')?.textContent).toBe(
+      "Use an app id like com.example.app.",
+    );
+    await act(async () => typeInto(field("Only this app"), ""));
+
+    await click(button(container, "Copy all"));
+    expect(writeText).toHaveBeenCalledWith("I/App: started\nE/App: crashed");
+    expect(container.querySelector(".mobile-notice")?.textContent).toBe("Copied 2 log lines.");
+
+    await act(async () => {
+      container.querySelector<HTMLInputElement>(".mobile-logs-auto input")?.click();
+    });
+    const before = fake.mobile.logs.mock.calls.length;
+    await advance(4_000);
+    expect(fake.mobile.logs.mock.calls.length).toBe(before + 2);
+
+    await click(toggle);
+    expect(container.querySelector(".mobile-logs-panel")).toBeNull();
+    await advance(4_000);
+    expect(fake.mobile.logs.mock.calls.length).toBe(before + 2);
+    expect(window.sessionStorage.getItem("zli.mobile.logs.v1")).toBe("closed");
+    Reflect.deleteProperty(navigator, "clipboard");
+  });
+
+  it("keeps the Logs drawer open for the session and waits for Take over while an agent holds the device", async () => {
+    window.sessionStorage.setItem("zli.mobile.logs.v1", "open");
+    const held: MobileDevice = {
+      ...emulator,
+      lease: { ownerId: "s1", ownerLabel: "Codex", kind: "agent", acquiredAt: "2025-01-01T00:00:00.000Z" },
+    };
+    const fake = createMobile({ devices: [held] });
+    const container = await render(bridgeWith(fake.mobile));
+    expect(button(container, "Logs").getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelector(".mobile-logs")?.textContent).toContain("Take over to read this device's logs.");
+    expect(fake.mobile.logs).not.toHaveBeenCalled();
+    await click(button(container, "Refresh logs"));
+    expect(fake.mobile.logs).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(button(container, "Take over"));
   });
   it("blocks input while an agent holds the device and hands control over on request", async () => {
