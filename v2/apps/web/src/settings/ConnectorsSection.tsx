@@ -6,12 +6,10 @@ import {
   isHttpServer,
   MCP_CATALOG,
   MCP_CATALOG_CATEGORIES,
-  type McpCatalogCategory,
   type McpCatalogEntry,
   type McpCatalogField,
   type McpListResult,
   type McpServerConfig,
-  type McpSignInState,
 } from "@zli-v2/contracts";
 import { useMemo, useRef, useState } from "react";
 
@@ -25,24 +23,18 @@ import { McpProjectsButton } from "./McpProjectPicker.js";
 import { McpStatusDot } from "./McpStatusDot.js";
 import {
   applyServer,
-  catalogEntryForUrl,
   healthFor,
   isWindows,
   type PendingSignIn,
-  pluginSignIns,
   SIGN_IN_CANCELED,
   serverStatus,
   signedInText,
   signInFor,
   toolCountText,
-  urlHost,
   useMcpServers,
   withProjects,
 } from "./mcpServers.js";
-import { SectionHeader } from "./SectionHeader.js";
 import "./connectors.css";
-
-type Filter = "all" | "connected" | McpCatalogCategory;
 
 /** Where a connector stands for the person, which decides the card's button. */
 export type ConnectorState =
@@ -83,43 +75,18 @@ export function connectorMatches(entry: McpCatalogEntry, query: string): boolean
     .every((word) => haystack.includes(word));
 }
 
-/** Whether a plugin sign-in matches the search box, by its name or address. */
-export function pluginSignInMatches(entry: McpSignInState, query: string): boolean {
-  const haystack = `${entry.name} ${entry.url} ${catalogEntryForUrl(entry.url)?.title ?? ""}`.toLowerCase();
-  return query
-    .toLowerCase()
-    .split(/\s+/u)
-    .filter((word) => word.length > 0)
-    .every((word) => haystack.includes(word));
-}
-
 type Form = { id: string; useToken: boolean; values: Record<string, string> };
 
-export function ConnectorsSection({
-  onOpenMcpServers,
-  focusConnector,
-}: {
-  onOpenMcpServers?(): void;
-  /** A catalog id whose card is shown first, by searching for it. */
-  focusConnector?: string | undefined;
-}) {
+/** The connector catalog on the Integrations Browse tab, filtered by the shared search. */
+export function ConnectorsSection({ query }: { query: string }) {
   const { bridge } = useRuntime();
   const { state, reload, save, signIn, cancelSignIn, reopenSignIn, signOut, pending, test, testing } = useMcpServers();
-  const [query, setQuery] = useState(() => MCP_CATALOG.find((entry) => entry.id === focusConnector)?.title ?? "");
-  const [filter, setFilter] = useState<Filter>("all");
   const [form, setForm] = useState<Form>();
   const [busy, setBusy] = useState<string>();
   const [problems, setProblems] = useState<Record<string, string>>({});
   const [confirm, setConfirm] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const firstField = useRef<HTMLInputElement>(null);
-
-  const header = (
-    <SectionHeader title="Connectors">
-      Connect the services you work with. Sign in once here and every agent ZLI starts can use them, in terminals and
-      chats.
-    </SectionHeader>
-  );
 
   const result = state.status === "ready" ? state.result : undefined;
   const states = useMemo(() => {
@@ -130,19 +97,15 @@ export function ConnectorsSection({
 
   if (state.status === "loading") {
     return (
-      <>
-        {header}
-        <p className="loading-line">
-          <span className="spinner" aria-hidden="true" />
-          Loading connectors
-        </p>
-      </>
+      <p className="loading-line">
+        <span className="spinner" aria-hidden="true" />
+        Loading connectors
+      </p>
     );
   }
   if (state.status === "error" || !result) {
     return (
       <>
-        {header}
         <p className="inline-error" role="alert">
           <Icon name="alert" size={13} />
           {state.status === "error" ? state.message : "Connectors could not be loaded."}
@@ -229,29 +192,13 @@ export function ConnectorsSection({
       if (!reply.ok) throw new Error(reply.problem ?? "The server did not answer.");
     });
 
-  const plugins =
-    filter === "all" || filter === "connected"
-      ? pluginSignIns(result).filter(
-          (entry) => pluginSignInMatches(entry, query) && (filter === "all" || entry.signedIn),
-        )
-      : [];
-
-  const visible = MCP_CATALOG.filter(
-    (entry) =>
-      connectorMatches(entry, query) &&
-      (filter === "all" ||
-        (filter === "connected" ? states.get(entry.id)?.kind === "connected" : entry.category === filter)),
-  );
-  const grouped = filter === "all" && !query.trim();
-  const groups = grouped
-    ? MCP_CATALOG_CATEGORIES.map((category) => ({
+  const visible = MCP_CATALOG.filter((entry) => connectorMatches(entry, query));
+  const groups = query.trim()
+    ? [{ id: "results", label: "", entries: visible }]
+    : MCP_CATALOG_CATEGORIES.map((category) => ({
         ...category,
         entries: visible.filter((entry) => entry.category === category.id),
-      })).filter((group) => group.entries.length > 0)
-    : [{ id: "results", label: "", entries: visible }];
-  const connectedCount =
-    [...states.values()].filter((entry) => entry.kind === "connected").length +
-    pluginSignIns(result).filter((entry) => entry.signedIn).length;
+      })).filter((group) => group.entries.length > 0);
 
   const renderForm = (entry: McpCatalogEntry, current: Form) => {
     const fields: readonly McpCatalogField[] =
@@ -495,141 +442,12 @@ export function ConnectorsSection({
     );
   };
 
-  const renderPluginCard = (entry: McpSignInState) => {
-    const id = `plugin:${entry.name}`;
-    const catalog = catalogEntryForUrl(entry.url);
-    const signInState = pending[entry.name];
-    const kind = signInState ? "pending" : entry.signedIn ? "connected" : entry.expired ? "expired" : "signed-out";
-    const isBusy = busy === id;
-    const problem = problems[id];
-    return (
-      <li key={entry.name} className="connector-card" data-plugin={entry.name} data-state={kind}>
-        <div className="connector-card-head">
-          <ConnectorLogo id={catalog?.id ?? entry.name} title={catalog?.title ?? entry.name} size={36} />
-          <span className="connector-card-titles">
-            <strong>{entry.name}</strong>
-            <span className="connector-card-cost" title={entry.url}>
-              {urlHost(entry.url)}
-            </span>
-          </span>
-        </div>
-        {signInState?.code ? (
-          <p className="connector-code">
-            Code <strong className="is-mono">{signInState.code}</strong>, copied for you
-          </p>
-        ) : null}
-        <div className="connector-card-foot">
-          {kind === "pending" ? (
-            <>
-              <span className="connector-status is-pending">
-                <span className="spinner" aria-hidden="true" />
-                {signInState?.code ? "Enter the code in your browser" : "Finish in your browser"}
-              </span>
-              <span className="connector-spacer" />
-              <button
-                type="button"
-                className="connector-link"
-                onClick={() => void reopenSignIn(entry.name).then(setNotice)}
-              >
-                Open again
-              </button>
-              <Button size="xs" variant="ghost" onClick={() => cancelSignIn(entry.name)}>
-                Cancel
-              </Button>
-            </>
-          ) : kind === "connected" ? (
-            <>
-              <span className="connector-status is-done">
-                <Icon name="check" size={12} />
-                {signedInText(entry)}
-              </span>
-              <span className="connector-spacer" />
-              <Button
-                size="xs"
-                variant="ghost"
-                loading={isBusy}
-                aria-label={`Sign out of ${entry.name}`}
-                onClick={() => void run(id, () => signOut(entry.name))}
-              >
-                Sign out
-              </Button>
-            </>
-          ) : (
-            <>
-              <span className={`connector-status${kind === "expired" ? " is-warning" : ""}`}>
-                {kind === "expired" ? <Icon name="alert" size={12} /> : null}
-                {kind === "expired" ? "Sign-in expired" : "Not signed in"}
-              </span>
-              <span className="connector-spacer" />
-              <Button
-                size="xs"
-                variant="primary"
-                loading={isBusy}
-                aria-label={`${kind === "expired" ? "Sign in again to" : "Sign in to"} ${entry.name}`}
-                onClick={() => void run(id, () => signIn(entry.name))}
-              >
-                {kind === "expired" ? "Sign in again" : "Sign in"}
-              </Button>
-            </>
-          )}
-        </div>
-        {problem ? (
-          <p className="inline-error" role="alert">
-            <Icon name="alert" size={13} />
-            <span>{problem}</span>
-          </p>
-        ) : null}
-      </li>
-    );
-  };
-
   return (
     <>
-      {header}
-      <div className="connector-toolbar">
-        <input
-          className="input input-sm"
-          type="search"
-          value={query}
-          placeholder="Search connectors"
-          aria-label="Search connectors"
-          spellCheck={false}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-      </div>
-      <div className="connector-filters" role="toolbar" aria-label="Show">
-        {(
-          [
-            { id: "all", label: "All" },
-            { id: "connected", label: connectedCount > 0 ? `Connected (${connectedCount})` : "Connected" },
-            ...MCP_CATALOG_CATEGORIES,
-          ] as { id: Filter; label: string }[]
-        ).map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className="connector-chip"
-            aria-pressed={filter === item.id}
-            onClick={() => setFilter(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-      {plugins.length > 0 ? (
-        <section className="connector-group" aria-label="From plugins">
-          <h3 className="mcp-subhead">From plugins</h3>
-          <ul className="connector-grid">{plugins.map(renderPluginCard)}</ul>
-        </section>
-      ) : null}
-      {visible.length === 0 && plugins.length === 0 ? (
-        <p className="settings-empty">
-          {filter === "connected" && !query.trim() ? "Nothing connected yet." : "No connectors match."}
-        </p>
-      ) : null}
+      {visible.length === 0 ? <p className="settings-empty">No connectors match.</p> : null}
       {groups.map((group) => (
         <section className="connector-group" key={group.id} aria-label={group.label || "Connectors"}>
-          {group.label ? <h3 className="mcp-subhead">{group.label}</h3> : null}
+          {group.label ? <h4 className="mcp-subhead">{group.label}</h4> : null}
           <ul className="connector-grid">
             {group.entries.map((entry) => {
               const connector = states.get(entry.id) ?? { kind: "new" };
@@ -693,17 +511,6 @@ export function ConnectorsSection({
           </ul>
         </section>
       ))}
-      <p className="settings-footnote">
-        Not listed here? Any MCP server can be added by its address or command in{" "}
-        {onOpenMcpServers ? (
-          <button type="button" className="connector-link" onClick={onOpenMcpServers}>
-            MCP servers
-          </button>
-        ) : (
-          "MCP servers"
-        )}
-        . Logins stay on this computer, in ZLI's data folder.
-      </p>
       {notice ? <p className="settings-footnote">{notice}</p> : null}
     </>
   );

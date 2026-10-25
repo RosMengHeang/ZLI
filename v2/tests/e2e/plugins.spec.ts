@@ -37,9 +37,11 @@ test("installs a plugin from a folder and runs its action from the command palet
 
     await page.getByRole("button", { name: "Settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
-    await settings.getByRole("tab", { name: "Plugins" }).click();
+    await settings.getByRole("tab", { name: "Integrations" }).click();
+    await settings.getByRole("tab", { name: "Installed" }).click();
     await expect(settings).toContainText("No plugins yet.");
 
+    await settings.getByRole("tab", { name: "Custom" }).click();
     await settings.getByRole("button", { name: "Install plugin", exact: true }).click();
     const form = settings.getByRole("form", { name: "Install a plugin" });
     await form.getByLabel("Source").fill(source);
@@ -50,11 +52,13 @@ test("installs a plugin from a folder and runs its action from the command palet
 
     const configure = settings.getByRole("form", { name: "Settings for Hello kit" });
     await expect(configure).toBeVisible();
-    const row = settings.locator(".mcp-row", { hasText: "Hello kit" });
-    await expect(row).toContainText("Add API token in the plugin's settings.");
     await configure.getByLabel("API token").fill("tok-123");
     await configure.getByRole("button", { name: "Save settings" }).click();
     await expect(configure).toHaveCount(0);
+    await expect(settings.getByRole("status")).toContainText("Installed Hello kit. It is listed in Installed.");
+    await settings.getByRole("button", { name: "Installed", exact: true }).click();
+    const row = settings.locator(".mcp-row", { hasText: "Hello kit" });
+    await expect(row).toContainText("Hello kit");
     await expect(row).not.toContainText("Add API token");
     await expect(row).toContainText("v0.1.0");
     await expect(settings).not.toContainText("tok-123");
@@ -82,7 +86,8 @@ test("installs a plugin from a folder and runs its action from the command palet
     });
 
     await page.getByRole("button", { name: "Settings" }).click();
-    await settings.getByRole("tab", { name: "Plugins" }).click();
+    await settings.getByRole("tab", { name: "Integrations" }).click();
+    await settings.getByRole("tab", { name: "Installed" }).click();
     await settings.getByRole("switch", { name: "Turn on Hello kit" }).click();
     await expect(settings.getByRole("switch", { name: "Turn on Hello kit" })).not.toBeChecked();
     await settings.getByRole("button", { name: "Remove Hello kit" }).click();

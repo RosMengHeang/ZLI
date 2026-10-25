@@ -1,7 +1,6 @@
 import {
   PLUGIN_CATALOG,
   PLUGIN_CATALOG_CATEGORIES,
-  type PluginCatalogCategory,
   type PluginCatalogEntry,
   type PluginDirectoryEntry,
   type PluginDirectoryResult,
@@ -14,13 +13,12 @@ import { openExternalLink } from "../review/links.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { ConnectorLogo } from "./connectorLogos.js";
+import { ConnectorLogo, hasConnectorLogo } from "./connectorLogos.js";
 import "./connectors.css";
 import "../plugins/plugins.css";
 
 const PAGE_SIZE = 30;
 
-type Filter = "all" | PluginCatalogCategory;
 type DirectoryState =
   | { status: "idle" }
   | { status: "loading" }
@@ -50,13 +48,20 @@ export function pluginMatches(
 
 const catalogMatches = (entry: PluginCatalogEntry, query: string) => pluginMatches({ ...entry, name: entry.id }, query);
 
-/** ZLI's own plugin picks, and Anthropic's directory on request. */
+/** Directory plugins from Anthropic are Claude Code plugins, so they share Claude's mark when ZLI has no logo for them. */
+function directoryLogo(entry: PluginDirectoryEntry): string {
+  return hasConnectorLogo(entry.name) || entry.publisher !== "Anthropic" ? entry.name : "claude";
+}
+
+/** ZLI's own plugin picks, and Anthropic's directory on request, filtered by the shared search. */
 export function PluginGallery({
+  query,
   installed,
   disabled,
   loadingSource,
   onInstall,
 }: {
+  query: string;
   /** Names of installed plugins. */
   installed: ReadonlySet<string>;
   disabled: boolean;
@@ -65,11 +70,10 @@ export function PluginGallery({
   onInstall(source: string, origin: PluginOrigin): void;
 }) {
   const { bridge, dispatch } = useRuntime();
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
   const [directory, setDirectory] = useState<DirectoryState>({ status: "idle" });
-  const [directoryQuery, setDirectoryQuery] = useState("");
-  const [shown, setShown] = useState(PAGE_SIZE);
+  // Paging starts over whenever the search changes.
+  const [page, setPage] = useState({ query, shown: PAGE_SIZE });
+  const shown = page.query === query ? page.shown : PAGE_SIZE;
   const [notice, setNotice] = useState<string>();
 
   const loadDirectory = () => {
@@ -83,16 +87,13 @@ export function PluginGallery({
 
   const openLink = (url: string) => void openExternalLink(bridge, url).then(setNotice);
 
-  const visible = PLUGIN_CATALOG.filter(
-    (entry) => catalogMatches(entry, query) && (filter === "all" || entry.category === filter),
-  );
-  const grouped = filter === "all" && !query.trim();
-  const groups = grouped
-    ? PLUGIN_CATALOG_CATEGORIES.map((category) => ({
+  const visible = PLUGIN_CATALOG.filter((entry) => catalogMatches(entry, query));
+  const groups = query.trim()
+    ? [{ id: "results", label: "", entries: visible }]
+    : PLUGIN_CATALOG_CATEGORIES.map((category) => ({
         ...category,
         entries: visible.filter((entry) => entry.category === category.id),
-      })).filter((group) => group.entries.length > 0)
-    : [{ id: "results", label: "", entries: visible }];
+      })).filter((group) => group.entries.length > 0);
 
   const installButton = (title: string, source: string, origin: PluginOrigin) => (
     <>
@@ -161,7 +162,7 @@ export function PluginGallery({
     ) : null;
     return card(
       `directory:${entry.name}`,
-      entry.name,
+      directoryLogo(entry),
       entry.title,
       entry.publisher ?? entry.category,
       entry.description,
@@ -177,7 +178,7 @@ export function PluginGallery({
         return (
           <div className="settings-actions">
             <Button size="sm" icon="search" onClick={loadDirectory}>
-              Browse more
+              Search Anthropic's plugin directory
             </Button>
           </div>
         );
@@ -222,30 +223,21 @@ export function PluginGallery({
             </>
           );
         }
-        const matches = result.entries.filter((entry) => pluginMatches(entry, directoryQuery));
+        const matches = result.entries.filter((entry) => pluginMatches(entry, query));
         return (
           <section className="plugin-directory" aria-label="Anthropic's plugin directory">
-            <h3 className="mcp-subhead">Anthropic's plugin directory</h3>
-            <p className="plugin-directory-note">From Anthropic's plugin directory. ZLI has not checked these.</p>
-            <div className="connector-toolbar">
-              <input
-                className="input input-sm"
-                type="search"
-                value={directoryQuery}
-                placeholder={`Search ${result.entries.length} plugins`}
-                aria-label="Search Anthropic's plugin directory"
-                spellCheck={false}
-                onChange={(event) => {
-                  setDirectoryQuery(event.target.value);
-                  setShown(PAGE_SIZE);
-                }}
-              />
-            </div>
-            {matches.length === 0 ? <p className="settings-empty">No plugins match.</p> : null}
+            <h4 className="mcp-subhead">Anthropic's plugin directory</h4>
+            <p className="plugin-directory-note">
+              {query.trim()
+                ? `${matches.length} of ${result.entries.length} plugins match.`
+                : `${result.entries.length} plugins.`}{" "}
+              ZLI has not checked these.
+            </p>
+            {matches.length === 0 ? <p className="settings-empty">No directory plugins match.</p> : null}
             <ul className="connector-grid">{matches.slice(0, shown).map(directoryCard)}</ul>
             {matches.length > shown ? (
               <div className="settings-actions">
-                <Button size="sm" onClick={() => setShown((count) => count + PAGE_SIZE)}>
+                <Button size="sm" onClick={() => setPage({ query, shown: shown + PAGE_SIZE })}>
                   Show more
                 </Button>
               </div>
@@ -258,34 +250,7 @@ export function PluginGallery({
   };
 
   return (
-    <section className="plugin-gallery" aria-label="Get plugins">
-      <h3 className="mcp-subhead">Get plugins</h3>
-      <div className="connector-toolbar">
-        <input
-          className="input input-sm"
-          type="search"
-          value={query}
-          placeholder="Search plugins"
-          aria-label="Search plugins"
-          spellCheck={false}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-      </div>
-      <div className="connector-filters" role="toolbar" aria-label="Show">
-        {([{ id: "all", label: "All" }, ...PLUGIN_CATALOG_CATEGORIES] as { id: Filter; label: string }[]).map(
-          (item) => (
-            <button
-              key={item.id}
-              type="button"
-              className="connector-chip"
-              aria-pressed={filter === item.id}
-              onClick={() => setFilter(item.id)}
-            >
-              {item.label}
-            </button>
-          ),
-        )}
-      </div>
+    <div className="plugin-gallery">
       {visible.length === 0 ? <p className="settings-empty">No plugins match.</p> : null}
       {groups.map((group) => (
         <section className="connector-group" key={group.id} aria-label={group.label || "Plugins"}>
@@ -308,6 +273,6 @@ export function PluginGallery({
       ))}
       {renderDirectory()}
       {notice ? <p className="settings-footnote">{notice}</p> : null}
-    </section>
+    </div>
   );
 }

@@ -31,9 +31,7 @@ import {
 } from "./appSettings.js";
 import { IssuesSection } from "./IssuesSection.js";
 import { AccountsSection } from "./AccountsSection.js";
-import { ConnectorsSection } from "./ConnectorsSection.js";
-import { McpServersSection } from "./McpServersSection.js";
-import { PluginsSection } from "./PluginsSection.js";
+import { IntegrationsSection, type IntegrationsView } from "./IntegrationsSection.js";
 import { SectionHeader, SettingRow } from "./SectionHeader.js";
 import { SkillsSection } from "./SkillsSection.js";
 import "./settings.css";
@@ -44,10 +42,8 @@ export type SettingsSection =
   | "projects"
   | "worktrees"
   | "files"
-  | "connectors"
-  | "mcp"
+  | "integrations"
   | "skills"
-  | "plugins"
   | "issues"
   | "shortcuts"
   | "notifications"
@@ -59,10 +55,8 @@ const sections: { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: "projects", label: "Projects", icon: "folder" },
   { id: "worktrees", label: "Worktrees", icon: "branch" },
   { id: "files", label: "Files", icon: "fileText" },
-  { id: "connectors", label: "Connectors", icon: "globe" },
-  { id: "mcp", label: "MCP servers", icon: "wrench" },
+  { id: "integrations", label: "Integrations", icon: "puzzle" },
   { id: "skills", label: "Skills", icon: "sparkle" },
-  { id: "plugins", label: "Plugins", icon: "puzzle" },
   { id: "issues", label: "Issues", icon: "issue" },
   { id: "shortcuts", label: "Shortcuts", icon: "command" },
   { id: "notifications", label: "Notifications", icon: "bell" },
@@ -78,7 +72,9 @@ type Props = {
   projection: RuntimeProjection | undefined;
   initialProjectId?: string | undefined;
   initialSection?: SettingsSection;
-  /** A catalog id the Connectors section opens on. */
+  /** The Integrations tab to open on. */
+  integrationsView?: IntegrationsView | undefined;
+  /** A catalog id the Integrations Browse tab opens on. */
   focusConnector?: string | undefined;
   notifications: { settings: NotificationSettings | undefined; update(patch: Partial<NotificationSettings>): void };
   updates?: Updates | undefined;
@@ -92,6 +88,7 @@ export function SettingsDialog({
   projection,
   initialProjectId,
   initialSection = "agents",
+  integrationsView,
   focusConnector,
   notifications,
   updates,
@@ -166,12 +163,10 @@ export function SettingsDialog({
           ) : null}
           {section === "worktrees" ? <WorktreeSettings projection={projection} /> : null}
           {section === "files" ? <FilesSettings /> : null}
-          {section === "connectors" ? (
-            <ConnectorsSection onOpenMcpServers={() => setSection("mcp")} focusConnector={focusConnector} />
+          {section === "integrations" ? (
+            <IntegrationsSection initialView={integrationsView} focusConnector={focusConnector} />
           ) : null}
-          {section === "mcp" ? <McpServersSection onOpenConnectors={() => setSection("connectors")} /> : null}
           {section === "skills" ? <SkillsSection projection={projection} initialProjectId={initialProjectId} /> : null}
-          {section === "plugins" ? <PluginsSection /> : null}
           {section === "issues" ? <IssuesSection /> : null}
           {section === "shortcuts" ? <ShortcutSettings /> : null}
           {section === "notifications" ? <NotificationSection {...notifications} /> : null}

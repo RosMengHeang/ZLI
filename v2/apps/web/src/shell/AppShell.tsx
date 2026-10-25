@@ -66,6 +66,7 @@ import { forgetSession, useWorkbenchState } from "../sessions/workbench.js";
 import { resolveLaunchDefaults, useAppSettings } from "../settings/appSettings.js";
 import { ExpiredSignInNotice } from "../settings/ExpiredSignInNotice.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
+import type { IntegrationsView } from "../settings/IntegrationsSection.js";
 import { SettingsDialog, type SettingsSection } from "../settings/SettingsDialog.js";
 import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
 import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
@@ -144,6 +145,7 @@ function WorkspaceApp() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>();
   const [focusConnector, setFocusConnector] = useState<string>();
+  const [integrationsView, setIntegrationsView] = useState<IntegrationsView>();
   const [settingsKey, setSettingsKey] = useState(0);
   const [usageOpen, setUsageOpen] = useState(false);
   const [closeRequest, setCloseRequest] = useState<AgentSession>();
@@ -390,16 +392,18 @@ function WorkspaceApp() {
   const openSettings = (section: SettingsSection = "agents") => {
     setPaletteOpen(false);
     setFocusConnector(undefined);
+    setIntegrationsView(undefined);
     setSettingsSection(section);
   };
-  /** Opens Settings at a connector; a server name that is not in the catalog opens MCP servers. */
+  /** Opens Integrations at a connector; a server name that is not in the catalog opens the Installed tab. */
   const openConnectors = useCallback((connectorId?: string) => {
     const entry = connectorId ? MCP_CATALOG.find((candidate) => candidate.id === connectorId.toLowerCase()) : undefined;
     setPaletteOpen(false);
     setFocusConnector(entry?.id);
+    setIntegrationsView(connectorId && !entry ? "installed" : "browse");
     // A new key reopens a dialog that is already showing, so it lands on the connector.
     setSettingsKey((key) => key + 1);
-    setSettingsSection(connectorId && !entry ? "mcp" : "connectors");
+    setSettingsSection("integrations");
   }, []);
   useEffect(
     () => bridge?.notifications?.onOpenConnector?.(({ connectorId }) => openConnectors(connectorId)),
@@ -1311,7 +1315,12 @@ function WorkspaceApp() {
       group: "App",
       action: () => openSettings("shortcuts"),
     },
-    { label: "MCP servers", icon: "wrench", group: "App", action: () => openSettings("mcp") },
+    {
+      label: "Integrations: connectors, MCP servers, and plugins",
+      icon: "puzzle",
+      group: "App",
+      action: () => openSettings("integrations"),
+    },
     { label: "Usage and cost", icon: "gauge", group: "App", action: openUsage },
     { label: "Help and diagnostics", icon: "help", group: "App", action: () => setHelpOpen(true) },
     ...(updates.available
@@ -1631,6 +1640,7 @@ function WorkspaceApp() {
             projection={projection}
             initialProjectId={contextProject?.projectId}
             initialSection={settingsSection}
+            integrationsView={integrationsView}
             focusConnector={focusConnector}
             notifications={{ settings: notifications.settings, update: (patch) => void notifications.update(patch) }}
             updates={updates}

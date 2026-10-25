@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
 import { pluginMatches } from "./PluginGallery.js";
-import { PluginsSection } from "./PluginsSection.js";
+import { PluginsSection, type PluginsView } from "./PluginsSection.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -89,7 +89,11 @@ function preview(name: string, components: PluginSummary["components"] = noParts
 }
 
 /** A bridge whose replies come from `handlers`, by command type. Unhandled commands reply with the list. */
-async function mount(handlers: Record<string, Handler>, bridgeExtra: Partial<ZliBridge> = {}) {
+async function mount(
+  handlers: Record<string, Handler>,
+  bridgeExtra: Partial<ZliBridge> = {},
+  initialView: PluginsView = "installed",
+) {
   const commands: Command[] = [];
   let list: PluginListResult = { plugins: [], pluginsPath: "/data/plugins" };
   const setList = (next: PluginListResult) => {
@@ -126,14 +130,17 @@ async function mount(handlers: Record<string, Handler>, bridgeExtra: Partial<Zli
   } as unknown as ZliBridge;
   const container = document.createElement("div");
   document.body.append(container);
-  await act(async () => {
-    createRoot(container).render(
-      <RuntimeProvider bridge={bridge}>
-        <PluginsSection />
-      </RuntimeProvider>,
-    );
-  });
-  return { container, commands, setList, list: () => list };
+  const root = createRoot(container);
+  const show = (view: PluginsView, query = "") =>
+    act(async () => {
+      root.render(
+        <RuntimeProvider bridge={bridge}>
+          <PluginsSection view={view} query={query} />
+        </RuntimeProvider>,
+      );
+    });
+  await show(initialView);
+  return { container, commands, setList, list: () => list, show };
 }
 
 const figma = PLUGIN_CATALOG.find((entry) => entry.id === "figma");
@@ -154,36 +161,39 @@ describe("plugin gallery", () => {
 
   it("installs a catalog plugin through the preview and marks it picked by ZLI", async () => {
     let installed = false;
-    const { container, commands } = await mount({
-      "plugins.list": () => ({
-        plugins: installed ? [plugin("figma", { origin: "zli-catalog" })] : [],
-        pluginsPath: "/p",
-      }),
-      "plugins.checkUpdates": () => ({ plugins: [], pluginsPath: "/p" }),
-      "plugins.previewInstall": () =>
-        preview("figma", {
-          ...noParts,
-          mcpServers: ["figma"],
-          actions: [{ name: "Sync", description: "", command: "x" }],
-        }),
-      "plugins.install": () => {
-        installed = true;
-        return { plugins: [plugin("figma", { origin: "zli-catalog" })], pluginsPath: "/p", installed: ["figma"] };
-      },
+    const listed = () => ({
+      plugins: installed ? [plugin("figma", { origin: "zli-catalog" })] : [],
+      pluginsPath: "/p",
     });
-    expect(commands.map((command) => command.type)).toEqual(["plugins.list", "plugins.checkUpdates"]);
+    const { container, commands, show } = await mount(
+      {
+        "plugins.list": listed,
+        "plugins.checkUpdates": listed,
+        "plugins.previewInstall": () =>
+          preview("figma", {
+            ...noParts,
+            mcpServers: ["figma"],
+            actions: [{ name: "Sync", description: "", command: "x" }],
+          }),
+        "plugins.install": () => {
+          installed = true;
+          return { plugins: [plugin("figma", { origin: "zli-catalog" })], pluginsPath: "/p", installed: ["figma"] };
+        },
+      },
+      {},
+      "browse",
+    );
+    expect(commands.map((command) => command.type)).toEqual(["plugins.list"]);
     const card = container.querySelector('[data-entry="figma"]') as HTMLElement;
     expect(card.textContent).toContain("Figma");
     expect(card.textContent).toContain(figma.publisher);
 
-    await act(async () =>
-      setValue(container.querySelector('input[aria-label="Search plugins"]') as HTMLInputElement, "zzz"),
-    );
+    expect(card.querySelector(".connector-logo svg")).not.toBeNull();
+    expect(container.querySelector('[data-entry="code-review"] .connector-logo svg')).not.toBeNull();
+
+    await show("browse", "zzz");
     expect(container.textContent).toContain("No plugins match.");
-    await act(async () =>
-      setValue(container.querySelector('input[aria-label="Search plugins"]') as HTMLInputElement, ""),
-    );
-    await act(async () => button(container, "Design").click());
+    await show("browse", "design");
     expect(container.querySelector('[data-entry="code-review"]')).toBeNull();
     expect(container.querySelector('[data-entry="figma"]')).not.toBeNull();
 
@@ -204,7 +214,11 @@ describe("plugin gallery", () => {
     });
     expect(container.querySelector('[data-entry="figma"]')?.textContent).toContain("Installed");
     expect(hasButton(container, "Install Figma")).toBe(false);
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("Installed figma. It is listed in Installed.");
+
+    await show("installed");
     expect(container.querySelector(".plugin-row")?.textContent).toContain("Picked by ZLI");
+    expect(container.querySelector(".plugin-row .connector-logo svg")).not.toBeNull();
   });
 
   it("loads Anthropic's directory on request, pages it, and installs from it", async () => {
@@ -219,27 +233,31 @@ describe("plugin gallery", () => {
       })),
       { name: "lsp-only", title: "LSP only", description: "", unsupported: "It only adds a language server." },
     ];
-    const { container, commands } = await mount({
-      "plugins.directory": async () => {
-        if (fail) {
-          fail = false;
-          throw new Error("ZLI could not reach the plugin directory.");
-        }
-        await new Promise<void>((resolve) => {
-          release = resolve;
-        });
-        return { entries, fetchedAt: "2025-01-01T00:00:00.000Z" };
+    const { container, commands, show } = await mount(
+      {
+        "plugins.directory": async () => {
+          if (fail) {
+            fail = false;
+            throw new Error("ZLI could not reach the plugin directory.");
+          }
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          return { entries, fetchedAt: "2025-01-01T00:00:00.000Z" };
+        },
+        "plugins.previewInstall": (command) => preview(String(command.source).split("/").at(-1) ?? ""),
       },
-      "plugins.previewInstall": (command) => preview(String(command.source).split("/").at(-1) ?? ""),
-    });
-    await act(async () => button(container, "Browse more").click());
+      {},
+      "browse",
+    );
+    await act(async () => button(container, "Search Anthropic's plugin directory").click());
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("could not reach");
 
     await act(async () => button(container, "Try again").click());
     expect(container.textContent).toContain("Loading Anthropic's plugin directory");
     await act(async () => release());
     const directory = container.querySelector('[aria-label="Anthropic\'s plugin directory"]') as HTMLElement;
-    expect(directory.textContent).toContain("From Anthropic's plugin directory. ZLI has not checked these.");
+    expect(directory.textContent).toContain("35 plugins. ZLI has not checked these.");
     expect(directory.querySelectorAll(".connector-card")).toHaveLength(30);
     await act(async () => button(directory, "Show more").click());
     expect(directory.querySelectorAll(".connector-card")).toHaveLength(35);
@@ -249,9 +267,11 @@ describe("plugin gallery", () => {
     expect(unsupported.textContent).toContain("It only adds a language server.");
     expect(unsupported.querySelector("button")).toBeNull();
 
-    await act(async () => setValue(directory.querySelector("input[type=search]") as HTMLInputElement, "tool 12"));
-    expect(directory.querySelectorAll(".connector-card")).toHaveLength(1);
-    await act(async () => button(directory, "Install Tool 12").click());
+    await show("browse", "tool 12");
+    const filtered = container.querySelector('[aria-label="Anthropic\'s plugin directory"]') as HTMLElement;
+    expect(filtered.textContent).toContain("1 of 35 plugins match.");
+    expect(filtered.querySelectorAll(".connector-card")).toHaveLength(1);
+    await act(async () => button(filtered, "Install Tool 12").click());
     expect(commands.at(-1)).toEqual({
       type: "plugins.previewInstall",
       source: "https://github.com/acme/tools/tree/HEAD/tool-12",
@@ -304,10 +324,14 @@ describe("plugin updates and origins", () => {
   });
 
   it("warns before installing a plugin from an unknown source that can run commands", async () => {
-    const { container, commands } = await mount({
-      "plugins.previewInstall": () =>
-        preview("kit", { ...noParts, actions: [{ name: "Test", description: "", command: "npm test" }] }),
-    });
+    const { container, commands } = await mount(
+      {
+        "plugins.previewInstall": () =>
+          preview("kit", { ...noParts, actions: [{ name: "Test", description: "", command: "npm test" }] }),
+      },
+      {},
+      "custom",
+    );
     await act(async () => button(container, "Install plugin").click());
     const form = container.querySelector('form[aria-label="Install a plugin"]') as HTMLFormElement;
     await act(async () => setValue(form.querySelector("input") as HTMLInputElement, "acme/kit"));
@@ -354,6 +378,7 @@ describe("Share my setup", () => {
         "plugins.export": (command) => ({ folder: command.folder, files: [".claude-plugin/plugin.json"] }),
       },
       { dialog: { openProject: async () => "/home/me/my-setup" } } as Partial<ZliBridge>,
+      "custom",
     );
     await act(async () => button(container, "Share my setup").click());
     const form = container.querySelector('form[aria-label="Share my setup"]') as HTMLFormElement;

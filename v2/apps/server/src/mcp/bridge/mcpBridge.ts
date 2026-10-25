@@ -504,7 +504,7 @@ export async function* readSse(
 }
 
 export function signInMessage(name: string): string {
-  return `${name} needs you to sign in. Open ZLI Settings, then Connectors or MCP servers, and sign in again.`;
+  return `${name} needs you to sign in. Open ZLI Settings, then Integrations, and sign in again.`;
 }
 
 function isObject(value: unknown): value is Message {

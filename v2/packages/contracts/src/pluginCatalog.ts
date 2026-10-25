@@ -39,6 +39,7 @@ export const PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
     category: "review",
     source: `${OFFICIAL}/plugins/code-review`,
     homepage: `${OFFICIAL}/plugins/code-review`,
+    logoId: "claude",
   },
   {
     id: "commit-commands",
@@ -68,6 +69,7 @@ export const PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
     category: "design",
     source: `${OFFICIAL}/plugins/frontend-design`,
     homepage: `${OFFICIAL}/plugins/frontend-design`,
+    logoId: "claude",
   },
   {
     id: "figma",
@@ -87,6 +89,7 @@ export const PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
     category: "code",
     source: `${OFFICIAL}/plugins/skill-creator`,
     homepage: `${OFFICIAL}/plugins/skill-creator`,
+    logoId: "claude",
   },
   {
     id: "plugin-dev",
@@ -96,6 +99,7 @@ export const PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
     category: "code",
     source: `${OFFICIAL}/plugins/plugin-dev`,
     homepage: `${OFFICIAL}/plugins/plugin-dev`,
+    logoId: "claude",
   },
   {
     id: "claude-md-management",
@@ -105,6 +109,7 @@ export const PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
     category: "code",
     source: `${OFFICIAL}/plugins/claude-md-management`,
     homepage: `${OFFICIAL}/plugins/claude-md-management`,
+    logoId: "claude",
   },
   {
     id: "context7",

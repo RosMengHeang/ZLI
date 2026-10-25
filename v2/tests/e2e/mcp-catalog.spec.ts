@@ -16,11 +16,14 @@ test("adds connectors from the gallery and MCP servers by remote URL", async () 
 
     await page.getByRole("button", { name: "Settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
-    await settings.getByRole("tab", { name: "Connectors" }).click();
+    await settings.getByRole("tab", { name: "Integrations" }).click();
+    await expect(settings.getByRole("tab", { name: "Browse" })).toHaveAttribute("aria-selected", "true");
+    await expect(settings.locator('[data-entry="claude-md-management"] .connector-logo svg')).toBeVisible();
+    await settings.getByRole("button", { name: "Connectors", exact: true }).click();
     await expect(settings.locator('[data-entry="vercel"]')).toContainText("Vercel");
     await expect(settings.locator('[data-entry="vercel"] .connector-logo')).toBeVisible();
 
-    const search = settings.getByRole("searchbox", { name: "Search connectors" });
+    const search = settings.getByRole("searchbox", { name: "Search integrations" });
     await search.fill("memory");
     await expect(settings.locator(".connector-card")).toHaveCount(1);
     await settings.getByRole("button", { name: "Add Memory" }).click();
@@ -34,9 +37,8 @@ test("adds connectors from the gallery and MCP servers by remote URL", async () 
     await githubForm.getByRole("button", { name: "Connect" }).click();
     await expect(github).toHaveAttribute("data-state", "connected");
     await search.fill("");
-    await expect(settings.getByRole("button", { name: "Connected (2)" })).toBeVisible();
 
-    await settings.getByRole("tab", { name: "MCP servers" }).click();
+    await settings.getByRole("tab", { name: "Custom" }).click();
     await settings.getByRole("button", { name: "Add server" }).click();
     const form = settings.getByRole("form", { name: "New MCP server" });
     await form.getByLabel("Name").fill("linear");
@@ -51,6 +53,9 @@ test("adds connectors from the gallery and MCP servers by remote URL", async () 
     await form.getByLabel("Sign in with browser (OAuth)").check();
     await form.getByRole("button", { name: "Add server" }).click();
     await expect(form).toHaveCount(0);
+    await expect(settings.getByRole("status")).toContainText("Added linear. It is listed in Installed.");
+    await settings.getByRole("button", { name: "Installed", exact: true }).click();
+    await expect(settings.getByRole("tab", { name: "Installed" })).toHaveAttribute("aria-selected", "true");
 
     const windows = process.platform === "win32";
     const rows = settings.locator(".mcp-row-command");
@@ -97,8 +102,8 @@ test("adds connectors from the gallery and MCP servers by remote URL", async () 
     await expect(edit.getByLabel("URL")).toHaveValue("https://api.githubcopilot.com/mcp/");
     await edit.getByRole("button", { name: "Cancel" }).click();
 
-    await settings.getByRole("button", { name: "Browse connectors" }).click();
-    await expect(settings.getByRole("searchbox", { name: "Search connectors" })).toBeVisible();
+    await settings.getByRole("tab", { name: "Browse" }).click();
+    await expect(settings.getByRole("searchbox", { name: "Search integrations" })).toBeVisible();
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

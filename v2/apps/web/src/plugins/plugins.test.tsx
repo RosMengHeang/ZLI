@@ -243,15 +243,19 @@ describe("PluginsSection", () => {
     } as unknown as ZliBridge;
     const container = document.createElement("div");
     document.body.append(container);
-    await act(async () => {
-      createRoot(container).render(
-        <RuntimeProvider bridge={bridge}>
-          <PluginsSection />
-        </RuntimeProvider>,
-      );
-    });
+    const root = createRoot(container);
+    const show = (view: "installed" | "custom") =>
+      act(async () => {
+        root.render(
+          <RuntimeProvider bridge={bridge}>
+            <PluginsSection view={view} />
+          </RuntimeProvider>,
+        );
+      });
+    await show("installed");
     expect(container.textContent).toContain("No plugins yet.");
 
+    await show("custom");
     await act(async () => button(container, "Install plugin").click());
     const form = container.querySelector('form[aria-label="Install a plugin"]') as HTMLFormElement;
     await act(async () => setValue(form.querySelector("input") as HTMLInputElement, "acme/kit"));
@@ -270,6 +274,9 @@ describe("PluginsSection", () => {
     await act(async () => setValue(token, "s3cret"));
     await act(async () => settings.requestSubmit());
     expect(commands.at(-1)).toEqual({ type: "plugins.configure", name: "kit", values: { token: "s3cret" } });
+    expect(container.textContent).toContain("Installed Kit. It is listed in Installed.");
+
+    await show("installed");
     expect(container.textContent).not.toContain("Add API token");
     expect(container.textContent).toContain("Left out, since only Claude Code or Codex runs them: hooks.");
 

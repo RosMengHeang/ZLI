@@ -278,7 +278,7 @@ describe("runMcpBridge over streamable HTTP", () => {
       error: { code: -32001, message: signInMessage("Linear") },
     });
     expect(signInMessage("Linear")).toBe(
-      "Linear needs you to sign in. Open ZLI Settings, then Connectors or MCP servers, and sign in again.",
+      "Linear needs you to sign in. Open ZLI Settings, then Integrations, and sign in again.",
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(bridge.output).toHaveLength(1);

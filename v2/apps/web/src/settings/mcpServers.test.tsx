@@ -178,13 +178,16 @@ describe("McpServersSection", () => {
     } as unknown as ZliBridge;
     const container = document.createElement("div");
     document.body.append(container);
-    await act(async () => {
-      createRoot(container).render(
-        <RuntimeProvider bridge={bridge}>
-          <McpServersSection />
-        </RuntimeProvider>,
-      );
-    });
+    const root = createRoot(container);
+    const show = (view: "installed" | "custom") =>
+      act(async () => {
+        root.render(
+          <RuntimeProvider bridge={bridge}>
+            <McpServersSection view={view} />
+          </RuntimeProvider>,
+        );
+      });
+    await show("installed");
     expect(container.textContent).toContain("No servers yet.");
     const access = container.querySelector<HTMLButtonElement>(
       'button[aria-label^="What agents may do with other agents"]',
@@ -197,6 +200,7 @@ describe("McpServersSection", () => {
     expect(agentAccess).toBe("read");
     expect(access.getAttribute("aria-label")).toBe("What agents may do with other agents: List and read agents");
 
+    await show("custom");
     await act(async () => button(container, "Add server").click());
     const form = container.querySelector("form") as HTMLFormElement;
     const [name, command] = [...form.querySelectorAll("input")] as HTMLInputElement[];
@@ -210,7 +214,11 @@ describe("McpServersSection", () => {
     await act(async () => form.requestSubmit());
     expect(saves).toEqual([[github]]);
     expect(container.querySelector("form")).toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("Added github. It is listed in Installed.");
+
+    await show("installed");
     expect(container.querySelector(".mcp-row-command")?.textContent).toBe("npx -y gh-mcp");
+    expect(container.querySelector(".mcp-row .connector-logo svg")).not.toBeNull();
 
     const toggle = container.querySelector<HTMLInputElement>('input[role="switch"]') as HTMLInputElement;
     await act(async () => toggle.click());
@@ -271,15 +279,17 @@ describe("McpServersSection", () => {
     } as unknown as ZliBridge;
     const container = document.createElement("div");
     document.body.append(container);
-    let openedConnectors = false;
+    let openedInstalled = false;
     let root = createRoot(container);
-    await act(async () => {
-      root.render(
-        <RuntimeProvider bridge={bridge}>
-          <McpServersSection onOpenConnectors={() => (openedConnectors = true)} />
-        </RuntimeProvider>,
-      );
-    });
+    const show = (view: "installed" | "custom") =>
+      act(async () => {
+        root.render(
+          <RuntimeProvider bridge={bridge}>
+            <McpServersSection view={view} onInstalled={() => (openedInstalled = true)} />
+          </RuntimeProvider>,
+        );
+      });
+    await show("custom");
 
     await act(async () => button(container, "Add server").click());
     let form = container.querySelector("form") as HTMLFormElement;
@@ -306,6 +316,9 @@ describe("McpServersSection", () => {
         oauth: false,
       },
     ]);
+    await act(async () => button(container, "Installed").click());
+    expect(openedInstalled).toBe(true);
+    await show("installed");
     expect(container.querySelector(".mcp-row-command")?.textContent).toBe(
       "https://mcp.context7.com/mcp · Authorization: ••••",
     );
@@ -322,22 +335,13 @@ describe("McpServersSection", () => {
     servers = [...servers, linear];
     act(() => root.unmount());
     root = createRoot(container);
-    await act(async () => {
-      root.render(
-        <RuntimeProvider bridge={bridge}>
-          <McpServersSection onOpenConnectors={() => (openedConnectors = true)} />
-        </RuntimeProvider>,
-      );
-    });
+    await show("installed");
     expect(container.textContent).toContain("linear");
     await act(async () => button(container, "Sign in").click());
     expect(opened).toEqual(["https://auth.example.com/authorize?x=1"]);
     expect(container.querySelector(".mcp-row-signin")?.textContent).toBe("Signed in as ada");
     await act(async () => button(container, "Sign out").click());
     expect(button(container, "Sign in")).toBeTruthy();
-
-    await act(async () => button(container, "Browse connectors").click());
-    expect(openedConnectors).toBe(true);
   });
   it("shows why the list could not load and retries", async () => {
     let calls = 0;
@@ -366,7 +370,7 @@ describe("McpServersSection", () => {
     await act(async () => {
       createRoot(container).render(
         <RuntimeProvider bridge={bridge}>
-          <McpServersSection />
+          <McpServersSection view="installed" />
         </RuntimeProvider>,
       );
     });
@@ -505,13 +509,13 @@ function fakeBridge(
   } as unknown as ZliBridge;
 }
 
-async function renderSection(bridge: ZliBridge): Promise<HTMLElement> {
+async function renderSection(bridge: ZliBridge, view: "installed" | "custom" = "installed"): Promise<HTMLElement> {
   const container = document.createElement("div");
   document.body.append(container);
   await act(async () => {
     createRoot(container).render(
       <RuntimeProvider bridge={bridge}>
-        <McpServersSection />
+        <McpServersSection view={view} />
       </RuntimeProvider>,
     );
   });
@@ -649,6 +653,7 @@ describe("McpServersSection tests, tools, projects, and import", () => {
         if (command.type === "mcp.save") servers = command.servers ?? [];
         return McpListResult.parse({ servers, agentAccess: "full", userSettings: { enabled: true, outcomes: [] } });
       }),
+      "custom",
     );
     await act(async () => button(container, "Import from other apps").click());
     const panel = container.querySelector('section[aria-label="Import from other apps"]') as HTMLElement;
@@ -675,6 +680,7 @@ describe("McpServersSection tests, tools, projects, and import", () => {
           ? { found: [], problems: [] }
           : McpListResult.parse({ servers: [], agentAccess: "full", userSettings: { enabled: true, outcomes: [] } }),
       ),
+      "custom",
     );
     await act(async () => button(container, "Import from other apps").click());
     expect(container.textContent).toContain(
@@ -682,6 +688,37 @@ describe("McpServersSection tests, tools, projects, and import", () => {
     );
     await act(async () => button(container, "Close").click());
     expect(button(container, "Import from other apps")).toBeTruthy();
+  });
+
+  it("signs in to servers from plugins, each with its brand logo", async () => {
+    let signedIn = false;
+    const container = await renderSection(
+      fakeBridge((command) => {
+        if (command.type === "mcp.signIn") signedIn = true;
+        if (command.type === "mcp.signOut") signedIn = false;
+        const result = McpListResult.parse({
+          servers: [],
+          agentAccess: "full",
+          userSettings: { enabled: true, outcomes: [] },
+          signIns: [
+            signedIn
+              ? { name: "team-linear", url: "https://mcp.linear.app/mcp", signedIn: true, account: "ada" }
+              : { name: "team-linear", url: "https://mcp.linear.app/mcp", signedIn: false },
+          ],
+        });
+        return command.type === "mcp.signIn" ? { status: "done", list: result } : result;
+      }),
+    );
+    expect(container.textContent).toContain("Servers from plugins");
+    const row = () =>
+      [...container.querySelectorAll<HTMLElement>(".mcp-row")].find((item) =>
+        item.textContent?.includes("team-linear"),
+      ) as HTMLElement;
+    expect(row().querySelector(".connector-logo svg")).not.toBeNull();
+    await act(async () => button(row(), "Sign in").click());
+    expect(row().querySelector(".mcp-row-signin")?.textContent).toBe("Signed in as ada");
+    await act(async () => button(row(), "Sign out").click());
+    expect(button(row(), "Sign in")).toBeTruthy();
   });
 
   it("asks to sign in again when a sign-in expired, and has no Goose footnote", async () => {

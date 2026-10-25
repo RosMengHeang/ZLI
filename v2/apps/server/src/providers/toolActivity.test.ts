@@ -241,7 +241,7 @@ describe("edit line counts", () => {
 
 describe("toolConnector", () => {
   const signIn =
-    "MCP error -32001: my-linear needs you to sign in. Open ZLI Settings, then Connectors or MCP servers, and sign in again.";
+    "MCP error -32001: my-linear needs you to sign in. Open ZLI Settings, then Integrations, and sign in again.";
 
   it("finds the server that needs a sign-in in a failed call's error", () => {
     const activity = toolActivity({

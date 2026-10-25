@@ -446,7 +446,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     if (parsed.data !== "agentaccess") {
       const access = await currentAccess();
       if (access === "off")
-        throw new BrowserControlError("Agent tools are turned off in ZLI Settings, under MCP servers.", 403);
+        throw new BrowserControlError("Agent tools are turned off in ZLI Settings, under Integrations.", 403);
       if (access === "read" && !READ_AGENT_CONTROL_ACTIONS.includes(parsed.data))
         throw new BrowserControlError(
           "ZLI Settings let agents list and read other agents, but not start or message them.",

@@ -133,12 +133,12 @@ describe("ConnectorsSection", () => {
     await act(async () => {
       createRoot(container).render(
         <RuntimeProvider bridge={bridge}>
-          <ConnectorsSection />
+          <ConnectorsSection query="" />
         </RuntimeProvider>,
       );
     });
 
-    expect(container.querySelector(".connector-group h3")?.textContent).toBe("Code and deploy");
+    expect(container.querySelector(".connector-group h4")?.textContent).toBe("Code and deploy");
     expect(card(container, "vercel").querySelector(".connector-logo")).not.toBeNull();
 
     await act(async () => button(card(container, "vercel"), "Connect Vercel").click());
@@ -147,7 +147,6 @@ describe("ConnectorsSection", () => {
     expect(opened).toEqual(["https://vercel.com/oauth/authorize?x=1"]);
     expect(card(container, "vercel").dataset.state).toBe("connected");
     expect(card(container, "vercel").textContent).toContain("Signed in as ada");
-    expect(button(container, "Connected (1)")).toBeTruthy();
 
     await act(async () => button(card(container, "vercel"), "Disconnect Vercel").click());
     await act(async () => button(card(container, "vercel"), "Disconnect").click());
@@ -170,18 +169,16 @@ describe("ConnectorsSection", () => {
     } as unknown as ZliBridge;
     const container = document.createElement("div");
     document.body.append(container);
-    await act(async () => {
-      createRoot(container).render(
-        <RuntimeProvider bridge={bridge}>
-          <ConnectorsSection />
-        </RuntimeProvider>,
-      );
-    });
-
-    const search = container.querySelector<HTMLInputElement>(
-      'input[aria-label="Search connectors"]',
-    ) as HTMLInputElement;
-    await act(async () => setValue(search, "github"));
+    const root = createRoot(container);
+    const search = (query: string) =>
+      act(async () => {
+        root.render(
+          <RuntimeProvider bridge={bridge}>
+            <ConnectorsSection query={query} />
+          </RuntimeProvider>,
+        );
+      });
+    await search("github");
     expect([...container.querySelectorAll("[data-entry]")].map((item) => item.getAttribute("data-entry"))).toEqual([
       "github",
     ]);
@@ -205,7 +202,7 @@ describe("ConnectorsSection", () => {
     expect(card(container, "github").dataset.state).toBe("connected");
     expect(container.textContent).not.toContain("github_pat_1");
 
-    await act(async () => setValue(search, "nothing like this"));
+    await search("nothing like this");
     expect(container.textContent).toContain("No connectors match.");
   });
 });
@@ -233,14 +230,14 @@ async function renderWith(
   await act(async () => {
     createRoot(container).render(
       <RuntimeProvider bridge={bridge}>
-        <ConnectorsSection />
+        <ConnectorsSection query="" />
       </RuntimeProvider>,
     );
   });
   return container;
 }
 
-describe("ConnectorsSection health, projects, and plugin sign-ins", () => {
+describe("ConnectorsSection health and projects", () => {
   it("tests a connected card and limits it to a project", async () => {
     let servers: McpServerConfig[] = [vercel];
     let health: McpListResult["health"] = [];
@@ -293,33 +290,5 @@ describe("ConnectorsSection health, projects, and plugin sign-ins", () => {
     expect(card(container, "vercel").textContent).toContain("Sign-in expired");
     await act(async () => button(card(container, "vercel"), "Sign in again to Vercel").click());
     expect(card(container, "vercel").dataset.state).toBe("connected");
-  });
-
-  it("shows sign-ins from plugins in their own group", async () => {
-    let signedIn = false;
-    const container = await renderWith((command) => {
-      if (command.type === "mcp.signIn") signedIn = true;
-      if (command.type === "mcp.signOut") signedIn = false;
-      const result = McpListResult.parse({
-        ...listOf([]),
-        signIns: [
-          signedIn
-            ? { name: "team-linear", url: "https://mcp.linear.app/mcp", signedIn: true, account: "ada" }
-            : { name: "team-linear", url: "https://mcp.linear.app/mcp", signedIn: false },
-        ],
-      });
-      return command.type === "mcp.signIn" ? { status: "done", list: result } : result;
-    });
-    const group = container.querySelector('section[aria-label="From plugins"]') as HTMLElement;
-    expect(container.querySelector(".connector-group h3")?.textContent).toBe("From plugins");
-    const plugin = () => container.querySelector('[data-plugin="team-linear"]') as HTMLElement;
-    expect(group.contains(plugin())).toBe(true);
-    expect(plugin().textContent).toContain("mcp.linear.app");
-    expect(plugin().querySelector(".connector-logo-letter")).toBeNull();
-    await act(async () => button(plugin(), "Sign in to team-linear").click());
-    expect(plugin().textContent).toContain("Signed in as ada");
-    expect(button(container, "Connected (1)")).toBeTruthy();
-    await act(async () => button(plugin(), "Sign out of team-linear").click());
-    expect(plugin().dataset.state).toBe("signed-out");
   });
 });

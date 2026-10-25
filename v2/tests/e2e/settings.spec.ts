@@ -76,8 +76,10 @@ test("keeps MCP servers added in Settings for every agent", async () => {
 
     await page.getByRole("button", { name: "Settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
-    await settings.getByRole("tab", { name: "MCP servers" }).click();
+    await settings.getByRole("tab", { name: "Integrations" }).click();
+    await settings.getByRole("tab", { name: "Installed" }).click();
     await expect(settings).toContainText("No servers yet.");
+    await settings.getByRole("tab", { name: "Custom" }).click();
     await settings.getByRole("button", { name: "Add server" }).click();
     const form = settings.getByRole("form", { name: "New MCP server" });
     await form.getByLabel("Name").fill("github");
@@ -86,6 +88,7 @@ test("keeps MCP servers added in Settings for every agent", async () => {
     await form.getByLabel("Environment").fill("GITHUB_TOKEN=test-token");
     await form.getByRole("button", { name: "Add server" }).click();
     await expect(form).toHaveCount(0);
+    await settings.getByRole("tab", { name: "Installed" }).click();
     await expect(settings.locator(".mcp-row-command")).toHaveText("npx -y @modelcontextprotocol/server-github");
     await expect(settings).toContainText("ZLI is set to leave those files alone");
 
@@ -104,7 +107,8 @@ test("keeps MCP servers added in Settings for every agent", async () => {
     await expect(settings.getByRole("switch", { name: "Give agents github" })).not.toBeChecked();
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Settings" }).click();
-    await settings.getByRole("tab", { name: "MCP servers" }).click();
+    await settings.getByRole("tab", { name: "Integrations" }).click();
+    await settings.getByRole("tab", { name: "Installed" }).click();
     await expect(settings.getByRole("switch", { name: "Give agents github" })).not.toBeChecked();
 
     await settings.getByRole("button", { name: "Remove github" }).click();

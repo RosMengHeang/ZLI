@@ -1,9 +1,11 @@
-import { AgentToolAccess, type McpServerConfig } from "@zli-v2/contracts";
+import { AgentToolAccess, isHttpServer, MCP_CATALOG, type McpServerConfig } from "@zli-v2/contracts";
 import { Fragment, useRef, useState } from "react";
 
 import { Button, IconButton } from "../ui/Button.js";
 import { Field, Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
+import { ZliLogo } from "../ui/ZliLogo.js";
+import { ConnectorLogo } from "./connectorLogos.js";
 import { McpImportPanel } from "./McpImportPanel.js";
 import { McpProjectsField, useKnownProjects } from "./McpProjectPicker.js";
 import { McpStatusDot } from "./McpStatusDot.js";
@@ -11,6 +13,7 @@ import { McpToolsPanel } from "./McpToolsPanel.js";
 import {
   AGENT_ACCESS_LABELS,
   applyDraft,
+  catalogEntryForUrl,
   draftFromServer,
   EMPTY_DRAFT,
   type McpDraft,
@@ -28,13 +31,35 @@ import {
   useMcpServers,
   withDisabledTools,
 } from "./mcpServers.js";
-import { SectionHeader } from "./SectionHeader.js";
+import { TextLink } from "./SectionHeader.js";
 
 type Editing = { index?: number; draft: McpDraft };
 
 const SETTINGS_AGENTS = "Cursor, Droid, Gemini, Kimi Code, and Qwen Code";
 
-export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): void }) {
+/** The catalog entry a saved server came from, by name or address, for its logo and title. */
+export function serverLogoId(server: McpServerConfig): string {
+  const key = server.name.toLowerCase();
+  const entry =
+    MCP_CATALOG.find((candidate) => candidate.id === key) ??
+    (isHttpServer(server) ? catalogEntryForUrl(server.url) : undefined);
+  return entry?.id ?? server.name;
+}
+
+export type McpServersView = "installed" | "custom";
+
+/** MCP servers on one Integrations tab: the saved and built-in servers on Installed, adding and importing on Custom. */
+export function McpServersSection({
+  view,
+  onBrowse,
+  onCustom,
+  onInstalled,
+}: {
+  view: McpServersView;
+  onBrowse?(): void;
+  onCustom?(): void;
+  onInstalled?(): void;
+}) {
   const { state, reload, save, setAgentAccess, signIn, cancelSignIn, signOut, pending, test, tests, testing } =
     useMcpServers();
   const knownProjects = useKnownProjects();
@@ -42,6 +67,7 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
   const [openTools, setOpenTools] = useState<ReadonlySet<string>>(new Set());
   const [importing, setImporting] = useState(false);
   const [imported, setImported] = useState<string>();
+  const [added, setAdded] = useState<string>();
   const [editing, setEditing] = useState<Editing>();
   const [problem, setProblem] = useState<string>();
   const [saveError, setSaveError] = useState<string>();
@@ -49,28 +75,17 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
   const [confirmDelete, setConfirmDelete] = useState<string>();
   const nameRef = useRef<HTMLInputElement>(null);
 
-  const header = (
-    <SectionHeader title="MCP servers">
-      Servers every agent started by ZLI can use, in terminals and chats. Changes apply to agents started after you
-      save.
-    </SectionHeader>
-  );
-
   if (state.status === "loading") {
     return (
-      <>
-        {header}
-        <p className="loading-line">
-          <span className="spinner" aria-hidden="true" />
-          Loading MCP servers
-        </p>
-      </>
+      <p className="loading-line">
+        <span className="spinner" aria-hidden="true" />
+        Loading MCP servers
+      </p>
     );
   }
   if (state.status === "error") {
     return (
       <>
-        {header}
         <p className="inline-error" role="alert">
           <Icon name="alert" size={13} />
           {state.message}
@@ -218,6 +233,8 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
     setConfirmDelete(undefined);
     setProblem(undefined);
     setImporting(false);
+    setAdded(undefined);
+    setImported(undefined);
     const server = index === undefined ? undefined : servers[index];
     setEditing(
       index !== undefined && server ? { index, draft: draftFromServer(server) } : { draft: { ...EMPTY_DRAFT } },
@@ -233,7 +250,9 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
       return;
     }
     setProblem(undefined);
-    if (await persist(applied.servers)) setEditing(undefined);
+    if (!(await persist(applied.servers))) return;
+    if (editing.index === undefined) setAdded(editing.draft.name.trim());
+    setEditing(undefined);
   };
 
   const saveDisabledTools = (name: string, disabledTools: string[]) =>
@@ -242,18 +261,206 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
   const setDraft = (patch: Partial<McpDraft>) =>
     setEditing((current) => (current ? { ...current, draft: { ...current.draft, ...patch } } : current));
 
-  return (
-    <>
-      {header}
-      {storeProblem ? (
+  const editorForm = editing ? (
+    <form
+      className="mcp-editor"
+      aria-label={editing.index === undefined ? "New MCP server" : "Edit MCP server"}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
+      <Field label="Name" hint="Agents show it next to the server's tools.">
+        <input
+          ref={nameRef}
+          className="input input-sm"
+          value={editing.draft.name}
+          maxLength={64}
+          spellCheck={false}
+          placeholder="github"
+          onChange={(event) => setDraft({ name: event.target.value })}
+        />
+      </Field>
+      <div className="field">
+        <span className="field-label">Type</span>
+        <Select<McpTransport>
+          className="input-sm"
+          label="Type"
+          value={editing.draft.transport}
+          options={(["stdio", "http"] as const).map((value) => ({ value, label: TRANSPORT_LABELS[value] }))}
+          onChange={(transport) => setDraft({ transport })}
+        />
+      </div>
+      {editing.draft.transport === "http" ? (
+        <>
+          <Field label="URL" hint="The server's streamable HTTP address. Plain http:// works only for localhost.">
+            <input
+              className="input input-sm is-mono"
+              inputMode="url"
+              value={editing.draft.url}
+              spellCheck={false}
+              placeholder="https://mcp.example.com/mcp"
+              onChange={(event) => setDraft({ url: event.target.value })}
+            />
+          </Field>
+          <Field
+            label="Headers"
+            hint="One Name: value per line, such as Authorization: Bearer and your token. Values stay on this computer, in ZLI's data folder and the agent config files it writes."
+          >
+            <textarea
+              className="textarea is-mono"
+              rows={2}
+              value={editing.draft.headers}
+              spellCheck={false}
+              onChange={(event) => setDraft({ headers: event.target.value })}
+            />
+          </Field>
+          <label className="check-field mcp-oauth">
+            <input
+              type="checkbox"
+              checked={editing.draft.oauth}
+              onChange={(event) => setDraft({ oauth: event.target.checked })}
+            />
+            <span className="choice-copy">
+              <span className="choice-title">Sign in with browser (OAuth)</span>
+              <span className="choice-detail">
+                For servers that ask you to sign in, such as Linear, Notion, and Sentry. After saving, use Sign in next
+                to the server. ZLI keeps the login and gives every agent a fresh token.
+              </span>
+            </span>
+          </label>
+        </>
+      ) : (
+        <>
+          <Field
+            label="Command"
+            hint="On Windows, start npx servers through cmd: command cmd, then /c and npx as the first arguments."
+          >
+            <input
+              className="input input-sm is-mono"
+              value={editing.draft.command}
+              spellCheck={false}
+              placeholder="npx"
+              onChange={(event) => setDraft({ command: event.target.value })}
+            />
+          </Field>
+          <Field label="Arguments" hint="One per line.">
+            <textarea
+              className="textarea is-mono"
+              rows={3}
+              value={editing.draft.args}
+              spellCheck={false}
+              onChange={(event) => setDraft({ args: event.target.value })}
+            />
+          </Field>
+          <Field
+            label="Environment"
+            hint="One NAME=value per line. Values stay on this computer, in ZLI's data folder and the agent config files it writes."
+          >
+            <textarea
+              className="textarea is-mono"
+              rows={2}
+              value={editing.draft.env}
+              spellCheck={false}
+              onChange={(event) => setDraft({ env: event.target.value })}
+            />
+          </Field>
+        </>
+      )}
+      <McpProjectsField
+        limit={editing.draft.limitProjects}
+        selected={editing.draft.projects}
+        onChange={(patch) => setDraft(patch)}
+      />
+      {problem || saveError ? (
         <p className="inline-error" role="alert">
           <Icon name="alert" size={13} />
-          {storeProblem} Saving starts a new list.
+          {problem ?? saveError}
         </p>
       ) : null}
+      <div className="mcp-editor-actions">
+        <Button
+          size="sm"
+          onClick={() => {
+            setEditing(undefined);
+            setProblem(undefined);
+            setSaveError(undefined);
+          }}
+        >
+          Cancel
+        </Button>
+        <Button size="sm" variant="primary" type="submit" loading={saving}>
+          {editing.index === undefined ? "Add server" : "Save changes"}
+        </Button>
+      </div>
+    </form>
+  ) : null;
+
+  const storeAlert = storeProblem ? (
+    <p className="inline-error" role="alert">
+      <Icon name="alert" size={13} />
+      {storeProblem} Saving starts a new list.
+    </p>
+  ) : null;
+
+  if (view === "custom") {
+    return (
+      <>
+        {storeAlert}
+        {editing && editing.index === undefined ? (
+          editorForm
+        ) : importing ? (
+          <McpImportPanel
+            servers={servers}
+            onSave={save}
+            onDone={(message) => {
+              setImporting(false);
+              setImported(message);
+            }}
+          />
+        ) : (
+          <div className="settings-actions mcp-actions">
+            <Button size="sm" icon="plus" disabled={saving} onClick={() => startEdit()}>
+              Add server
+            </Button>
+            <Button
+              size="sm"
+              icon="download"
+              disabled={saving}
+              onClick={() => {
+                setImported(undefined);
+                setAdded(undefined);
+                setImporting(true);
+              }}
+            >
+              Import from other apps
+            </Button>
+          </div>
+        )}
+        {added && !editing ? (
+          <p className="settings-done" role="status">
+            <Icon name="check" size={13} />
+            <span>
+              Added {added}. It is listed in <TextLink onClick={onInstalled}>Installed</TextLink>.
+            </span>
+          </p>
+        ) : null}
+        {imported && !importing ? (
+          <p className="settings-footnote" role="status">
+            {imported}
+          </p>
+        ) : null}
+      </>
+    );
+  }
+
+  return (
+    <>
+      {storeAlert}
       <h3 className="mcp-subhead">Built into ZLI</h3>
       <ul className="mcp-rows">
         <li className="mcp-row">
+          <ZliLogo size={28} className="mcp-row-logo" />
           <span className="mcp-row-copy">
             <strong>zli</strong>
             <span className="mcp-row-detail">
@@ -271,6 +478,7 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
           />
         </li>
         <li className="mcp-row">
+          <ZliLogo size={28} className="mcp-row-logo" />
           <span className="mcp-row-copy">
             <strong>zli-browser</strong>
             <span className="mcp-row-detail">
@@ -280,29 +488,19 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
           </span>
         </li>
       </ul>
-      <h3 className="mcp-subhead">Your servers</h3>
-      {servers.length === 0 && !editing ? (
-        <p className="settings-empty">No servers yet. Add one here once and every agent can use it.</p>
+      <h3 className="mcp-subhead">Your MCP servers</h3>
+      {servers.length === 0 ? (
+        <p className="settings-empty">
+          No servers yet. Connect one in <TextLink onClick={onBrowse}>Browse</TextLink>, or add your own in{" "}
+          <TextLink onClick={onCustom}>Custom</TextLink>.
+        </p>
       ) : null}
       {servers.length > 0 ? (
         <ul className="mcp-rows">
           {servers.map((server, index) => (
             <Fragment key={server.name}>
               <li className={`mcp-row${server.enabled ? "" : " is-off"}`}>
-                <input
-                  className="switch"
-                  type="checkbox"
-                  role="switch"
-                  checked={server.enabled}
-                  aria-checked={server.enabled}
-                  aria-label={`Give agents ${server.name}`}
-                  disabled={saving}
-                  onChange={(event) =>
-                    void persist(
-                      servers.map((entry, at) => (at === index ? { ...entry, enabled: event.target.checked } : entry)),
-                    )
-                  }
-                />
+                <ConnectorLogo id={serverLogoId(server)} title={server.name} size={28} />
                 <span className="mcp-row-copy">
                   {rowTitle(server.name, server.projects)}
                   <span className="mcp-row-command" title={serverSummary(server)}>
@@ -351,6 +549,20 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
                     />
                   </>
                 )}
+                <input
+                  className="switch"
+                  type="checkbox"
+                  role="switch"
+                  checked={server.enabled}
+                  aria-checked={server.enabled}
+                  aria-label={`Give agents ${server.name}`}
+                  disabled={saving}
+                  onChange={(event) =>
+                    void persist(
+                      servers.map((entry, at) => (at === index ? { ...entry, enabled: event.target.checked } : entry)),
+                    )
+                  }
+                />
               </li>
               {openTools.has(server.name) && tests[server.name] ? (
                 <li className="mcp-row-tools">
@@ -372,11 +584,12 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
       ))}
       {pluginSignIns.length > 0 ? (
         <>
-          <h3 className="mcp-subhead">From plugins</h3>
+          <h3 className="mcp-subhead">Servers from plugins</h3>
           <ul className="mcp-rows">
             {pluginSignIns.map((entry) => (
               <Fragment key={entry.name}>
                 <li className="mcp-row">
+                  <ConnectorLogo id={catalogEntryForUrl(entry.url)?.id ?? entry.name} title={entry.name} size={28} />
                   <span className="mcp-row-copy">
                     {rowTitle(entry.name)}
                     <span className="mcp-row-command" title={entry.url}>
@@ -408,177 +621,7 @@ export function McpServersSection({ onOpenConnectors }: { onOpenConnectors?(): v
           {saveError}
         </p>
       ) : null}
-      {editing ? (
-        <form
-          className="mcp-editor"
-          aria-label={editing.index === undefined ? "New MCP server" : "Edit MCP server"}
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit();
-          }}
-        >
-          <Field label="Name" hint="Agents show it next to the server's tools.">
-            <input
-              ref={nameRef}
-              className="input input-sm"
-              value={editing.draft.name}
-              maxLength={64}
-              spellCheck={false}
-              placeholder="github"
-              onChange={(event) => setDraft({ name: event.target.value })}
-            />
-          </Field>
-          <div className="field">
-            <span className="field-label">Type</span>
-            <Select<McpTransport>
-              className="input-sm"
-              label="Type"
-              value={editing.draft.transport}
-              options={(["stdio", "http"] as const).map((value) => ({ value, label: TRANSPORT_LABELS[value] }))}
-              onChange={(transport) => setDraft({ transport })}
-            />
-          </div>
-          {editing.draft.transport === "http" ? (
-            <>
-              <Field label="URL" hint="The server's streamable HTTP address. Plain http:// works only for localhost.">
-                <input
-                  className="input input-sm is-mono"
-                  inputMode="url"
-                  value={editing.draft.url}
-                  spellCheck={false}
-                  placeholder="https://mcp.example.com/mcp"
-                  onChange={(event) => setDraft({ url: event.target.value })}
-                />
-              </Field>
-              <Field
-                label="Headers"
-                hint="One Name: value per line, such as Authorization: Bearer and your token. Values stay on this computer, in ZLI's data folder and the agent config files it writes."
-              >
-                <textarea
-                  className="textarea is-mono"
-                  rows={2}
-                  value={editing.draft.headers}
-                  spellCheck={false}
-                  onChange={(event) => setDraft({ headers: event.target.value })}
-                />
-              </Field>
-              <label className="check-field mcp-oauth">
-                <input
-                  type="checkbox"
-                  checked={editing.draft.oauth}
-                  onChange={(event) => setDraft({ oauth: event.target.checked })}
-                />
-                <span className="choice-copy">
-                  <span className="choice-title">Sign in with browser (OAuth)</span>
-                  <span className="choice-detail">
-                    For servers that ask you to sign in, such as Linear, Notion, and Sentry. After saving, use Sign in
-                    next to the server. ZLI keeps the login and gives every agent a fresh token.
-                  </span>
-                </span>
-              </label>
-            </>
-          ) : (
-            <>
-              <Field
-                label="Command"
-                hint="On Windows, start npx servers through cmd: command cmd, then /c and npx as the first arguments."
-              >
-                <input
-                  className="input input-sm is-mono"
-                  value={editing.draft.command}
-                  spellCheck={false}
-                  placeholder="npx"
-                  onChange={(event) => setDraft({ command: event.target.value })}
-                />
-              </Field>
-              <Field label="Arguments" hint="One per line.">
-                <textarea
-                  className="textarea is-mono"
-                  rows={3}
-                  value={editing.draft.args}
-                  spellCheck={false}
-                  onChange={(event) => setDraft({ args: event.target.value })}
-                />
-              </Field>
-              <Field
-                label="Environment"
-                hint="One NAME=value per line. Values stay on this computer, in ZLI's data folder and the agent config files it writes."
-              >
-                <textarea
-                  className="textarea is-mono"
-                  rows={2}
-                  value={editing.draft.env}
-                  spellCheck={false}
-                  onChange={(event) => setDraft({ env: event.target.value })}
-                />
-              </Field>
-            </>
-          )}
-          <McpProjectsField
-            limit={editing.draft.limitProjects}
-            selected={editing.draft.projects}
-            onChange={(patch) => setDraft(patch)}
-          />
-          {problem || saveError ? (
-            <p className="inline-error" role="alert">
-              <Icon name="alert" size={13} />
-              {problem ?? saveError}
-            </p>
-          ) : null}
-          <div className="mcp-editor-actions">
-            <Button
-              size="sm"
-              onClick={() => {
-                setEditing(undefined);
-                setProblem(undefined);
-                setSaveError(undefined);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button size="sm" variant="primary" type="submit" loading={saving}>
-              {editing.index === undefined ? "Add server" : "Save changes"}
-            </Button>
-          </div>
-        </form>
-      ) : importing ? (
-        <McpImportPanel
-          servers={servers}
-          onSave={save}
-          onDone={(message) => {
-            setImporting(false);
-            setImported(message);
-          }}
-        />
-      ) : (
-        <div className="settings-actions mcp-actions">
-          <Button size="sm" icon="plus" disabled={saving} onClick={() => startEdit()}>
-            Add server
-          </Button>
-          {onOpenConnectors ? (
-            <Button size="sm" icon="globe" disabled={saving} onClick={onOpenConnectors}>
-              Browse connectors
-            </Button>
-          ) : null}
-          <Button
-            size="sm"
-            icon="download"
-            disabled={saving}
-            onClick={() => {
-              setImported(undefined);
-              setConfirmDelete(undefined);
-              setImporting(true);
-            }}
-          >
-            Import from other apps
-          </Button>
-        </div>
-      )}
-      {imported && !importing ? (
-        <p className="settings-footnote" role="status">
-          {imported}
-        </p>
-      ) : null}
+      {editorForm}
       <p className="settings-footnote">
         {userSettings.enabled
           ? `${SETTINGS_AGENTS} only read servers from their own settings files, so ZLI writes enabled servers there and removes the ones it added.`

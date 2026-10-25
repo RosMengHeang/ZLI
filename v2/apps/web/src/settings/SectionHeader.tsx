@@ -9,6 +9,16 @@ export function SectionHeader({ title, children }: { title: string; children?: R
   );
 }
 
+/** A word in running copy that jumps elsewhere in Settings, or plain text when there is nowhere to go. */
+export function TextLink({ onClick, children }: { onClick?: (() => void) | undefined; children: ReactNode }) {
+  if (!onClick) return <>{children}</>;
+  return (
+    <button type="button" className="connector-link text-link" onClick={onClick}>
+      {children}
+    </button>
+  );
+}
+
 /** One setting: its name and what it does on the left, the control on the right. */
 export function SettingRow({
   label,

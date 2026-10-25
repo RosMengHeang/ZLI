@@ -1,4 +1,4 @@
-import type { PluginInstallPreview, PluginOrigin, PluginSummary } from "@zli-v2/contracts";
+import { PLUGIN_CATALOG, type PluginInstallPreview, type PluginOrigin, type PluginSummary } from "@zli-v2/contracts";
 import { useEffect, useRef, useState } from "react";
 
 import { OriginBadge } from "../plugins/OriginBadge.js";
@@ -19,9 +19,10 @@ import { Badge } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Field } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
+import { ConnectorLogo, hasConnectorLogo } from "./connectorLogos.js";
 import { PluginExportForm } from "./PluginExportForm.js";
 import { PluginGallery } from "./PluginGallery.js";
-import { SectionHeader } from "./SectionHeader.js";
+import { TextLink } from "./SectionHeader.js";
 import { formatBytes } from "./skills.js";
 import "../plugins/plugins.css";
 
@@ -34,7 +35,34 @@ type Installing = {
 };
 type Configuring = { name: string; values: Record<string, string> };
 
-export function PluginsSection() {
+/** The catalog logo for an installed plugin, Claude's mark for Anthropic's directory, or its first letter. */
+export function pluginLogoId(plugin: Pick<PluginSummary, "name" | "origin">): string {
+  const entry = PLUGIN_CATALOG.find((candidate) => candidate.id === plugin.name);
+  if (entry) return entry.logoId ?? entry.id;
+  if (hasConnectorLogo(plugin.name) || plugin.origin !== "anthropic-directory") return plugin.name;
+  return "claude";
+}
+
+export type PluginsView = "browse" | "installed" | "custom";
+
+/**
+ * Plugins on one Integrations tab: the gallery on Browse, the installed list on Installed, and
+ * installing from a source or sharing a setup on Custom.
+ */
+export function PluginsSection({
+  view,
+  query = "",
+  onBrowse,
+  onCustom,
+  onInstalled,
+}: {
+  view: PluginsView;
+  /** The Browse tab's search. */
+  query?: string;
+  onBrowse?(): void;
+  onCustom?(): void;
+  onInstalled?(): void;
+}) {
   const { state, reload, dispatch, apply } = usePlugins();
   const [installing, setInstalling] = useState<Installing>();
   const [configuring, setConfiguring] = useState<Configuring>();
@@ -43,14 +71,15 @@ export function PluginsSection() {
   const [busy, setBusy] = useState<string>();
   const [exporting, setExporting] = useState(false);
   const [saved, setSaved] = useState<string>();
+  const [installedNames, setInstalledNames] = useState<string[]>([]);
   const [checkProblem, setCheckProblem] = useState<string>();
   const sourceRef = useRef<HTMLInputElement>(null);
   const installRef = useRef<HTMLFormElement>(null);
   const checked = useRef(false);
 
-  // Checks for updates once per visit, without holding up the list.
+  // Checks for updates once per visit to the installed list, without holding it up.
   useEffect(() => {
-    if (state.status !== "ready" || checked.current) return;
+    if (view !== "installed" || state.status !== "ready" || checked.current) return;
     checked.current = true;
     const before = state.result.problem;
     void apply(async (send) => {
@@ -60,30 +89,19 @@ export function PluginsSection() {
       const { problem: _problem, ...rest } = list;
       return before ? { ...rest, problem: before } : rest;
     }).catch(() => undefined);
-  }, [state, apply]);
-
-  const header = (
-    <SectionHeader title="Plugins">
-      Bundles of skills, MCP servers, prompts, and actions. ZLI reads Claude Code and Codex plugins and hands their
-      parts to every agent.
-    </SectionHeader>
-  );
+  }, [view, state, apply]);
 
   if (state.status === "loading") {
     return (
-      <>
-        {header}
-        <p className="loading-line">
-          <span className="spinner" aria-hidden="true" />
-          Loading plugins
-        </p>
-      </>
+      <p className="loading-line">
+        <span className="spinner" aria-hidden="true" />
+        Loading plugins
+      </p>
     );
   }
   if (state.status === "error") {
     return (
       <>
-        {header}
         <p className="inline-error" role="alert">
           <Icon name="alert" size={13} />
           {state.message}
@@ -119,6 +137,7 @@ export function PluginsSection() {
     setConfirmRemove(undefined);
     setExporting(false);
     setSaved(undefined);
+    setInstalledNames([]);
     setError(undefined);
   };
 
@@ -148,6 +167,11 @@ export function PluginsSection() {
     const done = await run("install", () => apply((send) => installPlugins(send, source, selected, origin)));
     if (!done) return;
     setInstalling(undefined);
+    setInstalledNames(
+      installing.preview.candidates
+        .filter((candidate) => selected.includes(candidate.name))
+        .map((candidate) => candidate.displayName),
+    );
     const needsSettings = installing.preview.candidates.find(
       (candidate) => selected.includes(candidate.name) && candidate.config.some((option) => option.required),
     );
@@ -202,20 +226,7 @@ export function PluginsSection() {
     ) : null;
     return (
       <li className={`mcp-row plugin-row${plugin.enabled ? "" : " is-off"}`} key={plugin.name}>
-        <input
-          className="switch"
-          type="checkbox"
-          role="switch"
-          checked={plugin.enabled}
-          aria-checked={plugin.enabled}
-          aria-label={`Turn on ${plugin.displayName}`}
-          disabled={rowBusy}
-          onChange={(event) =>
-            void run(`enable:${plugin.name}`, () =>
-              apply((send) => setPluginEnabled(send, plugin.name, event.target.checked)),
-            )
-          }
-        />
+        <ConnectorLogo id={pluginLogoId(plugin)} title={plugin.displayName} size={28} />
         <span className="mcp-row-copy">
           <span className="skill-row-title">
             <strong>{plugin.displayName}</strong>
@@ -288,6 +299,20 @@ export function PluginsSection() {
             />
           </>
         )}
+        <input
+          className="switch"
+          type="checkbox"
+          role="switch"
+          checked={plugin.enabled}
+          aria-checked={plugin.enabled}
+          aria-label={`Turn on ${plugin.displayName}`}
+          disabled={rowBusy}
+          onChange={(event) =>
+            void run(`enable:${plugin.name}`, () =>
+              apply((send) => setPluginEnabled(send, plugin.name, event.target.checked)),
+            )
+          }
+        />
       </li>
     );
   };
@@ -296,7 +321,6 @@ export function PluginsSection() {
 
   return (
     <>
-      {header}
       {result.problem ? (
         <p className="inline-error" role="alert">
           <Icon name="alert" size={13} />
@@ -304,15 +328,20 @@ export function PluginsSection() {
         </p>
       ) : null}
 
-      <h3 className="mcp-subhead">Your plugins</h3>
-      {result.plugins.length > 0 ? (
-        <ul className="mcp-rows">{result.plugins.map(pluginRow)}</ul>
-      ) : (
-        <p className="settings-empty">
-          No plugins yet. Pick one below, or install one from GitHub or a folder on this computer.
-        </p>
-      )}
-      {checkProblem ? <p className="settings-footnote">{checkProblem}</p> : null}
+      {view === "installed" ? (
+        <>
+          <h3 className="mcp-subhead">Your plugins</h3>
+          {result.plugins.length > 0 ? (
+            <ul className="mcp-rows">{result.plugins.map(pluginRow)}</ul>
+          ) : (
+            <p className="settings-empty">
+              No plugins yet. Find one in <TextLink onClick={onBrowse}>Browse</TextLink>, or install one from GitHub or
+              a folder in <TextLink onClick={onCustom}>Custom</TextLink>.
+            </p>
+          )}
+          {checkProblem ? <p className="settings-footnote">{checkProblem}</p> : null}
+        </>
+      ) : null}
 
       {error && !installing && !configuring ? (
         <p className="inline-error" role="alert">
@@ -441,7 +470,7 @@ export function PluginsSection() {
             )}
           </div>
         </form>
-      ) : exporting ? (
+      ) : view !== "custom" ? null : exporting ? (
         <PluginExportForm
           onCancel={closeForms}
           onSaved={(done) => {
@@ -476,18 +505,39 @@ export function PluginsSection() {
         </>
       )}
 
-      <PluginGallery
-        installed={new Set(result.plugins.map((plugin) => plugin.name))}
-        disabled={busy !== undefined}
-        loadingSource={busy === "install" && !installing?.preview ? installing?.source : undefined}
-        onInstall={installFromGallery}
-      />
+      {installedNames.length > 0 && !installing && !configuring ? (
+        <p className="settings-done" role="status">
+          <Icon name="check" size={13} />
+          <span>
+            Installed {installedNames.join(", ")}.
+            {view === "installed" ? null : (
+              <>
+                {" "}
+                {installedNames.length === 1 ? "It is" : "They are"} listed in{" "}
+                <TextLink onClick={onInstalled}>Installed</TextLink>.
+              </>
+            )}
+          </span>
+        </p>
+      ) : null}
 
-      <p className="settings-footnote">
-        Plugin skills are copied with your own skills, and plugin MCP servers start with your own servers. Your own
-        skills and servers win when a name is taken. Prompts appear when you type / in a chat, and actions in the
-        command palette. Plugins are kept in {result.pluginsPath}.
-      </p>
+      {view === "browse" ? (
+        <PluginGallery
+          query={query}
+          installed={new Set(result.plugins.map((plugin) => plugin.name))}
+          disabled={busy !== undefined}
+          loadingSource={busy === "install" && !installing?.preview ? installing?.source : undefined}
+          onInstall={installFromGallery}
+        />
+      ) : null}
+
+      {view === "installed" ? (
+        <p className="settings-footnote">
+          Plugin skills are copied with your own skills, and plugin MCP servers start with your own servers. Your own
+          skills and servers win when a name is taken. Prompts appear when you type / in a chat, and actions in the
+          command palette. Plugins are kept in {result.pluginsPath}.
+        </p>
+      ) : null}
     </>
   );
 }

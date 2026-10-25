@@ -4,6 +4,8 @@ import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { MCP_CATALOG, PLUGIN_CATALOG } from "@zli-v2/contracts";
+
 import { ConnectorLogo, hasConnectorLogo, logoFill } from "./connectorLogos.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -45,9 +47,17 @@ describe("hasConnectorLogo", () => {
     expect(hasConnectorLogo("github")).toBe(true);
     expect(hasConnectorLogo("chrome-devtools")).toBe(true);
     expect(hasConnectorLogo("sequential-thinking")).toBe(true);
-    expect(hasConnectorLogo("monday")).toBe(false);
-    expect(hasConnectorLogo("context7")).toBe(false);
+    expect(hasConnectorLogo("monday")).toBe(true);
+    expect(hasConnectorLogo("context7")).toBe(true);
+    expect(hasConnectorLogo("my-own-server")).toBe(false);
     expect(hasConnectorLogo("toString")).toBe(false);
+  });
+
+  it("has a mark for every connector and plugin in the catalogs", () => {
+    expect(MCP_CATALOG.filter((entry) => !hasConnectorLogo(entry.id)).map((entry) => entry.id)).toEqual([]);
+    expect(
+      PLUGIN_CATALOG.filter((entry) => !hasConnectorLogo(entry.logoId ?? entry.id)).map((entry) => entry.id),
+    ).toEqual([]);
   });
 });
 
@@ -66,8 +76,14 @@ describe("ConnectorLogo", () => {
     expect(container.querySelector("svg path")?.getAttribute("fill")).toBe("currentColor");
   });
 
+  it("draws every shape of a multi-color mark in its own color", async () => {
+    const container = await render(<ConnectorLogo id="slack" title="Slack" />);
+    const fills = [...container.querySelectorAll("svg path")].map((path) => path.getAttribute("fill"));
+    expect(new Set(fills).size).toBe(4);
+  });
+
   it("shows the first letter when no logo exists", async () => {
-    const container = await render(<ConnectorLogo id="monday" title="monday.com" />);
+    const container = await render(<ConnectorLogo id="my-own-server" title="My own server" />);
     const tile = container.querySelector<HTMLElement>(".connector-logo");
     expect(tile?.querySelector("svg")).toBeNull();
     expect(tile?.textContent).toBe("M");

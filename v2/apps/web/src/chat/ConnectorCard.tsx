@@ -167,7 +167,7 @@ export function ConnectorCard({
         : need === "settings"
           ? entry
             ? "It needs a few details first. Add them in Settings."
-            : "Add it in Settings, under MCP servers."
+            : "Add it in Settings, under Integrations."
           : (entry?.description ?? "Turn it on so new chats can use it.");
   const action = need === "sign-in" ? "Sign in" : need === "settings" ? "Open Settings" : "Connect";
 
