@@ -8,11 +8,14 @@ import {
   errorText,
   formatBytes,
   framePoint,
+  isPasteShortcut,
   keyInput,
   leaseNotice,
   pickDevice,
   planDownload,
   progressPercent,
+  sendTextInput,
+  textChunks,
   wheelPixels,
   wheelSwipe,
 } from "./mobile.js";
@@ -106,6 +109,34 @@ describe("mobile panel helpers", () => {
     expect(wheelPixels({ deltaX: 0, deltaY: 120, deltaMode: 0 }, page)).toEqual({ x: 0, y: 120 });
     expect(wheelPixels({ deltaX: 1, deltaY: 3, deltaMode: 1 }, page)).toEqual({ x: 40, y: 120 });
     expect(wheelPixels({ deltaX: 0, deltaY: 1, deltaMode: 2 }, page)).toEqual({ x: 0, y: 600 });
+  });
+
+  it("splits long text into 300-character inputs without breaking a character", async () => {
+    const long = "x".repeat(650);
+    expect(textChunks(long).map((chunk) => chunk.length)).toEqual([300, 300, 50]);
+    expect(textChunks(long).join("")).toBe(long);
+    expect(textChunks(`${"a".repeat(299)}\u{1F600}b`)).toEqual(["a".repeat(299), "\u{1F600}b"]);
+    expect(textChunks("")).toEqual([]);
+
+    const sent: string[] = [];
+    await sendTextInput(
+      {
+        input: async (input) => {
+          if (input.type === "text") sent.push(input.text);
+        },
+      },
+      "d",
+      long,
+    );
+    expect(sent.map((chunk) => chunk.length)).toEqual([300, 300, 50]);
+  });
+
+  it("recognizes the paste shortcut with Ctrl or Cmd", () => {
+    const plain = { ctrlKey: false, metaKey: false, altKey: false };
+    expect(isPasteShortcut({ key: "v", ...plain, ctrlKey: true })).toBe(true);
+    expect(isPasteShortcut({ key: "V", ...plain, metaKey: true })).toBe(true);
+    expect(isPasteShortcut({ key: "v", ...plain })).toBe(false);
+    expect(isPasteShortcut({ key: "v", ...plain, ctrlKey: true, altKey: true })).toBe(false);
   });
 
   it("says who holds a device", () => {

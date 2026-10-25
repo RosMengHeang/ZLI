@@ -1,4 +1,4 @@
-import type { MobileButton, MobileDevice, MobileSetupStatus } from "@zli-v2/contracts";
+import type { MobileDevice, MobileSetupStatus } from "@zli-v2/contracts";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import type { MobileBridge } from "../runtime/bridge.js";
@@ -10,6 +10,7 @@ import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
 import { Picker } from "../ui/Picker.js";
 import { Switch } from "../ui/Switch.js";
 import { DeviceScreen } from "./DeviceScreen.js";
+import { MobileControls } from "./MobileControls.js";
 import { MobileSetup } from "./MobileSetup.js";
 import {
   accelerationProblem,
@@ -134,20 +135,6 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
 
   const nudgeTakeOver = useCallback(() => takeOverRef.current?.focus(), []);
 
-  const press = (target: MobileDevice, button: MobileButton) => {
-    if (agentHolds) return nudgeTakeOver();
-    setActionError(undefined);
-    mobile
-      .input({ deviceId: target.deviceId, type: "button", button })
-      .catch((cause: unknown) => setActionError(errorText(cause, "The device did not accept that button.")));
-  };
-  const rotate = (target: MobileDevice) => {
-    if (agentHolds) return nudgeTakeOver();
-    setActionError(undefined);
-    mobile
-      .input({ deviceId: target.deviceId, type: "rotate" })
-      .catch((cause: unknown) => setActionError(errorText(cause, "The device did not rotate.")));
-  };
   const saveScreenshot = (target: MobileDevice) =>
     run(
       "screenshot",
@@ -418,33 +405,16 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
       ) : null}
       <div className="mobile-body">{body}</div>
       {device && online && !showSetup ? (
-        <nav className="mobile-controls" aria-label="Device buttons">
-          {android ? (
-            <Button size="sm" variant="ghost" icon="arrowLeft" onClick={() => press(device, "back")}>
-              Back
-            </Button>
-          ) : null}
-          <Button size="sm" variant="ghost" icon="circle" onClick={() => press(device, "home")}>
-            Home
-          </Button>
-          {android ? (
-            <Button size="sm" variant="ghost" icon="square" onClick={() => press(device, "recents")}>
-              Recents
-            </Button>
-          ) : null}
-          <span className="mobile-toolbar-spacer" />
-          {android ? (
-            <IconButton icon="rotate" size="sm" iconSize={14} label="Rotate" onClick={() => rotate(device)} />
-          ) : null}
-          <IconButton
-            icon="download"
-            size="sm"
-            iconSize={14}
-            label="Save a screenshot"
-            disabled={busy === "screenshot"}
-            onClick={() => void saveScreenshot(device)}
-          />
-        </nav>
+        <MobileControls
+          key={device.deviceId}
+          mobile={mobile}
+          device={device}
+          inputBlocked={agentHolds}
+          onBlockedInput={nudgeTakeOver}
+          onError={setActionError}
+          screenshotBusy={busy === "screenshot"}
+          onScreenshot={() => void saveScreenshot(device)}
+        />
       ) : null}
       <div className="mobile-footer">
         <Switch

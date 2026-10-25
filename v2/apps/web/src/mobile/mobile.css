@@ -18,6 +18,8 @@
 .mobile-trail-start { fill: var(--zli-text); stroke: var(--zli-canvas); stroke-opacity: .5; stroke-width: 1.5; }
 .mobile-trail-end { fill: var(--zli-text); fill-opacity: .3; stroke: var(--zli-text); stroke-width: 1.5; }
 .mobile-note { flex: 0 0 auto; margin: 0; padding: var(--zli-space-1-5) var(--zli-space-3); border-top: 1px solid var(--zli-border); color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.mobile-type-row { display: flex; align-items: center; gap: var(--zli-space-2); flex: 0 0 auto; padding: var(--zli-space-1-5) var(--zli-space-2); border-top: 1px solid var(--zli-border); }
+.mobile-type-row .input { flex: 1; }
 .mobile-controls { display: flex; align-items: center; gap: var(--zli-space-1); height: var(--zli-toolbar); flex: 0 0 auto; padding: 0 var(--zli-space-2); border-top: 1px solid var(--zli-border); }
 .mobile-footer { flex: 0 0 auto; padding: 0 var(--zli-space-3); border-top: 1px solid var(--zli-border); background: var(--zli-well); }
 .mobile-footer .switch-hint { line-height: var(--zli-leading-normal); }

@@ -8,6 +8,8 @@ import type {
   MobileSetupProgress,
 } from "@zli-v2/contracts";
 
+import type { MobileBridge } from "../runtime/bridge.js";
+
 /** Electron prefixes errors from the main process with the channel name; the person only needs the reason. */
 export function errorText(cause: unknown, fallback: string): string {
   const raw = cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "";
@@ -141,6 +143,37 @@ export function keyInput(
   if (button) return { deviceId, type: "button", button };
   if ([...event.key].length === 1) return { deviceId, type: "text", text: event.key };
   return undefined;
+}
+
+/** The most text one panel input carries; the contract refuses longer strings. */
+export const TEXT_INPUT_MAX = 300;
+
+/** Splits text into pieces short enough for one input each, never through the middle of a character. */
+export function textChunks(text: string, size = TEXT_INPUT_MAX): string[] {
+  const chunks: string[] = [];
+  let current = "";
+  for (const character of text) {
+    if (current.length + character.length > size) {
+      chunks.push(current);
+      current = "";
+    }
+    current += character;
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+/** Types text on the device in order, one input per chunk. */
+export async function sendTextInput(
+  mobile: Pick<MobileBridge, "input">,
+  deviceId: string,
+  text: string,
+): Promise<void> {
+  for (const chunk of textChunks(text)) await mobile.input({ deviceId, type: "text", text: chunk });
+}
+
+export function isPasteShortcut(event: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean }): boolean {
+  return (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "v";
 }
 
 export function formatBytes(bytes: number): string {

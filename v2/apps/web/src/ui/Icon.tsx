@@ -103,6 +103,12 @@ const paths = {
       <path d="M12 18h.01" />
     </>
   ),
+  keyboard: (
+    <>
+      <rect width="20" height="16" x="2" y="4" rx="2" />
+      <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10" />
+    </>
+  ),
   rotate: (
     <>
       <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />

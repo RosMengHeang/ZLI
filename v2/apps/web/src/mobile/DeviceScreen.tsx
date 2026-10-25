@@ -1,11 +1,28 @@
 import type { MobileDevice, MobilePanelInput, MobileStreamEvent, MobileStreamInfo } from "@zli-v2/contracts";
-import { type KeyboardEvent, type PointerEvent, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ClipboardEvent,
+  type KeyboardEvent,
+  type PointerEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import type { MobileBridge } from "../runtime/bridge.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, LoadingState } from "../ui/Pane.js";
-import { errorText, framePoint, keyInput, type TouchStep, wheelPixels, wheelSwipe } from "./mobile.js";
+import {
+  errorText,
+  framePoint,
+  isPasteShortcut,
+  keyInput,
+  sendTextInput,
+  type TouchStep,
+  wheelPixels,
+  wheelSwipe,
+} from "./mobile.js";
 
 type Size = { width: number; height: number };
 type Point = { x: number; y: number };
@@ -19,6 +36,11 @@ const WHEEL_STEP_MS = 16;
 const WHEEL_SETTLE_MS = 60;
 /** Screenshot mode swipes with adb, which takes the time between press and release as the swipe's duration. */
 const WHEEL_STILLS_HOLD_MS = 250;
+/**
+ * How long Mod+V waits for the browser's own paste event before reading the clipboard itself. Without an Edit
+ * menu, macOS never turns Cmd+V into a paste event.
+ */
+const PASTE_FALLBACK_MS = 100;
 
 /**
  * The live screen of one running device. Android arrives as H.264 decoded with WebCodecs; iOS, and Android
@@ -56,6 +78,7 @@ export function DeviceScreen({
   const [trail, setTrail] = useState<{ from: Point; to: Point }>();
   const wheelRef = useRef<{ delta: Point; point: Point; size: Size; timer: number } | undefined>(undefined);
   const swipesRef = useRef<Promise<void>>(Promise.resolve());
+  const pasteFallbackRef = useRef<number | undefined>(undefined);
   const unmountedRef = useRef(false);
 
   useEffect(() => {
@@ -64,6 +87,7 @@ export function DeviceScreen({
       unmountedRef.current = true;
       if (wheelRef.current) window.clearTimeout(wheelRef.current.timer);
       wheelRef.current = undefined;
+      window.clearTimeout(pasteFallbackRef.current);
     };
   }, []);
 
@@ -299,7 +323,44 @@ export function DeviceScreen({
     canvasRef.current = node;
     setScreen(node);
   }, []);
+  const pasteText = (text: string) => {
+    if (!text) return;
+    if (inputBlocked) {
+      onBlockedInput();
+      return;
+    }
+    sendTextInput(mobile, deviceId, text).then(
+      () => setInputError(undefined),
+      (cause: unknown) => setInputError(errorText(cause, "The device did not accept the pasted text.")),
+    );
+  };
+  const onPaste = (event: ClipboardEvent<HTMLElement>) => {
+    event.preventDefault();
+    window.clearTimeout(pasteFallbackRef.current);
+    pasteFallbackRef.current = undefined;
+    pasteText(event.clipboardData.getData("text/plain"));
+  };
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (isPasteShortcut(event)) {
+      if (inputBlocked) {
+        event.preventDefault();
+        onBlockedInput();
+        return;
+      }
+      window.clearTimeout(pasteFallbackRef.current);
+      pasteFallbackRef.current = window.setTimeout(() => {
+        pasteFallbackRef.current = undefined;
+        if (unmountedRef.current) return;
+        if (!navigator.clipboard) {
+          setInputError("ZLI could not read the clipboard. Paste into Type text instead.");
+          return;
+        }
+        navigator.clipboard
+          .readText()
+          .then(pasteText, () => setInputError("ZLI could not read the clipboard. Paste into Type text instead."));
+      }, PASTE_FALLBACK_MS);
+      return;
+    }
     const input = keyInput(deviceId, event);
     if (!input) return;
     event.preventDefault();
@@ -336,6 +397,7 @@ export function DeviceScreen({
     onPointerUp,
     onPointerCancel: onPointerUp,
     onKeyDown,
+    onPaste,
   };
   const note = decodeProblem ?? info?.fallbackReason;
 

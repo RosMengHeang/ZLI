@@ -225,6 +225,22 @@ function sizedScreen(container: HTMLElement): HTMLImageElement {
   return screen;
 }
 
+function typeInto(input: HTMLInputElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function paste(element: Element, text: string) {
+  const event = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", { value: { getData: () => text } });
+  element.dispatchEvent(event);
+  return event;
+}
+
+function texts(fake: ReturnType<typeof createMobile>) {
+  return fake.mobile.input.mock.calls.flatMap(([input]) => (input.type === "text" ? [input.text] : []));
+}
+
 async function advance(milliseconds: number) {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(milliseconds);
@@ -371,6 +387,70 @@ describe("MobilePane", () => {
     expect(touches(fake)).toEqual(["down 540,2000", "up 540,800"]);
   });
 
+  it("types text from the Type text field in 300-character pieces", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    await click(button(container, "Type text"));
+    const field = container.querySelector<HTMLInputElement>(".mobile-type-row input");
+    if (!field) throw new Error("No Type text field");
+    expect(document.activeElement).toBe(field);
+
+    let finish: (() => void) | undefined;
+    fake.mobile.input.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          finish = () => resolve(undefined);
+        }),
+    );
+    const long = `${"a".repeat(300)}${"b".repeat(300)}cd`;
+    await act(async () => typeInto(field, long));
+    await click(button(container, "Send"));
+    expect(button(container, "Send").getAttribute("aria-busy")).toBe("true");
+    await act(async () => finish?.());
+    expect(texts(fake)).toEqual(["a".repeat(300), "b".repeat(300), "cd"]);
+    expect(field.value).toBe("");
+
+    fake.mobile.input.mockRejectedValueOnce(
+      new Error("Error invoking remote method 'zli:mobile:input': Error: adb can type only printable ASCII."),
+    );
+    await act(async () => typeInto(field, "é"));
+    await click(button(container, "Send"));
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("adb can type only printable ASCII.");
+    expect(field.value).toBe("é");
+
+    await act(async () => {
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(container.querySelector(".mobile-type-row")).toBeNull();
+    expect(document.activeElement).toBe(button(container, "Type text"));
+  });
+
+  it("pastes clipboard text into the device, through the paste event or the clipboard", async () => {
+    vi.useFakeTimers();
+    const readText = vi.fn(async () => "from the clipboard");
+    Object.defineProperty(navigator, "clipboard", { value: { readText }, configurable: true });
+    const fake = createMobile({ devices: [emulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    await showStill(fake, emulator);
+    const screen = sizedScreen(container);
+
+    await act(async () => {
+      screen.dispatchEvent(new KeyboardEvent("keydown", { key: "v", ctrlKey: true, bubbles: true, cancelable: true }));
+      expect(paste(screen, "x".repeat(320)).defaultPrevented).toBe(true);
+    });
+    await advance(200);
+    expect(texts(fake)).toEqual(["x".repeat(300), "x".repeat(20)]);
+    expect(readText).not.toHaveBeenCalled();
+
+    await act(async () => {
+      screen.dispatchEvent(new KeyboardEvent("keydown", { key: "v", metaKey: true, bubbles: true, cancelable: true }));
+    });
+    await advance(200);
+    expect(readText).toHaveBeenCalledTimes(1);
+    expect(texts(fake).at(-1)).toBe("from the clipboard");
+    Reflect.deleteProperty(navigator, "clipboard");
+  });
+
   it("blocks input while an agent holds the device and hands control over on request", async () => {
     const held: MobileDevice = {
       ...emulator,
@@ -393,6 +473,18 @@ describe("MobilePane", () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
     });
     expect(scrolled?.defaultPrevented).toBe(true);
+    expect(fake.mobile.input).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(button(container, "Take over"));
+
+    (document.activeElement as HTMLElement).blur();
+    await act(async () => {
+      paste(screen, "secret");
+    });
+    expect(document.activeElement).toBe(button(container, "Take over"));
+    await click(button(container, "Type text"));
+    const field = container.querySelector<HTMLInputElement>(".mobile-type-row input") as HTMLInputElement;
+    await act(async () => typeInto(field, "hello"));
+    await click(button(container, "Send"));
     expect(fake.mobile.input).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(button(container, "Take over"));
 
