@@ -58,6 +58,7 @@ import { shouldOpenExternal } from "./security/NavigationPolicy.js";
 import { registerUpdates } from "./updates/electronUpdates.js";
 import { resolveAppAsset } from "./window/ElectronProtocol.js";
 import { type BrowserWindowConstructor, createMainWindow } from "./window/ElectronWindow.js";
+import { WINDOWS_APP_ID, windowsAppDetails } from "./window/windowsTaskbar.js";
 
 const DEFAULT_ENVIRONMENT_ID = "00000000-0000-4000-8000-000000000001";
 const APP_ORIGIN = "zli-v2://app";
@@ -69,6 +70,11 @@ protocol.registerSchemesAsPrivileged([
     privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
   },
 ]);
+
+// Windows ties a window to a taskbar button when the window is created. Set any later, the window keeps
+// Electron's own ID and shows as a second button with Electron's icon beside the pinned ZLI shortcut.
+// Toasts also need this ID, since it matches the Start menu shortcut.
+if (process.platform === "win32") app.setAppUserModelId(WINDOWS_APP_ID);
 
 // Integration tests turn motion off so a click never lands on a dialog that is still animating in.
 if (process.env.ZLI_REDUCED_MOTION === "1") app.commandLine.appendSwitch("force-prefers-reduced-motion");
@@ -147,6 +153,8 @@ async function main(): Promise<void> {
   if (dockIcon) app.dock?.setIcon(dockIcon);
   const electronWindow = window as unknown as BrowserWindow;
   mainWindow = electronWindow;
+  const taskbarDetails = process.platform === "win32" ? windowsAppDetails(process.execPath, app.isPackaged) : undefined;
+  if (taskbarDetails) electronWindow.setAppDetails(taskbarDetails);
   // Closing the window goes through the quit, which may ask first and keep the window open.
   electronWindow.on("close", (event) => {
     if (quitController.exiting) return;

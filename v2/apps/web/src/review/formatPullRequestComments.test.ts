@@ -1,7 +1,7 @@
 import type { PullRequestReviewSummary, PullRequestReviewThread } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
-import { formatPullRequestCommentsMessage, threadLocation } from "./pullRequestComments.js";
+import { formatPullRequestCommentsMessage, threadLocation } from "./formatPullRequestComments.js";
 
 const PR = { number: 7, url: "https://github.com/acme/app/pull/7" };
 

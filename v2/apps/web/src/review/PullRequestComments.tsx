@@ -12,7 +12,7 @@ import { Badge } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { openExternalLink } from "./links.js";
-import { formatPullRequestCommentsMessage, reviewStateText, threadLocation } from "./pullRequestComments.js";
+import { formatPullRequestCommentsMessage, reviewStateText, threadLocation } from "./formatPullRequestComments.js";
 import { readReviewComments } from "./pullRequestClient.js";
 import { SendToAgentDialog } from "./SendToAgentDialog.js";
 
