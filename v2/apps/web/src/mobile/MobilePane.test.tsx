@@ -2,11 +2,13 @@
 
 import type {
   MobileDevice,
+  MobilePanelInput,
   MobileSettings,
   MobileSetupPlan,
   MobileSetupProgress,
   MobileSetupStatus,
   MobileStreamEvent,
+  MobileStreamInfo,
 } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -113,13 +115,15 @@ function createMobile(options: { devices: MobileDevice[]; status?: MobileSetupSt
     },
     boot: vi.fn(async (deviceId: string) => devices.find((device) => device.deviceId === deviceId) as MobileDevice),
     shutdown: vi.fn(async () => undefined),
-    startStream: vi.fn(async (deviceId: string) => ({ deviceId, mode: "stills" as const, width: 0, height: 0 })),
+    startStream: vi.fn(
+      async (deviceId: string): Promise<MobileStreamInfo> => ({ deviceId, mode: "stills", width: 0, height: 0 }),
+    ),
     stopStream: vi.fn(async () => undefined),
     onStream: (listener: (event: MobileStreamEvent) => void) => {
       streamListeners.add(listener);
       return () => streamListeners.delete(listener);
     },
-    input: vi.fn(async () => undefined),
+    input: vi.fn(async (_input: MobilePanelInput) => undefined),
     takeOver: vi.fn(async () => undefined),
     release: vi.fn(async () => undefined),
     screenshot: vi.fn(async () => ({ data: pixel, mimeType: "image/png" as const, width: 1080, height: 2400 })),
@@ -160,6 +164,7 @@ beforeAll(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   act(() => root?.unmount());
   root = undefined;
   document.body.replaceChildren();
@@ -198,6 +203,38 @@ function pointer(element: Element, type: string, x: number, y: number) {
   const event = new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y });
   Object.defineProperty(event, "pointerId", { value: 1 });
   element.dispatchEvent(event);
+}
+
+function wheel(element: Element, deltaY: number, x: number, y: number) {
+  const event = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY, clientX: x, clientY: y });
+  element.dispatchEvent(event);
+  return event;
+}
+
+async function showStill(fake: ReturnType<typeof createMobile>, device: MobileDevice) {
+  await act(async () => {
+    fake.stream({ type: "still", deviceId: device.deviceId, data: pixel, width: 1080, height: 2400 });
+  });
+}
+
+function sizedScreen(container: HTMLElement): HTMLImageElement {
+  const screen = container.querySelector<HTMLImageElement>("img.mobile-screen");
+  if (!screen) throw new Error("No screen");
+  screen.getBoundingClientRect = () =>
+    ({ left: 0, top: 0, right: 270, bottom: 600, width: 270, height: 600 }) as DOMRect;
+  return screen;
+}
+
+async function advance(milliseconds: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(milliseconds);
+  });
+}
+
+function touches(fake: ReturnType<typeof createMobile>) {
+  return fake.mobile.input.mock.calls.flatMap(([input]) =>
+    input.type === "touch" ? [`${input.action} ${input.x},${input.y}`] : [],
+  );
 }
 
 describe("MobilePane", () => {
@@ -248,6 +285,80 @@ describe("MobilePane", () => {
     expect(fake.mobile.input).toHaveBeenLastCalledWith({ deviceId: emulator.deviceId, type: "button", button: "back" });
   });
 
+  it("scrolls with the mouse wheel as one press and release in screenshot mode", async () => {
+    vi.useFakeTimers();
+    const fake = createMobile({ devices: [emulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    await showStill(fake, emulator);
+    const screen = sizedScreen(container);
+
+    let event: WheelEvent | undefined;
+    await act(async () => {
+      event = wheel(screen, 60, 135, 300);
+      wheel(screen, 40, 135, 300);
+    });
+    expect(event?.defaultPrevented).toBe(true);
+    expect(fake.mobile.input).not.toHaveBeenCalled();
+    await advance(1_000);
+    expect(touches(fake)).toEqual(["down 540,1200", "up 540,800"]);
+  });
+
+  it("sends wheel swipes with moves when scrcpy carries input, in its own frame size", async () => {
+    vi.useFakeTimers();
+    const fake = createMobile({ devices: [emulator] });
+    fake.mobile.startStream.mockImplementation(async (deviceId: string) => ({
+      deviceId,
+      mode: "video" as const,
+      width: 540,
+      height: 1200,
+    }));
+    const container = await render(bridgeWith(fake.mobile));
+    // Without WebCodecs the panel shows screenshots, while touches still go through scrcpy.
+    await act(async () => {
+      fake.stream({ type: "config", deviceId: emulator.deviceId, codec: "avc1.42c028", width: 540, height: 1200 });
+    });
+    await advance(0);
+    const screen = sizedScreen(container);
+    await act(async () => {
+      wheel(screen, 100, 135, 300);
+    });
+    await advance(1_000);
+    expect(touches(fake)).toEqual([
+      "down 270,600",
+      "move 270,550",
+      "move 270,500",
+      "move 270,450",
+      "move 270,400",
+      "up 270,400",
+    ]);
+  });
+
+  it("draws a trail while dragging in screenshot mode and sends only the press and release", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    await showStill(fake, emulator);
+    const screen = sizedScreen(container);
+
+    await act(async () => {
+      pointer(screen, "pointerdown", 135, 500);
+    });
+    expect(container.querySelector(".mobile-trail")).not.toBeNull();
+    await act(async () => {
+      pointer(screen, "pointermove", 135, 200);
+    });
+    const line = container.querySelector(".mobile-trail-line");
+    expect([line?.getAttribute("y1"), line?.getAttribute("y2")]).toEqual(["500", "200"]);
+    await act(async () => {
+      pointer(screen, "pointermove", 135, -40);
+    });
+    expect(container.querySelector(".mobile-trail-end")?.getAttribute("cy")).toBe("0");
+    await act(async () => {
+      pointer(screen, "pointerup", 135, 200);
+    });
+    expect(container.querySelector(".mobile-trail")).toBeNull();
+    expect(touches(fake)).toEqual(["down 540,2000", "up 540,800"]);
+  });
+
   it("blocks input while an agent holds the device and hands control over on request", async () => {
     const held: MobileDevice = {
       ...emulator,
@@ -258,6 +369,18 @@ describe("MobilePane", () => {
     expect(container.textContent).toContain("Codex is using this device. Take over to use it yourself.");
 
     await click(button(container, "Home"));
+    expect(fake.mobile.input).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(button(container, "Take over"));
+
+    await showStill(fake, held);
+    const screen = sizedScreen(container);
+    (document.activeElement as HTMLElement).blur();
+    let scrolled: WheelEvent | undefined;
+    await act(async () => {
+      scrolled = wheel(screen, 100, 135, 300);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+    expect(scrolled?.defaultPrevented).toBe(true);
     expect(fake.mobile.input).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(button(container, "Take over"));
 

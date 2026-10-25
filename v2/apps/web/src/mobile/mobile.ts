@@ -68,6 +68,54 @@ export function framePoint(
   };
 }
 
+export type TouchStep = { action: "down" | "move" | "up"; x: number; y: number };
+
+/** The longest wheel swipe, as a share of the frame, so one burst of scrolling never flings a whole page. */
+const WHEEL_MAX_SHARE = 0.4;
+
+/**
+ * The touch path that scrolls a device like one burst of mouse wheel. Wheel down scrolls content up, as on a
+ * desktop page, so the finger moves up. delta and point are in frame pixels. The path starts at the pointer,
+ * shifted only when needed to keep the whole swipe on the screen. Returns no steps when the burst is too
+ * small to move anything.
+ */
+export function wheelSwipe(
+  delta: { x: number; y: number },
+  point: { x: number; y: number },
+  frame: { width: number; height: number },
+  moves = 4,
+): TouchStep[] {
+  const axis = (value: number, size: number) => {
+    const limit = size * WHEEL_MAX_SHARE;
+    return -Math.round(Math.max(-limit, Math.min(limit, value)));
+  };
+  const dx = axis(delta.x, frame.width);
+  const dy = axis(delta.y, frame.height);
+  if (dx === 0 && dy === 0) return [];
+  const start = (value: number, size: number, distance: number) =>
+    Math.round(Math.max(Math.max(0, -distance), Math.min(size - 1 - Math.max(0, distance), value)));
+  const from = { x: start(point.x, frame.width, dx), y: start(point.y, frame.height, dy) };
+  const steps: TouchStep[] = [{ action: "down", ...from }];
+  for (let index = 1; index <= moves; index += 1)
+    steps.push({
+      action: "move",
+      x: Math.round(from.x + (dx * index) / moves),
+      y: Math.round(from.y + (dy * index) / moves),
+    });
+  steps.push({ action: "up", x: from.x + dx, y: from.y + dy });
+  return steps;
+}
+
+/** Wheel deltas in CSS pixels, whatever unit the event used. */
+export function wheelPixels(
+  event: { deltaX: number; deltaY: number; deltaMode: number },
+  page: { width: number; height: number },
+): { x: number; y: number } {
+  if (event.deltaMode === 1) return { x: event.deltaX * 40, y: event.deltaY * 40 };
+  if (event.deltaMode === 2) return { x: event.deltaX * page.width, y: event.deltaY * page.height };
+  return { x: event.deltaX, y: event.deltaY };
+}
+
 const KEY_BUTTONS: Record<string, MobileButton> = { Enter: "enter", Backspace: "delete", Escape: "back" };
 
 /** The device input for a key pressed while the screen has focus. Shortcuts with Ctrl, Cmd, or Alt stay with ZLI. */

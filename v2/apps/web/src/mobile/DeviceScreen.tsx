@@ -5,12 +5,20 @@ import type { MobileBridge } from "../runtime/bridge.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, LoadingState } from "../ui/Pane.js";
-import { errorText, framePoint, keyInput } from "./mobile.js";
+import { errorText, framePoint, keyInput, type TouchStep, wheelPixels, wheelSwipe } from "./mobile.js";
 
 type Size = { width: number; height: number };
+type Point = { x: number; y: number };
 
 /** How often the panel asks for a screenshot itself when this computer cannot decode the video. */
 const CLIENT_STILL_MS = 1_000;
+/** Wheel events this close together scroll as one swipe. */
+const WHEEL_BURST_MS = 120;
+const WHEEL_STEP_MS = 16;
+/** The finger rests at the end of a wheel swipe before lifting, so Android scrolls by the distance and does not fling. */
+const WHEEL_SETTLE_MS = 60;
+/** Screenshot mode swipes with adb, which takes the time between press and release as the swipe's duration. */
+const WHEEL_STILLS_HOLD_MS = 250;
 
 /**
  * The live screen of one running device. Android arrives as H.264 decoded with WebCodecs; iOS, and Android
@@ -42,6 +50,22 @@ export function DeviceScreen({
   /** The stream's own frame size, which touch positions are measured in while scrcpy carries input. */
   const streamSizeRef = useRef<Size | undefined>(undefined);
   const pointerDownRef = useRef(false);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [screen, setScreen] = useState<HTMLElement | null>(null);
+  /** Where a drag started and where the pointer is now, drawn while the screen shows screenshots. */
+  const [trail, setTrail] = useState<{ from: Point; to: Point }>();
+  const wheelRef = useRef<{ delta: Point; point: Point; size: Size; timer: number } | undefined>(undefined);
+  const swipesRef = useRef<Promise<void>>(Promise.resolve());
+  const unmountedRef = useRef(false);
+
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+      if (wheelRef.current) window.clearTimeout(wheelRef.current.timer);
+      wheelRef.current = undefined;
+    };
+  }, []);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt restarts the stream after it failed or ended.
   useEffect(() => {
@@ -165,20 +189,26 @@ export function DeviceScreen({
   );
 
   const video = info?.mode === "video" && decodeProblem === undefined;
-  const pointFor = (event: PointerEvent<HTMLElement>) => {
-    if (!frame) return undefined;
-    const point = framePoint(
-      { x: event.clientX, y: event.clientY },
-      event.currentTarget.getBoundingClientRect(),
-      frame,
-    );
-    // Screenshots shown in place of the video are full resolution; scrcpy measures touches in its own frame.
-    const target = info?.mode === "video" ? streamSizeRef.current : undefined;
-    if (!point || !target || (target.width === frame.width && target.height === frame.height)) return point;
+  /** The backend builds a swipe from the press and release alone, so moves are not sent. */
+  const pressAndReleaseOnly = info?.mode !== "video";
+  // Screenshots shown in place of the video are full resolution; scrcpy measures touches in its own frame.
+  const inputSize = (info?.mode === "video" ? streamSizeRef.current : undefined) ?? frame;
+  const pointFor = (client: Point, rect: DOMRect): Point | undefined => {
+    if (!frame || !inputSize) return undefined;
+    const point = framePoint(client, rect, frame);
+    if (!point || (inputSize.width === frame.width && inputSize.height === frame.height)) return point;
     return {
-      x: Math.round((point.x * target.width) / frame.width),
-      y: Math.round((point.y * target.height) / frame.height),
+      x: Math.round((point.x * inputSize.width) / frame.width),
+      y: Math.round((point.y * inputSize.height) / frame.height),
     };
+  };
+  const trailPoint = (client: Point, screenRect: DOMRect): Point | undefined => {
+    const stage = stageRef.current?.getBoundingClientRect();
+    if (!stage) return undefined;
+    // The trail stays on the screen even when the pointer leaves it mid-drag.
+    const x = Math.max(screenRect.left, Math.min(screenRect.right, client.x));
+    const y = Math.max(screenRect.top, Math.min(screenRect.bottom, client.y));
+    return { x: x - stage.left, y: y - stage.top };
   };
 
   const onPointerDown = (event: PointerEvent<HTMLElement>) => {
@@ -188,24 +218,87 @@ export function DeviceScreen({
       onBlockedInput();
       return;
     }
-    const point = pointFor(event);
+    const client = { x: event.clientX, y: event.clientY };
+    const rect = event.currentTarget.getBoundingClientRect();
+    const point = pointFor(client, rect);
     if (!point) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     pointerDownRef.current = true;
+    if (!video) {
+      const start = trailPoint(client, rect);
+      setTrail(start ? { from: start, to: start } : undefined);
+    }
     send({ deviceId, type: "touch", action: "down", ...point });
   };
   const onPointerMove = (event: PointerEvent<HTMLElement>) => {
-    // Screenshots cannot show a drag, so only the press and release go to the device.
-    if (!pointerDownRef.current || info?.mode !== "video") return;
-    const point = pointFor(event);
+    if (!pointerDownRef.current) return;
+    const client = { x: event.clientX, y: event.clientY };
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!video) {
+      const to = trailPoint(client, rect);
+      if (to) setTrail((current) => (current ? { ...current, to } : current));
+    }
+    if (pressAndReleaseOnly) return;
+    const point = pointFor(client, rect);
     if (point) send({ deviceId, type: "touch", action: "move", ...point });
   };
   const onPointerUp = (event: PointerEvent<HTMLElement>) => {
     if (!pointerDownRef.current) return;
     pointerDownRef.current = false;
-    const point = pointFor(event);
+    setTrail(undefined);
+    const point = pointFor({ x: event.clientX, y: event.clientY }, event.currentTarget.getBoundingClientRect());
     if (point) send({ deviceId, type: "touch", action: "up", ...point });
   };
+
+  const playSwipe = (steps: readonly TouchStep[], onlyPressAndRelease: boolean) => {
+    const wait = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+    swipesRef.current = swipesRef.current.then(async () => {
+      for (const [index, step] of steps.entries()) {
+        if (onlyPressAndRelease && step.action === "move") continue;
+        if (step.action === "up") await wait(onlyPressAndRelease ? WHEEL_STILLS_HOLD_MS : WHEEL_SETTLE_MS);
+        else if (index > 0) await wait(WHEEL_STEP_MS);
+        if (unmountedRef.current) return;
+        send({ deviceId, type: "touch", ...step });
+      }
+    });
+  };
+  const onWheelRef = useRef<(event: WheelEvent) => void>(() => undefined);
+  onWheelRef.current = (event: WheelEvent) => {
+    event.preventDefault();
+    if (inputBlocked) {
+      onBlockedInput();
+      return;
+    }
+    if (pointerDownRef.current || !inputSize || !(event.currentTarget instanceof HTMLElement)) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const pixels = wheelPixels(event, rect);
+    const delta = { x: (pixels.x * inputSize.width) / rect.width, y: (pixels.y * inputSize.height) / rect.height };
+    const burst = wheelRef.current;
+    if (burst) {
+      burst.delta = { x: burst.delta.x + delta.x, y: burst.delta.y + delta.y };
+      return;
+    }
+    const point = pointFor({ x: event.clientX, y: event.clientY }, rect);
+    if (!point) return;
+    const onlyPressAndRelease = pressAndReleaseOnly;
+    const timer = window.setTimeout(() => {
+      const ended = wheelRef.current;
+      wheelRef.current = undefined;
+      if (ended) playSwipe(wheelSwipe(ended.delta, ended.point, ended.size), onlyPressAndRelease);
+    }, WHEEL_BURST_MS);
+    wheelRef.current = { delta, point, size: inputSize, timer };
+  };
+  // React listens to wheel passively, and only an active listener can keep the panel from scrolling.
+  useEffect(() => {
+    if (!screen) return;
+    const listener = (event: WheelEvent) => onWheelRef.current(event);
+    screen.addEventListener("wheel", listener, { passive: false });
+    return () => screen.removeEventListener("wheel", listener);
+  }, [screen]);
+  const canvasNode = useCallback((node: HTMLCanvasElement | null) => {
+    canvasRef.current = node;
+    setScreen(node);
+  }, []);
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     const input = keyInput(deviceId, event);
     if (!input) return;
@@ -254,23 +347,32 @@ export function DeviceScreen({
           <span className="banner-message">{inputError}</span>
         </div>
       ) : null}
-      <div className="mobile-stage">
+      <div className="mobile-stage" ref={stageRef}>
         {!frame ? <LoadingState className="mobile-stage-loading" label={`Connecting to ${device.name}`} /> : null}
         {video ? (
           <canvas
             {...screenProps}
-            ref={canvasRef}
+            ref={canvasNode}
             hidden={!frame}
             style={frame ? { aspectRatio: `${frame.width} / ${frame.height}` } : undefined}
           />
         ) : still && frame ? (
           <img
             {...screenProps}
+            ref={setScreen}
             src={still}
             alt={`${device.name} screen`}
             draggable={false}
             style={{ aspectRatio: `${frame.width} / ${frame.height}` }}
           />
+        ) : null}
+        {trail ? (
+          <svg className="mobile-trail" aria-hidden="true">
+            <line className="mobile-trail-shade" x1={trail.from.x} y1={trail.from.y} x2={trail.to.x} y2={trail.to.y} />
+            <line className="mobile-trail-line" x1={trail.from.x} y1={trail.from.y} x2={trail.to.x} y2={trail.to.y} />
+            <circle className="mobile-trail-start" cx={trail.from.x} cy={trail.from.y} r={4} />
+            <circle className="mobile-trail-end" cx={trail.to.x} cy={trail.to.y} r={9} />
+          </svg>
         ) : null}
       </div>
       {note ? <p className="mobile-note">{note}</p> : null}

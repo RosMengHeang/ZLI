@@ -103,6 +103,26 @@ describe("device manager", () => {
     expect(ios.actions).toEqual(["tap ios:UDID-1 100,200", "swipe ios:UDID-1 250,1000 250,300 100"]);
   });
 
+  it("taps when a stills-mode press moves less than the slop, and swipes once it moves further", async () => {
+    const { devices, android } = manager({ scrcpyFails: true });
+    await devices.startStream(pixel.deviceId);
+    const touch = (action: "down" | "up", x: number, y: number): MobilePanelInput => ({
+      deviceId: pixel.deviceId,
+      type: "touch",
+      action,
+      x,
+      y,
+    });
+    await devices.panelInput(touch("down", 100, 100));
+    await devices.panelInput(touch("up", 111, 100));
+    await devices.panelInput(touch("down", 100, 100));
+    await devices.panelInput(touch("up", 100, 112));
+    expect(android.actions).toEqual([
+      "tap android-avd:Pixel_7 100,100",
+      "swipe android-avd:Pixel_7 100,100 100,112 100",
+    ]);
+  });
+
   it("blocks panel input while an agent holds the device, until the person takes over", async () => {
     const { devices, android } = manager({ scrcpyFails: true });
     devices.acquireForAgent(pixel.deviceId, agent);

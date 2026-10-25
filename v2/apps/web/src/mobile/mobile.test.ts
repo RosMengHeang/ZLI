@@ -13,6 +13,8 @@ import {
   pickDevice,
   planDownload,
   progressPercent,
+  wheelPixels,
+  wheelSwipe,
 } from "./mobile.js";
 
 const device = (deviceId: string, state: MobileDevice["state"]): MobileDevice => ({
@@ -50,6 +52,49 @@ describe("mobile panel helpers", () => {
     expect(keyInput("d", { key: "Backspace", ...plain })).toEqual({ deviceId: "d", type: "button", button: "delete" });
     expect(keyInput("d", { key: "a", ...plain, metaKey: true })).toBeUndefined();
     expect(keyInput("d", { key: "ArrowLeft", ...plain })).toBeUndefined();
+  });
+
+  it("turns a wheel burst into a swipe that moves content the way the wheel scrolls", () => {
+    const frame = { width: 1080, height: 2400 };
+    expect(wheelSwipe({ x: 0, y: 300 }, { x: 540, y: 1200 }, frame)).toEqual([
+      { action: "down", x: 540, y: 1200 },
+      { action: "move", x: 540, y: 1125 },
+      { action: "move", x: 540, y: 1050 },
+      { action: "move", x: 540, y: 975 },
+      { action: "move", x: 540, y: 900 },
+      { action: "up", x: 540, y: 900 },
+    ]);
+    const up = wheelSwipe({ x: 0, y: -300 }, { x: 540, y: 1200 }, frame, 1);
+    expect(up.at(-1)).toEqual({ action: "up", x: 540, y: 1500 });
+    const sideways = wheelSwipe({ x: 100, y: 0 }, { x: 540, y: 1200 }, frame, 1);
+    expect(sideways.at(-1)).toEqual({ action: "up", x: 440, y: 1200 });
+  });
+
+  it("caps a wheel swipe at 40% of the frame and keeps it on the screen", () => {
+    const frame = { width: 1080, height: 2400 };
+    expect(wheelSwipe({ x: 0, y: 10_000 }, { x: 540, y: 1200 }, frame, 1).at(-1)).toEqual({
+      action: "up",
+      x: 540,
+      y: 240,
+    });
+    expect(wheelSwipe({ x: 0, y: 500 }, { x: 540, y: 100 }, frame, 1)).toEqual([
+      { action: "down", x: 540, y: 500 },
+      { action: "move", x: 540, y: 0 },
+      { action: "up", x: 540, y: 0 },
+    ]);
+    expect(wheelSwipe({ x: 0, y: -500 }, { x: 540, y: 2390 }, frame, 1)[0]).toEqual({
+      action: "down",
+      x: 540,
+      y: 1899,
+    });
+    expect(wheelSwipe({ x: 0.2, y: -0.3 }, { x: 540, y: 1200 }, frame)).toEqual([]);
+  });
+
+  it("reads wheel deltas in pixels, lines, or pages", () => {
+    const page = { width: 300, height: 600 };
+    expect(wheelPixels({ deltaX: 0, deltaY: 120, deltaMode: 0 }, page)).toEqual({ x: 0, y: 120 });
+    expect(wheelPixels({ deltaX: 1, deltaY: 3, deltaMode: 1 }, page)).toEqual({ x: 40, y: 120 });
+    expect(wheelPixels({ deltaX: 0, deltaY: 1, deltaMode: 2 }, page)).toEqual({ x: 0, y: 600 });
   });
 
   it("says who holds a device", () => {
