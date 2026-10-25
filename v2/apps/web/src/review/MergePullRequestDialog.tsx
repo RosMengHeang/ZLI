@@ -117,7 +117,6 @@ export function MergePullRequestDialog({
       <Dialog
         label="Merge pull request"
         className="pr-dialog"
-        size="sm"
         title={`Merge pull request #${pullRequest.number}`}
         subtitle={
           <>
