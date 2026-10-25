@@ -213,7 +213,9 @@ describe("ChatView", () => {
       "Fixed the helper.",
       "steps:Run the tests",
     ]);
-    expect(container.querySelector(".chat-working-label")?.textContent).toBe("Run the tests");
+    expect(container.querySelector(".chat-working-label")?.textContent).toBe("Working");
+    expect(container.querySelector(".step.is-running .shimmer-text")?.textContent).toBe("Run the tests");
+    expect(container.querySelector(".step.is-running .spinner")).toBeNull();
     await act(async () => button(container, "Stop Droid")?.click());
     expect(dispatched.at(-1)?.command).toMatchObject({ type: "thread.interrupt", threadId, turnId });
   });

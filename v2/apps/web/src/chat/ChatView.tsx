@@ -30,10 +30,10 @@ import { Composer, type ComposerAttachment, type ComposerBestOf } from "./Compos
 import { ConnectorCard } from "./ConnectorCard.js";
 import { clearCodeReferences, removeCodeReference, useCodeReferences } from "./codeReferences.js";
 import { Markdown } from "./Markdown.js";
-import { reasoningLevels } from "./reasoning.js";
 import { RequestCard } from "./RequestCard.js";
+import { reasoningLevels } from "./reasoning.js";
 import { TurnChanges } from "./TurnChanges.js";
-import { ChangedFiles, elapsedLabel, liveStepLabel, WorkSteps } from "./WorkLog.js";
+import { ChangedFiles, elapsedLabel, WorkSteps } from "./WorkLog.js";
 import "./chat.css";
 
 export function ChatView({
@@ -286,8 +286,8 @@ export function ChatView({
   };
 
   const step = useMemo(() => (working ? currentStep(timeline) : undefined), [working, timeline]);
-  const liveLabel =
-    thread.status === "waiting" ? `${displayName} is waiting for you` : step ? liveStepLabel(step) : "Thinking";
+  // A running step already shimmers in the list, so the line under it only says that work goes on.
+  const liveLabel = thread.status === "waiting" ? `${displayName} is waiting for you` : step ? "Working" : "Thinking";
   const visibleError = error;
 
   return (
@@ -340,7 +340,7 @@ export function ChatView({
               ))
             )}
             {placedCheckpoints.unplaced.map(turnChanges)}
-            {working ? <WorkingStatus label={liveLabel} /> : null}
+            {working ? <WorkingStatus label={liveLabel} live={!step && thread.status !== "waiting"} /> : null}
           </div>
         </div>
       </ChatImageScope>
@@ -558,7 +558,7 @@ function QueuedMessages({
 }
 
 /** Mounted for as long as the agent works, so the time counts from the moment the message went out. */
-function WorkingStatus({ label }: { label: string }) {
+function WorkingStatus({ label, live }: { label: string; live: boolean }) {
   const [startedAt] = useState(() => Date.now());
   const [now, setNow] = useState(startedAt);
   useEffect(() => {
@@ -567,8 +567,7 @@ function WorkingStatus({ label }: { label: string }) {
   }, []);
   return (
     <p className="chat-working">
-      <span className="spinner" aria-hidden="true" />
-      <span className="chat-working-label" role="status">
+      <span className={`chat-working-label${live ? " shimmer-text" : ""}`} role="status">
         {label}
       </span>
       <span className="chat-working-time">{elapsedLabel(now - startedAt)}</span>

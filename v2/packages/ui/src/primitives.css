@@ -244,8 +244,22 @@ kbd {
 
 .loading-line { display: inline-flex; align-items: center; gap: var(--zli-space-2); margin: 0; color: var(--zli-muted); font-size: var(--zli-text-base); }
 
-.spinner { display: inline-block; width: 12px; height: 12px; flex: 0 0 12px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: zli-spin 800ms linear infinite; }
+.spinner { display: inline-block; width: 12px; height: 12px; flex: 0 0 12px; border: 1.5px solid color-mix(in srgb, currentColor 20%, transparent); border-top-color: currentColor; border-radius: 50%; animation: zli-spin 700ms linear infinite; }
 @keyframes zli-spin { to { transform: rotate(360deg); } }
+
+/* Live text: a soft highlight sweeps across a label while the work it names is running. */
+.shimmer-text { background: linear-gradient(90deg, var(--zli-muted) 0%, var(--zli-muted) 35%, var(--zli-text) 50%, var(--zli-muted) 65%, var(--zli-muted) 100%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: zli-shimmer 2.2s linear infinite; }
+@keyframes zli-shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+
+/* ---------- Collapse: content that grows open instead of jumping ---------- */
+.collapse { display: grid; grid-template-rows: 1fr; opacity: 1; transition: grid-template-rows 200ms var(--zli-ease), opacity var(--zli-duration-base) var(--zli-ease); }
+@starting-style { .collapse { grid-template-rows: 0fr; opacity: 0; } }
+.collapse[data-open="false"] { grid-template-rows: 0fr; opacity: 0; }
+.collapse-inner { min-height: 0; overflow: hidden; }
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text { animation: none; background: none; color: var(--zli-text); }
+  .collapse { transition: none; }
+}
 
 .inline-error { margin: var(--zli-space-2) var(--zli-space-4); color: var(--zli-red); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
 
