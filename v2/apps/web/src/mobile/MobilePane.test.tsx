@@ -323,7 +323,7 @@ describe("MobilePane", () => {
     expect(container.textContent).toContain("KVM is not available. Turn on virtualization.");
     expect(container.textContent).toContain("Android platform tools (adb)");
     expect(container.textContent).not.toContain("- Hardware acceleration");
-    expect(container.textContent).toContain("The iOS Simulator runs only on a Mac with Xcode.");
+    expect(container.textContent).toContain("iPhone simulators need a Mac with Xcode.");
 
     await click(button(container, "Review the install"));
     expect(container.textContent).toContain("/home/me/.zli/android-sdk");
@@ -366,4 +366,64 @@ describe("MobilePane", () => {
     });
     expect(container.textContent).toContain("Pixel 8 is off");
   });
+
+  it("leads a Windows host with one Android card and keeps iOS to a single line", async () => {
+    const status = emptyStatus();
+    const fake = createMobile({ devices: [], status: { ...status, host: { os: "windows", arch: "x64" } } });
+    const container = await render(bridgeWith(fake.mobile));
+    expect(headings(container)).toEqual(["Set up the Android emulator"]);
+    expect(container.querySelector(".mobile-setup-card")?.textContent).toContain("Android Emulator");
+    expect(container.textContent).toContain("Or connect an Android phone with USB debugging turned on.");
+    expect(container.querySelector(".mobile-setup-ios-note")?.textContent).toBe(
+      "iPhone simulators need a Mac with Xcode.",
+    );
+
+    const primary = [...container.querySelectorAll<HTMLButtonElement>(".mobile-setup-card .btn-primary")];
+    expect(primary.map((candidate) => candidate.textContent)).toEqual(["Review the install"]);
+    await click(primary[0] as HTMLButtonElement);
+    expect(fake.mobile.setupPlan).toHaveBeenCalled();
+    expect(container.textContent).toContain("I accept the Android SDK License");
+    expect(container.textContent).toContain("about 307 MB");
+  });
+
+  it("shows Android and iOS side by side on a Mac", async () => {
+    const status = emptyStatus();
+    const fake = createMobile({
+      devices: [],
+      status: {
+        ...status,
+        host: { os: "macos", arch: "arm64" },
+        ios: { supported: true, simctl: probe, idb: { found: false }, missing: ["idb, for taps and typing"] },
+      },
+    });
+    const container = await render(bridgeWith(fake.mobile));
+    expect(headings(container)).toEqual(["Set up the Android emulator", "iOS"]);
+    expect(container.textContent).toContain("idb, for taps and typing");
+    expect(container.querySelector(".mobile-setup-ios-note")).toBeNull();
+  });
+
+  it("offers to create a virtual device when the SDK has none", async () => {
+    const ready = readyStatus();
+    const fake = createMobile({ devices: [], status: { ...ready, android: { ...ready.android, avds: [] } } });
+    const container = await render(bridgeWith(fake.mobile));
+    expect(headings(container)).toEqual(["Create an Android virtual device"]);
+    expect(container.textContent).not.toContain("Android Studio");
+    await click(button(container, "Review and create"));
+    expect(fake.mobile.setupPlan).toHaveBeenCalled();
+  });
+
+  it("asks for a refresh, not Android Studio, when the SDK is ready but nothing is listed", async () => {
+    const fake = createMobile({ devices: [] });
+    const container = await render(bridgeWith(fake.mobile));
+    expect(container.textContent).toContain("No devices found");
+    expect(container.textContent).not.toContain("Android Studio");
+    expect(container.querySelector(".mobile-empty-note")?.textContent).toContain("ZLI uses the SDK in /sdk.");
+    expect(container.querySelector(".mobile-empty-note")?.textContent).toContain("ANDROID_HOME");
+    await click(button(container, "Refresh"));
+    expect(fake.mobile.devices).toHaveBeenCalledTimes(2);
+  });
 });
+
+function headings(container: HTMLElement): string[] {
+  return [...container.querySelectorAll("h3")].map((heading) => heading.textContent ?? "");
+}

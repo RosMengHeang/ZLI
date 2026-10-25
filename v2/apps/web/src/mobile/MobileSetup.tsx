@@ -5,8 +5,9 @@ import type { MobileBridge } from "../runtime/bridge.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import {
+  type AndroidSituation,
   accelerationProblem,
-  androidNeedsInstall,
+  androidSituation,
   errorText,
   formatBytes,
   planDownload,
@@ -15,14 +16,20 @@ import {
 
 const ACCELERATION_ITEM = "Hardware acceleration for the emulator";
 
-/** What this computer has for Android and iOS, and the guided Android install when something is missing. */
+/**
+ * What this computer has for Android and iOS, and the guided Android install when something is missing.
+ * iOS Simulator needs a Mac, so other hosts get one line about it instead of a section.
+ */
 export function MobileSetup({
   mobile,
   status,
+  noDevices = false,
   onRecheck,
 }: {
   mobile: MobileBridge;
   status: MobileSetupStatus;
+  /** No device is listed at all, so a USB phone is worth suggesting as the other way in. */
+  noDevices?: boolean;
   /** Reads the status again. recheckAcceleration also reruns the emulator's acceleration check. */
   onRecheck(options?: { recheckAcceleration?: boolean }): Promise<void>;
 }) {
@@ -36,12 +43,21 @@ export function MobileSetup({
     }
   };
   const acceleration = accelerationProblem(status.android);
+  const situation = androidSituation(status.android);
+  const needsInstall = situation !== "ready";
 
   return (
     <div className="mobile-setup">
-      <section className="mobile-setup-section" aria-labelledby="mobile-setup-android">
+      <section
+        className={`mobile-setup-section${needsInstall ? " mobile-setup-card" : ""}`}
+        aria-labelledby="mobile-setup-android"
+      >
         <h3 id="mobile-setup-android" className="mobile-setup-title">
-          Android
+          {situation === "install"
+            ? "Set up the Android emulator"
+            : situation === "create"
+              ? "Create an Android virtual device"
+              : "Android"}
         </h3>
         {acceleration ? (
           <div className="banner banner-warning" role="alert">
@@ -54,8 +70,14 @@ export function MobileSetup({
             </div>
           </div>
         ) : null}
-        {androidNeedsInstall(status.android) ? (
-          <AndroidInstall mobile={mobile} android={status.android} onFinished={() => void recheck()} />
+        {situation !== "ready" ? (
+          <AndroidInstall
+            mobile={mobile}
+            android={status.android}
+            situation={situation}
+            noDevices={noDevices}
+            onFinished={() => void recheck()}
+          />
         ) : (
           <p className="mobile-setup-ready">
             <Icon name="check" size={13} />
@@ -65,44 +87,63 @@ export function MobileSetup({
           </p>
         )}
       </section>
-      <section className="mobile-setup-section" aria-labelledby="mobile-setup-ios">
-        <h3 id="mobile-setup-ios" className="mobile-setup-title">
-          iOS
-        </h3>
-        {!status.ios.supported ? (
-          <p className="mobile-setup-text">
-            The iOS Simulator runs only on a Mac with Xcode. Open ZLI on a Mac to use iPhone simulators.
-          </p>
-        ) : status.ios.missing.length > 0 ? (
-          <>
-            <p className="mobile-setup-text">Install these, then check again:</p>
-            <ul className="mobile-setup-list">
-              {status.ios.missing.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-            <Button size="sm" icon="reload" loading={rechecking} onClick={() => void recheck()}>
-              Check again
-            </Button>
-          </>
-        ) : (
-          <p className="mobile-setup-ready">
-            <Icon name="check" size={13} />
-            Ready. Simulators from Xcode appear in the device list.
-          </p>
-        )}
-      </section>
+      {status.host.os === "macos" ? (
+        <IosSection status={status} rechecking={rechecking} onRecheck={() => void recheck()} />
+      ) : (
+        <p className="mobile-setup-ios-note">iPhone simulators need a Mac with Xcode.</p>
+      )}
     </div>
+  );
+}
+
+/** Only shown on macOS, the one host where the iOS Simulator runs. */
+function IosSection({
+  status,
+  rechecking,
+  onRecheck,
+}: {
+  status: MobileSetupStatus;
+  rechecking: boolean;
+  onRecheck(): void;
+}) {
+  return (
+    <section className="mobile-setup-section" aria-labelledby="mobile-setup-ios">
+      <h3 id="mobile-setup-ios" className="mobile-setup-title">
+        iOS
+      </h3>
+      {status.ios.missing.length > 0 ? (
+        <>
+          <p className="mobile-setup-text">Install these, then check again:</p>
+          <ul className="mobile-setup-list">
+            {status.ios.missing.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          <Button size="sm" icon="reload" loading={rechecking} onClick={onRecheck}>
+            Check again
+          </Button>
+        </>
+      ) : (
+        <p className="mobile-setup-ready">
+          <Icon name="check" size={13} />
+          Ready. Simulators from Xcode appear in the device list.
+        </p>
+      )}
+    </section>
   );
 }
 
 function AndroidInstall({
   mobile,
   android,
+  situation,
+  noDevices,
   onFinished,
 }: {
   mobile: MobileBridge;
   android: MobileAndroidStatus;
+  situation: Exclude<AndroidSituation, "ready">;
+  noDevices: boolean;
   onFinished(): void;
 }) {
   const [progress, setProgress] = useState<MobileSetupProgress>();
@@ -196,8 +237,9 @@ function AndroidInstall({
         {ended}
         {errorBanner}
         <p className="mobile-setup-text">
-          The Android emulator needs a few things this computer does not have yet. ZLI can download and install them for
-          you, after showing what it will download and the licenses that come with it.
+          {situation === "install"
+            ? "The Android emulator needs a few things this computer does not have yet. ZLI can download and install them for you, after showing what it will download and the licenses that come with it."
+            : "The Android SDK is installed, but it has no virtual device yet. ZLI can create one, and shows what it needs to download first."}
         </p>
         {missing.length > 0 ? (
           <ul className="mobile-setup-list">
@@ -210,13 +252,20 @@ function AndroidInstall({
           <Button variant="primary" size="sm" icon="download" loading={planning} onClick={() => void review()}>
             {progress?.state === "failed" || progress?.state === "cancelled"
               ? "Review and try again"
-              : "Review the install"}
+              : situation === "install"
+                ? "Review the install"
+                : "Review and create"}
           </Button>
         </div>
-        <p className="mobile-setup-hint">
-          Already have Android Studio? ZLI uses its SDK from ANDROID_HOME or the default install folder. Set it, restart
-          ZLI, and this step goes away.
-        </p>
+        {noDevices ? (
+          <p className="mobile-setup-text">Or connect an Android phone with USB debugging turned on.</p>
+        ) : null}
+        {situation === "install" ? (
+          <p className="mobile-setup-hint">
+            Already have Android Studio? ZLI uses its SDK from ANDROID_HOME or the default install folder. Set it,
+            restart ZLI, and this step goes away.
+          </p>
+        ) : null}
       </div>
     );
   }

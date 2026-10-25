@@ -97,8 +97,19 @@ export function pickDevice(devices: readonly MobileDevice[], preferred: string |
   );
 }
 
+/**
+ * How far Android is from booting an emulator: install means adb or the emulator is missing, create means
+ * the SDK is there but has no virtual device, and ready means at least one virtual device exists.
+ */
+export type AndroidSituation = "install" | "create" | "ready";
+
+export function androidSituation(android: MobileAndroidStatus): AndroidSituation {
+  if (!android.adb.found || !android.emulator.found) return "install";
+  return android.avds.length === 0 ? "create" : "ready";
+}
+
 export function androidNeedsInstall(android: MobileAndroidStatus): boolean {
-  return !android.adb.found || !android.emulator.found || android.avds.length === 0;
+  return androidSituation(android) !== "ready";
 }
 
 /** Why the emulator would be too slow to use, or undefined when acceleration works or was not checked. */

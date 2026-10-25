@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   accelerationProblem,
   androidNeedsInstall,
+  androidSituation,
   errorText,
   formatBytes,
   framePoint,
@@ -89,6 +90,9 @@ describe("mobile panel helpers", () => {
     expect(androidNeedsInstall(android)).toBe(false);
     expect(androidNeedsInstall({ ...android, avds: [] })).toBe(true);
     expect(androidNeedsInstall({ ...android, emulator: { found: false } })).toBe(true);
+    expect(androidSituation(android)).toBe("ready");
+    expect(androidSituation({ ...android, avds: [] })).toBe("create");
+    expect(androidSituation({ ...android, adb: { found: false }, avds: [] })).toBe("install");
     expect(accelerationProblem(android)).toBeUndefined();
     expect(
       accelerationProblem({ ...android, acceleration: { checked: false, usable: false, detail: "" } }),

@@ -17,6 +17,9 @@
 .mobile-footer .switch-hint { line-height: var(--zli-leading-normal); }
 .mobile-setup { display: flex; flex-direction: column; gap: var(--zli-space-5); max-width: 560px; padding: var(--zli-space-4); }
 .mobile-setup-section { display: flex; flex-direction: column; gap: var(--zli-space-2-5); }
+.mobile-setup-card { padding: var(--zli-space-4); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-surface); }
+.mobile-setup-ios-note { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.mobile-empty-note { display: block; margin-top: var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-xs); overflow-wrap: anywhere; }
 .mobile-setup-title { margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
 .mobile-setup-body { display: flex; flex-direction: column; gap: var(--zli-space-2-5); }
 .mobile-setup-text { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-relaxed); overflow-wrap: anywhere; }

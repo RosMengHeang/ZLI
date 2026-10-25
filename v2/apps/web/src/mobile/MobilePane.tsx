@@ -170,7 +170,7 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
           </Button>
         </EmptyState>
       ) : status ? (
-        <MobileSetup mobile={mobile} status={status} onRecheck={refreshStatus} />
+        <MobileSetup mobile={mobile} status={status} noDevices={devices?.length === 0} onRecheck={refreshStatus} />
       ) : (
         <LoadingState label="Checking what is installed" />
       )}
@@ -194,7 +194,16 @@ function MobilePaneBody({ mobile, reveal }: { mobile: MobileBridge; reveal: Mobi
         <EmptyState
           icon="smartphone"
           title="No devices found"
-          detail="Create a virtual device in Android Studio, or connect a phone with USB debugging turned on, then refresh."
+          detail={
+            <>
+              The Android SDK and its virtual devices are installed, but none are listed. Refresh to look again, or
+              connect an Android phone with USB debugging turned on.
+              <span className="mobile-empty-note">
+                {status.android.sdkRoot ? `ZLI uses the SDK in ${status.android.sdkRoot}. ` : null}To use another SDK,
+                set ANDROID_HOME and restart ZLI.
+              </span>
+            </>
+          }
         >
           <Button size="sm" icon="reload" loading={refreshing} onClick={() => void refreshDevices()}>
             Refresh
