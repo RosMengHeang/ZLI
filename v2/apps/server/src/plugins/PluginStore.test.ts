@@ -73,7 +73,7 @@ describe("PluginStore", () => {
     const folder = join(options.pluginsDir, "kit");
     expect(await readFile(join(folder, "skills/helper/SKILL.md"), "utf8")).toContain("helper");
     expect((await stat(join(options.dataDir, "kit"))).isDirectory()).toBe(true);
-    expect((await stat(options.statePath)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") expect((await stat(options.statePath)).mode & 0o777).toBe(0o600);
 
     let [summary] = (await store.list()).plugins;
     expect(summary?.problems).toEqual(["Add API token in the plugin's settings.", "MCP server local needs API token."]);
