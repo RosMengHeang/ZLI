@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import type { MobileDevice } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -312,11 +314,6 @@ describe("mobile panel helpers", () => {
   it("turns a base64 screenshot into image bytes", async () => {
     const blob = screenshotBlob({ data: btoa("\u0089PNG"), mimeType: "image/png" });
     expect(blob.type).toBe("image/png");
-    const bytes = await new Promise<ArrayBuffer>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as ArrayBuffer);
-      reader.readAsArrayBuffer(blob);
-    });
-    expect([...new Uint8Array(bytes)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    expect([...new Uint8Array(await blob.arrayBuffer())]).toEqual([0x89, 0x50, 0x4e, 0x47]);
   });
 });
