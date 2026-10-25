@@ -47,6 +47,11 @@ Each run gets a branch named after the chat's branch, `<branch>-run1` to `<branc
 
 Compare shows the runs side by side: agent and model, status, files changed with added and removed lines, the checks the agent ran (tests, lint, type checks), cost when the agent reports it, and time. **View diff** opens that run's changes. **Keep this one** asks once, then deletes the other runs together with their worktree folders and branches, including uncommitted changes and commits that exist only there. The kept run becomes an ordinary chat.
 
+## ZLI Mobile
+
+The Mobile panel (Mod+Shift+M) shows Android emulators, Android phones over USB, and, on a Mac with Xcode, iOS simulators. You can boot them, watch the screen, and tap, swipe, scroll, and type. Agents drive the same devices through the zli-mobile tool, and the panel shows who holds each device. On Windows and Linux, Android is the only platform; the panel can download and set up the Android emulator for you.
+
+Unit tests use fake drivers. The checks that need real hardware are in [apps/web/src/mobile/MANUAL_TEST.md](apps/web/src/mobile/MANUAL_TEST.md).
 ## Verify locally
 
 From this directory:
