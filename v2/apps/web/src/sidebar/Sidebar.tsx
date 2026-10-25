@@ -19,10 +19,10 @@ import { setupBadge, worktreeSetup } from "../setup/setup.js";
 import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { ZliLogo } from "../ui/ZliLogo.js";
 import { Kbd } from "../ui/Kbd.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ariaShortcut } from "../ui/shortcuts.js";
+import { ZliLogo } from "../ui/ZliLogo.js";
 import "./sidebar.css";
 
 export type WorktreeAction = "retry" | "cancel" | "remove";
@@ -294,6 +294,7 @@ export function Sidebar({
         </button>
       </div>
       <div className="sidebar-scroll">
+        {projects.length > 0 ? <h2 className="sidebar-heading">Projects</h2> : null}
         {projects.length === 0 ? (
           <div className="sidebar-empty">
             <p>

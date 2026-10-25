@@ -182,6 +182,7 @@ describe("AppShell", () => {
   it("shows the project, an empty agent board, and a terminal drawer on demand", async () => {
     const container = await render(makeBridge(projection));
     expect(container.querySelector(".project-label")?.textContent).toContain("repo");
+    expect(container.querySelector(".sidebar-scroll > h2")?.textContent).toBe("Projects");
     expect(container.textContent).toContain("main");
     expect(container.textContent).toContain("No agents on the board");
     expect(container.querySelector('[aria-label="Terminal panel"]')).toBeNull();

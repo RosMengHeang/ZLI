@@ -21,6 +21,7 @@
 .sidebar-scroll { min-height: 0; flex: 1; overflow: auto; padding: 0 var(--zli-space-2) var(--zli-space-3); }
 .sidebar-empty { display: flex; flex-direction: column; align-items: flex-start; gap: var(--zli-space-3); padding: var(--zli-space-2) var(--zli-space-2-5); color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 .sidebar-empty p { margin: 0; }
+.sidebar-heading { margin: 0 0 var(--zli-space-1); padding: 0 var(--zli-space-2-5); color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; line-height: 24px; }
 .sidebar-project + .sidebar-project { margin-top: var(--zli-space-4); }
 .project-label { display: flex; align-items: center; gap: var(--zli-space-2); height: 30px; padding: 0 var(--zli-space-1) 0 var(--zli-space-2-5); border-radius: var(--zli-radius-md); color: var(--zli-muted); font-size: var(--zli-text-base); font-weight: 500; }
 .project-label > svg { color: var(--zli-dim); }
