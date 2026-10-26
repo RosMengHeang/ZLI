@@ -19,10 +19,14 @@ import { SidebarUsageStrip } from "./SidebarUsageStrip.js";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const now = Date.now();
-const recent = new Date(now - 60_000).toISOString();
 let turn = 0;
 
-function usage(provider: string, values: ThreadUsageRecord["usage"], accountId?: string): ThreadUsageRecord {
+function usage(
+  provider: string,
+  values: ThreadUsageRecord["usage"],
+  accountId?: string,
+  hoursAgo = 0.02,
+): ThreadUsageRecord {
   turn += 1;
   const threadId = ThreadId.parse(`00000000-0000-4000-8000-${String(turn).padStart(12, "0")}`);
   return {
@@ -30,7 +34,7 @@ function usage(provider: string, values: ThreadUsageRecord["usage"], accountId?:
     threadId,
     turnId: `t${turn}`,
     provider,
-    recordedAt: recent,
+    recordedAt: new Date(now - hoursAgo * 3_600_000).toISOString(),
     usage: values,
     ...(accountId ? { accountId } : {}),
   };
@@ -103,47 +107,57 @@ function description(button: HTMLButtonElement): string {
 afterEach(() => document.body.replaceChildren());
 
 describe("SidebarUsageStrip", () => {
-  it("is a quiet Usage button when nothing is recorded", async () => {
+  it("is a quiet Token usage button when nothing is recorded", async () => {
     let opened = 0;
     const button = await render([], { onOpen: () => (opened += 1) });
-    expect(button.getAttribute("aria-label")).toBe("Usage");
+    expect(button.getAttribute("aria-label")).toBe("Token usage");
     expect(button.textContent).toBe("No usage yet");
     await act(async () => button.click());
     expect(opened).toBe(1);
   });
 
-  it("shows one row without an account chip for the usual login", async () => {
-    const button = await render([usage("codex", { inputTokens: 1_200, outputTokens: 100 })]);
-    const rows = button.querySelectorAll(".usage-strip-row");
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.textContent).toBe("Codex1.3k tokens");
-    expect(button.querySelector(".usage-strip-account")).toBeNull();
-    expect(button.querySelector(".usage-strip-bar")).toBeNull();
-    expect(button.querySelector(".usage-strip-head")?.textContent).toBe("Today1.3k tokens");
-    expect(description(button)).toBe("Today, 1.3k tokens in all. Codex: 1.3k tokens.");
+  it("says so when the only usage is older than 7 days", async () => {
+    const button = await render([usage("codex", { inputTokens: 100 }, undefined, 24 * 9)]);
+    expect(button.textContent).toBe("No tokens in the last 7 days");
   });
 
-  it("gives each account a row, names the usual login beside saved ones, and caps at three", async () => {
+  it("shows tokens for the last 5 hours and the week, never cost", async () => {
+    const button = await render([
+      usage("codex", { inputTokens: 1_200, outputTokens: 100, costUsd: 0.5 }),
+      usage("codex", { inputTokens: 4_000 }, undefined, 30),
+    ]);
+    const rows = button.querySelectorAll(".usage-strip-row");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.textContent).toBe("Codex1.3k5.3k");
+    expect(button.textContent).not.toContain("$");
+    expect(button.querySelector(".usage-strip-account")).toBeNull();
+    expect(description(button)).toBe(
+      "Tokens in the last 5 hours and the last 7 days. Codex: 1.3k in 5 hours, 5.3k this week.",
+    );
+  });
+
+  it("gives each account a row, busiest in 5 hours first, and caps at three", async () => {
     const button = await render(
       [
-        usage("claude-code", { inputTokens: 500, costUsd: 1.2 }, "work"),
-        usage("claude-code", { inputTokens: 300, costUsd: 0.4 }),
-        usage("codex", { inputTokens: 9_000 }, "gone"),
+        usage("claude-code", { inputTokens: 500 }, "work"),
+        usage("claude-code", { inputTokens: 300 }),
+        usage("codex", { inputTokens: 9_000 }, "gone", 10),
         usage("codex", { inputTokens: 100 }),
       ],
       { currentKey: "claude-code:work" },
     );
     const rows = [...button.querySelectorAll(".usage-strip-row")].map((row) => row.textContent);
-    expect(rows).toEqual(["Claude CodeWork$1.20", "Claude CodeUsual login$0.40", "CodexRemoved account9k tokens"]);
+    expect(rows).toEqual(["Claude CodeWork500500", "Claude CodeUsual login300300", "CodexUsual login100100"]);
     expect(button.querySelector(".usage-strip-row.is-current")?.textContent).toContain("Work");
     expect(button.querySelector(".usage-strip-more")?.textContent).toBe("+1 more");
-    expect(button.querySelectorAll(".usage-strip-bar")).toHaveLength(3);
-    expect(description(button)).toContain("Claude Code, Work: $1.20, selected agent.");
+    expect(description(button)).toContain("Claude Code, Work: 500 in 5 hours, 500 this week, selected agent.");
     expect(description(button)).toContain("1 more.");
   });
 
-  it("never names an account as removed while the list is loading", async () => {
-    const button = await render([usage("claude-code", { inputTokens: 500 }, "work")], { accounts: undefined });
-    expect(button.textContent).not.toContain("Removed account");
+  it("names a deleted account as removed, but not while the list is loading", async () => {
+    const records = [usage("codex", { inputTokens: 900 }, "gone")];
+    expect((await render(records)).textContent).toContain("Removed account");
+    document.body.replaceChildren();
+    expect((await render(records, { accounts: undefined })).textContent).not.toContain("Removed account");
   });
 });

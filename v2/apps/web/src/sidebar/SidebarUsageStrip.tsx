@@ -6,11 +6,11 @@ import { providerDisplayName } from "../agent/providers.js";
 import { useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { Icon } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
-import { formatCost, formatTokens, stripUsage, tokenTotal, type UsageTotals } from "../usage/usage.js";
+import { formatTokens, usageWindows } from "../usage/usage.js";
 
 const EMPTY: readonly ThreadUsageRecord[] = [];
 const MAX_ROWS = 3;
-const periodLabel = { today: "Today", week: "Last 7 days" } as const;
+const TOOLTIP = "Tokens per agent. Cost is under Usage.";
 
 type Props = {
   providers: readonly ProviderDiscovery[] | undefined;
@@ -22,57 +22,46 @@ type Props = {
   onOpen(): void;
 };
 
-function amount(totals: UsageTotals): string {
-  return totals.costedTurns > 0 ? formatCost(totals.costUsd) : `${formatTokens(tokenTotal(totals))} tokens`;
-}
-
-/** A compact per-account summary above Settings. The whole strip opens the Usage dialog. */
+/** Tokens per agent over the last 5 hours and 7 days, above Settings. The whole strip opens the Usage dialog. */
 export function SidebarUsageStrip({ providers, accounts, now, currentKey, onOpen }: Props) {
   // The shell projection skips usage updates, so the strip reads them from the store itself.
   const records = useRuntimeSelector(useCallback((value: RuntimeProjection | undefined) => value?.usage ?? EMPTY, []));
-  const strip = useMemo(() => stripUsage(records, now), [records, now]);
+  const windows = useMemo(() => usageWindows(records, now), [records, now]);
   const descriptionId = useId();
 
-  if (!strip) {
+  if (windows.length === 0) {
     return (
       <button
         type="button"
         className="sidebar-usage-strip is-empty"
-        aria-label="Usage"
+        aria-label="Token usage"
         aria-describedby={descriptionId}
-        data-tooltip="Usage and cost"
+        data-tooltip={TOOLTIP}
         onClick={onOpen}
       >
         <Icon name="gauge" size={13} />
-        <span id={descriptionId}>No usage yet</span>
+        <span id={descriptionId}>{records.length === 0 ? "No usage yet" : "No tokens in the last 7 days"}</span>
       </button>
     );
   }
 
-  const withAccounts = new Set(strip.groups.filter((group) => group.accountId).map((group) => group.provider));
-  const rows = strip.groups.slice(0, MAX_ROWS).map((group) => {
-    const account = group.accountId
-      ? accountLabel(accounts, group.accountId)
-      : withAccounts.has(group.provider)
+  const withAccounts = new Set(windows.filter((row) => row.accountId).map((row) => row.provider));
+  const rows = windows.slice(0, MAX_ROWS).map((row) => ({
+    ...row,
+    name: providerDisplayName(row.provider, providers),
+    account: row.accountId
+      ? accountLabel(accounts, row.accountId)
+      : withAccounts.has(row.provider)
         ? USUAL_LOGIN_LABEL
-        : undefined;
-    return {
-      group,
-      provider: providerDisplayName(group.provider, providers),
-      account,
-      value: amount(group.totals),
-      share: strip.maxTokens > 0 ? tokenTotal(group.totals) / strip.maxTokens : 0,
-      current: group.key === currentKey,
-    };
-  });
-  const more = strip.groups.length - rows.length;
-  // Bars compare accounts with each other. With one account a full bar would read as a used-up quota.
-  const compare = strip.groups.length > 1;
+        : undefined,
+    current: row.key === currentKey,
+  }));
+  const more = windows.length - rows.length;
   const description = [
-    `${periodLabel[strip.period]}, ${amount(strip.totals)} in all.`,
+    "Tokens in the last 5 hours and the last 7 days.",
     ...rows.map(
       (row) =>
-        `${[row.provider, row.account].filter(Boolean).join(", ")}: ${row.value}${row.current ? ", selected agent" : ""}.`,
+        `${[row.name, row.account].filter(Boolean).join(", ")}: ${formatTokens(row.fiveHours)} in 5 hours, ${formatTokens(row.week)} this week${row.current ? ", selected agent" : ""}.`,
     ),
     more > 0 ? `${more} more.` : "",
   ]
@@ -83,33 +72,32 @@ export function SidebarUsageStrip({ providers, accounts, now, currentKey, onOpen
     <button
       type="button"
       className="sidebar-usage-strip"
-      aria-label="Usage"
+      aria-label="Token usage"
       aria-describedby={descriptionId}
-      data-tooltip="Usage and cost"
+      data-tooltip={TOOLTIP}
       onClick={onOpen}
     >
       <span id={descriptionId} className="sr-only">
         {description}
       </span>
-      <span className="usage-strip-head" aria-hidden="true">
-        <span>{periodLabel[strip.period]}</span>
-        <span className="usage-strip-total">{amount(strip.totals)}</span>
-      </span>
-      {rows.map((row) => (
-        <span className={`usage-strip-row${row.current ? " is-current" : ""}`} key={row.group.key} aria-hidden="true">
-          <ProviderMark provider={row.group.provider} size={12} />
-          <span className="usage-strip-name">
-            <span className="usage-strip-provider">{row.provider}</span>
-            {row.account ? <span className="usage-strip-account">{row.account}</span> : null}
-          </span>
-          <span className="usage-strip-value">{row.value}</span>
-          {compare ? (
-            <span className="usage-strip-bar">
-              <span style={{ width: `${Math.max(row.share * 100, 2)}%` }} />
+      <span className="usage-strip-grid" aria-hidden="true">
+        <span className="usage-strip-head">Tokens</span>
+        <span className="usage-strip-head usage-strip-number">5h</span>
+        <span className="usage-strip-head usage-strip-number">Week</span>
+        {rows.map((row) => (
+          <span className={`usage-strip-row${row.current ? " is-current" : ""}`} key={row.key}>
+            <span className="usage-strip-name">
+              <ProviderMark provider={row.provider} size={12} />
+              <span className="usage-strip-provider">{row.name}</span>
+              {row.account ? <span className="usage-strip-account">{row.account}</span> : null}
             </span>
-          ) : null}
-        </span>
-      ))}
+            <span className={`usage-strip-number usage-strip-recent${row.fiveHours === 0 ? " is-zero" : ""}`}>
+              {formatTokens(row.fiveHours)}
+            </span>
+            <span className="usage-strip-number">{formatTokens(row.week)}</span>
+          </span>
+        ))}
+      </span>
       {more > 0 ? (
         <span className="usage-strip-more" aria-hidden="true">
           +{more} more

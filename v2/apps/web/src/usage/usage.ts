@@ -111,37 +111,42 @@ export function usageGroupKey(provider: string, accountId: string | undefined): 
   return accountId && accountId !== USUAL_LOGIN_ACCOUNT_ID ? `${provider}:${accountId}` : provider;
 }
 
-export type UsageStrip = {
-  period: "today" | "week";
-  /** Every agent and account in the period, highest cost first, then most tokens. */
-  groups: UsageGroup[];
-  totals: UsageTotals;
-  /** The largest token count among the groups, so bars compare accounts with each other. */
-  maxTokens: number;
+const FIVE_HOURS_MS = 5 * 3_600_000;
+
+export type UsageWindowRow = {
+  key: string;
+  provider: string;
+  accountId?: string;
+  /** Tokens in the last 5 hours. */
+  fiveHours: number;
+  /** Tokens in the last 7 days. */
+  week: number;
 };
 
 /**
- * The sidebar's short summary: today, or the last 7 days when nothing ran today. Undefined when
- * neither period has usage.
+ * Tokens per agent and account over the last 5 hours and the last 7 days, busiest first. Only agents
+ * with usage in the last 7 days are listed.
  */
-export function stripUsage(records: readonly ThreadUsageRecord[], now: number): UsageStrip | undefined {
-  for (const period of ["today", "week"] as const) {
-    const visible = filterUsage(records, { period, now });
-    if (visible.length === 0) continue;
-    const groups = groupUsage(visible, "provider").sort(
-      (left, right) =>
-        costOf(right.totals) - costOf(left.totals) ||
-        tokenTotal(right.totals) - tokenTotal(left.totals) ||
-        left.key.localeCompare(right.key),
+export function usageWindows(records: readonly ThreadUsageRecord[], now: number): UsageWindowRow[] {
+  const week = filterUsage(records, { period: "week", now });
+  const recentSince = now - FIVE_HOURS_MS;
+  const recent = new Map(
+    groupUsage(
+      week.filter((record) => (recordedAt(record) ?? 0) >= recentSince),
+      "provider",
+    ).map((group) => [group.key, tokenTotal(group.totals)]),
+  );
+  return groupUsage(week, "provider")
+    .map((group) => ({
+      key: group.key,
+      provider: group.provider,
+      ...(group.accountId ? { accountId: group.accountId } : {}),
+      fiveHours: recent.get(group.key) ?? 0,
+      week: tokenTotal(group.totals),
+    }))
+    .sort(
+      (left, right) => right.fiveHours - left.fiveHours || right.week - left.week || left.key.localeCompare(right.key),
     );
-    const maxTokens = Math.max(0, ...groups.map((group) => tokenTotal(group.totals)));
-    return { period, groups, totals: sumUsage(visible), maxTokens };
-  }
-  return undefined;
-}
-
-function costOf(totals: UsageTotals): number {
-  return totals.costedTurns > 0 ? totals.costUsd : 0;
 }
 
 export function tokenTotal(totals: Pick<UsageTotals, "inputTokens" | "outputTokens">): number {

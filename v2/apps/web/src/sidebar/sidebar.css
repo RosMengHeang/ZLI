@@ -94,29 +94,29 @@
 .sidebar-footer { display: flex; align-items: center; gap: var(--zli-space-2); height: 44px; flex: 0 0 auto; padding: 0 var(--zli-space-2) 0 var(--zli-space-4); color: var(--zli-dim); font-size: var(--zli-text-sm); }
 .connection-dot { width: 6px; height: 6px; flex-basis: 6px; }
 .sidebar-bottom { display: flex; flex: 0 0 auto; flex-direction: column; }
-/* One button for the whole strip, so it reads as a single place to open Usage. */
 .sidebar-usage-strip {
-  display: flex; flex-direction: column; gap: var(--zli-space-1-5); margin: 0 var(--zli-space-2); padding: var(--zli-space-2) var(--zli-space-2-5);
+  display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0 var(--zli-space-2); padding: var(--zli-space-2) var(--zli-space-2-5);
   border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: pointer;
   font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; text-align: left;
   transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease);
 }
 .sidebar-usage-strip:hover { border-color: var(--zli-border-strong); background: var(--zli-hover); }
 .sidebar-usage-strip.is-empty { flex-direction: row; align-items: center; gap: var(--zli-space-2); color: var(--zli-dim); }
-.usage-strip-head { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-2xs); }
-.usage-strip-total { color: var(--zli-muted); }
-.usage-strip-row { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; grid-template-areas: "mark name value" ". bar bar"; align-items: center; column-gap: var(--zli-space-2); row-gap: 3px; }
-.usage-strip-row > .provider-mark { grid-area: mark; color: var(--zli-dim); }
-.usage-strip-name { display: flex; min-width: 0; grid-area: name; align-items: baseline; gap: var(--zli-space-1-5); overflow: hidden; white-space: nowrap; }
+/* Rows share the grid's columns so the 5h and Week numbers line up. */
+.usage-strip-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; column-gap: var(--zli-space-3); row-gap: var(--zli-space-1-5); }
+.usage-strip-row { display: contents; }
+.usage-strip-head { color: var(--zli-dim); font-size: var(--zli-text-2xs); }
+.usage-strip-number { min-width: 28px; text-align: right; }
+.usage-strip-name { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); overflow: hidden; white-space: nowrap; }
+.usage-strip-name > .provider-mark { flex: 0 0 auto; color: var(--zli-dim); }
 .usage-strip-provider { flex: 0 0 auto; }
 .usage-strip-account { min-width: 0; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; }
-.usage-strip-value { grid-area: value; color: var(--zli-muted); }
-.usage-strip-bar { display: block; height: 2px; grid-area: bar; overflow: hidden; border-radius: var(--zli-radius-pill); background: var(--zli-active); }
-.usage-strip-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--zli-accent); }
-.usage-strip-row.is-current .usage-strip-provider, .usage-strip-row.is-current > .provider-mark,
+.usage-strip-recent { color: var(--zli-text); }
+.usage-strip-recent.is-zero { color: var(--zli-dim); }
+.usage-strip-row.is-current .usage-strip-provider, .usage-strip-row.is-current .provider-mark,
 .sidebar-usage-strip:hover .usage-strip-provider { color: var(--zli-text); }
 .usage-strip-more { color: var(--zli-dim); font-size: var(--zli-text-2xs); }
-.sidebar-settings { margin-left: auto; }
+.sidebar-usage { margin-left: auto; }
 
 @media (max-width: 1240px) {
   .sidebar { width: 236px; flex-basis: 236px; }

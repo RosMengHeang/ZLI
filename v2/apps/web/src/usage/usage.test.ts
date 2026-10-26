@@ -7,9 +7,9 @@ import {
   formatTokens,
   groupUsage,
   latestContext,
-  stripUsage,
   sumUsage,
   usageGroupKey,
+  usageWindows,
 } from "./usage.js";
 
 const now = Date.parse("2026-09-23T15:00:00.000Z");
@@ -109,34 +109,39 @@ describe("groupUsage by account", () => {
   });
 });
 
-describe("stripUsage", () => {
+describe("usageWindows", () => {
   const at = (hoursAgo: number) => new Date(now - hoursAgo * 3_600_000).toISOString();
 
-  it("is undefined when nothing ran in the last 7 days", () => {
-    expect(stripUsage([], now)).toBeUndefined();
-    expect(stripUsage([record("a", "codex", "2026-09-01T10:00:00.000Z", { inputTokens: 5 })], now)).toBeUndefined();
+  it("is empty when nothing ran in the last 7 days", () => {
+    expect(usageWindows([], now)).toEqual([]);
+    expect(usageWindows([record("a", "codex", "2026-09-01T10:00:00.000Z", { inputTokens: 5 })], now)).toEqual([]);
   });
 
-  it("shows today, or the last 7 days when nothing ran today", () => {
-    const yesterday = record("a", "codex", at(30), { inputTokens: 100 });
-    expect(stripUsage([yesterday], now)?.period).toBe("week");
-    const strip = stripUsage([yesterday, record("b", "codex", at(1), { inputTokens: 40 })], now);
-    expect(strip?.period).toBe("today");
-    expect(strip?.totals.inputTokens).toBe(40);
-  });
-
-  it("puts the highest cost first, then the most tokens, one row per account", () => {
-    const strip = stripUsage(
+  it("totals tokens per account for the last 5 hours and the last 7 days", () => {
+    const rows = usageWindows(
       [
-        record("a", "codex", at(1), { inputTokens: 9_000 }),
-        { ...record("b", "claude-code", at(1), { inputTokens: 100, costUsd: 0.1 }), accountId: "work" },
-        record("c", "claude-code", at(1), { inputTokens: 200, costUsd: 0.4 }),
-        record("d", "gemini", at(1), { inputTokens: 20_000 }),
+        record("a", "codex", at(1), { inputTokens: 100, outputTokens: 20 }),
+        record("b", "codex", at(6), { inputTokens: 1_000 }),
+        { ...record("c", "codex", at(2), { inputTokens: 50 }), accountId: "work" },
       ],
       now,
     );
-    expect(strip?.groups.map((group) => group.key)).toEqual(["claude-code", "claude-code:work", "gemini", "codex"]);
-    expect(strip?.maxTokens).toBe(20_000);
+    expect(rows).toEqual([
+      { key: "codex", provider: "codex", fiveHours: 120, week: 1_120 },
+      { key: "codex:work", provider: "codex", accountId: "work", fiveHours: 50, week: 50 },
+    ]);
+  });
+
+  it("puts the busiest in the last 5 hours first, then the busiest this week", () => {
+    const rows = usageWindows(
+      [
+        record("a", "codex", at(30), { inputTokens: 9_000 }),
+        record("b", "claude-code", at(1), { inputTokens: 200 }),
+        record("c", "gemini", at(30), { inputTokens: 20_000 }),
+      ],
+      now,
+    );
+    expect(rows.map((row) => row.key)).toEqual(["claude-code", "gemini", "codex"]);
   });
 
   it("keys the usual login like the plain provider", () => {
