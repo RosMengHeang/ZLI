@@ -608,38 +608,42 @@ function PartRow({ icon, label, children }: { icon: IconName; label: string; chi
 function CandidateParts({ components }: { components: PluginComponents }) {
   const { skills, mcpServers, prompts, actions, ignored } = components;
   if (skills.length + mcpServers.length + prompts.length + actions.length + ignored.length === 0) return null;
+  const summary = componentSummary(components);
   return (
-    <ul className="plugin-parts">
-      {skills.length > 0 ? (
-        <PartRow icon="sparkle" label={skills.length === 1 ? "1 skill" : `${skills.length} skills`}>
-          {skills.join(", ")}
-        </PartRow>
-      ) : null}
-      {mcpServers.length > 0 ? (
-        <PartRow icon="puzzle" label={mcpServers.length === 1 ? "1 MCP server" : `${mcpServers.length} MCP servers`}>
-          {mcpServers.join(", ")}
-        </PartRow>
-      ) : null}
-      {prompts.length > 0 ? (
-        <PartRow icon="message" label={prompts.length === 1 ? "1 prompt" : `${prompts.length} prompts`}>
-          {prompts.map((prompt) => `/${prompt.name}`).join(", ")}
-        </PartRow>
-      ) : null}
-      {actions.length > 0 ? (
-        <PartRow icon="terminal" label={actions.length === 1 ? "1 action" : `${actions.length} actions`}>
-          {actions.map((action) => (
-            <span className="mcp-row-command" key={action.name} title={action.command}>
-              {action.name}: {action.command}
-            </span>
-          ))}
-        </PartRow>
-      ) : null}
-      {ignored.length > 0 ? (
-        <PartRow icon="x" label="Left out">
-          {ignored.join(", ")}
-        </PartRow>
-      ) : null}
-    </ul>
+    <>
+      {summary ? <p className="plugin-parts-summary">Adds {summary}.</p> : null}
+      <ul className="plugin-parts">
+        {skills.length > 0 ? (
+          <PartRow icon="sparkle" label={skills.length === 1 ? "1 skill" : `${skills.length} skills`}>
+            {skills.join(", ")}
+          </PartRow>
+        ) : null}
+        {mcpServers.length > 0 ? (
+          <PartRow icon="puzzle" label={mcpServers.length === 1 ? "1 MCP server" : `${mcpServers.length} MCP servers`}>
+            {mcpServers.join(", ")}
+          </PartRow>
+        ) : null}
+        {prompts.length > 0 ? (
+          <PartRow icon="message" label={prompts.length === 1 ? "1 prompt" : `${prompts.length} prompts`}>
+            {prompts.map((prompt) => `/${prompt.name}`).join(", ")}
+          </PartRow>
+        ) : null}
+        {actions.length > 0 ? (
+          <PartRow icon="terminal" label={actions.length === 1 ? "1 action" : `${actions.length} actions`}>
+            {actions.map((action) => (
+              <span className="mcp-row-command" key={action.name} title={action.command}>
+                {action.name}: {action.command}
+              </span>
+            ))}
+          </PartRow>
+        ) : null}
+        {ignored.length > 0 ? (
+          <PartRow icon="x" label="Left out">
+            {ignored.join(", ")}
+          </PartRow>
+        ) : null}
+      </ul>
+    </>
   );
 }
 

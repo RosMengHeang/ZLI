@@ -239,11 +239,15 @@ describe("Sidebar projects", () => {
       ]),
       { onWorktreeAction },
     );
-    expect(await openMenu(container, "feat actions")).toEqual(["Cancel"]);
-    await act(async () => button(container, "feat actions").click());
-    expect(await openMenu(container, "HEAD actions")).toEqual(["Cancel", "Forget checkout"]);
+    const [checkoutRow, featureRow] = [...container.querySelectorAll<HTMLElement>(".worktree-entry")] as [
+      HTMLElement,
+      HTMLElement,
+    ];
+    expect(await openMenu(featureRow, "Worktree actions")).toEqual(["Cancel"]);
+    await act(async () => button(featureRow, "Worktree actions").click());
+    expect(await openMenu(checkoutRow, "Worktree actions")).toEqual(["Cancel", "Forget checkout"]);
     await act(async () => button(document.body, "Forget checkout").click());
-    await act(async () => button(container, "Forget checkout").click());
+    await act(async () => button(checkoutRow, "Forget checkout").click());
     expect(onWorktreeAction).toHaveBeenCalledWith(expect.objectContaining({ worktreeId: checkoutId }), "remove");
   });
 
@@ -252,7 +256,7 @@ describe("Sidebar projects", () => {
       projection([{ worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat", status: "ready" }]),
     );
     await act(async () => container.querySelector<HTMLButtonElement>(".worktree-toggle")?.click());
-    expect(await openMenu(container, "feat actions")).toEqual(["Delete worktree"]);
+    expect(await openMenu(container, "Worktree actions")).toEqual(["Delete worktree"]);
     await act(async () => button(document.body, "Delete worktree").click());
     expect(has(container, "Delete worktree")).toBe(true);
     expect(has(container, "Keep")).toBe(true);

@@ -359,7 +359,7 @@ export function Sidebar({
         </button>
         <span className="row-more">
           <MenuButton
-            label={`${worktree.branch} actions`}
+            label="Worktree actions"
             tooltip="More"
             size="xs"
             items={() => worktreeMenuItems(worktree, info)}
@@ -467,7 +467,7 @@ export function Sidebar({
         </button>
         <span className="row-more">
           <MenuButton
-            label={`${name} actions`}
+            label="Agent actions"
             tooltip="More"
             size="xs"
             items={() => sessionMenuItems(session, stoppable, runIndex === undefined ? worktree : undefined)}

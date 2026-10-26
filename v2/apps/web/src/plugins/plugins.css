@@ -25,6 +25,7 @@ label.plugin-candidate.is-checked { border-color: var(--zli-accent-edge); }
 .plugin-candidate.is-single { cursor: default; }
 .plugin-candidate .mcp-row-copy { gap: var(--zli-space-1-5); }
 .plugin-parts { display: flex; flex-direction: column; margin: var(--zli-space-1) 0 0; padding: var(--zli-space-1) var(--zli-space-3); border-radius: var(--zli-radius-sm); background: var(--zli-well); list-style: none; }
+.plugin-parts-summary { margin: var(--zli-space-1-5) 0 0; color: var(--zli-muted); font-size: var(--zli-text-xs); }
 .plugin-part { display: grid; grid-template-columns: 20px 104px minmax(0, 1fr); align-items: baseline; gap: var(--zli-space-2); padding: var(--zli-space-1-5) 0; font-size: var(--zli-text-sm); }
 .plugin-part + .plugin-part { border-top: 1px solid var(--zli-border); }
 .plugin-part-icon { display: inline-flex; align-self: center; color: var(--zli-dim); }

@@ -361,7 +361,7 @@ describe("AppShell", () => {
     const dispatched: unknown[] = [];
     const container = await render(makeBridge(withAgent, dispatched));
     await act(async () => {
-      button(container, "Claude Code actions")?.click();
+      button(container, "Agent actions")?.click();
     });
     await act(async () => {
       button(document.body, "Delete agent")?.click();
@@ -385,7 +385,7 @@ describe("AppShell", () => {
     };
     const container = await render(makeBridge(stopped, dispatched));
     await act(async () => {
-      button(container, "Claude Code actions")?.click();
+      button(container, "Agent actions")?.click();
     });
     await act(async () => {
       button(document.body, "Delete agent")?.click();
