@@ -28,10 +28,17 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return result.stdout;
 }
 
+/** Windows runners default to core.autocrlf, which would check files out with CRLF and break the LF fixtures. */
+async function keepLf(cwd: string): Promise<void> {
+  await git(cwd, "config", "core.autocrlf", "false");
+  await git(cwd, "config", "core.eol", "lf");
+}
+
 /** A repository with one committed file of ten numbered lines. */
 async function repository(): Promise<string> {
   const cwd = await mkdtemp(join(tmpdir(), "zli-changes-"));
   await git(cwd, "init", "--quiet");
+  await keepLf(cwd);
   await git(cwd, "config", "user.email", "zli-changes@example.invalid");
   await git(cwd, "config", "user.name", "ZLI Changes");
   await git(cwd, "config", "commit.gpgsign", "false");
@@ -238,6 +245,7 @@ describe("GitChangesService with real Git", { timeout: 30_000 }, () => {
     const cwd = await mkdtemp(join(tmpdir(), "zli-changes-unborn-"));
     try {
       await git(cwd, "init", "--quiet");
+      await keepLf(cwd);
       await writeFile(join(cwd, "a.txt"), "a\n", "utf8");
       const service = new GitChangesService();
       await service.stage(cwd);
