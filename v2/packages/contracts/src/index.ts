@@ -13,6 +13,7 @@ export * from "./issues.js";
 export * from "./mcp.js";
 export * from "./mcpCatalog.js";
 export * from "./mobile.js";
+export * from "./openIn.js";
 export * from "./pluginCatalog.js";
 export * from "./plugins.js";
 export * from "./projectConfig.js";

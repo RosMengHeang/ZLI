@@ -14,6 +14,8 @@ import {
   BrowserSetViewportInput,
   BrowserTabIdInput,
   BrowserWaitForNetworkIdleInput,
+  type OpenInApp,
+  OpenInRequest,
   RpcRequest,
   TerminalId,
 } from "@zli-v2/contracts";
@@ -62,6 +64,7 @@ import { mobileIpcHandlers, streamViewer } from "./mobile/mobileIpc.js";
 import { PopOutWindows, type PopOutWindowLike, type WindowBounds } from "./mobile/PopOutWindows.js";
 import type { AgentNotifier } from "./notifications/AgentNotifier.js";
 import { registerAgentNotifications } from "./notifications/electronNotifications.js";
+import { detectApps, launchApp, nodeEnvironment, type ResolvedApp } from "./openIn/OpenInApps.js";
 import { ensureDesktopDaemon, shutdownDesktopDaemon } from "./runtime/DesktopDaemon.js";
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
 import { ensureScratchFolder } from "./scratch/ScratchFolder.js";
@@ -104,6 +107,12 @@ let scratchFolderPath: string | undefined;
 let daemonEndpointPath: string | undefined;
 /** Test launches record links instead of starting the system browser. */
 let lastExternalUrl: string | undefined;
+/** Test launches record which app a folder would open in instead of starting it. */
+let lastOpenIn: { appId: string; path: string } | undefined;
+let openInApps: { at: number; apps: Promise<ResolvedApp[]> } | undefined;
+const openInIcons = new Map<string, Promise<string | undefined>>();
+/** Apps are installed and removed while ZLI runs, so the list is looked up again after a minute. */
+const OPEN_IN_TTL_MS = 60_000;
 
 /** An icon from apps/desktop/build, which packaged builds carry next to dist. */
 function appIcon(name: string): string | undefined {
@@ -577,6 +586,38 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
     await openExternalUrl(url);
     return { accepted: true };
   });
+  ipcMain.handle("zli:open-in:apps", async (): Promise<OpenInApp[]> => {
+    const apps = await installedApps();
+    return Promise.all(
+      apps.map(async (entry) => {
+        const icon = await appIconUrl(entry.executable);
+        return { id: entry.id, name: entry.name, kind: entry.kind, ...(icon ? { icon } : {}) };
+      }),
+    );
+  });
+  ipcMain.handle("zli:open-in:open", async (_event, input: unknown) => {
+    const request = OpenInRequest.parse(input);
+    // Only folders ZLI already manages can be opened, so the renderer cannot start an app on any path.
+    const worktree = runtime
+      ?.projection()
+      ?.worktrees.find((entry) => entry.worktreeId === request.worktreeId && entry.status !== "cancelled");
+    if (!worktree) throw new Error("This worktree is no longer in ZLI.");
+    if (!existsSync(worktree.path)) throw new Error(`The folder is missing: ${worktree.path}`);
+    const target = (await installedApps()).find((entry) => entry.id === request.appId);
+    if (!target) throw new Error("That app is no longer installed.");
+    if (process.env.ZLI_TEST_PROVIDER === "mock") {
+      lastOpenIn = { appId: target.id, path: worktree.path };
+      return { accepted: true };
+    }
+    await launchApp(target, worktree.path, nodeEnvironment().platform, (path) => shell.openPath(path));
+    return { accepted: true };
+  });
+  ipcMain.handle("zli:test:take-open-in", () => {
+    if (process.env.ZLI_TEST_PROVIDER !== "mock") throw new Error("Test runtime controls are disabled.");
+    const opened = lastOpenIn ?? null;
+    lastOpenIn = undefined;
+    return opened;
+  });
   ipcMain.handle("zli:test:take-external-url", () => {
     if (process.env.ZLI_TEST_PROVIDER !== "mock") throw new Error("Test runtime controls are disabled.");
     const url = lastExternalUrl ?? null;
@@ -608,6 +649,27 @@ function overlaps(area: WindowBounds, bounds: WindowBounds): boolean {
     bounds.y < area.y + area.height &&
     bounds.y + bounds.height > area.y
   );
+}
+
+function installedApps(): Promise<ResolvedApp[]> {
+  if (!openInApps || Date.now() - openInApps.at > OPEN_IN_TTL_MS) {
+    openInApps = { at: Date.now(), apps: detectApps(nodeEnvironment()).catch(() => []) };
+  }
+  return openInApps.apps;
+}
+
+/** The app's own icon. Linux has no per-app file icons, so the menu shows a generic one there. */
+function appIconUrl(executable: string): Promise<string | undefined> {
+  if (process.platform === "linux" || !executable) return Promise.resolve(undefined);
+  let icon = openInIcons.get(executable);
+  if (!icon) {
+    icon = app
+      .getFileIcon(executable, { size: "normal" })
+      .then((image) => (image.isEmpty() ? undefined : image.toDataURL()))
+      .catch(() => undefined);
+    openInIcons.set(executable, icon);
+  }
+  return icon;
 }
 
 async function openExternalUrl(url: string): Promise<void> {
