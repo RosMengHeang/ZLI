@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type Server as HttpServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -11,8 +11,8 @@ import {
   CHECKPOINT_COMMAND_TYPES,
   type CheckpointCommand,
   ClientWireMessage,
+  CommandId,
   type EnvironmentDescriptor,
-  type ListedProviderKind,
   FILE_COMMAND_TYPES,
   type FileCommand,
   FileDataResult,
@@ -25,6 +25,7 @@ import {
   type GitChangesCommand,
   ISSUE_COMMAND_TYPES,
   type IssueCommand,
+  type ListedProviderKind,
   MCP_COMMAND_TYPES,
   type McpCommand,
   type McpImportResult,
@@ -50,23 +51,24 @@ import { type RawData, WebSocket, WebSocketServer } from "ws";
 import { CheckpointError, type TurnCheckpoints } from "../checkpoints/TurnCheckpoints.js";
 import { errorCode, FileService, FileServiceError } from "../files/FileService.js";
 import { defaultIssueSources, IssueError, type IssueSources, runIssueCommand } from "../issues/IssueService.js";
-import type { Engine } from "../orchestration/Engine.js";
 import { McpRequestError } from "../mcp/McpServerStore.js";
 import { SignInError } from "../mcp/signIn/oauth.js";
+import type { Engine } from "../orchestration/Engine.js";
 import { isPluginError, type PluginStore } from "../plugins/PluginStore.js";
 import { runPluginCommand } from "../plugins/runPluginCommand.js";
 import { unavailableProviderDiscovery } from "../providers/discoverCliProviders.js";
 import { GitChangesError, GitChangesService, runGitChangesCommand } from "../review/GitChangesService.js";
 import {
+  branchChanges,
   PullRequestError,
   PullRequestService,
   redactSecrets,
   runPullRequestCommand,
 } from "../review/PullRequestService.js";
-import type { TerminalService, TerminalSubscription } from "../terminal/TerminalService.js";
 import { runSkillCommand } from "../skills/runSkillCommand.js";
-import { SkillError } from "../skills/skillFolders.js";
 import type { SkillStore } from "../skills/SkillStore.js";
+import { SkillError } from "../skills/skillFolders.js";
+import type { TerminalService, TerminalSubscription } from "../terminal/TerminalService.js";
 import { readableTerminalText } from "../terminal/terminalText.js";
 import { readZliConfig } from "../worktrees/zliConfig.js";
 import { AttachmentError, storeThreadAttachments } from "./attachments.js";
@@ -560,7 +562,10 @@ export class RpcServer {
     const command = request.command;
     if (!isPullRequestCommand(command)) return false;
     try {
-      const result = await runPullRequestCommand(this.pullRequestService, await this.engine.projection(), command);
+      const projection = await this.engine.projection();
+      const result = await runPullRequestCommand(this.pullRequestService, projection, command, (worktree, branches) =>
+        this.recordBranches(branchChanges(projection, worktree, branches)),
+      );
       send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
     } catch (error) {
       const message =
@@ -601,6 +606,24 @@ export class RpcServer {
       });
     }
     return true;
+  }
+
+  /**
+   * Git can switch or rename a worktree's branch outside the event log, so the branch it reports is
+   * recorded through a command. A failure here leaves the old name until the next branch list.
+   */
+  private async recordBranches(changes: ReturnType<typeof branchChanges>): Promise<void> {
+    for (const change of changes) {
+      try {
+        await this.engine.dispatchPromise({
+          protocolVersion: 1,
+          commandId: CommandId.parse(randomUUID()),
+          command: { type: "worktree.branch", worktreeId: change.worktreeId, branch: change.branch },
+        });
+      } catch {
+        // The Git action itself succeeded; the next branch list records the branch again.
+      }
+    }
   }
 
   /** Issue commands read GitHub or Linear and answer directly, outside the event log. */

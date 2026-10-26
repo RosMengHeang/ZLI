@@ -80,6 +80,7 @@
 .worktree-row.is-active { background: var(--zli-active); color: var(--zli-text); }
 .worktree-row .status-dot { width: 6px; height: 6px; flex-basis: 6px; }
 .worktree-name { min-width: 0; flex: 1; overflow: hidden; font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.worktree-track { flex: 0 0 auto; color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; }
 .worktree-kind { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-2xs); }
 .worktree-pr { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px; font-family: var(--zli-mono); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; }
 .worktree-pr.is-success { color: var(--zli-green); }

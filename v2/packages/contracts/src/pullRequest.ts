@@ -48,6 +48,25 @@ export const PullRequestCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("review.git.fetch"), worktreeId: WorktreeId }),
   /** Fast-forwards the checked-out branch to its copy on origin. */
   z.object({ type: z.literal("review.git.pull"), worktreeId: WorktreeId }),
+  /** Creates a local branch at `from` (HEAD when absent) without tracking it, and checks it out with `switchTo`. */
+  z.object({
+    type: z.literal("review.git.createBranch"),
+    worktreeId: WorktreeId,
+    name: BranchName,
+    from: BranchName.optional(),
+    switchTo: z.boolean(),
+  }),
+  /** Checks out a local branch. `origin/<name>` checks out a local branch that tracks it, creating one if needed. */
+  z.object({ type: z.literal("review.git.switchBranch"), worktreeId: WorktreeId, name: BranchName }),
+  z.object({ type: z.literal("review.git.renameBranch"), worktreeId: WorktreeId, from: BranchName, to: BranchName }),
+  /** Deletes a local branch; `remote` also deletes it on origin. Without `force`, unmerged commits block it. */
+  z.object({
+    type: z.literal("review.git.deleteBranch"),
+    worktreeId: WorktreeId,
+    name: BranchName,
+    force: z.boolean(),
+    remote: z.boolean(),
+  }),
   /** Submits a review. GitHub requires a body for COMMENT and REQUEST_CHANGES. */
   z.object({
     type: z.literal("review.pr.review"),
@@ -84,12 +103,34 @@ export const PULL_REQUEST_COMMAND_TYPES = [
   "review.git.branches",
   "review.git.fetch",
   "review.git.pull",
+  "review.git.createBranch",
+  "review.git.switchBranch",
+  "review.git.renameBranch",
+  "review.git.deleteBranch",
   "review.pr.review",
   "review.pr.reply",
   "review.pr.resolve",
   "review.pr.comment",
   "review.pr.autoMerge",
 ] as const;
+
+/** How a local branch stands against the branch it tracks. */
+export const GitUpstream = z.object({
+  /** For example `origin/main`. */
+  name: BranchName,
+  ahead: z.number().int().nonnegative(),
+  behind: z.number().int().nonnegative(),
+  /** True when the tracked branch no longer exists, for example after it was deleted on origin. */
+  gone: z.boolean().optional(),
+});
+export type GitUpstream = z.infer<typeof GitUpstream>;
+
+export const GitLocalBranch = z.object({
+  upstream: GitUpstream.optional(),
+  /** Set when the branch is checked out in another worktree, which keeps it from being checked out or deleted here. */
+  worktreePath: z.string().min(1).max(4_000).optional(),
+});
+export type GitLocalBranch = z.infer<typeof GitLocalBranch>;
 
 export const PullRequestCheckState = z.enum(["pending", "passed", "failed", "skipped"]);
 export type PullRequestCheckState = z.infer<typeof PullRequestCheckState>;
@@ -136,6 +177,8 @@ export const PullRequestStatusResult = z.object({
   uncommittedFiles: z.number().int().nonnegative(),
   /** Commits on the branch that the base does not have; absent when the base could not be resolved. */
   commitsAhead: z.number().int().nonnegative().optional(),
+  /** The branch the checked-out branch tracks; absent when it tracks none. */
+  upstream: GitUpstream.optional(),
   defaults: z.object({ title: z.string(), body: z.string(), base: z.string().min(1) }),
 });
 export type PullRequestStatusResult = z.infer<typeof PullRequestStatusResult>;
@@ -161,6 +204,8 @@ export const GitBranchesResult = z.object({
   local: z.array(BranchName).max(1_000),
   /** Branch names on origin, without the `origin/` prefix. */
   remote: z.array(BranchName).max(1_000),
+  /** Upstream and worktree details by local branch name. Branches with nothing to report are left out. */
+  details: z.record(BranchName, GitLocalBranch).optional(),
 });
 export type GitBranchesResult = z.infer<typeof GitBranchesResult>;
 
@@ -170,6 +215,7 @@ export const GitPullResult = z.object({
   commits: z.number().int().nonnegative(),
 });
 export type GitPullResult = z.infer<typeof GitPullResult>;
+
 /** The pull request as GitHub reports it after a review, a comment, or an auto-merge change. */
 export const PullRequestUpdateResult = z.object({ pullRequest: PullRequestInfo });
 export type PullRequestUpdateResult = z.infer<typeof PullRequestUpdateResult>;

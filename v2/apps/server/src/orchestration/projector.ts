@@ -96,6 +96,14 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
         ),
         lastSequence: envelope.sequence,
       };
+    case "worktree.branch.changed":
+      return {
+        ...projection,
+        worktrees: projection.worktrees.map((worktree) =>
+          worktree.worktreeId === event.worktreeId ? { ...worktree, branch: event.branch } : worktree,
+        ),
+        lastSequence: envelope.sequence,
+      };
     case "worktree.removed":
     case "worktree.archived":
       return {

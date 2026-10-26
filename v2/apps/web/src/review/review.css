@@ -85,6 +85,24 @@ span.review-file-check { cursor: default; }
 .review-notice { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: 0 var(--zli-space-4) var(--zli-space-2-5); color: var(--zli-muted); font-size: var(--zli-text-sm); }
 .review-notice > svg { flex: 0 0 auto; margin-top: 2px; color: var(--zli-green); }
 .review-branch-picker { flex: 1 1 auto; width: auto; min-width: 96px; max-width: 240px; font-family: var(--zli-mono); }
+.sync-count { color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+
+/* ---------- Branches ---------- */
+.branch-dialog .is-mono { font-family: var(--zli-mono); font-size: .95em; }
+.branch-body { gap: var(--zli-space-2-5); }
+.branch-list { display: flex; height: 280px; flex-direction: column; padding: var(--zli-space-1); overflow: auto; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well); }
+.branch-group { margin: 0; padding: var(--zli-space-2) var(--zli-space-2) var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-2xs); font-weight: 600; }
+.branch-row { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); height: 28px; padding: 0 var(--zli-space-2) 0 var(--zli-space-1); border-radius: var(--zli-radius-sm); color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-sm); }
+.branch-row.is-active { background: var(--zli-hover); color: var(--zli-text); }
+.branch-row-check { display: grid; width: 16px; flex: 0 0 auto; place-items: center; color: var(--zli-text); }
+.branch-row-name { min-width: 0; flex: 1; overflow: hidden; font-family: var(--zli-mono); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.branch-track { flex: 0 0 auto; color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.branch-empty { margin: auto; color: var(--zli-dim); font-size: var(--zli-text-sm); }
+.branch-status { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: 0; color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.branch-status > svg { flex: 0 0 auto; margin-top: 2px; color: var(--zli-green); }
+.branch-keys { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.branch-keys kbd { margin-right: 2px; }
+.branch-confirm { margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); line-height: var(--zli-leading-normal); }
 
 /* ---------- Review comments ---------- */
 .review-comments { display: flex; flex: 0 1 auto; min-height: 0; max-height: 34%; flex-direction: column; margin: 0 var(--zli-space-3) var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well); }

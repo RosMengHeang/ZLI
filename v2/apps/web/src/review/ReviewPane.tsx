@@ -15,7 +15,8 @@ import { Icon } from "../ui/Icon.js";
 import { EmptyState, PaneHeader } from "../ui/Pane.js";
 import { Picker } from "../ui/Picker.js";
 import { Segmented } from "../ui/Segmented.js";
-import { branchOptions, defaultBranchOf, useBranches } from "./branches.js";
+import { BranchMenu } from "./BranchMenu.js";
+import { branchOptions, defaultBranchOf, trackDescription, useBranches } from "./branches.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { DiffView } from "./DiffView.js";
 import { PullRequestSection } from "./PullRequestSection.js";
@@ -100,6 +101,7 @@ export function ReviewPane({
   const [syncing, setSyncing] = useState<"pull" | "push">();
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  const [branchMenuOpen, setBranchMenuOpen] = useState(false);
   const branchState = useBranches(dispatch, worktree?.worktreeId, !!worktree && !noGit);
   const branches = branchState.branches;
   const [changing, setChanging] = useState(false);
@@ -278,6 +280,11 @@ export function ReviewPane({
     }
   };
 
+  const currentBranch = branches?.current ?? worktree?.branch;
+  const upstream = branches?.current ? branches.details?.[branches.current]?.upstream : undefined;
+  const toPull = upstream && !upstream.gone ? upstream.behind : 0;
+  const toPush = upstream && !upstream.gone ? upstream.ahead : 0;
+
   const fetchOrigin = async () => {
     setNotice(undefined);
     if (await branchState.fetch()) setNotice("Fetched the latest branches from origin.");
@@ -286,7 +293,28 @@ export function ReviewPane({
   const shownError = error ?? branchState.error;
   return (
     <div className="tool-pane review-pane">
-      <PaneHeader icon="diff" title="Changes" detail={worktree?.branch}>
+      <PaneHeader
+        icon="diff"
+        title="Changes"
+        detail={
+          worktree && !noGit ? (
+            <button
+              type="button"
+              className="pane-detail-button"
+              aria-haspopup="dialog"
+              aria-label={currentBranch ? `Branch ${currentBranch}` : "Branches"}
+              data-tooltip="Switch, create, rename, or delete branches"
+              onClick={() => setBranchMenuOpen(true)}
+            >
+              <Icon name="branch" size={12} />
+              <span>{currentBranch}</span>
+              <Icon name="chevronDown" size={11} />
+            </button>
+          ) : (
+            worktree?.branch
+          )
+        }
+      >
         {review && fileCount > 0 ? (
           <span className="review-totals">
             <span className="diff-add">+{totals.additions}</span>
@@ -334,23 +362,33 @@ export function ReviewPane({
             variant="ghost"
             size="sm"
             icon="download"
+            aria-label={toPull > 0 ? `Pull, ${toPull} to pull` : undefined}
             loading={syncing === "pull"}
             disabled={!!syncing}
-            tooltip="Fast-forward this branch to its copy on origin"
+            tooltip={
+              toPull > 0
+                ? `Fast-forward this branch to its copy on origin. ${trackDescription(upstream)}`
+                : "Fast-forward this branch to its copy on origin"
+            }
             onClick={() => void sync("pull")}
           >
             Pull
+            {toPull > 0 ? <span className="sync-count">↓{toPull}</span> : null}
           </Button>
           <Button
             variant="ghost"
             size="sm"
             icon="upload"
+            aria-label={toPush > 0 ? `Push, ${toPush} to push` : undefined}
             loading={syncing === "push"}
             disabled={!!syncing}
-            tooltip="Push this branch to origin"
+            tooltip={
+              toPush > 0 ? `Push this branch to origin. ${trackDescription(upstream)}` : "Push this branch to origin"
+            }
             onClick={() => void sync("push")}
           >
             Push
+            {toPush > 0 ? <span className="sync-count">↑{toPush}</span> : null}
           </Button>
         </form>
       ) : null}
@@ -608,6 +646,21 @@ export function ReviewPane({
           busy={changing}
           onConfirm={() => void confirmDiscard(discarding)}
           onCancel={() => setDiscarding(undefined)}
+        />
+      ) : null}
+      {worktree && branchMenuOpen ? (
+        <BranchMenu
+          worktree={worktree}
+          branches={branches}
+          onClose={() => setBranchMenuOpen(false)}
+          onChanged={(result, noticeMessage, close) => {
+            branchState.apply(result);
+            setError(undefined);
+            setNotice(noticeMessage);
+            if (close) setBranchMenuOpen(false);
+            if (review) refresh();
+            void refreshPullRequest(dispatch, worktree.worktreeId, true);
+          }}
         />
       ) : null}
       {shownError ? (

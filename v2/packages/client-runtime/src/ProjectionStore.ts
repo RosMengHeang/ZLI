@@ -118,6 +118,15 @@ export class ProjectionStore {
           lastSequence: envelope.sequence,
         };
         break;
+      case "worktree.branch.changed":
+        this.#projection = {
+          ...current,
+          worktrees: current.worktrees.map((worktree) =>
+            worktree.worktreeId === event.worktreeId ? { ...worktree, branch: event.branch } : worktree,
+          ),
+          lastSequence: envelope.sequence,
+        };
+        break;
       case "worktree.removed":
       case "worktree.archived":
         this.#projection = {
