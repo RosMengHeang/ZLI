@@ -4,8 +4,17 @@ import { useId } from "react";
 
 import { accountLabel, USUAL_LOGIN_LABEL } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
+import {
+  formatPercent,
+  LIMIT_WARN_PERCENT,
+  limitKey,
+  resetText,
+  showsReading,
+  visibleWindows,
+  windowLabel,
+  windowName,
+} from "../limits/limits.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
-import { formatPercent, formatResetIn, LIMIT_WARN_PERCENT, limitKey, limitWindows } from "../limits/limits.js";
 
 const MAX_ROWS = 3;
 const TOOLTIP = "Plan limits used. Tokens and cost are under Usage.";
@@ -26,6 +35,8 @@ type Props = {
   now: number;
   /** The limit key of the selected agent's login, to mark its row and keep it in view. */
   currentKey?: string | undefined;
+  /** For tests; the person's own time zone otherwise. */
+  timeZone?: string;
   onOpen(): void;
 };
 
@@ -34,23 +45,23 @@ type Row = {
   reading: PlanLimitReading;
   name: string;
   account: string | undefined;
-  fiveHour?: PlanLimitWindow;
-  week?: PlanLimitWindow;
+  windows: PlanLimitWindow[];
   current: boolean;
 };
 
 /**
- * How much of each login's 5-hour and weekly plan limit is used, above Settings. The numbers come from
- * Anthropic and OpenAI; the whole card opens the Usage dialog.
+ * How much of each login's plan limits is used, above Settings: one circle per limit the provider
+ * reports, each with its reset. The numbers come from Anthropic and OpenAI; the card opens Usage.
  */
-export function SidebarUsageStrip({ readings, providers, accounts, now, currentKey, onOpen }: Props) {
+export function SidebarUsageStrip({ readings, providers, accounts, now, currentKey, timeZone, onOpen }: Props) {
   const descriptionId = useId();
-  if (!readings || readings.length === 0) return null;
+  const shown = readings?.filter(showsReading) ?? [];
+  if (shown.length === 0) return null;
 
   const withAccounts = new Set(
-    readings.filter((reading) => reading.accountId !== USUAL_LOGIN_ACCOUNT_ID).map((reading) => reading.provider),
+    shown.filter((reading) => reading.accountId !== USUAL_LOGIN_ACCOUNT_ID).map((reading) => reading.provider),
   );
-  const all: Row[] = readings.map((reading) => {
+  const all: Row[] = shown.map((reading) => {
     const key = limitKey(reading.provider, reading.accountId);
     return {
       key,
@@ -62,7 +73,7 @@ export function SidebarUsageStrip({ readings, providers, accounts, now, currentK
             ? USUAL_LOGIN_LABEL
             : undefined
           : accountLabel(accounts, reading.accountId),
-      ...limitWindows(reading),
+      windows: visibleWindows(reading),
       current: key === currentKey,
     };
   });
@@ -71,7 +82,9 @@ export function SidebarUsageStrip({ readings, providers, accounts, now, currentK
   if (current && !rows.includes(current)) rows[rows.length - 1] = current;
   const more = all.length - rows.length;
   const description = [
-    ...rows.map((row) => `${[row.name, row.account].filter(Boolean).join(", ")}: ${rowDescription(row, now)}`),
+    ...rows.map(
+      (row) => `${[row.name, row.account].filter(Boolean).join(", ")}: ${rowDescription(row, now, timeZone)}`,
+    ),
     more > 0 ? `${more} more.` : "",
   ]
     .filter(Boolean)
@@ -89,14 +102,12 @@ export function SidebarUsageStrip({ readings, providers, accounts, now, currentK
       <span id={descriptionId} className="sr-only">
         {description}
       </span>
-      <span className="usage-strip-grid" aria-hidden="true">
-        <span className="usage-strip-head">Limits used</span>
-        <span className="usage-strip-head usage-strip-number">5h</span>
-        <span className="usage-strip-head usage-strip-number">Week</span>
-        {rows.map((row) => (
-          <StripRow key={row.key} row={row} now={now} />
-        ))}
+      <span className="usage-strip-head" aria-hidden="true">
+        Limits used
       </span>
+      {rows.map((row) => (
+        <LoginRow key={row.key} row={row} now={now} timeZone={timeZone} />
+      ))}
       {more > 0 ? (
         <span className="usage-strip-more" aria-hidden="true">
           +{more} more
@@ -106,62 +117,75 @@ export function SidebarUsageStrip({ readings, providers, accounts, now, currentK
   );
 }
 
-function StripRow({ row, now }: { row: Row; now: number }) {
+function LoginRow({ row, now, timeZone }: { row: Row; now: number; timeZone: string | undefined }) {
   const { reading } = row;
   const stale = reading.state !== "ok";
-  const hasWindows = row.fiveHour !== undefined || row.week !== undefined;
-  const nearly = [row.fiveHour, row.week].find((window) => window && window.usedPercent >= LIMIT_WARN_PERCENT);
-  const resetIn = nearly ? formatResetIn(nearly.resetsAt, now) : undefined;
   return (
     <span
       className={`usage-strip-row${row.current ? " is-current" : ""}${stale ? " is-stale" : ""}`}
       title={reading.message}
+      aria-hidden="true"
     >
       <span className="usage-strip-name">
         <ProviderMark provider={reading.provider} size={12} />
         <span className="usage-strip-provider">{row.name}</span>
         {row.account ? <span className="usage-strip-account">{row.account}</span> : null}
+        {reading.state === "ok" ? null : <span className="usage-strip-state">{stateText[reading.state]}</span>}
       </span>
-      {hasWindows ? (
-        <>
-          <WindowCell window={row.fiveHour} />
-          <WindowCell window={row.week} />
-        </>
-      ) : (
-        <span className="usage-strip-state">{reading.state === "ok" ? "No limits" : stateText[reading.state]}</span>
-      )}
-      {resetIn ? (
-        <span className="usage-strip-reset">
-          {nearly === row.fiveHour ? "5h" : "Week"} resets in {resetIn}
+      {row.windows.length > 0 ? (
+        <span className="usage-strip-windows">
+          {row.windows.map((window) => (
+            <WindowLine key={windowKey(window)} window={window} now={now} timeZone={timeZone} />
+          ))}
         </span>
       ) : null}
     </span>
   );
 }
 
-function WindowCell({ window }: { window: PlanLimitWindow | undefined }) {
-  if (!window) return <span className="usage-strip-number usage-strip-window is-missing">-</span>;
+function WindowLine({ window, now, timeZone }: { window: PlanLimitWindow; now: number; timeZone: string | undefined }) {
+  const reset = resetText(window, now, timeZone);
   const used = Math.min(100, Math.max(0, window.usedPercent));
+  const tone = reset.passed ? " is-passed" : used >= 100 ? " is-full" : used >= LIMIT_WARN_PERCENT ? " is-warning" : "";
   return (
-    <span className={`usage-strip-number usage-strip-window${used >= LIMIT_WARN_PERCENT ? " is-warning" : ""}`}>
-      {formatPercent(used)}
-      <span className="usage-strip-bar">
-        <span style={{ width: `${used}%` }} />
-      </span>
+    <span className={`usage-strip-window${tone}`}>
+      <LimitRing percent={reset.passed ? 0 : used} />
+      <span className="usage-strip-window-label">{windowLabel(window)}</span>
+      <span className="usage-strip-window-percent">{reset.passed ? "–" : formatPercent(used)}</span>
+      <span className="usage-strip-window-reset">{reset.text}</span>
     </span>
   );
 }
 
-function rowDescription(row: Row, now: number): string {
-  const parts = [windowDescription(row.fiveHour, "5-hour", now), windowDescription(row.week, "weekly", now)].filter(
-    Boolean,
+const RING_RADIUS = 5.5;
+const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
+
+function LimitRing({ percent }: { percent: number }) {
+  return (
+    <svg className="usage-strip-ring" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <circle className="usage-strip-ring-track" cx="8" cy="8" r={RING_RADIUS} />
+      <circle
+        className="usage-strip-ring-fill"
+        cx="8"
+        cy="8"
+        r={RING_RADIUS}
+        strokeDasharray={`${(percent / 100) * RING_LENGTH} ${RING_LENGTH}`}
+        transform="rotate(-90 8 8)"
+      />
+    </svg>
   );
-  const state = row.reading.state === "ok" ? "" : (row.reading.message ?? stateText[row.reading.state]);
-  return `${[parts.join(", "), state].filter(Boolean).join(". ")}${row.current ? ", selected agent" : ""}.`;
 }
 
-function windowDescription(window: PlanLimitWindow | undefined, name: string, now: number): string {
-  if (!window) return "";
-  const resetIn = formatResetIn(window.resetsAt, now);
-  return `${formatPercent(window.usedPercent)} of the ${name} limit used${resetIn ? `, resets in ${resetIn}` : ""}`;
+function windowKey(window: PlanLimitWindow): string {
+  return `${window.kind ?? "usage"}:${window.scope ?? ""}:${window.durationMinutes ?? ""}`;
+}
+
+function rowDescription(row: Row, now: number, timeZone: string | undefined): string {
+  const parts = row.windows.map((window) => {
+    const reset = resetText(window, now, timeZone);
+    if (reset.passed) return `the ${windowName(window)} limit just reset`;
+    return `${formatPercent(window.usedPercent)} of the ${windowName(window)} limit used, ${reset.text.replace(" · ", " at ")}`;
+  });
+  const state = row.reading.state === "ok" ? "" : (row.reading.message ?? stateText[row.reading.state]);
+  return `${[parts.join("; "), state].filter(Boolean).join(". ")}${row.current ? ", selected agent" : ""}.`;
 }

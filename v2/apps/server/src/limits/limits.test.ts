@@ -45,6 +45,26 @@ describe("codexLimitRead", () => {
 
   it("says when a login has no plan limits", () => {
     expect(codexLimitRead({ rateLimits: { primary: null, secondary: null } }).state).toBe("unavailable");
+    expect(codexLimitRead({ rateLimits: null }).state).toBe("unavailable");
+  });
+
+  it("labels a weekly-only plan by its length, not its slot", () => {
+    const read = codexLimitRead({
+      rateLimits: { primary: { usedPercent: 31, windowDurationMins: 10_080 }, secondary: null },
+    });
+    expect(read.windows).toEqual([{ usedPercent: 31, durationMinutes: 10_080 }]);
+  });
+
+  it("falls back to the slot only when a window has no length", () => {
+    expect(
+      codexLimitRead({ rateLimits: { primary: { usedPercent: 1 }, secondary: { usedPercent: 2 } } }).windows,
+    ).toEqual([
+      { usedPercent: 1, durationMinutes: 300 },
+      { usedPercent: 2, durationMinutes: 10_080 },
+    ]);
+    expect(codexLimitRead({ rateLimits: { planType: "free", primary: { usedPercent: 1 } } }).windows).toEqual([
+      { usedPercent: 1, durationMinutes: 43_200 },
+    ]);
   });
 });
 
@@ -98,6 +118,51 @@ describe("claudeLimitRead", () => {
 
   it("says when there are no windows", () => {
     expect(claudeLimitRead({}).state).toBe("unavailable");
+    expect(claudeLimitRead({ five_hour: null, seven_day: null, extra_usage: { is_enabled: false } }).state).toBe(
+      "unavailable",
+    );
+  });
+
+  it("leaves out a 5-hour window that has not started, and keeps an unknown reset unknown", () => {
+    expect(claudeLimitRead({ five_hour: null, seven_day: { utilization: 13, resets_at: null } }).windows).toEqual([
+      { durationMinutes: 10_080, usedPercent: 13 },
+    ]);
+  });
+
+  it("reads model limits from limits[] first, then the older flat keys", () => {
+    const read = claudeLimitRead({
+      five_hour: { used_percentage: 9, resets_at: 1_767_000_000 },
+      seven_day: { utilization: 68, resets_at: 1_767_000_000_000 },
+      seven_day_opus: { utilization: 50 },
+      seven_day_sonnet: null,
+      limits: [
+        { kind: "session", percent: 9 },
+        {
+          kind: "weekly_scoped",
+          percent: 100,
+          resets_at: "2026-09-19T09:00:00Z",
+          scope: { model: { display_name: "Fable" } },
+        },
+        { kind: "weekly_scoped", percent: 70, scope: { model: { display_name: "Opus" } } },
+        { kind: "weekly_scoped", percent: 1, scope: { model: { id: null } } },
+      ],
+    });
+    expect(read.windows).toEqual([
+      { durationMinutes: 300, usedPercent: 9, resetsAt: new Date(1_767_000_000_000).toISOString() },
+      { durationMinutes: 10_080, usedPercent: 68, resetsAt: new Date(1_767_000_000_000).toISOString() },
+      { scope: "Fable", durationMinutes: 10_080, usedPercent: 100, resetsAt: "2026-09-19T09:00:00.000Z" },
+      { scope: "Opus", durationMinutes: 10_080, usedPercent: 70 },
+    ]);
+  });
+
+  it("reads the monthly extra-usage cap from spend, then extra_usage", () => {
+    const money = (amount_minor: number) => ({ amount_minor, currency: "USD", exponent: 2 });
+    expect(claudeLimitRead({ spend: { enabled: true, used: money(2_500), limit: money(10_000) } }).windows).toEqual([
+      { kind: "spend", durationMinutes: 43_200, usedPercent: 25 },
+    ]);
+    expect(claudeLimitRead({ extra_usage: { is_enabled: true, monthly_limit: 50, used_credits: 40 } }).windows).toEqual(
+      [{ kind: "spend", durationMinutes: 43_200, usedPercent: 80 }],
+    );
   });
 });
 
@@ -158,6 +223,25 @@ describe("readClaudeLimits", () => {
     const hash = createHash("sha256").update("/accounts/work").digest("hex").slice(0, 8);
     expect(found).toEqual([`Claude Code-credentials-${hash}`]);
     expect(read.state).toBe("ok");
+  });
+
+  it("hides a sign-in that cannot read usage, such as a setup token", async () => {
+    const { value } = deps({
+      status: 403,
+      body: { error: { message: "OAuth token does not meet scope requirement user:profile" } },
+    });
+    expect((await readClaudeLimits(undefined, value)).state).toBe("unavailable");
+  });
+
+  it("waits as long as Anthropic asks, within bounds", async () => {
+    const limited = (retryAfter: string) =>
+      deps({
+        fetch: (async () =>
+          new Response("{}", { status: 429, headers: { "retry-after": retryAfter } })) as typeof fetch,
+      }).value;
+    expect((await readClaudeLimits(undefined, limited("3600"))).retryAfterMs).toBe(3_600_000);
+    expect((await readClaudeLimits(undefined, limited("5"))).retryAfterMs).toBe(CLAUDE_BACKOFF_MS);
+    expect((await readClaudeLimits(undefined, limited("999999"))).retryAfterMs).toBe(24 * 3_600_000);
   });
 
   it("reports an expired sign-in", async () => {
@@ -225,6 +309,20 @@ describe("PlanLimits", () => {
     const [reading] = (await limits.read()).readings;
     expect(reading).toMatchObject({ state: "error", message: "Down.", windows: [{ usedPercent: 10 }] });
     expect(reading?.checkedAt).toBe(new Date(1_000_000).toISOString());
+  });
+
+  it("reads again just after a window resets", async () => {
+    const soon = new Date(1_000_000 + 2 * 60_000).toISOString();
+    const { limits, calls, advance } = service([
+      { state: "ok", windows: [{ durationMinutes: 300, usedPercent: 99, resetsAt: soon }] },
+      ok(0),
+    ]);
+    await limits.read();
+    advance(2 * 60_000);
+    await limits.read();
+    expect(calls()).toBe(1);
+    advance(15_000);
+    expect((await limits.read()).readings[0]?.windows[0]?.usedPercent).toBe(0);
   });
 
   it("waits out a backoff even on refresh", async () => {

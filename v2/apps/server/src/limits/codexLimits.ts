@@ -1,4 +1,4 @@
-import { FIVE_HOUR_WINDOW, type PlanLimitWindow } from "@zli-v2/contracts";
+import { FIVE_HOUR_WINDOW, MONTHLY_WINDOW, type PlanLimitWindow, WEEKLY_WINDOW } from "@zli-v2/contracts";
 
 import type { LimitRead } from "./PlanLimits.js";
 
@@ -37,11 +37,13 @@ export function codexLimitRead(raw: unknown): LimitRead {
   const answer = record(raw);
   const byId = record(answer?.rateLimitsByLimitId);
   const snapshot = record(byId?.codex) ?? record(answer?.rateLimits) ?? record(answer?.rate_limits);
-  const windows = [snapshot?.primary, snapshot?.secondary]
-    .map(codexWindow)
-    .filter((window): window is PlanLimitWindow => window !== undefined)
-    .sort((left, right) => (left.durationMinutes ?? FIVE_HOUR_WINDOW) - (right.durationMinutes ?? FIVE_HOUR_WINDOW));
   const plan = text(snapshot?.planType) ?? text(snapshot?.plan_type);
+  // Slots say nothing about length: a weekly-only plan sends its week as `primary`. Only a window
+  // without a length falls back to its slot, and free and Go plans count by the month.
+  const primaryLength = plan === "free" || plan === "go" ? MONTHLY_WINDOW : FIVE_HOUR_WINDOW;
+  const windows = [codexWindow(snapshot?.primary, primaryLength), codexWindow(snapshot?.secondary, WEEKLY_WINDOW)]
+    .filter((window): window is PlanLimitWindow => window !== undefined)
+    .sort((left, right) => (left.durationMinutes ?? 0) - (right.durationMinutes ?? 0));
   if (windows.length === 0) {
     return {
       state: "unavailable",
@@ -53,7 +55,7 @@ export function codexLimitRead(raw: unknown): LimitRead {
   return { state: "ok", windows, ...(plan ? { plan } : {}) };
 }
 
-function codexWindow(value: unknown): PlanLimitWindow | undefined {
+function codexWindow(value: unknown, fallbackMinutes: number): PlanLimitWindow | undefined {
   const window = record(value);
   if (!window) return undefined;
   const used = number(window.usedPercent) ?? number(window.used_percent);
@@ -62,7 +64,7 @@ function codexWindow(value: unknown): PlanLimitWindow | undefined {
   const resetsAt = number(window.resetsAt) ?? number(window.resets_at);
   return {
     usedPercent: Math.min(100, Math.max(0, used)),
-    ...(minutes && minutes > 0 ? { durationMinutes: Math.round(minutes) } : {}),
+    durationMinutes: minutes && minutes > 0 ? Math.round(minutes) : fallbackMinutes,
     // Codex sends Unix seconds.
     ...(resetsAt && resetsAt > 0 ? { resetsAt: new Date(resetsAt * 1000).toISOString() } : {}),
   };

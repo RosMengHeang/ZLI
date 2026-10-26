@@ -101,25 +101,30 @@
   transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease);
 }
 .sidebar-usage-strip:hover { border-color: var(--zli-border-strong); background: var(--zli-hover); }
-/* Rows share the grid's columns so the 5h and Week numbers line up. */
-.usage-strip-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; column-gap: var(--zli-space-3); row-gap: var(--zli-space-1-5); }
-.usage-strip-row { display: contents; }
 .usage-strip-head { color: var(--zli-dim); font-size: var(--zli-text-2xs); }
-.usage-strip-number { min-width: 34px; text-align: right; }
+.usage-strip-row { display: flex; flex-direction: column; gap: 3px; }
 .usage-strip-name { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); overflow: hidden; white-space: nowrap; }
 .usage-strip-name > .provider-mark { flex: 0 0 auto; color: var(--zli-dim); }
 .usage-strip-provider { flex: 0 0 auto; }
 .usage-strip-account { min-width: 0; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; }
-.usage-strip-window { display: flex; flex-direction: column; align-items: stretch; gap: 2px; color: var(--zli-text); }
-.usage-strip-window.is-missing { color: var(--zli-dim); }
-.usage-strip-bar { height: 2px; overflow: hidden; border-radius: 1px; background: var(--zli-border); }
-.usage-strip-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--zli-muted); }
-.usage-strip-window.is-warning { color: var(--zli-amber); }
-.usage-strip-window.is-warning .usage-strip-bar > span { background: var(--zli-amber); }
-.usage-strip-state { grid-column: 2 / -1; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-align: right; white-space: nowrap; }
-.usage-strip-reset { grid-column: 1 / -1; margin-top: -2px; padding-left: 18px; color: var(--zli-dim); font-size: var(--zli-text-2xs); }
-.usage-strip-row.is-stale .usage-strip-window { color: var(--zli-dim); }
-.usage-strip-row.is-stale .usage-strip-bar > span { background: var(--zli-dim); }
+.usage-strip-state { margin-left: auto; flex: 0 0 auto; color: var(--zli-amber); font-size: var(--zli-text-2xs); }
+/* Fixed columns, so labels, shares, and resets line up across every login. */
+.usage-strip-windows { display: grid; grid-template-columns: 14px 38px 30px minmax(0, 1fr); align-items: center; column-gap: var(--zli-space-1-5); row-gap: 2px; padding-left: 1px; }
+.usage-strip-window { display: contents; }
+.usage-strip-ring { display: block; }
+.usage-strip-ring-track, .usage-strip-ring-fill { fill: none; stroke-width: 2.5; }
+.usage-strip-ring-track { stroke: var(--zli-border); }
+.usage-strip-ring-fill { stroke: var(--zli-muted); stroke-linecap: round; transition: stroke-dasharray var(--zli-duration-fast) var(--zli-ease); }
+.usage-strip-window-label { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.usage-strip-window-percent { color: var(--zli-text); text-align: right; }
+.usage-strip-window-reset { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.usage-strip-window.is-warning .usage-strip-ring-fill { stroke: var(--zli-amber); }
+.usage-strip-window.is-warning .usage-strip-window-percent { color: var(--zli-amber); }
+.usage-strip-window.is-full .usage-strip-ring-fill { stroke: var(--zli-red); }
+.usage-strip-window.is-full .usage-strip-window-percent { color: var(--zli-red); }
+.usage-strip-window.is-passed .usage-strip-window-percent { color: var(--zli-dim); }
+.usage-strip-row.is-stale .usage-strip-window-percent { color: var(--zli-dim); }
+.usage-strip-row.is-stale .usage-strip-ring-fill { stroke: var(--zli-dim); }
 .usage-strip-row.is-current .usage-strip-provider, .usage-strip-row.is-current .provider-mark,
 .sidebar-usage-strip:hover .usage-strip-provider { color: var(--zli-text); }
 .usage-strip-more { color: var(--zli-dim); font-size: var(--zli-text-2xs); }

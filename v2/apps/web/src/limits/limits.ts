@@ -1,9 +1,13 @@
 import {
+  DAILY_WINDOW,
+  FIVE_HOUR_WINDOW,
+  MONTHLY_WINDOW,
   type PlanLimitReading,
   PlanLimitsResult,
   type PlanLimitWindow,
   type RpcResponse,
   USUAL_LOGIN_ACCOUNT_ID,
+  WEEKLY_WINDOW,
 } from "@zli-v2/contracts";
 import { useEffect, useSyncExternalStore } from "react";
 
@@ -16,8 +20,8 @@ type Dispatch = (request: unknown) => Promise<RpcResponse | undefined>;
 export const LIMITS_POLL_MS = 5 * 60_000;
 /** Used at or above this share, a window shows as nearly spent. */
 export const LIMIT_WARN_PERCENT = 80;
-/** Windows up to a day long count as the short window; longer ones as the weekly one. */
-const SHORT_WINDOW_MAX_MINUTES = 1_440;
+/** Most windows a row shows; the tightest model limits come after the whole-plan ones. */
+const MAX_WINDOWS = 3;
 
 export async function readPlanLimits(dispatch: Dispatch, refresh = false): Promise<PlanLimitReading[]> {
   const response = await dispatch({
@@ -41,21 +45,62 @@ export function limitKey(provider: string, accountId: string | undefined): strin
 }
 
 /**
- * The 5-hour and weekly windows of a reading. Windows are sorted by length, so one without a length
- * falls back to its place: first is the short window, second the weekly one.
+ * Whether a login belongs on the card. A login with no plan limits (an API key, say) never does. A
+ * signed-out usual login is left out too, since nobody set it up in ZLI; a saved account says so.
  */
-export function limitWindows(reading: Pick<PlanLimitReading, "windows">): {
-  fiveHour?: PlanLimitWindow;
-  week?: PlanLimitWindow;
-} {
-  const result: { fiveHour?: PlanLimitWindow; week?: PlanLimitWindow } = {};
-  reading.windows.forEach((window, index) => {
-    const short =
-      window.durationMinutes === undefined ? index === 0 : window.durationMinutes <= SHORT_WINDOW_MAX_MINUTES;
-    if (short) result.fiveHour ??= window;
-    else result.week ??= window;
-  });
-  return result;
+export function showsReading(reading: PlanLimitReading): boolean {
+  if (reading.state === "unavailable") return false;
+  if (reading.state === "signed-out" && reading.accountId === USUAL_LOGIN_ACCOUNT_ID) return false;
+  return reading.state !== "ok" || reading.windows.length > 0;
+}
+
+/**
+ * The windows a row shows, shortest first. Every whole-plan window the provider reports shows, and
+ * only those: a weekly-only plan gets one circle, not an empty 5-hour one. A model limit shows when
+ * it is the one that will stop the agent, and a paid monthly cap only when the plan has no windows.
+ */
+export function visibleWindows(reading: Pick<PlanLimitReading, "windows">): PlanLimitWindow[] {
+  const plan = reading.windows
+    .filter((window) => window.kind !== "spend" && !window.scope)
+    .sort((left, right) => (left.durationMinutes ?? 0) - (right.durationMinutes ?? 0));
+  const weekly = Math.max(
+    0,
+    ...plan.filter((window) => (window.durationMinutes ?? 0) >= WEEKLY_WINDOW).map((window) => window.usedPercent),
+  );
+  const scoped = reading.windows
+    .filter(
+      (window) =>
+        window.kind !== "spend" &&
+        window.scope &&
+        (window.usedPercent >= LIMIT_WARN_PERCENT || window.usedPercent > weekly),
+    )
+    .sort((left, right) => right.usedPercent - left.usedPercent);
+  const spend = plan.length === 0 ? reading.windows.filter((window) => window.kind === "spend") : [];
+  return [...plan, ...scoped, ...spend].slice(0, MAX_WINDOWS);
+}
+
+/** A short name for a circle: "5h", "Day", "Week", "Month", a model name, or "Extra" for a paid cap. */
+export function windowLabel(window: PlanLimitWindow): string {
+  if (window.kind === "spend") return "Extra";
+  return window.scope ?? lengthLabel(window.durationMinutes);
+}
+
+function lengthLabel(minutes: number | undefined): string {
+  if (minutes === undefined) return "Limit";
+  if (minutes === DAILY_WINDOW) return "Day";
+  if (minutes === WEEKLY_WINDOW) return "Week";
+  if (Math.abs(minutes - MONTHLY_WINDOW) <= 3 * DAILY_WINDOW) return "Month";
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < DAILY_WINDOW) return `${Math.round(minutes / 60)}h`;
+  return `${Math.round(minutes / DAILY_WINDOW)}d`;
+}
+
+/** The spoken name of a window, as in "5-hour" or "Fable weekly", for "the … limit". */
+export function windowName(window: PlanLimitWindow): string {
+  if (window.kind === "spend") return "extra usage";
+  const label = lengthLabel(window.durationMinutes);
+  const length = { "5h": "5-hour", Day: "daily", Week: "weekly", Month: "monthly", Limit: "" }[label] ?? label;
+  return [window.scope, length].filter(Boolean).join(" ");
 }
 
 export function formatPercent(value: number): string {
@@ -77,6 +122,40 @@ export function formatResetIn(resetsAt: string | undefined, now: number): string
   return hours % 24 ? `${days}d ${hours % 24}h` : `${days}d`;
 }
 
+/** The local time of a reset: "3:40 PM" today, "Tue 9 AM" this week, "Nov 3" later. */
+export function formatResetClock(resetsAt: string, now: number, timeZone?: string): string | undefined {
+  const at = Date.parse(resetsAt);
+  if (Number.isNaN(at)) return undefined;
+  const zone = timeZone ? { timeZone } : {};
+  const day = (value: number) => new Intl.DateTimeFormat("en-CA", { ...zone, dateStyle: "short" }).format(value);
+  // "9 AM" reads faster than "9:00 AM"; resets usually land on the hour.
+  const parts = new Intl.DateTimeFormat(undefined, { ...zone, hour: "numeric", minute: "2-digit" }).formatToParts(at);
+  const onTheHour = parts.find((part) => part.type === "minute")?.value === "00";
+  const time = parts
+    .filter((part, index) => !onTheHour || (part.type !== "minute" && parts[index + 1]?.type !== "minute"))
+    .map((part) => part.value)
+    .join("");
+  if (day(at) === day(now)) return time;
+  if (at - now < 6 * 86_400_000) {
+    return `${new Intl.DateTimeFormat(undefined, { ...zone, weekday: "short" }).format(at)} ${time}`;
+  }
+  return new Intl.DateTimeFormat(undefined, { ...zone, month: "short", day: "numeric" }).format(at);
+}
+
+/**
+ * What a circle says about its reset, always: "2h 10m · 3:40 PM" when the provider gave a time,
+ * otherwise why there is none. A window whose reset has passed shows no share until the next read.
+ */
+export function resetText(window: PlanLimitWindow, now: number, timeZone?: string): { text: string; passed: boolean } {
+  if (window.resetsAt && Date.parse(window.resetsAt) <= now) return { text: "Reset, checking", passed: true };
+  const countdown = formatResetIn(window.resetsAt, now);
+  const clock = window.resetsAt ? formatResetClock(window.resetsAt, now, timeZone) : undefined;
+  if (countdown && clock) return { text: `${countdown} · ${clock}`, passed: false };
+  if (window.kind === "spend") return { text: "Resets monthly", passed: false };
+  // Claude leaves the 5-hour reset empty until the first message opens the window.
+  if (window.usedPercent === 0) return { text: "Starts when used", passed: false };
+  return { text: "Reset time unknown", passed: false };
+}
 export type PlanLimitsState =
   | { status: "loading" }
   | { status: "ready"; readings: readonly PlanLimitReading[] }

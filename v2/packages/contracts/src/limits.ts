@@ -8,9 +8,18 @@ export type PlanLimitProvider = (typeof PLAN_LIMIT_PROVIDERS)[number];
 
 /** Minutes in the two windows both plans use today. */
 export const FIVE_HOUR_WINDOW = 300;
+export const DAILY_WINDOW = 1_440;
 export const WEEKLY_WINDOW = 10_080;
+export const MONTHLY_WINDOW = 43_200;
 
 export const PlanLimitWindow = z.object({
+  /**
+   * "usage" is a share of the plan's included use. "spend" is a share of a paid monthly cap, such as
+   * Claude's extra usage, which only matters when the plan has no usage windows of its own.
+   */
+  kind: z.enum(["usage", "spend"]).optional(),
+  /** The model or pool a window is limited to, such as "Fable" or "Sonnet". Missing for the whole plan. */
+  scope: z.string().min(1).max(60).optional(),
   /** Length of the rolling window, when the provider says. 300 is the 5-hour window, 10080 the weekly one. */
   durationMinutes: z.number().int().positive().optional(),
   usedPercent: z.number().min(0).max(100),

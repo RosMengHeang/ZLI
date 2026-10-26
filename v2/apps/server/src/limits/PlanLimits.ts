@@ -19,6 +19,8 @@ export type LimitReader = (target: LimitTarget) => Promise<LimitRead>;
 export const LIMITS_FRESH_MS = 5 * 60_000;
 /** A manual refresh still waits this long after the last read, so clicks cannot flood the provider. */
 export const LIMITS_MIN_REFRESH_MS = 60_000;
+/** Providers take a few seconds to report a window that just reset as empty. */
+const RESET_GRACE_MS = 15_000;
 
 type Cached = { reading: PlanLimitReading; readAt: number; nextAt: number; backoffUntil: number };
 
@@ -84,7 +86,7 @@ export class PlanLimits {
     this.cache.set(targetKey(target), {
       reading,
       readAt: now,
-      nextAt: now + (read.retryAfterMs ?? LIMITS_FRESH_MS),
+      nextAt: read.retryAfterMs ? now + read.retryAfterMs : nextReadAt(reading, now),
       backoffUntil: read.retryAfterMs ? now + read.retryAfterMs : 0,
     });
     return reading;
@@ -95,28 +97,51 @@ export class PlanLimits {
   }
 }
 
+/**
+ * Usually a reading is reused for LIMITS_FRESH_MS. When a window resets sooner, its old share is
+ * wrong from then on, so the next read comes just after the reset, but never within a minute.
+ */
+function nextReadAt(reading: PlanLimitReading, now: number): number {
+  const resets = reading.windows
+    .map((window) => (window.resetsAt ? Date.parse(window.resetsAt) : Number.NaN))
+    .filter((at) => Number.isFinite(at) && at > now);
+  const soonest = Math.min(now + LIMITS_FRESH_MS, ...resets.map((at) => at + RESET_GRACE_MS));
+  return Math.max(now + LIMITS_MIN_REFRESH_MS, soonest);
+}
+
 function targetKey(target: LimitTarget): string {
   return `${target.provider}:${target.accountId}`;
 }
 
 /**
  * Fixed readings for the Electron integration harness, which runs no real agent CLI. Each login gets
- * the same numbers on every run, with reset times counted from now.
+ * the same numbers on every run, with reset times counted from now. The usual Claude login has a
+ * model limit near full; saved accounts are weekly-only, like some Codex plans.
  */
 export function mockLimitRead(target: LimitTarget, now = Date.now()): LimitRead {
-  const window = (durationMinutes: number, usedPercent: number, resetMinutes: number): PlanLimitWindow => ({
+  const window = (
+    durationMinutes: number,
+    usedPercent: number,
+    resetMinutes: number,
+    scope?: string,
+  ): PlanLimitWindow => ({
+    ...(scope ? { scope } : {}),
     durationMinutes,
     usedPercent,
     resetsAt: new Date(now + resetMinutes * 60_000).toISOString(),
   });
   if (target.accountId !== USUAL_LOGIN_ACCOUNT_ID) {
-    return {
-      state: "ok",
-      plan: "pro",
-      windows: [window(FIVE_HOUR_WINDOW, 8, 255), window(WEEKLY_WINDOW, 63, 2 * 1_440)],
-    };
+    return { state: "ok", plan: "plus", windows: [window(WEEKLY_WINDOW, 63, 2 * 1_440)] };
   }
   return target.provider === "claude-code"
-    ? { state: "ok", plan: "max", windows: [window(FIVE_HOUR_WINDOW, 86, 47), window(WEEKLY_WINDOW, 41, 3 * 1_440)] }
+    ? {
+        state: "ok",
+        plan: "max",
+        windows: [
+          window(FIVE_HOUR_WINDOW, 86, 47),
+          window(WEEKLY_WINDOW, 41, 3 * 1_440),
+          window(WEEKLY_WINDOW, 92, 3 * 1_440, "Fable"),
+        ],
+      }
     : { state: "ok", plan: "plus", windows: [window(FIVE_HOUR_WINDOW, 34, 130), window(WEEKLY_WINDOW, 12, 4 * 1_440)] };
 }
