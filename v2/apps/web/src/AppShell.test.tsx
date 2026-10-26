@@ -623,22 +623,26 @@ describe("Settings", () => {
     updateAppSettings((current) => ({ ...current, projects: { [projectId]: { permissionMode: "read-only" } } }));
     const container = await render(makeBridge(stopped, dispatched));
     const settings = await openSettings(container, "Projects");
-    await act(async () => button(settings, "Remove…")?.click());
+    const list = settings.querySelector('[aria-label="Projects"]');
+    expect(list?.textContent).toContain("repo");
+    expect(list?.textContent).toContain("C:/repo");
+    await act(async () => button(settings, "Remove repo")?.click());
     expect(settings.textContent).toContain("Remove repo from ZLI?");
     expect(settings.textContent).toContain("1 agent and its chat are deleted from ZLI.");
-    expect(settings.textContent).toContain("The project folder and its files stay on disk.");
-    expect(document.activeElement?.textContent).toBe("Cancel");
-    await act(async () => button(settings, "Cancel")?.click());
-    expect(button(settings, "Remove project")).toBeUndefined();
+    expect(settings.textContent).toContain("The folder and its files stay on disk.");
+    expect(document.activeElement?.textContent).toBe("Keep");
+    await act(async () => button(settings, "Keep")?.click());
+    expect(button(settings, "Remove")).toBeUndefined();
     expect(commands(dispatched).some((command) => command.type === "project.archive")).toBe(false);
 
-    await act(async () => button(settings, "Remove…")?.click());
-    await act(async () => button(settings, "Remove project")?.click());
+    await act(async () => button(settings, "Remove repo")?.click());
+    await act(async () => button(settings, "Remove")?.click());
     const sent = commands(dispatched);
     expect(sent).toContainEqual({ type: "session.delete", sessionId: agentSessionId });
     expect(sent.at(-1)).toEqual({ type: "project.archive", projectId });
     expect(sent.some((command) => command.type === "worktree.remove")).toBe(false);
     expect(settings.textContent).toContain("Removed repo from ZLI. Its folder is still on disk.");
+    expect(button(settings, "Add project")).not.toBeUndefined();
     await press(window, { key: "Escape", code: "Escape" });
     updateAppSettings((current) => {
       expect(current.projects[projectId]).toBeUndefined();
@@ -665,12 +669,12 @@ describe("Settings", () => {
     };
     const container = await render(bridge);
     const settings = await openSettings(container, "Projects");
-    await act(async () => button(settings, "Remove…")?.click());
-    await act(async () => button(settings, "Remove project")?.click());
+    await act(async () => button(settings, "Remove repo")?.click());
+    await act(async () => button(settings, "Remove")?.click());
     expect(settings.querySelector('[role="alert"]')?.textContent).toBe(
       "Stop the agents and terminals in this project first.",
     );
-    expect(button(settings, "Remove project")).not.toBeUndefined();
+    expect(button(settings, "Remove")).not.toBeUndefined();
   });
 });
 

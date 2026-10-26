@@ -1770,6 +1770,7 @@ function WorkspaceApp() {
             updates={updates}
             onRestartToUpdate={restartToUpdate}
             onSignIn={signInAccount}
+            onAddProject={() => void openProject()}
             onRemoveProject={removeProject}
             onClose={() => setSettingsSection(undefined)}
           />
