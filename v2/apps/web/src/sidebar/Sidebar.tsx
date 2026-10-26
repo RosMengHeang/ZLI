@@ -24,7 +24,7 @@ import { Kbd } from "../ui/Kbd.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ariaShortcut } from "../ui/shortcuts.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
-import { usageGroupKey } from "../usage/usage.js";
+import { limitKey, usePlanLimits } from "../limits/limits.js";
 import { SidebarUsageStrip } from "./SidebarUsageStrip.js";
 import "./sidebar.css";
 
@@ -157,6 +157,7 @@ export function Sidebar({
   const worktrees = projection?.worktrees ?? [];
   const threads = projection?.threads ?? [];
   const activeSession = sessions.find((session) => session.sessionId === activeSessionId);
+  const limits = usePlanLimits(accounts?.map((account) => account.id).join(","));
   const runIds = new Set(runGroups.flatMap((group) => group.sessionIds));
   const groupsBySource = new Map<string, RunGroup[]>();
   for (const group of runGroups) {
@@ -554,12 +555,11 @@ export function Sidebar({
       </div>
       <div className="sidebar-bottom">
         <SidebarUsageStrip
+          readings={limits.status === "loading" ? undefined : limits.readings}
           providers={projection?.providers}
           accounts={accounts}
           now={now}
-          currentKey={
-            activeSession ? usageGroupKey(activeSession.provider, sessionAccountId(activeSession)) : undefined
-          }
+          currentKey={activeSession ? limitKey(activeSession.provider, sessionAccountId(activeSession)) : undefined}
           onOpen={onOpenUsage}
         />
         <div className="sidebar-footer">

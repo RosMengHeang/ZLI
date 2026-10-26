@@ -82,7 +82,7 @@ export function groupUsage(records: readonly ThreadUsageRecord[], by: "provider"
       by === "provider" && record.accountId && record.accountId !== USUAL_LOGIN_ACCOUNT_ID
         ? record.accountId
         : undefined;
-    const key = by === "thread" ? record.threadId : usageGroupKey(record.provider, accountId);
+    const key = by === "thread" ? record.threadId : accountId ? `${record.provider}:${accountId}` : record.provider;
     const group = groups.get(key) ?? {
       provider: record.provider,
       ...(accountId ? { accountId } : {}),
@@ -103,49 +103,6 @@ export function groupUsage(records: readonly ThreadUsageRecord[], by: "provider"
     }))
     .sort((left, right) =>
       by === "thread" ? right.lastAt - left.lastAt : tokenTotal(right.totals) - tokenTotal(left.totals),
-    );
-}
-
-/** The group key for a provider and account. The usual login shares the plain provider key. */
-export function usageGroupKey(provider: string, accountId: string | undefined): string {
-  return accountId && accountId !== USUAL_LOGIN_ACCOUNT_ID ? `${provider}:${accountId}` : provider;
-}
-
-const FIVE_HOURS_MS = 5 * 3_600_000;
-
-export type UsageWindowRow = {
-  key: string;
-  provider: string;
-  accountId?: string;
-  /** Tokens in the last 5 hours. */
-  fiveHours: number;
-  /** Tokens in the last 7 days. */
-  week: number;
-};
-
-/**
- * Tokens per agent and account over the last 5 hours and the last 7 days, busiest first. Only agents
- * with usage in the last 7 days are listed.
- */
-export function usageWindows(records: readonly ThreadUsageRecord[], now: number): UsageWindowRow[] {
-  const week = filterUsage(records, { period: "week", now });
-  const recentSince = now - FIVE_HOURS_MS;
-  const recent = new Map(
-    groupUsage(
-      week.filter((record) => (recordedAt(record) ?? 0) >= recentSince),
-      "provider",
-    ).map((group) => [group.key, tokenTotal(group.totals)]),
-  );
-  return groupUsage(week, "provider")
-    .map((group) => ({
-      key: group.key,
-      provider: group.provider,
-      ...(group.accountId ? { accountId: group.accountId } : {}),
-      fiveHours: recent.get(group.key) ?? 0,
-      week: tokenTotal(group.totals),
-    }))
-    .sort(
-      (left, right) => right.fiveHours - left.fiveHours || right.week - left.week || left.key.localeCompare(right.key),
     );
 }
 

@@ -363,3 +363,12 @@ describe("CodexAppServerClient token usage", () => {
     ]);
   });
 });
+
+describe("CodexAppServerClient plan limits", () => {
+  it("reads the plan's rate limits with no params", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    await client.readRateLimits();
+    expect(peer.requests.at(-1)).toEqual({ method: "account/rateLimits/read", params: undefined });
+  });
+});
