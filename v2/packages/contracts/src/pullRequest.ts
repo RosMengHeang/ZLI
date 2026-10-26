@@ -4,6 +4,9 @@ import { WorktreeId } from "./ids.js";
 
 const BranchName = z.string().min(1).max(255);
 
+export const PullRequestMergeMethod = z.enum(["squash", "merge", "rebase"]);
+export type PullRequestMergeMethod = z.infer<typeof PullRequestMergeMethod>;
+
 /** Handled directly by the runtime server; none of these reach the event log. */
 export const PullRequestCommand = z.discriminatedUnion("type", [
   /** `base` is the branch the defaults are computed against; without it the repository default is used. */
@@ -21,6 +24,19 @@ export const PullRequestCommand = z.discriminatedUnion("type", [
     base: BranchName,
     draft: z.boolean(),
   }),
+  /** Merges the branch's pull request on GitHub. `deleteBranch` removes the branch from origin afterwards. */
+  z.object({
+    type: z.literal("review.pr.merge"),
+    worktreeId: WorktreeId,
+    method: PullRequestMergeMethod,
+    deleteBranch: z.boolean(),
+  }),
+  /** Local branches and the branches origin had at the last fetch. */
+  z.object({ type: z.literal("review.git.branches"), worktreeId: WorktreeId }),
+  /** Fetches origin, pruning branches deleted there, and answers with the new branch list. */
+  z.object({ type: z.literal("review.git.fetch"), worktreeId: WorktreeId }),
+  /** Fast-forwards the checked-out branch to its copy on origin. */
+  z.object({ type: z.literal("review.git.pull"), worktreeId: WorktreeId }),
 ]);
 export type PullRequestCommand = z.infer<typeof PullRequestCommand>;
 export const PULL_REQUEST_COMMAND_TYPES = [
@@ -29,6 +45,10 @@ export const PULL_REQUEST_COMMAND_TYPES = [
   "review.pr.create",
   "review.pr.checkLog",
   "review.pr.comments",
+  "review.pr.merge",
+  "review.git.branches",
+  "review.git.fetch",
+  "review.git.pull",
 ] as const;
 
 export const PullRequestCheckState = z.enum(["pending", "passed", "failed", "skipped"]);
@@ -81,6 +101,31 @@ export type PullRequestPushResult = z.infer<typeof PullRequestPushResult>;
 
 export const PullRequestCreateResult = z.object({ pullRequest: PullRequestInfo });
 export type PullRequestCreateResult = z.infer<typeof PullRequestCreateResult>;
+
+export const PullRequestMergeResult = z.object({
+  pullRequest: PullRequestInfo,
+  /** True when the branch is gone from origin, whether ZLI or a repository setting removed it. */
+  branchDeleted: z.boolean(),
+});
+export type PullRequestMergeResult = z.infer<typeof PullRequestMergeResult>;
+
+export const GitBranchesResult = z.object({
+  /** Absent when HEAD is detached. */
+  current: z.string().min(1).optional(),
+  /** The branch origin/HEAD points at, when origin names one. */
+  defaultBranch: z.string().min(1).optional(),
+  local: z.array(BranchName).max(1_000),
+  /** Branch names on origin, without the `origin/` prefix. */
+  remote: z.array(BranchName).max(1_000),
+});
+export type GitBranchesResult = z.infer<typeof GitBranchesResult>;
+
+export const GitPullResult = z.object({
+  branch: z.string().min(1),
+  /** Commits the pull brought in; 0 when the branch was already up to date. */
+  commits: z.number().int().nonnegative(),
+});
+export type GitPullResult = z.infer<typeof GitPullResult>;
 
 export const PullRequestCheckLogResult = z.object({
   /** The end of the failed step's output, without timestamps; empty when the log had no lines. */

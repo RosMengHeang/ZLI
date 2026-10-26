@@ -29,7 +29,8 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-async function render(git: boolean | undefined) {
+async function render(git: boolean | undefined, handle: (command: { type: string }) => unknown = () => undefined) {
+  const commands: { type: string }[] = [];
   const projection = {
     environment: {
       environmentId: EnvironmentId.parse("00000000-0000-4000-8000-000000000001"),
@@ -47,7 +48,11 @@ async function render(git: boolean | undefined) {
   } as RuntimeProjection;
   const bridge = {
     runtime: {
-      dispatch: async () => ({ commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"), accepted: true }),
+      dispatch: async (request: { command: { type: string } }) => {
+        commands.push(request.command);
+        const result = handle(request.command);
+        return { commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"), accepted: true, result };
+      },
       getProjection: async () => projection,
       onProjection: () => () => undefined,
     },
@@ -63,20 +68,53 @@ async function render(git: boolean | undefined) {
       </RuntimeProvider>,
     );
   });
-  return container;
+  return { container, commands };
 }
 
 describe("ReviewPane", () => {
   it("explains that changes need Git in a folder without it", async () => {
-    const container = await render(false);
+    const { container } = await render(false);
 
     expect(container.textContent).toContain("This folder is not a Git repository");
     expect(container.textContent).not.toContain("Refresh changes");
   });
 
   it("offers a refresh in a Git repository", async () => {
-    const container = await render(undefined);
+    const { container } = await render(undefined);
 
     expect(container.textContent).toContain("Refresh changes");
+  });
+
+  it("picks the comparison branch from the repository's branches", async () => {
+    const { container, commands } = await render(undefined, (command) =>
+      command.type === "review.git.branches"
+        ? { current: "feature", defaultBranch: "trunk", local: ["feature", "trunk"], remote: ["trunk"] }
+        : undefined,
+    );
+
+    expect(commands.map((command) => command.type)).toContain("review.git.branches");
+    const picker = container.querySelector<HTMLButtonElement>('button[aria-label^="Compare against"]');
+    expect(picker?.getAttribute("aria-label")).toBe("Compare against: trunk");
+    expect(container.querySelector("input.is-mono")).toBeNull();
+    await act(async () => picker?.click());
+    const options = [...document.querySelectorAll('[role="option"]')].map((option) =>
+      option.getAttribute("data-label"),
+    );
+    expect(options).toEqual(["trunk", "origin/trunk"]);
+  });
+
+  it("pulls the branch and says how many commits arrived", async () => {
+    const { container, commands } = await render(undefined, (command) =>
+      command.type === "review.git.pull"
+        ? { branch: "feature", commits: 2 }
+        : command.type === "review.git.branches"
+          ? { local: ["feature", "main"], remote: [] }
+          : undefined,
+    );
+    const pull = [...container.querySelectorAll("button")].find((button) => button.textContent === "Pull");
+    await act(async () => pull?.click());
+
+    expect(commands.map((command) => command.type)).toContain("review.git.pull");
+    expect(container.textContent).toContain("Pulled 2 commits into feature.");
   });
 });

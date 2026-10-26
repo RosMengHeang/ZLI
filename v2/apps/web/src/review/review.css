@@ -56,6 +56,9 @@
 .review-commit .input { flex: 1; }
 .review-pane > .inline-error { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: 0 var(--zli-space-4) var(--zli-space-2-5); }
 .review-pane > .inline-error > svg { margin-top: 2px; }
+.review-notice { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: 0 var(--zli-space-4) var(--zli-space-2-5); color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.review-notice > svg { flex: 0 0 auto; margin-top: 2px; color: var(--zli-green); }
+.review-branch-picker { flex: 1 1 auto; width: auto; min-width: 96px; max-width: 240px; font-family: var(--zli-mono); }
 
 /* ---------- Review comments ---------- */
 .review-comments { display: flex; flex: 0 1 auto; min-height: 0; max-height: 34%; flex-direction: column; margin: 0 var(--zli-space-3) var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well); }

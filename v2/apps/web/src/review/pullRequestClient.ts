@@ -1,7 +1,11 @@
 import {
+  GitBranchesResult,
+  GitPullResult,
   PullRequestCheckLogResult,
   PullRequestCommentsResult,
   PullRequestCreateResult,
+  type PullRequestMergeMethod,
+  PullRequestMergeResult,
   PullRequestPushResult,
   PullRequestStatusResult,
   type RpcResponse,
@@ -71,4 +75,32 @@ export function createPullRequest(
     { type: "review.pr.create", worktreeId: WorktreeId.parse(worktreeId), ...input },
     PullRequestCreateResult,
   );
+}
+
+export function mergePullRequest(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { method: PullRequestMergeMethod; deleteBranch: boolean },
+): Promise<PullRequestMergeResult> {
+  return request(
+    dispatch,
+    { type: "review.pr.merge", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    PullRequestMergeResult,
+  );
+}
+
+export function listBranches(dispatch: Dispatch, worktreeId: string): Promise<GitBranchesResult> {
+  return request(
+    dispatch,
+    { type: "review.git.branches", worktreeId: WorktreeId.parse(worktreeId) },
+    GitBranchesResult,
+  );
+}
+
+export function fetchBranches(dispatch: Dispatch, worktreeId: string): Promise<GitBranchesResult> {
+  return request(dispatch, { type: "review.git.fetch", worktreeId: WorktreeId.parse(worktreeId) }, GitBranchesResult);
+}
+
+export function pullBranch(dispatch: Dispatch, worktreeId: string): Promise<GitPullResult> {
+  return request(dispatch, { type: "review.git.pull", worktreeId: WorktreeId.parse(worktreeId) }, GitPullResult);
 }

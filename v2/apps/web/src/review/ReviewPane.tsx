@@ -1,13 +1,17 @@
-import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
+import type { GitBranchesResult, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import type { SessionMode } from "../sessions/sessions.js";
-import { Button } from "../ui/Button.js";
+import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, PaneHeader } from "../ui/Pane.js";
+import { Picker } from "../ui/Picker.js";
+import { branchOptions, defaultBranchOf, useBranches } from "./branches.js";
 import { DiffView } from "./DiffView.js";
 import { PullRequestSection } from "./PullRequestSection.js";
+import { pullBranch, pushBranch } from "./pullRequestClient.js";
+import { refreshPullRequest } from "./pullRequestStore.js";
 import { ReviewCommentList } from "./ReviewCommentList.js";
 import "./review.css";
 
@@ -20,6 +24,13 @@ export function worktreeRelativePath(root: string, path: string): string {
   const target = normalize(path);
   if (target.toLowerCase().startsWith(`${base.toLowerCase()}/`)) return target.slice(base.length + 1);
   return target.replace(/^\.\//u, "");
+}
+
+/** What the comparison starts against: the local default branch, or origin's copy when it is not checked out. */
+export function compareDefaultOf(branches: GitBranchesResult): string | undefined {
+  const name = defaultBranchOf(branches);
+  if (!name || branches.local.includes(name) || !branches.remote.includes(name)) return name;
+  return `origin/${name}`;
 }
 
 const selectReviews = (projection: RuntimeProjection | undefined) => projection?.reviews;
@@ -42,13 +53,18 @@ export function ReviewPane({
     (project) => project.projectId === worktree?.projectId && project.git === false,
   );
   const [baseRef, setBaseRef] = useState("main");
+  const [baseTouched, setBaseTouched] = useState(false);
   const [targetRef, setTargetRef] = useState("main");
   const [targetTouched, setTargetTouched] = useState(false);
   const [prCheckKey, setPrCheckKey] = useState(0);
   const commitRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState<"pull" | "push">();
   const [error, setError] = useState<string>();
+  const [notice, setNotice] = useState<string>();
+  const branchState = useBranches(dispatch, worktree?.worktreeId, !!worktree && !noGit);
+  const branches = branchState.branches;
   const review = reviews?.find((candidate) => candidate.worktreeId === worktree?.worktreeId);
   const totals = useMemo(
     () =>
@@ -86,12 +102,69 @@ export function ReviewPane({
       await run({ type: "review.diff", worktreeId: worktree.worktreeId, path });
     })();
   }, [focus?.nonce, worktree?.worktreeId]);
-  const refresh = () => {
-    if (!worktree || !baseRef.trim()) return;
+  const refresh = (ref = baseRef) => {
+    if (!worktree || !ref.trim()) return;
     setPrCheckKey((key) => key + 1);
-    void run({ type: "review.refresh", worktreeId: worktree.worktreeId, baseRef: baseRef.trim() });
+    void run({ type: "review.refresh", worktreeId: worktree.worktreeId, baseRef: ref.trim() });
   };
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new worktree starts with fresh choices.
+  useEffect(() => {
+    setBaseTouched(false);
+    setTargetTouched(false);
+    setNotice(undefined);
+    setError(undefined);
+  }, [worktree?.worktreeId]);
+
+  // Until the person picks a branch, both pickers follow the repository's default branch.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only a new branch list moves the defaults.
+  useEffect(() => {
+    if (!branches) return;
+    const compare = compareDefaultOf(branches);
+    const target = defaultBranchOf(branches);
+    if (!baseTouched && compare) setBaseRef(compare);
+    if (!targetTouched && target) setTargetRef(target);
+  }, [branches]);
+
+  const compareChoices = useMemo(
+    () => branchOptions(branches, { remote: true, selected: baseRef }),
+    [branches, baseRef],
+  );
+  const targetChoices = useMemo(() => branchOptions(branches, { selected: targetRef }), [branches, targetRef]);
+
+  const sync = async (kind: "pull" | "push") => {
+    if (!worktree) return;
+    setSyncing(kind);
+    setError(undefined);
+    setNotice(undefined);
+    try {
+      if (kind === "pull") {
+        const result = await pullBranch(dispatch, worktree.worktreeId);
+        setNotice(
+          result.commits === 0
+            ? `${result.branch} is already up to date with origin.`
+            : `Pulled ${result.commits} commit${result.commits === 1 ? "" : "s"} into ${result.branch}.`,
+        );
+        if (review) refresh();
+      } else {
+        const result = await pushBranch(dispatch, worktree.worktreeId);
+        setNotice(`Pushed ${result.branch} to origin.`);
+        void refreshPullRequest(dispatch, worktree.worktreeId, true);
+      }
+      void branchState.reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : `The ${kind} failed.`);
+    } finally {
+      setSyncing(undefined);
+    }
+  };
+
+  const fetchOrigin = async () => {
+    setNotice(undefined);
+    if (await branchState.fetch()) setNotice("Fetched the latest branches from origin.");
+  };
+
+  const shownError = error ?? branchState.error;
   return (
     <div className="tool-pane review-pane">
       <PaneHeader icon="diff" title="Changes" detail={worktree?.branch}>
@@ -110,18 +183,55 @@ export function ReviewPane({
             refresh();
           }}
         >
-          <label className="inline-field">
-            <span>Compare against</span>
-            <input
-              className="input input-sm is-mono"
+          <span className="inline-field">
+            <span aria-hidden="true">Compare against</span>
+            <Picker
+              variant="field"
+              className="input-sm review-branch-picker"
+              label="Compare against"
               value={baseRef}
-              onChange={(event) => setBaseRef(event.target.value)}
-              placeholder="main"
-              spellCheck={false}
-            />
-          </label>
+              options={compareChoices}
+              onChange={(next) => {
+                setBaseRef(next);
+                setBaseTouched(true);
+                refresh(next);
+              }}
+            >
+              <span className="picker-trigger-label">{baseRef}</span>
+            </Picker>
+          </span>
           <Button variant="ghost" size="sm" type="submit" icon="reload" loading={busy} disabled={!baseRef.trim()}>
             Refresh changes
+          </Button>
+          <span className="toolbar-divider" aria-hidden="true" />
+          <IconButton
+            label="Fetch branches from origin"
+            icon={branchState.loading === "fetch" ? "loader" : "rotate"}
+            size="sm"
+            disabled={branchState.loading === "fetch"}
+            onClick={() => void fetchOrigin()}
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            icon="download"
+            loading={syncing === "pull"}
+            disabled={!!syncing}
+            tooltip="Fast-forward this branch to its copy on origin"
+            onClick={() => void sync("pull")}
+          >
+            Pull
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon="upload"
+            loading={syncing === "push"}
+            disabled={!!syncing}
+            tooltip="Push this branch to origin"
+            onClick={() => void sync("push")}
+          >
+            Push
           </Button>
         </form>
       ) : null}
@@ -241,19 +351,22 @@ export function ReviewPane({
             </Button>
           </div>
           <div className="review-merge">
-            <label className="inline-field">
-              <span>Merge target</span>
-              <input
-                className="input input-sm is-mono"
+            <span className="inline-field">
+              <span aria-hidden="true">Merge target</span>
+              <Picker
+                variant="field"
+                className="input-sm review-branch-picker"
+                label="Merge target"
                 value={targetRef}
-                onChange={(event) => {
-                  setTargetRef(event.target.value);
+                options={targetChoices}
+                onChange={(next) => {
+                  setTargetRef(next);
                   setTargetTouched(true);
                 }}
-                placeholder="main"
-                spellCheck={false}
-              />
-            </label>
+              >
+                <span className="picker-trigger-label">{targetRef}</span>
+              </Picker>
+            </span>
             <Button
               size="sm"
               icon="merge"
@@ -282,15 +395,28 @@ export function ReviewPane({
             checkKey={prCheckKey}
             onCommitFirst={() => commitRef.current?.focus()}
             onShowAgent={onShowAgent}
+            onMerged={(result) => {
+              setNotice(
+                result.branchDeleted
+                  ? `Merged #${result.pullRequest.number} and deleted ${worktree.branch} on origin.`
+                  : `Merged #${result.pullRequest.number} on GitHub.`,
+              );
+              void branchState.reload();
+            }}
           />
         </div>
       ) : null}
-      {error && (
+      {shownError ? (
         <p className="inline-error" role="alert">
           <Icon name="alert" size={13} />
-          <span>{error}</span>
+          <span>{shownError}</span>
         </p>
-      )}
+      ) : notice ? (
+        <p className="review-notice" role="status">
+          <Icon name="check" size={13} />
+          <span>{notice}</span>
+        </p>
+      ) : null}
     </div>
   );
 }
