@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   branchChanges,
+  nativeGitPath,
   type ProcessResult,
   type ProcessRunner,
   PullRequestError,
@@ -175,6 +176,17 @@ describe("PullRequestService.switchBranch", () => {
         /^main is checked out in another worktree at \/repo\/main\./u,
       );
     }
+  });
+
+  it("names a Windows worktree the way Windows writes paths", async () => {
+    const { runner } = fakeRunner((line) =>
+      line === "git switch main" ? fail("fatal: 'main' is already used by worktree at 'C:/work/main'") : undefined,
+    );
+    await expect(new PullRequestService(runner).switchBranch(INPUT, "main")).rejects.toThrow(
+      /^main is checked out in another worktree at C:\\work\\main\./u,
+    );
+    expect(nativeGitPath("C:/work/main")).toBe("C:\\work\\main");
+    expect(nativeGitPath("/repo/main")).toBe("/repo/main");
   });
 
   it("explains unresolved conflicts", async () => {

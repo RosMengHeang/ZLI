@@ -466,7 +466,7 @@ export class PullRequestService {
       list.push(name);
       if (list !== local) continue;
       const upstream = parseUpstream(upstreamName, track);
-      const elsewhere = name !== current && worktreePath ? worktreePath : undefined;
+      const elsewhere = name !== current && worktreePath ? nativeGitPath(worktreePath) : undefined;
       if (upstream || elsewhere) {
         details[name] = { ...(upstream ? { upstream } : {}), ...(elsewhere ? { worktreePath: elsewhere } : {}) };
       }
@@ -886,9 +886,19 @@ function mergeFailure(number: number, result: ProcessResult): string {
 
 const ELSEWHERE = /(?:checked out|used by worktree) at '([^']+)'/iu;
 
+/** Git for Windows prints C:/like/this; ZLI shows Windows paths with backslashes everywhere else. */
+export function nativeGitPath(path: string): string {
+  return /^[A-Za-z]:\//u.test(path) ? path.replaceAll("/", "\\") : path;
+}
+
+function elsewhereIn(output: string): string | undefined {
+  const path = ELSEWHERE.exec(output)?.[1];
+  return path ? nativeGitPath(path) : undefined;
+}
+
 function switchFailure(branch: string, result: ProcessResult): string {
   const output = `${result.stderr}\n${result.stdout}`;
-  const elsewhere = ELSEWHERE.exec(output)?.[1];
+  const elsewhere = elsewhereIn(output);
   if (elsewhere) {
     return `${branch} is checked out in another worktree at ${elsewhere}. A branch can be checked out in one worktree at a time, so work on it there or switch that worktree to another branch first.`;
   }
@@ -911,7 +921,7 @@ function switchFailure(branch: string, result: ProcessResult): string {
 
 function deleteFailure(branch: string, current: string | undefined, result: ProcessResult): string {
   const output = `${result.stderr}\n${result.stdout}`;
-  const elsewhere = ELSEWHERE.exec(output)?.[1];
+  const elsewhere = elsewhereIn(output);
   if (elsewhere) {
     return `${branch} is checked out in another worktree at ${elsewhere}. Remove that worktree or switch it to another branch, then delete ${branch}.`;
   }
