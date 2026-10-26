@@ -622,10 +622,7 @@ function MobilePaneBody({
       <div className="mobile-footer">
         <Switch
           label="Let agents use devices"
-          hint={
-            settingsError ??
-            "Agents get the zli-mobile tools to boot devices, install and open apps, tap, type, take screenshots, and read logs."
-          }
+          {...(settingsError ? { hint: settingsError } : {})}
           checked={settings?.agentTools ?? false}
           disabled={!settings}
           onChange={setAgentTools}

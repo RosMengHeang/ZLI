@@ -1,7 +1,7 @@
 import type { MobileDevice } from "@zli-v2/contracts";
 
-import { Badge, type BadgeTone } from "../ui/Badge.js";
-import { Button } from "../ui/Button.js";
+import { Badge } from "../ui/Badge.js";
+import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Picker, type PickerOption } from "../ui/Picker.js";
 import { Segmented } from "../ui/Segmented.js";
@@ -13,6 +13,7 @@ import {
   type ScreenMode,
   screenModeChip,
   stateLabel,
+  stateTone,
 } from "./mobile.js";
 import type { Zoom } from "./useDeviceZoom.js";
 
@@ -113,7 +114,7 @@ export function MobileToolbar({
         />
       ) : null}
       {device && virtual && device.state === "shutdown" ? (
-        <Button size="sm" icon="play" loading={booting} onClick={onBoot}>
+        <Button size="sm" variant="primary" icon="play" loading={booting} onClick={onBoot}>
           Boot
         </Button>
       ) : null}
@@ -123,25 +124,17 @@ export function MobileToolbar({
         </Button>
       ) : null}
       {device && virtual && device.state === "online" ? (
-        <Button size="sm" icon="square" loading={stopping} onClick={onShutdown}>
-          Shut down
-        </Button>
+        <IconButton
+          icon="power"
+          size="sm"
+          iconSize={14}
+          label="Shut down"
+          tooltip={`Shut down ${device.name}`}
+          disabled={stopping}
+          aria-busy={stopping || undefined}
+          onClick={onShutdown}
+        />
       ) : null}
     </div>
   );
-}
-
-function stateTone(device: MobileDevice): BadgeTone {
-  switch (device.state) {
-    case "online":
-      return "success";
-    case "booting":
-      return "info";
-    case "shutdown":
-      return "quiet";
-    case "offline":
-      return "danger";
-    case "unauthorized":
-      return "warning";
-  }
 }

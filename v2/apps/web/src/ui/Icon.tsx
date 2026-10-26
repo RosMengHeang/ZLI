@@ -88,6 +88,8 @@ const paths = {
     </>
   ),
   arrowLeft: <path d="m12 19-7-7 7-7M19 12H5" />,
+  /** Android's Back key: a triangle pointing left. */
+  navBack: <path d="M17 5.5v13a.5.5 0 0 1-.76.43L5.7 12.43a.5.5 0 0 1 0-.86l10.54-6.5a.5.5 0 0 1 .76.43Z" />,
   arrowRight: <path d="M5 12h14M12 5l7 7-7 7" />,
   arrowUp: <path d="m5 12 7-7 7 7M12 19V5" />,
   reload: (

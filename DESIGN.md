@@ -193,12 +193,25 @@ not cover, add it to the primitives instead of styling it locally.
   Mod+Shift+G for Changes, and Mod+, for Settings. People can change these in
   Settings, and every key cap and tooltip shows the current binding. In the
   composer, Enter sends and Mod+Shift+Enter opens Send as Best of N.
-- Settings is one dialog with a section list on the left (New agents,
-  Projects, Worktrees, MCP servers, Shortcuts, Notifications) and a
-  fixed-height panel so switching sections does not resize it. Each section
-  is a grouped list of setting rows: the label and a short description on the
-  left, the control on the right. Switches are
-  square-cornered and neutral: on is a light track, not the accent.
+- Settings is one fixed-size dialog laid out like the window: a canvas
+  sidebar with a search field and the sections under four headings (Agents,
+  Workspace, Tools, App), and the open section on a surface island inset by
+  the gutter. The island starts with a breadcrumb (heading, then section)
+  and the close button. Search matches section names and the words people
+  use for them, Enter opens the first match, and Escape clears the field
+  before it closes Settings. Each section is titled groups of setting rows:
+  the label and a short description on the left, the control on the right.
+  Switches are square-cornered and neutral: on is a light track, not the
+  accent.
+- Settings > Mobile works like an IDE's device manager: the devices with
+  their state and Boot or Shut down, the device frame and agent switches,
+  then the Android SDK location and each tool it needs, and iPhone
+  simulator support.
+- The Mobile panel's bottom bar has three clusters: Type text and Open URL
+  on the left, the system buttons (Back, Home, Recents) centered in a well
+  like a phone's navigation bar, and Rotate, Save a screenshot, and the
+  More menu on the right. Shut down is an icon button in the toolbar, and
+  the reason for screenshots mode is a caption under the device.
 - MCP servers are one list shared by every agent. Each row leads with its
   switch so a server can be turned off without losing its setup, and the
   command line sits under the name in mono because it is what people check.
