@@ -2,6 +2,7 @@ import {
   BROWSER_DEVICE_PRESETS,
   type BrowserTabProjection,
   type BrowserViewport,
+  type ProjectProjection,
   type RuntimeProjection,
   type WorktreeProjection,
   worktreeDevServers,
@@ -45,12 +46,24 @@ type Props = {
   reveal?: BrowserReveal | undefined;
   openRequest?: BrowserOpenRequest | undefined;
   onShowAgent?: ((sessionId: string, mode: SessionMode) => void) | undefined;
+  /** Projects offered when there is no worktree, such as a folder without Git that was just added. */
+  projects?: readonly ProjectProjection[] | undefined;
+  /** Opens the project's own folder as its checkout so the browser has somewhere to keep tabs. */
+  onOpenProject?: ((projectId: string) => Promise<void>) | undefined;
 };
 
 const selectBrowserTabs = (projection: RuntimeProjection | undefined) => projection?.browserTabs;
 const selectDevServers = (projection: RuntimeProjection | undefined) => projection?.devServers;
 
-export function BrowserPane({ worktree, obscured: obscuredByApp = false, reveal, openRequest, onShowAgent }: Props) {
+export function BrowserPane({
+  worktree,
+  obscured: obscuredByApp = false,
+  reveal,
+  openRequest,
+  onShowAgent,
+  projects = [],
+  onOpenProject,
+}: Props) {
   const { bridge } = useRuntime();
   const browserTabs = useRuntimeSelector(selectBrowserTabs);
   const allDevServers = useRuntimeSelector(selectDevServers);
@@ -627,7 +640,31 @@ export function BrowserPane({ worktree, obscured: obscuredByApp = false, reveal,
         </div>
       )}
       <div className={`browser-surface${tab ? " has-tab" : ""}`} ref={surfaceRef}>
-        {!worktree ? (
+        {!worktree && onOpenProject && projects.length > 0 ? (
+          <EmptyState
+            className="browser-empty"
+            icon="globe"
+            title="Open the browser in a project"
+            detail="Browser tabs belong to a project folder. Pick one to open the browser there."
+          >
+            <div className="devserver-list">
+              {projects.map((project, index) => (
+                <Button
+                  key={project.projectId}
+                  variant={index === 0 ? "primary" : "secondary"}
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => {
+                    setBusy(true);
+                    void onOpenProject(project.projectId).finally(() => setBusy(false));
+                  }}
+                >
+                  Open {project.name}
+                </Button>
+              ))}
+            </div>
+          </EmptyState>
+        ) : !worktree ? (
           <EmptyState
             className="browser-empty"
             icon="globe"

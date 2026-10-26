@@ -38,6 +38,8 @@ export const ProjectProjection = z.object({
   projectId: ProjectId,
   path: z.string().min(1),
   name: z.string().min(1),
+  /** False when the folder is not a Git repository. Missing means it is one, or it has not been checked yet. */
+  git: z.boolean().optional(),
 });
 export type ProjectProjection = z.infer<typeof ProjectProjection>;
 

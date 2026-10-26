@@ -23,6 +23,7 @@ export function worktreeRelativePath(root: string, path: string): string {
 }
 
 const selectReviews = (projection: RuntimeProjection | undefined) => projection?.reviews;
+const selectProjects = (projection: RuntimeProjection | undefined) => projection?.projects;
 
 export function ReviewPane({
   worktree,
@@ -37,6 +38,9 @@ export function ReviewPane({
 }) {
   const { dispatch } = useRuntime();
   const reviews = useRuntimeSelector(selectReviews);
+  const noGit = useRuntimeSelector(selectProjects)?.some(
+    (project) => project.projectId === worktree?.projectId && project.git === false,
+  );
   const [baseRef, setBaseRef] = useState("main");
   const [targetRef, setTargetRef] = useState("main");
   const [targetTouched, setTargetTouched] = useState(false);
@@ -73,7 +77,7 @@ export function ReviewPane({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: only a new focus request should load a diff.
   useEffect(() => {
-    if (!focus || !worktree) return;
+    if (!focus || !worktree || noGit) return;
     const path = worktreeRelativePath(worktree.path, focus.path);
     void (async () => {
       if (!review?.files.some((file) => file.path === path)) {
@@ -98,7 +102,7 @@ export function ReviewPane({
           </span>
         ) : null}
       </PaneHeader>
-      {worktree ? (
+      {worktree && !noGit ? (
         <form
           className="toolbar review-toolbar"
           onSubmit={(event) => {
@@ -126,6 +130,12 @@ export function ReviewPane({
           icon="diff"
           title="Select a worktree"
           detail="Changes and merge actions are scoped to the selected worktree."
+        />
+      ) : noGit ? (
+        <EmptyState
+          icon="diff"
+          title="This folder is not a Git repository"
+          detail="Changes, commits, and merges need Git. Run git init in the folder to use them."
         />
       ) : !review ? (
         <EmptyState

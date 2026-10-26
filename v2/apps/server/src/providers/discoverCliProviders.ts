@@ -2,7 +2,12 @@ import type { ChildProcess } from "node:child_process";
 import { statSync } from "node:fs";
 import { posix, win32 } from "node:path";
 
-import type { ListedProviderKind, ProviderDiscovery, ProviderModelOption } from "@zli-v2/contracts";
+import {
+  type ListedProviderKind,
+  type ProviderDiscovery,
+  type ProviderModelOption,
+  ReasoningEffort,
+} from "@zli-v2/contracts";
 import { spawnCli } from "@zli-v2/shared";
 
 const LISTED = [
@@ -47,12 +52,21 @@ const MODEL_FAILURE_CACHE_MS = 60_000;
 const MAX_MODELS = 400;
 const MAX_MODEL_OUTPUT_CHARS = 256_000;
 
+/** Claude Code's --effort levels. Haiku takes none. */
+const CLAUDE_CODE_REASONING = ["low", "medium", "high", "xhigh", "max"];
+
 /** Claude Code accepts these aliases for its current models. */
 export const CLAUDE_CODE_MODELS: readonly ProviderModelOption[] = [
-  { id: "sonnet", label: "Sonnet" },
-  { id: "opus", label: "Opus" },
-  { id: "haiku", label: "Haiku" },
+  { id: "sonnet", label: "Sonnet", reasoningEfforts: CLAUDE_CODE_REASONING },
+  { id: "opus", label: "Opus", reasoningEfforts: CLAUDE_CODE_REASONING },
+  { id: "haiku", label: "Haiku", reasoningEfforts: [] },
 ];
+
+/** Codex lists levels per model only over its app server, so this is the set its coding models share. */
+const CODEX_REASONING = ["low", "medium", "high", "xhigh"];
+
+/** Droid marks its own default model in the model list. */
+const DROID_DEFAULT_LABEL = /\s+\(default\)$/u;
 
 export function createDefaultCliProbe(
   env: NodeJS.ProcessEnv = process.env,
@@ -228,7 +242,10 @@ export function parseCursorModels(output: string | undefined): ProviderModelOpti
   return models.length > 0 ? models : undefined;
 }
 
-/** `droid exec --help` lists "Available Models:" as indented "id   Label" rows. */
+/**
+ * `droid exec --help` lists "Available Models:" as indented "id   Label" rows, then "Model details:"
+ * with each label's reasoning levels.
+ */
 export function parseDroidModels(output: string | undefined): ProviderModelOption[] | undefined {
   if (!output) return undefined;
   const lines = output.replace(/\r/gu, "").split("\n");
@@ -245,7 +262,57 @@ export function parseDroidModels(output: string | undefined): ProviderModelOptio
     const match = /^\s+(\S+)\s{2,}(.+)$/u.exec(line);
     if (match?.[1] && match[2]) pushModel(models, match[1], match[2]);
   }
-  return models.length > 0 ? models : undefined;
+  if (models.length === 0) return undefined;
+  const reasoning = parseDroidReasoning(lines);
+  return models.map((model) => {
+    const levels = reasoning.get(model.label.replace(DROID_DEFAULT_LABEL, ""));
+    return levels ? { ...model, ...levels } : model;
+  });
+}
+
+/** Rows such as "- Opus 5.5: supports reasoning: Yes; supported: [low, high]; default: high", keyed by label. */
+function parseDroidReasoning(
+  lines: readonly string[],
+): Map<string, Pick<ProviderModelOption, "reasoningEfforts" | "defaultReasoningEffort">> {
+  const levels = new Map<string, Pick<ProviderModelOption, "reasoningEfforts" | "defaultReasoningEffort">>();
+  for (const raw of lines) {
+    const match =
+      /^\s*-\s+(.+?):\s+supports reasoning:\s*(yes|no)\s*;\s*supported:\s*\[([^\]]*)\]\s*;\s*default:\s*(\S+)/iu.exec(
+        stripInvisible(raw),
+      );
+    if (!match?.[1] || !match[2] || match[3] === undefined || !match[4]) continue;
+    if (match[2].toLowerCase() === "no") {
+      levels.set(match[1].trim(), { reasoningEfforts: [] });
+      continue;
+    }
+    const supported = match[3]
+      .split(",")
+      .map((level) => level.trim())
+      .filter((level) => ReasoningEffort.safeParse(level).success)
+      .slice(0, 20);
+    const fallback = match[4].replace(/[;,.]$/u, "");
+    levels.set(match[1].trim(), {
+      reasoningEfforts: supported,
+      ...(supported.includes(fallback) ? { defaultReasoningEffort: fallback } : {}),
+    });
+  }
+  return levels;
+}
+
+function providerReasoningEfforts(
+  provider: ListedProviderKind,
+  models: readonly ProviderModelOption[] | undefined,
+): readonly string[] | undefined {
+  switch (provider) {
+    case "claude-code":
+      return CLAUDE_CODE_REASONING;
+    case "codex":
+      return CODEX_REASONING;
+    case "droid":
+      return models?.find((model) => DROID_DEFAULT_LABEL.test(model.label))?.reasoningEfforts;
+    default:
+      return undefined;
+  }
 }
 
 /** `opencode models` prints one "provider/model" id per line. */
@@ -303,6 +370,8 @@ async function discoverOne(spec: ListedSpec, probe: CliProbe, includeModels: boo
     readFoundVersion(probe, path),
     includeModels ? readFoundModels(probe, spec.provider, path) : Promise.resolve(undefined),
   ]);
+  const reasoningEfforts =
+    includeModels && probe.readModels ? providerReasoningEfforts(spec.provider, models) : undefined;
   return {
     provider: spec.provider,
     displayName: spec.displayName,
@@ -310,6 +379,7 @@ async function discoverOne(spec: ListedSpec, probe: CliProbe, includeModels: boo
     path,
     ...(version ? { version } : {}),
     ...(models ? { models } : {}),
+    ...(reasoningEfforts?.length ? { reasoningEfforts: [...reasoningEfforts] } : {}),
   };
 }
 

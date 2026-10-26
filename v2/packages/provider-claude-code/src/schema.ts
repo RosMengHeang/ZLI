@@ -116,6 +116,22 @@ export function setModelRequest(
   return { type: "control_request", request_id: requestId, request: { subtype: "set_model", model } };
 }
 
+/** Null clears the override, so the session goes back to the model's default level. */
+export function setEffortRequest(
+  requestId: string,
+  effortLevel: string | null,
+): {
+  type: "control_request";
+  request_id: string;
+  request: { subtype: "apply_flag_settings"; settings: { effortLevel: string | null } };
+} {
+  return {
+    type: "control_request",
+    request_id: requestId,
+    request: { subtype: "apply_flag_settings", settings: { effortLevel } },
+  };
+}
+
 export type ClaudeToolBlock =
   | { kind: "use"; id: string; name: string; input?: Record<string, unknown> }
   | { kind: "result"; toolUseId: string; isError: boolean; output?: string };

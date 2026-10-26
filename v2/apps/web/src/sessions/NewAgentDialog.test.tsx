@@ -1,0 +1,83 @@
+// @vitest-environment jsdom
+
+import { EnvironmentId, ProjectId, type RuntimeProjection } from "@zli-v2/contracts";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { NewAgentDialog, type NewAgentRequest } from "./NewAgentDialog.js";
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+const projectId = ProjectId.parse("00000000-0000-4000-8000-000000000010");
+const roots: Root[] = [];
+
+afterEach(async () => {
+  await act(async () => {
+    for (const root of roots.splice(0)) root.unmount();
+  });
+  document.body.replaceChildren();
+});
+
+function projectionFor(git: boolean | undefined): RuntimeProjection {
+  return {
+    environment: {
+      environmentId: EnvironmentId.parse("00000000-0000-4000-8000-000000000001"),
+      label: "Local",
+      protocolVersion: 1,
+      capabilities: {},
+    },
+    projects: [{ projectId, path: "D:/taxzy_cli_web", name: "taxzy_cli_web", ...(git === undefined ? {} : { git }) }],
+    worktrees: [],
+    threads: [],
+    terminals: [],
+    browserTabs: [],
+    attention: [],
+    lastSequence: 1,
+    providers: [{ provider: "droid", displayName: "Droid", status: "found", path: "droid" }],
+  } as RuntimeProjection;
+}
+
+async function render(git: boolean | undefined) {
+  const projection = projectionFor(git);
+  const onSubmit = vi.fn(async (_request: NewAgentRequest) => undefined);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  roots.push(root);
+  await act(async () => {
+    root.render(
+      <NewAgentDialog
+        projection={projection}
+        initialProject={projection.projects[0]}
+        initialWorktreeId={undefined}
+        onClose={() => undefined}
+        onSubmit={onSubmit}
+      />,
+    );
+  });
+  const placements = [...document.querySelectorAll<HTMLInputElement>('input[name="agent-placement"]')];
+  return { onSubmit, placements };
+}
+
+describe("NewAgentDialog workspace", () => {
+  it("offers only the current checkout for a folder without Git", async () => {
+    const { onSubmit, placements } = await render(false);
+
+    expect(placements.map((input) => input.value)).toEqual(["checkout"]);
+    expect(placements[0]?.checked).toBe(true);
+    expect(document.body.textContent).toContain("This folder is not a Git repository");
+
+    await act(async () => {
+      document.querySelector("form")?.requestSubmit();
+    });
+    expect(onSubmit.mock.calls[0]?.[0].placement).toEqual({ kind: "checkout" });
+  });
+
+  it("starts in a new worktree for a Git repository", async () => {
+    const { placements } = await render(undefined);
+
+    expect(placements.map((input) => input.value)).toEqual(["new", "checkout"]);
+    expect(placements.find((input) => input.checked)?.value).toBe("new");
+  });
+});

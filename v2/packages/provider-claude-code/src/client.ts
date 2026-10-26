@@ -19,6 +19,7 @@ import {
   denyToolRequest,
   initializeRequest,
   interruptRequest,
+  setEffortRequest,
   setModelRequest,
   unsupportedControlResponse,
   userTurnMessage,
@@ -130,6 +131,8 @@ export class ClaudeCodeClient {
   private readonly sessionAllowedTools = new Set<string>();
   /** Claude reports cost as a running session total, so each turn's cost is the change since the last result. */
   private sessionCostUsd: number | undefined;
+  /** Undefined is the model's own default, which is how every session starts. */
+  private effort: string | undefined;
   private closed = false;
 
   private constructor(
@@ -171,12 +174,13 @@ export class ClaudeCodeClient {
     return this.completed;
   }
 
-  async sendTurn(input: { text: string; model?: string }): Promise<ClaudeTurnResult> {
+  async sendTurn(input: { text: string; model?: string; reasoningEffort?: string }): Promise<ClaudeTurnResult> {
     this.assertOpen();
     const sessionId = this.sessionId;
     if (!sessionId) throw new ClaudeProviderError("request_failed", "Claude Code session is not started.");
     if (this.active) throw new ClaudeProviderError("request_failed", "Claude Code already has a turn in progress.");
     const model = input.model?.trim();
+    const effort = input.reasoningEffort?.trim() || undefined;
     const providerTurnId = randomUUID();
     this.active = { id: providerTurnId, text: "", sawPartial: false, sawText: false, tools: new Map() };
     try {
@@ -184,6 +188,11 @@ export class ClaudeCodeClient {
       if (model && model !== this.model) {
         this.write(setModelRequest(`set_model_${randomUUID()}`, model));
         this.model = model;
+      }
+      // The level also stays across turns. A turn without one goes back to the default.
+      if (effort !== this.effort) {
+        this.write(setEffortRequest(`set_effort_${randomUUID()}`, effort ?? null));
+        this.effort = effort;
       }
       this.write(userTurnMessage(input.text, sessionId));
     } catch (error) {

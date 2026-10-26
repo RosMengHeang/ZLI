@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
-import { type BrowserReveal, BrowserPane } from "./BrowserPane.js";
+import { BrowserPane, type BrowserReveal } from "./BrowserPane.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -353,5 +353,49 @@ describe("BrowserPane", () => {
     });
     const { container } = await renderPane(fake.bridge, false);
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("ERR_CONNECTION_REFUSED");
+  });
+});
+
+describe("BrowserPane without a worktree", () => {
+  it("offers each project's folder and opens the one picked", async () => {
+    const fake = createBridge(baseTab);
+    const onOpenProject = vi.fn(async () => undefined);
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(
+        <RuntimeProvider bridge={fake.bridge}>
+          <BrowserPane
+            worktree={undefined}
+            projects={[{ projectId: worktree.projectId, path: "C:/notes", name: "notes", git: false }]}
+            onOpenProject={onOpenProject}
+          />
+        </RuntimeProvider>,
+      );
+    });
+    expect(container.textContent).toContain("Open the browser in a project");
+    const button = [...container.querySelectorAll("button")].find(
+      (candidate) => candidate.textContent === "Open notes",
+    );
+    await act(async () => {
+      button?.click();
+    });
+    expect(onOpenProject).toHaveBeenCalledWith(worktree.projectId);
+  });
+
+  it("asks for a worktree when there is no project to offer", async () => {
+    const fake = createBridge(baseTab);
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(
+        <RuntimeProvider bridge={fake.bridge}>
+          <BrowserPane worktree={undefined} projects={[]} onOpenProject={async () => undefined} />
+        </RuntimeProvider>,
+      );
+    });
+    expect(container.textContent).toContain("Select a worktree first");
   });
 });

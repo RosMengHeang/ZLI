@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -102,7 +102,7 @@ describe("project checkout placement", () => {
   });
 
   it("marks the checkout failed when git cannot read its branch", async () => {
-    const root = await mkdtemp(join(tmpdir(), "zli-not-a-repo-"));
+    const root = await mkdtemp(join(tmpdir(), "zli-unreadable-repo-"));
     roots.push(root);
     const engine = makeEngine();
     const reactor = new WorktreeReactor(
@@ -114,7 +114,7 @@ describe("project checkout placement", () => {
             128,
             args,
             "",
-            "fatal: not a git repository",
+            "fatal: detected dubious ownership in repository",
           );
         },
       }),
@@ -128,6 +128,61 @@ describe("project checkout placement", () => {
     const worktree = (await engine.projection()).worktrees[0];
     expect(worktree?.status).toBe("failed");
     expect(worktree?.errorMessage).toContain("rev-parse");
+  });
+
+  it("keeps a checkout of a folder without Git ready, and a retry makes a failed one ready again", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "zli-not-a-repo-"));
+    roots.push(folder);
+    const engine = makeEngine();
+    const reactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()));
+    reactors.push(reactor);
+    const worktreeId = WorktreeId.parse("00000000-0000-4000-8000-000000000305");
+
+    await importCheckout(engine, folder, worktreeId, "05");
+    await reactor.waitForIdle();
+    expect((await engine.projection()).worktrees).toMatchObject([
+      { worktreeId, kind: "checkout", status: "ready", branch: "HEAD" },
+    ]);
+
+    await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000605", {
+        type: "worktree.status",
+        worktreeId,
+        status: "failed",
+        errorMessage: "fatal: not a git repository",
+      }),
+    );
+    await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000606", { type: "worktree.retry", worktreeId }),
+    );
+    await reactor.waitForIdle();
+
+    expect((await engine.projection()).worktrees[0]?.status).toBe("ready");
+  });
+
+  it("cancels a queued checkout that has no job running", async () => {
+    const root = await createRepository();
+    const engine = makeEngine();
+    const reactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()));
+    reactors.push(reactor);
+    const worktreeId = WorktreeId.parse("00000000-0000-4000-8000-000000000306");
+    await importCheckout(engine, root.repoPath, worktreeId, "06");
+    await reactor.waitForIdle();
+    reactor.stop();
+    await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000607", { type: "worktree.retry", worktreeId }),
+    );
+    const restarted = new WorktreeReactor(engine, new WorktreeService(new GitProcess()));
+    reactors.push(restarted);
+
+    await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000608", { type: "worktree.cancel", worktreeId }),
+    );
+    await restarted.waitForIdle();
+
+    expect((await engine.projection()).worktrees.find((entry) => entry.worktreeId === worktreeId)?.status).toBe(
+      "cancelled",
+    );
   });
 
   it("forgets a removed checkout without running git worktree remove or deleting files", async () => {
@@ -284,6 +339,68 @@ describe("durable worktree reactor", () => {
 
     expect((await engine.projection()).worktrees[0]?.status).toBe("failed");
     expect((await engine.projection()).worktrees[0]?.errorMessage).toContain("bootstrap failed");
+  });
+
+  it("marks a project without Git, and removes a worktree row that failed there", async () => {
+    const root = await mkdtemp(join(tmpdir(), "zli-not-a-repo-"));
+    roots.push(root);
+    const folder = join(root, "app");
+    await mkdir(folder);
+    const engine = makeEngine();
+    const projectReceipt = await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000215", { type: "project.register", path: folder }),
+    );
+    const projectId = ProjectId.parse(projectReceipt.result?.projectId ?? "");
+    const worktreeId = WorktreeId.parse("00000000-0000-4000-8000-000000000216");
+    const workspaceRoot = join(root, "app-worktrees");
+    // Requested before the project was known to have no Git, as in older workspaces.
+    await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000217", {
+        type: "worktree.create",
+        worktreeId,
+        projectId,
+        path: join(workspaceRoot, "droid-u8ik"),
+        workspaceRoot,
+        branch: "droid-u8ik",
+      }),
+    );
+    const reactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()));
+    reactors.push(reactor);
+    await reactor.waitForIdle();
+    expect((await engine.projection()).projects[0]?.git).toBe(false);
+
+    await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000219", { type: "worktree.retry", worktreeId }),
+    );
+    await reactor.waitForIdle();
+    const failed = (await engine.projection()).worktrees[0];
+    expect(failed?.status).toBe("failed");
+    expect(failed?.errorMessage).toContain("not a Git repository");
+
+    await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000218", { type: "worktree.remove", worktreeId, force: true }),
+    );
+    await reactor.waitForIdle();
+
+    expect((await engine.projection()).worktrees).toEqual([]);
+    await expect(stat(folder)).resolves.toMatchObject({});
+  });
+
+  it("clears the no-Git mark once the folder becomes a repository", async () => {
+    const root = await createRepository();
+    const engine = makeEngine();
+    const projectReceipt = await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000220", { type: "project.register", path: root.repoPath }),
+    );
+    const projectId = ProjectId.parse(projectReceipt.result?.projectId ?? "");
+    await engine.dispatchPromise(
+      command("00000000-0000-4000-8000-000000000221", { type: "project.git", projectId, git: false }),
+    );
+    const reactor = new WorktreeReactor(engine, new WorktreeService(new GitProcess()));
+    reactors.push(reactor);
+    await reactor.waitForIdle();
+
+    expect((await engine.projection()).projects[0]?.git).toBe(true);
   });
 
   it("records a clear lock message when git cannot create the worktree", async () => {

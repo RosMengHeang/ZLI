@@ -117,11 +117,19 @@ export function FilesPane({
         <PaneHeader icon="folderTree" title="Files" detail={worktree?.branch} />
         <EmptyState
           icon="folderTree"
-          title={worktree ? "The worktree is not ready yet" : "Select a worktree"}
+          title={
+            !worktree
+              ? "Select a worktree"
+              : worktree.status === "failed"
+                ? "The worktree could not be prepared"
+                : "The worktree is not ready yet"
+          }
           detail={
-            worktree
-              ? "Files appear once Git finishes preparing the folder."
-              : "Files are shown for the worktree of the focused agent."
+            !worktree
+              ? "Files are shown for the worktree of the focused agent."
+              : worktree.status === "failed"
+                ? (worktree.errorMessage ?? "Retry or remove it from the sidebar.")
+                : "Files appear once Git finishes preparing the folder."
           }
         />
       </div>

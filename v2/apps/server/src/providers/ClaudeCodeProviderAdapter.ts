@@ -57,6 +57,7 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
     const result = await context.client.sendTurn({
       text: input.text,
       ...(input.model ? { model: input.model } : {}),
+      ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
     });
     return { turnId: result.providerTurnId };
   }

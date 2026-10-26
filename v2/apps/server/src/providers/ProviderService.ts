@@ -18,6 +18,8 @@ export type ProviderSession = {
   provider: ProviderKind;
   cwd: string;
   status: "idle" | "working" | "waiting" | "stopped" | "failed";
+  /** Levels the agent reported for this session, for agents that report them when a session starts. */
+  reasoningEfforts?: readonly string[];
 };
 
 export type ProviderEvent =
@@ -50,6 +52,8 @@ export type ProviderTurnInput = {
   threadId: ThreadId;
   text: string;
   model?: string;
+  /** Omitted runs the turn at the agent's default level. */
+  reasoningEffort?: string;
   /** Set only when the person changed it; adapters keep it for later turns. */
   permissionMode?: PermissionMode;
   /** Stored images. Their paths are already listed in `text`; adapters may also pass them natively. */

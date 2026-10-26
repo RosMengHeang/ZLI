@@ -93,6 +93,7 @@ export class CodexProviderAdapter implements ProviderAdapter {
       providerThreadId: context.providerThreadId,
       text: input.text,
       ...(input.model ? { model: input.model } : {}),
+      ...(input.reasoningEffort ? { effort: input.reasoningEffort } : {}),
       ...(imagePaths.length > 0 ? { imagePaths } : {}),
     });
     return { turnId: result.providerTurnId };

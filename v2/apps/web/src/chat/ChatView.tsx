@@ -30,6 +30,7 @@ import { Composer, type ComposerAttachment, type ComposerBestOf } from "./Compos
 import { ConnectorCard } from "./ConnectorCard.js";
 import { clearCodeReferences, removeCodeReference, useCodeReferences } from "./codeReferences.js";
 import { Markdown } from "./Markdown.js";
+import { reasoningLevels } from "./reasoning.js";
 import { RequestCard } from "./RequestCard.js";
 import { TurnChanges } from "./TurnChanges.js";
 import { ChangedFiles, elapsedLabel, liveStepLabel, WorkSteps } from "./WorkLog.js";
@@ -71,6 +72,10 @@ export function ChatView({
   const displayName = providerDisplayName(thread.provider, projection.providers);
   const discovery = projection.providers?.find((entry) => entry.provider === thread.provider);
   const models = discovery?.status === "found" ? discovery.models : undefined;
+  const [chosenReasoning, setChosenReasoning] = useState<string>();
+  const reasoning = reasoningLevels(models, model, thread.capabilities, discovery);
+  // A level the new model does not take falls back to the default instead of failing the turn.
+  const reasoningEffort = chosenReasoning && reasoning.levels.includes(chosenReasoning) ? chosenReasoning : undefined;
   // The projection passed in skips chat-only updates, so this thread's chat state is read from the
   // store. Each selector returns the same value while this thread is unchanged, even when another
   // thread is streaming.
@@ -175,6 +180,7 @@ export function ChatView({
           threadId: thread.threadId,
           text,
           ...(model ? { model } : {}),
+          ...(reasoningEffort ? { reasoningEffort } : {}),
           ...(permissionSwitch && permissionMode !== threadMode ? { permissionMode } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
         },
@@ -249,8 +255,10 @@ export function ChatView({
       ),
     [projection.providers],
   );
+  // Runs each get their own worktree, which a folder without Git cannot have.
+  const gitProject = projection.projects.find((project) => project.projectId === worktree?.projectId)?.git !== false;
   const bestOf: ComposerBestOf | undefined =
-    onStartRuns && worktree?.status === "ready"
+    onStartRuns && worktree?.status === "ready" && gitProject
       ? {
           agents: runAgents,
           current: { provider: thread.provider, ...(model ? { model } : {}) },
@@ -415,6 +423,10 @@ export function ChatView({
               model={model}
               modelLocked={thread.capabilities.modelSwitch === "unsupported" && messages.length > 0}
               onModelChange={setModel}
+              reasoningLevels={reasoning.levels}
+              defaultReasoning={reasoning.defaultLevel}
+              reasoningEffort={reasoningEffort}
+              onReasoningEffortChange={setChosenReasoning}
               permissionMode={permissionMode}
               onPermissionModeChange={permissionSwitch ? setPermissionMode : undefined}
               projectId={worktree?.projectId}

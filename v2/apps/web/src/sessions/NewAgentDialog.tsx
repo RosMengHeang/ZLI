@@ -107,11 +107,14 @@ export function NewAgentDialog({
         worktree.status === "fetching" ||
         worktree.status === "bootstrapping"),
   );
-  const [placementKind, setPlacementKind] = useState<Placement["kind"]>(() =>
+  const noGit = project?.git === false;
+  const [chosenPlacement, setPlacementKind] = useState<Placement["kind"]>(() =>
     !prefill && initialWorktreeId && projectWorktrees.some((worktree) => worktree.worktreeId === initialWorktreeId)
       ? "existing"
       : "new",
   );
+  // Worktrees need Git, so a folder without it only has its own checkout.
+  const placementKind = noGit ? "checkout" : chosenPlacement;
   const branchFor = (agent: ListedProviderKind | undefined) =>
     prefill
       ? issueBranchName(settings.branchTemplate, agent, prefill.issue)
@@ -144,18 +147,26 @@ export function NewAgentDialog({
   const accountChoices = accountOptions(accounts, provider);
   const shownAccount = provider ? (pickedAccount ?? defaultAccountId(accounts, provider)) : "";
 
-  const placementOptions: ChoiceOption<Placement["kind"]>[] = [
-    {
-      value: "new",
-      label: "New worktree",
-      icon: "branch",
-      title: "Its own folder and branch, so agents never collide",
-    },
-    { value: "checkout", label: "Current checkout", icon: "folder", title: project?.path },
-    ...(projectWorktrees.length > 0
-      ? [{ value: "existing" as const, label: "Existing worktree", icon: "folderOpen" as const }]
-      : []),
-  ];
+  const checkoutOption: ChoiceOption<Placement["kind"]> = {
+    value: "checkout",
+    label: "Current checkout",
+    icon: "folder",
+    title: project?.path,
+  };
+  const placementOptions: ChoiceOption<Placement["kind"]>[] = noGit
+    ? [checkoutOption]
+    : [
+        {
+          value: "new",
+          label: "New worktree",
+          icon: "branch",
+          title: "Its own folder and branch, so agents never collide",
+        },
+        checkoutOption,
+        ...(projectWorktrees.length > 0
+          ? [{ value: "existing" as const, label: "Existing worktree", icon: "folderOpen" as const }]
+          : []),
+      ];
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: branchFor only reads the template and the prefill.
   useEffect(() => {
@@ -317,7 +328,10 @@ export function NewAgentDialog({
             />
           </FormSection>
 
-          <FormSection label="Workspace">
+          <FormSection
+            label="Workspace"
+            hint={noGit ? "This folder is not a Git repository, so the agent works in the folder itself." : undefined}
+          >
             <ChoiceSegmented<typeof placementKind>
               name="agent-placement"
               label="Workspace"

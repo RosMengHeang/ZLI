@@ -1,10 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 
-import { CommandId, type RuntimeEventEnvelope, WorktreeId, type WorktreeProjection } from "@zli-v2/contracts";
+import {
+  CommandId,
+  ProjectId,
+  type RuntimeEventEnvelope,
+  WorktreeId,
+  type WorktreeProjection,
+} from "@zli-v2/contracts";
 
 import type { Engine } from "../orchestration/Engine.js";
-import type { WorktreeService, WorktreeState } from "./WorktreeService.js";
+import { isNotGitRepository, type WorktreeService, type WorktreeState } from "./WorktreeService.js";
 
 type WorktreeReactorOptions = {
   bootstrap?: (context: { worktreePath: string; signal: AbortSignal }) => Promise<void>;
@@ -22,7 +28,7 @@ type CreateIntent = Extract<RuntimeEventEnvelope["event"], { type: "worktree.cre
 
 export class WorktreeReactor {
   private readonly intents = new Map<string, CreateIntent>();
-  private readonly active = new Map<string, ReturnType<WorktreeService["create"]>>();
+  private readonly creating = new Set<string>();
   private readonly tasks = new Set<Promise<void>>();
   private readonly unsubscribe: () => void;
 
@@ -32,6 +38,12 @@ export class WorktreeReactor {
     private readonly options: WorktreeReactorOptions = {},
   ) {
     this.unsubscribe = engine.subscribe((envelope) => this.onEvent(envelope));
+    // A folder can gain or lose its .git while ZLI is closed.
+    this.track(
+      engine.projection().then(async (projection) => {
+        await Promise.all(projection.projects.map((project) => this.checkGit(project.projectId)));
+      }),
+    );
   }
 
   stop(): void {
@@ -47,24 +59,26 @@ export class WorktreeReactor {
 
   private onEvent(envelope: RuntimeEventEnvelope): void {
     switch (envelope.event.type) {
+      case "project.registered":
+        this.track(this.checkGit(envelope.event.project.projectId));
+        return;
       case "worktree.create.requested":
         this.intents.set(envelope.event.worktree.worktreeId, envelope.event);
         this.startCreate(envelope.event);
         return;
       case "worktree.status.changed":
         if (envelope.event.status === "cancelling") {
-          this.service.cancel(envelope.event.worktreeId);
-        } else if (envelope.event.status === "queued") {
           const worktreeId = envelope.event.worktreeId;
-          this.track(
-            this.intentFor(worktreeId).then((intent) => {
-              if (intent) this.startCreate(intent);
-            }),
-          );
+          // Nothing is running for this worktree, so no job will ever report "cancelled".
+          if (!this.service.cancel(worktreeId) && !this.creating.has(worktreeId)) {
+            this.track(this.dispatchStatus(worktreeId, "cancelled"));
+          }
+        } else if (envelope.event.status === "queued") {
+          this.track(this.retry(envelope.event.worktreeId));
         }
         return;
       case "worktree.imported":
-        if (envelope.event.worktree.kind === "checkout") this.track(this.runCheckoutPlacement(envelope.event.worktree));
+        if (envelope.event.worktree.kind === "checkout") this.track(this.runPlacement(envelope.event.worktree));
         return;
       case "worktree.remove.requested":
         this.startRemove(envelope.event.worktreeId, envelope.event.force, envelope.event.deleteBranch ?? false);
@@ -79,13 +93,20 @@ export class WorktreeReactor {
 
   private startCreate(intent: CreateIntent): void {
     const worktreeId = intent.worktree.worktreeId;
-    if (this.active.has(worktreeId)) return;
-    const task = this.runCreate(intent);
-    this.tasks.add(task);
-    void task.then(
-      () => this.tasks.delete(task),
-      () => this.tasks.delete(task),
-    );
+    if (this.creating.has(worktreeId)) return;
+    this.creating.add(worktreeId);
+    this.track(this.runCreate(intent).finally(() => this.creating.delete(worktreeId)));
+  }
+
+  /** Imported worktrees and checkouts have no create intent; retrying one re-reads the folder instead. */
+  private async retry(worktreeId: string): Promise<void> {
+    const intent = await this.intentFor(worktreeId);
+    if (intent) {
+      this.startCreate(intent);
+      return;
+    }
+    const worktree = (await this.engine.projection()).worktrees.find((entry) => entry.worktreeId === worktreeId);
+    if (worktree) await this.runPlacement(worktree, true);
   }
 
   private async runCreate(intent: CreateIntent): Promise<void> {
@@ -127,10 +148,10 @@ export class WorktreeReactor {
       ...(prepare ? { bootstrap: prepare } : {}),
       onState: reportState,
     });
-    this.active.set(intent.worktree.worktreeId, job);
     try {
       await job.promise;
     } catch (error) {
+      if (isNotGitRepository(error instanceof Error ? error.cause : undefined)) await this.checkGit(project.projectId);
       const finalState = lastState as WorktreeState;
       if (finalState !== "cancelled") {
         if (finalState !== "failed") reportState("failed");
@@ -144,7 +165,6 @@ export class WorktreeReactor {
       }
     } finally {
       await statusQueue;
-      this.active.delete(intent.worktree.worktreeId);
     }
   }
 
@@ -210,17 +230,44 @@ export class WorktreeReactor {
     }
   }
 
-  /** The client imports a checkout with a placeholder branch; the real one comes from git. */
-  private async runCheckoutPlacement(worktree: WorktreeProjection): Promise<void> {
+  /**
+   * The client imports a checkout with a placeholder branch; the real one comes from git.
+   * A checkout of a folder that is not a Git repository stays ready so agents can still run in it.
+   */
+  private async runPlacement(worktree: WorktreeProjection, markReady = false): Promise<void> {
+    if (worktree.kind === "checkout") await this.checkGit(worktree.projectId);
     try {
       const branch = await this.service.currentBranch(worktree.path);
-      if (branch !== worktree.branch) await this.dispatchStatus(worktree.worktreeId, "ready", undefined, branch);
+      if (markReady || branch !== worktree.branch) {
+        await this.dispatchStatus(worktree.worktreeId, "ready", undefined, branch);
+      }
     } catch (error) {
+      if (worktree.kind === "checkout" && isNotGitRepository(error)) {
+        if (markReady) await this.dispatchStatus(worktree.worktreeId, "ready");
+        return;
+      }
       await this.dispatchStatus(
         worktree.worktreeId,
         "failed",
         error instanceof Error ? error.message : "Could not read the checkout's branch.",
       );
+    }
+  }
+
+  /** Records whether the project folder is a Git repository, when that differs from what is known. */
+  private async checkGit(projectId: string): Promise<void> {
+    try {
+      const project = (await this.engine.projection()).projects.find((entry) => entry.projectId === projectId);
+      if (!project) return;
+      const git = await this.service.isRepository(project.path);
+      if (git === undefined || git === (project.git ?? true)) return;
+      await this.engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        command: { type: "project.git", projectId: ProjectId.parse(projectId), git },
+      });
+    } catch {
+      // The flag only steers the UI; a project archived meanwhile needs no update.
     }
   }
 

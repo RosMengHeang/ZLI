@@ -1,4 +1,10 @@
-import { isImageMimeType, type ProviderCapabilities, type ProviderKind, type ThreadId } from "@zli-v2/contracts";
+import {
+  isImageMimeType,
+  type ProviderCapabilities,
+  type ProviderKind,
+  ReasoningEffort,
+  type ThreadId,
+} from "@zli-v2/contracts";
 import { AcpClient, AcpProviderError, type AcpProviderEvent, type AcpToolUpdate } from "@zli-v2/provider-acp";
 
 import {
@@ -37,7 +43,8 @@ export type AcpProviderConfig = {
 type AcpSessionClient = Pick<
   AcpClient,
   "sendTurn" | "interruptTurn" | "respondToPermission" | "transcript" | "subscribe" | "close"
->;
+> &
+  Partial<Pick<AcpClient, "reasoningEfforts">>;
 type ClientStart = Pick<ProviderSessionStart, "cwd" | "permissionMode" | "model" | "worktreeId" | "account">;
 
 const MAX_TITLE = 500;
@@ -95,11 +102,16 @@ export class AcpProviderAdapter implements ProviderAdapter {
       ...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
       ...(input.account ? { account: input.account } : {}),
     });
+    // Agents name their own levels; only ones the runtime can carry and pass back are offered.
+    const reasoningEfforts = (client.reasoningEfforts ?? [])
+      .filter((level) => ReasoningEffort.safeParse(level).success)
+      .slice(0, 20);
     const session: ProviderSession = {
       threadId: input.threadId,
       provider: this.provider,
       cwd: input.cwd,
       status: "idle",
+      ...(reasoningEfforts.length > 0 ? { reasoningEfforts } : {}),
     };
     const unsubscribe = client.subscribe((event) => this.onAcpEvent(input.threadId, input.cwd, event));
     this.sessions.set(input.threadId, { session, client, unsubscribe });
@@ -114,6 +126,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
     const result = await context.client.sendTurn({
       text: input.text,
       ...(input.model ? { model: input.model } : {}),
+      ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
     });
     return { turnId: result.providerTurnId };

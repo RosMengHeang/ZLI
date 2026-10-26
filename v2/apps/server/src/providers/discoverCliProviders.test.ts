@@ -375,6 +375,37 @@ describe("model discovery", () => {
     expect(parseDroidModels(undefined)).toBeUndefined();
   });
 
+  it("adds each droid model's reasoning levels from its Model details rows", () => {
+    const output = [
+      "Available Models:",
+      "  auto                       Auto Model",
+      "  gpt-6-sol                  GPT-6 Sol (default)",
+      "  claude-opus-5-5            Opus 5.5",
+      "  grok-4.5                   Grok 4.5",
+      "",
+      "Model details:",
+      "  - Auto Model: supports reasoning: No; supported: [none]; default: none",
+      "  - GPT-6 Sol: supports reasoning: Yes; supported: [none, low, medium, high, xhigh, max]; default: medium",
+      "  - Opus 5.5: supports reasoning: Yes; supported: [low, medium, high, xhigh, max]; default: medium",
+    ].join("\n");
+    expect(parseDroidModels(output)).toEqual([
+      { id: "auto", label: "Auto Model", reasoningEfforts: [] },
+      {
+        id: "gpt-6-sol",
+        label: "GPT-6 Sol (default)",
+        reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+        defaultReasoningEffort: "medium",
+      },
+      {
+        id: "claude-opus-5-5",
+        label: "Opus 5.5",
+        reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+        defaultReasoningEffort: "medium",
+      },
+      { id: "grok-4.5", label: "Grok 4.5" },
+    ]);
+  });
+
   it("parses opencode models output and skips ids a terminal launch would reject", () => {
     const output = [
       "opencode/big-pickle",

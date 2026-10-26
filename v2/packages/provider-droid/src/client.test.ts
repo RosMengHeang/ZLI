@@ -241,6 +241,15 @@ describe("DroidClient", () => {
     expect(client.transcript()[0]).toMatchObject({ providerTurnId: turn.providerTurnId, sessionId: "sess-9" });
   });
 
+  it("passes a turn-level reasoning level to that run only", async () => {
+    const { client, calls, children } = await harness();
+    await client.sendTurn({ text: "Hi", model: "gpt-5", reasoningEffort: "high" });
+    expect(calls[0]?.args).toEqual([...execArgs, "-m", "gpt-5", "-r", "high"]);
+    children[0]?.stdout.emit("data", line({ type: "completion", finalText: "done", session_id: "sess-1" }));
+    await client.sendTurn({ text: "Again" });
+    expect(calls[1]?.args).not.toContain("-r");
+  });
+
   it("passes a turn-level model to that run and rejects a second turn while one is still running", async () => {
     const { client, calls } = await harness();
     await client.sendTurn({ text: "Hi", model: "gpt-5" });
@@ -526,5 +535,10 @@ describe("droidTurnArgs", () => {
   it("passes no autonomy flag in read-only mode, which is exec's read-only default", () => {
     const args = droidTurnArgs({ cwd: "/work/tree", permissionMode: "read-only" });
     expect(args).toEqual(["exec", "-o", "stream-json", "--cwd", "/work/tree"]);
+  });
+
+  it("passes the reasoning level with -r", () => {
+    const args = droidTurnArgs({ cwd: "/work/tree", permissionMode: "read-only", reasoningEffort: "xhigh" });
+    expect(args).toEqual(["exec", "-o", "stream-json", "--cwd", "/work/tree", "-r", "xhigh"]);
   });
 });

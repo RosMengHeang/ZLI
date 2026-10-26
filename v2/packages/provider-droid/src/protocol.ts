@@ -12,11 +12,13 @@ export function droidTurnArgs(input: {
   sessionId?: string;
   permissionMode?: DroidPermissionMode;
   model?: string;
+  reasoningEffort?: string;
 }): string[] {
   const args = ["exec", "-o", "stream-json", "--cwd", input.cwd];
   if (input.permissionMode === "supervised") args.push("--auto", "low");
   else if (input.permissionMode !== "read-only") args.push("--skip-permissions-unsafe");
   if (input.model) args.push("-m", input.model);
+  if (input.reasoningEffort) args.push("-r", input.reasoningEffort);
   if (input.sessionId) args.push("-s", input.sessionId);
   return args;
 }

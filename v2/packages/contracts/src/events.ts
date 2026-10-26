@@ -20,6 +20,7 @@ import { ProjectProjection, SupportBundleProjection, WorktreeProjection } from "
 import {
   PermissionMode,
   ProviderCapabilities,
+  ReasoningEffort,
   ThreadActivityProjection,
   ThreadAttachment,
   ThreadMessageProjection,
@@ -36,6 +37,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("project.registered"), project: ProjectProjection }),
   z.object({ type: z.literal("project.archive.requested"), projectId: ProjectId }),
   z.object({ type: z.literal("project.archived"), projectId: ProjectId }),
+  z.object({ type: z.literal("project.git.changed"), projectId: ProjectId, git: z.boolean() }),
   z.object({
     type: z.literal("runtime.reactor.failed"),
     reactor: z.string().min(1),
@@ -95,6 +97,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     threadId: ThreadId,
     text: z.string(),
     model: z.string().min(1).optional(),
+    reasoningEffort: ReasoningEffort.optional(),
     permissionMode: PermissionMode.optional(),
     attachments: z.array(ThreadAttachment).max(8).optional(),
   }),

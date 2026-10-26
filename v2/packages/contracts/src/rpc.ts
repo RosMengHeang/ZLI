@@ -33,6 +33,7 @@ import {
   PermissionMode,
   ProviderCapabilities,
   ProviderKind,
+  ReasoningEffort,
   ThreadActivityProjection,
   ThreadAttachmentUpload,
   ThreadMessageProjection,
@@ -50,6 +51,7 @@ export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("project.register"), path: z.string().min(1) }),
   z.object({ type: z.literal("project.archive"), projectId: ProjectId }),
+  z.object({ type: z.literal("project.git"), projectId: ProjectId, git: z.boolean() }),
   z.object({
     type: z.literal("worktree.create"),
     worktreeId: WorktreeId,
@@ -143,6 +145,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     threadId: ThreadId,
     text: z.string(),
     model: z.string().min(1).optional(),
+    /** Omitted runs the turn at the agent's default level. */
+    reasoningEffort: ReasoningEffort.optional(),
     /** Applies from this turn on. Only providers with permissionSwitch "in-session" accept a change. */
     permissionMode: PermissionMode.optional(),
     attachments: z.array(ThreadAttachmentUpload).max(8).optional(),
@@ -154,6 +158,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     queueId: z.string().min(1).max(200),
     text: z.string().min(1),
     model: z.string().min(1).optional(),
+    reasoningEffort: ReasoningEffort.optional(),
     permissionMode: PermissionMode.optional(),
     attachments: z.array(ThreadAttachmentUpload).max(8).optional(),
   }),

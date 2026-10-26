@@ -25,6 +25,7 @@ import {
   parseConfigOptions,
   RequestPermissionParams,
   type SessionConfigOption,
+  selectOptionValues,
 } from "./protocol.js";
 import {
   type AcpToolFields,
@@ -177,6 +178,8 @@ export class AcpClient {
   private legacyModelId: string | undefined;
   private legacyModels = false;
   private modelApi: ModelApi | undefined;
+  /** The reasoning level the session started with, which a turn without one goes back to. */
+  private defaultThoughtLevel: string | undefined;
   private active: ActiveTurn | undefined;
   /** Usage arrives in pieces and can land just after the prompt settles, so it stays with its turn. */
   private usageTurn: { id: string; costBefore?: number; usage: ProviderUsage } | undefined;
@@ -248,6 +251,12 @@ export class AcpClient {
     return this.sessionId;
   }
 
+  /** The values of the agent's thought_level option. Empty when it has none. */
+  get reasoningEfforts(): string[] {
+    const option = this.thoughtLevelOption();
+    return option ? selectOptionValues(option) : [];
+  }
+
   subscribe(listener: (event: AcpProviderEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -260,6 +269,7 @@ export class AcpClient {
   async sendTurn(input: {
     text: string;
     model?: string;
+    reasoningEffort?: string;
     attachments?: readonly AcpImageAttachment[];
   }): Promise<AcpTurnResult> {
     this.assertOpen();
@@ -273,6 +283,7 @@ export class AcpClient {
       this.assertOpen();
       const model = input.model?.trim();
       if (model) await this.applyModel(model);
+      await this.applyThoughtLevel(input.reasoningEffort?.trim() || this.defaultThoughtLevel);
       prompt = [{ type: "text", text: input.text }, ...(await this.imageBlocks(input.attachments ?? []))];
       this.assertOpen();
     } catch (error) {
@@ -374,6 +385,33 @@ export class AcpClient {
       throw new AcpProviderError("auth_required", `${this.displayName} has no model set up. ${this.authMessage()}`);
     }
     if (model) await this.applyModel(model);
+    const thought = this.thoughtLevelOption()?.currentValue;
+    if (typeof thought === "string" && thought.length > 0) this.defaultThoughtLevel = thought;
+  }
+
+  private async applyThoughtLevel(level: string | undefined): Promise<void> {
+    const option = this.thoughtLevelOption();
+    if (!option || !level || option.currentValue === level) return;
+    try {
+      const result = await this.connection.request(
+        "session/set_config_option",
+        { sessionId: this.sessionId, configId: option.id, value: level },
+        this.timeoutMs,
+      );
+      const updated = parseConfigOptions(asRecord(result)?.configOptions);
+      if (updated.length > 0) this.configOptions = updated;
+      else option.currentValue = level;
+    } catch (error) {
+      throw new AcpProviderError(
+        "request_failed",
+        `${this.displayName} could not switch to reasoning level ${level}: ${errorDetail(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  private thoughtLevelOption(): SessionConfigOption | undefined {
+    return this.configOptions.find((option) => option.category === "thought_level");
   }
 
   /**
