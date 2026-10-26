@@ -7,6 +7,7 @@ import type { NotificationSettings } from "../runtime/bridge.js";
 import { samePath } from "../sessions/launch.js";
 import { deriveSessions, type SessionMode, sessionStopCommands } from "../sessions/sessions.js";
 import { defaultShortcut, shortcutActions, shortcutFromEvent, shortcutProblem } from "../shell/keybindings.js";
+import { Badge } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Select } from "../ui/Field.js";
@@ -329,9 +330,14 @@ function ProjectsSection({
   if (!project) {
     return (
       <>
-        <SectionHeader title="Projects" />
+        <SectionHeader title="Projects">Folders you added to ZLI. Agents start in one of them.</SectionHeader>
         {removedNote}
-        <p className="settings-empty">No projects yet. Add a folder to start agents in it.</p>
+        <div className="project-empty">
+          <span className="project-tile" aria-hidden="true">
+            <Icon name="folder" size={16} />
+          </span>
+          <p className="settings-empty">No projects yet. Add a folder to start agents in it.</p>
+        </div>
         {addButton}
       </>
     );
@@ -358,46 +364,54 @@ function ProjectsSection({
         Folders you added to ZLI. Select one to give it its own agent defaults.
       </SectionHeader>
       {removedNote}
-      <ul className="setting-list project-list" aria-label="Projects">
-        {projects.map((candidate) => (
-          <ProjectRow
-            key={candidate.projectId}
+      <section className="accounts-provider" aria-label="Project folders">
+        <h3 className="mcp-subhead accounts-subhead">
+          Folders
+          <span className="mcp-chip">{projects.length}</span>
+        </h3>
+        <ul className="project-list" aria-label="Projects">
+          {projects.map((candidate) => (
+            <ProjectRow
+              key={candidate.projectId}
+              projection={projection}
+              project={candidate}
+              selected={candidate.projectId === project.projectId}
+              confirming={confirmId === candidate.projectId}
+              canRemove={onRemoveProject !== undefined}
+              onSelect={() => {
+                setRemoved(undefined);
+                setProjectId(candidate.projectId);
+              }}
+              onAsk={() => {
+                setRemoved(undefined);
+                setConfirmId(candidate.projectId);
+              }}
+              onCancel={() => setConfirmId(undefined)}
+              onRemove={() => remove(candidate)}
+            />
+          ))}
+        </ul>
+        {addButton}
+      </section>
+      <section className="accounts-provider" aria-label={`Defaults for ${project.name}`}>
+        <h3 className="mcp-subhead accounts-subhead">Defaults for {project.name}</h3>
+        <div className="setting-list">
+          <LaunchFields
+            key={project.projectId}
             projection={projection}
-            project={candidate}
-            selected={candidate.projectId === project.projectId}
-            confirming={confirmId === candidate.projectId}
-            canRemove={onRemoveProject !== undefined}
-            onSelect={() => {
-              setRemoved(undefined);
-              setProjectId(candidate.projectId);
-            }}
-            onAsk={() => {
-              setRemoved(undefined);
-              setConfirmId(candidate.projectId);
-            }}
-            onCancel={() => setConfirmId(undefined)}
-            onRemove={() => remove(candidate)}
+            value={override}
+            inheritLabel="Same as New agents"
+            onChange={setOverride}
           />
-        ))}
-      </ul>
-      {addButton}
-      <h4 className="project-defaults-title">Defaults for {project.name}</h4>
-      <div className="setting-list">
-        <LaunchFields
-          key={project.projectId}
-          projection={projection}
-          value={override}
-          inheritLabel="Same as New agents"
-          onChange={setOverride}
-        />
-      </div>
-      {Object.keys(override).length > 0 ? (
-        <div className="settings-actions">
-          <Button size="sm" variant="ghost" icon="rotate" onClick={() => setOverride({})}>
-            Reset {project.name} to New agents
-          </Button>
         </div>
-      ) : null}
+        {Object.keys(override).length > 0 ? (
+          <div className="settings-actions">
+            <Button size="sm" variant="ghost" icon="rotate" onClick={() => setOverride({})}>
+              Reset {project.name} to New agents
+            </Button>
+          </div>
+        ) : null}
+      </section>
     </>
   );
 }
@@ -406,22 +420,29 @@ function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-/** What removing the project takes with it, so the confirmation can say so. */
-function removalDetail(projection: RuntimeProjection | undefined, project: ProjectProjection): string {
+type ProjectStats = { agents: number; running: number; worktrees: number };
+
+function projectStats(projection: RuntimeProjection | undefined, project: ProjectProjection): ProjectStats {
   const worktrees = (projection?.worktrees ?? []).filter((worktree) => worktree.projectId === project.projectId);
   const worktreeIds = new Set<string>(worktrees.map((worktree) => worktree.worktreeId));
   const agents = projection ? deriveSessions(projection).filter((session) => worktreeIds.has(session.worktreeId)) : [];
-  const running = agents.filter((session) => sessionStopCommands(session).length > 0).length;
-  const extraFolders = worktrees.filter(
-    (worktree) => worktree.kind !== "checkout" && !samePath(worktree.path, project.path),
-  ).length;
+  return {
+    agents: agents.length,
+    running: agents.filter((session) => sessionStopCommands(session).length > 0).length,
+    worktrees: worktrees.filter((worktree) => worktree.kind !== "checkout" && !samePath(worktree.path, project.path))
+      .length,
+  };
+}
+
+/** What removing the project takes with it, so the confirmation can say so. */
+function removalDetail(stats: ProjectStats): string {
   const parts: string[] = [];
-  if (running > 0) parts.push(`${plural(running, "running agent")} will be stopped.`);
-  if (agents.length === 1) parts.push("1 agent and its chat are deleted from ZLI.");
-  if (agents.length > 1) parts.push(`${agents.length} agents and their chats are deleted from ZLI.`);
+  if (stats.running > 0) parts.push(`${plural(stats.running, "running agent")} will be stopped.`);
+  if (stats.agents === 1) parts.push("1 agent and its chat are deleted from ZLI.");
+  if (stats.agents > 1) parts.push(`${stats.agents} agents and their chats are deleted from ZLI.`);
   parts.push(
-    extraFolders > 0
-      ? `The folder and its ${plural(extraFolders, "worktree")} stay on disk.`
+    stats.worktrees > 0
+      ? `The folder and its ${plural(stats.worktrees, "worktree")} stay on disk.`
       : "The folder and its files stay on disk.",
   );
   return parts.join(" ");
@@ -454,6 +475,7 @@ function ProjectRow({
   const keepRef = useRef<HTMLButtonElement>(null);
   const askRef = useRef<HTMLButtonElement>(null);
   const wasConfirming = useRef(false);
+  const stats = projectStats(projection, project);
 
   useEffect(() => {
     if (confirming) keepRef.current?.focus();
@@ -474,39 +496,57 @@ function ProjectRow({
     <li className={`project-row${selected ? " is-selected" : ""}${confirming ? " is-confirming" : ""}`}>
       <div className="project-row-main">
         <button type="button" className="project-pick" aria-current={selected ? "true" : undefined} onClick={onSelect}>
-          <Icon name="folder" size={15} />
+          <span className="project-tile" aria-hidden="true">
+            <Icon name="folder" size={16} />
+          </span>
           <span className="project-pick-copy">
-            <span className="project-pick-name">{project.name}</span>
-            <span className="setting-path">{project.path}</span>
+            <span className="project-pick-title">
+              <strong>{project.name}</strong>
+              {stats.running > 0 ? (
+                <Badge tone="success" dot>
+                  {stats.running} running
+                </Badge>
+              ) : null}
+              {stats.agents > 0 ? <span className="mcp-chip">{plural(stats.agents, "agent")}</span> : null}
+              {stats.worktrees > 0 ? <span className="mcp-chip">{plural(stats.worktrees, "worktree")}</span> : null}
+            </span>
+            <span className="project-pick-path">{project.path}</span>
           </span>
         </button>
         {canRemove && !confirming ? (
-          <IconButton
-            ref={askRef}
-            label={`Remove ${project.name}`}
-            tooltip="Remove from ZLI. The folder stays on disk."
-            icon="trash"
-            size="xs"
-            iconSize={12}
-            onClick={onAsk}
-          />
+          <span className="project-row-actions">
+            <IconButton
+              ref={askRef}
+              label={`Remove ${project.name}`}
+              tooltip="Remove from ZLI. The folder stays on disk."
+              icon="trash"
+              size="sm"
+              iconSize={14}
+              tone="danger"
+              onClick={onAsk}
+            />
+          </span>
         ) : null}
       </div>
       {confirming ? (
         <div className="project-remove">
-          <p className="project-remove-detail">
-            <strong>Remove {project.name} from ZLI?</strong> {removalDetail(projection, project)}
-          </p>
-          {problem ? (
-            <p className="project-remove-problem" role="alert">
-              {problem}
-            </p>
-          ) : null}
+          <span className="project-remove-mark" aria-hidden="true">
+            <Icon name="alert" size={15} />
+          </span>
+          <div className="project-remove-copy">
+            <p className="project-remove-title">Remove {project.name} from ZLI?</p>
+            <p className="project-remove-detail">{removalDetail(stats)}</p>
+            {problem ? (
+              <p className="project-remove-problem" role="alert">
+                {problem}
+              </p>
+            ) : null}
+          </div>
           <div className="project-remove-actions">
-            <Button ref={keepRef} size="xs" variant="ghost" disabled={removing} onClick={onCancel}>
+            <Button ref={keepRef} size="sm" variant="ghost" disabled={removing} onClick={onCancel}>
               Keep
             </Button>
-            <Button size="xs" variant="danger" loading={removing} onClick={() => void remove()}>
+            <Button size="sm" variant="danger" icon="trash" loading={removing} onClick={() => void remove()}>
               Remove
             </Button>
           </div>
