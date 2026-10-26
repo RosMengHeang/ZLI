@@ -27,9 +27,11 @@ test("shows each step live between the reply's text, and stops a turn from the c
     const status = page.locator(".chat-working");
     await expect(status).toBeVisible({ timeout: 10_000 });
     await expect(status.locator(".chat-working-time")).toHaveText(/^\d+s$/u);
-    await expect(status).toContainText(/Reading (app|routes)\.ts/u, { timeout: 20_000 });
-    await expect(status).toContainText("Editing routes.ts", { timeout: 20_000 });
-    await expect(status).toContainText("Run the tests", { timeout: 20_000 });
+    const running = page.locator(".step.is-running");
+    await expect(running).toContainText("Exploring", { timeout: 20_000 });
+    await expect(running).toContainText(/Editing \d+ lines/u, { timeout: 20_000 });
+    await expect(running).toContainText("Run the tests", { timeout: 20_000 });
+    await expect(status.locator(".chat-working-label")).toHaveText("Working");
     await expect(status).toHaveCount(0, { timeout: 20_000 });
 
     const log = page.getByRole("log", { name: "Agent conversation" });
