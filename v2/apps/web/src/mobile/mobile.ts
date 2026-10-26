@@ -33,6 +33,20 @@ export function stateLabel(state: MobileDeviceState): string {
   }
 }
 
+export function stateTone(device: Pick<MobileDevice, "state">): BadgeTone {
+  switch (device.state) {
+    case "online":
+      return "success";
+    case "booting":
+      return "info";
+    case "shutdown":
+      return "quiet";
+    case "offline":
+      return "danger";
+    case "unauthorized":
+      return "warning";
+  }
+}
 export function deviceKindLabel(device: Pick<MobileDevice, "platform" | "kind">): string {
   if (device.kind === "physical") return device.platform === "ios" ? "iPhone" : "Android phone";
   return device.platform === "ios" ? "iOS Simulator" : "Android Emulator";

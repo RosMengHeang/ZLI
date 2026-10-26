@@ -1,32 +1,61 @@
-.dialog.settings-dialog { width: min(780px, 100%); }
-.settings-dialog .dialog-header { padding-bottom: var(--zli-space-4); }
-.settings-layout { display: grid; min-height: 0; flex: 1 1 auto; grid-template-columns: 200px minmax(0, 1fr); border-top: 1px solid var(--zli-border); }
-.settings-nav { display: flex; flex-direction: column; gap: 2px; padding: var(--zli-space-3) var(--zli-space-2-5); background: var(--zli-well); }
+/*
+ * Settings is laid out like the window behind it: a canvas-colored sidebar with the section list, and the open
+ * section on a surface island inset by the window gutter. Groups of rows sit on that island the way IDE
+ * settings pages split one page into titled blocks.
+ */
+.dialog-backdrop:has(> .settings-dialog) { padding-top: 7vh; }
+.dialog.settings-dialog { width: min(980px, 100%); height: min(680px, calc(100vh - 7vh - var(--zli-space-6))); max-height: none; background: var(--zli-canvas); }
+.settings-layout { display: grid; min-height: 0; flex: 1 1 auto; grid-template-columns: 228px minmax(0, 1fr); padding: var(--zli-gutter) var(--zli-gutter) var(--zli-gutter) 0; }
+.settings-sidebar { display: flex; min-height: 0; flex-direction: column; gap: var(--zli-space-3); padding: var(--zli-space-4) var(--zli-space-2-5) var(--zli-space-3); }
+.settings-title { margin: 0; padding: 0 var(--zli-space-2); color: var(--zli-text); font-size: var(--zli-text-md); font-weight: 600; letter-spacing: -.005em; }
+.settings-search { position: relative; display: flex; align-items: center; }
+.settings-search > svg { position: absolute; left: var(--zli-space-2-5); color: var(--zli-dim); pointer-events: none; }
+.settings-search .input { width: 100%; padding-left: 30px; background: var(--zli-surface); }
+.settings-search .input::-webkit-search-cancel-button { display: none; }
+.settings-nav { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: var(--zli-space-3); overflow: auto; }
+.settings-nav-group { display: flex; flex-direction: column; gap: 1px; }
+.settings-nav-heading { padding: var(--zli-space-1) var(--zli-space-2-5); color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; }
+.settings-nav-empty { margin: 0; padding: var(--zli-space-1) var(--zli-space-2-5); color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
 .settings-tab {
-  display: flex; align-items: center; gap: var(--zli-space-2-5); height: var(--zli-control-lg); padding: 0 var(--zli-space-2-5);
-  border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-base); text-align: left;
+  display: flex; align-items: center; gap: var(--zli-space-2-5); height: var(--zli-control-md); flex: 0 0 auto; padding: 0 var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-base); text-align: left;
   transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease);
 }
-.settings-tab > svg { flex: 0 0 auto; color: var(--zli-dim); }
+.settings-tab > svg { flex: 0 0 auto; color: var(--zli-dim); transition: color var(--zli-duration-fast) var(--zli-ease); }
 .settings-tab:hover { background: var(--zli-hover); color: var(--zli-text); }
+.settings-tab:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
 .settings-tab[aria-selected="true"] { background: var(--zli-active); color: var(--zli-text); font-weight: 500; }
 .settings-tab[aria-selected="true"] > svg { color: var(--zli-text); }
-.settings-panel { display: flex; min-width: 0; height: 480px; flex-direction: column; gap: var(--zli-space-4); padding: var(--zli-space-5) var(--zli-space-6) var(--zli-space-6); overflow: auto; }
+.settings-main { display: flex; min-width: 0; min-height: 0; flex-direction: column; border-radius: var(--zli-radius-lg); background: var(--zli-surface); box-shadow: inset 0 0 0 1px var(--zli-border); }
+.settings-crumbs { display: flex; align-items: center; gap: var(--zli-space-1-5); height: var(--zli-bar-height); flex: 0 0 auto; padding: 0 var(--zli-space-2) 0 var(--zli-space-6); color: var(--zli-dim); }
+.settings-crumb { min-width: 0; overflow: hidden; font-size: var(--zli-text-base); text-overflow: ellipsis; white-space: nowrap; }
+.settings-crumb.is-current { color: var(--zli-text); font-weight: 600; }
+.settings-close { margin-left: auto; }
+.settings-panel { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; gap: var(--zli-space-5); padding: 0 var(--zli-space-6) var(--zli-space-6); overflow: auto; scrollbar-gutter: stable; }
 .settings-section-header { display: flex; flex-direction: column; gap: var(--zli-space-1-5); }
-.settings-section-title { margin: 0; color: var(--zli-text); font-size: 15px; font-weight: 600; letter-spacing: -.005em; }
+/* The breadcrumb above already names the section, so its heading stays for screen readers only. */
+.settings-section-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .settings-section-note { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-base); line-height: var(--zli-leading-normal); }
+.settings-section-note .kbd-group { vertical-align: 1px; }
+.settings-group { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-2); }
+.settings-group-head { display: flex; align-items: center; gap: var(--zli-space-2); min-height: var(--zli-control-sm); }
+.settings-group-title { min-width: 0; flex: 1; margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.settings-group-actions { display: flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); }
+.settings-group-note { margin: -2px 0 var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.setting-placeholder { margin: 0; padding: var(--zli-space-3) 0; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.setting-placeholder.is-problem { color: var(--zli-red); }
 .settings-empty { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-base); line-height: var(--zli-leading-normal); }
+/* An empty list under its heading keeps the list's place, so the page does not jump when the first item arrives. */
+.mcp-subhead + .settings-empty { padding: var(--zli-space-3) var(--zli-space-4); border: 1px dashed var(--zli-border-strong); border-radius: var(--zli-radius-md); color: var(--zli-dim); font-size: var(--zli-text-sm); }
 .settings-value { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); text-overflow: ellipsis; white-space: nowrap; }
 .settings-value.is-mono { font-family: var(--zli-mono); font-size: var(--zli-text-sm); }
 .settings-actions { display: flex; justify-content: flex-start; }
 .settings-done { display: flex; align-items: flex-start; gap: var(--zli-space-2); margin: 0; color: var(--zli-green); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
 .settings-done > svg { flex: 0 0 auto; margin-top: 3px; }
 .settings-done .text-link, .settings-empty .text-link, .settings-footnote .text-link { font-size: inherit; }
-
 /* Projects: every folder in ZLI, one row each. Removing asks inside the row that started it. */
 .project-tile { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; box-sizing: border-box; width: 32px; height: 32px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: var(--zli-raised); color: var(--zli-muted); transition: color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
-.project-empty { display: flex; align-items: center; gap: var(--zli-space-3); padding: var(--zli-space-4); border: 1px dashed var(--zli-border-strong); border-radius: var(--zli-radius-lg); }
-.project-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: var(--zli-space-1); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-well); list-style: none; }
+.project-empty { display: flex; align-items: center; gap: var(--zli-space-3); padding: var(--zli-space-4); border: 1px dashed var(--zli-border-strong); border-radius: var(--zli-radius-md); }
+.project-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: var(--zli-space-1); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: color-mix(in srgb, var(--zli-raised) 55%, var(--zli-surface)); list-style: none; }
 .project-row { display: flex; flex-direction: column; border-radius: var(--zli-radius-md); transition: background-color var(--zli-duration-fast) var(--zli-ease); }
 .project-row:hover { background: var(--zli-hover); }
 .project-row.is-selected { background: var(--zli-active); }
@@ -51,7 +80,8 @@
 .project-remove-problem { margin: var(--zli-space-1) 0 0; color: var(--zli-red); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
 .project-remove-actions { display: flex; grid-column: 2; justify-content: flex-end; gap: var(--zli-space-1-5); }
 @keyframes project-remove-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .project-remove { animation: none; } }.integrations-tabs { display: flex; gap: 2px; padding: 3px; align-self: flex-start; border-radius: var(--zli-radius-md); background: var(--zli-well); box-shadow: inset 0 0 0 1px var(--zli-border); }
+@media (prefers-reduced-motion: reduce) { .project-remove { animation: none; } }
+.integrations-tabs { display: flex; gap: 2px; padding: 3px; align-self: flex-start; border-radius: var(--zli-radius-md); background: var(--zli-well); box-shadow: inset 0 0 0 1px var(--zli-border); }
 .integrations-tab {
   height: var(--zli-control-sm); padding: 0 var(--zli-space-3); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-sm); font-weight: 500;
   transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease);
@@ -67,9 +97,10 @@
 .mcp-row-logo { flex: 0 0 auto; }
 
 /* Rows are separated by hairlines inside one quiet group, the way native settings panes read. */
-.setting-list { display: flex; flex-direction: column; margin: 0; padding: 0 var(--zli-space-4); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-well); list-style: none; }
+/* Lists sit one step above the island, the way a raised control does, so a group reads as one block. */
+.setting-list { display: flex; flex-direction: column; margin: 0; padding: 0 var(--zli-space-4); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: color-mix(in srgb, var(--zli-raised) 55%, var(--zli-surface)); list-style: none; }
 .setting-list > * + * { border-top: 1px solid var(--zli-border); }
-.setting-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 240px); align-items: center; gap: var(--zli-space-6); min-height: 56px; padding: var(--zli-space-3) 0; }
+.setting-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 260px); align-items: center; gap: var(--zli-space-6); min-height: 52px; padding: var(--zli-space-2-5) 0; }
 .setting-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .setting-label { color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 500; }
 .setting-description { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
@@ -80,7 +111,7 @@
 .setting-control > .picker-field, .setting-control > .input, .setting-inline { width: 100%; }
 .setting-inline { display: flex; align-items: center; gap: var(--zli-space-1); }
 .setting-inline > .input { min-width: 0; flex: 1; }
-.setting-list > .switch-row { min-height: 56px; padding: var(--zli-space-3) 0; }
+.setting-list > .switch-row { min-height: 52px; padding: var(--zli-space-2-5) 0; }
 .setting-list .switch-label { font-weight: 500; }
 .setting-list .switch-hint { font-size: var(--zli-text-sm); }
 
@@ -93,8 +124,8 @@
 .shortcut-reset { display: inline-flex; justify-content: center; }
 .shortcut-problem { grid-column: 1 / -1; margin: 0 0 var(--zli-space-2); color: var(--zli-red); font-size: var(--zli-text-xs); }
 
-.mcp-rows { margin: 0; padding: 0 var(--zli-space-4); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-well); list-style: none; }
-.mcp-row { display: flex; align-items: center; gap: var(--zli-space-3); min-height: 56px; padding: var(--zli-space-3) 0; }
+.mcp-rows { margin: 0; padding: 0 var(--zli-space-4); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: color-mix(in srgb, var(--zli-raised) 55%, var(--zli-surface)); list-style: none; }
+.mcp-row { display: flex; align-items: center; gap: var(--zli-space-3); min-height: 52px; padding: var(--zli-space-2-5) 0; }
 .mcp-row + .mcp-row { border-top: 1px solid var(--zli-border); }
 .mcp-row > .switch { flex: 0 0 auto; }
 .mcp-row-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
@@ -105,8 +136,8 @@
 .mcp-row > .picker-field { width: auto; flex: 0 0 auto; }
 .accounts-provider { display: flex; flex-direction: column; gap: var(--zli-space-2); }
 .accounts-subhead { display: flex; align-items: center; gap: var(--zli-space-1-5); }
-.mcp-subhead { margin: var(--zli-space-1) 0 0; color: var(--zli-muted); font-size: var(--zli-text-sm); font-weight: 500; }
-.mcp-editor { display: flex; flex-direction: column; gap: var(--zli-space-3); padding: var(--zli-space-4); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-well); }
+.mcp-subhead { margin: var(--zli-space-1) 0 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.mcp-editor { display: flex; flex-direction: column; gap: var(--zli-space-3); padding: var(--zli-space-4); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: color-mix(in srgb, var(--zli-raised) 55%, var(--zli-surface)); }
 .mcp-editor .textarea.is-mono { font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
 .mcp-editor-actions { display: flex; justify-content: flex-end; gap: var(--zli-space-1-5); }
 .settings-footnote { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
@@ -163,9 +194,25 @@
 .plugin-elsewhere ul { display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0; padding: 0; list-style: none; font-size: 12px; }
 .plugin-elsewhere li { display: flex; gap: var(--zli-space-2); align-items: baseline; min-width: 0; }
 
-@media (max-width: 720px) {
-  .settings-layout { grid-template-columns: minmax(0, 1fr); }
-  .settings-nav { flex-direction: row; overflow-x: auto; }
+/* Mobile: the device list in Settings, like an IDE's device manager. */
+.mobile-device-rows { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.mobile-device-row { display: flex; align-items: center; gap: var(--zli-space-3); min-height: 52px; padding: var(--zli-space-2) 0; }
+.mobile-device-row + .mobile-device-row { border-top: 1px solid var(--zli-border); }
+.mobile-device-tile { display: inline-flex; width: 30px; height: 30px; flex: 0 0 auto; align-items: center; justify-content: center; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: var(--zli-surface); color: var(--zli-muted); }
+.mobile-device-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.mobile-device-name { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-device-meta { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.mobile-device-action { display: flex; min-width: 88px; flex: 0 0 auto; justify-content: flex-end; }
+.mobile-tool-state { display: inline-flex; min-width: 0; align-items: center; gap: var(--zli-space-2); }
+.mobile-tool-version { overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .dialog.settings-dialog { height: calc(100vh - 7vh - var(--zli-space-6)); }
+  .settings-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); padding-left: var(--zli-gutter); }
+  .settings-sidebar { padding: var(--zli-space-3) var(--zli-space-1) var(--zli-space-2); }
+  .settings-nav { flex-direction: row; gap: var(--zli-space-1); overflow-x: auto; }
+  .settings-nav-group { flex-direction: row; }
+  .settings-nav-heading { display: none; }
   .settings-tab { flex: 0 0 auto; }
   .setting-row { grid-template-columns: minmax(0, 1fr); gap: var(--zli-space-2); }
   .setting-control { justify-content: flex-start; }
