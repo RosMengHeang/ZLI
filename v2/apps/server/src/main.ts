@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { EnvironmentId, type McpServerConfig, USUAL_LOGIN_ACCOUNT_ID } from "@zli-v2/contracts";
+import { EnvironmentId, type McpServerConfig, PLAN_LIMIT_PROVIDERS, USUAL_LOGIN_ACCOUNT_ID } from "@zli-v2/contracts";
 import { CodexAppServerClient } from "@zli-v2/provider-codex";
 import { AccountStore } from "./accounts/AccountStore.js";
 import {
@@ -30,9 +30,8 @@ import { GitProcess } from "./git/GitProcess.js";
 import { LegacyImportReactor } from "./import/LegacyImportReactor.js";
 import { GitHubIssues } from "./issues/GitHubIssues.js";
 import { LinearIssues } from "./issues/LinearIssues.js";
-import { readClaudeLimits, defaultClaudeLimitDeps } from "./limits/claudeLimits.js";
-import { readCodexLimits } from "./limits/codexLimits.js";
 import { type LimitTarget, mockLimitRead, PlanLimits } from "./limits/PlanLimits.js";
+import { planLimitReader } from "./limits/readers.js";
 import { McpServerStore } from "./mcp/McpServerStore.js";
 import { GITHUB_OAUTH_CLIENT_ID } from "./mcp/signIn/github.js";
 import { McpSignIns } from "./mcp/signIn/McpSignIns.js";
@@ -237,30 +236,23 @@ export async function startRuntime(options: {
   const devServerReactor = new DevServerReactor(engine, terminalService);
   const linearIssues = new LinearIssues({ keyPath: join(dirname(databasePath), "linear-key.json") });
   const mockLimits = process.env.ZLI_TEST_PROVIDER === "mock";
+  const readLimits = planLimitReader({
+    home: userHome,
+    resolveCli: resolveAgentCli,
+    connectCodex: (command, codexHome) =>
+      CodexAppServerClient.connect({ command, ...(codexHome ? { env: { CODEX_HOME: codexHome } } : {}) }),
+  });
   const planLimits = new PlanLimits({
-    // The usual login shows only when its CLI is installed; the harness has no real CLIs, so it shows both.
+    // The usual login shows only when its CLI is installed; the harness has no real CLIs, so it shows all.
     targets: async (): Promise<LimitTarget[]> => {
       const usual = await Promise.all(
-        (["claude-code", "codex"] as const).map(async (provider) =>
+        PLAN_LIMIT_PROVIDERS.map(async (provider) =>
           mockLimits || (await resolveAgentCli(provider)) ? [{ provider, accountId: USUAL_LOGIN_ACCOUNT_ID }] : [],
         ),
       );
       return [...usual.flat(), ...accounts.limitTargets()];
     },
-    read: async (target) => {
-      if (mockLimits) return mockLimitRead(target);
-      if (target.provider === "claude-code") {
-        return readClaudeLimits(target.configDir ?? process.env.CLAUDE_CONFIG_DIR, defaultClaudeLimitDeps(userHome));
-      }
-      const command = await resolveAgentCli("codex");
-      if (!command) return { state: "unavailable", message: "Codex is not installed.", windows: [] };
-      return readCodexLimits(() =>
-        CodexAppServerClient.connect({
-          command,
-          ...(target.configDir ? { env: { CODEX_HOME: target.configDir } } : {}),
-        }),
-      );
-    },
+    read: (target) => (mockLimits ? Promise.resolve(mockLimitRead(target)) : readLimits(target)),
   });
   const server = new RpcServer({
     engine,

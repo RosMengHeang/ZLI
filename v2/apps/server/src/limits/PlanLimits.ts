@@ -1,5 +1,5 @@
 import type { PlanLimitProvider, PlanLimitReading, PlanLimitsResult, PlanLimitWindow } from "@zli-v2/contracts";
-import { FIVE_HOUR_WINDOW, USUAL_LOGIN_ACCOUNT_ID, WEEKLY_WINDOW } from "@zli-v2/contracts";
+import { FIVE_HOUR_WINDOW, MONTHLY_WINDOW, USUAL_LOGIN_ACCOUNT_ID, WEEKLY_WINDOW } from "@zli-v2/contracts";
 
 /** What one reader learned. `retryAfterMs` asks the cache to wait longer than usual before the next try. */
 export type LimitRead = {
@@ -115,26 +115,28 @@ function targetKey(target: LimitTarget): string {
 
 /**
  * Fixed readings for the Electron integration harness, which runs no real agent CLI. Each login gets
- * the same numbers on every run, with reset times counted from now. The usual Claude login has a
- * model limit near full; saved accounts are weekly-only, like some Codex plans.
+ * the same numbers on every run, with reset times counted from now, in the shape each provider
+ * reports: Claude with a model limit near full, Gemini per model only, Cursor by the month with its
+ * pools. Saved accounts are weekly-only, like some Codex plans.
  */
 export function mockLimitRead(target: LimitTarget, now = Date.now()): LimitRead {
   const window = (
-    durationMinutes: number,
+    durationMinutes: number | undefined,
     usedPercent: number,
     resetMinutes: number,
     scope?: string,
   ): PlanLimitWindow => ({
     ...(scope ? { scope } : {}),
-    durationMinutes,
+    ...(durationMinutes ? { durationMinutes } : {}),
     usedPercent,
     resetsAt: new Date(now + resetMinutes * 60_000).toISOString(),
   });
   if (target.accountId !== USUAL_LOGIN_ACCOUNT_ID) {
     return { state: "ok", plan: "plus", windows: [window(WEEKLY_WINDOW, 63, 2 * 1_440)] };
   }
-  return target.provider === "claude-code"
-    ? {
+  switch (target.provider) {
+    case "claude-code":
+      return {
         state: "ok",
         plan: "max",
         windows: [
@@ -142,6 +144,30 @@ export function mockLimitRead(target: LimitTarget, now = Date.now()): LimitRead 
           window(WEEKLY_WINDOW, 41, 3 * 1_440),
           window(WEEKLY_WINDOW, 92, 3 * 1_440, "Fable"),
         ],
-      }
-    : { state: "ok", plan: "plus", windows: [window(FIVE_HOUR_WINDOW, 34, 130), window(WEEKLY_WINDOW, 12, 4 * 1_440)] };
+      };
+    case "codex":
+      return {
+        state: "ok",
+        plan: "plus",
+        windows: [window(FIVE_HOUR_WINDOW, 34, 130), window(WEEKLY_WINDOW, 12, 4 * 1_440)],
+      };
+    case "gemini":
+      return { state: "ok", windows: [window(undefined, 58, 540, "2.5 Pro"), window(undefined, 12, 540, "2.5 Flash")] };
+    case "cursor-agent":
+      return {
+        state: "ok",
+        windows: [window(MONTHLY_WINDOW, 44, 12 * 1_440), window(MONTHLY_WINDOW, 71, 12 * 1_440, "API")],
+      };
+    case "kimi":
+      return { state: "ok", windows: [window(FIVE_HOUR_WINDOW, 22, 190), window(WEEKLY_WINDOW, 35, 5 * 1_440)] };
+    case "opencode":
+      return {
+        state: "ok",
+        windows: [
+          window(FIVE_HOUR_WINDOW, 8, 260),
+          window(WEEKLY_WINDOW, 27, 6 * 1_440),
+          window(MONTHLY_WINDOW, 51, 20 * 1_440),
+        ],
+      };
+  }
 }

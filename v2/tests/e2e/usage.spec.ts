@@ -27,9 +27,27 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
     await expect(page.locator(".composer-context [aria-hidden]")).toHaveText("7% context");
 
     const limits = page.getByRole("button", { name: "Plan limits", exact: true });
-    await expect(limits.locator(".usage-strip-name")).toHaveText(["Claude Code", "Codex"]);
-    await expect(limits.locator(".usage-strip-window-label")).toHaveText(["5h", "Week", "Fable", "5h", "Week"]);
-    await expect(limits.locator(".usage-strip-window-percent")).toHaveText(["86%", "41%", "92%", "34%", "12%"]);
+    // Six agents report limits; three rows fit, and the rest are counted.
+    await expect(limits.locator(".usage-strip-name")).toHaveText(["Claude Code", "Codex", "Gemini"]);
+    await expect(limits.locator(".usage-strip-window-label")).toHaveText([
+      "5h",
+      "Week",
+      "Fable",
+      "5h",
+      "Week",
+      "2.5 Pro",
+      "2.5 Flash",
+    ]);
+    await expect(limits.locator(".usage-strip-window-percent")).toHaveText([
+      "86%",
+      "41%",
+      "92%",
+      "34%",
+      "12%",
+      "58%",
+      "12%",
+    ]);
+    await expect(limits.locator(".usage-strip-more")).toHaveText("+3 more");
     // Every circle says when it resets: a countdown and the local time.
     await expect(limits.locator(".usage-strip-window-reset").first()).toHaveText(/^\d+m · \d{1,2}:\d{2}\s?[AP]M$/u);
     await limits.click();

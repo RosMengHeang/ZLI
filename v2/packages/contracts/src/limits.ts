@@ -2,11 +2,14 @@ import { z } from "zod";
 
 import { ListedProviderKind } from "./provider.js";
 
-/** Agents whose subscription plans report rolling usage limits that ZLI can read. */
-export const PLAN_LIMIT_PROVIDERS = ["claude-code", "codex"] as const;
+/**
+ * Agents whose subscription plans report usage limits that ZLI can read. Copilot, Qwen Code, Droid,
+ * and Goose report none a sign-in can read, so they never show.
+ */
+export const PLAN_LIMIT_PROVIDERS = ["claude-code", "codex", "gemini", "cursor-agent", "kimi", "opencode"] as const;
 export type PlanLimitProvider = (typeof PLAN_LIMIT_PROVIDERS)[number];
 
-/** Minutes in the two windows both plans use today. */
+/** Minutes in the usual window lengths. */
 export const FIVE_HOUR_WINDOW = 300;
 export const DAILY_WINDOW = 1_440;
 export const WEEKLY_WINDOW = 10_080;
@@ -18,9 +21,15 @@ export const PlanLimitWindow = z.object({
    * Claude's extra usage, which only matters when the plan has no usage windows of its own.
    */
   kind: z.enum(["usage", "spend"]).optional(),
-  /** The model or pool a window is limited to, such as "Fable" or "Sonnet". Missing for the whole plan. */
+  /**
+   * The model or pool a window is limited to, such as "Fable", "2.5 Pro", or Cursor's "API". Missing
+   * for the whole plan.
+   */
   scope: z.string().min(1).max(60).optional(),
-  /** Length of the rolling window, when the provider says. 300 is the 5-hour window, 10080 the weekly one. */
+  /**
+   * Length of the window, when the provider says. 300 is the 5-hour window, 10080 the weekly one.
+   * Gemini says only when each model's quota resets, so its windows have none.
+   */
   durationMinutes: z.number().int().positive().optional(),
   usedPercent: z.number().min(0).max(100),
   /** ISO time the window resets, when the provider says. */

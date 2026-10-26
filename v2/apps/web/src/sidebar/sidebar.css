@@ -108,14 +108,14 @@
 .usage-strip-provider { flex: 0 0 auto; }
 .usage-strip-account { min-width: 0; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; }
 .usage-strip-state { margin-left: auto; flex: 0 0 auto; color: var(--zli-amber); font-size: var(--zli-text-2xs); }
-/* Fixed columns, so labels, shares, and resets line up across every login. */
-.usage-strip-windows { display: grid; grid-template-columns: 14px 38px 30px minmax(0, 1fr); align-items: center; column-gap: var(--zli-space-1-5); row-gap: 2px; padding-left: 1px; }
+/* Labels, shares, and resets line up across logins; a long model name widens only its own login's labels. */
+.usage-strip-windows { display: grid; grid-template-columns: 14px auto 30px minmax(0, 1fr); align-items: center; column-gap: var(--zli-space-1-5); row-gap: 2px; padding-left: 1px; }
 .usage-strip-window { display: contents; }
 .usage-strip-ring { display: block; }
 .usage-strip-ring-track, .usage-strip-ring-fill { fill: none; stroke-width: 2.5; }
 .usage-strip-ring-track { stroke: var(--zli-border); }
 .usage-strip-ring-fill { stroke: var(--zli-muted); stroke-linecap: round; transition: stroke-dasharray var(--zli-duration-fast) var(--zli-ease); }
-.usage-strip-window-label { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.usage-strip-window-label { min-width: 38px; max-width: 64px; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
 .usage-strip-window-percent { color: var(--zli-text); text-align: right; }
 .usage-strip-window-reset { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .usage-strip-window.is-warning .usage-strip-ring-fill { stroke: var(--zli-amber); }

@@ -1,14 +1,20 @@
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { promisify } from "node:util";
 
 import { FIVE_HOUR_WINDOW, MONTHLY_WINDOW, type PlanLimitWindow, WEEKLY_WINDOW } from "@zli-v2/contracts";
 
+import {
+  clamp,
+  isoTime,
+  number,
+  parseJson,
+  RATE_LIMIT_BACKOFF_MS,
+  record,
+  retryAfterMs,
+  text,
+} from "./answerFields.js";
 import type { LimitRead } from "./PlanLimits.js";
-
-const execFileAsync = promisify(execFile);
+import { type LimitReaderDeps, READ_TIMEOUT_MS } from "./readerDeps.js";
 
 /**
  * Anthropic's endpoint behind Claude Code's /usage. It is not documented; the beta header and a
@@ -17,40 +23,12 @@ const execFileAsync = promisify(execFile);
  */
 export const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const CLAUDE_USAGE_HEADERS = { "anthropic-beta": "oauth-2025-04-20", "User-Agent": "claude-code/2.1.0" };
-const READ_TIMEOUT_MS = 15_000;
 /** Anthropic limits this endpoint per token, so a 429 waits at least this long before the next try. */
-export const CLAUDE_BACKOFF_MS = 15 * 60_000;
-const MAX_BACKOFF_MS = 24 * 3_600_000;
+export const CLAUDE_BACKOFF_MS = RATE_LIMIT_BACKOFF_MS;
 
 type Credentials = { accessToken: string; plan?: string };
 
-export type ClaudeLimitDeps = {
-  fetch: typeof fetch;
-  platform: NodeJS.Platform;
-  home: string;
-  readFile(path: string): Promise<string>;
-  /** The macOS Keychain item's password, or undefined when there is none. */
-  keychain(service: string): Promise<string | undefined>;
-  url?: string;
-};
-
-export const defaultClaudeLimitDeps = (home: string): ClaudeLimitDeps => ({
-  fetch: (input, init) => fetch(input, init),
-  platform: process.platform,
-  home,
-  readFile: (path) => readFile(path, "utf8"),
-  keychain: async (service) => {
-    try {
-      const { stdout } = await execFileAsync("security", ["find-generic-password", "-s", service, "-w"], {
-        timeout: 5_000,
-        windowsHide: true,
-      });
-      return stdout.trim() || undefined;
-    } catch {
-      return undefined;
-    }
-  },
-});
+export type ClaudeLimitDeps = LimitReaderDeps & { url?: string };
 
 /**
  * Reads the 5-hour and weekly windows for the Claude login in `configDir` (the usual ~/.claude when
@@ -91,7 +69,7 @@ export async function readClaudeLimits(configDir: string | undefined, deps: Clau
       state: "error",
       message: "Anthropic is limiting usage checks. ZLI will try again later.",
       windows: [],
-      retryAfterMs: retryAfter(response.headers.get("retry-after")),
+      retryAfterMs: retryAfterMs(response.headers.get("retry-after"), deps.now()),
       ...plan,
     };
   }
@@ -105,12 +83,6 @@ export async function readClaudeLimits(configDir: string | undefined, deps: Clau
     return { state: "error", message: "Anthropic sent an unexpected answer.", windows: [], ...plan };
   }
   return { ...claudeLimitRead(body), ...plan };
-}
-
-function retryAfter(header: string | null): number {
-  const seconds = header ? Number(header) : Number.NaN;
-  const at = header && Number.isNaN(seconds) ? Date.parse(header) - Date.now() : seconds * 1000;
-  return Number.isFinite(at) ? Math.min(MAX_BACKOFF_MS, Math.max(CLAUDE_BACKOFF_MS, at)) : CLAUDE_BACKOFF_MS;
 }
 
 /**
@@ -153,7 +125,7 @@ function claudeWindow(value: unknown, durationMinutes: number, scope?: string): 
   const window = record(value);
   const used = number(window?.utilization) ?? number(window?.used_percentage);
   if (used === undefined) return undefined;
-  const resetsAt = claudeTime(window?.resets_at);
+  const resetsAt = isoTime(window?.resets_at);
   return {
     ...(scope ? { scope } : {}),
     durationMinutes,
@@ -181,36 +153,11 @@ function claudeSpend(answer: Record<string, unknown> | undefined): PlanLimitWind
     : { kind: "spend", durationMinutes: MONTHLY_WINDOW, usedPercent: clamp(percent) };
 }
 
-/** Anthropic sends ISO strings, and sometimes Unix seconds or milliseconds. */
-function claudeTime(value: unknown): string | undefined {
-  const at =
-    typeof value === "number" && value > 0
-      ? value > 1e10
-        ? value
-        : value * 1000
-      : typeof value === "string"
-        ? Date.parse(value)
-        : Number.NaN;
-  return Number.isFinite(at) ? new Date(at).toISOString() : undefined;
-}
-
 function minor(value: unknown): number | undefined {
   const amount = record(value);
   const units = number(amount?.amount_minor);
   if (units === undefined) return undefined;
   return units / 10 ** (number(amount?.exponent) ?? 2);
-}
-
-function clamp(value: number): number {
-  return Math.min(100, Math.max(0, value));
-}
-
-function number(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function text(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim().slice(0, 60) : undefined;
 }
 
 /**
@@ -233,22 +180,10 @@ async function claudeCredentials(
   return secret ? parseCredentials(secret) : undefined;
 }
 
-function parseCredentials(text: string): Credentials | undefined {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-  const oauth = record(record(parsed)?.claudeAiOauth);
+function parseCredentials(raw: string): Credentials | undefined {
+  const oauth = record(record(parseJson(raw))?.claudeAiOauth);
   const accessToken = typeof oauth?.accessToken === "string" ? oauth.accessToken.trim() : "";
   if (!accessToken) return undefined;
   const plan = typeof oauth?.subscriptionType === "string" ? oauth.subscriptionType.trim().slice(0, 60) : "";
   return { accessToken, ...(plan ? { plan } : {}) };
-}
-
-function record(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
 }

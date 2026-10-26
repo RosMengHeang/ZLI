@@ -57,7 +57,8 @@ export function showsReading(reading: PlanLimitReading): boolean {
 /**
  * The windows a row shows, shortest first. Every whole-plan window the provider reports shows, and
  * only those: a weekly-only plan gets one circle, not an empty 5-hour one. A model limit shows when
- * it is the one that will stop the agent, and a paid monthly cap only when the plan has no windows.
+ * it is the one that will stop the agent, or always when the plan is limited only per model, as
+ * Gemini is. A paid monthly cap shows only when the plan has no windows.
  */
 export function visibleWindows(reading: Pick<PlanLimitReading, "windows">): PlanLimitWindow[] {
   const plan = reading.windows
@@ -72,7 +73,7 @@ export function visibleWindows(reading: Pick<PlanLimitReading, "windows">): Plan
       (window) =>
         window.kind !== "spend" &&
         window.scope &&
-        (window.usedPercent >= LIMIT_WARN_PERCENT || window.usedPercent > weekly),
+        (plan.length === 0 || window.usedPercent >= LIMIT_WARN_PERCENT || window.usedPercent > weekly),
     )
     .sort((left, right) => right.usedPercent - left.usedPercent);
   const spend = plan.length === 0 ? reading.windows.filter((window) => window.kind === "spend") : [];
@@ -122,7 +123,10 @@ export function formatResetIn(resetsAt: string | undefined, now: number): string
   return hours % 24 ? `${days}d ${hours % 24}h` : `${days}d`;
 }
 
-/** The local time of a reset: "3:40 PM" today, "Tue 9 AM" this week, "Nov 3" later. */
+/**
+ * The local time of a reset: "3:40 PM" within a day, "Tue 9 AM" this week, "Nov 3" later. The
+ * countdown beside it already says whether a time within a day is today or tomorrow.
+ */
 export function formatResetClock(resetsAt: string, now: number, timeZone?: string): string | undefined {
   const at = Date.parse(resetsAt);
   if (Number.isNaN(at)) return undefined;
@@ -135,7 +139,7 @@ export function formatResetClock(resetsAt: string, now: number, timeZone?: strin
     .filter((part, index) => !onTheHour || (part.type !== "minute" && parts[index + 1]?.type !== "minute"))
     .map((part) => part.value)
     .join("");
-  if (day(at) === day(now)) return time;
+  if (day(at) === day(now) || at - now < 86_400_000) return time;
   if (at - now < 6 * 86_400_000) {
     return `${new Intl.DateTimeFormat(undefined, { ...zone, weekday: "short" }).format(at)} ${time}`;
   }
