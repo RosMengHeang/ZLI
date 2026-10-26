@@ -12,10 +12,14 @@ import {
   PullRequestMergeResult,
   type PullRequestProblem,
   PullRequestPushResult,
+  PullRequestReplyResult,
+  PullRequestResolveResult,
   type PullRequestReviewComment,
+  type PullRequestReviewEvent,
   type PullRequestReviewSummary,
   type PullRequestReviewThread,
   PullRequestStatusResult,
+  PullRequestUpdateResult,
   type RuntimeProjection,
 } from "@zli-v2/contracts";
 import { spawnCli } from "@zli-v2/shared";
@@ -53,7 +57,7 @@ const MAX_LOG_LINES = 150;
 const MAX_LOG_CHARS = 30_000;
 const MAX_BODY_SUBJECTS = 50;
 const GH_READY_MS = 5 * 60_000;
-const PR_FIELDS = "url,state,isDraft,number,statusCheckRollup,reviewDecision";
+const PR_FIELDS = "url,state,isDraft,number,statusCheckRollup,reviewDecision,autoMergeRequest";
 const MAX_THREADS = 100;
 const MAX_THREAD_COMMENTS = 50;
 const MAX_REVIEWS = 30;
@@ -66,7 +70,8 @@ const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $number: In
       reviewThreads(first: ${MAX_THREADS}) {
         nodes {
           id isResolved isOutdated path line startLine originalLine originalStartLine
-          comments(first: ${MAX_THREAD_COMMENTS}) { nodes { author { login } body url createdAt diffHunk } }
+          viewerCanReply viewerCanResolve viewerCanUnresolve
+          comments(first: ${MAX_THREAD_COMMENTS}) { nodes { id author { login } body url createdAt diffHunk } }
         }
       }
       reviews(last: ${MAX_REVIEWS}) { nodes { id author { login } state body url } }
@@ -74,11 +79,30 @@ const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $number: In
   }
 }`;
 
+const REPLY_MUTATION = `mutation($threadId: ID!, $body: String!) {
+  addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $threadId, body: $body }) {
+    comment { id author { login } body url createdAt }
+  }
+}`;
+const RESOLVE_MUTATION = `mutation($threadId: ID!) {
+  resolveReviewThread(input: { threadId: $threadId }) { thread { id isResolved } }
+}`;
+const UNRESOLVE_MUTATION = `mutation($threadId: ID!) {
+  unresolveReviewThread(input: { threadId: $threadId }) { thread { id isResolved } }
+}`;
+const REVIEW_FLAGS: Record<PullRequestReviewEvent, string> = {
+  APPROVE: "--approve",
+  REQUEST_CHANGES: "--request-changes",
+  COMMENT: "--comment",
+};
+
 export const GH_MISSING =
   "GitHub CLI (gh) is not installed or not on PATH. Install it from https://cli.github.com, then check again.";
 export const GH_SIGNED_OUT = "GitHub CLI is not signed in. Run gh auth login in a terminal, then check again.";
 const NO_ORIGIN = "This repository has no origin remote. Add one with git remote add origin <url>, then check again.";
 const DETACHED = "This worktree is not on a branch. Check out a branch to open a pull request from it.";
+const NO_PULL_REQUEST = "This branch has no pull request yet.";
+const UNREADABLE_PULL_REQUEST = "GitHub CLI returned a pull request ZLI could not read.";
 const NOT_ACTIONS = "ZLI can read logs only for GitHub Actions checks. Open the check on GitHub to see why it failed.";
 
 export class PullRequestService {
@@ -117,7 +141,7 @@ export class PullRequestService {
     if (view.code === 0) {
       const pullRequest = parsePullRequest(view.stdout);
       if (pullRequest) return result(undefined, { ...extra, pullRequest });
-      return result({ code: "gh_failed", message: "GitHub CLI returned a pull request ZLI could not read." }, extra);
+      return result({ code: "gh_failed", message: UNREADABLE_PULL_REQUEST }, extra);
     }
     if (/no (open )?pull requests? found/iu.test(view.stderr)) return result(undefined, extra);
     return result({ code: "gh_failed", message: ghFailure("could not look up the pull request", view) }, extra);
@@ -196,31 +220,12 @@ export class PullRequestService {
   /** Unresolved review threads and written review summaries of the branch's pull request. */
   async comments(input: PullRequestInput): Promise<PullRequestCommentsResult> {
     const cwd = input.worktreePath;
-    const branch = await this.currentBranch(cwd);
-    if (!branch) throw new PullRequestError(DETACHED);
-    const problem = await this.ghProblem(cwd);
-    if (problem) throw new PullRequestError(problem.message);
-    const view = await this.gh(["pr", "view", branch, "--json", "number,url"], cwd);
-    if (view.code !== 0) {
-      if (/no (open )?pull requests? found/iu.test(view.stderr))
-        throw new PullRequestError("This branch has no pull request yet.");
-      throw new PullRequestError(ghFailure("could not look up the pull request", view));
-    }
-    const pullRequest = parsePullRequestLink(view.stdout);
-    if (!pullRequest) throw new PullRequestError("GitHub CLI returned a pull request ZLI could not read.");
-    const args = [
-      "api",
-      "graphql",
-      ...(pullRequest.host === "github.com" ? [] : ["--hostname", pullRequest.host]),
-      "-f",
-      `query=${REVIEW_THREADS_QUERY}`,
-      "-f",
-      `owner=${pullRequest.owner}`,
-      "-f",
-      `name=${pullRequest.repo}`,
-      "-F",
-      `number=${pullRequest.number}`,
-    ];
+    const pullRequest = await this.pullRequestLink(cwd);
+    const args = graphqlArgs(pullRequest.host, REVIEW_THREADS_QUERY, [
+      ["-f", "owner", pullRequest.owner],
+      ["-f", "name", pullRequest.repo],
+      ["-F", "number", String(pullRequest.number)],
+    ]);
     const result = await this.gh(args, cwd, { maxOutputBytes: 4 * 1024 * 1024 });
     if (result.code !== 0) throw new PullRequestError(ghFailure("could not read the review comments", result));
     const parsed = parseReviewComments(result.stdout);
@@ -237,20 +242,7 @@ export class PullRequestService {
     request: { method: PullRequestMergeMethod; deleteBranch: boolean },
   ): Promise<PullRequestMergeResult> {
     const cwd = input.worktreePath;
-    const branch = await this.currentBranch(cwd);
-    if (!branch) throw new PullRequestError(DETACHED);
-    const problem = await this.ghProblem(cwd);
-    if (problem) throw new PullRequestError(problem.message);
-    const open = await this.view(cwd, branch);
-    if (!open) throw new PullRequestError("This branch has no pull request yet.");
-    if (open.state !== "OPEN") {
-      throw new PullRequestError(
-        `Pull request #${open.number} is already ${open.state === "MERGED" ? "merged" : "closed"}.`,
-      );
-    }
-    if (open.isDraft) {
-      throw new PullRequestError(`Pull request #${open.number} is a draft. Mark it ready for review on GitHub first.`);
-    }
+    const { branch, open } = await this.openPullRequest(cwd, { ready: true });
     const merged = await this.gh(["pr", "merge", String(open.number), `--${request.method}`], cwd, {
       timeoutMs: PUSH_TIMEOUT_MS,
     });
@@ -266,6 +258,148 @@ export class PullRequestService {
     }
     const pullRequest = (await this.view(cwd, String(open.number))) ?? { ...open, state: "MERGED" as const };
     return PullRequestMergeResult.parse({ pullRequest, branchDeleted });
+  }
+
+  /** Submits a review of the branch's pull request as the signed-in GitHub account. */
+  async review(
+    input: PullRequestInput,
+    request: { event: PullRequestReviewEvent; body: string },
+  ): Promise<PullRequestUpdateResult> {
+    const body = request.body.trim();
+    if (body.includes("\0")) throw new PullRequestError("The review cannot contain a null character.");
+    if (!body && request.event === "REQUEST_CHANGES") {
+      throw new PullRequestError("Say what should change before requesting changes.");
+    }
+    if (!body && request.event === "COMMENT")
+      throw new PullRequestError("Write the comment before sending the review.");
+    const cwd = input.worktreePath;
+    const { open } = await this.openPullRequest(cwd);
+    const args = ["pr", "review", String(open.number), REVIEW_FLAGS[request.event]];
+    if (body) args.push("--body", body);
+    const reviewed = await this.gh(args, cwd);
+    if (reviewed.code !== 0) throw new PullRequestError(reviewFailure(open.number, request.event, reviewed));
+    return PullRequestUpdateResult.parse({ pullRequest: (await this.view(cwd, String(open.number))) ?? open });
+  }
+
+  /** Adds a comment to the pull request's conversation. */
+  async comment(input: PullRequestInput, text: string): Promise<PullRequestUpdateResult> {
+    const body = text.trim();
+    if (!body || body.includes("\0")) throw new PullRequestError("Write the comment first.");
+    const cwd = input.worktreePath;
+    const { open } = await this.openPullRequest(cwd);
+    const commented = await this.gh(["pr", "comment", String(open.number), "--body", body], cwd);
+    if (commented.code !== 0) {
+      throw new PullRequestError(ghFailure(`could not comment on #${open.number}`, commented));
+    }
+    return PullRequestUpdateResult.parse({ pullRequest: (await this.view(cwd, String(open.number))) ?? open });
+  }
+
+  /** Replies to a review thread through the GraphQL API and answers with the new comment. */
+  async reply(input: PullRequestInput, request: { threadId: string; body: string }): Promise<PullRequestReplyResult> {
+    const body = request.body.trim();
+    if (!body || body.includes("\0")) throw new PullRequestError("Write the reply first.");
+    assertThreadId(request.threadId);
+    const cwd = input.worktreePath;
+    const pullRequest = await this.pullRequestLink(cwd);
+    const result = await this.gh(
+      graphqlArgs(pullRequest.host, REPLY_MUTATION, [
+        ["-f", "threadId", request.threadId],
+        ["-f", "body", body],
+      ]),
+      cwd,
+    );
+    if (result.code !== 0) throw new PullRequestError(threadFailure("could not reply to the thread", result));
+    const [comment] = reviewComment(
+      pathIn(parseJson(result.stdout), ["data", "addPullRequestReviewThreadReply", "comment"]),
+    );
+    if (!comment) throw new PullRequestError("GitHub accepted the reply but sent back a comment ZLI could not read.");
+    return PullRequestReplyResult.parse({ threadId: request.threadId, comment });
+  }
+
+  /** Marks a review thread resolved or open again. */
+  async resolve(
+    input: PullRequestInput,
+    request: { threadId: string; resolved: boolean },
+  ): Promise<PullRequestResolveResult> {
+    assertThreadId(request.threadId);
+    const cwd = input.worktreePath;
+    const pullRequest = await this.pullRequestLink(cwd);
+    const mutation = request.resolved ? "resolveReviewThread" : "unresolveReviewThread";
+    const result = await this.gh(
+      graphqlArgs(pullRequest.host, request.resolved ? RESOLVE_MUTATION : UNRESOLVE_MUTATION, [
+        ["-f", "threadId", request.threadId],
+      ]),
+      cwd,
+    );
+    if (result.code !== 0) {
+      throw new PullRequestError(
+        threadFailure(request.resolved ? "could not resolve the thread" : "could not reopen the thread", result),
+      );
+    }
+    const resolved = pathIn(parseJson(result.stdout), ["data", mutation, "thread", "isResolved"]);
+    if (typeof resolved !== "boolean") throw new PullRequestError("GitHub sent back a thread ZLI could not read.");
+    return PullRequestResolveResult.parse({ threadId: request.threadId, resolved });
+  }
+
+  /**
+   * Turns auto-merge on or off. With it on, GitHub merges with `method` once the required checks and
+   * reviews pass; ZLI is not involved then, so the branch stays on origin unless the repository deletes it.
+   */
+  async autoMerge(
+    input: PullRequestInput,
+    request: { enabled: boolean; method?: PullRequestMergeMethod | undefined },
+  ): Promise<PullRequestUpdateResult> {
+    if (request.enabled && !request.method) throw new PullRequestError("Choose a merge method for auto-merge.");
+    const cwd = input.worktreePath;
+    const { open } = await this.openPullRequest(cwd, { ready: request.enabled });
+    const number = String(open.number);
+    const args = request.enabled
+      ? ["pr", "merge", number, "--auto", `--${request.method}`]
+      : ["pr", "merge", number, "--disable-auto"];
+    const changed = await this.gh(args, cwd, { timeoutMs: PUSH_TIMEOUT_MS });
+    if (changed.code !== 0) throw new PullRequestError(autoMergeFailure(open.number, request.enabled, changed));
+    const fallback: PullRequestInfo = { ...open };
+    if (request.enabled && request.method) fallback.autoMerge = { method: request.method };
+    else delete fallback.autoMerge;
+    return PullRequestUpdateResult.parse({ pullRequest: (await this.view(cwd, number)) ?? fallback });
+  }
+
+  /** The branch's pull request, which must be open; `ready` also refuses drafts. */
+  private async openPullRequest(
+    cwd: string,
+    options: { ready?: boolean } = {},
+  ): Promise<{ branch: string; open: PullRequestInfo }> {
+    const branch = await this.currentBranch(cwd);
+    if (!branch) throw new PullRequestError(DETACHED);
+    const problem = await this.ghProblem(cwd);
+    if (problem) throw new PullRequestError(problem.message);
+    const open = await this.view(cwd, branch);
+    if (!open) throw new PullRequestError(NO_PULL_REQUEST);
+    if (open.state !== "OPEN") {
+      throw new PullRequestError(
+        `Pull request #${open.number} is already ${open.state === "MERGED" ? "merged" : "closed"}.`,
+      );
+    }
+    if (options.ready && open.isDraft) {
+      throw new PullRequestError(`Pull request #${open.number} is a draft. Mark it ready for review on GitHub first.`);
+    }
+    return { branch, open };
+  }
+
+  /** The host, repository, and number of the branch's pull request, for GraphQL calls. */
+  private async pullRequestLink(cwd: string): Promise<NonNullable<ReturnType<typeof parsePullRequestLink>>> {
+    const branch = await this.currentBranch(cwd);
+    if (!branch) throw new PullRequestError(DETACHED);
+    const problem = await this.ghProblem(cwd);
+    if (problem) throw new PullRequestError(problem.message);
+    const view = await this.gh(["pr", "view", branch, "--json", "number,url"], cwd);
+    if (view.code !== 0) {
+      if (/no (open )?pull requests? found/iu.test(view.stderr)) throw new PullRequestError(NO_PULL_REQUEST);
+      throw new PullRequestError(ghFailure("could not look up the pull request", view));
+    }
+    const pullRequest = parsePullRequestLink(view.stdout);
+    if (!pullRequest) throw new PullRequestError(UNREADABLE_PULL_REQUEST);
+    return pullRequest;
   }
 
   /** Local branches and origin's branches, most recently committed first. */
@@ -446,6 +580,16 @@ export async function runPullRequestCommand(
       return service.fetch(input);
     case "review.git.pull":
       return service.pull(input);
+    case "review.pr.review":
+      return service.review(input, { event: command.event, body: command.body });
+    case "review.pr.comment":
+      return service.comment(input, command.body);
+    case "review.pr.reply":
+      return service.reply(input, { threadId: command.threadId, body: command.body });
+    case "review.pr.resolve":
+      return service.resolve(input, { threadId: command.threadId, resolved: command.resolved });
+    case "review.pr.autoMerge":
+      return service.autoMerge(input, { enabled: command.enabled, method: command.method });
   }
 }
 
@@ -527,6 +671,73 @@ function isSafeRef(value: string): boolean {
   }
 }
 
+function reviewFailure(number: number, event: PullRequestReviewEvent, result: ProcessResult): string {
+  const output = `${result.stderr}\n${result.stdout}`;
+  if (/can ?not approve your own pull request/iu.test(output)) {
+    return "GitHub does not let you approve your own pull request. Leave a comment instead, or ask someone else to review it.";
+  }
+  if (/can ?not request changes on your own pull request/iu.test(output)) {
+    return "GitHub does not let you request changes on your own pull request. Leave a comment instead.";
+  }
+  const action = event === "APPROVE" ? "approve" : event === "REQUEST_CHANGES" ? "request changes on" : "review";
+  return ghFailure(`could not ${action} #${number}`, result);
+}
+
+function threadFailure(action: string, result: ProcessResult): string {
+  const output = `${result.stderr}\n${result.stdout}`;
+  if (/could not resolve to a node|NOT_FOUND/iu.test(output)) {
+    return "GitHub could not find this review thread. It may have been deleted; read the comments again.";
+  }
+  if (/resource not accessible|FORBIDDEN|must have (?:push|write) access/iu.test(output)) {
+    return "Your GitHub account is not allowed to change this thread. Ask someone with write access to the repository.";
+  }
+  return ghFailure(action, result);
+}
+
+function autoMergeFailure(number: number, enabled: boolean, result: ProcessResult): string {
+  const output = `${result.stderr}\n${result.stdout}`;
+  if (
+    enabled &&
+    /auto.?merge is not allowed|auto.?merge (?:is )?(?:not enabled|disabled) for this repository/iu.test(output)
+  ) {
+    return "Auto-merge is turned off for this repository. Turn on Allow auto-merge in the repository settings on GitHub, or merge once the checks pass.";
+  }
+  if (enabled && /clean status/iu.test(output)) {
+    return `Pull request #${number} can be merged now, so there is nothing to wait for. Merge it directly.`;
+  }
+  return ghFailure(`could not turn ${enabled ? "on" : "off"} auto-merge for #${number}`, result);
+}
+
+const THREAD_ID = /^[A-Za-z0-9_=-]{1,200}$/u;
+
+function assertThreadId(value: string): void {
+  if (!THREAD_ID.test(value)) throw new PullRequestError("That review thread id is not one GitHub uses.");
+}
+
+/** `gh api graphql` arguments; `-f` passes a value as a string and `-F` lets gh convert numbers. */
+function graphqlArgs(
+  host: string,
+  query: string,
+  variables: readonly (readonly ["-f" | "-F", string, string])[],
+): string[] {
+  return [
+    "api",
+    "graphql",
+    ...(host === "github.com" ? [] : ["--hostname", host]),
+    "-f",
+    `query=${query}`,
+    ...variables.flatMap(([flag, name, value]) => [flag, `${name}=${value}`]),
+  ];
+}
+
+function parseJson(stdout: string): unknown {
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    return undefined;
+  }
+}
+
 function pushFailure(branch: string, result: ProcessResult): string {
   const output = `${result.stderr}\n${result.stdout}`;
   if (/\[rejected\]|non-fast-forward|fetch first|\[remote rejected\]/iu.test(output)) {
@@ -547,16 +758,29 @@ function parsePullRequest(stdout: string): PullRequestInfo | undefined {
     return undefined;
   }
   if (!raw || typeof raw !== "object") return undefined;
-  const { statusCheckRollup, reviewDecision, ...rest } = raw as Record<string, unknown>;
+  const { statusCheckRollup, reviewDecision, autoMergeRequest, ...rest } = raw as Record<string, unknown>;
   const checks = summarizeChecks(statusCheckRollup);
+  const autoMerge = autoMergeOf(autoMergeRequest);
   const parsed = PullRequestInfo.safeParse({
     ...rest,
     ...(checks ? { checks } : {}),
+    ...(autoMerge ? { autoMerge } : {}),
     ...(reviewDecision === "APPROVED" || reviewDecision === "CHANGES_REQUESTED" || reviewDecision === "REVIEW_REQUIRED"
       ? { reviewDecision }
       : {}),
   });
   return parsed.success ? parsed.data : undefined;
+}
+
+/** `gh pr view --json autoMergeRequest` is null while auto-merge is off. */
+export function autoMergeOf(value: unknown): PullRequestInfo["autoMerge"] {
+  if (!isRecordValue(value)) return undefined;
+  const method = stringField(value.mergeMethod)?.toLowerCase();
+  const enabledBy = isRecordValue(value.enabledBy) ? stringField(value.enabledBy.login) : undefined;
+  return {
+    ...(method === "squash" || method === "merge" || method === "rebase" ? { method } : {}),
+    ...(enabledBy ? { enabledBy: enabledBy.slice(0, 100) } : {}),
+  };
 }
 
 const CHECK_ORDER: Record<PullRequestCheckState, number> = { failed: 0, pending: 1, passed: 2, skipped: 3 };
@@ -745,6 +969,9 @@ export function parseReviewComments(
       outdated: node.isOutdated === true,
       ...(hunk ? { diffHunk: hunk } : {}),
       comments,
+      ...(typeof node.viewerCanReply === "boolean" ? { viewerCanReply: node.viewerCanReply } : {}),
+      ...(typeof node.viewerCanResolve === "boolean" ? { viewerCanResolve: node.viewerCanResolve } : {}),
+      ...(typeof node.viewerCanUnresolve === "boolean" ? { viewerCanUnresolve: node.viewerCanUnresolve } : {}),
     });
   }
   const reviews: PullRequestReviewSummary[] = [];
@@ -772,8 +999,10 @@ function reviewComment(value: unknown): PullRequestReviewComment[] {
   if (!body) return [];
   const url = httpUrl(stringField(value.url));
   const createdAt = stringField(value.createdAt);
+  const id = stringField(value.id);
   return [
     {
+      ...(id ? { id: id.slice(0, 200) } : {}),
       author: authorOf(value),
       body: body.slice(0, MAX_COMMENT_CHARS),
       ...(url ? { url } : {}),

@@ -2,6 +2,7 @@ import type {
   PullRequestInfo,
   PullRequestMergeMethod,
   PullRequestMergeResult,
+  PullRequestUpdateResult,
   WorktreeProjection,
 } from "@zli-v2/contracts";
 import { type KeyboardEvent, useState } from "react";
@@ -13,7 +14,7 @@ import { Icon } from "../ui/Icon.js";
 import { Segmented } from "../ui/Segmented.js";
 import { Switch } from "../ui/Switch.js";
 import { checksSummary } from "./PullRequestSection.js";
-import { mergePullRequest } from "./pullRequestClient.js";
+import { mergePullRequest, setAutoMerge } from "./pullRequestClient.js";
 
 const METHOD_KEY = "zli.review.mergeMethod";
 
@@ -36,23 +37,29 @@ function savedMethod(): PullRequestMergeMethod {
   }
 }
 
-/** Merges the branch's open pull request on GitHub with the method the person picks. */
+/**
+ * Merges the branch's open pull request on GitHub with the method the person picks. When GitHub is
+ * likely to refuse, or just refused, it also offers to turn on auto-merge with that method instead.
+ */
 export function MergePullRequestDialog({
   worktree,
   pullRequest,
   onClose,
   onMerged,
+  onAutoMerge,
 }: {
   worktree: WorktreeProjection;
   pullRequest: PullRequestInfo;
   onClose(): void;
   onMerged(result: PullRequestMergeResult): void;
+  onAutoMerge(result: PullRequestUpdateResult): void;
 }) {
   const { dispatch } = useRuntime();
   const [method, setMethod] = useState<PullRequestMergeMethod>(savedMethod);
   const [deleteBranch, setDeleteBranch] = useState(true);
-  const [running, setRunning] = useState(false);
+  const [pending, setPending] = useState<"merge" | "auto">();
   const [error, setError] = useState<string>();
+  const running = pending !== undefined;
   const checks = pullRequest.checks ?? [];
   const summary = checks.length > 0 ? checksSummary(checks) : undefined;
   const warning =
@@ -61,20 +68,42 @@ export function MergePullRequestDialog({
       : summary && (summary.tone === "danger" || summary.tone === "warning")
         ? `${summary.text}. GitHub may refuse the merge until they pass.`
         : undefined;
+  const mayBeBlocked =
+    !!error ||
+    pullRequest.reviewDecision === "REVIEW_REQUIRED" ||
+    pullRequest.reviewDecision === "CHANGES_REQUESTED" ||
+    (summary !== undefined && (summary.tone === "danger" || summary.tone === "warning"));
+  const offerAutoMerge = mayBeBlocked && !pullRequest.autoMerge;
 
-  const submit = async () => {
-    setRunning(true);
-    setError(undefined);
+  const rememberMethod = () => {
     try {
       localStorage.setItem(METHOD_KEY, method);
     } catch {
       // Remembering the choice is a convenience.
     }
+  };
+
+  const submit = async () => {
+    setPending("merge");
+    setError(undefined);
+    rememberMethod();
     try {
       onMerged(await mergePullRequest(dispatch, worktree.worktreeId, { method, deleteBranch }));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The merge failed.");
-      setRunning(false);
+      setPending(undefined);
+    }
+  };
+
+  const mergeWhenReady = async () => {
+    setPending("auto");
+    setError(undefined);
+    rememberMethod();
+    try {
+      onAutoMerge(await setAutoMerge(dispatch, worktree.worktreeId, { enabled: true, method }));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Auto-merge could not be turned on.");
+      setPending(undefined);
     }
   };
 
@@ -88,7 +117,6 @@ export function MergePullRequestDialog({
       <Dialog
         label="Merge pull request"
         className="pr-dialog"
-        size="sm"
         title={`Merge pull request #${pullRequest.number}`}
         subtitle={
           <>
@@ -100,6 +128,18 @@ export function MergePullRequestDialog({
         }}
       >
         <div className="dialog-body">
+          {pullRequest.autoMerge ? (
+            <div className="banner banner-info" role="status">
+              <Icon name="merge" size={14} />
+              <span className="banner-message">
+                Auto-merge is on
+                {pullRequest.autoMerge.method
+                  ? ` (${mergeMethods[pullRequest.autoMerge.method].label.toLowerCase()})`
+                  : ""}
+                . GitHub merges this pull request once the required checks and reviews pass.
+              </span>
+            </div>
+          ) : null}
           {warning ? (
             <div className="banner banner-warning" role="alert">
               <Icon name="alert" size={14} />
@@ -122,6 +162,12 @@ export function MergePullRequestDialog({
             checked={deleteBranch}
             onChange={setDeleteBranch}
           />
+          {offerAutoMerge ? (
+            <p className="field-hint">
+              Merge when ready turns on auto-merge: GitHub merges with this method once the required checks and reviews
+              pass. The branch on origin stays unless the repository deletes merged branches.
+            </p>
+          ) : null}
           {error ? (
             <p className="inline-error pr-error" role="alert">
               <Icon name="alert" size={13} />
@@ -134,7 +180,18 @@ export function MergePullRequestDialog({
           <Button variant="ghost" disabled={running} onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" icon="merge" loading={running} onClick={() => void submit()}>
+          {offerAutoMerge ? (
+            <Button loading={pending === "auto"} disabled={running} onClick={() => void mergeWhenReady()}>
+              Merge when ready
+            </Button>
+          ) : null}
+          <Button
+            variant="primary"
+            icon="merge"
+            loading={pending === "merge"}
+            disabled={running}
+            onClick={() => void submit()}
+          >
             {mergeMethods[method].action}
           </Button>
         </div>

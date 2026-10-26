@@ -7,7 +7,11 @@ import {
   type PullRequestMergeMethod,
   PullRequestMergeResult,
   PullRequestPushResult,
+  PullRequestReplyResult,
+  PullRequestResolveResult,
+  type PullRequestReviewEvent,
   PullRequestStatusResult,
+  PullRequestUpdateResult,
   type RpcResponse,
   WorktreeId,
 } from "@zli-v2/contracts";
@@ -103,4 +107,64 @@ export function fetchBranches(dispatch: Dispatch, worktreeId: string): Promise<G
 
 export function pullBranch(dispatch: Dispatch, worktreeId: string): Promise<GitPullResult> {
   return request(dispatch, { type: "review.git.pull", worktreeId: WorktreeId.parse(worktreeId) }, GitPullResult);
+}
+
+export function reviewPullRequest(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { event: PullRequestReviewEvent; body: string },
+): Promise<PullRequestUpdateResult> {
+  return request(
+    dispatch,
+    { type: "review.pr.review", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    PullRequestUpdateResult,
+  );
+}
+
+export function commentOnPullRequest(
+  dispatch: Dispatch,
+  worktreeId: string,
+  body: string,
+): Promise<PullRequestUpdateResult> {
+  return request(
+    dispatch,
+    { type: "review.pr.comment", worktreeId: WorktreeId.parse(worktreeId), body },
+    PullRequestUpdateResult,
+  );
+}
+
+export function replyToThread(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { threadId: string; body: string },
+): Promise<PullRequestReplyResult> {
+  return request(
+    dispatch,
+    { type: "review.pr.reply", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    PullRequestReplyResult,
+  );
+}
+
+export function resolveThread(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { threadId: string; resolved: boolean },
+): Promise<PullRequestResolveResult> {
+  return request(
+    dispatch,
+    { type: "review.pr.resolve", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    PullRequestResolveResult,
+  );
+}
+
+export function setAutoMerge(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { enabled: true; method: PullRequestMergeMethod } | { enabled: false },
+): Promise<PullRequestUpdateResult> {
+  return request(
+    dispatch,
+    { type: "review.pr.autoMerge", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    PullRequestUpdateResult,
+  );
 }

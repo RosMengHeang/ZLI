@@ -7,6 +7,17 @@ const BranchName = z.string().min(1).max(255);
 export const PullRequestMergeMethod = z.enum(["squash", "merge", "rebase"]);
 export type PullRequestMergeMethod = z.infer<typeof PullRequestMergeMethod>;
 
+export const PullRequestReviewEvent = z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]);
+export type PullRequestReviewEvent = z.infer<typeof PullRequestReviewEvent>;
+
+/** A GraphQL node id of a review thread, such as PRRT_kwDOABC. */
+const ThreadNodeId = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(/^[A-Za-z0-9_=-]+$/u);
+const CommentBody = z.string().trim().min(1).max(60_000);
+
 /** Handled directly by the runtime server; none of these reach the event log. */
 export const PullRequestCommand = z.discriminatedUnion("type", [
   /** `base` is the branch the defaults are computed against; without it the repository default is used. */
@@ -37,6 +48,30 @@ export const PullRequestCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("review.git.fetch"), worktreeId: WorktreeId }),
   /** Fast-forwards the checked-out branch to its copy on origin. */
   z.object({ type: z.literal("review.git.pull"), worktreeId: WorktreeId }),
+  /** Submits a review. GitHub requires a body for COMMENT and REQUEST_CHANGES. */
+  z.object({
+    type: z.literal("review.pr.review"),
+    worktreeId: WorktreeId,
+    event: PullRequestReviewEvent,
+    body: z.string().max(60_000),
+  }),
+  /** Adds a comment to a review thread. */
+  z.object({ type: z.literal("review.pr.reply"), worktreeId: WorktreeId, threadId: ThreadNodeId, body: CommentBody }),
+  z.object({
+    type: z.literal("review.pr.resolve"),
+    worktreeId: WorktreeId,
+    threadId: ThreadNodeId,
+    resolved: z.boolean(),
+  }),
+  /** Adds a comment to the pull request's conversation, outside any review. */
+  z.object({ type: z.literal("review.pr.comment"), worktreeId: WorktreeId, body: CommentBody }),
+  /** Turns auto-merge on with `method`, or off. `method` is required when `enabled` is true. */
+  z.object({
+    type: z.literal("review.pr.autoMerge"),
+    worktreeId: WorktreeId,
+    enabled: z.boolean(),
+    method: PullRequestMergeMethod.optional(),
+  }),
 ]);
 export type PullRequestCommand = z.infer<typeof PullRequestCommand>;
 export const PULL_REQUEST_COMMAND_TYPES = [
@@ -49,6 +84,11 @@ export const PULL_REQUEST_COMMAND_TYPES = [
   "review.git.branches",
   "review.git.fetch",
   "review.git.pull",
+  "review.pr.review",
+  "review.pr.reply",
+  "review.pr.resolve",
+  "review.pr.comment",
+  "review.pr.autoMerge",
 ] as const;
 
 export const PullRequestCheckState = z.enum(["pending", "passed", "failed", "skipped"]);
@@ -74,6 +114,10 @@ export const PullRequestInfo = z.object({
   /** Absent when GitHub did not report checks, for example right after the pull request was created. */
   checks: z.array(PullRequestCheck).max(200).optional(),
   reviewDecision: PullRequestReviewDecision.optional(),
+  /** Present while auto-merge is on: GitHub merges once the required checks and reviews pass. */
+  autoMerge: z
+    .object({ method: PullRequestMergeMethod.optional(), enabledBy: z.string().min(1).max(100).optional() })
+    .optional(),
 });
 export type PullRequestInfo = z.infer<typeof PullRequestInfo>;
 
@@ -126,6 +170,9 @@ export const GitPullResult = z.object({
   commits: z.number().int().nonnegative(),
 });
 export type GitPullResult = z.infer<typeof GitPullResult>;
+/** The pull request as GitHub reports it after a review, a comment, or an auto-merge change. */
+export const PullRequestUpdateResult = z.object({ pullRequest: PullRequestInfo });
+export type PullRequestUpdateResult = z.infer<typeof PullRequestUpdateResult>;
 
 export const PullRequestCheckLogResult = z.object({
   /** The end of the failed step's output, without timestamps; empty when the log had no lines. */
@@ -136,6 +183,8 @@ export const PullRequestCheckLogResult = z.object({
 export type PullRequestCheckLogResult = z.infer<typeof PullRequestCheckLogResult>;
 
 export const PullRequestReviewComment = z.object({
+  /** GraphQL node id; absent in answers from older ZLI versions. */
+  id: z.string().min(1).max(200).optional(),
   /** The GitHub login, or "ghost" for a deleted account. */
   author: z.string().min(1).max(100),
   body: z.string().max(20_000),
@@ -156,6 +205,10 @@ export const PullRequestReviewThread = z.object({
   /** The end of the diff hunk the first comment was made on, ending at the commented line. */
   diffHunk: z.string().max(8_000).optional(),
   comments: z.array(PullRequestReviewComment).min(1).max(50),
+  /** What the signed-in GitHub account may do with the thread; absent when GitHub did not say. */
+  viewerCanReply: z.boolean().optional(),
+  viewerCanResolve: z.boolean().optional(),
+  viewerCanUnresolve: z.boolean().optional(),
 });
 export type PullRequestReviewThread = z.infer<typeof PullRequestReviewThread>;
 
@@ -176,3 +229,12 @@ export const PullRequestCommentsResult = z.object({
   reviews: z.array(PullRequestReviewSummary).max(30),
 });
 export type PullRequestCommentsResult = z.infer<typeof PullRequestCommentsResult>;
+
+export const PullRequestReplyResult = z.object({
+  threadId: z.string().min(1).max(200),
+  comment: PullRequestReviewComment,
+});
+export type PullRequestReplyResult = z.infer<typeof PullRequestReplyResult>;
+
+export const PullRequestResolveResult = z.object({ threadId: z.string().min(1).max(200), resolved: z.boolean() });
+export type PullRequestResolveResult = z.infer<typeof PullRequestResolveResult>;

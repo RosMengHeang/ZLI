@@ -106,14 +106,26 @@
 .pr-comment-location.is-mono { font-family: var(--zli-mono); }
 .pr-comment-body { display: -webkit-box; margin: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; white-space: pre-wrap; }
 .pr-comment-author { color: var(--zli-text); font-weight: 600; }
-.pr-comment-replies { color: var(--zli-dim); font-size: var(--zli-text-2xs); }.send-preview-loading { display: flex; align-items: center; gap: var(--zli-space-2); }
+.pr-comment-replies { color: var(--zli-dim); font-size: var(--zli-text-2xs); }
+.pr-comment.is-resolved .pr-comment-body { color: var(--zli-dim); }
+.pr-comment-actions { display: flex; flex-wrap: wrap; gap: var(--zli-space-1); margin-left: calc(var(--zli-space-1-5) * -1); }
+.pr-comment-form { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-1-5); margin-top: var(--zli-space-1); }
+.pr-comment-form .textarea { min-height: 56px; font-size: var(--zli-text-xs); }
+.pr-comment-form-actions { display: flex; justify-content: flex-end; gap: var(--zli-space-1); }
+.pr-review-body { min-height: 104px; font-size: var(--zli-text-sm); }
+.send-preview-loading { display: flex; align-items: center; gap: var(--zli-space-2); }
 .review-pr-state { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-muted); font-size: var(--zli-text-sm); }
-.review-pr-state > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-pr-state:has(.review-pr-number) { flex: 1 0 auto; flex-wrap: wrap; }
+.review-pr-state > span:last-child:not(.badge) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-pr-state > .badge { flex: 0 0 auto; }
 .review-pr-state > svg { flex: 0 0 auto; color: var(--zli-dim); }
 .review-pr-state.is-problem > svg { color: var(--zli-amber); }
 .review-pr-state.is-problem > span:last-child { white-space: normal; }
 .review-pr-number { color: var(--zli-text); font-family: var(--zli-mono); font-variant-numeric: tabular-nums; }
 .pr-dialog .is-mono { font-family: var(--zli-mono); font-size: .95em; }
+/* With three buttons the note would be squeezed to a few pixels; it takes its own line instead. */
+.pr-dialog .dialog-footer { flex-wrap: wrap; row-gap: var(--zli-space-2-5); }
+.pr-dialog .dialog-footer:has(> :nth-child(4)) > .dialog-footer-note { flex-basis: 100%; }
 .pr-body { min-height: 132px; font-size: var(--zli-text-sm); }
 .check-field.pr-draft input { accent-color: var(--zli-accent); }
 .pr-steps { display: flex; flex-direction: column; gap: var(--zli-space-3); margin: 0; padding: var(--zli-space-1) 0; list-style: none; }
