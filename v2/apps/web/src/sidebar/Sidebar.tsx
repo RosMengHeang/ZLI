@@ -24,6 +24,7 @@ import { Kbd } from "../ui/Kbd.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ariaShortcut } from "../ui/shortcuts.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
+import { useSidebarCollapsed } from "./sidebarLayout.js";
 import "./sidebar.css";
 
 export type WorktreeAction = "retry" | "cancel" | "remove";
@@ -148,7 +149,7 @@ export function Sidebar({
   const sidebarShortcut = useShortcut("toggleSidebar");
   const settingsShortcut = useShortcut("settings");
   const [confirmRemoveId, setConfirmRemoveId] = useState<string>();
-  const [collapsedWorktrees, setCollapsedWorktrees] = useState<string[]>([]);
+  const layout = useSidebarCollapsed();
   const [now, setNow] = useState(() => Date.now());
   const prEntries = usePullRequestEntries();
   const projects = projection?.projects ?? [];
@@ -322,12 +323,40 @@ export function Sidebar({
             const projectSessions = sessions
               .filter((session) => worktreeIds.has(session.worktreeId))
               .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
-            const worktreesOpen = !collapsedWorktrees.includes(project.projectId);
+            const worktreesOpen = layout.worktreesOpen(project.projectId);
+            const open = layout.projectOpen(project.projectId);
+            const agentCount = projectSessions.filter((session) => !runIds.has(session.sessionId)).length;
+            const busy = projectSessions.some(
+              (session) => session.status === "working" || session.status === "starting",
+            );
+            const waiting = projectSessions.some((session) => session.status === "waiting");
             return (
-              <section className="sidebar-project" key={project.projectId} aria-label={project.name}>
+              <section
+                className={`sidebar-project${open ? "" : " is-collapsed"}`}
+                key={project.projectId}
+                aria-label={project.name}
+              >
                 <div className="project-label" title={project.path}>
-                  <Icon name="folder" size={14} />
-                  <span className="project-name">{project.name}</span>
+                  <button
+                    className="project-toggle"
+                    type="button"
+                    aria-expanded={open}
+                    aria-label={`${project.name}, ${open ? "collapse" : "expand"}`}
+                    onClick={() => layout.toggleProject(project.projectId)}
+                  >
+                    <Icon name={open ? "folderOpen" : "folder"} size={14} />
+                    <span className="project-name">{project.name}</span>
+                    <Icon name="chevronRight" size={11} className="project-chevron" />
+                  </button>
+                  {open || agentCount === 0 ? null : (
+                    <span
+                      className={`project-summary${waiting ? " is-waiting" : busy ? " is-working" : ""}`}
+                      title={`${agentCount === 1 ? "1 agent" : `${agentCount} agents`}, ${projectWorktrees.length === 1 ? "1 worktree" : `${projectWorktrees.length} worktrees`}`}
+                    >
+                      {waiting || busy ? <span className="dot" aria-hidden="true" /> : null}
+                      {agentCount}
+                    </span>
+                  )}
                   <IconButton
                     className="project-action"
                     label={`New agent in ${project.name}`}
@@ -338,7 +367,7 @@ export function Sidebar({
                     onClick={() => onNewAgent(project)}
                   />
                 </div>
-                {projectSessions.length === 0 ? (
+                {!open ? null : projectSessions.length === 0 ? (
                   <p className="sidebar-note">No agents yet.</p>
                 ) : (
                   <ul className="session-list">
@@ -358,37 +387,33 @@ export function Sidebar({
                         </li>
                       ))}
                   </ul>
-                )}{" "}
-                <div className="worktree-heading">
-                  <button
-                    className="worktree-toggle"
-                    type="button"
-                    aria-expanded={worktreesOpen}
-                    onClick={() =>
-                      setCollapsedWorktrees((current) =>
-                        worktreesOpen
-                          ? [...current, project.projectId]
-                          : current.filter((projectId) => projectId !== project.projectId),
-                      )
-                    }
-                  >
-                    <Icon name="chevronRight" size={11} className="worktree-toggle-chevron" />
-                    Worktrees
-                    <span className="worktree-count">{projectWorktrees.length}</span>
-                  </button>
-                  <IconButton
-                    label="Create worktree"
-                    {...(project.git === false
-                      ? { tooltip: "Worktrees need Git. This folder is not a Git repository." }
-                      : {})}
-                    icon="plus"
-                    size="xs"
-                    iconSize={13}
-                    disabled={project.git === false}
-                    onClick={() => onCreateWorktree(project)}
-                  />
-                </div>
-                {worktreesOpen ? (
+                )}
+                {open ? (
+                  <div className="worktree-heading">
+                    <button
+                      className="worktree-toggle"
+                      type="button"
+                      aria-expanded={worktreesOpen}
+                      onClick={() => layout.toggleWorktrees(project.projectId)}
+                    >
+                      <Icon name="chevronRight" size={11} className="worktree-toggle-chevron" />
+                      Worktrees
+                      <span className="worktree-count">{projectWorktrees.length}</span>
+                    </button>
+                    <IconButton
+                      label="Create worktree"
+                      {...(project.git === false
+                        ? { tooltip: "Worktrees need Git. This folder is not a Git repository." }
+                        : {})}
+                      icon="plus"
+                      size="xs"
+                      iconSize={13}
+                      disabled={project.git === false}
+                      onClick={() => onCreateWorktree(project)}
+                    />
+                  </div>
+                ) : null}
+                {open && worktreesOpen ? (
                   projectWorktrees.length === 0 ? null : (
                     <ul className="worktree-list">
                       {projectWorktrees.map((worktree) => {
@@ -494,16 +519,7 @@ export function Sidebar({
                                   Retry
                                 </Button>
                               ) : null}
-                              {inProgress.has(worktree.status) ? (
-                                <Button
-                                  variant="ghost"
-                                  size="xs"
-                                  icon="x"
-                                  onClick={() => onWorktreeAction(worktree, "cancel")}
-                                >
-                                  Cancel
-                                </Button>
-                              ) : confirming ? (
+                              {confirming ? (
                                 <>
                                   <Button
                                     variant="ghost"
@@ -514,28 +530,43 @@ export function Sidebar({
                                       onWorktreeAction(worktree, "remove");
                                     }}
                                   >
-                                    {checkout ? "Forget checkout" : "Delete checkout"}
+                                    {checkout ? "Forget checkout" : "Delete worktree"}
                                   </Button>
                                   <Button variant="ghost" size="xs" onClick={() => setConfirmRemoveId(undefined)}>
                                     Keep
                                   </Button>
                                 </>
                               ) : (
-                                <IconButton
-                                  label="Remove worktree"
-                                  tooltip={
-                                    live
-                                      ? "Stop the agents in this worktree first"
-                                      : checkout
-                                        ? "Remove from ZLI. Files stay on disk."
-                                        : "Delete this worktree and its folder"
-                                  }
-                                  icon="trash"
-                                  size="xs"
-                                  iconSize={12}
-                                  disabled={live}
-                                  onClick={() => setConfirmRemoveId(worktree.worktreeId)}
-                                />
+                                <>
+                                  {inProgress.has(worktree.status) ? (
+                                    <Button
+                                      variant="ghost"
+                                      size="xs"
+                                      icon="x"
+                                      onClick={() => onWorktreeAction(worktree, "cancel")}
+                                    >
+                                      Cancel
+                                    </Button>
+                                  ) : null}
+                                  {/* A checkout never touches disk when removed, so it can go even while it is stuck. */}
+                                  {inProgress.has(worktree.status) && !checkout ? null : (
+                                    <IconButton
+                                      label="Remove worktree"
+                                      tooltip={
+                                        live
+                                          ? "Stop the agents in this worktree first"
+                                          : checkout
+                                            ? "Remove from ZLI. Files stay on disk."
+                                            : "Delete this worktree and its folder"
+                                      }
+                                      icon="trash"
+                                      size="xs"
+                                      iconSize={12}
+                                      disabled={live}
+                                      onClick={() => setConfirmRemoveId(worktree.worktreeId)}
+                                    />
+                                  )}
+                                </>
                               )}
                             </div>
                           </li>

@@ -23,10 +23,24 @@
 .sidebar-empty p { margin: 0; }
 .sidebar-heading { margin: 0 0 var(--zli-space-1); padding: 0 var(--zli-space-2-5); color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; line-height: 24px; }
 .sidebar-project + .sidebar-project { margin-top: var(--zli-space-4); }
-.project-label { display: flex; align-items: center; gap: var(--zli-space-2); height: 30px; padding: 0 var(--zli-space-1) 0 var(--zli-space-2-5); border-radius: var(--zli-radius-md); color: var(--zli-muted); font-size: var(--zli-text-base); font-weight: 500; }
-.project-label > svg { color: var(--zli-dim); }
-.project-name { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-text); text-overflow: ellipsis; white-space: nowrap; }
-.project-action { opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.project-label { display: flex; align-items: center; gap: var(--zli-space-1); height: 30px; padding: 0 var(--zli-space-1) 0 0; border-radius: var(--zli-radius-md); color: var(--zli-muted); font-size: var(--zli-text-base); font-weight: 500; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.project-label:hover { background: var(--zli-hover); }
+.project-toggle { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-2); height: 100%; padding: 0 var(--zli-space-1) 0 var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; }
+.project-toggle:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+.project-toggle > svg:first-child { flex: 0 0 auto; color: var(--zli-dim); }
+.project-label:hover .project-toggle > svg:first-child { color: var(--zli-muted); }
+.project-name { min-width: 0; overflow: hidden; color: var(--zli-text); text-overflow: ellipsis; white-space: nowrap; }
+/* The chevron says the folder folds. It stays out of the way until the row is pointed at, or the folder is closed. */
+.project-chevron { flex: 0 0 auto; color: var(--zli-dim); opacity: 0; transform: rotate(90deg); transition: opacity var(--zli-duration-fast) var(--zli-ease), transform var(--zli-duration-fast) var(--zli-ease); }
+.project-label:hover .project-chevron, .project-toggle:focus-visible .project-chevron, .project-toggle[aria-expanded="false"] .project-chevron { opacity: 1; }
+.project-toggle[aria-expanded="false"] .project-chevron { transform: none; }
+@media (hover: none) { .project-chevron { opacity: 1; } }
+.project-summary { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; padding: 0 var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.project-summary .dot { width: 6px; height: 6px; flex-basis: 6px; }
+.project-summary.is-working { color: var(--zli-blue); }
+.project-summary.is-waiting { color: var(--zli-amber); }
+.project-label:hover .project-summary { display: none; }
+.sidebar-project.is-collapsed + .sidebar-project { margin-top: var(--zli-space-1); }.project-action { opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
 .project-label:hover .project-action, .project-action:focus-visible { opacity: 1; }
 .sidebar-note { margin: var(--zli-space-0-5) var(--zli-space-2) var(--zli-space-1-5) 32px; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
 .sidebar-note.is-error { margin-left: 24px; color: var(--zli-red); overflow-wrap: anywhere; }

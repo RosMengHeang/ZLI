@@ -100,6 +100,13 @@ not cover, add it to the primitives instead of styling it locally.
   top, in that order; the New agent shortcut appears
   when the row is hovered or focused. The footer
   holds the runtime status, Usage, Settings, and Help.
+- A project's name folds its agents and worktrees away, with a chevron that
+  shows on hover or while folded. A folded project shows its agent count,
+  in blue or amber when an agent there is working or waiting. Folded
+  projects and closed Worktrees lists are remembered across restarts.
+- Worktree rows show a trash button on hover that asks once, in the row,
+  before it deletes the worktree (or forgets a checkout, which never
+  touches disk). A checkout stuck in Queued can still be forgotten.
 - Agent rows are single lines indented under their project, with the
   provider mark and the title. The selected agent gets a fill, not a stripe.
   The right side shows the status while the agent is starting, working,
@@ -212,6 +219,14 @@ not cover, add it to the primitives instead of styling it locally.
   like a phone's navigation bar, and Rotate, Save a screenshot, and the
   More menu on the right. Shut down is an icon button in the toolbar, and
   the reason for screenshots mode is a caption under the device.
+- Integrations Browse shows connectors and plugins as cards one step above
+  the island: logo, name, publisher, a two-line description, then a footer
+  with the action. Card buttons stay neutral; the accent is kept for the
+  final step. Install, Connect with a token, and a browser sign-in open the
+  card across the row in place. Install lists what the plugin adds (skills,
+  MCP servers, prompts, actions) and where it comes from before Install. A
+  sign-in shows what to do in the browser, the code when there is one, Open
+  again, and Cancel, on an accent-edged panel.
 - MCP servers are one list shared by every agent. Each row leads with its
   switch so a server can be turned off without losing its setup, and the
   command line sits under the name in mono because it is what people check.
