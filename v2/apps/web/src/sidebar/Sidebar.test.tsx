@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { AgentSession } from "../sessions/sessions.js";
 import { Sidebar, type WorktreeAction } from "./Sidebar.js";
 import { parseSidebarCollapsed } from "./sidebarLayout.js";
 
@@ -39,7 +40,13 @@ function projection(worktrees: RuntimeProjection["worktrees"]): RuntimeProjectio
 
 const noop = () => undefined;
 
-async function mount(current: RuntimeProjection, onWorktreeAction = vi.fn()) {
+type MountOptions = {
+  sessions?: AgentSession[];
+  onWorktreeAction?: (worktree: { worktreeId: string }, action: WorktreeAction) => void;
+  onCreateWorktree?: (project?: { projectId: string }) => void;
+};
+
+async function mount(current: RuntimeProjection, options: MountOptions = {}) {
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -47,7 +54,7 @@ async function mount(current: RuntimeProjection, onWorktreeAction = vi.fn()) {
     root.render(
       <Sidebar
         projection={current}
-        sessions={[]}
+        sessions={options.sessions ?? []}
         activeSessionId={undefined}
         backgroundSessionIds={new Set()}
         activeWorktreeId={undefined}
@@ -57,8 +64,8 @@ async function mount(current: RuntimeProjection, onWorktreeAction = vi.fn()) {
         onSelectWorktree={noop}
         onNewAgent={noop}
         onOpenProject={noop}
-        onCreateWorktree={noop}
-        onWorktreeAction={onWorktreeAction}
+        onCreateWorktree={options.onCreateWorktree ?? noop}
+        onWorktreeAction={options.onWorktreeAction ?? noop}
         onReviewSetup={noop}
         onShowSetupOutput={noop}
         onOpenHelp={noop}
@@ -88,6 +95,16 @@ const has = (root: ParentNode, label: string) => {
   }
 };
 
+const agent = (worktreeId: string): AgentSession => ({
+  sessionId: "session-1",
+  worktreeId,
+  provider: "claude",
+  status: "working",
+  mode: "terminal",
+  createdAt: "2025-01-01T00:00:00.000Z",
+  updatedAt: "2025-01-01T00:00:00.000Z",
+});
+
 describe("Sidebar projects", () => {
   it("folds a project and remembers it after a restart", async () => {
     const current = projection([
@@ -97,7 +114,7 @@ describe("Sidebar projects", () => {
     const toggle = button(first.container, "repo, collapse");
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(first.container.textContent).toContain("No agents yet.");
-    expect(first.container.querySelector(".worktree-list")).not.toBeNull();
+    expect(first.container.querySelector(".worktree-heading")).not.toBeNull();
 
     await act(async () => toggle.click());
     expect(button(first.container, "repo, expand").getAttribute("aria-expanded")).toBe("false");
@@ -109,20 +126,74 @@ describe("Sidebar projects", () => {
     const again = await mount(current);
     expect(again.container.querySelector(".worktree-heading")).toBeNull();
     await act(async () => button(again.container, "repo, expand").click());
-    expect(again.container.querySelector(".worktree-list")).not.toBeNull();
+    expect(again.container.querySelector(".worktree-heading")).not.toBeNull();
     expect(parseSidebarCollapsed(window.localStorage.getItem("zli.sidebar.collapsed")).projects).toEqual([]);
   });
 
-  it("remembers a closed Worktrees list", async () => {
+  it("folds worktrees without agents into one row and remembers when it is opened", async () => {
     const current = projection([
       { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "main", status: "ready", kind: "checkout" },
+      { worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat", status: "ready" },
     ]);
     const first = await mount(current);
-    await act(async () => first.container.querySelector<HTMLButtonElement>(".worktree-toggle")?.click());
+    const toggle = first.container.querySelector<HTMLButtonElement>(".worktree-toggle");
+    expect(toggle?.textContent).toBe("2 worktrees without agents");
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     expect(first.container.querySelector(".worktree-list")).toBeNull();
+
+    await act(async () => toggle?.click());
+    expect(first.container.querySelectorAll(".worktree-row")).toHaveLength(2);
     await first.unmount();
+
     const again = await mount(current);
-    expect(again.container.querySelector(".worktree-toggle")?.getAttribute("aria-expanded")).toBe("false");
+    expect(again.container.querySelector(".worktree-toggle")?.getAttribute("aria-expanded")).toBe("true");
+    expect(again.container.querySelectorAll(".worktree-row")).toHaveLength(2);
+  });
+
+  it("shows the branch under the agent working on it instead of a worktree row", async () => {
+    const { container } = await mount(
+      projection([
+        { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "main", status: "ready", kind: "checkout" },
+        { worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat/login", status: "ready" },
+      ]),
+      { sessions: [agent(featureId)] },
+    );
+    const row = container.querySelector(".session-row");
+    expect(row?.classList.contains("has-branch")).toBe(true);
+    expect(row?.querySelector(".session-branch .worktree-name")?.textContent).toBe("feat/login");
+    expect(row?.querySelector(".session-branch .worktree-status")).toBeNull();
+    expect(container.querySelector(".worktree-toggle")?.textContent).toBe("1 worktree without agents");
+    expect(container.querySelector(".worktree-row")).toBeNull();
+  });
+
+  it("puts the fix for a failed worktree under its agent", async () => {
+    const onWorktreeAction = vi.fn<(worktree: { worktreeId: string }, action: WorktreeAction) => void>();
+    const { container } = await mount(
+      projection([
+        {
+          worktreeId: featureId,
+          projectId,
+          path: "/work/repo-feat",
+          branch: "feat",
+          status: "failed",
+          errorMessage: "Branch already exists.",
+        },
+      ]),
+      { sessions: [agent(featureId)], onWorktreeAction },
+    );
+    const entry = container.querySelector(".session-entry") as HTMLElement;
+    expect(entry.querySelector(".session-branch .worktree-status")?.textContent).toBe("Failed");
+    expect(entry.textContent).toContain("Branch already exists.");
+    await act(async () => button(entry, "Retry").click());
+    expect(onWorktreeAction).toHaveBeenCalledWith(expect.objectContaining({ worktreeId: featureId }), "retry");
+    expect(container.querySelector(".worktree-row")).toBeNull();
+  });
+
+  it("creates a worktree from the project row", async () => {
+    const onCreateWorktree = vi.fn();
+    const { container } = await mount(projection([]), { onCreateWorktree });
+    await act(async () => button(container, "Create worktree").click());
+    expect(onCreateWorktree).toHaveBeenCalledWith(expect.objectContaining({ projectId }));
   });
 
   it("lets a stuck checkout be removed, but only cancels a worktree still being created", async () => {
@@ -132,7 +203,7 @@ describe("Sidebar projects", () => {
         { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "HEAD", status: "queued", kind: "checkout" },
         { worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat", status: "creating" },
       ]),
-      onWorktreeAction,
+      { onWorktreeAction },
     );
     const [checkoutRow, featureRow] = [...container.querySelectorAll<HTMLElement>(".worktree-entry")];
     expect(has(checkoutRow as HTMLElement, "Cancel")).toBe(true);
@@ -148,16 +219,17 @@ describe("Sidebar projects", () => {
     const { container } = await mount(
       projection([{ worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat", status: "ready" }]),
     );
+    await act(async () => container.querySelector<HTMLButtonElement>(".worktree-toggle")?.click());
     await act(async () => button(container, "Remove worktree").click());
     expect(has(container, "Delete worktree")).toBe(true);
-    expect(has(container, "Delete checkout")).toBe(false);
+    expect(has(container, "Forget checkout")).toBe(false);
   });
 });
 
 describe("parseSidebarCollapsed", () => {
   it("keeps only string ids and survives bad storage", () => {
-    expect(parseSidebarCollapsed('{"projects":["a",1],"worktrees":"b"}')).toEqual({ projects: ["a"], worktrees: [] });
-    expect(parseSidebarCollapsed("not json")).toEqual({ projects: [], worktrees: [] });
-    expect(parseSidebarCollapsed(null)).toEqual({ projects: [], worktrees: [] });
+    expect(parseSidebarCollapsed('{"projects":["a",1],"idle":"b"}')).toEqual({ projects: ["a"], idle: [] });
+    expect(parseSidebarCollapsed("not json")).toEqual({ projects: [], idle: [] });
+    expect(parseSidebarCollapsed(null)).toEqual({ projects: [], idle: [] });
   });
 });

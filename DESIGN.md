@@ -102,17 +102,28 @@ not cover, add it to the primitives instead of styling it locally.
   holds the runtime status, Usage, Settings, and Help.
 - A project's name folds its agents and worktrees away, with a chevron that
   shows on hover or while folded. A folded project shows its agent count,
-  in blue or amber when an agent there is working or waiting. Folded
-  projects and closed Worktrees lists are remembered across restarts.
+  in blue or amber when an agent there is working or waiting. The project
+  row also holds Create worktree (a branch icon) and New agent here (a
+  plus), both shown on hover.
+- Worktrees have no section of their own. An agent in a worktree shows the
+  branch on a second line under its title, with commits to push or pull,
+  the pull request and its checks, the setup or worktree status when it is
+  not plain Ready, and the changed file count. When that worktree failed or
+  needs setup approval, the fix (Retry, Review setup, Setup output) shows
+  under the first agent in it.
+- Worktrees no agent runs in fold into one "N worktrees without agents"
+  row under the agents. It starts folded, but still lists the worktree in
+  view and any that is being created, failed, or waiting on the person.
+  Folded projects and opened worktree rows are remembered across restarts.
 - Worktree rows show a trash button on hover that asks once, in the row,
   before it deletes the worktree (or forgets a checkout, which never
   touches disk). A checkout stuck in Queued can still be forgotten.
-- Agent rows are single lines indented under their project, with the
-  provider mark and the title. The selected agent gets a fill, not a stripe.
+- Agent rows are indented under their project, with the provider mark and
+  the title. The selected agent gets a fill, not a stripe.
   The right side shows the status while the agent is starting, working,
   waiting, or failed; otherwise it says Background for an agent without a
-  tile, or how recently the agent was active. The branch is in the row's
-  tooltip and the tile header.
+  tile, or how recently the agent was active. The branch and worktree path
+  are also in the row's tooltip and the tile header.
 - The top bar has the breadcrumb (project, then branch in mono) on the left,
   then icon-only panel toggles with Terminal split from Files, Browser, and
   Changes, then the command palette trigger. Each toggle's name is its

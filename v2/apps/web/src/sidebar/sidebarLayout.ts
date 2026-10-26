@@ -2,8 +2,11 @@ import { useCallback, useState } from "react";
 
 const STORAGE_KEY = "zli.sidebar.collapsed";
 
-/** Project ids whose folder, or whose Worktrees list, the person closed in the sidebar. */
-export type SidebarCollapsed = { projects: string[]; worktrees: string[] };
+/**
+ * Project ids whose folder the person closed, and ids whose "worktrees without agents" row they opened.
+ * That row starts folded, so only the open ones are stored.
+ */
+export type SidebarCollapsed = { projects: string[]; idle: string[] };
 
 const ids = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
@@ -11,11 +14,11 @@ const ids = (value: unknown): string[] =>
 export function parseSidebarCollapsed(raw: string | null): SidebarCollapsed {
   try {
     const value: unknown = JSON.parse(raw ?? "{}");
-    if (typeof value !== "object" || value === null) return { projects: [], worktrees: [] };
+    if (typeof value !== "object" || value === null) return { projects: [], idle: [] };
     const record = value as Record<string, unknown>;
-    return { projects: ids(record.projects), worktrees: ids(record.worktrees) };
+    return { projects: ids(record.projects), idle: ids(record.idle) };
   } catch {
-    return { projects: [], worktrees: [] };
+    return { projects: [], idle: [] };
   }
 }
 
@@ -23,7 +26,7 @@ function read(): SidebarCollapsed {
   try {
     return parseSidebarCollapsed(window.localStorage.getItem(STORAGE_KEY));
   } catch {
-    return { projects: [], worktrees: [] };
+    return { projects: [], idle: [] };
   }
 }
 
@@ -35,7 +38,7 @@ function write(next: SidebarCollapsed): void {
   }
 }
 
-/** Which project folders and Worktrees lists are closed, remembered across restarts. */
+/** Which project folders are closed and which idle worktree rows are open, remembered across restarts. */
 export function useSidebarCollapsed() {
   const [collapsed, setCollapsed] = useState(read);
   const toggle = useCallback((kind: keyof SidebarCollapsed, projectId: string) => {
@@ -51,8 +54,8 @@ export function useSidebarCollapsed() {
   }, []);
   return {
     projectOpen: (projectId: string) => !collapsed.projects.includes(projectId),
-    worktreesOpen: (projectId: string) => !collapsed.worktrees.includes(projectId),
+    idleOpen: (projectId: string) => collapsed.idle.includes(projectId),
     toggleProject: (projectId: string) => toggle("projects", projectId),
-    toggleWorktrees: (projectId: string) => toggle("worktrees", projectId),
+    toggleIdle: (projectId: string) => toggle("idle", projectId),
   };
 }

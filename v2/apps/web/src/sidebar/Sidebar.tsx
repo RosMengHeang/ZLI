@@ -198,13 +198,173 @@ export function Sidebar({
     );
   };
 
+  /** Everything a worktree row or an agent's branch line needs to say about its worktree. */
+  const worktreeInfo = (worktree: WorktreeProjection) => {
+    const live = threads.some(
+      (thread) => thread.worktreeId === worktree.worktreeId && threadOccupiesWorktree(thread.status),
+    );
+    const changed = projection?.reviews?.find((review) => review.worktreeId === worktree.worktreeId)?.files.length;
+    const setup = worktreeSetup(projection, worktree.worktreeId);
+    const badge = setupBadge(worktree, setup);
+    const setupProblem = badge?.tone === "danger" ? (setup?.errorMessage ?? "Setup failed.") : undefined;
+    const needsApproval = badge?.tone === "attention";
+    const dotClass =
+      badge?.tone === "attention"
+        ? "status-waiting"
+        : badge?.tone === "danger"
+          ? "status-failed"
+          : `status-${worktree.status}`;
+    const statusClass = badge
+      ? badge.tone === "danger"
+        ? " is-danger"
+        : badge.tone === "attention"
+          ? " is-attention"
+          : ""
+      : worktree.status === "ready"
+        ? " is-ready"
+        : worktree.status === "failed"
+          ? " is-danger"
+          : "";
+    return {
+      live,
+      changed,
+      checkout: worktree.kind === "checkout",
+      setup,
+      badge,
+      setupProblem,
+      needsApproval,
+      dotClass,
+      statusClass,
+      statusText: badge?.label ?? worktreeStatusLabel[worktree.status],
+      needsAttention: worktree.status === "failed" || Boolean(setupProblem) || needsApproval,
+    };
+  };
+
+  /** Retry, setup, cancel, and remove for one worktree. Persistent when something needs the person. */
+  const renderWorktreeActions = (worktree: WorktreeProjection, info: ReturnType<typeof worktreeInfo>) => {
+    const confirming = confirmRemoveId === worktree.worktreeId;
+    const busy = inProgress.has(worktree.status);
+    return (
+      <div className={`worktree-actions${info.needsAttention || confirming ? " is-persistent" : ""}`}>
+        {info.needsApproval ? (
+          <Button variant="ghost" size="xs" icon="check" onClick={() => onReviewSetup(worktree)}>
+            Review setup
+          </Button>
+        ) : null}
+        {info.setup?.terminalId ? (
+          <Button variant="ghost" size="xs" icon="terminal" onClick={() => onShowSetupOutput(worktree)}>
+            Setup output
+          </Button>
+        ) : null}
+        {worktree.status === "failed" ? (
+          <Button variant="ghost" size="xs" icon="reload" onClick={() => onWorktreeAction(worktree, "retry")}>
+            Retry
+          </Button>
+        ) : null}
+        {confirming ? (
+          <>
+            <Button
+              variant="ghost"
+              size="xs"
+              className="is-danger"
+              onClick={() => {
+                setConfirmRemoveId(undefined);
+                onWorktreeAction(worktree, "remove");
+              }}
+            >
+              {info.checkout ? "Forget checkout" : "Delete worktree"}
+            </Button>
+            <Button variant="ghost" size="xs" onClick={() => setConfirmRemoveId(undefined)}>
+              Keep
+            </Button>
+          </>
+        ) : (
+          <>
+            {busy ? (
+              <Button variant="ghost" size="xs" icon="x" onClick={() => onWorktreeAction(worktree, "cancel")}>
+                Cancel
+              </Button>
+            ) : null}
+            {/* A checkout never touches disk when removed, so it can go even while it is stuck. */}
+            {busy && !info.checkout ? null : (
+              <IconButton
+                label="Remove worktree"
+                tooltip={
+                  info.live
+                    ? "Stop the agents in this worktree first"
+                    : info.checkout
+                      ? "Remove from ZLI. Files stay on disk."
+                      : "Delete this worktree and its folder"
+                }
+                icon="trash"
+                size="xs"
+                iconSize={12}
+                disabled={info.live}
+                onClick={() => setConfirmRemoveId(worktree.worktreeId)}
+              />
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  /** What went wrong with a worktree, in words, under the row that shows it. */
+  const worktreeNote = (worktree: WorktreeProjection, info: ReturnType<typeof worktreeInfo>) =>
+    worktree.status === "failed" && worktree.errorMessage ? (
+      <p className="sidebar-note is-error" role="status">
+        {worktree.errorMessage}
+      </p>
+    ) : info.setupProblem ? (
+      <p className="sidebar-note is-error" role="status">
+        {info.setupProblem}
+      </p>
+    ) : null;
+
+  /** A worktree no agent runs in: selectable, and removable from its hover actions. */
+  const renderWorktree = (worktree: WorktreeProjection) => {
+    const info = worktreeInfo(worktree);
+    const active = activeWorktreeId === worktree.worktreeId;
+    return (
+      <li className="worktree-entry" key={worktree.worktreeId}>
+        <button
+          className={`worktree-row${active ? " is-active" : ""}`}
+          type="button"
+          onClick={() => onSelectWorktree(worktree)}
+          title={[worktree.path, worktree.status === "failed" ? worktree.errorMessage : undefined, info.setupProblem]
+            .filter(Boolean)
+            .join("\n")}
+          data-live-agent={info.live ? "true" : "false"}
+          aria-current={active ? "true" : undefined}
+        >
+          <span className={`status-dot ${info.dotClass}`} aria-hidden="true" />
+          <span className="worktree-name">{worktree.branch}</span>
+          <WorktreeTrack entry={prEntries.get(worktree.worktreeId)} branch={worktree.branch} />
+          {info.checkout ? <span className="worktree-kind">checkout</span> : null}
+          <WorktreePrBadge entry={prEntries.get(worktree.worktreeId)} />
+          <span className={`worktree-status${info.statusClass}`}>{info.statusText}</span>
+          {info.changed ? (
+            <span className="count" title={`${info.changed} changed files`}>
+              {info.changed}
+            </span>
+          ) : null}
+        </button>
+        {worktreeNote(worktree, info)}
+        {renderWorktreeActions(worktree, info)}
+      </li>
+    );
+  };
+
   const renderSession = (
     session: AgentSession,
     projectWorktrees: readonly WorktreeProjection[],
     groups: readonly RunGroup[] | undefined,
     runIndex?: number,
+    /** Set on the first agent of a worktree that needs attention, so its fix shows once. */
+    showWorktreeAlert = false,
   ) => {
     const worktree = projectWorktrees.find((entry) => entry.worktreeId === session.worktreeId);
+    const info = worktree ? worktreeInfo(worktree) : undefined;
     const title = sessionTitle(session, projection?.messages, projection?.providers);
     const account = accountLabel(accounts, sessionAccountId(session));
     const provider = providerDisplayName(session.provider, projection?.providers);
@@ -216,10 +376,11 @@ export function Sidebar({
     const stoppable = sessionStopCommands(session).length > 0;
     const quiet = runStatus === undefined && (session.status === "ready" || session.status === "ended");
     const name = runIndex === undefined ? title : `Run ${runIndex}`;
+    const branchLine = runIndex === undefined && worktree && info;
     return (
       <li className={`session-entry${runIndex === undefined ? "" : " is-run"}`} key={session.sessionId}>
         <button
-          className={`session-row${active ? " is-active" : ""}`}
+          className={`session-row${active ? " is-active" : ""}${branchLine ? " has-branch" : ""}`}
           type="button"
           aria-label={`${name}, ${providerName}, ${status}${background ? ", in the background" : ""}`}
           aria-current={active ? "true" : undefined}
@@ -227,29 +388,49 @@ export function Sidebar({
           title={`${worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}${account ? `\nAccount: ${account}` : ""}`}
         >
           <ProviderMark provider={session.provider} size={14} />
-          {runIndex === undefined ? (
-            <span className="session-title">{title}</span>
-          ) : (
-            <>
-              <span className="run-badge">Run {runIndex}</span>
-              <span className="session-title">{worktree?.branch ?? provider}</span>
-            </>
-          )}
-          <span className="session-side">
-            {quiet ? (
-              background ? (
-                <span className="session-background">Background</span>
+          <span className="session-copy">
+            <span className="session-line">
+              {runIndex === undefined ? (
+                <span className="session-title">{title}</span>
               ) : (
-                <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
-              )
-            ) : (
-              <span
-                className={`session-status is-${runStatus === "running" ? "working" : (runStatus ?? session.status)}`}
-              >
-                <span className="dot" aria-hidden="true" />
-                {status}
+                <>
+                  <span className="run-badge">Run {runIndex}</span>
+                  <span className="session-title">{worktree?.branch ?? provider}</span>
+                </>
+              )}
+              <span className="session-side">
+                {quiet ? (
+                  background ? (
+                    <span className="session-background">Background</span>
+                  ) : (
+                    <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
+                  )
+                ) : (
+                  <span
+                    className={`session-status is-${runStatus === "running" ? "working" : (runStatus ?? session.status)}`}
+                  >
+                    <span className="dot" aria-hidden="true" />
+                    {status}
+                  </span>
+                )}
               </span>
-            )}
+            </span>
+            {branchLine ? (
+              <span className="session-branch">
+                <Icon name="branch" size={10} />
+                <span className="worktree-name">{worktree.branch}</span>
+                <WorktreeTrack entry={prEntries.get(worktree.worktreeId)} branch={worktree.branch} />
+                <WorktreePrBadge entry={prEntries.get(worktree.worktreeId)} />
+                {worktree.status === "ready" && !info.badge ? null : (
+                  <span className={`worktree-status${info.statusClass}`}>{info.statusText}</span>
+                )}
+                {info.changed ? (
+                  <span className="count" title={`${info.changed} changed files`}>
+                    {info.changed}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
           </span>
         </button>
         <span className="session-actions">
@@ -273,6 +454,12 @@ export function Sidebar({
             onClick={() => onDeleteSession(session)}
           />
         </span>
+        {showWorktreeAlert && worktree && info?.needsAttention ? (
+          <div className="session-worktree-alert">
+            {worktreeNote(worktree, info)}
+            {renderWorktreeActions(worktree, info)}
+          </div>
+        ) : null}
         {groups?.map((group) => (
           <div key={group.groupId}>{renderGroup(group, projectWorktrees)}</div>
         ))}
@@ -323,13 +510,32 @@ export function Sidebar({
             const projectSessions = sessions
               .filter((session) => worktreeIds.has(session.worktreeId))
               .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
-            const worktreesOpen = layout.worktreesOpen(project.projectId);
             const open = layout.projectOpen(project.projectId);
+            const idleOpen = layout.idleOpen(project.projectId);
             const agentCount = projectSessions.filter((session) => !runIds.has(session.sessionId)).length;
             const busy = projectSessions.some(
               (session) => session.status === "working" || session.status === "starting",
             );
             const waiting = projectSessions.some((session) => session.status === "waiting");
+            const idle = projectWorktrees.filter(
+              (worktree) => !projectSessions.some((session) => session.worktreeId === worktree.worktreeId),
+            );
+            // A folded row still shows the worktree the person is in, and any that is busy or needs them.
+            const idleShown = idleOpen
+              ? idle
+              : idle.filter(
+                  (worktree) =>
+                    worktree.worktreeId === activeWorktreeId ||
+                    worktree.worktreeId === confirmRemoveId ||
+                    worktree.status !== "ready" ||
+                    worktreeInfo(worktree).needsAttention,
+                );
+            const alerted = new Set<string>();
+            const firstForWorktree = (session: AgentSession) => {
+              if (alerted.has(session.worktreeId)) return false;
+              alerted.add(session.worktreeId);
+              return true;
+            };
             return (
               <section
                 className={`sidebar-project${open ? "" : " is-collapsed"}`}
@@ -359,6 +565,20 @@ export function Sidebar({
                   )}
                   <IconButton
                     className="project-action"
+                    label="Create worktree"
+                    tooltip={
+                      project.git === false
+                        ? "Worktrees need Git. This folder is not a Git repository."
+                        : "New worktree"
+                    }
+                    icon="branch"
+                    size="xs"
+                    iconSize={13}
+                    disabled={project.git === false}
+                    onClick={() => onCreateWorktree(project)}
+                  />
+                  <IconButton
+                    className="project-action"
                     label={`New agent in ${project.name}`}
                     tooltip="New agent here"
                     icon="plus"
@@ -367,214 +587,51 @@ export function Sidebar({
                     onClick={() => onNewAgent(project)}
                   />
                 </div>
-                {!open ? null : projectSessions.length === 0 ? (
-                  <p className="sidebar-note">No agents yet.</p>
-                ) : (
-                  <ul className="session-list">
-                    {projectSessions.map((session) => {
-                      if (runIds.has(session.sessionId)) return null;
-                      return renderSession(session, projectWorktrees, groupsBySource.get(session.sessionId));
-                    })}
-                    {runGroups
-                      .filter(
-                        (group) =>
-                          !projectSessions.some((session) => session.sessionId === group.sourceSessionId) &&
-                          projectSessions.some((session) => group.sessionIds.includes(session.sessionId)),
-                      )
-                      .map((group) => (
-                        <li className="session-entry is-orphan-group" key={group.groupId}>
-                          {renderGroup(group, projectWorktrees)}
-                        </li>
-                      ))}
-                  </ul>
+                {!open ? null : (
+                  <>
+                    {projectSessions.length === 0 ? (
+                      <p className="sidebar-note">No agents yet.</p>
+                    ) : (
+                      <ul className="session-list">
+                        {projectSessions.map((session) => {
+                          if (runIds.has(session.sessionId)) return null;
+                          return renderSession(
+                            session,
+                            projectWorktrees,
+                            groupsBySource.get(session.sessionId),
+                            undefined,
+                            firstForWorktree(session),
+                          );
+                        })}
+                        {runGroups
+                          .filter(
+                            (group) =>
+                              !projectSessions.some((session) => session.sessionId === group.sourceSessionId) &&
+                              projectSessions.some((session) => group.sessionIds.includes(session.sessionId)),
+                          )
+                          .map((group) => (
+                            <li className="session-entry is-orphan-group" key={group.groupId}>
+                              {renderGroup(group, projectWorktrees)}
+                            </li>
+                          ))}
+                      </ul>
+                    )}
+                    {idle.length > 0 ? (
+                      <div className="worktree-heading">
+                        <button
+                          className="worktree-toggle"
+                          type="button"
+                          aria-expanded={idleOpen}
+                          onClick={() => layout.toggleIdle(project.projectId)}
+                        >
+                          <Icon name="chevronRight" size={11} className="worktree-toggle-chevron" />
+                          {idle.length === 1 ? "1 worktree without agents" : `${idle.length} worktrees without agents`}
+                        </button>
+                      </div>
+                    ) : null}
+                    {idleShown.length > 0 ? <ul className="worktree-list">{idleShown.map(renderWorktree)}</ul> : null}
+                  </>
                 )}
-                {open ? (
-                  <div className="worktree-heading">
-                    <button
-                      className="worktree-toggle"
-                      type="button"
-                      aria-expanded={worktreesOpen}
-                      onClick={() => layout.toggleWorktrees(project.projectId)}
-                    >
-                      <Icon name="chevronRight" size={11} className="worktree-toggle-chevron" />
-                      Worktrees
-                      <span className="worktree-count">{projectWorktrees.length}</span>
-                    </button>
-                    <IconButton
-                      label="Create worktree"
-                      {...(project.git === false
-                        ? { tooltip: "Worktrees need Git. This folder is not a Git repository." }
-                        : {})}
-                      icon="plus"
-                      size="xs"
-                      iconSize={13}
-                      disabled={project.git === false}
-                      onClick={() => onCreateWorktree(project)}
-                    />
-                  </div>
-                ) : null}
-                {open && worktreesOpen ? (
-                  projectWorktrees.length === 0 ? null : (
-                    <ul className="worktree-list">
-                      {projectWorktrees.map((worktree) => {
-                        const live = threads.some(
-                          (thread) =>
-                            thread.worktreeId === worktree.worktreeId && threadOccupiesWorktree(thread.status),
-                        );
-                        const changed = projection?.reviews?.find((review) => review.worktreeId === worktree.worktreeId)
-                          ?.files.length;
-                        const checkout = worktree.kind === "checkout";
-                        const confirming = confirmRemoveId === worktree.worktreeId;
-                        const setup = worktreeSetup(projection, worktree.worktreeId);
-                        const badge = setupBadge(worktree, setup);
-                        const setupProblem =
-                          badge?.tone === "danger" ? (setup?.errorMessage ?? "Setup failed.") : undefined;
-                        const needsApproval = badge?.tone === "attention";
-                        const dotClass =
-                          badge?.tone === "attention"
-                            ? "status-waiting"
-                            : badge?.tone === "danger"
-                              ? "status-failed"
-                              : `status-${worktree.status}`;
-                        return (
-                          <li className="worktree-entry" key={worktree.worktreeId}>
-                            <button
-                              className={`worktree-row${activeWorktreeId === worktree.worktreeId ? " is-active" : ""}`}
-                              type="button"
-                              onClick={() => onSelectWorktree(worktree)}
-                              title={[
-                                worktree.path,
-                                worktree.status === "failed" ? worktree.errorMessage : undefined,
-                                setupProblem,
-                              ]
-                                .filter(Boolean)
-                                .join("\n")}
-                              data-live-agent={live ? "true" : "false"}
-                              aria-current={activeWorktreeId === worktree.worktreeId ? "true" : undefined}
-                            >
-                              <span className={`status-dot ${dotClass}`} aria-hidden="true" />
-                              <span className="worktree-name">{worktree.branch}</span>
-                              <WorktreeTrack entry={prEntries.get(worktree.worktreeId)} branch={worktree.branch} />
-                              {checkout ? <span className="worktree-kind">checkout</span> : null}
-                              <WorktreePrBadge entry={prEntries.get(worktree.worktreeId)} />
-                              <span
-                                className={`worktree-status${
-                                  badge
-                                    ? badge.tone === "danger"
-                                      ? " is-danger"
-                                      : badge.tone === "attention"
-                                        ? " is-attention"
-                                        : ""
-                                    : worktree.status === "ready"
-                                      ? " is-ready"
-                                      : ""
-                                }`}
-                              >
-                                {badge?.label ?? worktreeStatusLabel[worktree.status]}
-                              </span>
-                              {changed ? (
-                                <span className="count" title={`${changed} changed files`}>
-                                  {changed}
-                                </span>
-                              ) : null}
-                            </button>
-                            {worktree.status === "failed" && worktree.errorMessage ? (
-                              <p className="sidebar-note is-error" role="status">
-                                {worktree.errorMessage}
-                              </p>
-                            ) : setupProblem ? (
-                              <p className="sidebar-note is-error" role="status">
-                                {setupProblem}
-                              </p>
-                            ) : null}
-                            <div
-                              className={`worktree-actions${
-                                worktree.status === "failed" || confirming || needsApproval || setupProblem
-                                  ? " is-persistent"
-                                  : ""
-                              }`}
-                            >
-                              {needsApproval ? (
-                                <Button variant="ghost" size="xs" icon="check" onClick={() => onReviewSetup(worktree)}>
-                                  Review setup
-                                </Button>
-                              ) : null}
-                              {setup?.terminalId ? (
-                                <Button
-                                  variant="ghost"
-                                  size="xs"
-                                  icon="terminal"
-                                  onClick={() => onShowSetupOutput(worktree)}
-                                >
-                                  Setup output
-                                </Button>
-                              ) : null}
-                              {worktree.status === "failed" ? (
-                                <Button
-                                  variant="ghost"
-                                  size="xs"
-                                  icon="reload"
-                                  onClick={() => onWorktreeAction(worktree, "retry")}
-                                >
-                                  Retry
-                                </Button>
-                              ) : null}
-                              {confirming ? (
-                                <>
-                                  <Button
-                                    variant="ghost"
-                                    size="xs"
-                                    className="is-danger"
-                                    onClick={() => {
-                                      setConfirmRemoveId(undefined);
-                                      onWorktreeAction(worktree, "remove");
-                                    }}
-                                  >
-                                    {checkout ? "Forget checkout" : "Delete worktree"}
-                                  </Button>
-                                  <Button variant="ghost" size="xs" onClick={() => setConfirmRemoveId(undefined)}>
-                                    Keep
-                                  </Button>
-                                </>
-                              ) : (
-                                <>
-                                  {inProgress.has(worktree.status) ? (
-                                    <Button
-                                      variant="ghost"
-                                      size="xs"
-                                      icon="x"
-                                      onClick={() => onWorktreeAction(worktree, "cancel")}
-                                    >
-                                      Cancel
-                                    </Button>
-                                  ) : null}
-                                  {/* A checkout never touches disk when removed, so it can go even while it is stuck. */}
-                                  {inProgress.has(worktree.status) && !checkout ? null : (
-                                    <IconButton
-                                      label="Remove worktree"
-                                      tooltip={
-                                        live
-                                          ? "Stop the agents in this worktree first"
-                                          : checkout
-                                            ? "Remove from ZLI. Files stay on disk."
-                                            : "Delete this worktree and its folder"
-                                      }
-                                      icon="trash"
-                                      size="xs"
-                                      iconSize={12}
-                                      disabled={live}
-                                      onClick={() => setConfirmRemoveId(worktree.worktreeId)}
-                                    />
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )
-                ) : null}
               </section>
             );
           })
