@@ -155,7 +155,11 @@ test("completes the workspace, provider, browser, review, and restoration journe
     expect(reviewError).toBeUndefined();
     await expect(page.locator(".review-pane .inline-error")).toHaveCount(0);
     expect(await git(worktreePath, ["status", "--porcelain"])).toBe("");
-    await page.getByRole("button", { name: "Merge into target" }).click();
+    await page.getByRole("button", { name: "More Git actions" }).click();
+    await page.getByRole("menuitem", { name: "Merge into another branch…" }).click();
+    const mergeLocal = page.getByRole("dialog", { name: "Merge into another branch" });
+    await mergeLocal.getByRole("button", { name: "Merge", exact: true }).click();
+    await expect(mergeLocal).toHaveCount(0, { timeout: 20_000 });
     await expect
       .poll(() => git(repo, ["show", "main:change.txt"]).catch(() => ""), { timeout: 20_000 })
       .toBe("integration change");

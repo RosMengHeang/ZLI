@@ -17,13 +17,13 @@ import { useAppSettings } from "../settings/appSettings.js";
 import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { Menu, type MenuRequest } from "../ui/Menu.js";
 import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
 import { type CodeEditorHandle, createCodeEditor, languageLabel } from "./codeEditor.js";
 import { type DiffSource, FileDiffPanel, latestTurnFor } from "./FileDiffPanel.js";
 import { useFileIndex, useFileIndexContext } from "./FileIndex.js";
 import { FileStatusMark, LineCounts } from "./FileMarks.js";
 import { FileSearchView, type SearchSettings } from "./FileSearchView.js";
-import { type ContextMenuRequest, FilesContextMenu } from "./FilesContextMenu.js";
 import { FilesDivider } from "./FilesDivider.js";
 import { FileTreeView } from "./FileTreeView.js";
 import { readFile, writeFile } from "./fileClient.js";
@@ -177,7 +177,7 @@ function FilesWorkspace({
   /** The open file whose diff is showing in place of its contents. */
   const [diffPath, setDiffPath] = useState<string>();
   const checkpoints = useRuntimeSelector(selectCheckpoints);
-  const [menu, setMenu] = useState<ContextMenuRequest>();
+  const [menu, setMenu] = useState<MenuRequest>();
   const closeMenu = useCallback(() => setMenu(undefined), []);
   const askAgentRef = useRef(askAgent);
   askAgentRef.current = askAgent;
@@ -938,7 +938,7 @@ function FilesWorkspace({
           onClick={toggleTree}
         />
       </PaneHeader>
-      {menu ? <FilesContextMenu request={menu} onClose={closeMenu} /> : null}
+      {menu ? <Menu request={menu} onClose={closeMenu} /> : null}
       <div className={`files-body${wide ? " is-split" : ""}${treeOnRight ? " is-tree-right" : ""}`}>
         {treeOnRight ? (
           <>
