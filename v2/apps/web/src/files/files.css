@@ -13,7 +13,9 @@
 .open-in > .open-in-main { padding: 0 var(--zli-space-1) 0 var(--zli-space-1-5); border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .open-in > .open-in-more { width: 16px; padding: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; color: var(--zli-dim); }
 .open-in > .open-in-more[aria-expanded="true"] { background: var(--zli-active); color: var(--zli-text); }
-.open-in-icon { display: block; width: 16px; height: 16px; flex: 0 0 auto; object-fit: contain; }
+.app-mark { display: block; width: 16px; height: 16px; flex: 0 0 auto; object-fit: contain; }
+.app-mark.is-mono { background: var(--zli-text); mask-position: center; mask-repeat: no-repeat; mask-size: contain; }
+.menu-item-icon:has(> .app-mark) { width: 16px; }
 .files-project-list { display: flex; max-width: 320px; flex-wrap: wrap; justify-content: center; gap: var(--zli-space-1-5); }
 
 /* The divider draws the pane boundary itself, so neither side needs a border. */

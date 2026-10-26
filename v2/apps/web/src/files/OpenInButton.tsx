@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 import { Menu, type MenuItem, type MenuRequest } from "../ui/Menu.js";
+import { APP_LOGOS } from "./openInLogos.js";
 
 const STORAGE_KEY = "zli.openIn.v1";
 const GAP = 4;
@@ -45,11 +46,7 @@ export function openInMenuItems(apps: readonly OpenInApp[], open: (app: OpenInAp
     if (group.length === 0) continue;
     if (items.length > 0) items.push({ separator: true });
     for (const app of group) {
-      items.push({
-        label: app.name,
-        ...(app.icon ? { image: app.icon } : { icon: KIND_ICONS[app.kind] }),
-        run: () => open(app),
-      });
+      items.push({ label: app.name, media: <AppMark app={app} />, run: () => open(app) });
     }
   }
   return items;
@@ -62,11 +59,36 @@ function errorText(cause: unknown, app: OpenInApp): string {
   return plain || `${app.name} could not open this folder.`;
 }
 
-function AppMark({ app }: { app: OpenInApp }) {
-  return app.icon ? (
-    <img className="open-in-icon" src={app.icon} alt="" width={16} height={16} draggable={false} />
+const logoUrls = new Map<string, string>();
+
+function logoUrl(appId: string, svg: string): string {
+  let url = logoUrls.get(appId);
+  if (!url) {
+    url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    logoUrls.set(appId, url);
+  }
+  return url;
+}
+
+/**
+ * The app's icon from the system when there is one (macOS and Windows), else its bundled logo, else a
+ * generic icon for its kind.
+ */
+export function AppMark({ app }: { app: OpenInApp }) {
+  if (app.icon) {
+    return <img className="app-mark" src={app.icon} alt="" width={16} height={16} draggable={false} />;
+  }
+  const logo = APP_LOGOS[app.id];
+  if (!logo) return <Icon name={KIND_ICONS[app.kind]} size={13} />;
+  const url = logoUrl(app.id, logo.svg);
+  return logo.mono ? (
+    <span
+      className="app-mark is-mono"
+      aria-hidden="true"
+      style={{ maskImage: `url("${url}")`, WebkitMaskImage: `url("${url}")` }}
+    />
   ) : (
-    <Icon name={KIND_ICONS[app.kind]} size={13} />
+    <img className="app-mark" src={url} alt="" width={16} height={16} draggable={false} />
   );
 }
 

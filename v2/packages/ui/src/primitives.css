@@ -137,8 +137,6 @@ kbd {
 .menu:not(.picker-menu) .menu-item { height: 28px; }
 .menu:not(.picker-menu) .menu-item:hover { background: var(--zli-hover); }
 .menu-item-icon { display: grid; width: 14px; flex: 0 0 auto; place-items: center; color: var(--zli-dim); }
-.menu-item-icon:has(> img) { width: 16px; }
-.menu-item-icon > img { display: block; width: 16px; height: 16px; object-fit: contain; }
 .menu-item.is-danger, .menu-item.is-danger .menu-item-icon { color: var(--zli-red); }
 .menu-item[aria-disabled="true"]:hover, .menu-item[aria-disabled="true"]:focus { background: transparent; }
 .menu-shortcut { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); }

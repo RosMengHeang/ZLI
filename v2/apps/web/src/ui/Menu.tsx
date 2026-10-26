@@ -30,8 +30,8 @@ export type MenuEntry =
 export type MenuAction = {
   label: string;
   icon?: IconName | undefined;
-  /** A picture in place of the icon, such as an app's own icon as a data URL. */
-  image?: string | undefined;
+  /** Drawn in place of the icon, such as an app's logo. */
+  media?: ReactNode;
   shortcut?: string | undefined;
   disabled?: boolean | undefined;
   /** Why the item is disabled, or what it does. */
@@ -128,7 +128,7 @@ export function Menu({ request, onClose }: { request: MenuRequest; onClose(): vo
     next?.focus();
   };
 
-  const withIcons = request.items.some((item) => isAction(item) && (item.icon || item.image));
+  const withIcons = request.items.some((item) => isAction(item) && (item.icon || item.media));
   return createPortal(
     <div
       className="menu"
@@ -157,11 +157,7 @@ export function Menu({ request, onClose }: { request: MenuRequest; onClose(): vo
           >
             {withIcons ? (
               <span className="menu-item-icon" aria-hidden="true">
-                {item.image ? (
-                  <img src={item.image} alt="" width={16} height={16} draggable={false} />
-                ) : item.icon ? (
-                  <Icon name={item.icon} size={13} />
-                ) : null}
+                {item.media ?? (item.icon ? <Icon name={item.icon} size={13} /> : null)}
               </span>
             ) : null}
             <span className="menu-item-label">{item.label}</span>
