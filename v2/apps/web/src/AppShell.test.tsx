@@ -613,6 +613,65 @@ describe("Settings", () => {
     );
     expect(permissionPicker?.getAttribute("aria-label")).toBe("Permissions: Auto");
   });
+
+  it("removes a project only after a second click, and leaves its folder alone", async () => {
+    const dispatched: unknown[] = [];
+    const stopped: RuntimeProjection = {
+      ...withAgent,
+      terminals: withAgent.terminals.map((terminal) => ({ ...terminal, status: "exited" as const })),
+    };
+    updateAppSettings((current) => ({ ...current, projects: { [projectId]: { permissionMode: "read-only" } } }));
+    const container = await render(makeBridge(stopped, dispatched));
+    const settings = await openSettings(container, "Projects");
+    await act(async () => button(settings, "Remove…")?.click());
+    expect(settings.textContent).toContain("Remove repo from ZLI?");
+    expect(settings.textContent).toContain("1 agent and its chat are deleted from ZLI.");
+    expect(settings.textContent).toContain("The project folder and its files stay on disk.");
+    expect(document.activeElement?.textContent).toBe("Cancel");
+    await act(async () => button(settings, "Cancel")?.click());
+    expect(button(settings, "Remove project")).toBeUndefined();
+    expect(commands(dispatched).some((command) => command.type === "project.archive")).toBe(false);
+
+    await act(async () => button(settings, "Remove…")?.click());
+    await act(async () => button(settings, "Remove project")?.click());
+    const sent = commands(dispatched);
+    expect(sent).toContainEqual({ type: "session.delete", sessionId: agentSessionId });
+    expect(sent.at(-1)).toEqual({ type: "project.archive", projectId });
+    expect(sent.some((command) => command.type === "worktree.remove")).toBe(false);
+    expect(settings.textContent).toContain("Removed repo from ZLI. Its folder is still on disk.");
+    await press(window, { key: "Escape", code: "Escape" });
+    updateAppSettings((current) => {
+      expect(current.projects[projectId]).toBeUndefined();
+      return current;
+    });
+  });
+
+  it("keeps the confirmation open with the reason when removal fails", async () => {
+    const bridge = makeBridge(projection);
+    bridge.runtime.dispatch = async (request: unknown) => {
+      const command = (request as { command: { type: string } }).command;
+      if (command.type !== "project.archive") {
+        return { commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"), accepted: true as const };
+      }
+      return {
+        commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"),
+        accepted: false as const,
+        error: {
+          code: "invalid_request" as const,
+          message: "Stop the agents and terminals in this project first.",
+          retryable: false,
+        },
+      };
+    };
+    const container = await render(bridge);
+    const settings = await openSettings(container, "Projects");
+    await act(async () => button(settings, "Remove…")?.click());
+    await act(async () => button(settings, "Remove project")?.click());
+    expect(settings.querySelector('[role="alert"]')?.textContent).toBe(
+      "Stop the agents and terminals in this project first.",
+    );
+    expect(button(settings, "Remove project")).not.toBeUndefined();
+  });
 });
 
 describe("Updates", () => {
