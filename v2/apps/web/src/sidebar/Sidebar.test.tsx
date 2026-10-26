@@ -42,6 +42,8 @@ const noop = () => undefined;
 
 type MountOptions = {
   sessions?: AgentSession[];
+  onStopSession?: (session: AgentSession) => void;
+  onDeleteSession?: (session: AgentSession) => void;
   onWorktreeAction?: (worktree: { worktreeId: string }, action: WorktreeAction) => void;
   onCreateWorktree?: (project?: { projectId: string }) => void;
 };
@@ -59,8 +61,8 @@ async function mount(current: RuntimeProjection, options: MountOptions = {}) {
         backgroundSessionIds={new Set()}
         activeWorktreeId={undefined}
         onSelectSession={noop}
-        onStopSession={noop}
-        onDeleteSession={noop}
+        onStopSession={options.onStopSession ?? noop}
+        onDeleteSession={options.onDeleteSession ?? noop}
         onSelectWorktree={noop}
         onNewAgent={noop}
         onOpenProject={noop}
@@ -84,6 +86,12 @@ function button(root: ParentNode, label: string): HTMLButtonElement {
   );
   if (!found) throw new Error(`No button ${label}`);
   return found;
+}
+
+/** Opens a row's "..." menu and returns its item labels; the menu renders in a portal on the body. */
+async function openMenu(root: ParentNode, label: string): Promise<string[]> {
+  await act(async () => button(root, label).click());
+  return [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((item) => item.textContent ?? "");
 }
 
 const has = (root: ParentNode, label: string) => {
@@ -196,6 +204,32 @@ describe("Sidebar projects", () => {
     expect(onCreateWorktree).toHaveBeenCalledWith(expect.objectContaining({ projectId }));
   });
 
+  it("keeps an agent's stop and delete in its ... menu", async () => {
+    const onStopSession = vi.fn();
+    const onDeleteSession = vi.fn();
+    const session: AgentSession = {
+      ...agent(featureId),
+      terminal: {
+        terminalId: "terminal-1",
+        worktreeId: featureId,
+        title: "Codex",
+        status: "running",
+      } as unknown as NonNullable<AgentSession["terminal"]>,
+    };
+    const { container } = await mount(
+      projection([{ worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat", status: "ready" }]),
+      { sessions: [session], onStopSession, onDeleteSession },
+    );
+    expect(container.querySelector(".session-entry [data-tooltip='Stop agent']")).toBeNull();
+    const menuButton = container.querySelector<HTMLButtonElement>(".session-entry .row-more button");
+    expect(menuButton?.getAttribute("aria-haspopup")).toBe("menu");
+    await act(async () => menuButton?.click());
+    const items = [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((item) => item.textContent);
+    expect(items).toContain("Delete agent");
+    await act(async () => button(document.body, "Delete agent").click());
+    expect(onDeleteSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session-1" }));
+  });
+
   it("lets a stuck checkout be removed, but only cancels a worktree still being created", async () => {
     const onWorktreeAction = vi.fn<(worktree: { worktreeId: string }, action: WorktreeAction) => void>();
     const { container } = await mount(
@@ -205,13 +239,11 @@ describe("Sidebar projects", () => {
       ]),
       { onWorktreeAction },
     );
-    const [checkoutRow, featureRow] = [...container.querySelectorAll<HTMLElement>(".worktree-entry")];
-    expect(has(checkoutRow as HTMLElement, "Cancel")).toBe(true);
-    expect(has(featureRow as HTMLElement, "Cancel")).toBe(true);
-    expect(has(featureRow as HTMLElement, "Remove worktree")).toBe(false);
-
-    await act(async () => button(checkoutRow as HTMLElement, "Remove worktree").click());
-    await act(async () => button(checkoutRow as HTMLElement, "Forget checkout").click());
+    expect(await openMenu(container, "feat actions")).toEqual(["Cancel"]);
+    await act(async () => button(container, "feat actions").click());
+    expect(await openMenu(container, "HEAD actions")).toEqual(["Cancel", "Forget checkout"]);
+    await act(async () => button(document.body, "Forget checkout").click());
+    await act(async () => button(container, "Forget checkout").click());
     expect(onWorktreeAction).toHaveBeenCalledWith(expect.objectContaining({ worktreeId: checkoutId }), "remove");
   });
 
@@ -220,12 +252,13 @@ describe("Sidebar projects", () => {
       projection([{ worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat", status: "ready" }]),
     );
     await act(async () => container.querySelector<HTMLButtonElement>(".worktree-toggle")?.click());
-    await act(async () => button(container, "Remove worktree").click());
+    expect(await openMenu(container, "feat actions")).toEqual(["Delete worktree"]);
+    await act(async () => button(document.body, "Delete worktree").click());
     expect(has(container, "Delete worktree")).toBe(true);
+    expect(has(container, "Keep")).toBe(true);
     expect(has(container, "Forget checkout")).toBe(false);
   });
 });
-
 describe("parseSidebarCollapsed", () => {
   it("keeps only string ids and survives bad storage", () => {
     expect(parseSidebarCollapsed('{"projects":["a",1],"idle":"b"}')).toEqual({ projects: ["a"], idle: [] });

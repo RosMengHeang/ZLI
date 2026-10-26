@@ -21,6 +21,7 @@ import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
+import { type MenuItem, MenuButton } from "../ui/Menu.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ariaShortcut } from "../ui/shortcuts.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
@@ -240,27 +241,41 @@ export function Sidebar({
     };
   };
 
-  /** Retry, setup, cancel, and remove for one worktree. Persistent when something needs the person. */
-  const renderWorktreeActions = (worktree: WorktreeProjection, info: ReturnType<typeof worktreeInfo>) => {
-    const confirming = confirmRemoveId === worktree.worktreeId;
+  /** What the "..." menu on a worktree row offers. Fixes that need the person also show in the row. */
+  const worktreeMenuItems = (worktree: WorktreeProjection, info: ReturnType<typeof worktreeInfo>): MenuItem[] => {
     const busy = inProgress.has(worktree.status);
+    const items: MenuItem[] = [];
+    if (info.needsApproval) items.push({ label: "Review setup", icon: "check", run: () => onReviewSetup(worktree) });
+    if (info.setup?.terminalId)
+      items.push({ label: "Setup output", icon: "terminal", run: () => onShowSetupOutput(worktree) });
+    if (worktree.status === "failed")
+      items.push({ label: "Retry", icon: "reload", run: () => onWorktreeAction(worktree, "retry") });
+    if (busy) items.push({ label: "Cancel", icon: "x", run: () => onWorktreeAction(worktree, "cancel") });
+    // A checkout never touches disk when removed, so it can go even while it is stuck.
+    if (!busy || info.checkout) {
+      if (items.length > 0) items.push({ separator: true });
+      items.push({
+        label: info.checkout ? "Forget checkout" : "Delete worktree",
+        icon: "trash",
+        tone: "danger",
+        disabled: info.live,
+        title: info.live
+          ? "Stop the agents in this worktree first"
+          : info.checkout
+            ? "Remove from ZLI. Files stay on disk."
+            : "Delete this worktree and its folder",
+        run: () => setConfirmRemoveId(worktree.worktreeId),
+      });
+    }
+    return items;
+  };
+
+  /** Fixes that need the person, and the delete confirm, shown in the flow under the row. */
+  const renderWorktreeFixes = (worktree: WorktreeProjection, info: ReturnType<typeof worktreeInfo>) => {
+    const confirming = confirmRemoveId === worktree.worktreeId;
+    if (!confirming && !info.needsAttention) return null;
     return (
-      <div className={`worktree-actions${info.needsAttention || confirming ? " is-persistent" : ""}`}>
-        {info.needsApproval ? (
-          <Button variant="ghost" size="xs" icon="check" onClick={() => onReviewSetup(worktree)}>
-            Review setup
-          </Button>
-        ) : null}
-        {info.setup?.terminalId ? (
-          <Button variant="ghost" size="xs" icon="terminal" onClick={() => onShowSetupOutput(worktree)}>
-            Setup output
-          </Button>
-        ) : null}
-        {worktree.status === "failed" ? (
-          <Button variant="ghost" size="xs" icon="reload" onClick={() => onWorktreeAction(worktree, "retry")}>
-            Retry
-          </Button>
-        ) : null}
+      <div className="worktree-actions">
         {confirming ? (
           <>
             <Button
@@ -280,35 +295,26 @@ export function Sidebar({
           </>
         ) : (
           <>
-            {busy ? (
-              <Button variant="ghost" size="xs" icon="x" onClick={() => onWorktreeAction(worktree, "cancel")}>
-                Cancel
+            {info.needsApproval ? (
+              <Button variant="ghost" size="xs" icon="check" onClick={() => onReviewSetup(worktree)}>
+                Review setup
               </Button>
             ) : null}
-            {/* A checkout never touches disk when removed, so it can go even while it is stuck. */}
-            {busy && !info.checkout ? null : (
-              <IconButton
-                label="Remove worktree"
-                tooltip={
-                  info.live
-                    ? "Stop the agents in this worktree first"
-                    : info.checkout
-                      ? "Remove from ZLI. Files stay on disk."
-                      : "Delete this worktree and its folder"
-                }
-                icon="trash"
-                size="xs"
-                iconSize={12}
-                disabled={info.live}
-                onClick={() => setConfirmRemoveId(worktree.worktreeId)}
-              />
-            )}
+            {info.setup?.terminalId ? (
+              <Button variant="ghost" size="xs" icon="terminal" onClick={() => onShowSetupOutput(worktree)}>
+                Setup output
+              </Button>
+            ) : null}
+            {worktree.status === "failed" ? (
+              <Button variant="ghost" size="xs" icon="reload" onClick={() => onWorktreeAction(worktree, "retry")}>
+                Retry
+              </Button>
+            ) : null}
           </>
         )}
       </div>
     );
   };
-
   /** What went wrong with a worktree, in words, under the row that shows it. */
   const worktreeNote = (worktree: WorktreeProjection, info: ReturnType<typeof worktreeInfo>) =>
     worktree.status === "failed" && worktree.errorMessage ? (
@@ -339,22 +345,48 @@ export function Sidebar({
         >
           <span className={`status-dot ${info.dotClass}`} aria-hidden="true" />
           <span className="worktree-name">{worktree.branch}</span>
-          <WorktreeTrack entry={prEntries.get(worktree.worktreeId)} branch={worktree.branch} />
-          {info.checkout ? <span className="worktree-kind">checkout</span> : null}
-          <WorktreePrBadge entry={prEntries.get(worktree.worktreeId)} />
-          <span className={`worktree-status${info.statusClass}`}>{info.statusText}</span>
-          {info.changed ? (
-            <span className="count" title={`${info.changed} changed files`}>
-              {info.changed}
-            </span>
-          ) : null}
+          <span className="worktree-meta">
+            <WorktreeTrack entry={prEntries.get(worktree.worktreeId)} branch={worktree.branch} />
+            {info.checkout ? <span className="worktree-kind">checkout</span> : null}
+            <WorktreePrBadge entry={prEntries.get(worktree.worktreeId)} />
+            <span className={`worktree-status${info.statusClass}`}>{info.statusText}</span>
+            {info.changed ? (
+              <span className="count" title={`${info.changed} changed files`}>
+                {info.changed}
+              </span>
+            ) : null}
+          </span>
         </button>
+        <span className="row-more">
+          <MenuButton
+            label={`${worktree.branch} actions`}
+            tooltip="More"
+            size="xs"
+            items={() => worktreeMenuItems(worktree, info)}
+          />
+        </span>
         {worktreeNote(worktree, info)}
-        {renderWorktreeActions(worktree, info)}
+        {renderWorktreeFixes(worktree, info)}
       </li>
     );
   };
 
+  /** What the "..." menu on an agent row offers. */
+  const sessionMenuItems = (
+    session: AgentSession,
+    stoppable: boolean,
+    worktree: WorktreeProjection | undefined,
+  ): MenuItem[] => {
+    const items: MenuItem[] = [];
+    if (stoppable) items.push({ label: "Stop agent", icon: "stop", run: () => onStopSession(session) });
+    if (worktree) {
+      const { branch } = worktree;
+      items.push({ label: "Copy branch name", icon: "copy", run: () => void navigator.clipboard?.writeText(branch) });
+    }
+    if (items.length > 0) items.push({ separator: true });
+    items.push({ label: "Delete agent", icon: "trash", tone: "danger", run: () => onDeleteSession(session) });
+    return items;
+  };
   const renderSession = (
     session: AgentSession,
     projectWorktrees: readonly WorktreeProjection[],
@@ -433,31 +465,18 @@ export function Sidebar({
             ) : null}
           </span>
         </button>
-        <span className="session-actions">
-          {stoppable ? (
-            <IconButton
-              label={`Stop ${name}`}
-              tooltip="Stop agent"
-              icon="square"
-              tone="danger"
-              size="xs"
-              iconSize={10}
-              onClick={() => onStopSession(session)}
-            />
-          ) : null}
-          <IconButton
-            label={`Delete ${name}`}
-            tooltip="Delete agent"
-            icon="trash"
+        <span className="row-more">
+          <MenuButton
+            label={`${name} actions`}
+            tooltip="More"
             size="xs"
-            iconSize={12}
-            onClick={() => onDeleteSession(session)}
+            items={() => sessionMenuItems(session, stoppable, runIndex === undefined ? worktree : undefined)}
           />
-        </span>
+        </span>{" "}
         {showWorktreeAlert && worktree && info?.needsAttention ? (
           <div className="session-worktree-alert">
             {worktreeNote(worktree, info)}
-            {renderWorktreeActions(worktree, info)}
+            {renderWorktreeFixes(worktree, info)}
           </div>
         ) : null}
         {groups?.map((group) => (

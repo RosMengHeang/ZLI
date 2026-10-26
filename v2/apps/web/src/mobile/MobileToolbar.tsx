@@ -5,6 +5,7 @@ import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Picker, type PickerOption } from "../ui/Picker.js";
 import { Segmented } from "../ui/Segmented.js";
+import { StopButton } from "../ui/StopButton.js";
 import {
   deviceGroup,
   deviceSummary,
@@ -119,9 +120,9 @@ export function MobileToolbar({
         </Button>
       ) : null}
       {device && virtual && device.state === "booting" ? (
-        <Button size="sm" icon="square" loading={stopping} onClick={onCancel}>
+        <StopButton label="Cancel" tooltip="Stop booting this device" stopping={stopping} onClick={onCancel}>
           Cancel
-        </Button>
+        </StopButton>
       ) : null}
       {device && virtual && device.state === "online" ? (
         <IconButton

@@ -124,6 +124,12 @@ const paths = {
     </>
   ),
   square: <rect x="6" y="6" width="12" height="12" rx="2" />,
+  stop: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" />
+    </>
+  ),
   pause: <path d="M14 4h4v16h-4zM6 4h4v16H6z" />,
   trash: <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />,
   check: <path d="M20 6 9 17l-5-5" />,

@@ -23,6 +23,7 @@ import { Kbd } from "../ui/Kbd.js";
 import { DEFAULT_MODEL, ModelMark, modelOptions } from "../ui/ModelMark.js";
 import { Picker } from "../ui/Picker.js";
 import { ariaShortcut } from "../ui/shortcuts.js";
+import { StopButton } from "../ui/StopButton.js";
 import { formatTokens } from "../usage/usage.js";
 import { type BestOfAgentOption, BestOfPopover } from "./BestOfPopover.js";
 import { type CodeReference, referenceLabel, withReferences } from "./codeReferences.js";
@@ -650,15 +651,12 @@ export function Composer({
         <span className="composer-spacer" />
         {context ? <ContextMeter tokens={context.tokens} window={context.window} /> : null}
         {onStop ? (
-          <button
-            className="stop-button"
-            type="button"
-            aria-label={`Stop ${displayName}`}
-            data-tooltip={`Stop ${displayName}'s current turn`}
+          <StopButton
+            size="md"
+            label={`Stop ${displayName}`}
+            tooltip={`Stop ${displayName}'s current turn`}
             onClick={onStop}
-          >
-            <Icon name="square" size={12} fill="currentColor" strokeWidth={0} />
-          </button>
+          />
         ) : null}
         <span className={`send-split${bestOf ? " has-menu" : ""}`} ref={sendSplitRef}>
           <button

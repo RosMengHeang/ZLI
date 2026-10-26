@@ -191,6 +191,8 @@ type PopupMenuButtonProps = {
   size?: "xs" | "sm" | "md";
   variant?: ButtonVariant;
   className?: string | undefined;
+  /** Tooltip text when it should be shorter than the accessible name. */
+  tooltip?: string | undefined;
   /** Text shown next to the icon; without it the button is icon-only. */
   children?: ReactNode;
   disabled?: boolean | undefined;
@@ -214,6 +216,7 @@ function PopupMenuButton({
   size = "sm",
   variant = "ghost",
   className,
+  tooltip,
   children,
   disabled,
 }: PopupMenuButtonProps) {
@@ -227,7 +230,7 @@ function PopupMenuButton({
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={!!request}
-        data-tooltip={request ? undefined : label}
+        data-tooltip={request ? undefined : (tooltip ?? label)}
         disabled={disabled}
         onClick={(event) => {
           if (request) {

@@ -115,9 +115,13 @@ not cover, add it to the primitives instead of styling it locally.
   row under the agents. It starts folded, but still lists the worktree in
   view and any that is being created, failed, or waiting on the person.
   Folded projects and opened worktree rows are remembered across restarts.
-- Worktree rows show a trash button on hover that asks once, in the row,
-  before it deletes the worktree (or forgets a checkout, which never
-  touches disk). A checkout stuck in Queued can still be forgotten.
+- Agent and worktree rows have no floating buttons. Each has one "..."
+  menu at its end, in the spot of its time or status, shown while the row
+  is pointed at or focused. An agent's menu has Stop agent, Copy branch
+  name, and Delete agent. A worktree's menu has its setup and retry fixes,
+  Cancel while it is being created, and Delete worktree (or Forget
+  checkout, which never touches disk), which asks once in the row. A
+  checkout stuck in Queued can still be forgotten.
 - Agent rows are indented under their project, with the provider mark and
   the title. The selected agent gets a fill, not a stripe.
   The right side shows the status while the agent is starting, working,
@@ -246,6 +250,13 @@ not cover, add it to the primitives instead of styling it locally.
   accent border and a soft glow. The composer as a whole lifts to the overlay
   fill and takes the same glow while anything inside it has focus. Panel
   resize handles show an accent line on hover.
+- Stopping running work uses one control everywhere: the agent tile header,
+  the composer during a turn, and Cancel on a booting device. It is a raised
+  pill (round when it has no text) with a small square inside a ring. The
+  ring turns in the Working blue while the work runs and stays still for an
+  idle agent. Pointing at it turns it red, and after a click the ring speeds
+  up until the work has ended. Menus use the same ring-and-square icon for
+  Stop agent.
 - Dialogs trap Tab, give focus back when they close, and close on Escape or a
   click outside.
 - Pickers open above their trigger when there is room, focus the selected
@@ -270,7 +281,7 @@ not cover, add it to the primitives instead of styling it locally.
 ## Motion
 
 Motion is limited to hover and focus feedback, a slight press on buttons,
-resizing, chevrons, status spinners, and one entrance: dialogs and the command
+resizing, chevrons, status spinners (including the Stop ring), and one entrance: dialogs and the command
 palette fade in and rise 4px over 150ms so they read as part of the same
 window. Durations stay between 100 and 160ms. There are no decorative loops.
 With reduced motion turned on, transitions and animations are switched off,
