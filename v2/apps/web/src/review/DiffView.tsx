@@ -1,4 +1,14 @@
-import { type KeyboardEvent, type MouseEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import type { GitHunkAction } from "@zli-v2/contracts";
+import {
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
@@ -8,6 +18,7 @@ import {
   type DiffLine,
   findInLines,
   formatLocation,
+  hunkTexts,
   isCommentable,
   type LineAnchor,
   parseDiffLines,
@@ -19,6 +30,18 @@ import "./review.css";
 
 type Draft = { anchor: LineAnchor; excerpt: string[]; returnTo: number };
 
+export type HunkActions = {
+  actions: readonly GitHunkAction[];
+  disabled?: boolean;
+  onAction(action: GitHunkAction, hunkIndex: number, hunk: string): void;
+};
+
+const hunkActionLabels: Record<GitHunkAction, { label: string; tooltip: string }> = {
+  stage: { label: "Stage hunk", tooltip: "Add this hunk to the next commit" },
+  unstage: { label: "Unstage hunk", tooltip: "Take this hunk out of the next commit" },
+  discard: { label: "Discard hunk", tooltip: "Undo this hunk in the working tree" },
+};
+
 /**
  * A file's diff whose lines can be picked for review comments: click a line, Shift+click or
  * Shift+Arrow for a range, then press C or Enter. Comments wait in the list below until sent.
@@ -26,11 +49,21 @@ type Draft = { anchor: LineAnchor; excerpt: string[]; returnTo: number };
 export function DiffView({
   worktreeId,
   diff,
+  hunkActions,
+  toolbar,
+  emptyText = "No textual diff available for this file.",
 }: {
   worktreeId: string;
   diff: { path: string; patch?: string | undefined; binary?: boolean | undefined; truncated?: boolean | undefined };
+  /** Buttons on each hunk's `@@` line, for a patch whose hunks map onto the index or the working tree. */
+  hunkActions?: HunkActions | undefined;
+  /** Controls shown in the header after the path. */
+  toolbar?: ReactNode;
+  emptyText?: string;
 }) {
   const lines = useMemo(() => (diff.patch ? parseDiffLines(patchBody(diff.patch)) : []), [diff.patch]);
+  const withHunks = !!hunkActions;
+  const hunks = useMemo(() => (withHunks ? hunkTexts(lines) : undefined), [withHunks, lines]);
   const comments = useReviewComments(worktreeId);
   const fileComments = useMemo(() => comments.filter((comment) => comment.path === diff.path), [comments, diff.path]);
   const [focusIndex, setFocusIndex] = useState<number>();
@@ -136,6 +169,7 @@ export function DiffView({
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if ((event.target as HTMLElement).closest(".diff-hunk-actions")) return;
     const key = event.key;
     if (key === "ArrowDown" || key === "ArrowUp" || key === "Home" || key === "End") {
       const next =
@@ -206,6 +240,7 @@ export function DiffView({
       <div className="review-diff-header">
         <Icon name="file" size={12} />
         <span className="review-diff-path">{diff.path}</span>
+        {toolbar}
         <span>{diff.binary ? "Binary file" : diff.truncated ? "Output truncated" : ""}</span>
         {lines.length > 0 ? (
           pickedCount > 0 && !draft ? (
@@ -321,7 +356,8 @@ export function DiffView({
                   data-line={line.index}
                   tabIndex={commentable ? (tabStop ? 0 : -1) : undefined}
                   aria-selected={selected}
-                  aria-disabled={commentable ? undefined : true}
+                  // aria-disabled would also disable the hunk buttons inside the row for assistive tech.
+                  aria-disabled={commentable || (hunkActions && line.kind === "hunk") ? undefined : true}
                   onFocus={() => {
                     if (commentable && focusIndex !== line.index) setFocusIndex(line.index);
                   }}
@@ -354,12 +390,15 @@ export function DiffView({
                       : line.text || " "}
                   </span>
                   {commented.has(line.index) ? <span className="sr-only"> (commented)</span> : null}
+                  {hunkActions && line.kind === "hunk" ? (
+                    <HunkButtons hunkActions={hunkActions} hunk={hunks?.get(line.index)} />
+                  ) : null}
                 </div>
               );
             })}
           </div>
         ) : (
-          <p className="diff-empty">No textual diff available for this file.</p>
+          <p className="diff-empty">{emptyText}</p>
         )}
       </div>
       {draft && location ? (
@@ -405,6 +444,33 @@ export function DiffView({
         </form>
       ) : null}
     </section>
+  );
+}
+
+function HunkButtons({
+  hunkActions,
+  hunk,
+}: {
+  hunkActions: HunkActions;
+  hunk: { hunkIndex: number; text: string } | undefined;
+}) {
+  if (!hunk) return null;
+  return (
+    <span className="diff-hunk-actions">
+      {hunkActions.actions.map((action) => (
+        <Button
+          key={action}
+          size="xs"
+          variant="ghost"
+          className={action === "discard" ? "is-danger" : undefined}
+          tooltip={hunkActionLabels[action].tooltip}
+          disabled={hunkActions.disabled}
+          onClick={() => hunkActions.onAction(action, hunk.hunkIndex, hunk.text)}
+        >
+          {hunkActionLabels[action].label}
+        </Button>
+      ))}
+    </span>
   );
 }
 

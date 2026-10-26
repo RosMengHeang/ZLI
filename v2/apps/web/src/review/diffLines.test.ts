@@ -5,6 +5,7 @@ import {
   anchorFor,
   findInLines,
   formatLocation,
+  hunkTexts,
   parseDiffLines,
   patchBody,
   splitOnMatches,
@@ -112,6 +113,18 @@ describe("find in diff", () => {
     expect(splitOnMatches("aaaa", "aa")).toEqual([
       { text: "aa", match: true },
       { text: "aa", match: true },
+    ]);
+  });
+});
+
+describe("hunkTexts", () => {
+  it("gives each hunk's text from its @@ line, without the patch's final newline", () => {
+    const patch =
+      "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n@@ -9 +9 @@\n-c\n+d\n\\ No newline at end of file\n";
+    const lines = parseDiffLines(patchBody(patch));
+    expect([...hunkTexts(lines)]).toEqual([
+      [0, { hunkIndex: 0, text: "@@ -1 +1 @@\n-a\n+b" }],
+      [3, { hunkIndex: 1, text: "@@ -9 +9 @@\n-c\n+d\n\\ No newline at end of file" }],
     ]);
   });
 });

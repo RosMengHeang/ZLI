@@ -1,6 +1,11 @@
 import {
   GitBranchesResult,
+  GitChangeResult,
+  type GitHunkAction,
   GitPullResult,
+  type GitStashAction,
+  GitStashListResult,
+  GitStashResult,
   PullRequestCheckLogResult,
   PullRequestCommentsResult,
   PullRequestCreateResult,
@@ -166,5 +171,79 @@ export function setAutoMerge(
     dispatch,
     { type: "review.pr.autoMerge", worktreeId: WorktreeId.parse(worktreeId), ...input },
     PullRequestUpdateResult,
+  );
+}
+
+/** Stages the paths, or every change when `paths` is omitted. */
+export function stageFiles(
+  dispatch: Dispatch,
+  worktreeId: string,
+  paths?: readonly string[],
+): Promise<GitChangeResult> {
+  return request(
+    dispatch,
+    { type: "review.git.stage", worktreeId: WorktreeId.parse(worktreeId), ...(paths ? { paths: [...paths] } : {}) },
+    GitChangeResult,
+  );
+}
+
+/** Unstages the paths, or everything staged when `paths` is omitted. */
+export function unstageFiles(
+  dispatch: Dispatch,
+  worktreeId: string,
+  paths?: readonly string[],
+): Promise<GitChangeResult> {
+  return request(
+    dispatch,
+    { type: "review.git.unstage", worktreeId: WorktreeId.parse(worktreeId), ...(paths ? { paths: [...paths] } : {}) },
+    GitChangeResult,
+  );
+}
+
+export function discardFile(dispatch: Dispatch, worktreeId: string, path: string): Promise<GitChangeResult> {
+  return request(
+    dispatch,
+    { type: "review.git.discard", worktreeId: WorktreeId.parse(worktreeId), path },
+    GitChangeResult,
+  );
+}
+
+export function applyHunk(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { path: string; action: GitHunkAction; index: number; hunk: string },
+): Promise<GitChangeResult> {
+  return request(
+    dispatch,
+    { type: "review.git.hunk", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    GitChangeResult,
+  );
+}
+
+export function listStashes(dispatch: Dispatch, worktreeId: string): Promise<GitStashListResult> {
+  return request(
+    dispatch,
+    { type: "review.git.stashList", worktreeId: WorktreeId.parse(worktreeId) },
+    GitStashListResult,
+  );
+}
+
+export function stashChanges(dispatch: Dispatch, worktreeId: string, message?: string): Promise<GitStashResult> {
+  return request(
+    dispatch,
+    { type: "review.git.stash", worktreeId: WorktreeId.parse(worktreeId), ...(message ? { message } : {}) },
+    GitStashResult,
+  );
+}
+
+export function runStashAction(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { action: GitStashAction; index: number; commit: string },
+): Promise<GitStashResult> {
+  return request(
+    dispatch,
+    { type: "review.git.stashAction", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    GitStashResult,
   );
 }

@@ -32,7 +32,7 @@ export type ProcessResult = { code: number; stdout: string; stderr: string };
 export type ProcessRunner = (
   command: "git" | "gh",
   args: readonly string[],
-  options: { cwd: string; timeoutMs: number; maxOutputBytes?: number },
+  options: { cwd: string; timeoutMs: number; maxOutputBytes?: number; input?: string },
 ) => Promise<ProcessResult>;
 
 /** A failure the person can act on; the message is shown as is. */
@@ -1069,9 +1069,14 @@ export const runProcess: ProcessRunner = (command, args, options) =>
     const child = spawnCli(command, args, {
       cwd: options.cwd,
       env: { ...process.env, ...PROMPTLESS_ENV },
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       windowsHide: true,
     });
+    if (options.input !== undefined) {
+      // A child that exits before reading everything closes the pipe; its exit code tells what happened.
+      child.stdin?.on("error", () => undefined);
+      child.stdin?.end(options.input);
+    }
     let stdout = "";
     let stderr = "";
     let settled = false;

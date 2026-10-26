@@ -109,7 +109,7 @@ test("creates a draft pull request from the Changes panel and opens it", async (
     const commitMessage = page.getByLabel("Commit message");
     await expect(commitMessage).toBeFocused();
     await commitMessage.fill("Add a greeting");
-    await page.getByRole("button", { name: "Commit changes" }).click();
+    await page.getByRole("button", { name: "Commit all changes" }).click();
     await expect.poll(() => git(worktreePath, ["log", "-1", "--format=%s"])).toBe("Add a greeting");
 
     await section.getByRole("button", { name: "Create PR" }).click();

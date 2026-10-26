@@ -6,6 +6,7 @@ export * from "./devServers.js";
 export * from "./diagnostics.js";
 export * from "./events.js";
 export * from "./files.js";
+export * from "./gitChanges.js";
 export * from "./ids.js";
 export * from "./import.js";
 export * from "./issues.js";

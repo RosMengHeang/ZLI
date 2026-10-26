@@ -6,6 +6,7 @@ import { DevServerProjection } from "./devServers.js";
 import { DesktopAppInfo, DiagnosticLog } from "./diagnostics.js";
 import { RuntimeEventEnvelope } from "./events.js";
 import { FileCommand } from "./files.js";
+import { GitChangesCommand } from "./gitChanges.js";
 import {
   AccountId,
   BrowserTabId,
@@ -257,6 +258,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("devserver.stopped"), terminalId: TerminalId, port: DevServerProjection.shape.port }),
   ...FileCommand.options,
   ...PullRequestCommand.options,
+  ...GitChangesCommand.options,
   ...CheckpointCommand.options,
   ...McpCommand.options,
   ...IssueCommand.options,

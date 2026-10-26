@@ -2,14 +2,16 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 
 import {
-  ReviewProjection,
-  type WorktreeId,
-  type ReviewFileProjection,
   type ReviewDiffProjection,
+  type ReviewFileProjection,
+  ReviewProjection,
   type ReviewProjection as ReviewProjectionValue,
+  type WorktreeId,
 } from "@zli-v2/contracts";
 
 import { type GitProcess, GitProcessError } from "../git/GitProcess.js";
+import { isConflict, parseStatusZ, type StatusEntry } from "./gitStatus.js";
+import { type DiffPart, partDiffArgs, splitPatch } from "./hunkPatch.js";
 
 export type ReviewServiceInput = {
   worktreeId: WorktreeId;
@@ -26,14 +28,14 @@ export class ReviewService {
     assertRef(input.baseRef);
     const [branchResult, statusResult, mergeBase] = await Promise.all([
       this.git.run(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: input.worktreePath }),
-      this.git.run(["status", "--porcelain=v1"], { cwd: input.worktreePath }),
+      this.git.run(["status", "--porcelain=v1", "-z"], { cwd: input.worktreePath }),
       this.mergeBase(input),
     ]);
     // Against the working tree rather than `base...HEAD`, so uncommitted edits are counted too.
     const diffResult = await this.git.run(["diff", "--numstat", "-z", "--find-renames", mergeBase], {
       cwd: input.worktreePath,
     });
-    const statuses = parseStatus(statusResult.stdout);
+    const statuses = parseStatusZ(statusResult.stdout);
     const stats = [
       ...parseNumstat(diffResult.stdout),
       ...(await countUntracked(
@@ -57,7 +59,9 @@ export class ReviewService {
   async commit(input: ReviewServiceInput & { message: string }): Promise<ReviewProjectionValue> {
     const message = input.message.trim();
     if (!message || message.includes("\0")) throw new Error("Commit message must contain visible text.");
-    await this.git.run(["add", "--all", "--", "."], { cwd: input.worktreePath });
+    // With something staged only that is committed; with nothing staged, every change is, as before staging existed.
+    const staged = await this.git.run(["diff", "--cached", "--name-only", "-z"], { cwd: input.worktreePath });
+    if (!staged.stdout) await this.git.run(["add", "--all", "--", "."], { cwd: input.worktreePath });
     await this.git.run(["commit", "-m", message], { cwd: input.worktreePath });
     return this.refresh(input);
   }
@@ -69,6 +73,7 @@ export class ReviewService {
     if (!file) throw new Error(`The file is not part of the current review: ${input.path}`);
 
     let patch = "";
+    let parts: Partial<Record<DiffPart, string>> = {};
     if (file.kind === "untracked") {
       patch = await readUntrackedPatch(input.worktreePath, file);
     } else {
@@ -77,6 +82,7 @@ export class ReviewService {
       });
       if (workingTreeDiff.stdout) {
         patch = workingTreeDiff.stdout;
+        if (file.kind !== "renamed" && !file.binary) parts = await this.diffParts(input.worktreePath, file.path);
       } else {
         const committedDiff = await this.git.run(
           ["diff", "--no-ext-diff", "--unified=3", `${input.baseRef}...HEAD`, "--", file.path],
@@ -92,6 +98,8 @@ export class ReviewService {
       binary: file.binary,
       patch: bounded.patch,
       truncated: bounded.truncated,
+      ...(parts.staged !== undefined ? { stagedPatch: parts.staged } : {}),
+      ...(parts.unstaged !== undefined ? { unstagedPatch: parts.unstaged } : {}),
       generatedAt: new Date().toISOString(),
     };
     return ReviewProjection.parse({ ...review, diff });
@@ -121,6 +129,19 @@ export class ReviewService {
     return this.refresh(input);
   }
 
+  /** Both halves of a file's uncommitted diff, or neither when one is too long or is not a plain text diff. */
+  private async diffParts(worktreePath: string, path: string): Promise<Partial<Record<DiffPart, string>>> {
+    const [staged, unstaged] = await Promise.all(
+      (["staged", "unstaged"] as const).map(async (part) => {
+        const result = await this.git.run(partDiffArgs(part, path), { cwd: worktreePath });
+        return result.stdout;
+      }),
+    );
+    const usable = (value: string | undefined) =>
+      value !== undefined && value.length <= MAX_PATCH_CHARS && (!value || splitPatch(value) !== undefined);
+    return usable(staged) && usable(unstaged) ? { staged: staged ?? "", unstaged: unstaged ?? "" } : {};
+  }
+
   private async mergeBase(input: ReviewServiceInput): Promise<string> {
     try {
       const result = await this.git.run(["merge-base", input.baseRef, "HEAD"], { cwd: input.worktreePath });
@@ -134,8 +155,8 @@ export class ReviewService {
   }
 
   private async targetConflictProjection(input: ReviewServiceInput): Promise<ReviewProjectionValue | undefined> {
-    const result = await this.git.run(["status", "--porcelain=v1"], { cwd: input.repositoryPath });
-    const statuses = parseStatus(result.stdout);
+    const result = await this.git.run(["status", "--porcelain=v1", "-z"], { cwd: input.repositoryPath });
+    const statuses = parseStatusZ(result.stdout);
     const conflictFiles = statuses.filter((status) => isConflict(status.xy)).map((status) => status.path);
     if (conflictFiles.length === 0) return undefined;
     return ReviewProjection.parse({
@@ -150,23 +171,7 @@ export class ReviewService {
   }
 }
 
-type StatusEntry = { xy: string; path: string; oldPath?: string };
 type NumstatEntry = { path: string; oldPath?: string; additions: number; deletions: number; binary: boolean };
-
-function parseStatus(stdout: string): StatusEntry[] {
-  return stdout
-    .split(/\r?\n/u)
-    .map((line) => line.trimEnd())
-    .filter(Boolean)
-    .flatMap((line) => {
-      if (line.length < 4) return [];
-      const xy = line.slice(0, 2);
-      const rename = parseRenamePath(line.slice(3).trim());
-      const entry: StatusEntry = { xy, path: rename.path };
-      if (rename.oldPath) entry.oldPath = rename.oldPath;
-      return [entry];
-    });
-}
 
 /**
  * Parses `git diff --numstat -z`. A record is `added\tdeleted\tpath\0`, or for a rename
@@ -245,6 +250,7 @@ function mergeFiles(statuses: StatusEntry[], stats: NumstatEntry[]): ReviewFileP
       path,
       kind,
       staged: xy[0] !== undefined && "AMDRCT".includes(xy[0]),
+      unstaged: xy === "??" || isConflict(xy) || (xy[1] !== undefined && "MDT".includes(xy[1])),
       additions: stat?.additions ?? 0,
       deletions: stat?.deletions ?? 0,
       binary: stat?.binary ?? false,
@@ -253,17 +259,6 @@ function mergeFiles(statuses: StatusEntry[], stats: NumstatEntry[]): ReviewFileP
     if (oldPath) file.oldPath = oldPath;
     return file;
   });
-}
-
-function parseRenamePath(value: string): { path: string; oldPath?: string } {
-  const separator = " => ";
-  const index = value.lastIndexOf(separator);
-  if (index <= 0 || index + separator.length >= value.length) return { path: value };
-  return { oldPath: value.slice(0, index), path: value.slice(index + separator.length) };
-}
-
-function isConflict(xy: string): boolean {
-  return xy.includes("U") || xy === "AA" || xy === "DD";
 }
 
 export function assertRef(value: string): void {
@@ -293,11 +288,12 @@ function assertRelativePath(value: string): void {
   }
 }
 
+const MAX_PATCH_CHARS = 200_000;
+
 function boundPatch(value: string): { patch: string; truncated: boolean } {
-  const maxChars = 200_000;
-  return value.length <= maxChars
+  return value.length <= MAX_PATCH_CHARS
     ? { patch: value, truncated: false }
-    : { patch: value.slice(0, maxChars), truncated: true };
+    : { patch: value.slice(0, MAX_PATCH_CHARS), truncated: true };
 }
 
 async function readUntrackedPatch(worktreePath: string, file: ReviewFileProjection): Promise<string> {
