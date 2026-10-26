@@ -8,9 +8,33 @@
 .plugin-directory-note { margin: 0; color: var(--zli-amber); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 .plugin-row .skill-row-title { flex-wrap: wrap; }
 .plugin-row-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); }
-.plugin-warning { margin: 0; color: var(--zli-amber); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.plugin-warning { margin: 0; font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 .plugin-legend { display: flex; align-items: center; gap: var(--zli-space-1-5); }
 
+/* Install, opened inside the card: what the plugin adds, where it comes from, then Install. */
+.plugin-install { display: flex; flex-direction: column; gap: var(--zli-space-3); padding-top: var(--zli-space-3); border-top: 1px solid var(--zli-border); animation: connector-panel-in var(--zli-duration-enter) var(--zli-ease); }
+.plugin-install .mcp-editor-actions { padding-top: var(--zli-space-1); }
+.plugin-install-loading { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.plugin-candidates { gap: var(--zli-space-2); }
+.plugin-candidates > legend { display: flex; width: 100%; margin-bottom: var(--zli-space-2); }
+.plugin-legend-text { min-width: 0; overflow: hidden; color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.skill-candidate.plugin-candidate { padding: var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-surface); transition: border-color var(--zli-duration-fast) var(--zli-ease); }
+.skill-candidate.plugin-candidate + .plugin-candidate { border-top: 1px solid var(--zli-border); }
+label.plugin-candidate:hover { border-color: var(--zli-border-strong); }
+label.plugin-candidate.is-checked { border-color: var(--zli-accent-edge); }
+.plugin-candidate.is-single { cursor: default; }
+.plugin-candidate .mcp-row-copy { gap: var(--zli-space-1-5); }
+.plugin-parts { display: flex; flex-direction: column; margin: var(--zli-space-1) 0 0; padding: var(--zli-space-1) var(--zli-space-3); border-radius: var(--zli-radius-sm); background: var(--zli-well); list-style: none; }
+.plugin-part { display: grid; grid-template-columns: 20px 104px minmax(0, 1fr); align-items: baseline; gap: var(--zli-space-2); padding: var(--zli-space-1-5) 0; font-size: var(--zli-text-sm); }
+.plugin-part + .plugin-part { border-top: 1px solid var(--zli-border); }
+.plugin-part-icon { display: inline-flex; align-self: center; color: var(--zli-dim); }
+.plugin-part-label { color: var(--zli-text); font-weight: 500; white-space: nowrap; }
+.plugin-part-names { display: flex; min-width: 0; flex-direction: column; gap: 2px; color: var(--zli-muted); overflow-wrap: anywhere; }
+.plugin-candidate-meta { color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); }
+.plugin-trust { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: 0; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.plugin-trust svg, .plugin-warning svg { flex: 0 0 auto; margin-top: 3px; }
+.plugin-warning { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); padding: var(--zli-space-2) var(--zli-space-3); border-radius: var(--zli-radius-sm); background: var(--zli-amber-soft); box-shadow: inset 0 0 0 1px var(--zli-amber-line); color: var(--zli-amber-ink); }
+@media (prefers-reduced-motion: reduce) { .plugin-install { animation: none; } }
 /* Share my setup */
 .plugin-export-list { display: flex; min-width: 0; flex-direction: column; margin: 0; padding: 0; border: 0; }
 .plugin-export-list > legend { margin-bottom: var(--zli-space-1); padding: 0; }

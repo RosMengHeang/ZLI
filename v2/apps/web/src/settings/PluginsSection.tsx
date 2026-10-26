@@ -1,5 +1,11 @@
-import { PLUGIN_CATALOG, type PluginInstallPreview, type PluginOrigin, type PluginSummary } from "@zli-v2/contracts";
-import { useEffect, useRef, useState } from "react";
+import {
+  PLUGIN_CATALOG,
+  type PluginComponents,
+  type PluginInstallPreview,
+  type PluginOrigin,
+  type PluginSummary,
+} from "@zli-v2/contracts";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { OriginBadge } from "../plugins/OriginBadge.js";
 import {
@@ -18,7 +24,7 @@ import {
 import { Badge } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Field } from "../ui/Field.js";
-import { Icon } from "../ui/Icon.js";
+import { Icon, type IconName } from "../ui/Icon.js";
 import { ConnectorLogo, hasConnectorLogo } from "./connectorLogos.js";
 import { PluginExportForm } from "./PluginExportForm.js";
 import { PluginGallery } from "./PluginGallery.js";
@@ -33,7 +39,12 @@ type Installing = {
   preview?: PluginInstallPreview;
   selected: string[];
 };
-type Configuring = { name: string; values: Record<string, string> };
+type Configuring = {
+  name: string;
+  values: Record<string, string>;
+  /** The source it was just installed from, so the gallery card that installed it can hold the form. */
+  source?: string;
+};
 
 /** The catalog logo for an installed plugin, Claude's mark for Anthropic's directory, or its first letter. */
 export function pluginLogoId(plugin: Pick<PluginSummary, "name" | "origin">): string {
@@ -72,6 +83,7 @@ export function PluginsSection({
   const [exporting, setExporting] = useState(false);
   const [saved, setSaved] = useState<string>();
   const [installedNames, setInstalledNames] = useState<string[]>([]);
+  const [installedIds, setInstalledIds] = useState<string[]>([]);
   const [checkProblem, setCheckProblem] = useState<string>();
   const sourceRef = useRef<HTMLInputElement>(null);
   const installRef = useRef<HTMLFormElement>(null);
@@ -138,6 +150,7 @@ export function PluginsSection({
     setExporting(false);
     setSaved(undefined);
     setInstalledNames([]);
+    setInstalledIds([]);
     setError(undefined);
   };
 
@@ -167,6 +180,7 @@ export function PluginsSection({
     const done = await run("install", () => apply((send) => installPlugins(send, source, selected, origin)));
     if (!done) return;
     setInstalling(undefined);
+    setInstalledIds(selected);
     setInstalledNames(
       installing.preview.candidates
         .filter((candidate) => selected.includes(candidate.name))
@@ -175,7 +189,7 @@ export function PluginsSection({
     const needsSettings = installing.preview.candidates.find(
       (candidate) => selected.includes(candidate.name) && candidate.config.some((option) => option.required),
     );
-    if (needsSettings) setConfiguring({ name: needsSettings.name, values: {} });
+    if (needsSettings) setConfiguring({ name: needsSettings.name, values: {}, source });
   };
 
   const saveSettings = async () => {
@@ -318,6 +332,156 @@ export function PluginsSection({
   };
 
   const configured = configuring ? result.plugins.find((plugin) => plugin.name === configuring.name) : undefined;
+  // On Browse the forms open inside the card that started them, so the person stays where they clicked.
+  const inCard = view === "browse";
+
+  const configureForm =
+    configuring && configured ? (
+      <form
+        className={inCard ? "plugin-install" : "mcp-editor"}
+        aria-label={`Settings for ${configured.displayName}`}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void saveSettings();
+        }}
+      >
+        <p className="field-label">Settings for {configured.displayName}</p>
+        {configured.config.map((option) => {
+          const saved = configured.configured.includes(option.key);
+          const placeholder = option.sensitive && saved ? "Saved. Leave blank to keep it." : (option.default ?? "");
+          return (
+            <Field
+              key={option.key}
+              label={`${option.title}${option.required ? "" : " (optional)"}`}
+              hint={option.description}
+            >
+              <input
+                className="input input-sm"
+                type={option.sensitive ? "password" : option.type === "number" ? "number" : "text"}
+                autoComplete="off"
+                spellCheck={false}
+                value={configuring.values[option.key] ?? ""}
+                placeholder={placeholder}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setConfiguring((current) =>
+                    current ? { ...current, values: { ...current.values, [option.key]: value } } : current,
+                  );
+                }}
+              />
+            </Field>
+          );
+        })}
+        <p className="settings-footnote">
+          Values stay on this computer in a file only you can read. Blank fields keep what is saved.
+        </p>
+        {error ? (
+          <p className="inline-error" role="alert">
+            <Icon name="alert" size={13} />
+            {error}
+          </p>
+        ) : null}
+        <div className="mcp-editor-actions">
+          <Button size="sm" variant="ghost" onClick={closeForms}>
+            Cancel
+          </Button>
+          <Button size="sm" variant="primary" type="submit" loading={busy === `configure:${configuring.name}`}>
+            Save settings
+          </Button>
+        </div>
+      </form>
+    ) : null;
+
+  const looking = busy === "install" && !installing?.preview;
+  const installForm = installing ? (
+    <form
+      ref={installRef}
+      className={inCard ? "plugin-install" : "mcp-editor"}
+      aria-label="Install a plugin"
+      aria-busy={looking || undefined}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void lookUp(installing.source);
+      }}
+    >
+      {inCard ? null : (
+        <Field
+          label="Source"
+          hint="A GitHub link or owner/repo, such as anthropics/claude-plugins-official, or the full path of a folder on this computer."
+        >
+          <input
+            ref={sourceRef}
+            className="input input-sm is-mono"
+            value={installing.source}
+            spellCheck={false}
+            placeholder="owner/repo"
+            onChange={(event) => setInstalling({ source: event.target.value, selected: [] })}
+          />
+        </Field>
+      )}
+      {installing.preview ? (
+        <InstallChoices
+          preview={installing.preview}
+          origin={originForSource(installing.source, installing.origin)}
+          selected={installing.selected}
+          onChange={(selected) => setInstalling((current) => (current ? { ...current, selected } : current))}
+        />
+      ) : inCard && looking ? (
+        <p className="loading-line plugin-install-loading">
+          <span className="spinner" aria-hidden="true" />
+          Checking what it adds
+        </p>
+      ) : null}
+      {error ? (
+        <p className="inline-error" role="alert">
+          <Icon name="alert" size={13} />
+          {error}
+        </p>
+      ) : null}
+      <div className="mcp-editor-actions">
+        <Button size="sm" variant="ghost" onClick={closeForms}>
+          Cancel
+        </Button>
+        {installing.preview ? (
+          <Button
+            size="sm"
+            variant="primary"
+            icon="download"
+            loading={busy === "install"}
+            disabled={installing.selected.length === 0}
+            onClick={() => void install()}
+          >
+            {installing.selected.length === 1 ? "Install 1 plugin" : `Install ${installing.selected.length} plugins`}
+          </Button>
+        ) : inCard ? (
+          error ? (
+            <Button size="sm" type="submit">
+              Try again
+            </Button>
+          ) : null
+        ) : (
+          <Button
+            size="sm"
+            variant="primary"
+            type="submit"
+            loading={busy === "install"}
+            disabled={!installing.source.trim()}
+          >
+            Look up
+          </Button>
+        )}
+      </div>
+    </form>
+  ) : null;
+
+  const panelFor = (source: string | undefined, name: string) => {
+    if (!inCard) return null;
+    if (configureForm && configuring && (configuring.name === name || (source && configuring.source === source))) {
+      return configureForm;
+    }
+    if (installForm && installing && source !== undefined && installing.source === source) return installForm;
+    return null;
+  };
 
   return (
     <>
@@ -350,126 +514,10 @@ export function PluginsSection({
         </p>
       ) : null}
 
-      {configuring && configured ? (
-        <form
-          className="mcp-editor"
-          aria-label={`Settings for ${configured.displayName}`}
-          onSubmit={(event) => {
-            event.preventDefault();
-            void saveSettings();
-          }}
-        >
-          <p className="field-label">Settings for {configured.displayName}</p>
-          {configured.config.map((option) => {
-            const saved = configured.configured.includes(option.key);
-            const placeholder = option.sensitive && saved ? "Saved. Leave blank to keep it." : (option.default ?? "");
-            return (
-              <Field
-                key={option.key}
-                label={`${option.title}${option.required ? "" : " (optional)"}`}
-                hint={option.description}
-              >
-                <input
-                  className="input input-sm"
-                  type={option.sensitive ? "password" : option.type === "number" ? "number" : "text"}
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={configuring.values[option.key] ?? ""}
-                  placeholder={placeholder}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setConfiguring((current) =>
-                      current ? { ...current, values: { ...current.values, [option.key]: value } } : current,
-                    );
-                  }}
-                />
-              </Field>
-            );
-          })}
-          <p className="settings-footnote">
-            Values stay on this computer in a file only you can read. Blank fields keep what is saved.
-          </p>
-          {error ? (
-            <p className="inline-error" role="alert">
-              <Icon name="alert" size={13} />
-              {error}
-            </p>
-          ) : null}
-          <div className="mcp-editor-actions">
-            <Button size="sm" onClick={closeForms}>
-              Cancel
-            </Button>
-            <Button size="sm" variant="primary" type="submit" loading={busy === `configure:${configuring.name}`}>
-              Save settings
-            </Button>
-          </div>
-        </form>
-      ) : installing ? (
-        <form
-          ref={installRef}
-          className="mcp-editor"
-          aria-label="Install a plugin"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void lookUp(installing.source);
-          }}
-        >
-          <Field
-            label="Source"
-            hint="A GitHub link or owner/repo, such as anthropics/claude-plugins-official, or the full path of a folder on this computer."
-          >
-            <input
-              ref={sourceRef}
-              className="input input-sm is-mono"
-              value={installing.source}
-              spellCheck={false}
-              placeholder="owner/repo"
-              onChange={(event) => setInstalling({ source: event.target.value, selected: [] })}
-            />
-          </Field>
-          {installing.preview ? (
-            <InstallChoices
-              preview={installing.preview}
-              origin={originForSource(installing.source, installing.origin)}
-              selected={installing.selected}
-              onChange={(selected) => setInstalling((current) => (current ? { ...current, selected } : current))}
-            />
-          ) : null}
-          {error ? (
-            <p className="inline-error" role="alert">
-              <Icon name="alert" size={13} />
-              {error}
-            </p>
-          ) : null}
-          <div className="mcp-editor-actions">
-            <Button size="sm" onClick={closeForms}>
-              Cancel
-            </Button>
-            {installing.preview ? (
-              <Button
-                size="sm"
-                variant="primary"
-                loading={busy === "install"}
-                disabled={installing.selected.length === 0}
-                onClick={() => void install()}
-              >
-                {installing.selected.length === 1
-                  ? "Install 1 plugin"
-                  : `Install ${installing.selected.length} plugins`}
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="primary"
-                type="submit"
-                loading={busy === "install"}
-                disabled={!installing.source.trim()}
-              >
-                Look up
-              </Button>
-            )}
-          </div>
-        </form>
+      {inCard ? null : configureForm ? (
+        configureForm
+      ) : installForm ? (
+        installForm
       ) : view !== "custom" ? null : exporting ? (
         <PluginExportForm
           onCancel={closeForms}
@@ -505,7 +553,7 @@ export function PluginsSection({
         </>
       )}
 
-      {installedNames.length > 0 && !installing && !configuring ? (
+      {!inCard && installedNames.length > 0 && !installing && !configuring ? (
         <p className="settings-done" role="status">
           <Icon name="check" size={13} />
           <span>
@@ -521,13 +569,15 @@ export function PluginsSection({
         </p>
       ) : null}
 
-      {view === "browse" ? (
+      {inCard ? (
         <PluginGallery
           query={query}
           installed={new Set(result.plugins.map((plugin) => plugin.name))}
+          justInstalled={new Set(installing || configuring ? [] : installedIds)}
           disabled={busy !== undefined}
-          loadingSource={busy === "install" && !installing?.preview ? installing?.source : undefined}
+          panelFor={panelFor}
           onInstall={installFromGallery}
+          onInstalled={onInstalled}
         />
       ) : null}
 
@@ -539,6 +589,57 @@ export function PluginsSection({
         </p>
       ) : null}
     </>
+  );
+}
+
+/** One kind of part a plugin adds, with the names it brings. */
+function PartRow({ icon, label, children }: { icon: IconName; label: string; children: ReactNode }) {
+  return (
+    <li className="plugin-part">
+      <span className="plugin-part-icon" aria-hidden="true">
+        <Icon name={icon} size={13} />
+      </span>
+      <span className="plugin-part-label">{label}</span>
+      <span className="plugin-part-names">{children}</span>
+    </li>
+  );
+}
+
+function CandidateParts({ components }: { components: PluginComponents }) {
+  const { skills, mcpServers, prompts, actions, ignored } = components;
+  if (skills.length + mcpServers.length + prompts.length + actions.length + ignored.length === 0) return null;
+  return (
+    <ul className="plugin-parts">
+      {skills.length > 0 ? (
+        <PartRow icon="sparkle" label={skills.length === 1 ? "1 skill" : `${skills.length} skills`}>
+          {skills.join(", ")}
+        </PartRow>
+      ) : null}
+      {mcpServers.length > 0 ? (
+        <PartRow icon="puzzle" label={mcpServers.length === 1 ? "1 MCP server" : `${mcpServers.length} MCP servers`}>
+          {mcpServers.join(", ")}
+        </PartRow>
+      ) : null}
+      {prompts.length > 0 ? (
+        <PartRow icon="message" label={prompts.length === 1 ? "1 prompt" : `${prompts.length} prompts`}>
+          {prompts.map((prompt) => `/${prompt.name}`).join(", ")}
+        </PartRow>
+      ) : null}
+      {actions.length > 0 ? (
+        <PartRow icon="terminal" label={actions.length === 1 ? "1 action" : `${actions.length} actions`}>
+          {actions.map((action) => (
+            <span className="mcp-row-command" key={action.name} title={action.command}>
+              {action.name}: {action.command}
+            </span>
+          ))}
+        </PartRow>
+      ) : null}
+      {ignored.length > 0 ? (
+        <PartRow icon="x" label="Left out">
+          {ignored.join(", ")}
+        </PartRow>
+      ) : null}
+    </ul>
   );
 }
 
@@ -556,11 +657,15 @@ function InstallChoices({
   const runsCode = preview.candidates.some(
     (candidate) => candidate.components.actions.length > 0 || candidate.components.mcpServers.length > 0,
   );
+  // A single plugin needs no checkbox: Install and Cancel already decide it.
+  const single = preview.candidates.length === 1;
   return (
     <>
-      <fieldset className="skill-candidates">
+      <fieldset className="skill-candidates plugin-candidates">
         <legend className="field-label plugin-legend">
-          {preview.marketplace ? `${preview.marketplace}, in ${preview.label}` : `Found in ${preview.label}`}
+          <span className="plugin-legend-text">
+            {preview.marketplace ? `${preview.marketplace}, in ${preview.label}` : `Found in ${preview.label}`}
+          </span>
           <OriginBadge origin={origin} />
         </legend>
         {preview.candidates.length === 0 ? (
@@ -568,9 +673,33 @@ function InstallChoices({
         ) : null}
         {preview.candidates.map((candidate) => {
           const checked = selected.includes(candidate.name);
-          const summary = componentSummary(candidate.components);
-          return (
-            <label className={`skill-candidate${candidate.problem ? " is-off" : ""}`} key={candidate.path}>
+          const body = (
+            <span className="mcp-row-copy" key="body">
+              <span className="skill-row-title">
+                <strong>{candidate.displayName}</strong>
+                <Badge>{formatLabel[candidate.format]}</Badge>
+              </span>
+              {candidate.description ? <span className="mcp-row-detail">{candidate.description}</span> : null}
+              <CandidateParts components={candidate.components} />
+              <span className="plugin-candidate-meta">
+                {candidate.path === "." ? "Whole repository" : candidate.path},{" "}
+                {candidate.files === 1 ? "1 file" : `${candidate.files} files`}, {formatBytes(candidate.bytes)}
+              </span>
+              {candidate.problem ? <span className="skill-row-problem">{candidate.problem}</span> : null}
+              {!candidate.problem && candidate.exists ? (
+                <span className="skill-row-problem">Replaces the installed plugin with this name.</span>
+              ) : null}
+            </span>
+          );
+          const className = `skill-candidate plugin-candidate${candidate.problem ? " is-off" : ""}${
+            checked ? " is-checked" : ""
+          }`;
+          return single ? (
+            <div className={`${className} is-single`} key={candidate.path}>
+              {body}
+            </div>
+          ) : (
+            <label className={className} key={candidate.path}>
               <input
                 type="checkbox"
                 checked={checked}
@@ -583,33 +712,7 @@ function InstallChoices({
                   )
                 }
               />
-              <span className="mcp-row-copy">
-                <span className="skill-row-title">
-                  <strong>{candidate.displayName}</strong>
-                  <Badge>{formatLabel[candidate.format]}</Badge>
-                </span>
-                <span className="mcp-row-detail">{candidate.description || "No description."}</span>
-                {summary ? <span className="mcp-row-detail">{summary}</span> : null}
-                {candidate.components.mcpServers.length > 0 ? (
-                  <span className="mcp-row-detail">MCP servers: {candidate.components.mcpServers.join(", ")}</span>
-                ) : null}
-                {candidate.components.actions.map((action) => (
-                  <span className="mcp-row-command" key={action.name} title={action.command}>
-                    {action.name}: {action.command}
-                  </span>
-                ))}
-                {candidate.components.ignored.length > 0 ? (
-                  <span className="mcp-row-detail">Left out: {candidate.components.ignored.join(", ")}.</span>
-                ) : null}
-                <span className="mcp-row-command">
-                  {candidate.path}, {candidate.files === 1 ? "1 file" : `${candidate.files} files`},{" "}
-                  {formatBytes(candidate.bytes)}
-                </span>
-                {candidate.problem ? <span className="skill-row-problem">{candidate.problem}</span> : null}
-                {!candidate.problem && candidate.exists ? (
-                  <span className="skill-row-problem">Replaces the installed plugin with this name.</span>
-                ) : null}
-              </span>
+              {body}
             </label>
           );
         })}
@@ -631,10 +734,12 @@ function InstallChoices({
           <Icon name="alert" size={13} /> This plugin can run commands on your computer. Install it only if you trust
           where it came from.
         </p>
-      ) : null}
-      <p className="settings-footnote">
-        Plugins run code on this computer through their MCP servers and actions. Install only ones you trust.
-      </p>
+      ) : (
+        <p className="plugin-trust">
+          <Icon name="shield" size={13} />
+          Plugins run code on this computer through their MCP servers and actions. Install only ones you trust.
+        </p>
+      )}
     </>
   );
 }

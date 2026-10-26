@@ -14,6 +14,7 @@ import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { ConnectorLogo, hasConnectorLogo } from "./connectorLogos.js";
+import { TextLink } from "./SectionHeader.js";
 import "./connectors.css";
 import "../plugins/plugins.css";
 
@@ -57,17 +58,22 @@ function directoryLogo(entry: PluginDirectoryEntry): string {
 export function PluginGallery({
   query,
   installed,
+  justInstalled,
   disabled,
-  loadingSource,
+  panelFor,
   onInstall,
+  onInstalled,
 }: {
   query: string;
   /** Names of installed plugins. */
   installed: ReadonlySet<string>;
+  /** Names installed during this visit, whose cards confirm it and link to Installed. */
+  justInstalled: ReadonlySet<string>;
   disabled: boolean;
-  /** The source being looked up, whose Install button shows a spinner. */
-  loadingSource: string | undefined;
+  /** The install or settings form a card opens into, when one belongs to it. */
+  panelFor(source: string | undefined, name: string): ReactNode;
   onInstall(source: string, origin: PluginOrigin): void;
+  onInstalled?: (() => void) | undefined;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [directory, setDirectory] = useState<DirectoryState>({ status: "idle" });
@@ -100,7 +106,7 @@ export function PluginGallery({
       <span className="connector-spacer" />
       <Button
         size="xs"
-        loading={loadingSource === source}
+        icon="download"
         disabled={disabled}
         aria-label={`Install ${title}`}
         onClick={() => onInstall(source, origin)}
@@ -110,12 +116,22 @@ export function PluginGallery({
     </>
   );
 
-  const installedStatus = (
-    <span className="connector-status is-done">
-      <Icon name="check" size={12} />
-      Installed
-    </span>
-  );
+  const installedStatus = (name: string) =>
+    justInstalled.has(name) ? (
+      <>
+        <span className="connector-status is-done" role="status">
+          <Icon name="check" size={12} />
+          Installed
+        </span>
+        <span className="connector-spacer" />
+        {onInstalled ? <TextLink onClick={onInstalled}>View in Installed</TextLink> : null}
+      </>
+    ) : (
+      <span className="connector-status is-done">
+        <Icon name="check" size={12} />
+        Installed
+      </span>
+    );
 
   const card = (
     key: string,
@@ -126,8 +142,14 @@ export function PluginGallery({
     homepage: string | undefined,
     foot: ReactNode,
     isInstalled: boolean,
+    panel: ReactNode,
   ) => (
-    <li key={key} className="connector-card" data-entry={key} data-state={isInstalled ? "connected" : "new"}>
+    <li
+      key={key}
+      className={`connector-card${panel ? " is-open" : ""}`}
+      data-entry={key}
+      data-state={isInstalled ? "connected" : "new"}
+    >
       <div className="connector-card-head">
         <ConnectorLogo id={logoId} title={title} size={36} />
         <span className="connector-card-titles">
@@ -147,7 +169,7 @@ export function PluginGallery({
         ) : null}
       </div>
       <p className="connector-card-desc">{description || "No description."}</p>
-      <div className="connector-card-foot">{foot}</div>
+      {panel ?? (foot ? <div className="connector-card-foot">{foot}</div> : null)}
     </li>
   );
 
@@ -156,7 +178,7 @@ export function PluginGallery({
     const foot = entry.unsupported ? (
       <p className="plugin-card-unsupported">{entry.unsupported}</p>
     ) : isInstalled ? (
-      installedStatus
+      installedStatus(entry.name)
     ) : entry.source ? (
       installButton(entry.title, entry.source, "anthropic-directory")
     ) : null;
@@ -169,6 +191,7 @@ export function PluginGallery({
       entry.homepage,
       foot,
       isInstalled,
+      panelFor(entry.source, entry.name),
     );
   };
 
@@ -264,8 +287,11 @@ export function PluginGallery({
                 entry.publisher,
                 entry.description,
                 entry.homepage,
-                installed.has(entry.id) ? installedStatus : installButton(entry.title, entry.source, "zli-catalog"),
+                installed.has(entry.id)
+                  ? installedStatus(entry.id)
+                  : installButton(entry.title, entry.source, "zli-catalog"),
                 installed.has(entry.id),
+                panelFor(entry.source, entry.id),
               ),
             )}
           </ul>

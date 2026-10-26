@@ -252,6 +252,7 @@ export function ConnectorsSection({ query }: { query: string }) {
           <span className="connector-spacer" />
           <Button
             size="sm"
+            variant="ghost"
             onClick={() => {
               setForm(undefined);
               setProblem(entry.id, undefined);
@@ -281,7 +282,7 @@ export function ConnectorsSection({ query }: { query: string }) {
             <span className="connector-spacer" />
             <Button
               size="xs"
-              variant={catalogSignsIn(entry) ? "primary" : "secondary"}
+              icon={catalogSignsIn(entry) || entry.category !== "local" ? "plus" : undefined}
               loading={isBusy}
               aria-label={`${catalogSignsIn(entry) || entry.category !== "local" ? "Connect" : "Add"} ${entry.title}`}
               onClick={() => start(entry)}
@@ -291,25 +292,7 @@ export function ConnectorsSection({ query }: { query: string }) {
           </>
         );
       case "pending":
-        return (
-          <>
-            <span className="connector-status is-pending">
-              <span className="spinner" aria-hidden="true" />
-              {connector.signIn.code ? "Enter the code in your browser" : "Finish in your browser"}
-            </span>
-            <span className="connector-spacer" />
-            <button
-              type="button"
-              className="connector-link"
-              onClick={() => void reopenSignIn(connector.server.name).then(setNotice)}
-            >
-              Open again
-            </button>
-            <Button size="xs" variant="ghost" onClick={() => cancelSignIn(connector.server.name)}>
-              Cancel
-            </Button>
-          </>
-        );
+        return null;
       case "off":
         return (
           <>
@@ -411,6 +394,36 @@ export function ConnectorsSection({ query }: { query: string }) {
     }
   };
 
+  /** The browser sign-in in progress, inside the card that started it. */
+  const renderSignIn = (entry: McpCatalogEntry, server: McpServerConfig, signIn: PendingSignIn) => (
+    <div className="connector-signin">
+      <span className="connector-signin-mark" aria-hidden="true">
+        <span className="spinner" />
+      </span>
+      <div className="connector-signin-copy" role="status">
+        <p className="connector-signin-title">Waiting for you to sign in to {entry.title}</p>
+        <p className="connector-signin-detail">
+          {signIn.code
+            ? `Enter this code on the ${entry.title} page in your browser. It is already copied.`
+            : `Finish on the ${entry.title} page that opened in your browser. ZLI connects as soon as you are done.`}
+        </p>
+        {signIn.code ? (
+          <p className="connector-code">
+            <strong className="is-mono">{signIn.code}</strong>
+          </p>
+        ) : null}
+      </div>
+      <div className="connector-signin-actions">
+        <Button size="sm" variant="ghost" onClick={() => cancelSignIn(server.name)}>
+          Cancel
+        </Button>
+        <Button size="sm" icon="externalLink" onClick={() => void reopenSignIn(server.name).then(setNotice)}>
+          Open again
+        </Button>
+      </div>
+    </div>
+  );
+
   /** Tool count, Test, and projects, once a connector is connected. */
   const renderHealth = (entry: McpCatalogEntry, server: McpServerConfig) => {
     const health = healthFor(result, server.name);
@@ -456,7 +469,7 @@ export function ConnectorsSection({ query }: { query: string }) {
               return (
                 <li
                   key={entry.id}
-                  className={`connector-card${editing ? " is-open" : ""}`}
+                  className={`connector-card${editing || connector.kind === "pending" ? " is-open" : ""}`}
                   data-entry={entry.id}
                   data-state={connector.kind}
                 >
@@ -478,13 +491,10 @@ export function ConnectorsSection({ query }: { query: string }) {
                   </div>
                   <p className="connector-card-desc">{entry.description}</p>
                   {entry.needs ? <p className="connector-card-needs">{entry.needs}</p> : null}
-                  {connector.kind === "pending" && connector.signIn.code ? (
-                    <p className="connector-code">
-                      Code <strong className="is-mono">{connector.signIn.code}</strong>, copied for you
-                    </p>
-                  ) : null}
                   {connector.kind === "connected" && !editing ? renderHealth(entry, connector.server) : null}
-                  {editing ? (
+                  {connector.kind === "pending" ? (
+                    renderSignIn(entry, connector.server, connector.signIn)
+                  ) : editing ? (
                     renderForm(entry, editing)
                   ) : (
                     <div className="connector-card-foot">{renderActions(entry, connector)}</div>
