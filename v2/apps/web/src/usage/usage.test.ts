@@ -1,7 +1,16 @@
 import type { ThreadUsageRecord } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
-import { filterUsage, formatCost, formatTokens, groupUsage, latestContext, sumUsage } from "./usage.js";
+import {
+  filterUsage,
+  formatCost,
+  formatTokens,
+  groupUsage,
+  latestContext,
+  stripUsage,
+  sumUsage,
+  usageGroupKey,
+} from "./usage.js";
 
 const now = Date.parse("2026-09-23T15:00:00.000Z");
 
@@ -97,5 +106,42 @@ describe("groupUsage by account", () => {
       ["codex:work", "work", 30],
       ["codex", undefined, 15],
     ]);
+  });
+});
+
+describe("stripUsage", () => {
+  const at = (hoursAgo: number) => new Date(now - hoursAgo * 3_600_000).toISOString();
+
+  it("is undefined when nothing ran in the last 7 days", () => {
+    expect(stripUsage([], now)).toBeUndefined();
+    expect(stripUsage([record("a", "codex", "2026-09-01T10:00:00.000Z", { inputTokens: 5 })], now)).toBeUndefined();
+  });
+
+  it("shows today, or the last 7 days when nothing ran today", () => {
+    const yesterday = record("a", "codex", at(30), { inputTokens: 100 });
+    expect(stripUsage([yesterday], now)?.period).toBe("week");
+    const strip = stripUsage([yesterday, record("b", "codex", at(1), { inputTokens: 40 })], now);
+    expect(strip?.period).toBe("today");
+    expect(strip?.totals.inputTokens).toBe(40);
+  });
+
+  it("puts the highest cost first, then the most tokens, one row per account", () => {
+    const strip = stripUsage(
+      [
+        record("a", "codex", at(1), { inputTokens: 9_000 }),
+        { ...record("b", "claude-code", at(1), { inputTokens: 100, costUsd: 0.1 }), accountId: "work" },
+        record("c", "claude-code", at(1), { inputTokens: 200, costUsd: 0.4 }),
+        record("d", "gemini", at(1), { inputTokens: 20_000 }),
+      ],
+      now,
+    );
+    expect(strip?.groups.map((group) => group.key)).toEqual(["claude-code", "claude-code:work", "gemini", "codex"]);
+    expect(strip?.maxTokens).toBe(20_000);
+  });
+
+  it("keys the usual login like the plain provider", () => {
+    expect(usageGroupKey("codex", undefined)).toBe("codex");
+    expect(usageGroupKey("codex", "usual")).toBe("codex");
+    expect(usageGroupKey("codex", "work")).toBe("codex:work");
   });
 });

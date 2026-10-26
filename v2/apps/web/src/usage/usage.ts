@@ -82,7 +82,7 @@ export function groupUsage(records: readonly ThreadUsageRecord[], by: "provider"
       by === "provider" && record.accountId && record.accountId !== USUAL_LOGIN_ACCOUNT_ID
         ? record.accountId
         : undefined;
-    const key = by === "thread" ? record.threadId : accountId ? `${record.provider}:${accountId}` : record.provider;
+    const key = by === "thread" ? record.threadId : usageGroupKey(record.provider, accountId);
     const group = groups.get(key) ?? {
       provider: record.provider,
       ...(accountId ? { accountId } : {}),
@@ -104,6 +104,44 @@ export function groupUsage(records: readonly ThreadUsageRecord[], by: "provider"
     .sort((left, right) =>
       by === "thread" ? right.lastAt - left.lastAt : tokenTotal(right.totals) - tokenTotal(left.totals),
     );
+}
+
+/** The group key for a provider and account. The usual login shares the plain provider key. */
+export function usageGroupKey(provider: string, accountId: string | undefined): string {
+  return accountId && accountId !== USUAL_LOGIN_ACCOUNT_ID ? `${provider}:${accountId}` : provider;
+}
+
+export type UsageStrip = {
+  period: "today" | "week";
+  /** Every agent and account in the period, highest cost first, then most tokens. */
+  groups: UsageGroup[];
+  totals: UsageTotals;
+  /** The largest token count among the groups, so bars compare accounts with each other. */
+  maxTokens: number;
+};
+
+/**
+ * The sidebar's short summary: today, or the last 7 days when nothing ran today. Undefined when
+ * neither period has usage.
+ */
+export function stripUsage(records: readonly ThreadUsageRecord[], now: number): UsageStrip | undefined {
+  for (const period of ["today", "week"] as const) {
+    const visible = filterUsage(records, { period, now });
+    if (visible.length === 0) continue;
+    const groups = groupUsage(visible, "provider").sort(
+      (left, right) =>
+        costOf(right.totals) - costOf(left.totals) ||
+        tokenTotal(right.totals) - tokenTotal(left.totals) ||
+        left.key.localeCompare(right.key),
+    );
+    const maxTokens = Math.max(0, ...groups.map((group) => tokenTotal(group.totals)));
+    return { period, groups, totals: sumUsage(visible), maxTokens };
+  }
+  return undefined;
+}
+
+function costOf(totals: UsageTotals): number {
+  return totals.costedTurns > 0 ? totals.costUsd : 0;
 }
 
 export function tokenTotal(totals: Pick<UsageTotals, "inputTokens" | "outputTokens">): number {
