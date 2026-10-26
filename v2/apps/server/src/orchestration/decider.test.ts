@@ -240,6 +240,70 @@ describe("terminal cwd", () => {
   });
 });
 
+describe("project archive", () => {
+  const projectId = ProjectId.parse("00000000-0000-4000-8000-000000000403");
+  const otherProject = ProjectId.parse("00000000-0000-4000-8000-000000000420");
+  const otherWorktree = WorktreeId.parse("00000000-0000-4000-8000-000000000421");
+
+  function withProjects(): RuntimeProjection {
+    const base = projection("/repo/tree");
+    return {
+      ...base,
+      projects: [
+        { projectId, path: "/repo", name: "repo" },
+        { projectId: otherProject, path: "/other", name: "other" },
+      ],
+      worktrees: [
+        ...base.worktrees,
+        { worktreeId: otherWorktree, projectId: otherProject, path: "/other", branch: "main", status: "ready" },
+      ],
+    };
+  }
+
+  it("forgets the project's worktrees, then the project, and leaves other projects alone", () => {
+    expect(decide(withProjects(), { type: "project.archive", projectId })).toEqual([
+      { type: "worktree.archived", worktreeId },
+      { type: "project.archived", projectId },
+    ]);
+  });
+
+  it("rejects while an agent, a terminal, or a worktree setup is still running there", () => {
+    const base = withProjects();
+    const running: RuntimeProjection = {
+      ...base,
+      terminals: [{ terminalId, worktreeId, title: "shell", status: "running", lastSequence: 0 }],
+    };
+    const working: RuntimeProjection = {
+      ...base,
+      threads: [
+        {
+          threadId: ThreadId.parse("00000000-0000-4000-8000-000000000422"),
+          worktreeId,
+          provider: "codex",
+          status: "idle",
+          capabilities: {},
+        },
+      ],
+    };
+    const creating: RuntimeProjection = {
+      ...base,
+      worktrees: base.worktrees.map((worktree) => ({ ...worktree, status: "creating" as const })),
+    };
+    for (const state of [running, working, creating]) {
+      expect(() => decide(state, { type: "project.archive", projectId })).toThrowError(
+        expect.objectContaining({ code: "unsupported_command" }),
+      );
+    }
+    const stopped: RuntimeProjection = {
+      ...running,
+      terminals: [{ terminalId, worktreeId, title: "shell", status: "exited", lastSequence: 0 }],
+    };
+    expect(decide(stopped, { type: "project.archive", projectId }).at(-1)).toEqual({
+      type: "project.archived",
+      projectId,
+    });
+  });
+});
 describe("session delete", () => {
   const sessionId = SessionId.parse("00000000-0000-4000-8000-000000000410");
   const agentTerminal = TerminalId.parse("00000000-0000-4000-8000-000000000411");

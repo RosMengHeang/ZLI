@@ -6,6 +6,7 @@ import {
   type ProjectProjection,
   type RuntimeProjection,
   type SetupDecision,
+  threadOccupiesWorktree,
   WorktreeId,
   type WorktreeProjection,
   type WorktreeSetupProjection,
@@ -64,7 +65,7 @@ import {
 } from "../sessions/sessions.js";
 import { groupFinished, useRunStates } from "../sessions/useRunStates.js";
 import { forgetSession, useWorkbenchState } from "../sessions/workbench.js";
-import { resolveLaunchDefaults, useAppSettings } from "../settings/appSettings.js";
+import { resolveLaunchDefaults, updateAppSettings, useAppSettings } from "../settings/appSettings.js";
 import { ExpiredSignInNotice } from "../settings/ExpiredSignInNotice.js";
 import type { IntegrationsView } from "../settings/IntegrationsSection.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
@@ -1069,6 +1070,60 @@ function WorkspaceApp() {
     if (removed && worktree.worktreeId === selectedWorktreeId) setSelectedWorktreeId(undefined);
   };
 
+  /** Removes a project from ZLI. Its folder, and the folders of its worktrees, stay on disk. */
+  const removeProject = async (projectId: string): Promise<string | undefined> => {
+    const current = projectionRef.current;
+    if (!current) return "The runtime is not connected.";
+    const request = async (command: Record<string, unknown>): Promise<string | undefined> => {
+      try {
+        const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
+        if (!response) return "The runtime is not connected.";
+        return response.accepted === false ? response.error.message : undefined;
+      } catch (cause) {
+        return cause instanceof Error ? cause.message : "The command failed.";
+      }
+    };
+    const worktreeIds = new Set<string>(
+      current.worktrees.filter((worktree) => worktree.projectId === projectId).map((worktree) => worktree.worktreeId),
+    );
+    const isRunning = (state: RuntimeProjection) =>
+      state.terminals.some(
+        (terminal) =>
+          worktreeIds.has(terminal.worktreeId) && (terminal.status === "running" || terminal.status === "starting"),
+      ) || state.threads.some((thread) => worktreeIds.has(thread.worktreeId) && threadOccupiesWorktree(thread.status));
+    const inProject = deriveSessions(current, workbench.pending).filter((session) =>
+      worktreeIds.has(session.worktreeId),
+    );
+    const shells = current.terminals.filter(
+      (terminal) =>
+        terminal.kind !== "agent" &&
+        worktreeIds.has(terminal.worktreeId) &&
+        (terminal.status === "running" || terminal.status === "starting"),
+    );
+    const stops = [
+      ...inProject.flatMap((session) => sessionStopCommands(session)),
+      ...shells.map((terminal) => ({ type: "terminal.stop", terminalId: terminal.terminalId })),
+    ];
+    if (stops.length > 0) {
+      await Promise.all(stops.map((command) => request(command)));
+      await waitForProjection((state) => (isRunning(state) ? undefined : true));
+    }
+    for (const session of inProject) {
+      if (!session.terminal && !session.thread) continue;
+      const problem = await request({ type: "session.delete", sessionId: session.sessionId });
+      if (problem) return problem;
+    }
+    updateWorkbench((state) => inProject.reduce((next, session) => forgetSession(next, session.sessionId), state));
+    const problem = await request({ type: "project.archive", projectId });
+    if (problem) return problem;
+    updateAppSettings((settingsNow) => {
+      const { [projectId]: _removed, ...projects } = settingsNow.projects;
+      return { ...settingsNow, projects };
+    });
+    if (selectedWorktreeId && worktreeIds.has(selectedWorktreeId)) setSelectedWorktreeId(undefined);
+    return undefined;
+  };
+
   const closeTileNow = (session: AgentSession) =>
     updateWorkbench((state) => ({
       ...state,
@@ -1715,6 +1770,8 @@ function WorkspaceApp() {
             updates={updates}
             onRestartToUpdate={restartToUpdate}
             onSignIn={signInAccount}
+            onAddProject={() => void openProject()}
+            onRemoveProject={removeProject}
             onClose={() => setSettingsSection(undefined)}
           />
         ) : null}

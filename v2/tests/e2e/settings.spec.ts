@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
@@ -114,6 +114,40 @@ test("keeps MCP servers added in Settings for every agent", async () => {
     await settings.getByRole("button", { name: "Remove github" }).click();
     await settings.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(settings).toContainText("No servers yet.");
+  } finally {
+    if (fixture) await closeDesktop(fixture);
+  }
+});
+
+test("removes a project from Settings after asking, and leaves its folder on disk", async () => {
+  test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
+  const { root, repo } = await createGitFixture();
+  let fixture: DesktopFixture | undefined;
+  try {
+    fixture = await launchDesktop(repo, root);
+    const page = fixture.page;
+    await expect(page.locator(".project-label")).toContainText("repo");
+
+    await page.getByRole("button", { name: "Settings" }).click();
+    const settings = page.getByRole("dialog", { name: "Settings" });
+    await settings.getByRole("tab", { name: "Projects" }).click();
+    const projects = settings.getByRole("list", { name: "Projects" });
+    await expect(projects.getByRole("listitem")).toHaveCount(1);
+    await expect(projects).toContainText(repo);
+    await settings.getByRole("button", { name: "Remove repo" }).click();
+    await expect(settings).toContainText("Remove repo from ZLI?");
+    await expect(settings.getByRole("button", { name: "Keep" })).toBeFocused();
+    await settings.getByRole("button", { name: "Keep" }).click();
+    await expect(settings.getByRole("button", { name: "Remove", exact: true })).toHaveCount(0);
+    await expect(page.locator(".project-label")).toContainText("repo");
+
+    await settings.getByRole("button", { name: "Remove repo" }).click();
+    await settings.getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(settings).toContainText("Removed repo from ZLI. Its folder is still on disk.");
+    await expect(settings).toContainText("No projects yet.");
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".project-label")).toHaveCount(0);
+    expect((await stat(join(repo, ".git"))).isDirectory()).toBe(true);
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

@@ -117,6 +117,8 @@ export type DomainDecision = Extract<
   }
 >;
 
+const busyWorktreeStatuses = new Set<string>(["queued", "fetching", "creating", "bootstrapping", "cancelling"]);
+
 export function decide(projection: RuntimeProjection, command: RuntimeCommand): DomainDecision[] {
   switch (command.type) {
     case "project.register": {
@@ -136,12 +138,33 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
         },
       ];
     }
-    case "project.archive":
+    case "project.archive": {
       assertProject(projection, command.projectId);
-      if (projection.worktrees.some((worktree) => worktree.projectId === command.projectId)) {
-        throw new DomainError("unsupported_command", "Archive worktrees before archiving the project.");
+      const worktrees = projection.worktrees.filter((worktree) => worktree.projectId === command.projectId);
+      const worktreeIds = new Set<string>(worktrees.map((worktree) => worktree.worktreeId));
+      if (worktrees.some((worktree) => busyWorktreeStatuses.has(worktree.status))) {
+        throw new DomainError(
+          "unsupported_command",
+          "A worktree in this project is still being set up. Try again when it is ready.",
+        );
       }
-      return [{ type: "project.archived", projectId: command.projectId }];
+      const running =
+        projection.terminals.some(
+          (terminal) =>
+            worktreeIds.has(terminal.worktreeId) && (terminal.status === "running" || terminal.status === "starting"),
+        ) ||
+        projection.threads.some(
+          (thread) => worktreeIds.has(thread.worktreeId) && threadOccupiesWorktree(thread.status),
+        );
+      if (running) {
+        throw new DomainError("unsupported_command", "Stop the agents and terminals in this project first.");
+      }
+      // Archiving only forgets the worktrees. Their folders, and the project's own folder, stay on disk.
+      return [
+        ...worktrees.map((worktree) => ({ type: "worktree.archived" as const, worktreeId: worktree.worktreeId })),
+        { type: "project.archived", projectId: command.projectId },
+      ];
+    }
     case "project.git":
       assertProject(projection, command.projectId);
       return [{ type: "project.git.changed", projectId: command.projectId, git: command.git }];

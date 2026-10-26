@@ -1,11 +1,13 @@
-import type { Account, RuntimeProjection } from "@zli-v2/contracts";
-import { type KeyboardEvent, useId, useMemo, useRef, useState } from "react";
+import type { Account, ProjectProjection, RuntimeProjection } from "@zli-v2/contracts";
+import { type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
 import { permissionHint, permissionOptions } from "../chat/permissions.js";
 import type { NotificationSettings } from "../runtime/bridge.js";
-import type { SessionMode } from "../sessions/sessions.js";
+import { samePath } from "../sessions/launch.js";
+import { deriveSessions, type SessionMode, sessionStopCommands } from "../sessions/sessions.js";
 import { defaultShortcut, shortcutActions, shortcutFromEvent, shortcutProblem } from "../shell/keybindings.js";
+import { Badge } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Select } from "../ui/Field.js";
@@ -18,6 +20,7 @@ import { Switch } from "../ui/Switch.js";
 import { shortcutText } from "../ui/shortcuts.js";
 import { UpdatesSection } from "../updates/UpdatesSection.js";
 import type { Updates } from "../updates/useUpdates.js";
+import { AccountsSection } from "./AccountsSection.js";
 import {
   type AppSettings,
   branchFromTemplate,
@@ -29,9 +32,8 @@ import {
   updateAppSettings,
   useAppSettings,
 } from "./appSettings.js";
-import { IssuesSection } from "./IssuesSection.js";
-import { AccountsSection } from "./AccountsSection.js";
 import { IntegrationsSection, type IntegrationsView } from "./IntegrationsSection.js";
+import { IssuesSection } from "./IssuesSection.js";
 import { SectionHeader, SettingRow } from "./SectionHeader.js";
 import { SkillsSection } from "./SkillsSection.js";
 import "./settings.css";
@@ -81,6 +83,9 @@ type Props = {
   onRestartToUpdate?(): void;
   /** Opens a terminal that runs the agent's sign-in for a sign-in account. */
   onSignIn?(account: Account): Promise<string | undefined>;
+  onAddProject?(): void;
+  /** Removes a project from ZLI and resolves with a problem to show, if any. */
+  onRemoveProject?(projectId: string): Promise<string | undefined>;
   onClose(): void;
 };
 
@@ -94,6 +99,8 @@ export function SettingsDialog({
   updates,
   onRestartToUpdate = () => undefined,
   onSignIn,
+  onAddProject,
+  onRemoveProject,
   onClose,
 }: Props) {
   const [section, setSection] = useState<SettingsSection>(initialSection);
@@ -159,7 +166,12 @@ export function SettingsDialog({
             <AccountsSection projection={projection} {...(onSignIn ? { onSignIn } : {})} />
           ) : null}
           {section === "projects" ? (
-            <ProjectDefaults projection={projection} initialProjectId={initialProjectId} />
+            <ProjectsSection
+              projection={projection}
+              initialProjectId={initialProjectId}
+              onAddProject={onAddProject}
+              onRemoveProject={onRemoveProject}
+            />
           ) : null}
           {section === "worktrees" ? <WorktreeSettings projection={projection} /> : null}
           {section === "files" ? <FilesSettings /> : null}
@@ -280,80 +292,269 @@ function AgentDefaults({ projection }: { projection: RuntimeProjection | undefin
   );
 }
 
-function ProjectDefaults({
+function ProjectsSection({
   projection,
   initialProjectId,
+  onAddProject,
+  onRemoveProject,
 }: {
   projection: RuntimeProjection | undefined;
   initialProjectId: string | undefined;
+  onAddProject?: (() => void) | undefined;
+  onRemoveProject?: ((projectId: string) => Promise<string | undefined>) | undefined;
 }) {
   const settings = useAppSettings();
-  const projectSelectId = useId();
   const projects = projection?.projects ?? [];
   const [projectId, setProjectId] = useState(
     projects.find((project) => project.projectId === initialProjectId)?.projectId ?? projects[0]?.projectId,
   );
-  const project = projects.find((candidate) => candidate.projectId === projectId);
+  const [confirmId, setConfirmId] = useState<string>();
+  const [removed, setRemoved] = useState<string>();
+  // A project removed from here, or from elsewhere while Settings is open, falls back to the first one left.
+  const project = projects.find((candidate) => candidate.projectId === projectId) ?? projects[0];
+
+  const addButton = onAddProject ? (
+    <div className="settings-actions">
+      <Button size="sm" icon="folderPlus" onClick={onAddProject}>
+        Add project
+      </Button>
+    </div>
+  ) : null;
+  const removedNote = removed ? (
+    <p className="settings-done" role="status">
+      <Icon name="check" size={14} />
+      <span>Removed {removed} from ZLI. Its folder is still on disk.</span>
+    </p>
+  ) : null;
+
   if (!project) {
     return (
       <>
-        <SectionHeader title="Projects" />
-        <p className="settings-empty">Add a project to give it its own agent and permission defaults.</p>
+        <SectionHeader title="Projects">Folders you added to ZLI. Agents start in one of them.</SectionHeader>
+        {removedNote}
+        <div className="project-empty">
+          <span className="project-tile" aria-hidden="true">
+            <Icon name="folder" size={16} />
+          </span>
+          <p className="settings-empty">No projects yet. Add a folder to start agents in it.</p>
+        </div>
+        {addButton}
       </>
     );
   }
+
+  const remove = async (target: ProjectProjection) => {
+    const problem = await onRemoveProject?.(target.projectId);
+    if (!problem) {
+      setConfirmId(undefined);
+      setRemoved(target.name);
+    }
+    return problem;
+  };
   const override = settings.projects[project.projectId] ?? {};
   const setOverride = (next: LaunchDefaults) =>
     updateAppSettings((current) => {
       const { [project.projectId]: _previous, ...others } = current.projects;
       return { ...current, projects: Object.keys(next).length > 0 ? { ...others, [project.projectId]: next } : others };
     });
+
   return (
     <>
       <SectionHeader title="Projects">
-        Defaults for one project. They take priority over New agents when an agent starts there.
+        Folders you added to ZLI. Select one to give it its own agent defaults.
       </SectionHeader>
-      <div className="setting-list">
-        <SettingRow
-          label="Project"
-          description={<span className="setting-path">{project.path}</span>}
-          htmlFor={projects.length > 1 ? projectSelectId : undefined}
-        >
-          {projects.length > 1 ? (
-            <Select<string>
-              id={projectSelectId}
-              label="Project"
-              value={project.projectId}
-              options={projects.map((candidate) => ({
-                value: candidate.projectId,
-                label: candidate.name,
-                icon: <Icon name="folder" size={15} />,
-              }))}
-              onChange={(next) => setProjectId(next as typeof projectId)}
+      {removedNote}
+      <section className="accounts-provider" aria-label="Project folders">
+        <h3 className="mcp-subhead accounts-subhead">
+          Folders
+          <span className="mcp-chip">{projects.length}</span>
+        </h3>
+        <ul className="project-list" aria-label="Projects">
+          {projects.map((candidate) => (
+            <ProjectRow
+              key={candidate.projectId}
+              projection={projection}
+              project={candidate}
+              selected={candidate.projectId === project.projectId}
+              confirming={confirmId === candidate.projectId}
+              canRemove={onRemoveProject !== undefined}
+              onSelect={() => {
+                setRemoved(undefined);
+                setProjectId(candidate.projectId);
+              }}
+              onAsk={() => {
+                setRemoved(undefined);
+                setConfirmId(candidate.projectId);
+              }}
+              onCancel={() => setConfirmId(undefined)}
+              onRemove={() => remove(candidate)}
             />
-          ) : (
-            <span className="settings-value">{project.name}</span>
-          )}
-        </SettingRow>
-        <LaunchFields
-          key={project.projectId}
-          projection={projection}
-          value={override}
-          inheritLabel="Same as New agents"
-          onChange={setOverride}
-        />
-      </div>
-      {Object.keys(override).length > 0 ? (
-        <div className="settings-actions">
-          <Button size="sm" variant="ghost" icon="rotate" onClick={() => setOverride({})}>
-            Reset {project.name} to New agents
-          </Button>
+          ))}
+        </ul>
+        {addButton}
+      </section>
+      <section className="accounts-provider" aria-label={`Defaults for ${project.name}`}>
+        <h3 className="mcp-subhead accounts-subhead">Defaults for {project.name}</h3>
+        <div className="setting-list">
+          <LaunchFields
+            key={project.projectId}
+            projection={projection}
+            value={override}
+            inheritLabel="Same as New agents"
+            onChange={setOverride}
+          />
         </div>
-      ) : null}
+        {Object.keys(override).length > 0 ? (
+          <div className="settings-actions">
+            <Button size="sm" variant="ghost" icon="rotate" onClick={() => setOverride({})}>
+              Reset {project.name} to New agents
+            </Button>
+          </div>
+        ) : null}
+      </section>
     </>
   );
 }
 
+function plural(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
+type ProjectStats = { agents: number; running: number; worktrees: number };
+
+function projectStats(projection: RuntimeProjection | undefined, project: ProjectProjection): ProjectStats {
+  const worktrees = (projection?.worktrees ?? []).filter((worktree) => worktree.projectId === project.projectId);
+  const worktreeIds = new Set<string>(worktrees.map((worktree) => worktree.worktreeId));
+  const agents = projection ? deriveSessions(projection).filter((session) => worktreeIds.has(session.worktreeId)) : [];
+  return {
+    agents: agents.length,
+    running: agents.filter((session) => sessionStopCommands(session).length > 0).length,
+    worktrees: worktrees.filter((worktree) => worktree.kind !== "checkout" && !samePath(worktree.path, project.path))
+      .length,
+  };
+}
+
+/** What removing the project takes with it, so the confirmation can say so. */
+function removalDetail(stats: ProjectStats): string {
+  const parts: string[] = [];
+  if (stats.running > 0) parts.push(`${plural(stats.running, "running agent")} will be stopped.`);
+  if (stats.agents === 1) parts.push("1 agent and its chat are deleted from ZLI.");
+  if (stats.agents > 1) parts.push(`${stats.agents} agents and their chats are deleted from ZLI.`);
+  parts.push(
+    stats.worktrees > 0
+      ? `The folder and its ${plural(stats.worktrees, "worktree")} stay on disk.`
+      : "The folder and its files stay on disk.",
+  );
+  return parts.join(" ");
+}
+
+/** Removing takes two clicks on purpose: the trash button only asks, so a stray click removes nothing. */
+function ProjectRow({
+  projection,
+  project,
+  selected,
+  confirming,
+  canRemove,
+  onSelect,
+  onAsk,
+  onCancel,
+  onRemove,
+}: {
+  projection: RuntimeProjection | undefined;
+  project: ProjectProjection;
+  selected: boolean;
+  confirming: boolean;
+  canRemove: boolean;
+  onSelect(): void;
+  onAsk(): void;
+  onCancel(): void;
+  onRemove(): Promise<string | undefined>;
+}) {
+  const [removing, setRemoving] = useState(false);
+  const [problem, setProblem] = useState<string>();
+  const keepRef = useRef<HTMLButtonElement>(null);
+  const askRef = useRef<HTMLButtonElement>(null);
+  const wasConfirming = useRef(false);
+  const stats = projectStats(projection, project);
+
+  useEffect(() => {
+    if (confirming) keepRef.current?.focus();
+    else if (wasConfirming.current) askRef.current?.focus();
+    if (!confirming) setProblem(undefined);
+    wasConfirming.current = confirming;
+  }, [confirming]);
+
+  const remove = async () => {
+    setRemoving(true);
+    setProblem(undefined);
+    const message = await onRemove();
+    setRemoving(false);
+    if (message) setProblem(message);
+  };
+
+  return (
+    <li className={`project-row${selected ? " is-selected" : ""}${confirming ? " is-confirming" : ""}`}>
+      <div className="project-row-main">
+        <button type="button" className="project-pick" aria-current={selected ? "true" : undefined} onClick={onSelect}>
+          <span className="project-tile" aria-hidden="true">
+            <Icon name="folder" size={16} />
+          </span>
+          <span className="project-pick-copy">
+            <span className="project-pick-title">
+              <strong>{project.name}</strong>
+              {stats.running > 0 ? (
+                <Badge tone="success" dot>
+                  {stats.running} running
+                </Badge>
+              ) : null}
+              {stats.agents > 0 ? <span className="mcp-chip">{plural(stats.agents, "agent")}</span> : null}
+              {stats.worktrees > 0 ? <span className="mcp-chip">{plural(stats.worktrees, "worktree")}</span> : null}
+            </span>
+            <span className="project-pick-path">{project.path}</span>
+          </span>
+        </button>
+        {canRemove && !confirming ? (
+          <span className="project-row-actions">
+            <IconButton
+              ref={askRef}
+              label={`Remove ${project.name}`}
+              tooltip="Remove from ZLI. The folder stays on disk."
+              icon="trash"
+              size="sm"
+              iconSize={14}
+              tone="danger"
+              onClick={onAsk}
+            />
+          </span>
+        ) : null}
+      </div>
+      {confirming ? (
+        <div className="project-remove">
+          <span className="project-remove-mark" aria-hidden="true">
+            <Icon name="alert" size={15} />
+          </span>
+          <div className="project-remove-copy">
+            <p className="project-remove-title">Remove {project.name} from ZLI?</p>
+            <p className="project-remove-detail">{removalDetail(stats)}</p>
+            {problem ? (
+              <p className="project-remove-problem" role="alert">
+                {problem}
+              </p>
+            ) : null}
+          </div>
+          <div className="project-remove-actions">
+            <Button ref={keepRef} size="sm" variant="ghost" disabled={removing} onClick={onCancel}>
+              Keep
+            </Button>
+            <Button size="sm" variant="danger" icon="trash" loading={removing} onClick={() => void remove()}>
+              Remove
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </li>
+  );
+}
 function WorktreeSettings({ projection }: { projection: RuntimeProjection | undefined }) {
   const settings = useAppSettings();
   const [draft, setDraft] = useState(settings.branchTemplate);
