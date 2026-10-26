@@ -1,41 +1,177 @@
-import { type KeyboardEvent, type Ref, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 
-import { cx } from "./Button.js";
+import { type ButtonVariant, cx } from "./Button.js";
 import { Icon, type IconName } from "./Icon.js";
+import { shortcutText } from "./shortcuts.js";
 
-export type MenuItem = {
-  id: string;
+/** An item in the anchored menu used by the phone controls. */
+export type MenuEntry =
+  | {
+      id: string;
+      label: string;
+      icon?: IconName | undefined;
+      disabled?: boolean | undefined;
+      /** Makes the item an on and off setting, shown with a check while it is on. */
+      checked?: boolean | undefined;
+      run(): void;
+    }
+  | "separator";
+
+export type MenuAction = {
   label: string;
   icon?: IconName | undefined;
+  shortcut?: string | undefined;
   disabled?: boolean | undefined;
-  /** Makes the item an on and off setting, shown with a check while it is on. */
-  checked?: boolean | undefined;
+  /** Why the item is disabled, or what it does. */
+  title?: string | undefined;
+  tone?: "danger" | undefined;
   run(): void;
 };
 /** A separator draws a rule between two runs of items. */
-export type MenuEntry = MenuItem | "separator";
+export type MenuItem = MenuAction | { separator: true };
+export type MenuRequest = {
+  x: number;
+  y: number;
+  label: string;
+  items: MenuItem[];
+  /** `end` lines the menu's right edge up with x, for menus opened from a button. */
+  align?: "start" | "end" | undefined;
+  /** The button that opened the menu: clicks on it toggle the menu instead of closing it. */
+  anchor?: HTMLElement | undefined;
+};
+
+const EDGE = 4;
+const GAP = 4;
+const ANCHORED_GAP = 6;
+const ENABLED = '[role="menuitem"]:not([aria-disabled="true"])';
 
 type Placement = { left: number; maxHeight: number } & ({ top: number } | { bottom: number });
 
-const GAP = 6;
-const EDGE = 8;
+function isAction(item: MenuItem): item is MenuAction {
+  return !("separator" in item);
+}
 
-/**
- * An icon button that opens a short menu of actions. The menu opens above the button when it fits and lines up
- * with its right edge. Arrow keys, Home, and End move between items; Escape, Tab, or a click elsewhere closes it
- * and gives focus back to the button. Focus returns to the button before an item runs, so an item can move it on.
- */
-export function MenuButton({
-  label,
-  icon,
-  items,
-  tooltip,
-  size = "sm",
-  iconSize,
-  disabled = false,
-  ref,
-}: {
+/** A popup menu. Arrow keys move between items; Escape, a click elsewhere, or scrolling closes it. */
+export function Menu({ request, onClose }: { request: MenuRequest; onClose(): void }) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
+  const [position, setPosition] = useState({ left: request.x, top: request.y });
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const rect = menu.getBoundingClientRect();
+    const left = request.align === "end" ? request.x - rect.width : request.x;
+    // A button near the bottom of the window opens its menu upward rather than over itself.
+    const anchor = request.anchor?.getBoundingClientRect();
+    const top =
+      anchor && request.y + rect.height > window.innerHeight - EDGE ? anchor.top - rect.height - GAP : request.y;
+    setPosition({
+      left: Math.max(EDGE, Math.min(left, window.innerWidth - rect.width - EDGE)),
+      top: Math.max(EDGE, Math.min(top, window.innerHeight - rect.height - EDGE)),
+    });
+    menu.querySelector<HTMLElement>(ENABLED)?.focus();
+  }, [request]);
+
+  useEffect(() => {
+    const close = (event: Event) => {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
+      if (event.type === "pointerdown" && event.target instanceof Node && request.anchor?.contains(event.target))
+        return;
+      onClose();
+    };
+    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("scroll", close, true);
+    window.addEventListener("blur", close);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", close, true);
+      document.removeEventListener("scroll", close, true);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("resize", close);
+    };
+  }, [onClose, request.anchor]);
+
+  const dismiss = () => {
+    onClose();
+    returnFocus.current?.focus();
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const items = [...(menuRef.current?.querySelectorAll<HTMLElement>(ENABLED) ?? [])];
+    const index = items.indexOf(document.activeElement as HTMLElement);
+    let next: HTMLElement | undefined;
+    if (event.key === "ArrowDown") next = items[(index + 1) % items.length];
+    else if (event.key === "ArrowUp") next = items[(index - 1 + items.length) % items.length];
+    else if (event.key === "Home") next = items[0];
+    else if (event.key === "End") next = items.at(-1);
+    else if (event.key === "Escape" || event.key === "Tab") {
+      event.preventDefault();
+      dismiss();
+      return;
+    } else return;
+    event.preventDefault();
+    next?.focus();
+  };
+
+  const withIcons = request.items.some((item) => isAction(item) && item.icon);
+  return createPortal(
+    <div
+      className="menu"
+      role="menu"
+      aria-label={request.label}
+      ref={menuRef}
+      style={position}
+      onKeyDown={onKeyDown}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      {request.items.map((item, index) =>
+        isAction(item) ? (
+          <button
+            key={item.label}
+            className={cx("menu-item", item.tone === "danger" && "is-danger")}
+            type="button"
+            role="menuitem"
+            tabIndex={-1}
+            aria-disabled={item.disabled || undefined}
+            title={item.title}
+            onClick={() => {
+              if (item.disabled) return;
+              dismiss();
+              item.run();
+            }}
+          >
+            {withIcons ? (
+              <span className="menu-item-icon" aria-hidden="true">
+                {item.icon ? <Icon name={item.icon} size={13} /> : null}
+              </span>
+            ) : null}
+            <span className="menu-item-label">{item.label}</span>
+            {item.shortcut ? <span className="menu-shortcut">{shortcutText(item.shortcut)}</span> : null}
+          </button>
+        ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: separators have no identity of their own.
+          <hr key={`separator-${index}`} className="menu-separator" />
+        ),
+      )}
+    </div>,
+    document.body,
+  );
+}
+
+type AnchoredMenuButtonProps = {
   /** The button's accessible name, and the menu's. */
   label: string;
   icon: IconName;
@@ -45,7 +181,87 @@ export function MenuButton({
   iconSize?: number | undefined;
   disabled?: boolean | undefined;
   ref?: Ref<HTMLButtonElement>;
-}) {
+};
+
+type PopupMenuButtonProps = {
+  /** The button's accessible name and tooltip, and the menu's label. */
+  label: string;
+  items: () => MenuItem[];
+  icon?: IconName;
+  size?: "xs" | "sm" | "md";
+  variant?: ButtonVariant;
+  className?: string | undefined;
+  /** Text shown next to the icon; without it the button is icon-only. */
+  children?: ReactNode;
+  disabled?: boolean | undefined;
+};
+
+/**
+ * An icon button that opens a short menu. An array of items keeps the phone menu (checks, above the button).
+ * A function is read when the menu opens and shows the shared popup used by Changes and Files.
+ */
+export function MenuButton(props: AnchoredMenuButtonProps | PopupMenuButtonProps) {
+  if (typeof props.items === "function") return <PopupMenuButton {...props} items={props.items} />;
+  const { items, icon = "more", ...rest } = props;
+  return <AnchoredMenuButton {...rest} items={items} icon={icon} />;
+}
+
+/** A button that opens a menu below it, right-aligned; the items are read when it opens. */
+function PopupMenuButton({
+  label,
+  items,
+  icon = "more",
+  size = "sm",
+  variant = "ghost",
+  className,
+  children,
+  disabled,
+}: PopupMenuButtonProps) {
+  const [request, setRequest] = useState<MenuRequest>();
+  const close = () => setRequest(undefined);
+  return (
+    <>
+      <button
+        type="button"
+        className={cx("btn", `btn-${variant}`, !children && "btn-icon", size !== "md" && `btn-${size}`, className)}
+        aria-label={label}
+        aria-haspopup="menu"
+        aria-expanded={!!request}
+        data-tooltip={request ? undefined : label}
+        disabled={disabled}
+        onClick={(event) => {
+          if (request) {
+            close();
+            return;
+          }
+          const anchor = event.currentTarget;
+          const rect = anchor.getBoundingClientRect();
+          setRequest({ x: rect.right, y: rect.bottom + GAP, align: "end", anchor, label, items: items() });
+        }}
+      >
+        <Icon name={icon} size={size === "xs" ? 12 : size === "sm" ? 13 : 14} />
+        {children}
+      </button>
+      {request ? <Menu request={request} onClose={close} /> : null}
+    </>
+  );
+}
+
+/**
+ * An icon button that opens a short menu of actions. The menu opens above the button when it fits and lines up
+ * with its right edge. Arrow keys, Home, and End move between items; Escape, Tab, or a click elsewhere closes it
+ * and gives focus back to the button. Focus returns to the button before an item runs, so an item can move it on.
+ */
+function AnchoredMenuButton({
+  label,
+  icon,
+  items,
+  tooltip,
+  size = "sm",
+  iconSize,
+  disabled = false,
+  ref,
+}: AnchoredMenuButtonProps) {
   const [open, setOpen] = useState(false);
   const [placement, setPlacement] = useState<Placement>();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -70,14 +286,14 @@ export function MenuButton({
     const anchor = triggerRef.current?.getBoundingClientRect();
     const menu = menuRef.current;
     if (!anchor || !menu) return;
-    const above = anchor.top - GAP - EDGE;
-    const below = window.innerHeight - anchor.bottom - GAP - EDGE;
+    const above = anchor.top - ANCHORED_GAP - EDGE;
+    const below = window.innerHeight - anchor.bottom - ANCHORED_GAP - EDGE;
     const left = Math.max(EDGE, Math.min(anchor.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - EDGE));
     const up = menu.offsetHeight <= above || above >= below;
     setPlacement(
       up
-        ? { left, bottom: window.innerHeight - anchor.top + GAP, maxHeight: above }
-        : { left, top: anchor.bottom + GAP, maxHeight: below },
+        ? { left, bottom: window.innerHeight - anchor.top + ANCHORED_GAP, maxHeight: above }
+        : { left, top: anchor.bottom + ANCHORED_GAP, maxHeight: below },
     );
   }, [open]);
 

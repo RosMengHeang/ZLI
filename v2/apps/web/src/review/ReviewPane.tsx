@@ -12,13 +12,15 @@ import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import type { SessionMode } from "../sessions/sessions.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { EmptyState, PaneHeader } from "../ui/Pane.js";
+import { MenuButton, type MenuItem } from "../ui/Menu.js";
+import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
 import { Picker } from "../ui/Picker.js";
 import { Segmented } from "../ui/Segmented.js";
 import { BranchMenu } from "./BranchMenu.js";
 import { branchOptions, defaultBranchOf, trackDescription, useBranches } from "./branches.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { DiffView } from "./DiffView.js";
+import { MergeBranchDialog } from "./MergeBranchDialog.js";
 import { PullRequestSection } from "./PullRequestSection.js";
 import { applyHunk, discardFile, pullBranch, pushBranch, stageFiles, unstageFiles } from "./pullRequestClient.js";
 import { refreshPullRequest } from "./pullRequestStore.js";
@@ -102,6 +104,8 @@ export function ReviewPane({
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [branchMenuOpen, setBranchMenuOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const autoLoaded = useRef<string | undefined>(undefined);
   const branchState = useBranches(dispatch, worktree?.worktreeId, !!worktree && !noGit);
   const branches = branchState.branches;
   const [changing, setChanging] = useState(false);
@@ -124,14 +128,19 @@ export function ReviewPane({
   const anyUnstaged = stageStates.some((state) => state === "unstaged" || state === "partial");
   const hasLocalChanges = stageStates.some((state) => state !== "committed");
 
-  const run = async (command: unknown) => {
+  const run = async (command: unknown): Promise<boolean> => {
     setBusy(true);
     setError(undefined);
     try {
       const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
-      if (response?.accepted === false) setError(response.error.message);
+      if (response?.accepted === false) {
+        setError(response.error.message);
+        return false;
+      }
+      return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The review operation failed.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -291,6 +300,35 @@ export function ReviewPane({
   };
 
   const shownError = error ?? branchState.error;
+  const conflicted = review?.state === "conflicted";
+
+  // Opening the panel loads the changes once, without a click.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: loads once per worktree.
+  useEffect(() => {
+    if (!worktree || noGit) return;
+    if (autoLoaded.current === worktree.worktreeId) return;
+    autoLoaded.current = worktree.worktreeId;
+    refresh();
+  }, [worktree?.worktreeId, noGit]);
+
+  const moreItems = (): MenuItem[] => [
+    {
+      label: "Merge into another branch…",
+      icon: "merge",
+      disabled: !review || conflicted,
+      run: () => setMergeOpen(true),
+    },
+    ...(review && (conflicted || review.errorMessage)
+      ? [
+          {
+            label: "Abort merge",
+            icon: "x" as const,
+            tone: "danger" as const,
+            run: () => void run({ type: "review.abortMerge", worktreeId: worktree?.worktreeId }),
+          },
+        ]
+      : []),
+  ];
   return (
     <div className="tool-pane review-pane">
       <PaneHeader
@@ -321,15 +359,22 @@ export function ReviewPane({
             <span className="diff-del">−{totals.deletions}</span>
           </span>
         ) : null}
+        {worktree && !noGit ? (
+          <>
+            <IconButton
+              label="Refresh changes"
+              icon="reload"
+              size="sm"
+              className={busy ? "is-spinning" : undefined}
+              disabled={busy || !baseRef.trim()}
+              onClick={() => refresh()}
+            />
+            <MenuButton label="More Git actions" items={moreItems} />
+          </>
+        ) : null}
       </PaneHeader>
       {worktree && !noGit ? (
-        <form
-          className="toolbar review-toolbar"
-          onSubmit={(event) => {
-            event.preventDefault();
-            refresh();
-          }}
-        >
+        <div className="toolbar review-toolbar">
           <span className="inline-field">
             <span aria-hidden="true">Compare against</span>
             <Picker
@@ -347,10 +392,6 @@ export function ReviewPane({
               <span className="picker-trigger-label">{baseRef}</span>
             </Picker>
           </span>
-          <Button variant="ghost" size="sm" type="submit" icon="reload" loading={busy} disabled={!baseRef.trim()}>
-            Refresh changes
-          </Button>
-          <span className="toolbar-divider" aria-hidden="true" />
           <IconButton
             label="Fetch branches from origin"
             icon={branchState.loading === "fetch" ? "loader" : "rotate"}
@@ -390,7 +431,7 @@ export function ReviewPane({
             Push
             {toPush > 0 ? <span className="sync-count">↑{toPush}</span> : null}
           </Button>
-        </form>
+        </div>
       ) : null}
       {!worktree ? (
         <EmptyState
@@ -405,16 +446,20 @@ export function ReviewPane({
           detail="Changes, commits, and merges need Git. Run git init in the folder to use them."
         />
       ) : !review ? (
-        <EmptyState
-          icon="diff"
-          title="Changes not loaded yet"
-          detail="Choose a branch to compare against, then refresh to see staged and unstaged changes."
-        />
+        busy ? (
+          <LoadingState label="Loading changes" />
+        ) : (
+          <EmptyState
+            icon="diff"
+            title="Changes not loaded"
+            detail={`Refresh to compare with ${baseRef || "the base branch"}.`}
+          />
+        )
       ) : (
         <div className="review-body">
           <div className="review-summary-row">
-            <div className="review-summary" role="status">
-              {review.state === "conflicted"
+            <div className={`review-summary${conflicted ? " is-conflicted" : ""}`} role="status">
+              {conflicted
                 ? `${review.conflictFiles.length} conflict${review.conflictFiles.length === 1 ? "" : "s"} need attention.`
                 : review.files.length === 0
                   ? "Working tree is clean."
@@ -660,6 +705,19 @@ export function ReviewPane({
             if (close) setBranchMenuOpen(false);
             if (review) refresh();
             void refreshPullRequest(dispatch, worktree.worktreeId, true);
+          }}
+        />
+      ) : null}
+      {mergeOpen && worktree ? (
+        <MergeBranchDialog
+          branch={worktree.branch}
+          target={targetRef}
+          onClose={() => setMergeOpen(false)}
+          onMerge={async (target) => {
+            setTargetRef(target);
+            setTargetTouched(true);
+            const merged = await run({ type: "review.merge", worktreeId: worktree.worktreeId, targetRef: target });
+            if (merged) setMergeOpen(false);
           }}
         />
       ) : null}

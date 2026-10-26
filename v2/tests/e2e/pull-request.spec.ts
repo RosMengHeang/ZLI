@@ -98,7 +98,7 @@ test("creates a draft pull request from the Changes panel and opens it", async (
     await page.getByRole("button", { name: "Changes", exact: true }).click();
     await page.getByRole("button", { name: "Refresh changes" }).click();
     const section = page.getByRole("group", { name: "Pull request" });
-    await expect(section).toContainText("No pull request for this branch yet");
+    await expect(section).toContainText("No pull request");
 
     await section.getByRole("button", { name: "Create PR" }).click();
     const dialog = page.getByRole("dialog", { name: "Create pull request" });
@@ -324,7 +324,8 @@ test("reads a pull request's review comments and sends the picked ones to an age
     await page.getByRole("button", { name: "Refresh changes" }).click();
     const section = page.getByRole("group", { name: "Pull request" });
     await expect(section).toContainText("#7", { timeout: 30_000 });
-    await section.getByRole("button", { name: "Review comments" }).click();
+    await section.getByRole("button", { name: "Pull request actions" }).click();
+    await page.getByRole("menuitem", { name: "Review comments" }).click();
     const comments = section.getByRole("region", { name: "Pull request comments" });
     await expect(comments).toContainText("2 open review comments", { timeout: 30_000 });
     await expect(comments).toContainText("README.md:1");

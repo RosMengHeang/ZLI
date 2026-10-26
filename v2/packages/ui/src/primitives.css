@@ -132,6 +132,14 @@ kbd {
 .menu-item[aria-disabled="true"] { color: var(--zli-dim); cursor: default; }
 .menu-item[aria-disabled="true"] > svg { color: var(--zli-disabled); }
 .menu-separator { height: 1px; flex: 0 0 auto; margin: var(--zli-space-1) calc(-1 * var(--zli-space-1)); border: 0; background: var(--zli-border); }
+/* A right-click or Changes menu. The phone menu keeps .picker-menu and must not become a fixed popup. */
+.menu:not(.picker-menu) { position: fixed; z-index: calc(var(--zli-z-dialog) + 1); max-width: 320px; padding: var(--zli-space-1); border-radius: var(--zli-radius-md); background: var(--zli-overlay); box-shadow: var(--zli-shadow-pop); }
+.menu:not(.picker-menu) .menu-item { height: 28px; }
+.menu:not(.picker-menu) .menu-item:hover { background: var(--zli-hover); }
+.menu-item-icon { display: grid; width: 14px; flex: 0 0 auto; place-items: center; color: var(--zli-dim); }
+.menu-item.is-danger, .menu-item.is-danger .menu-item-icon { color: var(--zli-red); }
+.menu-item[aria-disabled="true"]:hover, .menu-item[aria-disabled="true"]:focus { background: transparent; }
+.menu-shortcut { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); }
 
 /* ---------- Badges and dots ---------- */
 .badge {

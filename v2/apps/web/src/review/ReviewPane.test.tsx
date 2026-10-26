@@ -83,13 +83,13 @@ describe("ReviewPane", () => {
     const { container } = await render(false);
 
     expect(container.textContent).toContain("This folder is not a Git repository");
-    expect(container.textContent).not.toContain("Refresh changes");
+    expect(container.querySelector('button[aria-label="Refresh changes"]')).toBeNull();
   });
 
   it("offers a refresh in a Git repository", async () => {
     const { container } = await render(undefined);
 
-    expect(container.textContent).toContain("Refresh changes");
+    expect(container.querySelector('button[aria-label="Refresh changes"]')).not.toBeNull();
   });
 
   it("picks the comparison branch from the repository's branches", async () => {
@@ -246,6 +246,7 @@ describe("ReviewPane staging", () => {
         : command.type === "review.refresh",
     );
     expect(changes).toEqual([
+      expect.objectContaining({ type: "review.refresh", baseRef: "main" }),
       expect.objectContaining({ type: "review.git.stage", paths: ["notes.txt"] }),
       expect.objectContaining({ type: "review.refresh", baseRef: "main" }),
       expect.objectContaining({ type: "review.git.unstage", paths: ["README.md"] }),
@@ -253,7 +254,7 @@ describe("ReviewPane staging", () => {
       expect.not.objectContaining({ paths: expect.anything() }),
       expect.objectContaining({ type: "review.refresh" }),
     ]);
-    expect(changes[4]?.type).toBe("review.git.stage");
+    expect(changes[5]?.type).toBe("review.git.stage");
   });
 
   it("asks before discarding a file and deletes an untracked one only after confirming", async () => {
