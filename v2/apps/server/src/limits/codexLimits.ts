@@ -1,8 +1,9 @@
 import { FIVE_HOUR_WINDOW, MONTHLY_WINDOW, type PlanLimitWindow, WEEKLY_WINDOW } from "@zli-v2/contracts";
 
+import { clamp, number, record, text } from "./answerFields.js";
 import type { LimitRead } from "./PlanLimits.js";
 
-type Client = { readRateLimits(): Promise<unknown>; close(): Promise<void> };
+export type CodexLimitClient = { readRateLimits(): Promise<unknown>; close(): Promise<void> };
 
 const READ_TIMEOUT_MS = 20_000;
 
@@ -10,8 +11,8 @@ const READ_TIMEOUT_MS = 20_000;
  * Asks a short-lived Codex app server for the signed-in plan's windows, so limits show for every
  * account even when no chat runs. Codex reads its own login; ZLI never opens auth.json.
  */
-export async function readCodexLimits(connect: () => Promise<Client>): Promise<LimitRead> {
-  let client: Client | undefined;
+export async function readCodexLimits(connect: () => Promise<CodexLimitClient>): Promise<LimitRead> {
+  let client: CodexLimitClient | undefined;
   let timer: NodeJS.Timeout | undefined;
   try {
     const raw = await Promise.race([
@@ -63,7 +64,7 @@ function codexWindow(value: unknown, fallbackMinutes: number): PlanLimitWindow |
   const minutes = number(window.windowDurationMins) ?? number(window.window_minutes);
   const resetsAt = number(window.resetsAt) ?? number(window.resets_at);
   return {
-    usedPercent: Math.min(100, Math.max(0, used)),
+    usedPercent: clamp(used),
     durationMinutes: minutes && minutes > 0 ? Math.round(minutes) : fallbackMinutes,
     // Codex sends Unix seconds.
     ...(resetsAt && resetsAt > 0 ? { resetsAt: new Date(resetsAt * 1000).toISOString() } : {}),
@@ -79,18 +80,4 @@ function codexFailure(error: unknown): LimitRead {
     return { state: "unavailable", message: "Codex is not installed.", windows: [] };
   }
   return { state: "error", message: "Codex did not report its limits. ZLI will try again.", windows: [] };
-}
-
-function record(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-function number(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function text(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim().slice(0, 60) : undefined;
 }

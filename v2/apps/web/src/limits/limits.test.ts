@@ -55,6 +55,20 @@ describe("visibleWindows", () => {
     expect(visibleWindows({ windows: [spend] }).map(windowLabel)).toEqual(["Extra"]);
   });
 
+  it("shows every model limit when the plan is limited only per model, as Gemini is", () => {
+    const windows = [
+      { scope: "2.5 Flash", usedPercent: 0 },
+      { scope: "2.5 Pro", usedPercent: 58 },
+    ];
+    expect(visibleWindows({ windows }).map(windowLabel)).toEqual(["2.5 Pro", "2.5 Flash"]);
+    expect(windowName({ scope: "2.5 Pro", usedPercent: 58 })).toBe("2.5 Pro");
+  });
+
+  it("shows a Cursor pool next to the month when the pool is fuller", () => {
+    const windows = [usage(43_200, 44), usage(43_200, 71, { scope: "API" }), usage(43_200, 20, { scope: "Auto" })];
+    expect(visibleWindows({ windows }).map(windowLabel)).toEqual(["Month", "API"]);
+  });
+
   it("caps a row at three circles", () => {
     const windows = [
       usage(300, 90),
@@ -114,9 +128,10 @@ describe("resetText", () => {
 });
 
 describe("formatResetClock", () => {
-  it("gives the time today, the weekday this week, and the date later", () => {
+  it("gives the time within a day, the weekday this week, and the date later", () => {
     expect(plain(formatResetClock(at(47), now, "UTC"))).toBe("12:47 PM");
-    expect(plain(formatResetClock(at(3 * 1_440 - 180), now, "UTC"))).toBe("Tue 9 AM");
+    expect(plain(formatResetClock(at(23 * 60), now, "UTC"))).toBe("11:00 AM");
+    expect(plain(formatResetClock(at(3 * 1_440 - 180), now, "UTC"))).toBe("Tue 9:00 AM");
     expect(plain(formatResetClock(at(20 * 1_440), now, "UTC"))).toBe("Jan 30");
     expect(plain(formatResetClock("later", now, "UTC"))).toBeUndefined();
   });

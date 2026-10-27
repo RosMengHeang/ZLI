@@ -51,7 +51,7 @@ type Row = {
 
 /**
  * How much of each login's plan limits is used, above Settings: one circle per limit the provider
- * reports, each with its reset. The numbers come from Anthropic and OpenAI; the card opens Usage.
+ * reports, each with its reset. The numbers come from each agent's provider; the card opens Usage.
  */
 export function SidebarUsageStrip({ readings, providers, accounts, now, currentKey, timeZone, onOpen }: Props) {
   const descriptionId = useId();

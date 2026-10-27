@@ -95,10 +95,10 @@ describe("SidebarUsageStrip", () => {
     const card = button(container);
     expect(card.getAttribute("aria-label")).toBe("Plan limits");
     expect(container.querySelectorAll(".usage-strip-ring")).toHaveLength(2);
-    expect(lines(container)).toEqual(["5h34%47m · 12:47 PM", "Week12%2d 21h · Tue 9 AM"]);
+    expect(lines(container)).toEqual(["5h34%47m · 12:47 PM", "Week12%2d 21h · Tue 9:00 AM"]);
     expect(card.textContent).not.toMatch(/\$|tokens/iu);
     expect(description(card)).toBe(
-      "Codex: 34% of the 5-hour limit used, 47m at 12:47 PM; 12% of the weekly limit used, 2d 21h at Tue 9 AM.",
+      "Codex: 34% of the 5-hour limit used, 47m at 12:47 PM; 12% of the weekly limit used, 2d 21h at Tue 9:00 AM.",
     );
     await act(async () => card.click());
     expect(opened).toBe(1);
@@ -116,7 +116,7 @@ describe("SidebarUsageStrip", () => {
 
   it("shows only the windows a plan has", async () => {
     const container = await render([reading("codex", [week(31)])]);
-    expect(lines(container)).toEqual(["Week31%2d 21h · Tue 9 AM"]);
+    expect(lines(container)).toEqual(["Week31%2d 21h · Tue 9:00 AM"]);
   });
 
   it("explains a missing reset instead of making one up", async () => {

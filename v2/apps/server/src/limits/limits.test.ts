@@ -174,6 +174,8 @@ describe("readClaudeLimits", () => {
     const value: ClaudeLimitDeps = {
       platform: "linux",
       home: "/home/me",
+      env: {},
+      now: () => Date.now(),
       readFile: async (path) => {
         if (path === join("/home/me/.claude", ".credentials.json")) return credentials;
         throw new Error("ENOENT");
