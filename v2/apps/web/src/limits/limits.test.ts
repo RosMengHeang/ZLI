@@ -130,8 +130,8 @@ describe("resetText", () => {
 describe("formatResetClock", () => {
   it("gives the time within a day, the weekday this week, and the date later", () => {
     expect(plain(formatResetClock(at(47), now, "UTC"))).toBe("12:47 PM");
-    expect(plain(formatResetClock(at(23 * 60), now, "UTC"))).toBe("11 AM");
-    expect(plain(formatResetClock(at(3 * 1_440 - 180), now, "UTC"))).toBe("Tue 9 AM");
+    expect(plain(formatResetClock(at(23 * 60), now, "UTC"))).toBe("11:00 AM");
+    expect(plain(formatResetClock(at(3 * 1_440 - 180), now, "UTC"))).toBe("Tue 9:00 AM");
     expect(plain(formatResetClock(at(20 * 1_440), now, "UTC"))).toBe("Jan 30");
     expect(plain(formatResetClock("later", now, "UTC"))).toBeUndefined();
   });

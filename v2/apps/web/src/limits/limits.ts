@@ -124,7 +124,7 @@ export function formatResetIn(resetsAt: string | undefined, now: number): string
 }
 
 /**
- * The local time of a reset: "3:40 PM" within a day, "Tue 9 AM" this week, "Nov 3" later. The
+ * The local time of a reset: "3:40 PM" within a day, "Tue 9:00 AM" this week, "Nov 3" later. The
  * countdown beside it already says whether a time within a day is today or tomorrow.
  */
 export function formatResetClock(resetsAt: string, now: number, timeZone?: string): string | undefined {
@@ -132,13 +132,8 @@ export function formatResetClock(resetsAt: string, now: number, timeZone?: strin
   if (Number.isNaN(at)) return undefined;
   const zone = timeZone ? { timeZone } : {};
   const day = (value: number) => new Intl.DateTimeFormat("en-CA", { ...zone, dateStyle: "short" }).format(value);
-  // "9 AM" reads faster than "9:00 AM"; resets usually land on the hour.
-  const parts = new Intl.DateTimeFormat(undefined, { ...zone, hour: "numeric", minute: "2-digit" }).formatToParts(at);
-  const onTheHour = parts.find((part) => part.type === "minute")?.value === "00";
-  const time = parts
-    .filter((part, index) => !onTheHour || (part.type !== "minute" && parts[index + 1]?.type !== "minute"))
-    .map((part) => part.value)
-    .join("");
+  // Always with minutes, "9:00 AM" and never "9 AM", so every reset reads the same way.
+  const time = new Intl.DateTimeFormat(undefined, { ...zone, hour: "numeric", minute: "2-digit" }).format(at);
   if (day(at) === day(now) || at - now < 86_400_000) return time;
   if (at - now < 6 * 86_400_000) {
     return `${new Intl.DateTimeFormat(undefined, { ...zone, weekday: "short" }).format(at)} ${time}`;

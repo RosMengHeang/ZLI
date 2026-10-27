@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, normalize } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -32,13 +32,16 @@ function fakeDeps(options: {
   reply?: (call: Call) => Reply;
 }) {
   const calls: Call[] = [];
+  // Fixtures are written as "/home/me/...", but readers join paths with the OS separator, a
+  // backslash on Windows. Normalizing both sides makes a fixture match the path a reader asks for.
+  const files = new Map(Object.entries(options.files ?? {}).map(([path, body]) => [normalize(path), body]));
   const deps = {
     platform: options.platform ?? "linux",
     home: "/home/me",
     env: options.env ?? {},
     now: () => NOW,
     readFile: async (path: string) => {
-      const file = options.files?.[path];
+      const file = files.get(normalize(path));
       if (file === undefined) throw new Error("ENOENT");
       return file;
     },
