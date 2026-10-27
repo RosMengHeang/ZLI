@@ -202,6 +202,8 @@ describe("plugin gallery", () => {
     );
     expect(commands.at(-1)).toEqual({ type: "plugins.previewInstall", source: figma.source });
     const form = container.querySelector('form[aria-label="Install a plugin"]') as HTMLFormElement;
+    expect(container.querySelector('[data-entry="figma"]')?.contains(form)).toBe(true);
+    expect(form.querySelector("input.input")).toBeNull();
     expect(form.querySelector("legend")?.textContent).toContain("Picked by ZLI");
     expect(form.textContent).not.toContain("This plugin can run commands");
 
@@ -214,7 +216,9 @@ describe("plugin gallery", () => {
     });
     expect(container.querySelector('[data-entry="figma"]')?.textContent).toContain("Installed");
     expect(hasButton(container, "Install Figma")).toBe(false);
-    expect(container.querySelector('[role="status"]')?.textContent).toBe("Installed figma. It is listed in Installed.");
+    const installedCard = container.querySelector('[data-entry="figma"]') as HTMLElement;
+    expect(installedCard.querySelector('[role="status"]')?.textContent).toBe("Installed");
+    expect(container.querySelector('form[aria-label="Install a plugin"]')).toBeNull();
 
     await show("installed");
     expect(container.querySelector(".plugin-row")?.textContent).toContain("Picked by ZLI");

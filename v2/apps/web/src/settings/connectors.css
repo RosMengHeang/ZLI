@@ -50,18 +50,26 @@
   padding: 0;
   list-style: none;
 }
+/*
+ * Cards sit one step above the island, like the setting lists, and catch the raised top highlight.
+ * A card opens across the whole row when it holds a form or a sign-in, so the work stays where it started.
+ */
 .connector-card {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: var(--zli-space-2);
-  padding: var(--zli-space-3);
+  gap: var(--zli-space-2-5);
+  padding: var(--zli-space-3) var(--zli-space-3) var(--zli-space-2-5);
   border: 1px solid var(--zli-border);
   border-radius: var(--zli-radius-lg);
-  background: var(--zli-well);
+  background: color-mix(in srgb, var(--zli-raised) 55%, var(--zli-surface));
+  box-shadow: var(--zli-highlight);
+  transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease);
 }
-.connector-card.is-open { grid-column: 1 / -1; border-color: var(--zli-border-strong); }
-.connector-card[data-state="connected"] { border-color: color-mix(in oklab, var(--zli-green) 35%, var(--zli-border)); }
+.connector-card:hover { border-color: var(--zli-border-strong); background: color-mix(in srgb, var(--zli-raised) 85%, var(--zli-surface)); }
+.connector-card.is-open { grid-column: 1 / -1; border-color: var(--zli-border-hover); background: var(--zli-raised); }
+.connector-card[data-state="connected"] { border-color: color-mix(in oklab, var(--zli-green) 26%, var(--zli-border)); }
+.connector-card[data-state="pending"] { border-color: var(--zli-accent-edge); }
 .connector-card-head { display: flex; align-items: center; gap: var(--zli-space-2-5); }
 .connector-card-titles { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
 .connector-card-titles strong { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
@@ -75,7 +83,11 @@
   background: none;
   color: var(--zli-dim);
   cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease);
 }
+.connector-card:hover .connector-home, .connector-card.is-open .connector-home, .connector-home:focus-visible { opacity: 1; }
+@media (hover: none) { .connector-home { opacity: 1; } }
 .connector-home:hover { background: var(--zli-hover); color: var(--zli-text); }
 .connector-card-desc {
   display: -webkit-box;
@@ -88,16 +100,30 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-.connector-card.is-open .connector-card-desc { display: block; }
+.connector-card.is-open .connector-card-desc { display: block; flex: 0 0 auto; }
 .connector-card-needs { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
-.connector-card-foot { display: flex; min-height: 26px; align-items: center; gap: var(--zli-space-1-5); }
+.connector-card-foot { display: flex; min-height: 28px; align-items: center; gap: var(--zli-space-1-5); padding-top: var(--zli-space-2-5); border-top: 1px solid var(--zli-border); }
 .connector-spacer { flex: 1; }
 .connector-status { display: inline-flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
-.connector-status.is-done { color: var(--zli-green); }
+.connector-status.is-done { height: var(--zli-control-xs); padding: 0 var(--zli-space-2); border-radius: var(--zli-radius-xs); background: var(--zli-green-soft); color: var(--zli-green-ink); font-weight: 500; }
+.connector-status.is-done svg { color: var(--zli-green); }
 .connector-status.is-pending { color: var(--zli-text); }
-.connector-code { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-sm); }
-.connector-code strong { color: var(--zli-text); font-family: var(--zli-mono); letter-spacing: .04em; }
-.connector-link {
+
+/* Sign-in in progress: what to do in the browser, the code when there is one, and a way back out. */
+.connector-signin { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--zli-space-3); padding: var(--zli-space-3); border-radius: var(--zli-radius-md); background: var(--zli-accent-soft); box-shadow: inset 0 0 0 1px var(--zli-accent-edge); animation: connector-panel-in var(--zli-duration-enter) var(--zli-ease); }
+.connector-signin-mark { display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: var(--zli-radius-md); background: var(--zli-surface); box-shadow: inset 0 0 0 1px var(--zli-border-strong); }
+.connector-signin-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.connector-signin-title { margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
+.connector-signin-detail { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.connector-signin-actions { display: flex; align-items: center; gap: var(--zli-space-1-5); }
+.connector-code { margin: var(--zli-space-1-5) 0 0; }
+.connector-code strong { display: inline-flex; height: var(--zli-control-lg); align-items: center; padding: 0 var(--zli-space-3); border-radius: var(--zli-radius-sm); background: var(--zli-well); box-shadow: inset 0 0 0 1px var(--zli-border-strong); color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-lg); font-weight: 600; letter-spacing: .12em; user-select: all; }
+@keyframes connector-panel-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .connector-signin { animation: none; } }
+@media (max-width: 640px) {
+  .connector-signin { grid-template-columns: auto minmax(0, 1fr); }
+  .connector-signin-actions { grid-column: 1 / -1; justify-content: flex-end; }
+}.connector-link {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -110,7 +136,8 @@
   cursor: pointer;
 }
 .connector-link:hover { text-decoration: underline; }
-.connector-form { display: flex; flex-direction: column; gap: var(--zli-space-3); }
+.connector-form { display: flex; flex-direction: column; gap: var(--zli-space-3); padding-top: var(--zli-space-3); border-top: 1px solid var(--zli-border); animation: connector-panel-in var(--zli-duration-enter) var(--zli-ease); }
+@media (prefers-reduced-motion: reduce) { .connector-form { animation: none; } }
 .connector-form-actions { display: flex; align-items: center; gap: var(--zli-space-1-5); }
 .connector-card .inline-error { font-size: var(--zli-text-sm); }
 .mcp-row-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); }

@@ -858,7 +858,9 @@ function WorkspaceApp() {
       return;
     }
     setWorktreeDialogProject(undefined);
+    // Same as picking it in the sidebar, so the new worktree is the one in view and stays listed there.
     setSelectedWorktreeId(result.worktreeId);
+    updateWorkbench((state) => ({ ...state, activeSessionId: undefined }));
   };
 
   const submitNewAgent = async (request: NewAgentRequest): Promise<string | undefined> => {

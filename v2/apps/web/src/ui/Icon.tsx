@@ -88,6 +88,8 @@ const paths = {
     </>
   ),
   arrowLeft: <path d="m12 19-7-7 7-7M19 12H5" />,
+  /** Android's Back key: a triangle pointing left. */
+  navBack: <path d="M17 5.5v13a.5.5 0 0 1-.76.43L5.7 12.43a.5.5 0 0 1 0-.86l10.54-6.5a.5.5 0 0 1 .76.43Z" />,
   arrowRight: <path d="M5 12h14M12 5l7 7-7 7" />,
   arrowUp: <path d="m5 12 7-7 7 7M12 19V5" />,
   reload: (
@@ -122,6 +124,12 @@ const paths = {
     </>
   ),
   square: <rect x="6" y="6" width="12" height="12" rx="2" />,
+  stop: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" />
+    </>
+  ),
   pause: <path d="M14 4h4v16h-4zM6 4h4v16H6z" />,
   trash: <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />,
   check: <path d="M20 6 9 17l-5-5" />,

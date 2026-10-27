@@ -100,12 +100,34 @@ not cover, add it to the primitives instead of styling it locally.
   top, in that order; the New agent shortcut appears
   when the row is hovered or focused. The footer
   holds the runtime status, Usage, Settings, and Help.
-- Agent rows are single lines indented under their project, with the
-  provider mark and the title. The selected agent gets a fill, not a stripe.
+- A project's name folds its agents and worktrees away, with a chevron that
+  shows on hover or while folded. A folded project shows its agent count,
+  in blue or amber when an agent there is working or waiting. The project
+  row also holds Create worktree (a branch icon) and New agent here (a
+  plus), both shown on hover.
+- Worktrees have no section of their own. An agent in a worktree shows the
+  branch on a second line under its title, with commits to push or pull,
+  the pull request and its checks, the setup or worktree status when it is
+  not plain Ready, and the changed file count. When that worktree failed or
+  needs setup approval, the fix (Retry, Review setup, Setup output) shows
+  under the first agent in it.
+- Worktrees no agent runs in fold into one "N worktrees without agents"
+  row under the agents. It starts folded, but still lists the worktree in
+  view and any that is being created, failed, or waiting on the person.
+  Folded projects and opened worktree rows are remembered across restarts.
+- Agent and worktree rows have no floating buttons. Each has one "..."
+  menu at its end, in the spot of its time or status, shown while the row
+  is pointed at or focused. An agent's menu has Stop agent, Copy branch
+  name, and Delete agent. A worktree's menu has its setup and retry fixes,
+  Cancel while it is being created, and Delete worktree (or Forget
+  checkout, which never touches disk), which asks once in the row. A
+  checkout stuck in Queued can still be forgotten.
+- Agent rows are indented under their project, with the provider mark and
+  the title. The selected agent gets a fill, not a stripe.
   The right side shows the status while the agent is starting, working,
   waiting, or failed; otherwise it says Background for an agent without a
-  tile, or how recently the agent was active. The branch is in the row's
-  tooltip and the tile header.
+  tile, or how recently the agent was active. The branch and worktree path
+  are also in the row's tooltip and the tile header.
 - The top bar has the breadcrumb (project, then branch in mono) on the left,
   then icon-only panel toggles with Terminal split from Files, Browser, and
   Changes, then the command palette trigger. Each toggle's name is its
@@ -193,12 +215,33 @@ not cover, add it to the primitives instead of styling it locally.
   Mod+Shift+G for Changes, and Mod+, for Settings. People can change these in
   Settings, and every key cap and tooltip shows the current binding. In the
   composer, Enter sends and Mod+Shift+Enter opens Send as Best of N.
-- Settings is one dialog with a section list on the left (New agents,
-  Projects, Worktrees, MCP servers, Shortcuts, Notifications) and a
-  fixed-height panel so switching sections does not resize it. Each section
-  is a grouped list of setting rows: the label and a short description on the
-  left, the control on the right. Switches are
-  square-cornered and neutral: on is a light track, not the accent.
+- Settings is one fixed-size dialog laid out like the window: a canvas
+  sidebar with a search field and the sections under four headings (Agents,
+  Workspace, Tools, App), and the open section on a surface island inset by
+  the gutter. The island starts with a breadcrumb (heading, then section)
+  and the close button. Search matches section names and the words people
+  use for them, Enter opens the first match, and Escape clears the field
+  before it closes Settings. Each section is titled groups of setting rows:
+  the label and a short description on the left, the control on the right.
+  Switches are square-cornered and neutral: on is a light track, not the
+  accent.
+- Settings > Mobile works like an IDE's device manager: the devices with
+  their state and Boot or Shut down, the device frame and agent switches,
+  then the Android SDK location and each tool it needs, and iPhone
+  simulator support.
+- The Mobile panel's bottom bar has three clusters: Type text and Open URL
+  on the left, the system buttons (Back, Home, Recents) centered in a well
+  like a phone's navigation bar, and Rotate, Save a screenshot, and the
+  More menu on the right. Shut down is an icon button in the toolbar, and
+  the reason for screenshots mode is a caption under the device.
+- Integrations Browse shows connectors and plugins as cards one step above
+  the island: logo, name, publisher, a two-line description, then a footer
+  with the action. Card buttons stay neutral; the accent is kept for the
+  final step. Install, Connect with a token, and a browser sign-in open the
+  card across the row in place. Install lists what the plugin adds (skills,
+  MCP servers, prompts, actions) and where it comes from before Install. A
+  sign-in shows what to do in the browser, the code when there is one, Open
+  again, and Cancel, on an accent-edged panel.
 - MCP servers are one list shared by every agent. Each row leads with its
   switch so a server can be turned off without losing its setup, and the
   command line sits under the name in mono because it is what people check.
@@ -207,6 +250,13 @@ not cover, add it to the primitives instead of styling it locally.
   accent border and a soft glow. The composer as a whole lifts to the overlay
   fill and takes the same glow while anything inside it has focus. Panel
   resize handles show an accent line on hover.
+- Stopping running work uses one control everywhere: the agent tile header,
+  the composer during a turn, and Cancel on a booting device. It is a raised
+  pill (round when it has no text) with a small square inside a ring. The
+  ring turns in the Working blue while the work runs and stays still for an
+  idle agent. Pointing at it turns it red, and after a click the ring speeds
+  up until the work has ended. Menus use the same ring-and-square icon for
+  Stop agent.
 - Dialogs trap Tab, give focus back when they close, and close on Escape or a
   click outside.
 - Pickers open above their trigger when there is room, focus the selected
@@ -231,7 +281,7 @@ not cover, add it to the primitives instead of styling it locally.
 ## Motion
 
 Motion is limited to hover and focus feedback, a slight press on buttons,
-resizing, chevrons, status spinners, and one entrance: dialogs and the command
+resizing, chevrons, status spinners (including the Stop ring), and one entrance: dialogs and the command
 palette fade in and rise 4px over 150ms so they read as part of the same
 window. Durations stay between 100 and 160ms. There are no decorative loops.
 With reduced motion turned on, transitions and animations are switched off,

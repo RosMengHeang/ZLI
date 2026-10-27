@@ -148,50 +148,46 @@ export function MobileControls({
         />
       ) : null}
       <nav className="mobile-controls" aria-label="Device buttons">
-        {android ? (
-          <Button size="sm" variant="ghost" icon="arrowLeft" onClick={() => press("back")}>
-            <span className="mobile-controls-label">Back</span>
-          </Button>
-        ) : null}
-        <Button size="sm" variant="ghost" icon="circle" onClick={() => press("home")}>
-          <span className="mobile-controls-label">Home</span>
-        </Button>
-        {android ? (
-          <Button size="sm" variant="ghost" icon="square" onClick={() => press("recents")}>
-            <span className="mobile-controls-label">Recents</span>
-          </Button>
-        ) : null}
-        <span className="mobile-toolbar-spacer" />
-        <IconButton
-          ref={typeToggleRef}
-          icon="keyboard"
-          size="sm"
-          iconSize={14}
-          label="Type text"
-          tooltip={row === "type" ? "Close Type text" : "Type text on the device"}
-          pressed={row === "type"}
-          onClick={() => toggleRow("type")}
-        />
-        <IconButton
-          ref={urlToggleRef}
-          icon="globe"
-          size="sm"
-          iconSize={14}
-          label="Open URL"
-          tooltip={row === "url" ? "Close Open URL" : "Open a URL on the device"}
-          pressed={row === "url"}
-          onClick={() => toggleRow("url")}
-        />
-        {canRotate ? <IconButton icon="rotate" size="sm" iconSize={14} label="Rotate" onClick={rotate} /> : null}
-        <IconButton
-          icon="download"
-          size="sm"
-          iconSize={14}
-          label="Save a screenshot"
-          disabled={screenshotBusy}
-          onClick={onScreenshot}
-        />
-        <MenuButton label="More device buttons" icon="more" items={menuItems} />
+        <div className="mobile-controls-side">
+          <IconButton
+            ref={typeToggleRef}
+            icon="keyboard"
+            size="sm"
+            iconSize={15}
+            label="Type text"
+            tooltip={row === "type" ? "Close Type text" : "Type text on the device"}
+            pressed={row === "type"}
+            onClick={() => toggleRow("type")}
+          />
+          <IconButton
+            ref={urlToggleRef}
+            icon="globe"
+            size="sm"
+            iconSize={15}
+            label="Open URL"
+            tooltip={row === "url" ? "Close Open URL" : "Open a URL on the device"}
+            pressed={row === "url"}
+            onClick={() => toggleRow("url")}
+          />
+        </div>
+        {/* The system buttons sit in the middle, in the order a phone's own navigation bar shows them. */}
+        <fieldset className="mobile-nav" aria-label="Navigation">
+          {android ? <IconButton icon="navBack" iconSize={15} label="Back" onClick={() => press("back")} /> : null}
+          <IconButton icon="circle" iconSize={15} label="Home" onClick={() => press("home")} />
+          {android ? <IconButton icon="square" iconSize={15} label="Recents" onClick={() => press("recents")} /> : null}
+        </fieldset>
+        <div className="mobile-controls-side is-end">
+          {canRotate ? <IconButton icon="rotate" size="sm" iconSize={15} label="Rotate" onClick={rotate} /> : null}
+          <IconButton
+            icon="download"
+            size="sm"
+            iconSize={15}
+            label="Save a screenshot"
+            disabled={screenshotBusy}
+            onClick={onScreenshot}
+          />
+          <MenuButton label="More device buttons" icon="more" items={menuItems} />
+        </div>
       </nav>
     </>
   );

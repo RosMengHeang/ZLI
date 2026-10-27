@@ -16,7 +16,7 @@
 .mobile-stage { position: relative; min-height: 0; flex: 1; }
 .mobile-stage-loading { position: absolute; inset: 0; }
 .mobile-stage.is-actual { overflow: auto; }
-.mobile-zoom { position: absolute; inset: var(--zli-space-3); }
+.mobile-zoom { position: absolute; inset: var(--zli-space-4) var(--zli-space-4) var(--zli-space-3); }
 /* At 100% the zoom box hugs the screen and the stage scrolls; auto margins center it while it fits. */
 .is-actual .mobile-zoom { position: relative; inset: auto; width: fit-content; margin: var(--zli-space-3) auto; }
 /* Absolute with auto margins lets the screen keep its aspect ratio while fitting both the width and the height. */
@@ -74,18 +74,23 @@
 .mobile-trail-line { stroke: var(--zli-text); stroke-linecap: round; stroke-width: 2; }
 .mobile-trail-start { fill: var(--zli-text); stroke: var(--zli-canvas); stroke-opacity: .5; stroke-width: 1.5; }
 .mobile-trail-end { fill: var(--zli-text); fill-opacity: .3; stroke: var(--zli-text); stroke-width: 1.5; }
-.mobile-note { flex: 0 0 auto; margin: 0; padding: var(--zli-space-1-5) var(--zli-space-3); border-top: 1px solid var(--zli-border); color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
-.mobile-type-row { display: flex; align-items: center; gap: var(--zli-space-2); flex: 0 0 auto; padding: var(--zli-space-1-5) var(--zli-space-2); border-top: 1px solid var(--zli-border); }
+/* Why the screen is screenshots: a quiet caption under the device rather than a bar across the panel. */
+.mobile-note { flex: 0 0 auto; max-width: 440px; margin: 0 auto; padding: var(--zli-space-1) var(--zli-space-4) var(--zli-space-2-5); color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); text-align: center; text-wrap: balance; }
+.mobile-type-row { display: flex; align-items: center; gap: var(--zli-space-2); flex: 0 0 auto; padding: var(--zli-space-2) var(--zli-space-2-5); border-top: 1px solid var(--zli-border); }
 .mobile-type-row .input { flex: 1; }
-.mobile-controls { display: flex; align-items: center; gap: var(--zli-space-1); height: var(--zli-toolbar); flex: 0 0 auto; padding: 0 var(--zli-space-2); border-top: 1px solid var(--zli-border); }
-/* A narrow panel or portrait pop-out window is too narrow for labeled nav buttons; the labels stay as accessible names. */
-@container mobile (max-width: 400px) { .mobile-controls-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
+/* Three clusters: input tools on the left, the system buttons centered like a phone's navigation bar, and screen tools on the right. */
+.mobile-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: var(--zli-space-2); height: 44px; flex: 0 0 auto; padding: 0 var(--zli-space-2); border-top: 1px solid var(--zli-border); }
+.mobile-controls-side { display: flex; min-width: 0; align-items: center; gap: 2px; }
+.mobile-controls-side.is-end { justify-content: flex-end; }
+.mobile-nav { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1); margin: 0; padding: 2px; border: 0; border-radius: var(--zli-radius-md); background: var(--zli-well); box-shadow: inset 0 0 0 1px var(--zli-border); }
+.mobile-nav .btn-icon { width: 40px; color: var(--zli-muted); }
+.mobile-nav .btn-icon:hover:not(:disabled) { color: var(--zli-text); }
 /* The notice fades in its last half second; reduced motion turns the fade off and it simply goes. */
 .mobile-notice .banner { animation: mobile-notice-fade 3s linear both; }
 @keyframes mobile-notice-fade { 0%, 83% { opacity: 1; } 100% { opacity: 0; } }
 .mobile-logs { flex: 0 0 auto; border-top: 1px solid var(--zli-border); }
-.mobile-logs-toggle { display: flex; align-items: center; gap: var(--zli-space-1-5); width: 100%; height: var(--zli-control-md); padding: 0 var(--zli-space-3); border: 0; background: transparent; color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-sm); text-align: left; }
-.mobile-logs-toggle:hover { color: var(--zli-text); }
+.mobile-logs-toggle { display: flex; align-items: center; gap: var(--zli-space-1-5); width: 100%; height: var(--zli-control-lg); padding: 0 var(--zli-space-3); border: 0; background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-sm); text-align: left; transition: color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
+.mobile-logs-toggle:hover { background: var(--zli-hover); color: var(--zli-text); }
 .mobile-logs-toggle:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
 .mobile-logs-count { margin-left: auto; color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
 .mobile-logs-panel { display: flex; flex-direction: column; gap: var(--zli-space-2); padding: 0 var(--zli-space-2) var(--zli-space-2); }
@@ -105,8 +110,11 @@
 .mobile-window-detail { min-width: 0; flex: 0 1000 auto; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 /* A portrait phone window leaves little room beside the native window controls, so the device name wins over its kind. */
 @media (max-width: 440px) { .mobile-window-detail { display: none; } }
-.mobile-footer { flex: 0 0 auto; padding: 0 var(--zli-space-3); border-top: 1px solid var(--zli-border); background: var(--zli-well); }
-.mobile-footer .switch-hint { line-height: var(--zli-leading-normal); }
+/* One quiet row: the full explanation of the agent tools lives in Settings > Mobile. */
+.mobile-footer { flex: 0 0 auto; padding: 0 var(--zli-space-3); border-top: 1px solid var(--zli-border); }
+.mobile-footer .switch-row { min-height: var(--zli-control-lg); padding: var(--zli-space-1) 0; }
+.mobile-footer .switch-label { color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.mobile-footer .switch-hint { color: var(--zli-red); line-height: var(--zli-leading-normal); }
 .mobile-setup { display: flex; flex-direction: column; gap: var(--zli-space-5); max-width: 560px; padding: var(--zli-space-4); }
 .mobile-setup-section { display: flex; flex-direction: column; gap: var(--zli-space-2-5); }
 .mobile-setup-card { padding: var(--zli-space-4); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-surface); }

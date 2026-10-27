@@ -13,6 +13,7 @@ import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
+import { StopButton } from "../ui/StopButton.js";
 import type { RunPosition } from "./bestOf.js";
 import {
   type AgentSession,
@@ -176,20 +177,19 @@ export function AgentTile({
             />
           ) : null}
           {canStop ? (
-            <Button
+            <StopButton
               className="tile-stop"
-              variant="ghost"
               size="xs"
-              aria-label="Stop agent"
+              working={statusBusy}
+              label="Stop agent"
               tooltip="Stop the agent in the terminal and the chat"
               onClick={() => {
                 setError(undefined);
                 onStop();
               }}
             >
-              <Icon name="square" size={9} fill="currentColor" strokeWidth={0} />
               Stop
-            </Button>
+            </StopButton>
           ) : null}
           {canMaximize ? (
             <IconButton

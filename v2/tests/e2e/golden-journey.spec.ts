@@ -184,7 +184,8 @@ test("completes the workspace, provider, browser, review, and restoration journe
         { timeout: 30_000 },
       )
       .toBe("ready");
-    await expect(fixture.page.getByRole("button", { name: /e2e/iu })).toContainText("Ready", { timeout: 30_000 });
+    // The worktree has an agent, so the sidebar shows its branch under that agent rather than as its own row.
+    await expect(fixture.page.locator(".session-branch", { hasText: "e2e" })).toBeVisible({ timeout: 30_000 });
     await expect(fixture.page.getByText("Mock response: inspect workspace")).toBeVisible({ timeout: 20_000 });
     await fixture.page.getByRole("button", { name: "Browser", exact: true }).click();
     await expect(fixture.page.getByRole("heading", { name: "ZLI fixture" })).toBeVisible({ timeout: 20_000 });

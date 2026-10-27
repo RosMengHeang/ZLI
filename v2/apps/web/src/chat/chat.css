@@ -236,9 +236,6 @@ button.step-row:hover .step-file { background: var(--zli-active); }
 .send-button:active:not(:disabled) { background: var(--zli-accent-pressed); }
 .send-button:disabled { cursor: not-allowed; background: var(--zli-active); box-shadow: none; color: var(--zli-disabled); }
 /* Split Send: the arrow sends, the narrow half next to it opens other ways to send. */
-.stop-button { display: inline-grid; place-items: center; width: var(--zli-control-md); height: var(--zli-control-md); flex: 0 0 auto; padding: 0; border: 0; border-radius: var(--zli-radius-pill); background: var(--zli-danger); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16); color: #fff; cursor: pointer; transition: background-color var(--zli-duration-fast) var(--zli-ease), transform var(--zli-duration-fast) var(--zli-ease); }
-.stop-button:hover { background: var(--zli-danger-hover); }
-.stop-button:active { transform: scale(.94); }
 .send-split { position: relative; display: inline-flex; flex: 0 0 auto; align-items: center; }
 .send-split.has-menu .send-button { width: 30px; border-radius: var(--zli-radius-pill) 0 0 var(--zli-radius-pill); }
 .send-more { display: inline-grid; place-items: center; width: 20px; height: var(--zli-control-md); padding: 0 2px 0 0; border: 0; border-left: 1px solid rgba(0, 0, 0, .22); border-radius: 0 var(--zli-radius-pill) var(--zli-radius-pill) 0; background: var(--zli-accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18); color: var(--zli-accent-ink); cursor: pointer; transition: background-color var(--zli-duration-fast) var(--zli-ease); }

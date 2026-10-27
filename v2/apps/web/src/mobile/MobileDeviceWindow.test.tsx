@@ -109,7 +109,7 @@ describe("MobileDeviceWindow", () => {
     expect(fake.mobile.startStream).toHaveBeenCalledWith(emulator.deviceId);
     await fake.still();
     expect(container.querySelector(".mobile-device.is-framed img.mobile-screen")).not.toBeNull();
-    expect(button(container, "Back").querySelector(".mobile-controls-label")?.textContent).toBe("Back");
+    expect(button(container, "Back").closest(".mobile-nav")?.getAttribute("aria-label")).toBe("Navigation");
     expect(container.querySelector(".mobile-window-detail")?.textContent).toBe("Android Emulator");
     expect(container.querySelector(".app-shell")).toBeNull();
   });

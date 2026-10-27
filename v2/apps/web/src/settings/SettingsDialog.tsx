@@ -34,7 +34,8 @@ import {
 } from "./appSettings.js";
 import { IntegrationsSection, type IntegrationsView } from "./IntegrationsSection.js";
 import { IssuesSection } from "./IssuesSection.js";
-import { SectionHeader, SettingRow } from "./SectionHeader.js";
+import { MobileSection } from "./MobileSection.js";
+import { SectionHeader, SettingGroup, SettingRow } from "./SectionHeader.js";
 import { SkillsSection } from "./SkillsSection.js";
 import "./settings.css";
 
@@ -47,23 +48,66 @@ export type SettingsSection =
   | "integrations"
   | "skills"
   | "issues"
+  | "mobile"
   | "shortcuts"
   | "notifications"
   | "updates";
 
-const sections: { id: SettingsSection; label: string; icon: IconName }[] = [
-  { id: "agents", label: "New agents", icon: "squarePen" },
-  { id: "accounts", label: "Accounts", icon: "user" },
-  { id: "projects", label: "Projects", icon: "folder" },
-  { id: "worktrees", label: "Worktrees", icon: "branch" },
-  { id: "files", label: "Files", icon: "fileText" },
-  { id: "integrations", label: "Integrations", icon: "puzzle" },
-  { id: "skills", label: "Skills", icon: "sparkle" },
-  { id: "issues", label: "Issues", icon: "issue" },
-  { id: "shortcuts", label: "Shortcuts", icon: "command" },
-  { id: "notifications", label: "Notifications", icon: "bell" },
-  { id: "updates", label: "Updates", icon: "download" },
+type SectionGroup = "Agents" | "Workspace" | "Tools" | "App";
+
+type SectionEntry = {
+  id: SettingsSection;
+  label: string;
+  icon: IconName;
+  group: SectionGroup;
+  /** Words people may search for that the label does not contain. */
+  keywords: string;
+};
+
+const sections: readonly SectionEntry[] = [
+  {
+    id: "agents",
+    label: "New agents",
+    icon: "squarePen",
+    group: "Agents",
+    keywords: "defaults model view permissions",
+  },
+  { id: "accounts", label: "Accounts", icon: "user", group: "Agents", keywords: "sign in api key login" },
+  { id: "skills", label: "Skills", icon: "sparkle", group: "Agents", keywords: "prompts instructions" },
+  { id: "projects", label: "Projects", icon: "folder", group: "Workspace", keywords: "folders remove" },
+  { id: "worktrees", label: "Worktrees", icon: "branch", group: "Workspace", keywords: "branch name template" },
+  { id: "files", label: "Files", icon: "fileText", group: "Workspace", keywords: "tree position editor" },
+  {
+    id: "integrations",
+    label: "Integrations",
+    icon: "puzzle",
+    group: "Tools",
+    keywords: "mcp servers connectors plugins",
+  },
+  { id: "issues", label: "Issues", icon: "issue", group: "Tools", keywords: "github linear" },
+  {
+    id: "mobile",
+    label: "Mobile",
+    icon: "smartphone",
+    group: "Tools",
+    keywords: "phone android emulator iphone simulator device frame sdk avd",
+  },
+  { id: "shortcuts", label: "Shortcuts", icon: "command", group: "App", keywords: "keys keyboard bindings" },
+  { id: "notifications", label: "Notifications", icon: "bell", group: "App", keywords: "sound alerts" },
+  { id: "updates", label: "Updates", icon: "download", group: "App", keywords: "version channel" },
 ];
+
+const groups: readonly SectionGroup[] = ["Agents", "Workspace", "Tools", "App"];
+
+/** The sections whose label, group, or keywords contain every typed word. */
+export function matchingSections(query: string): readonly SectionEntry[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return sections;
+  return sections.filter((entry) => {
+    const haystack = `${entry.label} ${entry.group} ${entry.keywords}`.toLowerCase();
+    return words.every((word) => haystack.includes(word));
+  });
+}
 
 const modeOptions: readonly PickerOption<SessionMode>[] = [
   { value: "terminal", label: "Terminal", icon: <Icon name="terminal" size={15} /> },
@@ -104,86 +148,152 @@ export function SettingsDialog({
   onClose,
 }: Props) {
   const [section, setSection] = useState<SettingsSection>(initialSection);
+  const [query, setQuery] = useState("");
   const tabsId = useId();
   const tabRefs = useRef<Partial<Record<SettingsSection, HTMLButtonElement | null>>>({});
+  const panelRef = useRef<HTMLElement>(null);
+  const visible = matchingSections(query);
+  const current = sections.find((entry) => entry.id === section) ?? sections[0];
+  // While a search hides the open section, the first match takes its place in the tab order.
+  const focusable = visible.some((entry) => entry.id === section) ? section : visible[0]?.id;
+
+  const select = (next: SettingsSection) => {
+    setSection(next);
+    if (panelRef.current) panelRef.current.scrollTop = 0;
+  };
 
   const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
-    const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
-    if (step === 0) return;
-    event.preventDefault();
-    const index = sections.findIndex((entry) => entry.id === section);
-    const next = sections[(index + step + sections.length) % sections.length];
+    if (visible.length === 0) return;
+    const index = visible.findIndex((entry) => entry.id === section);
+    const next =
+      event.key === "ArrowDown"
+        ? visible[(index + 1) % visible.length]
+        : event.key === "ArrowUp"
+          ? visible[(index - 1 + visible.length) % visible.length]
+          : event.key === "Home"
+            ? visible[0]
+            : event.key === "End"
+              ? visible[visible.length - 1]
+              : undefined;
     if (!next) return;
-    setSection(next.id);
+    event.preventDefault();
+    select(next.id);
     tabRefs.current[next.id]?.focus();
   };
 
   return (
-    <Dialog
-      label="Settings"
-      title="Settings"
-      size="lg"
-      className="settings-dialog"
-      scrimLabel="Close settings"
-      onClose={onClose}
-    >
+    <Dialog label="Settings" size="lg" className="settings-dialog" scrimLabel="Close settings" onClose={onClose}>
       <div className="settings-layout">
-        <div
-          className="settings-nav"
-          role="tablist"
-          aria-label="Settings sections"
-          aria-orientation="vertical"
-          onKeyDown={onTabKey}
-        >
-          {sections.map((entry) => (
-            <button
-              key={entry.id}
-              ref={(element) => {
-                tabRefs.current[entry.id] = element;
+        <aside className="settings-sidebar">
+          <h2 className="settings-title">Settings</h2>
+          <div className="settings-search">
+            <Icon name="search" size={13} />
+            <input
+              className="input input-sm"
+              type="search"
+              aria-label="Search settings"
+              placeholder="Search"
+              value={query}
+              spellCheck={false}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape" && query) {
+                  // Escape clears the search first, and closes Settings only once the field is empty.
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setQuery("");
+                } else if (event.key === "Enter" && visible[0]) {
+                  event.preventDefault();
+                  select(visible[0].id);
+                }
               }}
-              className="settings-tab"
-              type="button"
-              role="tab"
-              id={`${tabsId}-${entry.id}`}
-              aria-selected={section === entry.id}
-              aria-controls={`${tabsId}-panel`}
-              tabIndex={section === entry.id ? 0 : -1}
-              onClick={() => setSection(entry.id)}
-            >
-              <Icon name={entry.icon} size={15} />
-              <span>{entry.label}</span>
-            </button>
-          ))}
-        </div>
-        <section
-          className="settings-panel"
-          role="tabpanel"
-          id={`${tabsId}-panel`}
-          aria-labelledby={`${tabsId}-${section}`}
-        >
-          {section === "agents" ? <AgentDefaults projection={projection} /> : null}
-          {section === "accounts" ? (
-            <AccountsSection projection={projection} {...(onSignIn ? { onSignIn } : {})} />
-          ) : null}
-          {section === "projects" ? (
-            <ProjectsSection
-              projection={projection}
-              initialProjectId={initialProjectId}
-              onAddProject={onAddProject}
-              onRemoveProject={onRemoveProject}
             />
-          ) : null}
-          {section === "worktrees" ? <WorktreeSettings projection={projection} /> : null}
-          {section === "files" ? <FilesSettings /> : null}
-          {section === "integrations" ? (
-            <IntegrationsSection initialView={integrationsView} focusConnector={focusConnector} />
-          ) : null}
-          {section === "skills" ? <SkillsSection projection={projection} initialProjectId={initialProjectId} /> : null}
-          {section === "issues" ? <IssuesSection /> : null}
-          {section === "shortcuts" ? <ShortcutSettings /> : null}
-          {section === "notifications" ? <NotificationSection {...notifications} /> : null}
-          {section === "updates" ? <UpdatesSection updates={updates} onRestart={onRestartToUpdate} /> : null}
-        </section>
+          </div>
+          <div
+            className="settings-nav"
+            role="tablist"
+            aria-label="Settings sections"
+            aria-orientation="vertical"
+            onKeyDown={onTabKey}
+          >
+            {groups.map((group) => {
+              const entries = visible.filter((entry) => entry.group === group);
+              if (entries.length === 0) return null;
+              return (
+                <div key={group} className="settings-nav-group" role="presentation">
+                  <span className="settings-nav-heading" aria-hidden="true">
+                    {group}
+                  </span>
+                  {entries.map((entry) => (
+                    <button
+                      key={entry.id}
+                      ref={(element) => {
+                        tabRefs.current[entry.id] = element;
+                      }}
+                      className="settings-tab"
+                      type="button"
+                      role="tab"
+                      id={`${tabsId}-${entry.id}`}
+                      aria-selected={section === entry.id}
+                      aria-controls={`${tabsId}-panel`}
+                      tabIndex={focusable === entry.id ? 0 : -1}
+                      onClick={() => select(entry.id)}
+                    >
+                      <Icon name={entry.icon} size={14} />
+                      <span>{entry.label}</span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })}
+            {visible.length === 0 ? (
+              <p className="settings-nav-empty" role="status">
+                Nothing matches {query.trim()}.
+              </p>
+            ) : null}
+          </div>
+        </aside>
+        <div className="settings-main">
+          <header className="settings-crumbs">
+            <span className="settings-crumb">{current?.group}</span>
+            <Icon name="chevronRight" size={12} />
+            <span className="settings-crumb is-current">{current?.label}</span>
+            <IconButton label="Close" icon="x" size="sm" className="settings-close" onClick={onClose} />
+          </header>
+          <section
+            ref={panelRef}
+            className="settings-panel"
+            role="tabpanel"
+            id={`${tabsId}-panel`}
+            aria-labelledby={`${tabsId}-${section}`}
+          >
+            {section === "agents" ? <AgentDefaults projection={projection} /> : null}
+            {section === "accounts" ? (
+              <AccountsSection projection={projection} {...(onSignIn ? { onSignIn } : {})} />
+            ) : null}
+            {section === "projects" ? (
+              <ProjectsSection
+                projection={projection}
+                initialProjectId={initialProjectId}
+                onAddProject={onAddProject}
+                onRemoveProject={onRemoveProject}
+              />
+            ) : null}
+            {section === "worktrees" ? <WorktreeSettings projection={projection} /> : null}
+            {section === "files" ? <FilesSettings /> : null}
+            {section === "integrations" ? (
+              <IntegrationsSection initialView={integrationsView} focusConnector={focusConnector} />
+            ) : null}
+            {section === "skills" ? (
+              <SkillsSection projection={projection} initialProjectId={initialProjectId} />
+            ) : null}
+            {section === "issues" ? <IssuesSection /> : null}
+            {section === "shortcuts" ? <ShortcutSettings /> : null}
+            {section === "notifications" ? <NotificationSection {...notifications} /> : null}
+            {section === "mobile" ? <MobileSection /> : null}
+            {section === "updates" ? <UpdatesSection updates={updates} onRestart={onRestartToUpdate} /> : null}
+          </section>
+        </div>
       </div>
     </Dialog>
   );
@@ -280,14 +390,14 @@ function AgentDefaults({ projection }: { projection: RuntimeProjection | undefin
       <SectionHeader title="New agents">
         What the New agent dialog starts with. Fields set to Last used repeat your previous choice.
       </SectionHeader>
-      <div className="setting-list">
+      <SettingGroup title="Defaults">
         <LaunchFields
           projection={projection}
           value={settings.defaults}
           inheritLabel="Last used"
           onChange={(defaults) => updateAppSettings((current) => ({ ...current, defaults }))}
         />
-      </div>
+      </SettingGroup>
     </>
   );
 }
@@ -572,7 +682,7 @@ function WorktreeSettings({ projection }: { projection: RuntimeProjection | unde
   return (
     <>
       <SectionHeader title="Worktrees">How ZLI names the branch for each new worktree.</SectionHeader>
-      <div className="setting-list">
+      <SettingGroup title="Branch names">
         <SettingRow
           label="Branch name"
           htmlFor={inputId}
@@ -619,7 +729,7 @@ function WorktreeSettings({ projection }: { projection: RuntimeProjection | unde
         >
           <span className="settings-value is-mono">{preview}</span>
         </SettingRow>
-      </div>
+      </SettingGroup>
     </>
   );
 }
@@ -637,7 +747,7 @@ function FilesSettings() {
       <SectionHeader title="Files">
         Layout of the Files panel when it is wide enough for the tree and a file.
       </SectionHeader>
-      <div className="setting-list">
+      <SettingGroup title="Layout">
         <SettingRow label="Tree position" description="The open file takes the other side." htmlFor={selectId}>
           <Select
             id={selectId}
@@ -647,7 +757,7 @@ function FilesSettings() {
             onChange={(fileTreePosition) => updateAppSettings((current) => ({ ...current, fileTreePosition }))}
           />
         </SettingRow>
-      </div>
+      </SettingGroup>
     </>
   );
 }
@@ -782,7 +892,7 @@ function NotificationSection({
       <SectionHeader title="Notifications">
         Agents already on screen stay quiet while the ZLI window has focus.
       </SectionHeader>
-      <div className="setting-list">
+      <SettingGroup title="Alerts">
         <Switch
           label="Desktop notifications"
           hint="Notify when an agent finishes or needs input, and badge the taskbar or dock icon."
@@ -796,7 +906,7 @@ function NotificationSection({
           disabled={!settings.enabled}
           onChange={(sound) => update({ sound })}
         />
-      </div>
+      </SettingGroup>
     </>
   );
 }

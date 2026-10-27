@@ -262,6 +262,29 @@ kbd {
 .spinner { display: inline-block; width: 12px; height: 12px; flex: 0 0 12px; border: 1.5px solid color-mix(in srgb, currentColor 20%, transparent); border-top-color: currentColor; border-radius: 50%; animation: zli-spin 700ms linear infinite; }
 @keyframes zli-spin { to { transform: rotate(360deg); } }
 
+/* ---------- Stop: the one control that ends running work ---------- */
+/* At rest a blue ring turns around the stop square, the same blue as Working. Pointing at it turns it red. */
+.stop-btn { --stop-size: var(--zli-control-sm); --stop-glyph: 14px; display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 6px; height: var(--stop-size); padding: 0; border: 0; border-radius: var(--zli-radius-pill); background: var(--zli-raised); box-shadow: var(--zli-highlight), inset 0 0 0 1px var(--zli-border-strong); color: var(--zli-text); cursor: pointer; font: inherit; font-size: var(--zli-text-xs); font-weight: 500; line-height: 1; white-space: nowrap; transition: background-color var(--zli-duration-fast) var(--zli-ease), box-shadow var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease), transform var(--zli-duration-fast) var(--zli-ease); }
+.stop-btn.is-icon { width: var(--stop-size); }
+.stop-btn.has-label { padding: 0 var(--zli-space-2-5) 0 5px; }
+.stop-btn-xs { --stop-size: var(--zli-control-xs); --stop-glyph: 12px; }
+.stop-btn-xs.has-label { padding: 0 var(--zli-space-2) 0 4px; gap: 5px; }
+.stop-btn-md { --stop-size: var(--zli-control-md); --stop-glyph: 20px; }
+.stop-btn-glyph { position: relative; display: grid; width: var(--stop-glyph); height: var(--stop-glyph); flex: 0 0 auto; place-items: center; }
+.stop-btn-glyph::before { content: ""; position: absolute; inset: 0; border: 1.5px solid color-mix(in srgb, var(--zli-blue) 22%, transparent); border-top-color: var(--zli-blue); border-radius: 50%; animation: zli-spin 1.1s linear infinite; }
+.stop-btn-square { width: calc(var(--stop-glyph) * .36); height: calc(var(--stop-glyph) * .36); border-radius: 1.5px; background: currentColor; }
+.stop-btn:hover:not(:disabled) { background: var(--zli-red-soft); box-shadow: inset 0 0 0 1px var(--zli-red-line); color: var(--zli-red-ink); }
+.stop-btn:hover:not(:disabled) .stop-btn-glyph::before { border-color: var(--zli-red-line); border-top-color: var(--zli-red); }
+.stop-btn:active:not(:disabled) { background: var(--zli-danger); box-shadow: none; color: #fff; transform: scale(.96); }
+.stop-btn:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+.stop-btn:disabled { cursor: default; }
+.stop-btn.is-idle .stop-btn-glyph::before { border-color: var(--zli-border-hover); animation: none; }
+/* Stopping: the ring speeds up until the work has ended. */
+.stop-btn[aria-busy="true"] .stop-btn-glyph::before { border-top-color: var(--zli-red); animation-duration: 500ms; }
+@media (prefers-reduced-motion: reduce) {
+  .stop-btn:not(.is-idle) .stop-btn-glyph::before { animation: zli-spin 1.6s linear infinite !important; }
+}
+
 /* Live text: a soft highlight sweeps across a label while the work it names is running. */
 .shimmer-text { background: linear-gradient(90deg, var(--zli-muted) 0%, var(--zli-muted) 35%, var(--zli-text) 50%, var(--zli-muted) 65%, var(--zli-muted) 100%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: zli-shimmer 2.2s linear infinite; }
 @keyframes zli-shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }

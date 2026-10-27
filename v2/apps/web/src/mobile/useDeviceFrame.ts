@@ -2,9 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 
 const FRAME_KEY = "zli.mobile.skin.v1";
 
+/** Hooks in this window, which the storage event does not reach because it only fires in other windows. */
+const listeners = new Set<(shown: boolean) => void>();
+
 /**
  * Whether the device frame shows around the screen: on until the person turns it off. The setting is shared by
- * the panel and device windows, and a change in one shows in the others.
+ * the panel, Settings, and device windows, and a change in one shows in the others.
  */
 export function useDeviceFrame(): [boolean, (shown: boolean) => void] {
   const [shown, setShownState] = useState(readShown);
@@ -12,17 +15,22 @@ export function useDeviceFrame(): [boolean, (shown: boolean) => void] {
     const onStorage = (event: StorageEvent) => {
       if (event.key === FRAME_KEY || event.key === null) setShownState(readShown());
     };
+    listeners.add(setShownState);
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    return () => {
+      listeners.delete(setShownState);
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
   const setShown = useCallback((next: boolean) => {
-    setShownState(next);
     try {
       if (next) window.localStorage.removeItem(FRAME_KEY);
       else window.localStorage.setItem(FRAME_KEY, "off");
     } catch {
       // Without storage the choice lasts until the panel closes.
     }
+    setShownState(next);
+    for (const listener of listeners) listener(next);
   }, []);
   return [shown, setShown];
 }

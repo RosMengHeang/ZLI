@@ -361,7 +361,10 @@ describe("AppShell", () => {
     const dispatched: unknown[] = [];
     const container = await render(makeBridge(withAgent, dispatched));
     await act(async () => {
-      button(container, "Delete Claude Code")?.click();
+      button(container, "Agent actions")?.click();
+    });
+    await act(async () => {
+      button(document.body, "Delete agent")?.click();
     });
     const dialog = container.querySelector('[role="dialog"][aria-label="Delete agent"]');
     expect(dialog?.textContent).toContain("Stops Claude Code");
@@ -382,7 +385,10 @@ describe("AppShell", () => {
     };
     const container = await render(makeBridge(stopped, dispatched));
     await act(async () => {
-      button(container, "Delete Claude Code")?.click();
+      button(container, "Agent actions")?.click();
+    });
+    await act(async () => {
+      button(document.body, "Delete agent")?.click();
     });
     const dialog = container.querySelector('[role="dialog"][aria-label="Delete agent"]');
     expect(dialog?.textContent).not.toContain("Stops");

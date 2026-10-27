@@ -291,4 +291,63 @@ describe("ConnectorsSection health and projects", () => {
     await act(async () => button(card(container, "vercel"), "Sign in again to Vercel").click());
     expect(card(container, "vercel").dataset.state).toBe("connected");
   });
+  it("shows the browser sign-in inside the card while it waits", async () => {
+    let finish: () => void = () => undefined;
+    const opened: string[] = [];
+    let servers: McpServerConfig[] = [];
+    let signedIn: string[] = [];
+    const bridge = {
+      runtime: {
+        dispatch: async (request: { commandId: string; command: Command }) => {
+          const { command } = request;
+          if (command.type === "mcp.save") servers = command.servers ?? [];
+          let result: unknown = listOf(servers, signedIn);
+          if (command.type === "mcp.signIn") {
+            result = { status: "open", attemptId: "attempt-1", url: "https://vercel.com/oauth", code: "WXYZ-1234" };
+          }
+          if (command.type === "mcp.signIn.wait") {
+            await new Promise<void>((resolve) => {
+              finish = resolve;
+            });
+            signedIn = ["vercel"];
+            result = listOf(servers, signedIn);
+          }
+          return { commandId: CommandId.parse(request.commandId), accepted: true as const, result };
+        },
+        getProjection: async () => undefined,
+        onProjection: () => () => undefined,
+      },
+      app: {
+        getVersion: async () => "0",
+        quit: async () => undefined,
+        openExternal: async (url: string) => {
+          opened.push(url);
+        },
+        writeClipboard: async () => undefined,
+      },
+    } as unknown as ZliBridge;
+    const container = document.createElement("div");
+    document.body.append(container);
+    await act(async () => {
+      createRoot(container).render(
+        <RuntimeProvider bridge={bridge}>
+          <ConnectorsSection query="" />
+        </RuntimeProvider>,
+      );
+    });
+
+    await act(async () => button(card(container, "vercel"), "Connect Vercel").click());
+    const waiting = card(container, "vercel");
+    expect(waiting.dataset.state).toBe("pending");
+    expect(waiting.classList.contains("is-open")).toBe(true);
+    expect(waiting.querySelector('[role="status"]')?.textContent).toContain("Waiting for you to sign in to Vercel");
+    expect(waiting.querySelector(".connector-code")?.textContent).toBe("WXYZ-1234");
+
+    await act(async () => button(waiting, "Open again").click());
+    expect(opened.at(-1)).toBe("https://vercel.com/oauth");
+
+    await act(async () => finish());
+    expect(card(container, "vercel").dataset.state).toBe("connected");
+    expect(card(container, "vercel").classList.contains("is-open")).toBe(false);
+  });
 });
