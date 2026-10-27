@@ -1,6 +1,7 @@
 import {
   appendCheckpoint,
   appendThreadMessage,
+  deliverAgentMessage,
   deriveSharedProjectContexts,
   type EnvironmentDescriptor,
   pruneDevServers,
@@ -177,6 +178,24 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
         }),
         lastSequence: envelope.sequence,
       };
+    case "thread.resume.requested":
+      return {
+        ...projection,
+        threads: projection.threads.map((thread) => {
+          if (thread.threadId !== event.threadId) return thread;
+          const { errorMessage: _previousError, ...rest } = thread;
+          return { ...rest, status: "starting" as const, updatedAt: envelope.occurredAt };
+        }),
+        lastSequence: envelope.sequence,
+      };
+    case "thread.provider-session.recorded":
+      return {
+        ...projection,
+        threads: projection.threads.map((thread) =>
+          thread.threadId === event.threadId ? { ...thread, providerSessionId: event.providerSessionId } : thread,
+        ),
+        lastSequence: envelope.sequence,
+      };
     case "thread.message.appended":
       return {
         ...projection,
@@ -194,10 +213,7 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
     case "thread.a2a.delivered":
       return {
         ...projection,
-        messages: [
-          ...(projection.messages ?? []).filter((message) => message.messageId !== event.message.messageId),
-          event.message,
-        ].slice(-2_000),
+        messages: deliverAgentMessage(projection.messages ?? [], event.message),
         lastSequence: envelope.sequence,
       };
     case "thread.request.requested":

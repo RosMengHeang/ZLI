@@ -11,7 +11,7 @@ const BASE_ARGS = [
 ] as const;
 
 // Print mode is required for stream-json input and output. No one-shot prompt:
-// user turns arrive as NDJSON on stdin. Resume is omitted.
+// user turns arrive as NDJSON on stdin.
 // Full access: each agent runs in its own git worktree, so tool calls are allowed
 // without prompts; without this, print mode denies every Edit/Write/Bash call the
 // user has not pre-allowed.
@@ -24,7 +24,7 @@ export const CLAUDE_SESSION_ARGS = [...BASE_ARGS, "--permission-mode", "bypassPe
 // --mcp-config adds servers for this process only and keeps the user's own; it is variadic,
 // so it goes last where no positional argument can be mistaken for another config.
 export function claudeSessionArgs(
-  input: { permissionMode?: ClaudePermissionMode; model?: string; mcpConfig?: string } = {},
+  input: { permissionMode?: ClaudePermissionMode; model?: string; resumeSessionId?: string; mcpConfig?: string } = {},
 ): string[] {
   const args: string[] =
     input.permissionMode === "supervised" || input.permissionMode === "read-only"
@@ -37,6 +37,7 @@ export function claudeSessionArgs(
         ]
       : [...CLAUDE_SESSION_ARGS];
   if (input.model) args.push("--model", input.model);
+  if (input.resumeSessionId) args.push("--resume", input.resumeSessionId);
   if (input.mcpConfig) args.push("--mcp-config", input.mcpConfig);
   return args;
 }

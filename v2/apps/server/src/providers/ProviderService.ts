@@ -20,6 +20,8 @@ export type ProviderSession = {
   status: "idle" | "working" | "waiting" | "stopped" | "failed";
   /** Levels the agent reported for this session, for agents that report them when a session starts. */
   reasoningEfforts?: readonly string[];
+  /** The agent CLI's own id for the conversation, when it is known as the session starts. */
+  providerSessionId?: string;
 };
 
 export type ProviderEvent =
@@ -32,6 +34,8 @@ export type ProviderEvent =
   /** Usage so far for one turn. A later report for the same turn replaces it. */
   | { type: "usage"; threadId: ThreadId; turnId: string; usage: TurnUsage }
   | { type: "session.closed"; threadId: ThreadId; reason: string }
+  /** The agent CLI named its conversation after the session started, for CLIs that only report it on the first turn. */
+  | { type: "session.identified"; threadId: ThreadId; providerSessionId: string }
   | { type: "provider.error"; threadId?: ThreadId; message: string };
 
 export type ProviderSessionStart = {
@@ -44,6 +48,8 @@ export type ProviderSessionStart = {
   worktreeId?: string;
   /** The account the agent runs under and the environment that selects it. Absent means the usual login. */
   account?: ProviderAccount;
+  /** The agent CLI's id from an earlier process. Adapters that can resume continue that conversation. */
+  resumeSessionId?: string;
 };
 
 export type ProviderAccount = { accountId: string; env: Readonly<Record<string, string>> };

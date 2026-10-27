@@ -102,9 +102,11 @@ export type DomainDecision = Extract<
       | "thread.a2a.delivered"
       | "thread.interrupt.requested"
       | "thread.stop.requested"
+      | "thread.resume.requested"
       | "session.deleted"
       | "thread.status.changed"
       | "thread.message.appended"
+      | "thread.provider-session.recorded"
       | "thread.request.requested"
       | "thread.activity.updated"
       | "thread.request.resolved"
@@ -362,7 +364,8 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     }
     case "thread.queue": {
       const thread = requireThread(projection, command.threadId);
-      if (thread.status === "stopped" || thread.status === "failed")
+      const ended = thread.status === "stopped" || thread.status === "failed";
+      if (ended && !thread.providerSessionId)
         throw new DomainError("unsupported_command", "This agent has ended. Start a new chat to send it more.");
       const queue = queuedFor(projection, command.threadId);
       if (queue.some((queued) => queued.queueId === command.queueId)) return [];
@@ -383,6 +386,15 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
         ...(command.permissionMode ? { permissionMode: command.permissionMode } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
       };
+      if (ended) {
+        const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread.worktreeId);
+        if (!worktree) throw new DomainError("worktree_missing", "This chat's worktree is gone. Start a new chat.");
+        // The message waits in the queue and goes out once the resumed agent reports idle.
+        return [
+          { type: "thread.queued", message },
+          { type: "thread.resume.requested", threadId: command.threadId, cwd: worktree.path },
+        ];
+      }
       if (!readyForNext(projection, thread)) return [{ type: "thread.queued", message }];
       if (queue.length === 0) return [sendRequested(projection, message)];
       return [{ type: "thread.queued", message }, ...sendQueued(projection, queue[0] as ThreadQueuedMessage)];
@@ -459,6 +471,17 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           ...(command.errorMessage ? { errorMessage: command.errorMessage } : {}),
         },
       ];
+    case "thread.provider-session": {
+      const thread = requireThread(projection, command.threadId);
+      if (thread.providerSessionId === command.providerSessionId) return [];
+      return [
+        {
+          type: "thread.provider-session.recorded",
+          threadId: command.threadId,
+          providerSessionId: command.providerSessionId,
+        },
+      ];
+    }
     case "thread.message":
       assertThread(projection, command.message.threadId);
       return [{ type: "thread.message.appended", message: command.message }];

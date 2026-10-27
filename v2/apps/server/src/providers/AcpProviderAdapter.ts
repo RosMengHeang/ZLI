@@ -44,8 +44,11 @@ type AcpSessionClient = Pick<
   AcpClient,
   "sendTurn" | "interruptTurn" | "respondToPermission" | "transcript" | "subscribe" | "close"
 > &
-  Partial<Pick<AcpClient, "reasoningEfforts">>;
-type ClientStart = Pick<ProviderSessionStart, "cwd" | "permissionMode" | "model" | "worktreeId" | "account">;
+  Partial<Pick<AcpClient, "reasoningEfforts" | "agentSessionId">>;
+type ClientStart = Pick<
+  ProviderSessionStart,
+  "cwd" | "permissionMode" | "model" | "worktreeId" | "account" | "resumeSessionId"
+>;
 
 const MAX_TITLE = 500;
 const GENERIC_TITLES = new Set(["Read file", "Edit files", "Search", "List files", "Tool call"]);
@@ -101,17 +104,20 @@ export class AcpProviderAdapter implements ProviderAdapter {
       ...(input.model ? { model: input.model } : {}),
       ...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
       ...(input.account ? { account: input.account } : {}),
+      ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
     });
     // Agents name their own levels; only ones the runtime can carry and pass back are offered.
     const reasoningEfforts = (client.reasoningEfforts ?? [])
       .filter((level) => ReasoningEffort.safeParse(level).success)
       .slice(0, 20);
+    const providerSessionId = client.agentSessionId;
     const session: ProviderSession = {
       threadId: input.threadId,
       provider: this.provider,
       cwd: input.cwd,
       status: "idle",
       ...(reasoningEfforts.length > 0 ? { reasoningEfforts } : {}),
+      ...(providerSessionId ? { providerSessionId } : {}),
     };
     const unsubscribe = client.subscribe((event) => this.onAcpEvent(input.threadId, input.cwd, event));
     this.sessions.set(input.threadId, { session, client, unsubscribe });

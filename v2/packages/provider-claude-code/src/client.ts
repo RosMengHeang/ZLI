@@ -36,6 +36,8 @@ export type ClaudeProviderEvent =
   | { type: "usage.updated"; providerTurnId: string; usage: ProviderUsage }
   | { type: "approval.requested"; requestId: string; payload: Record<string, unknown> }
   | { type: "protocol.error"; message: string }
+  /** The CLI reported a conversation id different from the one it started with. */
+  | { type: "session.identified"; sessionId: string }
   | { type: "session.closed"; reason: string };
 
 export type ClaudeToolUpdate = {
@@ -92,6 +94,8 @@ export type ClaudeCodeClientOptions = {
   initTimeoutMs?: number;
   permissionMode?: ClaudePermissionMode;
   model?: string;
+  /** Conversation id from an earlier process. The CLI continues it instead of starting a new one. */
+  resumeSessionId?: string;
   /** MCP config file (or JSON) passed as --mcp-config for this session. */
   mcpConfig?: string;
 };
@@ -121,7 +125,7 @@ export class ClaudeCodeClient {
   private readonly completed: ClaudeTranscriptTurn[] = [];
   private readonly unsubscribeMessage: () => void;
   private readonly unsubscribeClose: () => void;
-  private sessionId: string | undefined;
+  private currentSessionId: string | undefined;
   private active: ActiveTurn | undefined;
   private initRequestId = "";
   private initFailure: Error | undefined;
@@ -170,13 +174,18 @@ export class ClaudeCodeClient {
     return () => this.listeners.delete(listener);
   }
 
+  /** The CLI's conversation id, which a later process can resume. */
+  get sessionId(): string | undefined {
+    return this.currentSessionId;
+  }
+
   transcript(): readonly ClaudeTranscriptTurn[] {
     return this.completed;
   }
 
   async sendTurn(input: { text: string; model?: string; reasoningEffort?: string }): Promise<ClaudeTurnResult> {
     this.assertOpen();
-    const sessionId = this.sessionId;
+    const sessionId = this.currentSessionId;
     if (!sessionId) throw new ClaudeProviderError("request_failed", "Claude Code session is not started.");
     if (this.active) throw new ClaudeProviderError("request_failed", "Claude Code already has a turn in progress.");
     const model = input.model?.trim();
@@ -245,7 +254,7 @@ export class ClaudeCodeClient {
   }
 
   private waitForInit(timeoutMs: number): Promise<void> {
-    if (this.sessionId) return Promise.resolve();
+    if (this.currentSessionId) return Promise.resolve();
     if (this.initFailure) return Promise.reject(this.initFailure);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -275,12 +284,17 @@ export class ClaudeCodeClient {
     const message = classifyClaudeMessage(raw);
     switch (message.kind) {
       case "init":
-        if (this.sessionId) return;
-        this.sessionId = message.sessionId;
+        if (this.currentSessionId === message.sessionId) return;
+        if (this.currentSessionId) {
+          this.currentSessionId = message.sessionId;
+          this.emit({ type: "session.identified", sessionId: message.sessionId });
+          return;
+        }
+        this.currentSessionId = message.sessionId;
         this.resolveInit();
         return;
       case "invalid":
-        if (!this.sessionId && message.reason === "init") {
+        if (!this.currentSessionId && message.reason === "init") {
           this.failInit(
             new ClaudeProviderError("invalid_response", "Claude Code session init did not include a session id."),
           );
@@ -299,7 +313,7 @@ export class ClaudeCodeClient {
         this.answerControl(message);
         return;
       case "control_response":
-        if (message.requestId === this.initRequestId && !message.ok && !this.sessionId) {
+        if (message.requestId === this.initRequestId && !message.ok && !this.currentSessionId) {
           this.failInit(
             new ClaudeProviderError("request_failed", message.error ?? "Claude Code rejected session initialize."),
           );
@@ -445,7 +459,7 @@ export class ClaudeCodeClient {
   }
 
   private onPeerClose(error?: Error): void {
-    if (!this.sessionId) {
+    if (!this.currentSessionId) {
       this.failInit(this.startupError(error));
       return;
     }
@@ -474,7 +488,7 @@ export class ClaudeCodeClient {
   }
 
   private failInit(error: Error): void {
-    if (this.sessionId || this.initFailure) return;
+    if (this.currentSessionId || this.initFailure) return;
     this.initFailure = error;
     const gate = this.initGate;
     this.initGate = undefined;
@@ -519,6 +533,7 @@ function spawnClaudePeer(options: ClaudeCodeClientOptions, command: string): Cla
   const args = claudeSessionArgs({
     ...(options.permissionMode ? { permissionMode: options.permissionMode } : {}),
     ...(options.model?.trim() ? { model: options.model.trim() } : {}),
+    ...(options.resumeSessionId?.trim() ? { resumeSessionId: options.resumeSessionId.trim() } : {}),
     ...(options.mcpConfig ? { mcpConfig: options.mcpConfig } : {}),
   });
   const child = spawnProcess(command, args, {

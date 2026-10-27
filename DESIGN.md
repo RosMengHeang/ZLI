@@ -142,6 +142,20 @@ not cover, add it to the primitives instead of styling it locally.
   and the status, then the view switch and the window actions. The header and
   the body share one surface with no rule between them. The active tile gets
   an accent edge because that is where typing goes.
+- The first tile action is Environment (a monitor). It opens a small dark
+  popover under the button: where the agent works (Local or Worktree, with
+  the end of the path in mono), Changes with the +/− line totals (opens the
+  Changes panel), the branch (opens Branches), then one Git action. With
+  uncommitted changes that is a commit message field and Commit and push, or
+  Commit when the repository has no origin; with commits waiting it is Push;
+  otherwise it stays disabled and says why. A folder without Git shows only
+  where the agent works.
+- A chat tile also has New chat (pen on a square, Mod+Shift+O), a menu with
+  Blank chat and Start with recent context, which brings the end of the
+  current chat along as a file. The current chat stops and stays in Chat
+  history (a clock), shown once the tile has more than one chat, newest
+  first with its age and status. A stopped chat the agent can pick up again
+  keeps its composer, and the next message resumes it.
 - In chats, user messages are right-aligned bubbles,
   replies are plain text in a centered column, and the log fades out above
   the composer. Tiles under 520px use smaller gutters and 13px text.

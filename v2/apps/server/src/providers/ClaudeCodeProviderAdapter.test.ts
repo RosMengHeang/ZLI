@@ -151,3 +151,62 @@ describe("ClaudeCodeProviderAdapter", () => {
     await expect(service.rollbackThread({ threadId, numTurns: 1 })).rejects.toMatchObject({ code: "session_missing" });
   });
 });
+
+describe("ClaudeCodeProviderAdapter resume", () => {
+  it("resumes the given conversation and reports its id", async () => {
+    const client = Object.assign(new FakeClient(), { sessionId: "sess-old" });
+    const starts: unknown[] = [];
+    const adapter = new ClaudeCodeProviderAdapter({
+      createClient: async (input) => {
+        starts.push(input);
+        return client;
+      },
+    });
+    await expect(
+      adapter.startSession({ threadId, cwd: "/work/tree", resumeSessionId: "sess-old" }),
+    ).resolves.toMatchObject({ threadId, providerSessionId: "sess-old" });
+    expect(starts).toEqual([{ cwd: "/work/tree", resumeSessionId: "sess-old" }]);
+  });
+
+  it("starts without a resume id for a new conversation", async () => {
+    const client = Object.assign(new FakeClient(), { sessionId: "sess-new" });
+    const starts: unknown[] = [];
+    const adapter = new ClaudeCodeProviderAdapter({
+      createClient: async (input) => {
+        starts.push(input);
+        return client;
+      },
+    });
+    await expect(adapter.startSession({ threadId, cwd: "/work/tree" })).resolves.toMatchObject({
+      providerSessionId: "sess-new",
+    });
+    expect(starts).toEqual([{ cwd: "/work/tree" }]);
+  });
+
+  it("emits session.identified when the CLI reports a new conversation id", async () => {
+    const client = Object.assign(new FakeClient(), { sessionId: "sess-1" });
+    const adapter = new ClaudeCodeProviderAdapter({ createClient: async () => client });
+    const events: ProviderEvent[] = [];
+    adapter.subscribe((event) => events.push(event));
+    await adapter.startSession({ threadId, cwd: "/work/tree" });
+    client.emit({ type: "session.identified", sessionId: "sess-2" });
+    expect(events).toEqual([{ type: "session.identified", threadId, providerSessionId: "sess-2" }]);
+    expect(adapter.listSessions()).toMatchObject([{ threadId, providerSessionId: "sess-2" }]);
+  });
+
+  it("lets a failed resume surface as a start failure", async () => {
+    const adapter = new ClaudeCodeProviderAdapter({
+      createClient: async () => {
+        throw new ClaudeProviderError(
+          "request_failed",
+          "Claude Code CLI exited before the session started: No conversation found with session ID: sess-gone",
+        );
+      },
+    });
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    await expect(
+      service.startSession({ provider: "claude-code", threadId, cwd: "/work/tree", resumeSessionId: "sess-gone" }),
+    ).rejects.toMatchObject({ code: "request_failed" });
+    expect(adapter.hasSession({ threadId })).toBe(false);
+  });
+});

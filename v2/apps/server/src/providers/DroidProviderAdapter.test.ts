@@ -155,4 +155,45 @@ describe("DroidProviderAdapter", () => {
     expect(service.listSessions()).toEqual([]);
     await expect(service.rollbackThread({ threadId, numTurns: 1 })).rejects.toMatchObject({ code: "session_missing" });
   });
+
+  it("hands a resumed id to the client and reports the id the CLI confirms", async () => {
+    const client = new FakeClient();
+    const starts: unknown[] = [];
+    const adapter = new DroidProviderAdapter({
+      createClient: async (input) => {
+        starts.push(input);
+        return client;
+      },
+    });
+    const events: ProviderEvent[] = [];
+    adapter.subscribe((event) => events.push(event));
+
+    await expect(
+      adapter.startSession({ threadId, cwd: "/work/tree", resumeSessionId: "sess-old" }),
+    ).resolves.toMatchObject({ providerSessionId: "sess-old" });
+    expect(starts).toEqual([{ cwd: "/work/tree", resumeSessionId: "sess-old" }]);
+
+    client.emit({ type: "session.identified", sessionId: "sess-new" });
+    expect(events).toEqual([{ type: "session.identified", threadId, providerSessionId: "sess-new" }]);
+    expect(adapter.listSessions()[0]?.providerSessionId).toBe("sess-new");
+  });
+
+  it("starts without a provider session id and reports it once the first turn names it", async () => {
+    const client = new FakeClient();
+    const starts: unknown[] = [];
+    const adapter = new DroidProviderAdapter({
+      createClient: async (input) => {
+        starts.push(input);
+        return client;
+      },
+    });
+    const events: ProviderEvent[] = [];
+    adapter.subscribe((event) => events.push(event));
+
+    const session = await adapter.startSession({ threadId, cwd: "/work/tree" });
+    expect(session.providerSessionId).toBeUndefined();
+    expect(starts).toEqual([{ cwd: "/work/tree" }]);
+    client.emit({ type: "session.identified", sessionId: "sess-1" });
+    expect(events).toEqual([{ type: "session.identified", threadId, providerSessionId: "sess-1" }]);
+  });
 });

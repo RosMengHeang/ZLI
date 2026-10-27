@@ -14,6 +14,7 @@ import { toolActivity } from "./toolActivity.js";
 type CodexClient = Pick<
   CodexAppServerClient,
   | "startSession"
+  | "resumeSession"
   | "sendTurn"
   | "interruptTurn"
   | "respondToRequest"
@@ -58,7 +59,7 @@ export class CodexProviderAdapter implements ProviderAdapter {
     const config = await this.options.threadConfig?.(input);
     // Full access keeps Codex's own configured policy, as before supervised mode existed.
     // The other two match Codex's own Read only and Auto presets.
-    const started = await client.startSession({
+    const settings = {
       cwd: input.cwd,
       ...(config ? { config } : {}),
       ...(input.model ? { model: input.model } : {}),
@@ -67,12 +68,17 @@ export class CodexProviderAdapter implements ProviderAdapter {
         : input.permissionMode === "read-only"
           ? { approvalPolicy: "on-request", sandboxPolicy: "read-only" }
           : {}),
-    });
+    };
+    // A failed resume throws so the caller decides whether to start over; a fresh thread here would lose that choice.
+    const started = input.resumeSessionId
+      ? await client.resumeSession({ providerThreadId: input.resumeSessionId, ...settings })
+      : await client.startSession(settings);
     const session: ProviderSession = {
       threadId: input.threadId,
       provider: this.provider,
       cwd: input.cwd,
       status: "idle",
+      providerSessionId: started.providerThreadId,
     };
     this.sessions.set(input.threadId, {
       providerThreadId: started.providerThreadId,

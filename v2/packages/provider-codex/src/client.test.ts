@@ -7,14 +7,19 @@ class FakePeer implements CodexPeer {
   readonly responses: Array<{ requestId: string | number; result: unknown }> = [];
   private readonly listeners = new Set<(message: unknown) => void>();
   private readonly closeListeners = new Set<(error?: Error) => void>();
+  /** Messages the server sends while a request is still being answered. */
+  readonly during = new Map<string, () => void>();
 
   async request(method: string, params: unknown): Promise<unknown> {
     this.requests.push({ method, params });
+    this.during.get(method)?.();
     switch (method) {
       case "initialize":
         return { serverInfo: { name: "codex", version: "test" } };
       case "thread/start":
         return { thread: { id: "provider-thread-1" } };
+      case "thread/resume":
+        return { thread: { id: (params as { threadId: string }).threadId, turns: [{ id: "old-turn", items: [] }] } };
       case "turn/start":
         return { turn: { id: "provider-turn-1" } };
       case "thread/read":
@@ -361,6 +366,85 @@ describe("CodexAppServerClient token usage", () => {
       turn("turn-1", { inputTokens: 2_500, cachedInputTokens: 1_400, outputTokens: 500, contextTokens: 1_800 }),
       turn("turn-2", { inputTokens: 1_700, cachedInputTokens: 1_000, outputTokens: 300, contextTokens: 2_000 }),
     ]);
+  });
+});
+
+describe("CodexAppServerClient resume", () => {
+  const usage = (threadId: string, turnId: string, total: Record<string, number>) => ({
+    jsonrpc: "2.0",
+    method: "thread/tokenUsage/updated",
+    params: { threadId, turnId, tokenUsage: { total, last: total } },
+  });
+
+  it("continues a thread with thread/resume and the same per-thread settings as thread/start", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    await expect(
+      client.resumeSession({
+        providerThreadId: "earlier-thread",
+        cwd: "/work",
+        model: "gpt-5.2",
+        approvalPolicy: "on-request",
+        sandboxPolicy: "read-only",
+        config: { "mcp_servers.zli-browser.env": { ZLI_WORKTREE_ID: "wt-1" } },
+      }),
+    ).resolves.toEqual({ providerThreadId: "earlier-thread" });
+    expect(peer.requests.slice(1)).toEqual([
+      {
+        method: "thread/resume",
+        params: {
+          threadId: "earlier-thread",
+          cwd: "/work",
+          model: "gpt-5.2",
+          approvalPolicy: "on-request",
+          sandbox: "read-only",
+          config: { "mcp_servers.zli-browser.env": { ZLI_WORKTREE_ID: "wt-1" } },
+        },
+      },
+    ]);
+  });
+
+  it("does not replay restored history, and counts the next turn from the restored total", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    const events: CodexProviderEvent[] = [];
+    client.subscribe((event) => events.push(event));
+    peer.during.set("thread/resume", () =>
+      peer.emit(usage("earlier-thread", "old-turn", { inputTokens: 9_000, outputTokens: 1_000 })),
+    );
+
+    await client.resumeSession({ providerThreadId: "earlier-thread", cwd: "/work" });
+    peer.emit(usage("earlier-thread", "old-turn", { inputTokens: 9_000, outputTokens: 1_000 }));
+    peer.emit({
+      jsonrpc: "2.0",
+      method: "turn/completed",
+      params: { threadId: "earlier-thread", turn: { id: "old-turn", status: "completed" } },
+    });
+    expect(events).toEqual([]);
+
+    peer.emit({ jsonrpc: "2.0", method: "turn/started", params: { threadId: "earlier-thread", turnId: "new-turn" } });
+    peer.emit(usage("earlier-thread", "new-turn", { inputTokens: 9_500, outputTokens: 1_200 }));
+    expect(events).toEqual([
+      { type: "turn.started", providerThreadId: "earlier-thread", providerTurnId: "new-turn" },
+      {
+        type: "usage.updated",
+        providerThreadId: "earlier-thread",
+        providerTurnId: "new-turn",
+        usage: { inputTokens: 500, outputTokens: 200, contextTokens: 10_700 },
+      },
+    ]);
+  });
+
+  it("surfaces a failed resume instead of starting a new thread", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    peer.during.set("thread/resume", () => {
+      throw new Error("no rollout found for thread id earlier-thread");
+    });
+    await expect(client.resumeSession({ providerThreadId: "earlier-thread", cwd: "/work" })).rejects.toThrow(
+      "Codex request failed: thread/resume.",
+    );
+    expect(peer.requests.map((request) => request.method)).toEqual(["initialize", "thread/resume"]);
   });
 });
 

@@ -139,7 +139,20 @@ kbd {
 .menu-item-icon { display: grid; width: 14px; flex: 0 0 auto; place-items: center; color: var(--zli-dim); }
 .menu-item.is-danger, .menu-item.is-danger .menu-item-icon { color: var(--zli-red); }
 .menu-item[aria-disabled="true"]:hover, .menu-item[aria-disabled="true"]:focus { background: transparent; }
+.menu-item.has-detail { height: auto; min-height: var(--zli-control-md); padding-block: var(--zli-space-1-5); }
+.menu-item-text { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
+.menu-item-detail { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .menu-shortcut { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+
+/* ---------- Popovers ---------- */
+/* A small non-modal panel anchored to a button, for content a menu cannot hold, such as a field. */
+.popover {
+  position: fixed; z-index: var(--zli-z-dialog); display: flex; flex-direction: column; width: min(300px, calc(100vw - 16px));
+  overflow-y: auto; padding: var(--zli-space-1); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg);
+  background: var(--zli-overlay); box-shadow: var(--zli-shadow-pop); color: var(--zli-text); transform-origin: top right;
+  animation: picker-in var(--zli-duration-base) var(--zli-ease) both;
+}
+.popover-title { margin: 0; padding: var(--zli-space-1-5) var(--zli-space-2) var(--zli-space-1); color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 600; }
 
 /* ---------- Badges and dots ---------- */
 .badge {

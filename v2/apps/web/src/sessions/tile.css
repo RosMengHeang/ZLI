@@ -47,3 +47,23 @@
 @media (max-width: 1240px) {
   .tile-branch { display: none; }
 }
+
+/* Environment popover in the tile header. */
+.env-row { display: flex; width: 100%; min-height: var(--zli-control-md); flex: 0 0 auto; align-items: center; gap: var(--zli-space-2-5); padding: var(--zli-space-1) var(--zli-space-2); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-text); font-size: var(--zli-text-sm); text-align: left; }
+.env-row > svg { flex: 0 0 auto; color: var(--zli-muted); }
+.env-row.is-action { cursor: pointer; }
+.env-row.is-action:hover { background: var(--zli-hover); }
+.env-row.is-action:focus-visible { outline: none; background: var(--zli-hover); box-shadow: inset 0 0 0 1px var(--zli-accent-line); }
+.env-row-text { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
+.env-row-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.env-row-detail { overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.env-row-end { display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.env-add { color: var(--zli-green); }
+.env-del { color: var(--zli-red); }
+.env-commit { display: flex; align-items: center; gap: var(--zli-space-1-5); margin-top: var(--zli-space-1); padding: var(--zli-space-2) var(--zli-space-1) 0; border-top: 1px solid var(--zli-border); }
+.env-commit .input { min-width: 0; flex: 1; }
+.env-commit .btn { flex: 0 0 auto; }
+.env-commit .btn:only-child { flex: 1; justify-content: center; }
+.env-line { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: var(--zli-space-1-5) var(--zli-space-2) var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
+.env-line > svg { flex: 0 0 auto; margin-top: 1px; }
+.env-line.is-done > svg { color: var(--zli-green); }

@@ -12,8 +12,11 @@ import type {
 import { toolActivity } from "./toolActivity.js";
 
 type ClaudeClient = Pick<ClaudeCodeClient, "sendTurn" | "interruptTurn" | "transcript" | "subscribe" | "close"> &
-  Partial<Pick<ClaudeCodeClient, "respondToApproval">>;
-type ClientStart = Pick<ProviderSessionStart, "cwd" | "permissionMode" | "model" | "worktreeId" | "account">;
+  Partial<Pick<ClaudeCodeClient, "respondToApproval" | "sessionId">>;
+type ClientStart = Pick<
+  ProviderSessionStart,
+  "cwd" | "permissionMode" | "model" | "worktreeId" | "account" | "resumeSessionId"
+>;
 
 export class ClaudeCodeProviderAdapter implements ProviderAdapter {
   readonly provider = "claude-code" as const;
@@ -40,12 +43,14 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
       ...(input.model ? { model: input.model } : {}),
       ...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
       ...(input.account ? { account: input.account } : {}),
+      ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
     });
     const session: ProviderSession = {
       threadId: input.threadId,
       provider: this.provider,
       cwd: input.cwd,
       status: "idle",
+      ...(client.sessionId ? { providerSessionId: client.sessionId } : {}),
     };
     const unsubscribe = client.subscribe((event) => this.onClaudeEvent(input.threadId, input.cwd, event));
     this.sessions.set(input.threadId, { session, client, unsubscribe });
@@ -168,6 +173,12 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
       case "approval.requested":
         this.emit({ type: "approval.requested", threadId, requestId: event.requestId, payload: event.payload });
         return;
+      case "session.identified": {
+        const context = this.sessions.get(threadId);
+        if (context) context.session = { ...context.session, providerSessionId: event.sessionId };
+        this.emit({ type: "session.identified", threadId, providerSessionId: event.sessionId });
+        return;
+      }
       case "session.closed":
         this.dropSession(threadId);
         this.emit({ type: "session.closed", threadId, reason: event.reason });

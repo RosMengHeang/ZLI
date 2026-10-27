@@ -1,5 +1,5 @@
 import type { RpcResponse, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
 import { ChatView, type StartRunsRequest } from "../chat/ChatView.js";
@@ -11,20 +11,32 @@ import { LazyTerminalView } from "../terminal/LazyTerminalView.js";
 import { Badge, type BadgeTone } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { type MenuEntry, MenuButton } from "../ui/Menu.js";
 import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { StopButton } from "../ui/StopButton.js";
 import type { RunPosition } from "./bestOf.js";
+import { EnvironmentButton } from "./EnvironmentButton.js";
 import {
   type AgentSession,
+  chatStatusLabel,
+  relativeTime,
+  type SessionChat,
   type SessionMode,
   type SessionStatus,
+  sessionChats,
   sessionStatusLabel,
   sessionStopCommands,
   sessionTitle,
 } from "./sessions.js";
 
 import "./tile.css";
+
+function chatDetail(chat: SessionChat): string {
+  const age = relativeTime(chat.updatedAt);
+  const when = age === "now" ? "Just now" : /^\d+[mhd]$/u.test(age) ? `${age} ago` : age;
+  return [when, chatStatusLabel[chat.status]].filter(Boolean).join(" · ");
+}
 
 const statusTone: Record<SessionStatus, BadgeTone> = {
   preparing: "info",
@@ -58,6 +70,11 @@ export function AgentTile({
   run,
   onStartRuns,
   accountLabel,
+  onNewChat,
+  canCarryContext = false,
+  newChatRequest,
+  newChatShortcut,
+  onOpenChat,
 }: {
   projection: RuntimeProjection;
   session: AgentSession;
@@ -84,6 +101,15 @@ export function AgentTile({
   onStartRuns?: ((request: StartRunsRequest) => Promise<string | undefined>) | undefined;
   /** Shown only when the agent runs under a saved account rather than the usual login. */
   accountLabel?: string | undefined;
+  /** Starts another chat in this tile. Absent where a chat cannot start, such as a worktree still being set up. */
+  onNewChat?: ((withContext: boolean) => Promise<string | undefined>) | undefined;
+  /** The current chat has messages a new chat can bring along. */
+  canCarryContext?: boolean | undefined;
+  /** Changes when the New chat shortcut asks this tile to open its menu. */
+  newChatRequest?: number | undefined;
+  newChatShortcut?: string | undefined;
+  /** Shows one of this session's earlier chats in the tile. */
+  onOpenChat?: ((threadId: string) => void) | undefined;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
@@ -97,6 +123,10 @@ export function AgentTile({
   const terminalLive = terminal?.status === "running" || terminal?.status === "starting";
   const fileLinks = useFileLinks(mode === "terminal" ? worktree?.worktreeId : undefined);
   const setup = worktree?.status === "bootstrapping" ? worktreeSetup(projection, worktree.worktreeId) : undefined;
+  const review = projection.reviews?.find((candidate) => candidate.worktreeId === worktree?.worktreeId);
+  const noGit = projection.projects.some(
+    (project) => project.projectId === worktree?.projectId && project.git === false,
+  );
 
   const send = useCallback(
     async (command: Record<string, unknown>): Promise<RpcResponse | undefined> => {
@@ -119,6 +149,47 @@ export function AgentTile({
     if (failure) setError(failure);
     setBusy(false);
   };
+
+  const newChatButton = useRef<HTMLButtonElement>(null);
+  const seenRequest = useRef(newChatRequest);
+  useEffect(() => {
+    if (newChatRequest === seenRequest.current) return;
+    seenRequest.current = newChatRequest;
+    newChatButton.current?.click();
+  }, [newChatRequest]);
+  const newChat = async (withContext: boolean) => {
+    if (!onNewChat) return;
+    setError(undefined);
+    const failure = await onNewChat(withContext);
+    if (failure) setError(failure);
+  };
+  const chats = mode === "chat" ? sessionChats(session, projection.messages, projection.providers) : [];
+  const newChatItems: MenuEntry[] = [
+    {
+      id: "blank",
+      label: "Blank chat",
+      icon: "squarePen",
+      detail: "Starts with no earlier messages",
+      run: () => void newChat(false),
+    },
+    {
+      id: "context",
+      label: "Start with recent context",
+      icon: "message",
+      detail: canCarryContext ? "Brings the end of this chat along" : "This chat has no messages to bring yet",
+      disabled: !canCarryContext,
+      run: () => void newChat(true),
+    },
+  ];
+  const historyItems: MenuEntry[] = chats.map((chat) => ({
+    id: chat.threadId,
+    label: chat.title,
+    detail: chatDetail(chat),
+    checked: chat.current,
+    run: () => {
+      if (!chat.current) onOpenChat?.(chat.threadId);
+    },
+  }));
 
   const canStop = sessionStopCommands(session).length > 0;
   const status = session.status;
@@ -166,6 +237,31 @@ export function AgentTile({
         </Badge>
         <span className="tile-spacer" />
         <span className="tile-actions">
+          {worktree?.status === "ready" ? (
+            <EnvironmentButton worktree={worktree} review={review} noGit={noGit} onOpenChanges={() => onOpenDiff()} />
+          ) : null}
+          {onOpenChat && chats.length > 1 ? (
+            <MenuButton
+              label="Chat history"
+              tooltip={`Chat history: ${chats.length} chats`}
+              icon="history"
+              size="sm"
+              iconSize={13}
+              items={historyItems}
+            />
+          ) : null}
+          {mode === "chat" && thread && onNewChat ? (
+            <MenuButton
+              ref={newChatButton}
+              label="New chat"
+              tooltip="New chat. This one stays in history"
+              shortcut={newChatShortcut}
+              icon="squarePen"
+              size="sm"
+              iconSize={13}
+              items={newChatItems}
+            />
+          ) : null}
           {mode === "chat" && onHandoff ? (
             <IconButton
               label="Continue with another agent"

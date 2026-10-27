@@ -21,6 +21,7 @@ export type LaunchDefaults = {
 export type ShortcutId =
   | "palette"
   | "newAgent"
+  | "newChat"
   | "quickOpen"
   | "searchFiles"
   | "toggleSidebar"
@@ -57,6 +58,7 @@ const permissions: readonly PermissionMode[] = ["read-only", "supervised", "full
 const shortcutIds: readonly ShortcutId[] = [
   "palette",
   "newAgent",
+  "newChat",
   "quickOpen",
   "searchFiles",
   "toggleSidebar",

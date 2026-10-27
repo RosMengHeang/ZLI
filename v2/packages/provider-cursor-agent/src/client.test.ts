@@ -60,7 +60,7 @@ function line(value: unknown): string {
   return `${JSON.stringify(value)}\n`;
 }
 
-async function harness(): Promise<{
+async function harness(resumeSessionId?: string): Promise<{
   client: CursorAgentClient;
   children: FakeProcess[];
   calls: Array<{ command: string; args: readonly string[]; options: CursorSpawnOptions }>;
@@ -72,6 +72,7 @@ async function harness(): Promise<{
     command: "/usr/bin/cursor-agent",
     cwd: "/work/tree",
     env: { PATH: "/usr/bin" },
+    ...(resumeSessionId ? { resumeSessionId } : {}),
     spawnProcess: (command, args, options) => {
       calls.push({ command, args, options });
       const child = new FakeProcess();
@@ -154,6 +155,7 @@ describe("CursorAgentClient", () => {
     expect(turn.providerTurnId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u);
     expect(events).toEqual([
       { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "session.identified", sessionId: "sess-1" },
       { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "hello" },
       { type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" },
     ]);
@@ -205,6 +207,7 @@ describe("CursorAgentClient", () => {
     expect(children[0]?.killed).toBe(true);
     expect(events).toEqual([
       { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "session.identified", sessionId: "sess-2" },
       { type: "turn.completed", providerTurnId: turn.providerTurnId, status: "interrupted" },
       { type: "turn.started", providerTurnId: next.providerTurnId },
     ]);
@@ -239,6 +242,7 @@ describe("CursorAgentClient", () => {
     expect(children[0]?.written.join("")).toBe("Run tests");
     expect(events).toEqual([
       { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "session.identified", sessionId: "sess-3" },
       {
         type: "tool.updated",
         providerTurnId: turn.providerTurnId,
@@ -267,6 +271,7 @@ describe("CursorAgentClient", () => {
     children[0]?.exit(1);
     expect(events).toEqual([
       { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "session.identified", sessionId: "sess-4" },
       { type: "protocol.error", message: CURSOR_TOOL_DENY_MESSAGE },
       { type: "turn.completed", providerTurnId: turn.providerTurnId, status: "denied" },
     ]);
@@ -308,7 +313,7 @@ describe("CursorAgentClient", () => {
     const turn = await client.sendTurn({ text: "Run tests" });
     children[0]?.stdout.emit("data", line({ type: "system", subtype: "init", session_id: "sess-9" }));
     children[0]?.exit(1);
-    expect(events.map((event) => event.type)).toEqual(["turn.started", "turn.failed"]);
+    expect(events.map((event) => event.type)).toEqual(["turn.started", "session.identified", "turn.failed"]);
     expect(events.some((event) => event.type === "session.closed")).toBe(false);
     await client.sendTurn({ text: "Retry" });
     expect(calls[1]?.args).toContain("sess-9");
@@ -337,6 +342,7 @@ describe("CursorAgentClient", () => {
       "turn.started",
       "protocol.error",
       "protocol.error",
+      "session.identified",
       "assistant.delta",
       "turn.completed",
     ]);
@@ -355,10 +361,60 @@ describe("CursorAgentClient", () => {
     children[0]?.stdout.emit("data", line({ type: "result", subtype: "success", result: "Hi" }));
     expect(events).toEqual([
       { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "session.identified", sessionId: "sess-split" },
       { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "Hi" },
       { type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" },
     ]);
     expect(client.transcript()[0]?.sessionId).toBe("sess-split");
+  });
+
+  it("resumes an earlier chat on the first turn without replaying it", async () => {
+    const { client, children, calls, events } = await harness("chat-old");
+    const turn = await client.sendTurn({ text: "Where were we?" });
+    expect(calls[0]?.args).toEqual([...printArgs, "--resume", "chat-old"]);
+    children[0]?.stdout.emit("data", line({ type: "system", subtype: "init", session_id: "chat-old" }));
+    children[0]?.stdout.emit(
+      "data",
+      line({ type: "result", subtype: "success", is_error: false, result: "Back on it.", session_id: "chat-old" }),
+    );
+    expect(events).toEqual([
+      { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "session.identified", sessionId: "chat-old" },
+      { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "Back on it." },
+      { type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" },
+    ]);
+    expect(client.transcript()).toHaveLength(1);
+    await client.sendTurn({ text: "Next" });
+    expect(calls[1]?.args).toEqual([...printArgs, "--resume", "chat-old"]);
+  });
+
+  it("follows the chat id that init reports when it differs from the resumed one", async () => {
+    const { client, children, calls, events } = await harness("chat-old");
+    await client.sendTurn({ text: "Hi" });
+    children[0]?.stdout.emit("data", line({ type: "user", session_id: "chat-stray", message: { role: "user" } }));
+    children[0]?.stdout.emit("data", line({ type: "system", subtype: "init", session_id: "chat-new" }));
+    children[0]?.stdout.emit(
+      "data",
+      line({ type: "result", subtype: "success", result: "ok", session_id: "chat-new" }),
+    );
+    expect(events.filter((event) => event.type === "session.identified")).toEqual([
+      { type: "session.identified", sessionId: "chat-new" },
+    ]);
+    await client.sendTurn({ text: "Again" });
+    expect(calls[1]?.args).toEqual([...printArgs, "--resume", "chat-new"]);
+  });
+
+  it("closes a resumed chat whose first turn dies before the CLI confirms the id", async () => {
+    const { client, children, events } = await harness("chat-gone");
+    const turn = await client.sendTurn({ text: "Hi" });
+    children[0]?.stderr.emit("data", "chat not found\n");
+    children[0]?.exit(1);
+    expect(events).toEqual([
+      { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "turn.failed", providerTurnId: turn.providerTurnId, message: "Cursor CLI exited (1): chat not found" },
+      { type: "session.closed", reason: "Cursor CLI exited (1): chat not found" },
+    ]);
+    await expect(client.sendTurn({ text: "next" })).rejects.toMatchObject({ code: "closed" });
   });
 
   it("kills the print process on close", async () => {

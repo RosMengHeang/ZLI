@@ -87,6 +87,11 @@ export const ThreadProjection = z.object({
   permissionMode: PermissionMode.optional(),
   model: z.string().min(1).max(200).optional(),
   sessionId: SessionId.optional(),
+  /**
+   * The agent CLI's own id for this conversation, such as a Claude session or a Codex thread. A new process
+   * resumes the chat from it after the old one ended, for example when ZLI restarted.
+   */
+  providerSessionId: z.string().min(1).max(500).optional(),
   /** The account the agent runs under. Threads from before accounts existed have none. */
   accountId: AccountId.optional(),
   createdAt: z.string().datetime({ offset: true }).optional(),

@@ -191,6 +191,12 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     errorMessage: z.string().min(1).optional(),
   }),
   z.object({ type: z.literal("thread.message"), message: ThreadMessageProjection }),
+  /** Reported by the runtime once the agent CLI names its own session, so a later process can resume it. */
+  z.object({
+    type: z.literal("thread.provider-session"),
+    threadId: ThreadId,
+    providerSessionId: ThreadProjection.shape.providerSessionId.unwrap(),
+  }),
   /** Reported by the runtime as a provider counts a turn's tokens. */
   z.object({
     type: z.literal("thread.usage"),
