@@ -38,6 +38,8 @@ import {
   MobileSetupStatus,
   MobileStreamEvent,
   MobileStreamInfo,
+  OpenInApp,
+  OpenInRequest,
   RpcRequest,
   RpcResponse,
   RuntimeEventEnvelope,
@@ -354,6 +356,13 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
         return typeof path === "string" ? path : undefined;
       },
     },
+    openIn: {
+      /** Editors, agent apps, terminals, and the file manager found on this computer. */
+      apps: async () => OpenInApp.array().parse(await ipc.invoke("zli:open-in:apps")),
+      open: async (worktreeId: string, appId: string) => {
+        await ipc.invoke("zli:open-in:open", OpenInRequest.parse({ worktreeId, appId }));
+      },
+    },
     capture: {
       sources: async () => parseCaptureSources(await ipc.invoke("zli:capture:sources")),
       take: async (id: string) => parseCapture(await ipc.invoke("zli:capture:take", { id })),
@@ -425,6 +434,7 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
           restartRuntime: () => ipc.invoke("zli:test:restart-runtime"),
           crashMain: () => ipc.invoke("zli:test:crash-main"),
           takeExternalUrl: () => ipc.invoke("zli:test:take-external-url"),
+          takeOpenIn: () => ipc.invoke("zli:test:take-open-in"),
         },
       }
     : bridge;
