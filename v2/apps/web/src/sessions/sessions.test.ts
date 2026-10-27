@@ -13,6 +13,7 @@ import {
   gridColumns,
   gridLayout,
   relativeTime,
+  sessionChats,
   sessionStopCommands,
   sessionTitle,
 } from "./sessions.js";
@@ -248,5 +249,53 @@ describe("helpers", () => {
     expect(state.pending).toEqual([]);
     expect(state.drawerHeight).toBe(280);
     expect(parseWorkbenchState("{not json").sidebarOpen).toBe(true);
+  });
+});
+
+describe("chat history", () => {
+  const older = {
+    ...thread,
+    threadId: "00000000-0000-4000-8000-000000000402",
+    status: "stopped",
+    createdAt: "2026-01-01T09:00:00.000Z",
+    updatedAt: "2026-01-01T09:30:00.000Z",
+  } as ThreadProjection;
+  const messages = [
+    { messageId: "m1", threadId: older.threadId, role: "user", text: "Fix the login form" },
+    { messageId: "m2", threadId, role: "user", text: "Now add a test" },
+  ] as never;
+
+  it("keeps every chat in a session and shows the latest unless one was picked", () => {
+    const [latest] = deriveSessions({ terminals: [], threads: [older, thread] });
+    expect(latest?.threads?.map((entry) => entry.threadId)).toEqual([older.threadId, threadId]);
+    expect(latest?.thread?.threadId).toBe(threadId);
+    expect(latest?.status).toBe("working");
+    const [picked] = deriveSessions({ terminals: [], threads: [older, thread] }, [], { [sessionId]: older.threadId });
+    expect(picked?.thread?.threadId).toBe(older.threadId);
+    expect(picked?.status).toBe("ended");
+    const [missing] = deriveSessions({ terminals: [], threads: [older, thread] }, [], { [sessionId]: "gone" });
+    expect(missing?.thread?.threadId).toBe(threadId);
+  });
+
+  it("lists chats newest first with their own titles and marks the one shown", () => {
+    const [session] = deriveSessions({ terminals: [], threads: [older, thread] });
+    if (!session) throw new Error("no session");
+    expect(sessionChats(session, messages, [])).toEqual([
+      { threadId, title: "Now add a test", updatedAt: thread.updatedAt, status: "working", current: true },
+      {
+        threadId: older.threadId,
+        title: "Fix the login form",
+        updatedAt: older.updatedAt,
+        status: "stopped",
+        current: false,
+      },
+    ]);
+    expect(sessionChats(session, [], [])[0]?.title).toBe("New chat");
+  });
+
+  it("remembers the picked chat and forgets it with the session", () => {
+    const state = parseWorkbenchState(JSON.stringify({ chats: { [sessionId]: older.threadId, other: 3 } }));
+    expect(state.chats).toEqual({ [sessionId]: older.threadId });
+    expect(forgetSession(state, sessionId).chats).toEqual({});
   });
 });

@@ -96,6 +96,21 @@ const button = (container: HTMLElement, name: string) =>
 afterEach(() => document.body.replaceChildren());
 
 describe("ChatView", () => {
+  it("keeps the composer for a stopped chat that can resume, and offers New chat otherwise", async () => {
+    const stopped = { ...thread, status: "stopped", providerSessionId: "conv-1" } as ThreadProjection;
+    const resumable = await render(projectionWith({ threads: [stopped] }));
+    expect(resumable.container.querySelector(".chat-paused")?.textContent).toContain("picks up where it left off");
+    expect(resumable.container.querySelector('textarea[aria-label="Message Droid"]')).not.toBeNull();
+    expect(button(resumable.container, "New chat")).toBeUndefined();
+    document.body.replaceChildren();
+
+    const { providerSessionId: _id, ...withoutId } = stopped;
+    const ended = await render(projectionWith({ threads: [withoutId as ThreadProjection] }));
+    expect(ended.container.querySelector(".chat-paused")).toBeNull();
+    expect(ended.container.querySelector('textarea[aria-label="Message Droid"]')).toBeNull();
+    expect(button(ended.container, "New chat")).toBeDefined();
+  });
+
   it("shows the turn's work log and changed files, and opens a diff from them", async () => {
     const turnId = thread.activeTurnId as string;
     const { container, onOpenDiff } = await render(

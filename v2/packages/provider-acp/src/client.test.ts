@@ -366,6 +366,84 @@ describe("AcpClient handshake", () => {
   });
 });
 
+describe("AcpClient resume", () => {
+  const resumable = () => new FakeAgent({ protocolVersion: 1, agentCapabilities: { loadSession: true } });
+
+  it("loads the earlier session and keeps its replayed history out of the event stream", async () => {
+    const agent = resumable();
+    agent.handlers.set("session/load", () => {
+      agent.update({ sessionUpdate: "user_message_chunk", content: { type: "text", text: "old question" } }, "old-1");
+      agent.update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "old answer" } }, "old-1");
+      agent.update(
+        { sessionUpdate: "tool_call", toolCallId: "call-old", title: "npm test", kind: "execute", status: "completed" },
+        "old-1",
+      );
+      agent.update({ sessionUpdate: "tool_call", title: "no id" }, "old-1");
+      return {
+        configOptions: [
+          {
+            id: "effort",
+            category: "thought_level",
+            currentValue: "low",
+            options: [{ value: "low" }, { value: "high" }],
+          },
+        ],
+      };
+    });
+    const { client, events } = await harness(agent, { resumeSessionId: "old-1" });
+    expect(agent.received.map((message) => message.method)).toEqual(["initialize", "session/load"]);
+    expect(agent.received[1]?.params).toEqual({ sessionId: "old-1", cwd: "/work/tree", mcpServers: [] });
+    expect(client.agentSessionId).toBe("old-1");
+    expect(client.reasoningEfforts).toEqual(["low", "high"]);
+    expect(events).toEqual([]);
+    expect(client.transcript()).toEqual([]);
+
+    const turn = await client.sendTurn({ text: "next question" });
+    expect(agent.prompts[0]?.params).toEqual({
+      sessionId: "old-1",
+      prompt: [{ type: "text", text: "next question" }],
+    });
+    agent.update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "new answer" } }, "old-1");
+    agent.finishPrompt();
+    await tick();
+    expect(events).toEqual([
+      { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "new answer" },
+      { type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" },
+    ]);
+  });
+
+  it("offers the same MCP servers to session/load and accepts a null answer", async () => {
+    const agent = resumable();
+    agent.handlers.set("session/load", () => null);
+    const server = { name: "memory", command: "npx", args: ["-y", "@modelcontextprotocol/server-memory"], env: [] };
+    const { client } = await harness(agent, { resumeSessionId: "old-1", mcpServers: [server] });
+    expect(agent.received[1]?.params).toEqual({ sessionId: "old-1", cwd: "/work/tree", mcpServers: [server] });
+    expect(client.agentSessionId).toBe("old-1");
+  });
+
+  it("refuses to resume when the agent does not advertise loadSession, without opening a new session", async () => {
+    const agent = new FakeAgent();
+    await expect(harness(agent, { resumeSessionId: "old-1" })).rejects.toMatchObject({
+      code: "unsupported",
+      message: "OpenCode cannot resume earlier sessions.",
+    });
+    expect(agent.received.map((message) => message.method)).toEqual(["initialize"]);
+    expect(agent.killed).toBe(true);
+  });
+
+  it("fails the start when the agent cannot load the session", async () => {
+    const agent = resumable();
+    agent.handlers.set("session/load", () => new RpcFailure(-32602, "Session not found: old-1"));
+    await expect(harness(agent, { resumeSessionId: "old-1" })).rejects.toMatchObject({
+      code: "request_failed",
+      message: "OpenCode could not resume session old-1: Session not found: old-1",
+    });
+    expect(agent.requests("session/new")).toEqual([]);
+    expect(agent.killed).toBe(true);
+  });
+});
+
 describe("AcpClient turns", () => {
   it("streams text and tool calls, then completes on end_turn", async () => {
     const { client, agent, events } = await harness();

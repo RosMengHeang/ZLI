@@ -80,6 +80,10 @@ class FakeProcess implements ClaudeChild {
   fail(error: Error): void {
     this.events.emit("error", error);
   }
+
+  exit(code: number): void {
+    this.events.emit("close", code, null);
+  }
 }
 
 function line(value: unknown): string {
@@ -664,5 +668,99 @@ describe("ClaudeCodeClient usage", () => {
     await client.sendTurn({ text: "One" });
     peer.emit({ type: "result", subtype: "success", result: "A" });
     expect(events.some((event) => event.type === "usage.updated")).toBe(false);
+  });
+});
+
+describe("ClaudeCodeClient resume", () => {
+  it("resumes an earlier conversation with --resume placed before the variadic --mcp-config", async () => {
+    const child = new FakeProcess();
+    let args: readonly string[] = [];
+    const pending = ClaudeCodeClient.start({
+      command: "/usr/bin/claude",
+      cwd: "/work/tree",
+      model: "sonnet",
+      resumeSessionId: " sess-old ",
+      mcpConfig: "/data/mcp/claude-wt.json",
+      spawnProcess: (_command, spawnedArgs) => {
+        args = spawnedArgs;
+        return child;
+      },
+    });
+    child.stdout.emit("data", line({ type: "system", subtype: "init", session_id: "sess-old" }));
+    const client = await pending;
+    expect(args.slice(-6)).toEqual([
+      "--model",
+      "sonnet",
+      "--resume",
+      "sess-old",
+      "--mcp-config",
+      "/data/mcp/claude-wt.json",
+    ]);
+    expect(client.sessionId).toBe("sess-old");
+  });
+
+  it("does not pass --resume for a new conversation", async () => {
+    const child = new FakeProcess();
+    let args: readonly string[] = [];
+    const pending = ClaudeCodeClient.start({
+      command: "/usr/bin/claude",
+      cwd: "/work/tree",
+      resumeSessionId: "  ",
+      mcpConfig: "/data/mcp/claude-wt.json",
+      spawnProcess: (_command, spawnedArgs) => {
+        args = spawnedArgs;
+        return child;
+      },
+    });
+    child.stdout.emit("data", line({ type: "system", subtype: "init", session_id: "sess-new" }));
+    const client = await pending;
+    expect(args).not.toContain("--resume");
+    expect(client.sessionId).toBe("sess-new");
+  });
+
+  it("reports a changed conversation id from a later init and sends turns under it", async () => {
+    const { client, peer, events } = await startedClient();
+    expect(client.sessionId).toBe("sess-1");
+    peer.emit({ type: "system", subtype: "init", session_id: "sess-1" });
+    peer.emit({ type: "system", subtype: "init", session_id: "sess-2" });
+    expect(events).toEqual([{ type: "session.identified", sessionId: "sess-2" }]);
+    expect(client.sessionId).toBe("sess-2");
+    await client.sendTurn({ text: "Continue" });
+    expect(JSON.parse(peer.written.at(-1) ?? "{}")).toMatchObject({ type: "user", session_id: "sess-2" });
+  });
+
+  it("does not replay history the CLI prints before the first turn", async () => {
+    const { client, peer, events } = await startedClient();
+    peer.emit({
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Old reply" },
+          { type: "tool_use", id: "toolu_old", name: "Bash", input: { command: "ls" } },
+        ],
+      },
+    });
+    peer.emit({ type: "result", subtype: "success", result: "Old reply", total_cost_usd: 0.5 });
+    expect(events).toEqual([]);
+    expect(client.transcript()).toEqual([]);
+  });
+
+  it("fails to start when the CLI cannot find the conversation to resume", async () => {
+    const child = new FakeProcess();
+    const pending = ClaudeCodeClient.start({
+      command: "/usr/bin/claude",
+      cwd: "/work/tree",
+      resumeSessionId: "sess-gone",
+      spawnProcess: () => child,
+    });
+    child.stderr.emit("data", "No conversation found with session ID: sess-gone\n");
+    child.exit(1);
+    await expect(pending).rejects.toMatchObject({
+      code: "request_failed",
+      message:
+        "Claude Code CLI exited before the session started: Claude Code CLI exited (1): No conversation found with session ID: sess-gone",
+    });
   });
 });

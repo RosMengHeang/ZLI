@@ -11,6 +11,7 @@ import type { PickerOption } from "../ui/Picker.js";
 import { Switch } from "../ui/Switch.js";
 import { trackDescription, trackText } from "./branches.js";
 import { createBranch, deleteBranch, renameBranch, switchBranch } from "./pullRequestClient.js";
+import "./review.css";
 
 type Row = { key: string; name: string; local: boolean; onOrigin: boolean; detail: GitLocalBranch | undefined };
 type View = { kind: "list" } | { kind: "create" } | { kind: "rename"; from: string } | { kind: "delete"; row: Row };

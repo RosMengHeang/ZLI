@@ -12,7 +12,7 @@ import { createPortal } from "react-dom";
 
 import { type ButtonVariant, cx } from "./Button.js";
 import { Icon, type IconName } from "./Icon.js";
-import { shortcutText } from "./shortcuts.js";
+import { ariaShortcut, shortcutText } from "./shortcuts.js";
 
 /** An item in the anchored menu used by the phone controls. */
 export type MenuEntry =
@@ -23,6 +23,10 @@ export type MenuEntry =
       disabled?: boolean | undefined;
       /** Makes the item an on and off setting, shown with a check while it is on. */
       checked?: boolean | undefined;
+      /** A second, dimmer line under the label, such as when and how the item last ran. */
+      detail?: string | undefined;
+      /** Why the item is disabled, or what it does. */
+      title?: string | undefined;
       run(): void;
     }
   | "separator";
@@ -179,6 +183,8 @@ type AnchoredMenuButtonProps = {
   icon: IconName;
   items: readonly MenuEntry[];
   tooltip?: string | undefined;
+  /** Shown as key caps in the tooltip. */
+  shortcut?: string | undefined;
   size?: "xs" | "sm" | "md";
   iconSize?: number | undefined;
   disabled?: boolean | undefined;
@@ -262,6 +268,7 @@ function AnchoredMenuButton({
   icon,
   items,
   tooltip,
+  shortcut,
   size = "sm",
   iconSize,
   disabled = false,
@@ -363,6 +370,8 @@ function AnchoredMenuButton({
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         data-tooltip={open ? undefined : (tooltip ?? label)}
+        data-shortcut={shortcut ? shortcutText(shortcut) : undefined}
+        aria-keyshortcuts={shortcut ? ariaShortcut(shortcut) : undefined}
         disabled={disabled}
         onClick={() => (open ? close(false) : setOpen(true))}
         onKeyDown={(event) => {
@@ -399,8 +408,9 @@ function AnchoredMenuButton({
                         ? { role: "menuitem" }
                         : { role: "menuitemcheckbox", "aria-checked": entry.checked })}
                       tabIndex={-1}
-                      className="menu-item"
+                      className={cx("menu-item", entry.detail && "has-detail")}
                       aria-disabled={entry.disabled || undefined}
+                      title={entry.title}
                       onPointerMove={(event) => {
                         if (!entry.disabled && document.activeElement !== event.currentTarget)
                           event.currentTarget.focus({ preventScroll: true });
@@ -412,7 +422,14 @@ function AnchoredMenuButton({
                       }}
                     >
                       {entry.icon ? <Icon name={entry.icon} size={14} /> : null}
-                      <span className="menu-item-label">{entry.label}</span>
+                      {entry.detail ? (
+                        <span className="menu-item-text">
+                          <span className="menu-item-label">{entry.label}</span>
+                          <span className="menu-item-detail">{entry.detail}</span>
+                        </span>
+                      ) : (
+                        <span className="menu-item-label">{entry.label}</span>
+                      )}
                       {entry.checked ? <Icon className="menu-item-check" name="check" size={14} /> : null}
                     </button>
                   ),

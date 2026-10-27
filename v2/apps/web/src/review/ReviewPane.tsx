@@ -18,6 +18,7 @@ import { Picker } from "../ui/Picker.js";
 import { Segmented } from "../ui/Segmented.js";
 import { BranchMenu } from "./BranchMenu.js";
 import { branchOptions, defaultBranchOf, trackDescription, useBranches } from "./branches.js";
+import { changeTotals, type StageState, stageStateOf } from "./changes.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { DiffView } from "./DiffView.js";
 import { MergeBranchDialog } from "./MergeBranchDialog.js";
@@ -29,17 +30,9 @@ import { StashSection } from "./StashSection.js";
 import "./review.css";
 
 type DiffPart = "unstaged" | "staged";
-type StageState = "staged" | "unstaged" | "partial" | "committed";
 type Discard =
   | { kind: "file"; file: ReviewFileProjection }
   | { kind: "hunk"; path: string; index: number; hunk: string };
-
-/** Committed means the file differs from the base only through commits, so there is nothing to stage. */
-export function stageStateOf(file: ReviewFileProjection): StageState {
-  // Projections saved before staging existed lack `unstaged`; treat their files as unstaged until a refresh.
-  const unstaged = file.unstaged ?? !file.staged;
-  return file.staged && unstaged ? "partial" : file.staged ? "staged" : unstaged ? "unstaged" : "committed";
-}
 
 const stageTooltips: Record<Exclude<StageState, "committed">, string> = {
   staged: "Staged. Uncheck to unstage.",
@@ -114,14 +107,7 @@ export function ReviewPane({
   /** The file whose diff was open before a Git change; a refresh drops the diff, so it is loaded again. */
   const reopenRef = useRef<string | undefined>(undefined);
   const review = reviews?.find((candidate) => candidate.worktreeId === worktree?.worktreeId);
-  const totals = useMemo(
-    () =>
-      (review?.files ?? []).reduce(
-        (sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }),
-        { additions: 0, deletions: 0 },
-      ),
-    [review],
-  );
+  const totals = useMemo(() => changeTotals(review?.files ?? []), [review]);
   const fileCount = review?.files.length ?? 0;
   const stageStates = useMemo(() => (review?.files ?? []).map(stageStateOf), [review]);
   const stagedCount = stageStates.filter((state) => state === "staged" || state === "partial").length;

@@ -61,6 +61,9 @@
 .chat-request-raw[open] > summary svg { transform: rotate(90deg); }
 .chat-request-raw > summary:hover { color: var(--zli-muted); }
 .chat-request-raw pre { max-height: 160px; margin: var(--zli-space-2) 0 0; padding: var(--zli-space-2) var(--zli-space-2-5); overflow: auto; border-radius: var(--zli-radius-sm); background: var(--zli-well); color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-xs); white-space: pre-wrap; }
+.chat-paused { display: flex; align-items: flex-start; overflow-wrap: anywhere; gap: var(--zli-space-1-5); margin: 0; padding: 0 var(--zli-space-1); color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.chat-paused > svg { flex: 0 0 auto; margin-top: 3px; color: var(--zli-dim); }
+.chat-paused.is-failed > svg { color: var(--zli-red); }
 .chat-ended { display: flex; align-items: center; gap: var(--zli-space-3); padding: var(--zli-space-2-5) var(--zli-space-2-5) var(--zli-space-2-5) var(--zli-space-4); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-raised); }
 .chat-ended > svg { color: var(--zli-dim); }
 .chat-ended.is-failed { border-color: var(--zli-red-line); }

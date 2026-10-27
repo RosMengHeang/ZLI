@@ -132,6 +132,9 @@ export function ChatView({
   latestLinks.current = fileLinks;
   const openFile = useCallback((path: string) => latestLinks.current?.open({ path }), []);
   const ended = thread.status === "stopped" || thread.status === "failed";
+  // The agent's own conversation id lets the next message start it again where it left off.
+  const resumable = ended && Boolean(thread.providerSessionId) && worktree !== undefined;
+  const canSend = !ended || resumable;
   const working = thread.status === "working" || thread.status === "waiting";
   const busy = working || queued.length > 0;
   const peers = useMemo(() => {
@@ -332,7 +335,7 @@ export function ChatView({
                       index={index}
                       links={fileLinks}
                       source={item.message.role === "agent" ? sourceLabel(projection, item.message.sourceThreadId) : ""}
-                      onTryWays={bestOf && !ended ? tryWays : undefined}
+                      onTryWays={bestOf && canSend ? tryWays : undefined}
                     />
                   )}
                   {placedCheckpoints.after.get(index)?.map(turnChanges)}
@@ -366,7 +369,7 @@ export function ChatView({
               key={connectorActivity.activityId}
               connector={connectorActivity.connector}
               displayName={displayName}
-              onTryAgain={ended ? undefined : (text) => send(text, [])}
+              onTryAgain={canSend ? (text) => send(text, []) : undefined}
               onNewChat={() => void newChatForConnector()}
               onOpenConnectors={onOpenConnectors}
               onDismiss={() => setDismissedConnectors((current) => new Set(current).add(connectorActivity.activityId))}
@@ -377,6 +380,13 @@ export function ChatView({
               queued={queued}
               displayName={displayName}
               canSteer={!ended && thread.status !== "starting"}
+              pendingNote={
+                thread.status === "starting"
+                  ? `Sent when ${displayName} is ready`
+                  : ended
+                    ? "Not sent"
+                    : `Sent in order after ${displayName}'s current turn`
+              }
               waiting={thread.status === "waiting" || waitingCount > 0}
               onSteer={(queueId) => run({ type: "thread.steer", threadId: thread.threadId, queueId })}
               onRemove={(queueId) => run({ type: "thread.queue.remove", threadId: thread.threadId, queueId })}
@@ -387,7 +397,17 @@ export function ChatView({
               {visibleError}
             </p>
           ) : null}
-          {ended ? (
+          {resumable ? (
+            <p className={`chat-paused${thread.status === "failed" ? " is-failed" : ""}`} role="status">
+              <Icon name={thread.status === "failed" ? "alert" : "square"} size={12} />
+              <span>
+                {thread.status === "failed"
+                  ? `${thread.errorMessage ?? `${displayName} failed.`} Your next message starts it again in this conversation.`
+                  : `${displayName} is stopped. Your next message picks up where it left off.`}
+              </span>
+            </p>
+          ) : null}
+          {ended && !resumable ? (
             <div className={`chat-ended${thread.status === "failed" ? " is-failed" : ""}`} role="status">
               <Icon name={thread.status === "failed" ? "alert" : "square"} size={13} />
               <span className="chat-ended-copy">
@@ -487,6 +507,7 @@ function QueuedMessages({
   queued,
   displayName,
   canSteer,
+  pendingNote,
   waiting,
   onSteer,
   onRemove,
@@ -494,6 +515,7 @@ function QueuedMessages({
   queued: readonly ThreadQueuedMessage[];
   displayName: string;
   canSteer: boolean;
+  pendingNote: string;
   waiting: boolean;
   onSteer(queueId: string): void;
   onRemove(queueId: string): void;
@@ -502,7 +524,7 @@ function QueuedMessages({
     <section className="chat-queue" aria-label="Queued messages">
       <p className="chat-queue-head">
         {queued.length === 1 ? "1 queued message" : `${queued.length} queued messages`}
-        <span>{canSteer ? `Sent in order after ${displayName}'s current turn` : "Not sent"}</span>
+        <span>{pendingNote}</span>
       </p>
       <ol className="chat-queue-list">
         {queued.map((message, index) => {

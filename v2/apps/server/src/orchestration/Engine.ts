@@ -332,6 +332,11 @@ export class Engine {
 
   private readProjection(): RuntimeProjection {
     if (this.current) return this.current;
+    const rebuilt = this.rebuildIfRequested();
+    if (rebuilt) {
+      this.current = rebuilt;
+      return rebuilt;
+    }
     const row = this.database.raw
       .prepare("SELECT projection_json FROM projection_state WHERE projection_id = 1")
       .get() as { projection_json?: string } | undefined;
@@ -343,6 +348,41 @@ export class Engine {
     this.current = projection;
     this.snapshotSequence = stored.lastSequence;
     this.snapshotAt = Date.now();
+    return projection;
+  }
+
+  /**
+   * A migration can ask for one replay of the whole log, for example after a projection rule changed. The
+   * request is cleared either way: when an old event no longer parses, the stored snapshot stays in use.
+   */
+  private rebuildIfRequested(): RuntimeProjection | undefined {
+    const pending = this.database.raw.prepare("SELECT reason FROM projection_rebuilds").all() as Array<{
+      reason: string;
+    }>;
+    if (pending.length === 0) return undefined;
+    let projection: RuntimeProjection | undefined;
+    try {
+      const events = this.readEventsAfter(0);
+      if (events.length > 0) {
+        projection = createEmptyProjection(this.environment);
+        for (const event of events) projection = this.applyEvent(projection, event);
+      }
+    } catch (error) {
+      projection = undefined;
+      this.logger.record(
+        "warn",
+        "projection rebuild skipped",
+        {},
+        {
+          reasons: pending.map((entry) => entry.reason),
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+    this.database.transaction(() => {
+      if (projection) this.saveProjection(projection);
+      this.database.execute("DELETE FROM projection_rebuilds");
+    });
     return projection;
   }
 

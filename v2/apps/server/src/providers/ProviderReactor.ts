@@ -7,12 +7,19 @@ import {
   type RuntimeEventEnvelope,
   type ThreadAttachment,
   ThreadId,
+  type ThreadProjection,
   TurnId,
 } from "@zli-v2/contracts";
 
 import type { TurnCheckpoints, TurnStart } from "../checkpoints/TurnCheckpoints.js";
 import type { Engine } from "../orchestration/Engine.js";
-import type { ProviderAccount, ProviderEvent, ProviderService } from "./ProviderService.js";
+import type {
+  ProviderAccount,
+  ProviderEvent,
+  ProviderService,
+  ProviderSession,
+  ProviderSessionStart,
+} from "./ProviderService.js";
 
 /** Turns a thread's account into the environment its agent runs with. Undefined means the usual login. */
 export type ThreadAccountResolver = (
@@ -22,6 +29,7 @@ export type ThreadAccountResolver = (
 
 type StartIntent = Extract<RuntimeEventEnvelope["event"], { type: "thread.start.requested" }>;
 type SendIntent = Extract<RuntimeEventEnvelope["event"], { type: "thread.send.requested" }>;
+type SessionInput = ProviderSessionStart & { provider: ProviderKind };
 type ActivityEvent = Extract<ProviderEvent, { type: "activity" }>;
 type UsageEvent = Extract<ProviderEvent, { type: "usage" }>;
 type ThreadStatus = "starting" | "idle" | "working" | "waiting" | "stopped" | "failed";
@@ -39,6 +47,9 @@ const MAX_ACTIVITY_TITLE = 500;
 const MAX_ACTIVITY_DETAIL = 4_000;
 const MAX_ACTIVITY_ID = 200;
 const MAX_ENDED_TURNS = 20;
+const MAX_PROVIDER_SESSION_ID = 500;
+const FRESH_START_NOTE =
+  "The earlier conversation could not be resumed, so the agent started over. It does not remember the messages above.";
 
 export class ProviderReactor {
   private readonly tasks = new Set<Promise<void>>();
@@ -56,6 +67,11 @@ export class ProviderReactor {
   private readonly turnStarts = new Map<string, TurnStart>();
   /** Reply characters recorded so far per turn, keyed like pendingDeltas. Tool calls note it as their place. */
   private readonly replyLengths = new Map<string, number>();
+  /**
+   * Threads started again on an earlier conversation that have not finished a turn yet. Some CLIs only
+   * reject a stale conversation id on the first turn, so that turn's message is kept to send again.
+   */
+  private readonly resuming = new Map<string, { retry?: SendIntent }>();
   private readonly unsubscribe: () => void;
   private readonly unsubscribeProvider: () => void;
 
@@ -93,7 +109,9 @@ export class ProviderReactor {
       if (!LIVE_STATUSES.has(thread.status)) continue;
       if (this.service.hasSession(ThreadId.parse(thread.threadId))) continue;
       await this.status(thread.threadId, "stopped", {
-        errorMessage: "The agent session ended when ZLI restarted. Start a new thread to continue.",
+        errorMessage: thread.providerSessionId
+          ? "The agent stopped when ZLI restarted. Send a message to pick up where it left off."
+          : "The agent session ended when ZLI restarted. Start a new chat to continue.",
       });
     }
   }
@@ -112,6 +130,9 @@ export class ProviderReactor {
       case "thread.stop.requested":
         this.track(this.stopSession(envelope.event.threadId));
         return;
+      case "thread.resume.requested":
+        this.track(this.resume(envelope.event.threadId, envelope.event.cwd));
+        return;
       case "thread.status.changed":
         if (envelope.event.status === "idle") this.track(this.flushQueue(envelope.event.threadId));
         return;
@@ -129,38 +150,136 @@ export class ProviderReactor {
     }
   }
 
+  private async sessionInput(thread: ThreadProjection, cwd: string): Promise<SessionInput> {
+    const provider = ProviderKind.parse(thread.provider);
+    const account = await this.options.resolveAccount?.(provider, thread.accountId);
+    return {
+      provider,
+      threadId: ThreadId.parse(thread.threadId),
+      cwd,
+      worktreeId: thread.worktreeId,
+      ...(thread.permissionMode ? { permissionMode: thread.permissionMode } : {}),
+      ...(thread.model ? { model: thread.model } : {}),
+      ...(account ? { account } : {}),
+    };
+  }
+
+  private sessionCapabilities(session: ProviderSession): NonNullable<StatusDetail["capabilities"]> {
+    return {
+      ...this.service.getCapabilities(session.provider),
+      ...(session.reasoningEfforts?.length ? { reasoningEfforts: [...session.reasoningEfforts] } : {}),
+    };
+  }
+
   private async start(intent: StartIntent): Promise<void> {
     try {
-      const provider = ProviderKind.parse(intent.thread.provider);
-      const account = await this.options.resolveAccount?.(provider, intent.thread.accountId);
-      const session = await this.service.startSession({
-        provider,
-        threadId: intent.thread.threadId,
-        cwd: intent.cwd,
-        worktreeId: intent.thread.worktreeId,
-        ...(intent.thread.permissionMode ? { permissionMode: intent.thread.permissionMode } : {}),
-        ...(intent.thread.model ? { model: intent.thread.model } : {}),
-        ...(account ? { account } : {}),
-      });
+      const session = await this.service.startSession(await this.sessionInput(intent.thread, intent.cwd));
       if (this.deleted.has(intent.thread.threadId)) {
         await this.forget(intent.thread.threadId);
         return;
       }
-      await this.status(intent.thread.threadId, "idle", {
-        capabilities: {
-          ...this.service.getCapabilities(session.provider),
-          ...(session.reasoningEfforts?.length ? { reasoningEfforts: [...session.reasoningEfforts] } : {}),
-        },
-      });
+      await this.recordProviderSession(intent.thread.threadId, session.providerSessionId);
+      await this.status(intent.thread.threadId, "idle", { capabilities: this.sessionCapabilities(session) });
     } catch (error) {
       await this.fail(intent.thread.threadId, error, "Provider session failed to start.");
     }
   }
 
-  private async send(intent: SendIntent): Promise<void> {
+  /** Starts an ended chat's agent on its earlier conversation, or on a new one when that is gone. */
+  private async resume(threadId: string, cwd: string): Promise<void> {
+    if (this.deleted.has(threadId)) return;
+    const thread = (await this.engine.projection()).threads.find((entry) => entry.threadId === threadId);
+    if (!thread) return;
+    let input: SessionInput;
+    try {
+      await this.closeSession(threadId);
+      input = await this.sessionInput(thread, cwd);
+    } catch (error) {
+      await this.fail(threadId, error, "Provider session failed to start.");
+      return;
+    }
+    if (thread.providerSessionId) {
+      try {
+        const session = await this.service.startSession({ ...input, resumeSessionId: thread.providerSessionId });
+        if (this.deleted.has(threadId)) {
+          await this.forget(threadId);
+          return;
+        }
+        this.resuming.set(threadId, {});
+        await this.recordProviderSession(threadId, session.providerSessionId);
+        await this.status(threadId, "idle", { capabilities: this.sessionCapabilities(session) });
+        return;
+      } catch {
+        // The CLI refused the earlier conversation at startup. A fresh one below keeps the chat usable.
+      }
+    }
+    await this.startFresh(threadId, input);
+  }
+
+  /** The earlier conversation is gone: start a new one in the same chat and say so once. */
+  private async startFresh(threadId: string, input: SessionInput, retry?: SendIntent): Promise<void> {
+    try {
+      await this.closeSession(threadId);
+      const session = await this.service.startSession(input);
+      if (this.deleted.has(threadId)) {
+        await this.forget(threadId);
+        return;
+      }
+      await this.recordProviderSession(threadId, session.providerSessionId);
+      await this.message(threadId, "system", FRESH_START_NOTE);
+      const capabilities = this.sessionCapabilities(session);
+      if (!retry) {
+        await this.status(threadId, "idle", { capabilities });
+        return;
+      }
+      // Not idle, so the queue does not send its next message before this one.
+      await this.status(threadId, "starting", { capabilities });
+      await this.send(retry, { record: false });
+    } catch (error) {
+      await this.fail(threadId, error, "Provider session failed to start.");
+    }
+  }
+
+  private async recoverResume(threadId: string, retry?: SendIntent): Promise<void> {
+    const projection = await this.engine.projection();
+    const thread = projection.threads.find((entry) => entry.threadId === threadId);
+    const cwd = projection.worktrees.find((worktree) => worktree.worktreeId === thread?.worktreeId)?.path;
+    if (!thread || !cwd || this.deleted.has(threadId)) return;
+    try {
+      await this.startFresh(threadId, await this.sessionInput(thread, cwd), retry);
+    } catch (error) {
+      await this.fail(threadId, error, "Provider session failed to start.");
+    }
+  }
+
+  private async closeSession(threadId: string): Promise<void> {
+    const id = ThreadId.parse(threadId);
+    if (!this.service.hasSession(id)) return;
+    try {
+      await this.service.stopSession({ threadId: id });
+    } catch {
+      // The process is already gone.
+    }
+  }
+
+  private recordProviderSession(threadId: string, providerSessionId: string | undefined): Promise<void> {
+    const id = providerSessionId?.trim();
+    if (!id || id.length > MAX_PROVIDER_SESSION_ID || this.deleted.has(threadId)) return Promise.resolve();
+    return this.engine
+      .dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        command: { type: "thread.provider-session", threadId: ThreadId.parse(threadId), providerSessionId: id },
+      })
+      .then(() => undefined);
+  }
+
+  private async send(intent: SendIntent, options: { record?: boolean } = {}): Promise<void> {
     const { threadId, text, model, reasoningEffort, permissionMode } = intent;
     const attachments = intent.attachments ?? [];
-    await this.message(threadId, "user", text, undefined, attachments);
+    if (options.record !== false) await this.message(threadId, "user", text, undefined, attachments);
+    const resuming = this.resuming.get(threadId);
+    if (resuming && !resuming.retry) resuming.retry = intent;
     // Taken before the provider sees the message, so none of the turn's edits can land first.
     const start = await this.checkpoints?.capture(threadId);
     try {
@@ -180,8 +299,20 @@ export class ProviderReactor {
         await this.status(threadId, "working", { turnId: result.turnId });
       }
     } catch (error) {
+      const retry = this.takeResume(threadId);
+      if (retry) {
+        await this.recoverResume(threadId, retry);
+        return;
+      }
       await this.fail(threadId, error, "Provider turn failed.");
     }
+  }
+
+  /** Ends a pending resume and returns the message to send again, if the first turn had started. */
+  private takeResume(threadId: string): SendIntent | undefined {
+    const resuming = this.resuming.get(threadId);
+    this.resuming.delete(threadId);
+    return resuming?.retry;
   }
 
   private async interrupt(threadId: string, projectedTurnId?: string): Promise<void> {
@@ -202,6 +333,7 @@ export class ProviderReactor {
   }
 
   private async stopSession(threadId: string): Promise<void> {
+    this.resuming.delete(threadId);
     try {
       await this.service.stopSession({ threadId: ThreadId.parse(threadId) });
       this.flushThreadDeltas(threadId);
@@ -213,6 +345,7 @@ export class ProviderReactor {
 
   private async forget(threadId: string): Promise<void> {
     this.deleted.add(threadId);
+    this.resuming.delete(threadId);
     this.activeTurns.delete(threadId);
     this.endedTurns.delete(threadId);
     for (const key of this.turnStarts.keys()) if (key.startsWith(`${threadId}\u0000`)) this.turnStarts.delete(key);
@@ -253,7 +386,12 @@ export class ProviderReactor {
       this.track(this.usage(event));
       return;
     }
+    if (event.type === "session.identified") {
+      this.track(this.recordProviderSession(event.threadId, event.providerSessionId));
+      return;
+    }
     if (event.type === "turn.completed") {
+      this.resuming.delete(event.threadId);
       this.flushThreadDeltas(event.threadId);
       if (this.turnEnded(event.threadId, event.turnId)) return;
       this.endTurn(event.threadId, event.turnId);
@@ -278,6 +416,12 @@ export class ProviderReactor {
       // A session that ends mid-turn may still have changed files.
       const active = this.activeTurns.get(event.threadId);
       if (active) this.recordCheckpoint(event.threadId, active);
+      if (this.resuming.has(event.threadId)) {
+        this.flushThreadDeltas(event.threadId);
+        if (active) this.endTurn(event.threadId, active);
+        this.track(this.recoverResume(event.threadId, this.takeResume(event.threadId)));
+        return;
+      }
     }
     if (event.type === "session.closed") {
       this.flushThreadDeltas(event.threadId);

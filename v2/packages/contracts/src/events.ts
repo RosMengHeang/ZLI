@@ -114,6 +114,8 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("thread.interrupt.requested"), threadId: ThreadId, turnId: TurnId.optional() }),
   z.object({ type: z.literal("thread.stop.requested"), threadId: ThreadId }),
+  /** A message reached an ended chat that knows its agent's conversation id, so the agent is started again on it. */
+  z.object({ type: z.literal("thread.resume.requested"), threadId: ThreadId, cwd: z.string().min(1) }),
   z.object({
     type: z.literal("session.deleted"),
     sessionId: SessionId,
@@ -129,6 +131,11 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     errorMessage: z.string().min(1).optional(),
   }),
   z.object({ type: z.literal("thread.message.appended"), message: ThreadMessageProjection }),
+  z.object({
+    type: z.literal("thread.provider-session.recorded"),
+    threadId: ThreadId,
+    providerSessionId: ThreadProjection.shape.providerSessionId.unwrap(),
+  }),
   z.object({ type: z.literal("thread.request.requested"), request: ThreadRequestProjection }),
   z.object({ type: z.literal("thread.activity.updated"), activity: ThreadActivityProjection }),
   z.object({ type: z.literal("thread.request.resolved"), threadId: ThreadId, requestId: z.string().min(1) }),

@@ -44,8 +44,10 @@ export type AgentSession = {
   provider: string;
   /** Latest agent CLI terminal for this session. */
   terminal?: TerminalProjection;
-  /** Latest structured chat thread for this session. */
+  /** The chat shown for this session: the one picked from its history, or else the latest. */
   thread?: ThreadProjection;
+  /** Every chat this session has had, oldest first. */
+  threads?: readonly ThreadProjection[];
   pending?: PendingLaunch;
   createdAt?: string;
   updatedAt?: string;
@@ -57,7 +59,11 @@ export type AgentSession = {
   mode: SessionMode;
 };
 
-type Builder = Omit<AgentSession, "status" | "mode"> & { order: number; lastKind?: SessionMode };
+type Builder = Omit<AgentSession, "status" | "mode" | "threads"> & {
+  order: number;
+  lastKind?: SessionMode;
+  threads?: ThreadProjection[];
+};
 
 /**
  * Agent terminals and chat threads that share a sessionId are one session.
@@ -66,6 +72,8 @@ type Builder = Omit<AgentSession, "status" | "mode"> & { order: number; lastKind
 export function deriveSessions(
   projection: Pick<RuntimeProjection, "terminals" | "threads">,
   pending: readonly PendingLaunch[] = [],
+  /** The chat picked from each session's history, by session id. */
+  chosenChats: Readonly<Record<string, string>> = {},
 ): AgentSession[] {
   const sessions = new Map<string, Builder>();
   let order = 0;
@@ -86,7 +94,7 @@ export function deriveSessions(
   }
   for (const thread of projection.threads) {
     const entry = touch(thread.sessionId ?? thread.threadId, thread.worktreeId, thread.provider);
-    entry.thread = thread;
+    entry.threads = [...(entry.threads ?? []), thread];
     if (!entry.lastKind || !entry.terminal || isLater(thread.createdAt, entry.terminal.createdAt)) {
       entry.lastKind = "chat";
     }
@@ -99,6 +107,11 @@ export function deriveSessions(
     entry.lastKind = launch.mode;
     mergeTimes(entry, launch.createdAt, launch.createdAt);
   }
+  for (const entry of sessions.values()) {
+    const chosen = chosenChats[entry.sessionId];
+    const thread = entry.threads?.find((candidate) => candidate.threadId === chosen) ?? entry.threads?.at(-1);
+    if (thread) entry.thread = thread;
+  }
   return [...sessions.values()]
     .sort((left, right) => left.order - right.order)
     .map(({ order: _order, lastKind, ...session }) => ({
@@ -107,6 +120,43 @@ export function deriveSessions(
       mode: lastKind ?? "chat",
     }));
 }
+
+export type SessionChat = {
+  threadId: string;
+  title: string;
+  updatedAt?: string | undefined;
+  status: ThreadProjection["status"];
+  current: boolean;
+};
+
+/** A session's chats for its history menu, newest first. A chat with nothing said in it yet is a New chat. */
+export function sessionChats(
+  session: Pick<AgentSession, "thread" | "threads" | "provider">,
+  messages: readonly ThreadMessageProjection[] | undefined,
+  providers: RuntimeProjection["providers"],
+): SessionChat[] {
+  const said = new Set(
+    (messages ?? []).filter((message) => message.role === "user" && message.text.trim()).map((m) => m.threadId),
+  );
+  return [...(session.threads ?? [])].reverse().map((thread) => ({
+    threadId: thread.threadId,
+    title: said.has(thread.threadId)
+      ? sessionTitle({ thread, provider: session.provider }, messages, providers)
+      : "New chat",
+    updatedAt: thread.updatedAt ?? thread.createdAt,
+    status: thread.status,
+    current: thread.threadId === session.thread?.threadId,
+  }));
+}
+
+export const chatStatusLabel: Record<ThreadProjection["status"], string> = {
+  starting: "Starting",
+  idle: "Ready",
+  working: "Working",
+  waiting: "Needs input",
+  stopped: "Stopped",
+  failed: "Failed",
+};
 
 function mergeTimes(entry: Builder, createdAt: string | undefined, updatedAt: string | undefined): void {
   if (createdAt && (!entry.createdAt || createdAt < entry.createdAt)) entry.createdAt = createdAt;

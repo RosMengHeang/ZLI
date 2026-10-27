@@ -525,6 +525,147 @@ describe("ProviderReactor", () => {
   });
 });
 
+describe("ProviderReactor resume", () => {
+  async function setup(adapter: FakeAdapter) {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service);
+    let sequence = 0;
+    const dispatch = (command: Parameters<Engine["dispatchPromise"]>[0]["command"]) => {
+      sequence += 1;
+      return engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`40000000-0000-4000-8000-0000000009${String(sequence).padStart(2, "0")}`),
+        command,
+      });
+    };
+    await dispatch({ type: "project.register", path: "C:\\workspace\\resume" });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    await dispatch({
+      type: "worktree.create",
+      worktreeId,
+      projectId: ProjectId.parse(project.projectId),
+      path: "C:\\workspace\\resume-tree",
+      workspaceRoot: "C:\\workspace",
+      branch: "feature/resume",
+    });
+    await dispatch({
+      type: "thread.start",
+      threadId,
+      worktreeId,
+      provider: "codex",
+      cwd: "C:\\workspace\\resume-tree",
+    });
+    await reactor.waitForIdle();
+    const thread = async () => (await engine.projection()).threads[0];
+    const messages = async () =>
+      ((await engine.projection()).messages ?? []).map((message) => [message.role, message.text]);
+    const cleanup = async () => {
+      reactor.stop();
+      await service.stopAll();
+      service.dispose();
+    };
+    return { engine, reactor, dispatch, thread, messages, cleanup };
+  }
+
+  class IdentifiedAdapter extends FakeAdapter {
+    failResumeAtStart = false;
+    override async startSession(input: ProviderSessionStart): Promise<ProviderSession> {
+      this.startInputs.push(input);
+      if (input.resumeSessionId && this.failResumeAtStart) throw new Error("No conversation found");
+      this.started = true;
+      const providerSessionId = input.resumeSessionId ?? `conv-${this.startInputs.length}`;
+      return { threadId: input.threadId, provider: this.provider, cwd: input.cwd, status: "idle", providerSessionId };
+    }
+  }
+
+  it("records the agent's conversation id and resumes it when an ended chat gets a message", async () => {
+    const adapter = new IdentifiedAdapter();
+    const { reactor, dispatch, thread, messages, cleanup } = await setup(adapter);
+    expect(await thread()).toMatchObject({ status: "idle", providerSessionId: "conv-1" });
+
+    adapter.emit({ type: "session.identified", threadId, providerSessionId: "conv-renamed" });
+    await reactor.waitForIdle();
+    expect((await thread())?.providerSessionId).toBe("conv-renamed");
+
+    await dispatch({ type: "thread.stop", threadId });
+    await reactor.waitForIdle();
+    expect((await thread())?.status).toBe("stopped");
+
+    await dispatch({ type: "thread.queue", queueId: "r1", threadId, text: "keep going" });
+    await reactor.waitForIdle();
+    expect(adapter.startInputs.at(-1)).toMatchObject({
+      resumeSessionId: "conv-renamed",
+      cwd: "C:\\workspace\\resume-tree",
+    });
+    expect(adapter.turnInputs.map((input) => input.text)).toEqual(["keep going"]);
+    expect(await thread()).toMatchObject({ status: "working", providerSessionId: "conv-renamed" });
+    expect(await messages()).toEqual([["user", "keep going"]]);
+    await cleanup();
+  });
+
+  it("starts a fresh conversation in the same chat when the CLI refuses the earlier one at startup", async () => {
+    const adapter = new IdentifiedAdapter();
+    adapter.failResumeAtStart = true;
+    const { reactor, dispatch, thread, messages, cleanup } = await setup(adapter);
+    await dispatch({ type: "thread.stop", threadId });
+    await reactor.waitForIdle();
+
+    await dispatch({ type: "thread.queue", queueId: "r1", threadId, text: "still there?" });
+    await reactor.waitForIdle();
+    expect(adapter.startInputs.map((input) => input.resumeSessionId)).toEqual([undefined, "conv-1", undefined]);
+    expect(adapter.turnInputs.map((input) => input.text)).toEqual(["still there?"]);
+    expect(await thread()).toMatchObject({ status: "working", providerSessionId: "conv-3" });
+    const log = await messages();
+    expect(log).toHaveLength(2);
+    expect(log[0]?.[0]).toBe("system");
+    expect(log[0]?.[1]).toContain("could not be resumed");
+    expect(log[1]).toEqual(["user", "still there?"]);
+    await cleanup();
+  });
+
+  it("starts over and sends the message again when the first resumed turn fails", async () => {
+    const adapter = new (class extends IdentifiedAdapter {
+      override async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
+        this.turnInputs.push(input);
+        const resumed = this.startInputs.at(-1)?.resumeSessionId;
+        if (resumed)
+          queueMicrotask(() => this.emit({ type: "session.closed", threadId, reason: "No conversation found" }));
+        return { turnId: `turn-${this.turnInputs.length}` };
+      }
+    })();
+    const { reactor, dispatch, thread, messages, cleanup } = await setup(adapter);
+    await dispatch({ type: "thread.stop", threadId });
+    await reactor.waitForIdle();
+
+    await dispatch({ type: "thread.queue", queueId: "r1", threadId, text: "pick it up" });
+    await reactor.waitForIdle();
+    await reactor.waitForIdle();
+    expect(adapter.startInputs.map((input) => input.resumeSessionId)).toEqual([undefined, "conv-1", undefined]);
+    expect(adapter.turnInputs.map((input) => input.text)).toEqual(["pick it up", "pick it up"]);
+    expect((await thread())?.status).toBe("working");
+    const log = await messages();
+    expect(log.filter(([role]) => role === "user")).toEqual([["user", "pick it up"]]);
+    expect(log.filter(([role]) => role === "system")).toHaveLength(1);
+    await cleanup();
+  });
+
+  it("keeps refusing messages to an ended chat that has no conversation id", async () => {
+    const adapter = new FakeAdapter();
+    const { reactor, dispatch, cleanup } = await setup(adapter);
+    await dispatch({ type: "thread.stop", threadId });
+    await reactor.waitForIdle();
+    expect(await dispatch({ type: "thread.queue", queueId: "r1", threadId, text: "hello" })).toMatchObject({
+      status: "rejected",
+      error: { message: expect.stringContaining("Start a new chat") },
+    });
+    await cleanup();
+  });
+});
+
 describe("promptWithAttachments", () => {
   it("leaves text alone without attachments and lists stored paths otherwise", () => {
     expect(promptWithAttachments("hello", [])).toBe("hello");

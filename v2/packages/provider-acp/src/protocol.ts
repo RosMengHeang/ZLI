@@ -100,6 +100,7 @@ export const InitializeResult = z
       .object({
         promptCapabilities: z.object({ image: z.boolean().optional() }).passthrough().optional(),
         mcpCapabilities: z.object({ http: z.boolean().optional() }).passthrough().optional(),
+        loadSession: z.boolean().optional(),
       })
       .passthrough()
       .optional(),
@@ -150,6 +151,16 @@ export const NewSessionResult = z
   })
   .passthrough();
 export type NewSessionResult = z.infer<typeof NewSessionResult>;
+
+/** session/load answers with the same session state as session/new, minus the id the client already holds. */
+export const LoadSessionResult = z
+  .object({
+    modes: SessionModes.nullish(),
+    models: SessionModels.nullish(),
+    configOptions: z.array(z.unknown()).nullish(),
+  })
+  .passthrough();
+export type LoadSessionResult = z.infer<typeof LoadSessionResult>;
 
 export const PromptResult = z.object({ stopReason: z.string().min(1) }).passthrough();
 

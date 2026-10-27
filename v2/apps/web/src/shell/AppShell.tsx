@@ -52,7 +52,7 @@ import { keepRunCleanup, planRuns, type RunGroup, runPosition, withoutRun } from
 import { CompareRunsDialog } from "../sessions/CompareRunsDialog.js";
 import { firstMessageStep, TERMINAL_FIRST_MESSAGE_DELAY_MS, terminalFirstMessage } from "../sessions/firstMessage.js";
 import type { HandoffRequest } from "../sessions/HandoffDialog.js";
-import { canHandOff, inlineFirstMessage } from "../sessions/handoff.js";
+import { canHandOff, inlineFirstMessage, recentContextMessage } from "../sessions/handoff.js";
 import { createWorktree, ensureCheckout, samePath, startAccountSignIn, startSessionAgent } from "../sessions/launch.js";
 import { NewAgentDialog, type NewAgentPrefill, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
 import {
@@ -181,9 +181,11 @@ function WorkspaceApp() {
   projectionRef.current = projection;
 
   const sessions = useMemo(
-    () => (projection ? deriveSessions(projection, workbench.pending) : []),
-    [projection, workbench.pending],
+    () => (projection ? deriveSessions(projection, workbench.pending, workbench.chats) : []),
+    [projection, workbench.pending, workbench.chats],
   );
+  /** Asks one tile to open its New chat menu, so the person picks blank or recent context each time. */
+  const [newChatRequest, setNewChatRequest] = useState<{ sessionId: string; nonce: number }>();
   const readyWorktreeIds = useMemo(() => {
     const withoutGit = new Set(
       (projection?.projects ?? []).filter((project) => project.git === false).map((project) => project.projectId),
@@ -445,6 +447,11 @@ function WorkspaceApp() {
   useGlobalShortcuts({
     palette: () => setPaletteOpen(true),
     newAgent: () => openNewAgent(),
+    newChat: () => {
+      const target = newChatTarget(activeSession);
+      if (target) setNewChatRequest({ sessionId: target.sessionId, nonce: Date.now() });
+      else showError("Focus an agent's chat first, then start a new chat in it.");
+    },
     quickOpen: openQuickOpen,
     searchFiles: searchInFiles,
     toggleSidebar,
@@ -587,7 +594,10 @@ function WorkspaceApp() {
     };
     for (const [sessionId, message] of Object.entries(workbench.firstMessages)) {
       if (delivering.current.has(sessionId)) continue;
-      const step = firstMessageStep(sessions.find((session) => session.sessionId === sessionId));
+      const step = firstMessageStep(
+        sessions.find((session) => session.sessionId === sessionId),
+        message.after,
+      );
       if (step.kind === "wait") continue;
       if (step.kind === "drop") {
         forget(sessionId);
@@ -1185,7 +1195,7 @@ function WorkspaceApp() {
     if (!isSelectableProvider(session.provider)) return Promise.resolve("This agent is not supported.");
     const model = session.thread?.model ?? session.terminal?.agent?.model;
     const accountId = sessionAccountId(session);
-    return startSessionAgent(dispatch, projection, {
+    const started = startSessionAgent(dispatch, projection, {
       provider: session.provider,
       mode,
       permissionMode: session.thread?.permissionMode ?? session.terminal?.agent?.permissionMode ?? "full-access",
@@ -1194,6 +1204,86 @@ function WorkspaceApp() {
       sessionId: session.sessionId,
       worktreeId: worktree.worktreeId,
       cwd: worktree.path,
+    });
+    // A chat started while an earlier one is on screen is the newest, so the tile shows it instead.
+    return started.then((failure) => {
+      if (!failure && mode === "chat") {
+        updateWorkbench((state) => {
+          if (!state.chats[session.sessionId]) return state;
+          const { [session.sessionId]: _shown, ...chats } = state.chats;
+          return { ...state, chats };
+        });
+      }
+      return failure;
+    });
+  };
+
+  const newChatTarget = (session: AgentSession | undefined) =>
+    session?.mode === "chat" &&
+    session.thread &&
+    isSelectableProvider(session.provider) &&
+    findWorktree(session.worktreeId)?.status === "ready"
+      ? session
+      : undefined;
+
+  /**
+   * Starts another chat in the session's tile. The current chat stops and stays in the tile's history;
+   * one with an agent conversation id picks up again when it gets a message.
+   */
+  const startNewChat = async (session: AgentSession, withContext: boolean): Promise<string | undefined> => {
+    const current = projectionRef.current;
+    const worktree = findWorktree(session.worktreeId);
+    if (!current || !worktree) return "The worktree for this agent is gone.";
+    const thread = session.thread;
+    const message =
+      withContext && thread
+        ? recentContextMessage({
+            title: sessionTitle(session, current.messages, current.providers),
+            name: providerDisplayName(session.provider, current.providers),
+            branch: worktree.branch,
+            messages: (current.messages ?? []).filter((entry) => entry.threadId === thread.threadId),
+          })
+        : undefined;
+    if (thread && thread.status !== "stopped" && thread.status !== "failed") {
+      const stopped = await send({ type: "thread.stop", threadId: thread.threadId });
+      if (!stopped) return "The current chat could not be stopped.";
+    }
+    const after = (session.threads ?? []).map((entry) => entry.threadId);
+    updateWorkbench((state) => {
+      const { [session.sessionId]: _shown, ...chats } = state.chats;
+      return {
+        ...state,
+        chats,
+        ...(message
+          ? {
+              firstMessages: {
+                ...state.firstMessages,
+                [session.sessionId]: { text: message.text, file: message.transcript, after },
+              },
+            }
+          : {}),
+      };
+    });
+    const failure = await startInSession(session, "chat");
+    if (failure && message) {
+      updateWorkbench((state) => {
+        const { [session.sessionId]: _message, ...firstMessages } = state.firstMessages;
+        return { ...state, firstMessages };
+      });
+    }
+    return failure;
+  };
+
+  /** Shows an earlier chat in the session's tile. The chat on screen stops, so one agent runs per tile. */
+  const openChat = async (session: AgentSession, threadId: string) => {
+    const thread = session.thread;
+    if (thread && thread.threadId !== threadId && thread.status !== "stopped" && thread.status !== "failed") {
+      if (!(await send({ type: "thread.stop", threadId: thread.threadId }))) return;
+    }
+    const latest = session.threads?.at(-1)?.threadId;
+    updateWorkbench((state) => {
+      const { [session.sessionId]: _shown, ...chats } = state.chats;
+      return { ...state, chats: threadId === latest ? chats : { ...chats, [session.sessionId]: threadId } };
     });
   };
 
@@ -1352,6 +1442,35 @@ function WorkspaceApp() {
               if (target) focusSession(target);
             },
           },
+        ]
+      : []),
+    ...(newChatTarget(activeSession)
+      ? [
+          {
+            label: "New chat",
+            icon: "squarePen" as const,
+            group: "Create" as const,
+            shortcut: shortcuts.newChat,
+            action: () => {
+              setPaletteOpen(false);
+              const target = newChatTarget(activeSession);
+              if (target) void startNewChat(target, false).then((failure) => failure && showError(failure));
+            },
+          },
+          ...(canHandOff(activeSession ?? {}, projection?.messages)
+            ? [
+                {
+                  label: "New chat with recent context",
+                  icon: "message" as const,
+                  group: "Create" as const,
+                  action: () => {
+                    setPaletteOpen(false);
+                    const target = newChatTarget(activeSession);
+                    if (target) void startNewChat(target, true).then((failure) => failure && showError(failure));
+                  },
+                },
+              ]
+            : []),
         ]
       : []),
     ...(handoffTarget(activeSession)
@@ -1676,6 +1795,15 @@ function WorkspaceApp() {
                           onReviewSetup={() => reviewSetup(session.worktreeId)}
                           onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
                           onHandoff={handoffTarget(session) ? () => setHandoffRequest(session) : undefined}
+                          onNewChat={
+                            newChatTarget(session) ? (withContext) => startNewChat(session, withContext) : undefined
+                          }
+                          canCarryContext={canHandOff(session, projection.messages)}
+                          newChatRequest={
+                            newChatRequest?.sessionId === session.sessionId ? newChatRequest.nonce : undefined
+                          }
+                          newChatShortcut={shortcuts.newChat}
+                          onOpenChat={(threadId) => void openChat(session, threadId)}
                           onOpenConnectors={openConnectors}
                           run={runPosition(workbench.groups, session.sessionId)}
                           onStartRuns={

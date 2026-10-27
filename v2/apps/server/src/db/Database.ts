@@ -36,6 +36,17 @@ const migrations: Migration[] = [
       );
     `,
   },
+  {
+    // Asks the engine for one replay of the whole event log, so history trimmed by the old shared caps returns.
+    id: "0002-projection-rebuilds",
+    sql: `
+      CREATE TABLE IF NOT EXISTS projection_rebuilds (
+        reason TEXT PRIMARY KEY,
+        requested_at TEXT NOT NULL
+      );
+      INSERT OR IGNORE INTO projection_rebuilds (reason, requested_at) VALUES ('per-thread-history-caps', datetime('now'));
+    `,
+  },
 ];
 
 export class Database {

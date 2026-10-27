@@ -18,6 +18,8 @@ export type DroidProviderEvent =
   | { type: "tool.updated"; providerTurnId: string; tool: DroidToolUpdate }
   | { type: "usage.updated"; providerTurnId: string; usage: ProviderUsage }
   | { type: "protocol.error"; message: string }
+  /** The CLI reported the session id that later turns, and a later process, continue with -s. */
+  | { type: "session.identified"; sessionId: string }
   | { type: "session.closed"; reason: string };
 
 export type DroidToolUpdate = {
@@ -74,6 +76,8 @@ export type DroidClientOptions = {
   permissionMode?: DroidPermissionMode;
   /** Default model for every turn that does not name one. */
   model?: string;
+  /** A session from an earlier process. The first turn continues it with -s instead of starting a new one. */
+  resumeSessionId?: string;
   spawnProcess?: (command: string, args: readonly string[], options: DroidSpawnOptions) => DroidChild;
 };
 
@@ -99,6 +103,8 @@ export class DroidClient {
   private readonly listeners = new Set<(event: DroidProviderEvent) => void>();
   private readonly completed: DroidTranscriptTurn[] = [];
   private sessionId: string | undefined;
+  /** False while a resumed id has not been echoed by the CLI, so a failed first turn is not treated as resumable. */
+  private sessionConfirmed = false;
   private active: ActiveTurn | undefined;
   private peer: DroidPeer | undefined;
   private unlistenMessage: (() => void) | undefined;
@@ -112,7 +118,10 @@ export class DroidClient {
     private readonly baseEnv: NodeJS.ProcessEnv | undefined,
     private permissionMode: DroidPermissionMode,
     private readonly model: string | undefined,
-  ) {}
+    resumeSessionId: string | undefined,
+  ) {
+    this.sessionId = resumeSessionId;
+  }
 
   static async start(options: DroidClientOptions): Promise<DroidClient> {
     const command = options.command ?? "droid";
@@ -128,6 +137,7 @@ export class DroidClient {
       options.env,
       options.permissionMode ?? "full-access",
       options.model?.trim() || undefined,
+      options.resumeSessionId?.trim() || undefined,
     );
   }
 
@@ -240,15 +250,15 @@ export class DroidClient {
 
   private handleMessage(raw: unknown): void {
     if (this.closed) return;
-    this.noteSession(raw);
     if (!raw || typeof raw !== "object") {
       this.emit({ type: "protocol.error", message: "Malformed Droid CLI message." });
       return;
     }
     const message = classifyDroidMessage(raw);
+    if (message.kind === "init") this.noteSession(message.sessionId, true);
+    else this.noteSession(sessionIdOf(raw), false);
     switch (message.kind) {
       case "init":
-        if (!this.sessionId) this.sessionId = message.sessionId;
         return;
       case "invalid":
         this.emit({
@@ -373,7 +383,7 @@ export class DroidClient {
     this.peer = undefined;
     if (this.closed || !this.active) return;
     const reason = error?.message ?? "Droid CLI process closed.";
-    const resumable = this.sessionId !== undefined;
+    const resumable = this.sessionConfirmed;
     this.finishTurn("error", reason);
     if (!resumable) {
       this.closed = true;
@@ -381,10 +391,17 @@ export class DroidClient {
     }
   }
 
-  private noteSession(raw: unknown): void {
-    if (this.sessionId) return;
-    const record = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
-    if (typeof record?.session_id === "string" && record.session_id.length > 0) this.sessionId = record.session_id;
+  /** Only system/init may replace a known id; other records just confirm or fill it in. */
+  private noteSession(sessionId: string | undefined, fromInit: boolean): void {
+    if (!sessionId) return;
+    if (sessionId === this.sessionId) {
+      if (this.sessionConfirmed) return;
+    } else if (this.sessionId && !fromInit) {
+      return;
+    }
+    this.sessionId = sessionId;
+    this.sessionConfirmed = true;
+    this.emit({ type: "session.identified", sessionId });
   }
 
   private assertOpen(): void {
@@ -400,6 +417,11 @@ export class DroidClient {
       }
     }
   }
+}
+
+function sessionIdOf(raw: unknown): string | undefined {
+  const record = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
+  return typeof record?.session_id === "string" && record.session_id.length > 0 ? record.session_id : undefined;
 }
 
 function defaultSpawn(command: string, args: readonly string[], options: DroidSpawnOptions): DroidChild {

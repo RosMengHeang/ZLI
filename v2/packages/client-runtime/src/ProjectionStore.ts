@@ -1,6 +1,7 @@
 import {
   appendCheckpoint,
   appendThreadMessage,
+  deliverAgentMessage,
   deriveSharedProjectContexts,
   pruneDevServers,
   RuntimeEventEnvelope,
@@ -182,10 +183,27 @@ export class ProjectionStore {
       case "thread.a2a.delivered":
         this.#projection = {
           ...current,
-          messages: [
-            ...(current.messages ?? []).filter((message) => message.messageId !== event.message.messageId),
-            event.message,
-          ].slice(-2_000),
+          messages: deliverAgentMessage(current.messages ?? [], event.message),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "thread.resume.requested":
+        this.#projection = {
+          ...current,
+          threads: current.threads.map((thread) => {
+            if (thread.threadId !== event.threadId) return thread;
+            const { errorMessage: _previousError, ...rest } = thread;
+            return { ...rest, status: "starting" as const, updatedAt: envelope.occurredAt };
+          }),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "thread.provider-session.recorded":
+        this.#projection = {
+          ...current,
+          threads: current.threads.map((thread) =>
+            thread.threadId === event.threadId ? { ...thread, providerSessionId: event.providerSessionId } : thread,
+          ),
           lastSequence: envelope.sequence,
         };
         break;

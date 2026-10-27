@@ -409,6 +409,68 @@ describe("AppShell", () => {
     );
   });
 
+  it("starts a new chat in a tile and opens an earlier one from its history", async () => {
+    const dispatched: unknown[] = [];
+    const olderId = "00000000-0000-4000-8000-000000000402";
+    const latestId = "00000000-0000-4000-8000-000000000403";
+    const chats: RuntimeProjection = {
+      ...discovered,
+      threads: [
+        {
+          threadId: olderId,
+          worktreeId,
+          provider: "claude-code",
+          status: "stopped",
+          capabilities: {},
+          sessionId: agentSessionId,
+          providerSessionId: "claude-1",
+          createdAt: "2026-01-01T09:00:00.000Z",
+        },
+        {
+          threadId: latestId,
+          worktreeId,
+          provider: "claude-code",
+          status: "idle",
+          capabilities: {},
+          sessionId: agentSessionId,
+          createdAt: "2026-01-01T10:00:00.000Z",
+        },
+      ] as RuntimeProjection["threads"],
+      messages: [
+        { messageId: "m1", threadId: olderId, role: "user", text: "Fix the login form" },
+        { messageId: "m2", threadId: latestId, role: "user", text: "Add a test" },
+      ] as RuntimeProjection["messages"],
+    };
+    const container = await render(makeBridge(chats, dispatched));
+    expect(container.querySelector(".tile-title")?.textContent).toBe("Add a test");
+    const menuItem = (label: string) =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]')].find(
+        (item) => item.querySelector(".menu-item-label")?.textContent === label,
+      );
+
+    await act(async () => {
+      button(container, "Chat history")?.click();
+    });
+    expect(menuItem("Add a test")?.getAttribute("aria-checked")).toBe("true");
+    await act(async () => {
+      menuItem("Fix the login form")?.click();
+    });
+    expect(commands(dispatched)).toContainEqual({ type: "thread.stop", threadId: latestId });
+    expect(container.querySelector(".tile-title")?.textContent).toBe("Fix the login form");
+    // A stopped chat with a saved agent conversation keeps its composer and resumes on send.
+    expect(container.querySelector(".agent-tile textarea")).not.toBeNull();
+
+    await act(async () => {
+      button(container, "New chat")?.click();
+    });
+    expect(menuItem("Start with recent context")?.getAttribute("aria-disabled")).toBeNull();
+    await act(async () => {
+      menuItem("Blank chat")?.click();
+    });
+    await vi.waitFor(() => expect(commands(dispatched).some((command) => command.type === "thread.start")).toBe(true));
+    expect(commands(dispatched).filter((command) => command.type === "thread.stop")).toHaveLength(1);
+  });
+
   it("asks before a plugin action runs a command, then remembers the approval", async () => {
     const dispatched: unknown[] = [];
     const bridge = makeBridge(projection, dispatched);

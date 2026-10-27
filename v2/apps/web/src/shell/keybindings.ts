@@ -7,6 +7,7 @@ export type ShortcutAction = { id: ShortcutId; label: string; shortcut: string }
 export const shortcutActions: readonly ShortcutAction[] = [
   { id: "palette", label: "Command palette", shortcut: "Mod+K" },
   { id: "newAgent", label: "New agent", shortcut: "Mod+N" },
+  { id: "newChat", label: "New chat in the focused agent", shortcut: "Mod+Shift+O" },
   { id: "quickOpen", label: "Go to file", shortcut: "Mod+P" },
   { id: "searchFiles", label: "Search in files", shortcut: "Mod+Shift+F" },
   { id: "toggleSidebar", label: "Show or hide the sidebar", shortcut: "Mod+B" },

@@ -6,7 +6,12 @@ import type { PendingLaunch } from "./sessions.js";
 
 const STORAGE_KEY = "zli.workbench.v1";
 
-export type FirstMessage = { text: string; file?: FirstMessageFile };
+export type FirstMessage = {
+  text: string;
+  file?: FirstMessageFile;
+  /** Chats the session already had. The message waits for a chat that is not one of them. */
+  after?: string[];
+};
 
 export type WorkbenchState = {
   /** Sessions removed from the grid. They stay in the sidebar and keep running. */
@@ -16,6 +21,8 @@ export type WorkbenchState = {
   firstMessages: Record<string, FirstMessage>;
   /** Best-of runs that are still being compared. */
   groups: RunGroup[];
+  /** The earlier chat a session shows instead of its latest one, by session. */
+  chats: Record<string, string>;
   activeSessionId?: string | undefined;
   maximizedSessionId?: string | undefined;
   drawerOpen: boolean;
@@ -31,6 +38,7 @@ const initialState: WorkbenchState = {
   pending: [],
   firstMessages: {},
   groups: [],
+  chats: {},
   drawerOpen: false,
   drawerHeight: DEFAULT_DRAWER_HEIGHT,
   sidebarOpen: true,
@@ -39,9 +47,11 @@ const initialState: WorkbenchState = {
 /** Drops every layout trace of a session that no longer exists. */
 export function forgetSession(state: WorkbenchState, sessionId: string): WorkbenchState {
   const { [sessionId]: _message, ...firstMessages } = state.firstMessages;
+  const { [sessionId]: _chat, ...chats } = state.chats;
   return {
     ...state,
     firstMessages,
+    chats,
     groups: withoutRun(state.groups, sessionId),
     closed: state.closed.filter((id) => id !== sessionId),
     pending: state.pending.filter((entry) => entry.sessionId !== sessionId),
@@ -54,14 +64,28 @@ export function forgetSession(state: WorkbenchState, sessionId: string): Workben
 function parseFirstMessage(value: unknown): FirstMessage | undefined {
   if (typeof value === "string") return value.length > 0 ? { text: value } : undefined;
   if (typeof value !== "object" || value === null) return undefined;
-  const { text, file } = value as { text?: unknown; file?: unknown };
+  const { text, file, after } = value as { text?: unknown; file?: unknown; after?: unknown };
   if (typeof text !== "string" || text.length === 0) return undefined;
   const { name, text: body } = (file ?? {}) as { name?: unknown; text?: unknown };
-  return typeof name === "string" && typeof body === "string" ? { text, file: { name, text: body } } : { text };
+  const earlier = strings(after);
+  return {
+    text,
+    ...(typeof name === "string" && typeof body === "string" ? { file: { name, text: body } } : {}),
+    ...(earlier.length > 0 ? { after: earlier } : {}),
+  };
 }
 
 function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string").slice(-500) : [];
+}
+
+function chatChoices(value: unknown): Record<string, string> {
+  if (typeof value !== "object" || value === null) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      .slice(0, 500),
+  );
 }
 
 export function parseWorkbenchState(raw: string | null): WorkbenchState {
@@ -89,6 +113,7 @@ export function parseWorkbenchState(raw: string | null): WorkbenchState {
       pending,
       firstMessages,
       groups: parseRunGroups(value.groups),
+      chats: chatChoices(value.chats),
       ...(typeof value.activeSessionId === "string" ? { activeSessionId: value.activeSessionId } : {}),
       ...(typeof value.maximizedSessionId === "string" ? { maximizedSessionId: value.maximizedSessionId } : {}),
       drawerOpen: value.drawerOpen === true,

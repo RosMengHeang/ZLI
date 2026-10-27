@@ -51,7 +51,7 @@ function line(value: unknown): string {
   return `${JSON.stringify(value)}\n`;
 }
 
-async function harness(): Promise<{
+async function harness(resumeSessionId?: string): Promise<{
   client: DroidClient;
   children: FakeProcess[];
   calls: Array<{ command: string; args: readonly string[]; options: DroidSpawnOptions }>;
@@ -63,6 +63,7 @@ async function harness(): Promise<{
     command: "/usr/bin/droid",
     cwd: "/work/tree",
     env: { PATH: "/usr/bin" },
+    ...(resumeSessionId ? { resumeSessionId } : {}),
     spawnProcess: (command, args, options) => {
       calls.push({ command, args, options });
       const child = new FakeProcess();
@@ -132,6 +133,7 @@ describe("DroidClient", () => {
     expect(turn.providerTurnId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u);
     expect(events).toEqual([
       { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "session.identified", sessionId: "sess-1" },
       { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "Creating the file." },
       {
         type: "tool.updated",
@@ -173,6 +175,7 @@ describe("DroidClient", () => {
     children[0]?.stdout.emit("data", line({ type: "completion", finalText: "Hello from Droid", session_id: "s" }));
     expect(events).toEqual([
       { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "session.identified", sessionId: "s" },
       { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "Hello from Droid" },
       { type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" },
     ]);
@@ -185,6 +188,7 @@ describe("DroidClient", () => {
     children[0]?.stdout.emit("data", line({ type: "error", message: "Not logged in", session_id: "sess-e" }));
     expect(events).toEqual([
       { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "session.identified", sessionId: "sess-e" },
       { type: "turn.failed", providerTurnId: turn.providerTurnId, message: "Not logged in" },
     ]);
     expect(children[0]?.killed).toBe(true);
@@ -211,6 +215,7 @@ describe("DroidClient", () => {
     expect(calls[1]?.args).toEqual([...execArgs, "-s", "sess-2"]);
     expect(events).toEqual([
       { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "session.identified", sessionId: "sess-2" },
       { type: "turn.completed", providerTurnId: turn.providerTurnId, status: "interrupted" },
       { type: "turn.started", providerTurnId: next.providerTurnId },
     ]);
@@ -234,8 +239,8 @@ describe("DroidClient", () => {
     const turn = await client.sendTurn({ text: "Run tests" });
     children[0]?.stdout.emit("data", line({ type: "system", subtype: "init", session_id: "sess-9" }));
     children[0]?.exit(0);
-    expect(events.map((event) => event.type)).toEqual(["turn.started", "turn.failed"]);
-    expect(events[1]).toMatchObject({ message: "Droid CLI exited (0)." });
+    expect(events.map((event) => event.type)).toEqual(["turn.started", "session.identified", "turn.failed"]);
+    expect(events[2]).toMatchObject({ message: "Droid CLI exited (0)." });
     await client.sendTurn({ text: "Retry" });
     expect(calls[1]?.args).toContain("sess-9");
     expect(client.transcript()[0]).toMatchObject({ providerTurnId: turn.providerTurnId, sessionId: "sess-9" });
@@ -272,6 +277,7 @@ describe("DroidClient", () => {
       "turn.started",
       "protocol.error",
       "protocol.error",
+      "session.identified",
       "assistant.delta",
       "turn.completed",
     ]);
@@ -290,10 +296,54 @@ describe("DroidClient", () => {
     children[0]?.stdout.emit("data", line({ type: "completion", finalText: "Hi" }));
     expect(events).toEqual([
       { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "session.identified", sessionId: "sess-split" },
       { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "Hi" },
       { type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" },
     ]);
     expect(client.transcript()[0]?.sessionId).toBe("sess-split");
+  });
+
+  it("continues a resumed session on the first turn without replaying it", async () => {
+    const { client, children, calls, events } = await harness("sess-old");
+    const turn = await client.sendTurn({ text: "Where were we?" });
+    expect(calls[0]?.args).toEqual([...execArgs, "-s", "sess-old"]);
+    children[0]?.stdout.emit("data", line({ type: "system", subtype: "init", session_id: "sess-old" }));
+    children[0]?.stdout.emit("data", line({ type: "completion", finalText: "Back on it.", session_id: "sess-old" }));
+    expect(events).toEqual([
+      { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "session.identified", sessionId: "sess-old" },
+      { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "Back on it." },
+      { type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" },
+    ]);
+    expect(client.transcript()).toHaveLength(1);
+    await client.sendTurn({ text: "Next" });
+    expect(calls[1]?.args).toEqual([...execArgs, "-s", "sess-old"]);
+  });
+
+  it("follows the id that init reports when it differs from the resumed one", async () => {
+    const { client, children, calls, events } = await harness("sess-old");
+    await client.sendTurn({ text: "Hi" });
+    children[0]?.stdout.emit("data", line({ type: "message", role: "user", text: "Hi", session_id: "sess-stray" }));
+    children[0]?.stdout.emit("data", line({ type: "system", subtype: "init", session_id: "sess-new" }));
+    children[0]?.stdout.emit("data", line({ type: "completion", finalText: "ok", session_id: "sess-new" }));
+    expect(events.filter((event) => event.type === "session.identified")).toEqual([
+      { type: "session.identified", sessionId: "sess-new" },
+    ]);
+    await client.sendTurn({ text: "Again" });
+    expect(calls[1]?.args).toEqual([...execArgs, "-s", "sess-new"]);
+  });
+
+  it("closes a resumed session whose first turn dies before the CLI confirms the id", async () => {
+    const { client, children, events } = await harness("sess-gone");
+    const turn = await client.sendTurn({ text: "Hi" });
+    children[0]?.stderr.emit("data", "session not found\n");
+    children[0]?.exit(1);
+    expect(events).toEqual([
+      { type: "turn.started", providerTurnId: turn.providerTurnId },
+      { type: "turn.failed", providerTurnId: turn.providerTurnId, message: "Droid CLI exited (1): session not found" },
+      { type: "session.closed", reason: "Droid CLI exited (1): session not found" },
+    ]);
+    await expect(client.sendTurn({ text: "next" })).rejects.toMatchObject({ code: "closed" });
   });
 
   it("kills the exec process on close", async () => {

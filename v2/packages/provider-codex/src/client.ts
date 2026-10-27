@@ -61,6 +61,8 @@ export type CodexSessionStartInput = {
   /** Dotted config keys overridden for this thread only, like `-c` on the command line. */
   config?: Record<string, unknown>;
 };
+/** Continues a thread an earlier app server ran, with the same per-thread settings a fresh start takes. */
+export type CodexSessionResumeInput = CodexSessionStartInput & { providerThreadId: string };
 export type CodexTurnInput = {
   providerThreadId: string;
   text: string;
@@ -87,6 +89,11 @@ export class CodexAppServerClient {
   private readonly serverRequestIds = new Map<string, JsonRpcId>();
   /** Codex reports a running total per thread; a turn's usage is the growth since the previous turn ended. */
   private readonly tokenTotals = new Map<string, { turnId: string; before?: TokenBreakdown; latest: TokenBreakdown }>();
+  /**
+   * Resumed threads that have not started a new turn yet. Codex replays the restored usage total for an
+   * old turn right after thread/resume; that is history, so it only sets the baseline for the next turn.
+   */
+  private readonly restoring = new Set<string>();
   private readonly unsubscribeMessage: () => void;
   private readonly unsubscribeClose: () => void;
   private closed = false;
@@ -122,16 +129,27 @@ export class CodexAppServerClient {
   }
 
   async startSession(input: CodexSessionStartInput): Promise<{ providerThreadId: string }> {
-    const result = ThreadStartResponse.parse(
-      await this.request("thread/start", {
-        cwd: input.cwd,
-        ...(input.model ? { model: input.model } : {}),
-        ...(input.approvalPolicy === undefined ? {} : { approvalPolicy: input.approvalPolicy }),
-        ...(input.sandboxPolicy === undefined ? {} : { sandbox: input.sandboxPolicy }),
-        ...(input.config ? { config: input.config } : {}),
-      }),
-    );
+    const result = ThreadStartResponse.parse(await this.request("thread/start", threadSettings(input)));
     return { providerThreadId: result.thread.id };
+  }
+
+  /** The response carries the thread's past turns; they are history and are not reported as events. */
+  async resumeSession(input: CodexSessionResumeInput): Promise<{ providerThreadId: string }> {
+    // Marked before the request: the replayed usage can share a read with the response and be handled first.
+    this.restoring.add(input.providerThreadId);
+    try {
+      const result = ThreadStartResponse.parse(
+        await this.request("thread/resume", { threadId: input.providerThreadId, ...threadSettings(input) }),
+      );
+      if (result.thread.id !== input.providerThreadId) {
+        this.restoring.delete(input.providerThreadId);
+        this.restoring.add(result.thread.id);
+      }
+      return { providerThreadId: result.thread.id };
+    } catch (error) {
+      this.restoring.delete(input.providerThreadId);
+      throw error;
+    }
   }
 
   async sendTurn(input: CodexTurnInput): Promise<CodexTurnResult> {
@@ -238,6 +256,7 @@ export class CodexAppServerClient {
       return;
     }
     const event = normalizeNotification(method, params);
+    if (event && this.isRestoredHistory(event)) return;
     if (event) this.emit(event);
     else if (isKnownNotificationMethod(method))
       this.emit({ type: "protocol.error", message: "Malformed Codex server message." });
@@ -254,6 +273,7 @@ export class CodexAppServerClient {
     const previous = this.tokenTotals.get(threadId);
     const before = previous?.turnId === turnId ? previous.before : previous?.latest;
     this.tokenTotals.set(threadId, { turnId, ...(before ? { before } : {}), latest: total });
+    if (this.restoring.has(threadId)) return undefined;
     const last = tokenBreakdown(tokenUsage.last);
     const usage = compactUsage({
       inputTokens: growth(total.inputTokens, before?.inputTokens),
@@ -265,6 +285,13 @@ export class CodexAppServerClient {
     return usage ? { type: "usage.updated", providerThreadId: threadId, providerTurnId: turnId, usage } : undefined;
   }
 
+  private isRestoredHistory(event: CodexProviderEvent): boolean {
+    if (!("providerTurnId" in event) || !this.restoring.has(event.providerThreadId)) return false;
+    if (event.type !== "turn.started") return true;
+    this.restoring.delete(event.providerThreadId);
+    return false;
+  }
+
   private emit(event: CodexProviderEvent): void {
     for (const listener of this.eventListeners) {
       try {
@@ -274,6 +301,16 @@ export class CodexAppServerClient {
       }
     }
   }
+}
+
+function threadSettings(input: CodexSessionStartInput): Record<string, unknown> {
+  return {
+    cwd: input.cwd,
+    ...(input.model ? { model: input.model } : {}),
+    ...(input.approvalPolicy === undefined ? {} : { approvalPolicy: input.approvalPolicy }),
+    ...(input.sandboxPolicy === undefined ? {} : { sandbox: input.sandboxPolicy }),
+    ...(input.config ? { config: input.config } : {}),
+  };
 }
 
 type SpawnedPeer = CodexPeer & { notify(method: string, params?: unknown): Promise<void> };
