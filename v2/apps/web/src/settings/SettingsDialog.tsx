@@ -37,11 +37,13 @@ import { IssuesSection } from "./IssuesSection.js";
 import { MobileSection } from "./MobileSection.js";
 import { SectionHeader, SettingGroup, SettingRow } from "./SectionHeader.js";
 import { SkillsSection } from "./SkillsSection.js";
+import { UsageSection } from "./UsageSection.js";
 import "./settings.css";
 
 export type SettingsSection =
   | "agents"
   | "accounts"
+  | "usage"
   | "projects"
   | "worktrees"
   | "files"
@@ -73,6 +75,7 @@ const sections: readonly SectionEntry[] = [
     keywords: "defaults model view permissions",
   },
   { id: "accounts", label: "Accounts", icon: "user", group: "Agents", keywords: "sign in api key login" },
+  { id: "usage", label: "Usage", icon: "gauge", group: "Agents", keywords: "plan limits sidebar quota subscription" },
   { id: "skills", label: "Skills", icon: "sparkle", group: "Agents", keywords: "prompts instructions" },
   { id: "projects", label: "Projects", icon: "folder", group: "Workspace", keywords: "folders remove" },
   { id: "worktrees", label: "Worktrees", icon: "branch", group: "Workspace", keywords: "branch name template" },
@@ -271,6 +274,7 @@ export function SettingsDialog({
             {section === "accounts" ? (
               <AccountsSection projection={projection} {...(onSignIn ? { onSignIn } : {})} />
             ) : null}
+            {section === "usage" ? <UsageSection projection={projection} /> : null}
             {section === "projects" ? (
               <ProjectsSection
                 projection={projection}

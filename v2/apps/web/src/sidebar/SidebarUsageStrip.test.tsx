@@ -3,9 +3,13 @@
 import type { Account, PlanLimitReading, PlanLimitWindow } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { SidebarUsageStrip } from "./SidebarUsageStrip.js";
+import { resetPlanLimitsStore } from "../limits/limits.js";
+import type { ZliBridge } from "../runtime/bridge.js";
+import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
+import { DEFAULT_SETTINGS, updateAppSettings } from "../settings/appSettings.js";
+import { SidebarPlanLimits, SidebarUsageStrip } from "./SidebarUsageStrip.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -37,7 +41,7 @@ function reading(
 
 async function render(
   readings: readonly PlanLimitReading[] | undefined,
-  options: { currentKey?: string; onOpen?: () => void } = {},
+  options: { currentKey?: string; hidden?: string[]; onOpen?: () => void } = {},
 ) {
   const container = document.createElement("div");
   document.body.append(container);
@@ -49,6 +53,7 @@ async function render(
         accounts={[work]}
         now={now}
         currentKey={options.currentKey}
+        hidden={options.hidden}
         timeZone="UTC"
         onOpen={options.onOpen ?? (() => undefined)}
       />,
@@ -177,5 +182,63 @@ describe("SidebarUsageStrip", () => {
     expect(rows[2]?.textContent).toContain("5%");
     expect(container.querySelector(".usage-strip-more")?.textContent).toBe("+2 more");
     expect(description(button(container))).toContain("selected agent");
+  });
+
+  it("leaves out a usual login whose limits were never read, and agents switched off", async () => {
+    const container = await render(
+      [
+        reading("codex", [], { state: "error", message: "Codex did not answer." }),
+        reading("opencode", [], { state: "expired" }),
+        reading("claude-code", [fiveHour(10)]),
+        reading("gemini", [fiveHour(5)]),
+      ],
+      { hidden: ["gemini"] },
+    );
+    expect(names(container)).toEqual(["Claude Code"]);
+  });
+});
+
+describe("SidebarPlanLimits", () => {
+  afterEach(() => {
+    window.localStorage.clear();
+    updateAppSettings(() => structuredClone(DEFAULT_SETTINGS));
+    resetPlanLimitsStore();
+  });
+
+  async function mount() {
+    const dispatch = vi.fn(async (request: { commandId: string }) => ({
+      commandId: request.commandId,
+      accepted: true,
+      result: { readings: [reading("claude-code", [fiveHour(10)]), reading("codex", [fiveHour(20)])] },
+    }));
+    const bridge = {
+      runtime: { getProjection: async () => undefined, onProjection: () => () => undefined, dispatch },
+    } as unknown as ZliBridge;
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <RuntimeProvider bridge={bridge}>
+          <SidebarPlanLimits providers={undefined} accounts={[]} now={now} timeZone="UTC" onOpen={() => undefined} />
+        </RuntimeProvider>,
+      );
+    });
+    return { container, dispatch, root };
+  }
+
+  it("is off by default and reads no limits", async () => {
+    const { container, dispatch, root } = await mount();
+    expect(container.innerHTML).toBe("");
+    expect(dispatch).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it("shows the agents left on once turned on in Settings", async () => {
+    updateAppSettings((current) => ({ ...current, sidebarLimits: { enabled: true, hidden: ["codex"] } }));
+    const { container, dispatch, root } = await mount();
+    expect(dispatch).toHaveBeenCalled();
+    expect(names(container)).toEqual(["Claude Code"]);
+    act(() => root.unmount());
   });
 });

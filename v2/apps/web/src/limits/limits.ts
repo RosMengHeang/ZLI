@@ -2,6 +2,8 @@ import {
   DAILY_WINDOW,
   FIVE_HOUR_WINDOW,
   MONTHLY_WINDOW,
+  PLAN_LIMIT_PROVIDERS,
+  type PlanLimitProvider,
   type PlanLimitReading,
   PlanLimitsResult,
   type PlanLimitWindow,
@@ -45,13 +47,21 @@ export function limitKey(provider: string, accountId: string | undefined): strin
 }
 
 /**
- * Whether a login belongs on the card. A login with no plan limits (an API key, say) never does. A
- * signed-out usual login is left out too, since nobody set it up in ZLI; a saved account says so.
+ * Whether a login belongs on the card. A login with no plan limits (an API key, say) never does. The
+ * usual login shows only once its windows were read: a CLI that is installed but signed out, turned
+ * down, or unreachable is not a plan the person uses. A saved account was set up in ZLI, so it always
+ * says why it has no numbers.
  */
 export function showsReading(reading: PlanLimitReading): boolean {
   if (reading.state === "unavailable") return false;
-  if (reading.state === "signed-out" && reading.accountId === USUAL_LOGIN_ACCOUNT_ID) return false;
+  if (reading.accountId === USUAL_LOGIN_ACCOUNT_ID) return reading.windows.length > 0;
   return reading.state !== "ok" || reading.windows.length > 0;
+}
+
+/** The agents with at least one login on the card, in a fixed order so a list of them stays put. */
+export function limitProviders(readings: readonly PlanLimitReading[]): PlanLimitProvider[] {
+  const shown = new Set<string>(readings.filter(showsReading).map((reading) => reading.provider));
+  return PLAN_LIMIT_PROVIDERS.filter((provider) => shown.has(provider));
 }
 
 /**

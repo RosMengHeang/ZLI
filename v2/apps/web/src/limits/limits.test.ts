@@ -1,11 +1,12 @@
-import { describe, expect, it } from "vitest";
 import type { PlanLimitReading, PlanLimitWindow } from "@zli-v2/contracts";
+import { describe, expect, it } from "vitest";
 
 import {
   formatPercent,
   formatResetClock,
   formatResetIn,
   limitKey,
+  limitProviders,
   readPlanLimits,
   resetText,
   showsReading,
@@ -107,13 +108,27 @@ describe("showsReading", () => {
     ...extra,
   });
 
-  it("hides logins with no plan limits and a usual login nobody signed in to", () => {
+  it("hides logins with no plan limits and a usual login whose limits were never read", () => {
     expect(showsReading(reading({}))).toBe(true);
     expect(showsReading(reading({ state: "unavailable", windows: [] }))).toBe(false);
     expect(showsReading(reading({ windows: [] }))).toBe(false);
     expect(showsReading(reading({ state: "signed-out", windows: [] }))).toBe(false);
+    expect(showsReading(reading({ state: "expired", windows: [] }))).toBe(false);
+    expect(showsReading(reading({ state: "error", windows: [] }))).toBe(false);
+    expect(showsReading(reading({ state: "error" }))).toBe(true);
     expect(showsReading(reading({ state: "signed-out", accountId: "work", windows: [] }))).toBe(true);
-    expect(showsReading(reading({ state: "expired", windows: [] }))).toBe(true);
+    expect(showsReading(reading({ state: "expired", accountId: "work", windows: [] }))).toBe(true);
+  });
+
+  it("lists each agent with a login on the card once, in a fixed order", () => {
+    expect(
+      limitProviders([
+        reading({ provider: "gemini" }),
+        reading({ provider: "codex", state: "error", windows: [] }),
+        reading({ provider: "claude-code", accountId: "work", state: "expired", windows: [] }),
+        reading({ provider: "claude-code" }),
+      ]),
+    ).toEqual(["claude-code", "gemini"]);
   });
 });
 

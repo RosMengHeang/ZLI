@@ -27,6 +27,13 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
     await expect(page.locator(".composer-context [aria-hidden]")).toHaveText("7% context");
 
     const limits = page.getByRole("button", { name: "Plan limits", exact: true });
+    await expect(limits).toHaveCount(0);
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    const settings = page.getByRole("dialog", { name: "Settings" });
+    await settings.getByRole("tab", { name: "Usage" }).click();
+    await settings.getByRole("switch", { name: /Show plan limits/u }).check();
+    await page.keyboard.press("Escape");
+    await expect(settings).toHaveCount(0);
     // Six agents report limits; three rows fit, and the rest are counted.
     await expect(limits.locator(".usage-strip-name")).toHaveText(["Claude Code", "Codex", "Gemini"]);
     await expect(limits.locator(".usage-strip-window-label")).toHaveText([

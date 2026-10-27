@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { accountLabel, sessionAccountId } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
-import { limitKey, usePlanLimits } from "../limits/limits.js";
+import { limitKey } from "../limits/limits.js";
 import { trackDescription, trackText } from "../review/branches.js";
 import { type PullRequestEntry, usePullRequestEntries } from "../review/pullRequestStore.js";
 import type { RunGroup, RunState } from "../sessions/bestOf.js";
@@ -22,11 +22,11 @@ import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
-import { type MenuItem, MenuButton } from "../ui/Menu.js";
+import { MenuButton, type MenuItem } from "../ui/Menu.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ariaShortcut } from "../ui/shortcuts.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
-import { SidebarUsageStrip } from "./SidebarUsageStrip.js";
+import { SidebarPlanLimits } from "./SidebarUsageStrip.js";
 import { useSidebarCollapsed } from "./sidebarLayout.js";
 import "./sidebar.css";
 
@@ -159,7 +159,6 @@ export function Sidebar({
   const worktrees = projection?.worktrees ?? [];
   const threads = projection?.threads ?? [];
   const activeSession = sessions.find((session) => session.sessionId === activeSessionId);
-  const limits = usePlanLimits(accounts?.map((account) => account.id).join(","));
   const runIds = new Set(runGroups.flatMap((group) => group.sessionIds));
   const groupsBySource = new Map<string, RunGroup[]>();
   for (const group of runGroups) {
@@ -661,8 +660,7 @@ export function Sidebar({
         )}
       </div>
       <div className="sidebar-bottom">
-        <SidebarUsageStrip
-          readings={limits.status === "loading" ? undefined : limits.readings}
+        <SidebarPlanLimits
           providers={projection?.providers}
           accounts={accounts}
           now={now}
