@@ -1,5 +1,6 @@
 import { PLUGIN_CATALOG, type PluginInstallPreview, type PluginOrigin, type PluginSummary } from "@zli-v2/contracts";
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import { OriginBadge } from "../plugins/OriginBadge.js";
 import {
@@ -143,8 +144,8 @@ export function PluginsSection({
 
   const startInstall = () => {
     closeForms();
-    setInstalling({ source: "", selected: [] });
-    requestAnimationFrame(() => sourceRef.current?.focus());
+    flushSync(() => setInstalling({ source: "", selected: [] }));
+    sourceRef.current?.focus();
   };
 
   const lookUp = (source: string) =>
