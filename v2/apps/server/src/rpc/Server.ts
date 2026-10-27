@@ -25,6 +25,8 @@ import {
   type GitChangesCommand,
   ISSUE_COMMAND_TYPES,
   type IssueCommand,
+  LIMITS_COMMAND_TYPES,
+  type LimitsCommand,
   type ListedProviderKind,
   MCP_COMMAND_TYPES,
   type McpCommand,
@@ -35,6 +37,7 @@ import {
   type McpTestResult,
   PLUGIN_COMMAND_TYPES,
   type PluginCommand,
+  type PlanLimitsResult,
   type ProviderDiscovery,
   PULL_REQUEST_COMMAND_TYPES,
   type PullRequestCommand,
@@ -113,6 +116,8 @@ type RpcServerOptions = {
     delete(accountId: string): Promise<AccountListResult>;
     setDefault(provider: ListedProviderKind, accountId?: string): Promise<AccountListResult>;
   };
+  /** Plan limits per login. Without it, limits commands are answered as unavailable. */
+  limits?: { read(refresh?: boolean): Promise<PlanLimitsResult> };
   host?: string;
   port?: number;
 };
@@ -133,6 +138,7 @@ export class RpcServer {
   private readonly skills: SkillStore | undefined;
   private readonly plugins: PluginStore | undefined;
   private readonly accounts: RpcServerOptions["accounts"];
+  private readonly limits: RpcServerOptions["limits"];
   private readonly host: string;
   private readonly port: number;
   private httpServer: HttpServer | undefined;
@@ -161,6 +167,7 @@ export class RpcServer {
     this.skills = options.skills;
     this.plugins = options.plugins;
     this.accounts = options.accounts;
+    this.limits = options.limits;
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
   }
@@ -526,6 +533,25 @@ export class RpcServer {
     return true;
   }
 
+  /** Plan limits come from each provider on demand and are cached in memory, outside the event log. */
+  private async handleLimitsCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isLimitsCommand(command)) return false;
+    const reject = (error: RuntimeError) =>
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: false, error } });
+    if (!this.limits) {
+      reject({ code: "unavailable", message: "Plan limits are not available here.", retryable: false });
+      return true;
+    }
+    try {
+      const result = await this.limits.read(command.refresh === true);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch {
+      reject({ code: "internal", message: "Plan limits could not be read.", retryable: true });
+    }
+    return true;
+  }
+
   private async runFileCommand(root: string, command: FileCommand): Promise<unknown> {
     switch (command.type) {
       case "files.list":
@@ -765,6 +791,7 @@ export class RpcServer {
         if (await this.handleSkillCommand(client, message.data.request)) return;
         if (await this.handlePluginCommand(client, message.data.request)) return;
         if (await this.handleAccountCommand(client, message.data.request)) return;
+        if (await this.handleLimitsCommand(client, message.data.request)) return;
         try {
           let request: RpcRequest;
           try {
@@ -872,6 +899,10 @@ export class RpcServer {
 
 function isAccountCommand(command: RpcRequest["command"]): command is AccountCommand {
   return (ACCOUNT_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
+function isLimitsCommand(command: RpcRequest["command"]): command is LimitsCommand {
+  return (LIMITS_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
 function isMcpCommand(command: RpcRequest["command"]): command is McpCommand {

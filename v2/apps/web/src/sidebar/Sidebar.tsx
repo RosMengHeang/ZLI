@@ -24,6 +24,8 @@ import { Kbd } from "../ui/Kbd.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ariaShortcut } from "../ui/shortcuts.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
+import { limitKey, usePlanLimits } from "../limits/limits.js";
+import { SidebarUsageStrip } from "./SidebarUsageStrip.js";
 import "./sidebar.css";
 
 export type WorktreeAction = "retry" | "cancel" | "remove";
@@ -154,6 +156,8 @@ export function Sidebar({
   const projects = projection?.projects ?? [];
   const worktrees = projection?.worktrees ?? [];
   const threads = projection?.threads ?? [];
+  const activeSession = sessions.find((session) => session.sessionId === activeSessionId);
+  const limits = usePlanLimits(accounts?.map((account) => account.id).join(","));
   const runIds = new Set(runGroups.flatMap((group) => group.sessionIds));
   const groupsBySource = new Map<string, RunGroup[]>();
   for (const group of runGroups) {
@@ -549,24 +553,34 @@ export function Sidebar({
           })
         )}
       </div>
-      <div className="sidebar-footer">
-        <span className={`connection-dot${projection ? " is-connected" : ""}`} aria-hidden="true" />
-        <span>{projection ? "Local runtime" : "Waiting for runtime"}</span>
-        <IconButton
-          className="sidebar-usage"
-          label="Usage"
-          tooltip="Usage and cost"
-          icon="gauge"
-          onClick={onOpenUsage}
+      <div className="sidebar-bottom">
+        <SidebarUsageStrip
+          readings={limits.status === "loading" ? undefined : limits.readings}
+          providers={projection?.providers}
+          accounts={accounts}
+          now={now}
+          currentKey={activeSession ? limitKey(activeSession.provider, sessionAccountId(activeSession)) : undefined}
+          onOpen={onOpenUsage}
         />
-        <IconButton label="Settings" icon="settings" shortcut={settingsShortcut} onClick={onOpenSettings} />
-        <IconButton
-          className="sidebar-help"
-          label="Help"
-          tooltip="Help and diagnostics"
-          icon="help"
-          onClick={onOpenHelp}
-        />
+        <div className="sidebar-footer">
+          <span className={`connection-dot${projection ? " is-connected" : ""}`} aria-hidden="true" />
+          <span>{projection ? "Local runtime" : "Waiting for runtime"}</span>
+          <IconButton
+            className="sidebar-usage"
+            label="Usage"
+            tooltip="Usage and cost"
+            icon="gauge"
+            onClick={onOpenUsage}
+          />
+          <IconButton label="Settings" icon="settings" shortcut={settingsShortcut} onClick={onOpenSettings} />
+          <IconButton
+            className="sidebar-help"
+            label="Help"
+            tooltip="Help and diagnostics"
+            icon="help"
+            onClick={onOpenHelp}
+          />
+        </div>
       </div>
     </aside>
   );

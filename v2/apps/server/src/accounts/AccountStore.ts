@@ -11,6 +11,8 @@ import {
   type AccountListResult,
   ListedProviderKind,
   MAX_ACCOUNTS,
+  PLAN_LIMIT_PROVIDERS,
+  type PlanLimitProvider,
   USUAL_LOGIN_ACCOUNT_ID,
 } from "@zli-v2/contracts";
 
@@ -190,6 +192,15 @@ export class AccountStore {
     return { accountId: account.id, env: await this.launchEnv(account) };
   }
 
+  /** Sign-in accounts of agents whose plans report limits, with the folder that holds each login. */
+  limitTargets(): Array<{ provider: PlanLimitProvider; accountId: string; configDir: string }> {
+    return this.accounts.flatMap((account) =>
+      account.kind === "sign-in" && isPlanLimitProvider(account.provider)
+        ? [{ provider: account.provider, accountId: account.id, configDir: this.accountDir(account.id) }]
+        : [],
+    );
+  }
+
   async waitForIdle(): Promise<void> {
     await this.queue.catch(() => undefined);
   }
@@ -313,6 +324,10 @@ function storedAccount(value: unknown): StoredAccount | undefined {
     ...(value.kind === "api-key" && apiKey ? { apiKey } : {}),
     ...(mcpOwned.length > 0 ? { mcpOwned } : {}),
   };
+}
+
+function isPlanLimitProvider(provider: ListedProviderKind): provider is PlanLimitProvider {
+  return (PLAN_LIMIT_PROVIDERS as readonly string[]).includes(provider);
 }
 
 function sameNames(left: readonly string[], right: readonly string[]): boolean {

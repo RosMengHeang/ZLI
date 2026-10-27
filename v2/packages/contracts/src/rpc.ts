@@ -21,6 +21,7 @@ import {
 } from "./ids.js";
 import { LegacyImportPreview } from "./import.js";
 import { IssueCommand } from "./issues.js";
+import { LimitsCommand } from "./limits.js";
 import { McpCommand } from "./mcp.js";
 import { PluginCommand } from "./plugins.js";
 import { SetupDecision, WorktreeSetupProjection } from "./projectConfig.js";
@@ -267,6 +268,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   ...SkillCommand.options,
   ...PluginCommand.options,
   ...AccountCommand.options,
+  ...LimitsCommand.options,
   /** Reported by the runtime while it copies files and runs zli.json setup in a new worktree. */
   z.object({ type: z.literal("worktree.setup"), setup: WorktreeSetupProjection }),
   /** The person's answer to running zli.json setup commands; the hash pins the exact list they saw. */

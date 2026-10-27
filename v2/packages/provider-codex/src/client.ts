@@ -179,6 +179,11 @@ export class CodexAppServerClient {
     return { providerThreadId: result.thread.id, turns: result.thread.turns ?? [] };
   }
 
+  /** The signed-in plan's usage windows. Sent with no params, which every app server since 0.48 accepts. */
+  async readRateLimits(): Promise<unknown> {
+    return this.request("account/rateLimits/read", undefined);
+  }
+
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
