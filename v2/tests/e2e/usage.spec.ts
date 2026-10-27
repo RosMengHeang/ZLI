@@ -26,6 +26,16 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
     await expect(page.getByText("Mock response: [usage] summarize the repo")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(".composer-context [aria-hidden]")).toHaveText("7% context");
 
+    const limits = page.getByRole("button", { name: "Plan limits", exact: true });
+    await expect(limits.locator(".usage-strip-name")).toHaveText(["Claude Code", "Codex"]);
+    await expect(limits.locator(".usage-strip-window-label")).toHaveText(["5h", "Week", "Fable", "5h", "Week"]);
+    await expect(limits.locator(".usage-strip-window-percent")).toHaveText(["86%", "41%", "92%", "34%", "12%"]);
+    // Every circle says when it resets: a countdown and the local time.
+    await expect(limits.locator(".usage-strip-window-reset").first()).toHaveText(/^\d+m · \d{1,2}:\d{2}\s?[AP]M$/u);
+    await limits.click();
+    await expect(page.getByRole("dialog", { name: "Usage" })).toBeVisible();
+    await page.keyboard.press("Escape");
+
     await page.getByRole("button", { name: "Usage", exact: true }).click();
     const usage = page.getByRole("dialog", { name: "Usage" });
     const summary = usage.locator(".usage-summary");

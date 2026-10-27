@@ -25,6 +25,7 @@ import { textBase64 } from "../chat/pastedText.js";
 import { devServerCommands } from "../devservers/DevServers.js";
 import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
 import type { AskAgentTarget, FilesFocus } from "../files/FilesPane.js";
+import { filesWorktreeFor } from "../files/filesWorktree.js";
 import { QuickOpen } from "../files/QuickOpen.js";
 import { type IssueLink, issuePrompt, rememberIssueLink } from "../issues/issueStart.js";
 import { MobilePane, type MobileReveal } from "../mobile/MobilePane.js";
@@ -221,6 +222,12 @@ function WorkspaceApp() {
     projection?.worktrees.find((worktree) => worktree.status === "ready");
   const contextProject = projection?.projects.find((project) => project.projectId === contextWorktree?.projectId);
   const hasProjects = (projection?.projects.length ?? 0) > 0;
+  /** A folder picked in the Files panel while the focused agent's worktree is not ready. */
+  const [filesFolderId, setFilesFolderId] = useState<string>();
+  const files = useMemo(
+    () => filesWorktreeFor(projection, contextWorktree, filesFolderId),
+    [projection, contextWorktree, filesFolderId],
+  );
   const pluginActions = usePluginContributions(paletteOpen).actions;
 
   const focusSession = useCallback(
@@ -1208,17 +1215,38 @@ function WorkspaceApp() {
     });
   };
 
-  const openBrowserInProject = async (projectId: string) => {
+  /** Selects the project's own folder, adding it as the project's checkout when it is not in the workspace yet. */
+  const openProjectFolder = async (projectId: string): Promise<string | undefined> => {
     const project = projection?.projects.find((candidate) => candidate.projectId === projectId);
-    if (!projection || !project) return;
+    if (!projection || !project) return undefined;
     try {
       const checkout = await ensureCheckout(dispatch, projection, project);
-      if ("error" in checkout) showError(checkout.error);
-      else setSelectedWorktreeId(checkout.worktreeId);
+      if ("error" in checkout) {
+        showError(checkout.error);
+        return undefined;
+      }
+      setSelectedWorktreeId(checkout.worktreeId);
+      return checkout.worktreeId;
     } catch (cause) {
       showError(cause instanceof Error ? cause.message : "The project folder could not be opened.");
+      return undefined;
     }
   };
+  const openBrowserInProject = async (projectId: string) => {
+    await openProjectFolder(projectId);
+  };
+  const openFilesInProject = async (projectId: string) => {
+    setFilesFolderId(await openProjectFolder(projectId));
+  };
+
+  const checkoutTried = useRef(new Set<string>());
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only the panel opening or the need changing should act.
+  useEffect(() => {
+    if (sidePane !== "files" || !files.needsCheckout || !projection || !contextProject) return;
+    if (checkoutTried.current.has(contextProject.projectId)) return;
+    checkoutTried.current.add(contextProject.projectId);
+    void ensureCheckout(dispatch, projection, contextProject).catch(() => undefined);
+  }, [sidePane, files.needsCheckout, contextProject?.projectId]);
 
   /** Runs in the current worktree, or else in the project's own checkout. */
   const startPluginAction = async (action: PluginAction) => {
@@ -1682,9 +1710,11 @@ function WorkspaceApp() {
                     {sidePane === "files" ? (
                       <Suspense fallback={<LoadingFilesPane />}>
                         <FilesPane
-                          worktree={contextWorktree}
+                          worktree={files.worktree}
                           focus={filesFocus}
                           askAgent={askAgent}
+                          projects={projection?.projects}
+                          onOpenProject={openFilesInProject}
                           onQuickOpen={openQuickOpen}
                           onOpenDiff={(path) => {
                             setSidePane("review");

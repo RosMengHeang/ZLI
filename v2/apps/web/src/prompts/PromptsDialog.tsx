@@ -1,5 +1,6 @@
 import type { ProjectProjection } from "@zli-v2/contracts";
 import { useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import { Button, IconButton } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
@@ -38,8 +39,10 @@ export function PromptsDialog({
 
   const startEdit = (prompt?: PersonalPrompt) => {
     setConfirmDeleteId(undefined);
-    setEditing(prompt ? { id: prompt.id, name: prompt.name, prompt: prompt.prompt } : { name: "", prompt: "" });
-    requestAnimationFrame(() => nameRef.current?.focus());
+    flushSync(() =>
+      setEditing(prompt ? { id: prompt.id, name: prompt.name, prompt: prompt.prompt } : { name: "", prompt: "" }),
+    );
+    nameRef.current?.focus();
   };
   const save = () => {
     if (!editing || !canSave) return;

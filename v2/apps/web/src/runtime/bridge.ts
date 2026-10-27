@@ -16,6 +16,7 @@ import type {
   MobileSetupStatus,
   MobileStreamEvent,
   MobileStreamInfo,
+  OpenInApp,
   RpcResponse,
   RuntimeProjection,
   TerminalAttachSnapshot,
@@ -74,13 +75,20 @@ export type ZliBridge = {
     openLegacySnapshot(): Promise<string | undefined>;
   };
   scratch?: { folder(): Promise<string | undefined> };
+  /** Present in the desktop app, which can start other apps on a worktree folder. */
+  openIn?: { apps(): Promise<OpenInApp[]>; open(worktreeId: string, appId: string): Promise<void> };
   capture?: {
     sources(): Promise<CaptureSource[]>;
     take(id: string): Promise<{ name: string; dataBase64: string }>;
   };
   menu: { trigger(command: string): Promise<unknown> };
   app: { getVersion(): Promise<string>; quit(): Promise<void>; openExternal?(url: string): Promise<unknown> };
-  test?: { restartRuntime(): Promise<unknown>; crashMain(): Promise<unknown>; takeExternalUrl?(): Promise<unknown> };
+  test?: {
+    restartRuntime(): Promise<unknown>;
+    crashMain(): Promise<unknown>;
+    takeExternalUrl?(): Promise<unknown>;
+    takeOpenIn?(): Promise<unknown>;
+  };
   notifications?: {
     getSettings(): Promise<NotificationSettings>;
     setSettings(patch: Partial<NotificationSettings>): Promise<NotificationSettings>;

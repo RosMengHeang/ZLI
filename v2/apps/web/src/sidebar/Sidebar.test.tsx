@@ -5,9 +5,19 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { ZliBridge } from "../runtime/bridge.js";
+import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
 import type { AgentSession } from "../sessions/sessions.js";
 import { Sidebar, type WorktreeAction } from "./Sidebar.js";
 import { parseSidebarCollapsed } from "./sidebarLayout.js";
+
+const bridge = {
+  runtime: {
+    dispatch: async () => undefined,
+    getProjection: async () => undefined,
+    onProjection: () => () => undefined,
+  },
+} as unknown as ZliBridge;
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -54,27 +64,29 @@ async function mount(current: RuntimeProjection, options: MountOptions = {}) {
   const root = createRoot(container);
   await act(async () => {
     root.render(
-      <Sidebar
-        projection={current}
-        sessions={options.sessions ?? []}
-        activeSessionId={undefined}
-        backgroundSessionIds={new Set()}
-        activeWorktreeId={undefined}
-        onSelectSession={noop}
-        onStopSession={options.onStopSession ?? noop}
-        onDeleteSession={options.onDeleteSession ?? noop}
-        onSelectWorktree={noop}
-        onNewAgent={noop}
-        onOpenProject={noop}
-        onCreateWorktree={options.onCreateWorktree ?? noop}
-        onWorktreeAction={options.onWorktreeAction ?? noop}
-        onReviewSetup={noop}
-        onShowSetupOutput={noop}
-        onOpenHelp={noop}
-        onOpenSettings={noop}
-        onOpenUsage={noop}
-        onHideSidebar={noop}
-      />,
+      <RuntimeProvider bridge={bridge}>
+        <Sidebar
+          projection={current}
+          sessions={options.sessions ?? []}
+          activeSessionId={undefined}
+          backgroundSessionIds={new Set()}
+          activeWorktreeId={undefined}
+          onSelectSession={noop}
+          onStopSession={options.onStopSession ?? noop}
+          onDeleteSession={options.onDeleteSession ?? noop}
+          onSelectWorktree={noop}
+          onNewAgent={noop}
+          onOpenProject={noop}
+          onCreateWorktree={options.onCreateWorktree ?? noop}
+          onWorktreeAction={options.onWorktreeAction ?? noop}
+          onReviewSetup={noop}
+          onShowSetupOutput={noop}
+          onOpenHelp={noop}
+          onOpenSettings={noop}
+          onOpenUsage={noop}
+          onHideSidebar={noop}
+        />
+      </RuntimeProvider>,
     );
   });
   return { container, unmount: () => act(async () => root.unmount()) };

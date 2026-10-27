@@ -7,6 +7,17 @@
 .files-editor { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
 .files-body.is-split .files-editor { min-width: 280px; }
 
+/* Open in: the app button and its arrow read as one control. */
+.open-in { display: inline-flex; flex: 0 0 auto; align-items: center; border-radius: var(--zli-radius-sm); }
+.open-in:hover > .btn:not(:disabled) { background: var(--zli-hover); color: var(--zli-text); }
+.open-in > .open-in-main { padding: 0 var(--zli-space-1) 0 var(--zli-space-1-5); border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.open-in > .open-in-more { width: 16px; padding: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; color: var(--zli-dim); }
+.open-in > .open-in-more[aria-expanded="true"] { background: var(--zli-active); color: var(--zli-text); }
+.app-mark { display: block; width: 16px; height: 16px; flex: 0 0 auto; object-fit: contain; }
+.app-mark.is-mono { background: var(--zli-text); mask-position: center; mask-repeat: no-repeat; mask-size: contain; }
+.menu-item-icon:has(> .app-mark) { width: 16px; }
+.files-project-list { display: flex; max-width: 320px; flex-wrap: wrap; justify-content: center; gap: var(--zli-space-1-5); }
+
 /* The divider draws the pane boundary itself, so neither side needs a border. */
 .files-divider { position: relative; z-index: 1; flex: 0 0 7px; margin: 0 -3px; cursor: col-resize; touch-action: none; }
 .files-divider::after { position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: var(--zli-border); content: ""; transition: background-color var(--zli-duration-fast) var(--zli-ease); }

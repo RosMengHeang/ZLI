@@ -1,5 +1,6 @@
 import { AgentToolAccess, isHttpServer, MCP_CATALOG, type McpServerConfig } from "@zli-v2/contracts";
 import { Fragment, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import { useMobileSettings } from "../mobile/useMobileSettings.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
@@ -238,10 +239,12 @@ export function McpServersSection({
     setAdded(undefined);
     setImported(undefined);
     const server = index === undefined ? undefined : servers[index];
-    setEditing(
-      index !== undefined && server ? { index, draft: draftFromServer(server) } : { draft: { ...EMPTY_DRAFT } },
+    flushSync(() =>
+      setEditing(
+        index !== undefined && server ? { index, draft: draftFromServer(server) } : { draft: { ...EMPTY_DRAFT } },
+      ),
     );
-    requestAnimationFrame(() => nameRef.current?.focus());
+    nameRef.current?.focus();
   };
 
   const submit = async () => {
