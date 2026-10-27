@@ -7,6 +7,7 @@ import {
   USUAL_LOGIN_ACCOUNT_ID,
 } from "@zli-v2/contracts";
 import { useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import { providerDisplayName } from "../agent/providers.js";
 import {
@@ -109,12 +110,14 @@ export function AccountsSection({
     setProblem(undefined);
     setError(undefined);
     const kinds = accountKinds(provider);
-    setEditing(
-      account
-        ? { provider, id: account.id, label: account.label, kind: account.kind, apiKey: "" }
-        : { provider, label: "", kind: kinds[0] ?? "api-key", apiKey: "" },
+    flushSync(() =>
+      setEditing(
+        account
+          ? { provider, id: account.id, label: account.label, kind: account.kind, apiKey: "" }
+          : { provider, label: "", kind: kinds[0] ?? "api-key", apiKey: "" },
+      ),
     );
-    requestAnimationFrame(() => labelRef.current?.focus());
+    labelRef.current?.focus();
   };
 
   const submit = async () => {

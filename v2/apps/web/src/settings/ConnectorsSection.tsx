@@ -12,6 +12,7 @@ import {
   type McpServerConfig,
 } from "@zli-v2/contracts";
 import { useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import { openExternalLink } from "../review/links.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
@@ -163,8 +164,8 @@ export function ConnectorsSection({ query }: { query: string }) {
       return;
     }
     setProblem(entry.id, undefined);
-    setForm({ id: entry.id, useToken, values: {} });
-    requestAnimationFrame(() => firstField.current?.focus());
+    flushSync(() => setForm({ id: entry.id, useToken, values: {} }));
+    firstField.current?.focus();
   };
 
   const disconnect = (entry: McpCatalogEntry, server: McpServerConfig) =>
