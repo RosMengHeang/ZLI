@@ -11,6 +11,19 @@ import { closeChildProcess } from "../closeChildProcess.js";
 import { getProcessTreeTerminationOrder } from "../processTree.js";
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * The terminal draws with WebGL where the GPU allows it, which leaves no text in the page for the tests
+ * to read. Without WebGL it falls back to the DOM renderer, as it already does on Linux runners.
+ * Chromium's --disable-webgl switch reaches Electron but does not stop the page from getting a context.
+ */
+const DISABLE_WEBGL = `(() => {
+  const getContext = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (type, ...rest) {
+    return type === "webgl" || type === "webgl2" ? null : getContext.call(this, type, ...rest);
+  };
+})();`;
+
 export const V2_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 
 export type DesktopFixture = {
@@ -104,9 +117,12 @@ export async function launchDesktop(
       timeout: 30_000,
     });
     try {
+      await app.context().addInitScript({ content: DISABLE_WEBGL });
       const page = await app.firstWindow().catch((error: unknown) => {
         throw new WindowTimeout(error);
       });
+      // The first window can start loading before the init script is registered.
+      await page.evaluate(DISABLE_WEBGL);
       await page.waitForLoadState("domcontentloaded");
       // The app also forces reduced motion through ZLI_REDUCED_MOTION; this covers a page loaded before it applied.
       await page.emulateMedia({ reducedMotion: "reduce" });
