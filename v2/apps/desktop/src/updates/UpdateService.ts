@@ -63,6 +63,8 @@ export type UpdateServiceDependencies = {
   openExternal(url: string): Promise<unknown>;
   /** Stops the runtime and the terminal daemon, which would otherwise keep the installer from replacing the app. */
   prepareToInstall?: () => Promise<void>;
+  /** Starts ZLI again on the version it has, for an install that failed after prepareToInstall stopped the app. */
+  relaunch?: () => void;
   now?: () => Date;
   timers?: Timers;
   log?: (level: "info" | "warn" | "error", message: string) => void;
@@ -71,18 +73,22 @@ export type UpdateServiceDependencies = {
 /** Why this launch never checks for updates, or undefined when it does. */
 export function updateDisabledReason({
   isPackaged,
-  platform,
   env,
-}: Pick<UpdateServiceDependencies, "isPackaged" | "platform" | "env">): string | undefined {
+}: Pick<UpdateServiceDependencies, "isPackaged" | "env">): string | undefined {
   if (!isPackaged) return "Updates are off in development builds.";
   // Packaged end-to-end runs set these, and must never reach GitHub or replace the app under test.
   if (env.ZLI_DISABLE_UPDATES === "1" || env.ZLI_TEST_PROVIDER || env.ZLI_DATABASE_PATH) {
     return "Updates are off for test and development launches.";
   }
-  if (platform === "linux" && !env.APPIMAGE) {
-    return "Only the AppImage build updates itself. Download the new .deb or .rpm from the releases page.";
-  }
   return undefined;
+}
+
+/**
+ * Installed .deb and .rpm builds update through dpkg, apt, dnf, or rpm, which ask for an administrator
+ * password. The AppImage replaces its own file without one.
+ */
+export function isLinuxPackage({ platform, env }: Pick<UpdateServiceDependencies, "platform" | "env">): boolean {
+  return platform === "linux" && !env.APPIMAGE;
 }
 
 /** electron-updater gives GitHub's notes as one string or, with a full changelog, one entry per version. */
@@ -118,6 +124,8 @@ export function updateErrorMessage(error: unknown): string {
 export class UpdateService {
   readonly disabledReason: string | undefined;
   private readonly canAutoInstall: boolean;
+  /** A password prompt while ZLI quits would be unexpected, so .deb and .rpm installs wait for Restart to update. */
+  private readonly canInstallOnQuit: boolean;
   private readonly timers: Timers;
   private readonly now: () => Date;
   private state: UpdateState = { status: "idle" };
@@ -128,11 +136,14 @@ export class UpdateService {
   private launchTimer: unknown;
   private intervalTimer: unknown;
   private pendingWhatsNew: WhatsNew | undefined;
+  private installing = false;
+  private installFailed = false;
   private readonly listeners = new Set<(status: UpdateStatus) => void>();
 
   constructor(private readonly deps: UpdateServiceDependencies) {
     this.disabledReason = updateDisabledReason(deps);
     this.canAutoInstall = deps.platform !== "darwin" || deps.macCanAutoInstall;
+    this.canInstallOnQuit = !isLinuxPackage(deps);
     this.timers = deps.timers ?? globalTimers;
     this.now = deps.now ?? (() => new Date());
   }
@@ -192,15 +203,29 @@ export class UpdateService {
     return this.status();
   }
 
-  /** Restarts into the downloaded update. Returns false when there is nothing to install. */
+  /** Restarts into the downloaded update. Returns false when there is nothing to install or the install failed. */
   async quitAndInstall(): Promise<boolean> {
     if (this.state.status !== "ready" || !this.updater) return false;
     const updater = await this.updater;
-    this.deps.log?.("info", `restarting to install ZLI ${this.state.version}`);
+    const version = this.state.version;
+    this.deps.log?.("info", `restarting to install ZLI ${version}`);
     // electron-updater starts the installer before the app quits, so stop the app's processes first.
     await this.deps.prepareToInstall?.();
-    updater.quitAndInstall(true, true);
-    return true;
+    // A .deb or .rpm install runs dpkg or dnf before quitAndInstall returns, and reports a closed
+    // password prompt or a failed install as an error event during the call.
+    this.installing = true;
+    this.installFailed = false;
+    try {
+      updater.quitAndInstall(true, true);
+    } catch (error) {
+      this.fail(error);
+    } finally {
+      this.installing = false;
+    }
+    if (!this.installFailed) return true;
+    this.deps.log?.("warn", `ZLI ${version} was not installed; starting the current version again`);
+    this.deps.relaunch?.();
+    return false;
   }
 
   /** Opens the GitHub page of the offered, downloaded, or just-installed release. */
@@ -215,7 +240,7 @@ export class UpdateService {
 
   async setAutoInstall(autoInstall: boolean): Promise<UpdateStatus> {
     await this.deps.settings.update({ autoInstall });
-    if (this.updater) (await this.updater).autoInstallOnAppQuit = autoInstall;
+    if (this.updater) (await this.updater).autoInstallOnAppQuit = this.canInstallOnQuit && autoInstall;
     const state = this.state;
     if (autoInstall && state.status === "available" && state.canAutoInstall) await this.startDownload(state.version);
     else this.emit();
@@ -266,7 +291,7 @@ export class UpdateService {
     const loading = this.deps.loadUpdater().then((updater) => {
       // The service decides when to download, so the setting and the platform both apply.
       updater.autoDownload = false;
-      updater.autoInstallOnAppQuit = this.deps.settings.current().autoInstall;
+      updater.autoInstallOnAppQuit = this.canInstallOnQuit && this.deps.settings.current().autoInstall;
       updater.on("update-available", (info) => this.onAvailable(info));
       updater.on("update-not-available", () => {
         if (this.state.status === "checking" || this.state.status === "available") this.setState({ status: "idle" });
@@ -332,6 +357,7 @@ export class UpdateService {
   private fail(error: unknown): void {
     const message = updateErrorMessage(error);
     this.deps.log?.("warn", `update failed: ${message}`);
+    if (this.installing) this.installFailed = true;
     // A later failed check must not hide an update that is already downloaded.
     if (this.state.status === "ready") return;
     this.setState({ status: "error", message });
