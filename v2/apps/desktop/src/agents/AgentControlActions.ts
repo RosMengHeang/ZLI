@@ -68,6 +68,8 @@ export type AgentSummary = {
   /** The agent works in the same worktree as the caller. */
   sameWorktree: boolean;
   model?: string;
+  /** The agent that started this one with start_agent, which makes this one its sub-agent. */
+  startedBy?: { id: string; name?: string };
 };
 
 type Agent = AgentSummary & { createdAt: string };
@@ -137,6 +139,15 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         .filter((worktree) => projectIds.has(worktree.projectId))
         .map((worktree) => [worktree.worktreeId, worktree]),
     );
+    const names = new Map<string, string | undefined>([
+      ...state.threads.map((thread) => [thread.threadId, thread.name] as const),
+      ...state.terminals.map((terminal) => [terminal.terminalId, terminal.name] as const),
+    ]);
+    const parent = (startedBy: string | undefined) => {
+      if (startedBy === undefined) return {};
+      const name = names.get(startedBy);
+      return { startedBy: { id: startedBy, ...(name ? { name } : {}) } };
+    };
     const placed = (worktree: WorktreeProjection) => ({
       branch: worktree.branch,
       worktreeId: worktree.worktreeId,
@@ -157,6 +168,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         status: thread.status,
         ...placed(worktree),
         ...(thread.model ? { model: thread.model } : {}),
+        ...parent(thread.startedBy),
         createdAt: thread.createdAt ?? "",
       });
     }
@@ -172,6 +184,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         status: terminal.status,
         ...placed(worktree),
         ...(terminal.agent.model ? { model: terminal.agent.model } : {}),
+        ...parent(terminal.startedBy),
         createdAt: terminal.createdAt ?? "",
       });
     }
@@ -182,6 +195,30 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     agentsIn(state, new Set([projectId]), callerWorktreeId);
 
   const summary = ({ createdAt: _createdAt, ...agent }: Agent): AgentSummary => agent;
+
+  /**
+   * The agent making the call. Tools know only the caller's worktree, so without `as` this is the one
+   * listed agent there, and undefined when agents share it. `as` picks among the agents in that
+   * worktree only, so an agent cannot sign as one working elsewhere.
+   */
+  const callerAgent = (
+    state: RuntimeProjection,
+    project: ProjectProjection,
+    worktreeId: string,
+    as?: string,
+  ): { agent: Agent | undefined; shared: boolean } => {
+    const here = projectAgents(state, project.projectId, worktreeId).filter((agent) => agent.sameWorktree);
+    if (as === undefined) return { agent: here.length === 1 ? here[0] : undefined, shared: here.length > 1 };
+    return {
+      agent: findAgent(
+        here,
+        as,
+        project.name,
+        `No agent in your worktree is called ${as}. Pass your own name or id: one of the agents list_agents marks sameWorktree.`,
+      ),
+      shared: here.length > 1,
+    };
+  };
 
   const requireAllProjects = (settings: AgentSettings) => {
     if (settings.scope !== "all")
@@ -209,7 +246,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
   };
 
   /** Exact id first, then name, then a unique id prefix, so a name can never hide an id. */
-  const findAgent = (agents: readonly Agent[], ref: string, projectName: string): Agent => {
+  const findAgent = (agents: readonly Agent[], ref: string, projectName: string, missing?: string): Agent => {
     const exact = agents.find((agent) => agent.id === ref);
     if (exact) return exact;
     const key = agentNameKey(ref);
@@ -224,7 +261,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     if (matches.length > 1)
       throw new BrowserControlError(`More than one agent id starts with ${ref}. Use the full id.`);
     throw new BrowserControlError(
-      `Project ${projectName} has no running agent ${ref}. Call list_agents for the names and ids.`,
+      missing ?? `Project ${projectName} has no running agent ${ref}. Call list_agents for the names and ids.`,
       404,
     );
   };
@@ -343,14 +380,21 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     const input = AgentControlSendInput.parse(raw);
     const state = projection();
     const { worktree, project, agent, crossProject } = target(state, input, settings);
-    const neighbors = projectAgents(state, project.projectId, worktree.worktreeId).filter(
-      (candidate) => candidate.sameWorktree,
-    );
-    if (agent.sameWorktree && neighbors.length === 1)
+    const { agent: sender, shared } = callerAgent(state, project, worktree.worktreeId, input.as);
+    if (sender && agent.id === sender.id)
       throw new BrowserControlError("That agent is you. Pick another agent from list_agents.");
-    const sender = neighbors.length === 1 ? neighbors[0] : undefined;
+    const note =
+      !sender && shared
+        ? "Other agents share your worktree, so ZLI could not tell which one you are and sent this without your name. Pass as with your own name or id to sign it."
+        : undefined;
+    const relation =
+      sender && agent.startedBy?.id === sender.id
+        ? "parent"
+        : sender && sender.startedBy?.id === agent.id
+          ? "sub-agent"
+          : undefined;
     const text = [
-      messageHeading({ sender, project: project.name, branch: worktree.branch, crossProject }),
+      messageHeading({ sender, project: project.name, where: workPlace(project, worktree), crossProject, relation }),
       "",
       input.text,
     ].join("\n");
@@ -358,7 +402,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
       if (agent.status !== "running")
         throw new BrowserControlError("That terminal agent is still starting. Try again shortly.", 409);
       await typeIntoTerminal(agent.id, text);
-      return { delivered: true, agent: summary(agent) };
+      return { delivered: true, agent: summary(agent), ...(note ? { note } : {}) };
     }
     if (agent.status === "failed") throw new BrowserControlError("That agent failed and cannot take messages.", 409);
     if (agent.status === "starting")
@@ -370,9 +414,11 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
       }, "Waiting for that agent to start");
     const busy = agent.status === "working" || agent.status === "waiting";
     await run({ type: "thread.queue", queueId: newId(), threadId: agent.id, text });
-    return busy
-      ? { delivered: false, queued: true, agent: summary(agent) }
-      : { delivered: true, agent: summary(agent) };
+    return {
+      ...(busy ? { delivered: false, queued: true } : { delivered: true }),
+      agent: summary(agent),
+      ...(note ? { note } : {}),
+    };
   };
 
   const start = async (raw: unknown) => {
@@ -389,8 +435,20 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         409,
       );
 
+    // A plain folder has no Git, so no worktrees: its agents all work in the folder itself.
+    const plainFolder = project.git === false;
+    if (plainFolder && (input.worktree === "new" || input.branch !== undefined))
+      throw new BrowserControlError(
+        `${project.name} is a folder without Git, so it has no worktrees or branches. Leave out worktree and branch, and the agent starts in the folder itself.`,
+      );
+    const { agent: parent, shared } = callerAgent(state, project, callerWorktree.worktreeId, input.as);
+    const note =
+      !parent && shared
+        ? "Other agents share your worktree, so ZLI could not tell which one you are and did not record the new agent as your sub-agent. Pass as with your own name or id to link it."
+        : undefined;
+
     let target: WorktreeProjection;
-    if (input.worktree === "same") target = callerWorktree;
+    if (input.worktree === "same" || plainFolder) target = callerWorktree;
     else {
       const branch = safeBranchName(input.branch ?? `${input.provider}-${newId().slice(0, 6)}`);
       if (!branch) throw new BrowserControlError("Choose a branch name with letters or digits.");
@@ -415,10 +473,21 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
 
     const sessionId = newId();
     const mode = input.mode ?? "chat";
-    let agentId: string;
+    const agentId = newId();
+    const task = parent
+      ? [
+          taskHeading({
+            parent,
+            where: workPlace(project, callerWorktree),
+            self: input.name ?? agentId,
+            sharesWorktree: target.worktreeId === callerWorktree.worktreeId,
+          }),
+          "",
+          input.prompt,
+        ].join("\n")
+      : input.prompt;
     if (mode === "chat") {
-      agentId = newId();
-      const shared = state.threads.some(
+      const occupied = state.threads.some(
         (thread) =>
           thread.worktreeId === target.worktreeId && ["starting", "idle", "working", "waiting"].includes(thread.status),
       );
@@ -432,7 +501,8 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         permissionMode: "full-access",
         ...(input.model ? { model: input.model } : {}),
         ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(shared ? { shareWorktree: true } : {}),
+        ...(parent ? { startedBy: parent.id } : {}),
+        ...(occupied ? { shareWorktree: true } : {}),
       });
       await waitFor((next) => {
         const thread = next.threads.find((candidate) => candidate.threadId === agentId);
@@ -440,9 +510,8 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
           throw new BrowserControlError(`The agent did not start. ${thread.errorMessage ?? ""}`.trim(), 409);
         return thread?.status === "idle" ? true : undefined;
       }, "Starting the agent");
-      await run({ type: "thread.send", threadId: agentId, text: input.prompt });
+      await run({ type: "thread.send", threadId: agentId, text: task });
     } else {
-      agentId = newId();
       await run({
         type: "terminal.create",
         terminalId: agentId,
@@ -454,6 +523,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         rows: 32,
         sessionId,
         ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(parent ? { startedBy: parent.id } : {}),
         agent: {
           provider: input.provider,
           permissionMode: "full-access",
@@ -467,7 +537,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         return terminal?.status === "running" ? true : undefined;
       }, "Starting the agent");
       await sleep(terminalPromptDelayMs);
-      await typeIntoTerminal(agentId, input.prompt);
+      await typeIntoTerminal(agentId, task);
     }
     const started = projectAgents(projection(), project.projectId, callerWorktree.worktreeId).find(
       (agent) => agent.id === agentId,
@@ -487,6 +557,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
             projectId: project.projectId,
           },
       worktree: { branch: target.branch, path: target.path },
+      ...(note ? { note } : {}),
     };
   };
 
@@ -521,10 +592,8 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
       try {
         const { worktree, project } = caller(input, state);
         projectName = project.name;
-        const neighbors = projectAgents(state, project.projectId, worktree.worktreeId).filter(
-          (agent) => agent.sameWorktree,
-        );
-        if (neighbors.length === 1 && neighbors[0]) agentName = neighbors[0].name ?? neighbors[0].providerName;
+        const self = callerAgent(state, project, worktree.worktreeId).agent;
+        if (self) agentName = self.name ?? self.providerName;
       } catch {
         // An agent outside a ZLI worktree can still ask; the notification just names less.
       }
@@ -575,17 +644,27 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
 }
 
 /**
- * The first line of a message from another agent. It says who sent it and how to answer: by name
- * when the sender has one, and as project/agent from another project.
+ * The first line of a message from another agent. It says who sent it, how it relates to the
+ * receiver when one started the other, and how to answer: by name when the sender has one, and as
+ * project/agent from another project.
  */
 function messageHeading(options: {
   sender: Agent | undefined;
   project: string;
-  branch: string;
+  where: string;
   crossProject: boolean;
+  /** What the sender is to the receiver. */
+  relation?: "parent" | "sub-agent" | undefined;
 }): string {
-  const { sender, project, branch, crossProject } = options;
-  const who = `${sender?.name ? `${sender.name}, ` : ""}${crossProject ? `an agent in the ZLI project ${project}` : "another agent in ZLI"}`;
+  const { sender, project, where, crossProject, relation } = options;
+  const role = crossProject
+    ? `an agent in the ZLI project ${project}`
+    : relation === "parent"
+      ? "the agent that started you"
+      : relation === "sub-agent"
+        ? "your sub-agent"
+        : "another agent in ZLI";
+  const who = `${sender?.name ? `${sender.name}, ` : ""}${role}`;
   const reply = !sender
     ? ""
     : crossProject
@@ -593,7 +672,30 @@ function messageHeading(options: {
       : sender.name
         ? ` (reply to ${sender.name})`
         : ` (agent id ${sender.id})`;
-  return `Message from ${who}, working on branch ${branch}${reply}:`;
+  return `Message from ${who}, ${where}${reply}:`;
+}
+
+/** Where the sender works, for a heading. A folder without Git has no real branch to name. */
+function workPlace(project: ProjectProjection, worktree: WorktreeProjection): string {
+  return project.git === false ? `working in the folder ${project.name}` : `working on branch ${worktree.branch}`;
+}
+
+/** The first line of a sub-agent's task, so it knows its own name and which agent to report back to. */
+function taskHeading(options: {
+  parent: Agent;
+  where: string;
+  /** The new agent's name, or its id when it has none. */
+  self: string;
+  /** The new agent works in the parent's worktree, so tools cannot tell the two apart by worktree. */
+  sharesWorktree: boolean;
+}): string {
+  const { parent, where, self, sharesWorktree } = options;
+  const who = `${parent.name ? `${parent.name}, ` : ""}the agent in ZLI that started you`;
+  const reply = parent.name ?? `agent id ${parent.id}`;
+  const sign = sharesWorktree
+    ? ` Other agents work in this folder too, so sign your messages with your name: the as field, or zli --as ${self}.`
+    : "";
+  return `Task from ${who}, ${where}. You are ${self} in ZLI.${sign} Reply to ${reply} when you finish or get stuck:`;
 }
 
 export function safeBranchName(branch: string): string {

@@ -472,3 +472,147 @@ describe("agents in other projects", () => {
     );
   });
 });
+
+describe("sub-agents", () => {
+  const starting = () => {
+    const h = harness({
+      onCommand: (command, current) => {
+        if (command.type === "worktree.create")
+          h.update({
+            ...current,
+            worktrees: [
+              ...current.worktrees,
+              {
+                worktreeId: command.worktreeId as string,
+                projectId: PROJECT,
+                path: command.path as string,
+                branch: command.branch as string,
+                status: "ready",
+              },
+            ],
+          } as RuntimeProjection);
+        if (command.type === "thread.start")
+          h.update({
+            ...current,
+            threads: [
+              ...current.threads,
+              {
+                ...thread(command.threadId as string, command.worktreeId as string, "idle", "2026-01-02T00:00:00.000Z"),
+                ...(command.name ? { name: command.name as string } : {}),
+                ...(command.startedBy ? { startedBy: command.startedBy as string } : {}),
+              },
+            ],
+          } as RuntimeProjection);
+      },
+    });
+    return h;
+  };
+
+  it("links the new agent to the caller and tells it who to report back to", async () => {
+    const h = starting();
+    h.update({
+      ...h.state(),
+      threads: h.state().threads.map((entry) => (entry.threadId === ME ? { ...entry, name: "Bob" } : entry)),
+    });
+    const result = (await h.dispatch("agentstart", {
+      cwd: "/work/app",
+      provider: "codex",
+      prompt: "Write the API docs",
+      name: "John",
+    })) as { agent: { id: string; startedBy?: { id: string; name?: string } } };
+    expect(h.sent.find((command) => command.type === "thread.start")).toMatchObject({ startedBy: ME });
+    expect(h.sent.find((command) => command.type === "thread.send")?.text).toBe(
+      "Task from Bob, the agent in ZLI that started you, working on branch main. You are John in ZLI. Reply to Bob when you finish or get stuck:\n\nWrite the API docs",
+    );
+    expect(result.agent.startedBy).toEqual({ id: ME, name: "Bob" });
+
+    const listed = (await h.dispatch("agentlist", { cwd: "/work/app" })) as {
+      agents: Array<{ name?: string; startedBy?: { id: string } }>;
+    };
+    expect(listed.agents.find((agent) => agent.name === "John")?.startedBy?.id).toBe(ME);
+
+    const johnPath = h.state().worktrees.at(-1)?.path ?? "";
+    await h.dispatch("agentsend", { cwd: johnPath, agent: "bob", text: "Docs are done." });
+    expect(h.sent.at(-1)?.text).toBe(
+      "Message from John, your sub-agent, working on branch codex-000000 (reply to John):\n\nDocs are done.",
+    );
+    await h.dispatch("agentsend", { cwd: "/work/app", agent: "john", text: "Add examples too." });
+    expect(h.sent.at(-1)?.text).toBe(
+      "Message from Bob, the agent that started you, working on branch main (reply to Bob):\n\nAdd examples too.",
+    );
+  });
+
+  it("records no parent when agents share the caller's worktree, and says to pass as", async () => {
+    const h = starting();
+    const result = (await h.dispatch("agentstart", {
+      cwd: "/work/app-worktrees/ui",
+      provider: "codex",
+      prompt: "Write the API docs",
+    })) as { note?: string };
+    expect(h.sent.find((command) => command.type === "thread.start")).not.toHaveProperty("startedBy");
+    expect(h.sent.find((command) => command.type === "thread.send")?.text).toBe("Write the API docs");
+    expect(result.note).toMatch(/^Other agents share your worktree.*Pass as with your own name or id/u);
+  });
+
+  it("lets an agent in a shared worktree say who it is with as", async () => {
+    const h = starting();
+    await h.dispatch("agentstart", {
+      cwd: "/work/app-worktrees/ui",
+      provider: "codex",
+      prompt: "Write the API docs",
+      as: PEER,
+    });
+    expect(h.sent.find((command) => command.type === "thread.start")).toMatchObject({ startedBy: PEER });
+
+    const signed = (await h.dispatch("agentsend", {
+      cwd: "/work/app-worktrees/ui",
+      agent: ME,
+      text: "Login form is done.",
+      as: PEER,
+    })) as { note?: string };
+    expect(h.sent.at(-1)?.text).toBe(
+      `Message from another agent in ZLI, working on branch ui (agent id ${PEER}):\n\nLogin form is done.`,
+    );
+    expect(signed.note).toBeUndefined();
+    const unsigned = (await h.dispatch("agentsend", {
+      cwd: "/work/app-worktrees/ui",
+      agent: ME,
+      text: "Login form is done.",
+    })) as { note?: string };
+    expect(unsigned.note).toMatch(/sent this without your name/u);
+
+    await expect(
+      h.dispatch("agentsend", { cwd: "/work/app-worktrees/ui", agent: PEER, text: "Hi", as: ME }),
+    ).rejects.toThrow(`No agent in your worktree is called ${ME}.`);
+    await expect(
+      h.dispatch("agentsend", { cwd: "/work/app-worktrees/ui", agent: PEER, text: "Hi", as: PEER }),
+    ).rejects.toThrow("That agent is you.");
+  });
+
+  it("starts a sub-agent in the folder itself when the project has no Git", async () => {
+    const h = starting();
+    h.update({
+      ...h.state(),
+      projects: h
+        .state()
+        .projects.map((project) => (project.projectId === PROJECT ? { ...project, git: false } : project)),
+    });
+    const result = (await h.dispatch("agentstart", {
+      cwd: "/work/app",
+      provider: "codex",
+      prompt: "Tidy the notes",
+    })) as {
+      worktree: { path: string };
+    };
+    expect(h.sent.map((command) => command.type)).toEqual(["thread.start", "thread.send"]);
+    expect(h.sent[0]).toMatchObject({ worktreeId: MAIN, startedBy: ME, shareWorktree: true });
+    expect(result.worktree.path).toBe("/work/app");
+    expect(h.sent[1]?.text).toMatch(/^Task from the agent in ZLI that started you, working in the folder app\. /u);
+    expect(h.sent[1]?.text).toMatch(
+      /Other agents work in this folder too, so sign your messages with your name: the as field, or zli --as [0-9a-f-]+\./u,
+    );
+    await expect(
+      h.dispatch("agentstart", { cwd: "/work/app", provider: "codex", prompt: "x", branch: "docs" }),
+    ).rejects.toThrow("app is a folder without Git, so it has no worktrees or branches.");
+  });
+});

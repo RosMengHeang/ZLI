@@ -15,6 +15,7 @@ import {
   type AgentSession,
   relativeTime,
   sessionAgentName,
+  sessionParents,
   sessionRenameCommand,
   sessionStatusLabel,
   sessionStopCommands,
@@ -134,6 +135,7 @@ type Props = {
 };
 
 const noGroups: readonly RunGroup[] = [];
+const noAncestors: ReadonlySet<string> = new Set();
 const noStates: ReadonlyMap<string, RunState> = new Map();
 
 export function Sidebar({
@@ -191,6 +193,15 @@ export function Sidebar({
   const groupsBySource = new Map<string, RunGroup[]>();
   for (const group of runGroups) {
     groupsBySource.set(group.sourceSessionId, [...(groupsBySource.get(group.sourceSessionId) ?? []), group]);
+  }
+  const parents = sessionParents(sessions);
+  const subAgentsOf = new Map<string, AgentSession[]>();
+  for (const session of [...sessions].sort((left, right) =>
+    (left.createdAt ?? "").localeCompare(right.createdAt ?? ""),
+  )) {
+    const parent = parents.get(session.sessionId);
+    if (!parent || runIds.has(session.sessionId)) continue;
+    subAgentsOf.set(parent.sessionId, [...(subAgentsOf.get(parent.sessionId) ?? []), session]);
   }
 
   // Relative times only need minute precision.
@@ -563,6 +574,8 @@ export function Sidebar({
     runIndex?: number,
     /** Set on the first agent of a worktree that needs attention, so its fix shows once. */
     showWorktreeAlert = false,
+    /** Sessions above this one in the sub-agent tree, so bad data can't nest a row inside itself. */
+    ancestors = noAncestors,
   ) => {
     const worktree = projectWorktrees.find((entry) => entry.worktreeId === session.worktreeId);
     const info = worktree ? worktreeInfo(worktree) : undefined;
@@ -580,6 +593,14 @@ export function Sidebar({
     const runName = runIndex === undefined ? title : `Run ${runIndex}`;
     const name = agentName ? `${agentName}, ${runName}` : runName;
     const branchLine = runIndex === undefined && worktree && info;
+    const parent = parents.get(session.sessionId);
+    const parentName = parent
+      ? (sessionAgentName(parent) ?? sessionTitle(parent, projection?.messages, projection?.providers))
+      : undefined;
+    const subAgents = (subAgentsOf.get(session.sessionId) ?? []).filter(
+      (child) => child.sessionId !== session.sessionId && !ancestors.has(child.sessionId),
+    );
+    const below = subAgents.length > 0 ? new Set([...ancestors, session.sessionId]) : ancestors;
     return (
       <li className={`session-entry${runIndex === undefined ? "" : " is-run"}`} key={session.sessionId}>
         <button
@@ -588,7 +609,7 @@ export function Sidebar({
           aria-label={`${name}, ${providerName}, ${status}${background ? ", in the background" : ""}`}
           aria-current={active ? "true" : undefined}
           onClick={() => onSelectSession(session)}
-          title={`${agentName ? `${agentName}\n` : ""}${worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}${account ? `\nAccount: ${account}` : ""}`}
+          title={`${agentName ? `${agentName}\n` : ""}${worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}${account ? `\nAccount: ${account}` : ""}${parentName ? `\nStarted by ${parentName}` : ""}`}
         >
           <ProviderMark provider={session.provider} size={14} />
           <span className="session-copy">
@@ -654,6 +675,13 @@ export function Sidebar({
         {groups?.map((group) => (
           <div key={group.groupId}>{renderGroup(group, projectWorktrees)}</div>
         ))}
+        {subAgents.length > 0 ? (
+          <ul className="session-list sub-agent-list" aria-label={`Sub-agents of ${agentName ?? title}`}>
+            {subAgents.map((child) =>
+              renderSession(child, projectWorktrees, groupsBySource.get(child.sessionId), undefined, false, below),
+            )}
+          </ul>
+        ) : null}
       </li>
     );
   };
@@ -815,6 +843,8 @@ export function Sidebar({
                       <ul className="session-list">
                         {projectSessions.map((session) => {
                           if (runIds.has(session.sessionId)) return null;
+                          // A sub-agent lists under the agent that started it, which is in this project too.
+                          if (parents.has(session.sessionId)) return null;
                           return renderSession(
                             session,
                             projectWorktrees,

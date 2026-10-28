@@ -220,6 +220,36 @@ export function sessionAgentName(session: NamedSession & Pick<AgentSession, "pen
   return record ? record.name : session.pending?.name;
 }
 
+/** The id of the agent that started this one with zli start, if an agent did. */
+export function sessionStartedBy(session: Pick<AgentSession, "terminal" | "thread" | "threads">): string | undefined {
+  return (
+    session.threads?.find((thread) => thread.startedBy)?.startedBy ??
+    session.thread?.startedBy ??
+    session.terminal?.startedBy
+  );
+}
+
+/**
+ * The session each sub-agent's starter lives in, by sub-agent session id. A starter that is gone
+ * leaves its sub-agents out of the map.
+ */
+export function sessionParents(sessions: readonly AgentSession[]): Map<string, AgentSession> {
+  const byAgentId = new Map<string, AgentSession>();
+  for (const session of sessions) {
+    for (const thread of session.threads ?? (session.thread ? [session.thread] : [])) {
+      byAgentId.set(thread.threadId, session);
+    }
+    if (session.terminal) byAgentId.set(session.terminal.terminalId, session);
+  }
+  const parents = new Map<string, AgentSession>();
+  for (const session of sessions) {
+    const startedBy = sessionStartedBy(session);
+    const parent = startedBy ? byAgentId.get(startedBy) : undefined;
+    if (parent && parent.sessionId !== session.sessionId) parents.set(session.sessionId, parent);
+  }
+  return parents;
+}
+
 /** The command that sets or clears the agent's name. Undefined while the agent has not started. */
 export function sessionRenameCommand(
   session: NamedSession,
@@ -275,7 +305,13 @@ export function sessionTitle(
     ? messages?.find((message) => message.threadId === threadId && message.role === "user" && message.text.trim())
     : undefined;
   if (first) {
-    const line = first.text.trim().split(/\r?\n/u)[0] ?? "";
+    const lines = first.text.trim().split(/\r?\n/u);
+    // A sub-agent's first message opens with a line on who started it; the task itself follows.
+    const task =
+      session.thread?.startedBy && lines[0]?.startsWith("Task from ")
+        ? lines.slice(1).find((entry) => entry.trim())
+        : undefined;
+    const line = (task ?? lines[0] ?? "").trim();
     return line.length > 72 ? `${line.slice(0, 71)}…` : line;
   }
   return providerDisplayName(session.provider, providers);

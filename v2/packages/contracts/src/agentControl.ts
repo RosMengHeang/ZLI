@@ -43,6 +43,12 @@ export const READ_AGENT_CONTROL_ACTIONS: readonly AgentControlAction[] = [
 /** An agent's name or id, or a unique id prefix. `project/agent` reaches an agent in another project. */
 const AgentRef = z.string().trim().min(1, "Name the agent with a name or id from list_agents.").max(300);
 
+/**
+ * The caller's own name or id. Tools only see the caller's worktree, so this tells apart agents that
+ * share one, such as every agent in a folder without Git.
+ */
+const CallerRef = z.string().trim().min(1).max(300);
+
 /** A project's name or id. */
 const ProjectRef = z.string().trim().min(1).max(200);
 
@@ -73,6 +79,7 @@ export const AgentControlSendInput = AgentControlTarget.extend({
   /** Looks for the agent in this project instead of the caller's. */
   project: ProjectRef.optional(),
   text: z.string().trim().min(1, "Write the message to send.").max(8_000),
+  as: CallerRef.optional(),
 });
 export type AgentControlSendInput = z.infer<typeof AgentControlSendInput>;
 
@@ -86,6 +93,7 @@ export const AgentControlStartInput = AgentControlTarget.extend({
   branch: z.string().trim().min(1).max(200).optional(),
   model: z.string().trim().min(1).max(200).optional(),
   name: AgentName.optional(),
+  as: CallerRef.optional(),
 });
 export type AgentControlStartInput = z.infer<typeof AgentControlStartInput>;
 

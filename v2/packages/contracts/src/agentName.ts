@@ -17,6 +17,13 @@ export const AgentName = z
   );
 export type AgentName = z.infer<typeof AgentName>;
 
+/**
+ * The thread or terminal id of the agent that started this one through the agent tools, which makes
+ * this one its sub-agent. Agents the person starts have none.
+ */
+export const StartedBy = z.string().min(1).max(200);
+export type StartedBy = z.infer<typeof StartedBy>;
+
 /** Names compare without case and with runs of spaces counted as one, so "Bob" and "bob" clash. */
 export function agentNameKey(name: string): string {
   return name.trim().replace(/\s+/gu, " ").toLocaleLowerCase();

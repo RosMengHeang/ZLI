@@ -194,6 +194,9 @@
 .run-group-progress { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
 .run-group-compare { color: var(--zli-accent); }
 .run-list { display: flex; flex-direction: column; gap: 1px; }
+/* Sub-agents hang off the agent that started them on the same guide line as best-of runs. */
+.sub-agent-list { display: flex; flex-direction: column; gap: 1px; margin: 1px 0 var(--zli-space-1) var(--zli-space-6); padding-left: var(--zli-space-2); border-left: 1px solid var(--zli-border); }
+.sub-agent-list > .session-entry > .session-row { padding-left: var(--zli-space-1); }
 .session-entry.is-run .session-row { height: 28px; padding-left: var(--zli-space-1); }
 .run-badge { flex: 0 0 auto; padding: 1px var(--zli-space-1-5); border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-muted); font-size: var(--zli-text-2xs); font-weight: 500; font-variant-numeric: tabular-nums; }
 .session-entry.is-run .session-title { font-family: var(--zli-mono); font-size: var(--zli-text-xs); }

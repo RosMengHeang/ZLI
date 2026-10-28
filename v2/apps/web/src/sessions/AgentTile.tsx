@@ -78,6 +78,7 @@ export function AgentTile({
   onOpenChat,
   tall = false,
   onRename,
+  startedBy,
 }: {
   projection: RuntimeProjection;
   session: AgentSession;
@@ -117,6 +118,8 @@ export function AgentTile({
   tall?: boolean | undefined;
   /** Opens the dialog that names or renames the agent. Absent until the agent has started. */
   onRename?: (() => void) | undefined;
+  /** The agent that started this one, for a sub-agent whose starter is still around. */
+  startedBy?: { label: string; onOpen(): void } | undefined;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
@@ -232,6 +235,17 @@ export function AgentTile({
               {agentName}
             </span>
           )
+        ) : null}
+        {startedBy ? (
+          <button
+            type="button"
+            className="tile-parent"
+            title={`Started by ${startedBy.label}. Click to show it`}
+            aria-label={`Sub-agent of ${startedBy.label}. Show ${startedBy.label}`}
+            onClick={startedBy.onOpen}
+          >
+            Sub-agent of {startedBy.label}
+          </button>
         ) : null}
         <span className="tile-title" title={title}>
           {title}

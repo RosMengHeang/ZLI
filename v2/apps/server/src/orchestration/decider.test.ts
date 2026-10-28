@@ -692,7 +692,11 @@ describe("agent names", () => {
       ],
     };
   };
-  const start = (threadId: ThreadId, name: string, onWorktree = worktreeId): RuntimeCommand => ({
+  const start = (
+    threadId: ThreadId,
+    name: string,
+    onWorktree = worktreeId,
+  ): Extract<RuntimeCommand, { type: "thread.start" }> => ({
     type: "thread.start",
     threadId,
     worktreeId: onWorktree,
@@ -754,6 +758,34 @@ describe("agent names", () => {
     expect(state.terminals[0]).toMatchObject({ name: "John", updatedAt: "2026-10-28T10:00:00.000Z" });
     state = fold(state, decide(state, { type: "thread.rename", threadId: firstThread, name: null }));
     expect(state.threads[0]).not.toHaveProperty("name");
+  });
+
+  it("links a sub-agent to the agent in the same project that started it", () => {
+    let state = fold(twoProjects(), decide(twoProjects(), start(firstThread, "Bob")));
+    state = fold(state, decide(state, { ...start(secondThread, "John"), startedBy: firstThread }));
+    expect(state.threads[1]).toMatchObject({ name: "John", startedBy: firstThread });
+    state = fold(
+      state,
+      decide(state, {
+        ...terminalCreate("/repo/tree"),
+        terminalId: agentTerminal,
+        agent: { provider: "codex" },
+        startedBy: secondThread,
+      }),
+    );
+    expect(state.terminals[0]?.startedBy).toBe(secondThread);
+    expect(() =>
+      decide(state, { ...start(ThreadId.parse("00000000-0000-4000-8000-000000000436"), "Ann"), startedBy: "nobody" }),
+    ).toThrow("The agent that started this one does not exist: nobody");
+    expect(() =>
+      decide(state, {
+        ...start(ThreadId.parse("00000000-0000-4000-8000-000000000437"), "Ann", otherWorktree),
+        startedBy: firstThread,
+      }),
+    ).toThrow("A sub-agent has to start in the same project as the agent that started it.");
+    expect(() => decide(state, { ...terminalCreate("/repo/tree"), startedBy: firstThread })).toThrow(
+      "Only agent terminals can be sub-agents.",
+    );
   });
 
   it("only names agent terminals", () => {

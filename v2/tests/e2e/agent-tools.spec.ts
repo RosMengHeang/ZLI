@@ -82,6 +82,9 @@ test("lets agents list, start, read, and message each other with the zli command
     const helper = JSON.parse(started.stdout) as { agent: { id: string }; worktree: { branch: string; path: string } };
     expect(helper.worktree.branch).toBe("docs/changelog");
     await expect(page.locator(".agent-tile")).toHaveCount(2);
+    await expect(
+      page.getByText(/^Task from the agent in ZLI that started you, working on branch /u).first(),
+    ).toBeVisible();
 
     await expect
       .poll(async () => (await zli(["read", helper.agent.id, "--cwd", firstPath])).stdout, { timeout: 20_000 })
@@ -90,7 +93,7 @@ test("lets agents list, start, read, and message each other with the zli command
     const sent = await zli(["send", first?.id ?? "", "The changelog is done.", "--cwd", helper.worktree.path]);
     expect(sent.stderr).toBe("");
     await expect(
-      page.getByText(/Message from another agent in ZLI, working on branch docs\/changelog/u).first(),
+      page.getByText(/Message from your sub-agent, working on branch docs\/changelog/u).first(),
     ).toBeVisible();
 
     await page.getByRole("button", { name: "Settings" }).click();

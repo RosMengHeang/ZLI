@@ -35,6 +35,7 @@ export type DomainErrorCode =
   | "session_missing"
   | "worktree_occupied"
   | "agent_name_taken"
+  | "agent_missing"
   | "a2a_cross_project"
   | "a2a_invalid_target"
   | "setup_not_waiting"
@@ -296,6 +297,10 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
         if (!command.agent) throw new DomainError("unsupported_command", "Only agent terminals take a name.");
         assertAgentNameFree(projection, worktree.projectId, command.name);
       }
+      if (command.startedBy !== undefined) {
+        if (!command.agent) throw new DomainError("unsupported_command", "Only agent terminals can be sub-agents.");
+        assertStartedBy(projection, worktree.projectId, command.startedBy);
+      }
       return [
         {
           type: "terminal.create.requested",
@@ -308,6 +313,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             kind: command.agent ? "agent" : "shell",
             ...(command.agent ? { agent: command.agent } : {}),
             ...(command.name !== undefined ? { name: command.name } : {}),
+            ...(command.startedBy !== undefined ? { startedBy: command.startedBy } : {}),
             ...(command.sessionId ? { sessionId: command.sessionId } : {}),
           },
           cwd,
@@ -371,6 +377,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
         );
       }
       if (command.name !== undefined) assertAgentNameFree(projection, worktree.projectId, command.name);
+      if (command.startedBy !== undefined) assertStartedBy(projection, worktree.projectId, command.startedBy);
       return [
         {
           type: "thread.start.requested",
@@ -386,6 +393,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             ...(command.permissionMode ? { permissionMode: command.permissionMode } : {}),
             ...(command.model ? { model: command.model } : {}),
             ...(command.name !== undefined ? { name: command.name } : {}),
+            ...(command.startedBy !== undefined ? { startedBy: command.startedBy } : {}),
             ...(command.sessionId ? { sessionId: command.sessionId } : {}),
             ...(command.accountId ? { accountId: command.accountId } : {}),
           },
@@ -778,6 +786,20 @@ function assertAgentNameFree(
     throw new DomainError(
       "agent_name_taken",
       `Another agent in this project is already called ${name}. Pick a different name.`,
+    );
+}
+
+/** A sub-agent's parent must be a chat or agent terminal in the same project, since agents start others only there. */
+function assertStartedBy(projection: RuntimeProjection, projectId: string, startedBy: string): void {
+  const worktreeId =
+    projection.threads.find((thread) => thread.threadId === startedBy)?.worktreeId ??
+    projection.terminals.find((terminal) => terminal.terminalId === startedBy && terminal.agent)?.worktreeId;
+  if (worktreeId === undefined)
+    throw new DomainError("agent_missing", `The agent that started this one does not exist: ${startedBy}`);
+  if (worktreeProjectId(projection, worktreeId) !== projectId)
+    throw new DomainError(
+      "unsupported_command",
+      "A sub-agent has to start in the same project as the agent that started it.",
     );
 }
 

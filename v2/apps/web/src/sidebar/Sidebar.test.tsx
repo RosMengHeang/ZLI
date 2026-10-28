@@ -318,6 +318,41 @@ describe("Sidebar projects", () => {
     expect(onRenameSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session-1" }));
   });
 
+  it("lists a sub-agent under the agent that started it", async () => {
+    const lead: AgentSession = {
+      ...agent(featureId),
+      mode: "chat",
+      thread: { threadId: "thread-lead", worktreeId: featureId, name: "Lead" } as unknown as NonNullable<
+        AgentSession["thread"]
+      >,
+    };
+    const helper: AgentSession = {
+      ...agent(checkoutId),
+      sessionId: "session-2",
+      createdAt: "2025-01-02T00:00:00.000Z",
+      terminal: {
+        terminalId: "terminal-helper",
+        worktreeId: checkoutId,
+        title: "Codex",
+        status: "running",
+        name: "Helper",
+        startedBy: "thread-lead",
+      } as unknown as NonNullable<AgentSession["terminal"]>,
+    };
+    const { container } = await mount(
+      projection([
+        { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "main", status: "ready", kind: "checkout" },
+        { worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat", status: "ready" },
+      ]),
+      { sessions: [helper, lead] },
+    );
+    const top = [...container.querySelectorAll(".sidebar-project > .session-list > .session-entry > .session-row")];
+    expect(top.map((row) => row.querySelector(".session-name")?.textContent)).toEqual(["Lead"]);
+    const nested = container.querySelector('[aria-label="Sub-agents of Lead"]');
+    expect(nested?.querySelector(".session-name")?.textContent).toBe("Helper");
+    expect(nested?.querySelector(".session-row")?.getAttribute("title")).toMatch(/Started by Lead$/u);
+  });
+
   it("lets a stuck checkout be removed, but only cancels a worktree still being created", async () => {
     const onWorktreeAction = vi.fn<(worktree: { worktreeId: string }, action: WorktreeAction) => void>();
     const { container } = await mount(

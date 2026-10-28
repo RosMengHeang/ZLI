@@ -26,6 +26,9 @@
 button.tile-name { cursor: pointer; }
 button.tile-name:hover { background: var(--zli-hover); }
 button.tile-name:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+.tile-parent { max-width: 160px; flex: 0 0 auto; overflow: hidden; padding: 1px var(--zli-space-1-5); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-xs); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.tile-parent:hover { background: var(--zli-hover); color: var(--zli-text); }
+.tile-parent:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
 .tile-account { display: inline-flex; min-width: 0; max-width: 140px; flex: 0 50 auto; align-items: center; gap: var(--zli-space-1); overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); white-space: nowrap; }
 .tile-account span { overflow: hidden; text-overflow: ellipsis; }
 .tile-spacer { flex: 1; }

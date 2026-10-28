@@ -3,7 +3,7 @@ import { ListedProviderKind, READ_AGENT_CONTROL_ACTIONS } from "@zli-v2/contract
 import type { ZliBrowserCall } from "../browser-tool/client.js";
 import { createToolServer, type McpServer, type McpTool } from "../browser-tool/mcp.js";
 
-export const ZLI_AGENT_TOOL_VERSION = "1.1.0";
+export const ZLI_AGENT_TOOL_VERSION = "1.2.0";
 
 const ROOM =
   "ZLI is the app you are running in. The person sees every agent in it as a tile and can watch and steer each one.";
@@ -14,12 +14,18 @@ const AGENT_REF = {
     "The agent's name or id from list_agents. A unique id prefix of at least 4 characters also works. For an agent in another project, write project/agent, such as api/bob.",
 };
 
+const AS_CALLER = {
+  type: "string",
+  description:
+    "Your own name or id from list_agents. ZLI knows you by your worktree, so pass this when other agents share it, such as in a folder without Git. Without it, your message goes unsigned and a new agent is not linked to you.",
+};
+
 export const AGENT_MCP_TOOLS: readonly McpTool[] = [
   {
     name: "list_agents",
     title: "List ZLI agents",
     action: "agentlist",
-    description: `${ROOM} List the agents working in your project: the name and id the other tools take, provider, project, branch, and status. sameWorktree marks agents that share your worktree, which includes you.`,
+    description: `${ROOM} List the agents working in your project: the name and id the other tools take, provider, project, branch, and status. sameWorktree marks agents that share your worktree, which includes you. startedBy names the agent that started a sub-agent.`,
     properties: {
       allProjects: {
         type: "boolean",
@@ -56,6 +62,7 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
     properties: {
       agent: AGENT_REF,
       text: { type: "string", description: "The message, up to 8000 characters." },
+      as: AS_CALLER,
     },
     required: ["agent", "text"],
   },
@@ -63,7 +70,7 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
     name: "start_agent",
     title: "Start agent",
     action: "agentstart",
-    description: `${ROOM} Start another coding agent on a task so it runs in parallel with you. By default it gets its own worktree on a new branch that starts from your branch's last commit, so your uncommitted changes are not in it. Follow its progress with read_agent.`,
+    description: `${ROOM} Start another coding agent on a task so it runs in parallel with you. By default it gets its own worktree on a new branch that starts from your branch's last commit, so your uncommitted changes are not in it. In a folder without Git it works in the same folder. The new agent is your sub-agent: its task says you started it and how to reply to you. Follow its progress with read_agent.`,
     properties: {
       provider: { type: "string", enum: [...ListedProviderKind.options], description: "Which agent to start." },
       prompt: { type: "string", description: "The task, written as the first message the agent gets." },
@@ -84,6 +91,7 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
         description:
           "A short name for the agent, such as bob, that you and the person can use in place of its id. No other agent in the project may have it.",
       },
+      as: AS_CALLER,
     },
     required: ["provider", "prompt"],
   },

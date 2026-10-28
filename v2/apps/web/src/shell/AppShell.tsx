@@ -63,6 +63,7 @@ import {
   type PendingLaunch,
   type SessionMode,
   sessionAgentName,
+  sessionParents,
   sessionRenameCommand,
   sessionStopCommands,
   sessionTitle,
@@ -262,6 +263,16 @@ function WorkspaceApp() {
     },
     [updateWorkbench],
   );
+
+  const parents = useMemo(() => sessionParents(sessions), [sessions]);
+  const parentChip = (session: AgentSession) => {
+    const parent = parents.get(session.sessionId);
+    if (!parent || !projection) return undefined;
+    return {
+      label: sessionAgentName(parent) ?? sessionTitle(parent, projection.messages, projection.providers),
+      onOpen: () => focusSession(parent),
+    };
+  };
 
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
@@ -1872,6 +1883,7 @@ function WorkspaceApp() {
                               ? () => setRenameRequestId(session.sessionId)
                               : undefined
                           }
+                          startedBy={parentChip(session)}
                           onOpenDiff={(path) => {
                             focusSession(session);
                             setSidePane("review");
@@ -2251,7 +2263,6 @@ function notificationCommands(
   ];
 }
 
-/** The content width of an element, kept current as it resizes. */
 /** The agent's task and provider. A chat with no messages yet is titled by its provider, so that shows once. */
 function renameSubtitle(session: AgentSession, projection: RuntimeProjection): string {
   const provider = providerDisplayName(session.provider, projection.providers);
@@ -2259,6 +2270,7 @@ function renameSubtitle(session: AgentSession, projection: RuntimeProjection): s
   return title === provider ? provider : `${title} · ${provider}`;
 }
 
+/** The content width of an element, kept current as it resizes. */
 function useElementWidth<T extends HTMLElement>(): [(element: T | null) => void, number | undefined] {
   const [width, setWidth] = useState<number>();
   const ref = useCallback((element: T | null) => {

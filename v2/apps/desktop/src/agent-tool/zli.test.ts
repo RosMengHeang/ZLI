@@ -38,6 +38,16 @@ describe("zli command", () => {
       action: "agentsend",
       input: { agent: "bob", project: "api", text: "check the contract" },
     });
+    expect(parseZliArgs(["send", "lead", "done", "--as", "helper"])).toEqual({
+      kind: "call",
+      action: "agentsend",
+      input: { agent: "lead", text: "done", as: "helper" },
+    });
+    expect(parseZliArgs(["start", "codex", "Check", "links", "--as=helper"])).toEqual({
+      kind: "call",
+      action: "agentstart",
+      input: { provider: "codex", prompt: "Check links", as: "helper" },
+    });
     expect(parseZliArgs(["read", "api/bob"])).toEqual({
       kind: "call",
       action: "agentread",

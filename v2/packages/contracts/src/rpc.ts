@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AccountCommand } from "./accounts.js";
-import { AgentName } from "./agentName.js";
+import { AgentName, StartedBy } from "./agentName.js";
 import { BrowserTabProjection } from "./browser.js";
 import { CheckpointCommand, ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
@@ -108,6 +108,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     agent: TerminalAgentLaunch.optional(),
     /** A name for the agent. Rejected when another agent in the project has it. */
     name: AgentName.optional(),
+    /** The agent starting this one as its sub-agent. It must be an agent in the same project. */
+    startedBy: StartedBy.optional(),
     sessionId: SessionId.optional(),
     /** Arguments for `shell`, so the terminal runs one command instead of an interactive shell. */
     args: z.array(z.string().max(8_000)).max(16).optional(),
@@ -148,6 +150,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     model: z.string().min(1).max(200).optional(),
     /** A name for the agent. Rejected when another agent in the project has it. */
     name: AgentName.optional(),
+    /** The agent starting this one as its sub-agent. It must be an agent in the same project. */
+    startedBy: StartedBy.optional(),
     sessionId: SessionId.optional(),
     /** Omitted runs the provider's default account. */
     accountId: AccountId.optional(),

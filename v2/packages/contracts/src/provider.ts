@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { AgentName } from "./agentName.js";
+import { AgentName, StartedBy } from "./agentName.js";
 import { AccountId, ProjectId, SessionId, ThreadId, TurnId, WorktreeId } from "./ids.js";
 
 export const ProviderKind = z.enum([
@@ -89,6 +89,7 @@ export const ThreadProjection = z.object({
   model: z.string().min(1).max(200).optional(),
   /** The name the person gave this agent. */
   name: AgentName.optional(),
+  startedBy: StartedBy.optional(),
   sessionId: SessionId.optional(),
   /**
    * The agent CLI's own id for this conversation, such as a Claude session or a Codex thread. A new process
