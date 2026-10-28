@@ -3,14 +3,15 @@ import { ListedProviderKind, READ_AGENT_CONTROL_ACTIONS } from "@zli-v2/contract
 import type { ZliBrowserCall } from "../browser-tool/client.js";
 import { createToolServer, type McpServer, type McpTool } from "../browser-tool/mcp.js";
 
-export const ZLI_AGENT_TOOL_VERSION = "1.0.0";
+export const ZLI_AGENT_TOOL_VERSION = "1.1.0";
 
 const ROOM =
   "ZLI is the app you are running in. The person sees every agent in it as a tile and can watch and steer each one.";
 
 const AGENT_REF = {
   type: "string",
-  description: "Agent id from list_agents. A unique prefix of at least 4 characters also works.",
+  description:
+    "The agent's name or id from list_agents. A unique id prefix of at least 4 characters also works. For an agent in another project, write project/agent, such as api/bob.",
 };
 
 export const AGENT_MCP_TOOLS: readonly McpTool[] = [
@@ -18,8 +19,14 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
     name: "list_agents",
     title: "List ZLI agents",
     action: "agentlist",
-    description: `${ROOM} List the agents working in your project: the id the other tools take, provider, branch, and status. sameWorktree marks agents that share your worktree, which includes you.`,
-    properties: {},
+    description: `${ROOM} List the agents working in your project: the name and id the other tools take, provider, project, branch, and status. sameWorktree marks agents that share your worktree, which includes you.`,
+    properties: {
+      allProjects: {
+        type: "boolean",
+        description:
+          "Also list agents in the person's other ZLI projects. Works only when ZLI Settings let agents reach every project.",
+      },
+    },
     readOnly: true,
   },
   {
@@ -27,7 +34,7 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
     title: "Read agent",
     action: "agentread",
     description:
-      "Read what another agent in your project has been doing: the recent messages of a chat agent, or the recent output of a terminal agent with color codes removed.",
+      "Read what another agent has been doing: the recent messages of a chat agent, or the recent output of a terminal agent with color codes removed.",
     properties: {
       agent: AGENT_REF,
       limit: {
@@ -45,7 +52,7 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
     title: "Message agent",
     action: "agentsend",
     description:
-      "Send a message to another agent in your project. It arrives as that agent's next prompt, labeled with your branch, so say exactly what you need. A busy chat agent gets it after its current turn (the result says queued); terminal agents get it typed into their CLI.",
+      "Send a message to another agent. It arrives as that agent's next prompt, labeled with your name or id, project, and branch, so say exactly what you need. A busy chat agent gets it after its current turn (the result says queued); terminal agents get it typed into their CLI.",
     properties: {
       agent: AGENT_REF,
       text: { type: "string", description: "The message, up to 8000 characters." },
@@ -72,6 +79,11 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
       },
       branch: { type: "string", description: "Branch name for a new worktree. Default: <provider>-<random>." },
       model: { type: "string", description: "Model id, when the provider offers a choice." },
+      name: {
+        type: "string",
+        description:
+          "A short name for the agent, such as bob, that you and the person can use in place of its id. No other agent in the project may have it.",
+      },
     },
     required: ["provider", "prompt"],
   },
@@ -103,7 +115,7 @@ export function createAgentMcpServer(call: ZliBrowserCall): McpServer {
   return createToolServer(call, {
     tools: AGENT_MCP_TOOLS,
     serverInfo: { name: "zli", title: "ZLI agents", version: ZLI_AGENT_TOOL_VERSION },
-    instructions: `${ROOM} Use list_agents to see who else is working in this project, read_agent to check on them, message_agent to coordinate, and start_agent to hand off a separate task. Use connect_service when you need a service such as GitHub or Linear that you have no tools for, or that needs a sign-in.`,
+    instructions: `${ROOM} Use list_agents to see who else is working in this project, read_agent to check on them, message_agent to coordinate, and start_agent to hand off a separate task. Refer to agents by name when they have one. Agents in other projects are written project/agent and need ZLI Settings to allow every project. Use connect_service when you need a service such as GitHub or Linear that you have no tools for, or that needs a sign-in.`,
     targetProperties: {
       cwd: {
         type: "string",

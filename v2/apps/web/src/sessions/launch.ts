@@ -26,6 +26,7 @@ export type LaunchOptions = {
   permissionMode: PermissionMode;
   /** Unset when the agent has no saved accounts, so it starts with the usual login. */
   accountId?: string;
+  name?: string;
 };
 
 export function shellForPlatform(): string {
@@ -151,6 +152,7 @@ export async function startSessionAgent(
           cwd: input.cwd,
           sessionId: input.sessionId,
           permissionMode: input.permissionMode,
+          ...(input.name ? { name: input.name } : {}),
           ...(input.model ? { model: input.model } : {}),
           ...(input.accountId ? { accountId: input.accountId } : {}),
           // The person picked this placement, so a second agent in the same checkout is intended.
@@ -166,6 +168,7 @@ export async function startSessionAgent(
           cols: 120,
           rows: 32,
           sessionId: input.sessionId,
+          ...(input.name ? { name: input.name } : {}),
           agent: {
             provider: input.provider,
             permissionMode: input.permissionMode,

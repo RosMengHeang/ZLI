@@ -8,6 +8,7 @@ import {
   type AccountDraft,
   type AccountListResult,
   type AgentToolAccess,
+  type AgentToolScope,
   CHECKPOINT_COMMAND_TYPES,
   type CheckpointCommand,
   ClientWireMessage,
@@ -913,6 +914,7 @@ export type McpServerCommands = {
   list(): McpListResult;
   save(servers: readonly McpServerConfig[]): Promise<McpListResult>;
   setAgentAccess(access: AgentToolAccess): Promise<McpListResult>;
+  setAgentScope(scope: AgentToolScope): Promise<McpListResult>;
   signIn?(name: string): Promise<McpSignInStart>;
   waitForSignIn?(attemptId: string): Promise<McpListResult>;
   cancelSignIn?(attemptId: string): McpListResult;
@@ -949,6 +951,8 @@ function runMcpCommand(
       return store.save(command.servers);
     case "mcp.agentAccess":
       return store.setAgentAccess(command.access);
+    case "mcp.agentScope":
+      return store.setAgentScope(command.scope);
     case "mcp.signIn":
       return store.signIn ? store.signIn(command.name) : missing();
     case "mcp.signIn.wait":

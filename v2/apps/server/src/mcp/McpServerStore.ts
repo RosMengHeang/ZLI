@@ -3,7 +3,9 @@ import { dirname, join, posix, win32 } from "node:path";
 
 import {
   AgentToolAccess,
+  AgentToolScope,
   DEFAULT_AGENT_TOOL_ACCESS,
+  DEFAULT_AGENT_TOOL_SCOPE,
   isHttpServer,
   type McpHttpServerConfig,
   type McpImportResult,
@@ -45,6 +47,7 @@ type StoredFile = {
   servers: McpServerConfig[];
   owned: Record<string, string[]>;
   agentAccess: AgentToolAccess;
+  agentScope: AgentToolScope;
 };
 
 export type McpLaunchOptions = {
@@ -175,6 +178,7 @@ export class McpServerStore {
   private servers: McpServerConfig[] = [];
   private owned: Record<string, string[]> = {};
   private access: AgentToolAccess = DEFAULT_AGENT_TOOL_ACCESS;
+  private scope: AgentToolScope = DEFAULT_AGENT_TOOL_SCOPE;
   private outcomes: McpSettingsOutcome[] = [];
   private problem: string | undefined;
   private queue: Promise<unknown> = Promise.resolve();
@@ -216,6 +220,8 @@ export class McpServerStore {
     if (isPlainObject(parsed)) {
       const access = AgentToolAccess.safeParse(parsed.agentAccess);
       if (access.success) this.access = access.data;
+      const scope = AgentToolScope.safeParse(parsed.agentScope);
+      if (scope.success) this.scope = scope.data;
     }
     const servers = isPlainObject(parsed) ? McpServerList.safeParse(parsed.servers) : undefined;
     if (!servers?.success) {
@@ -278,6 +284,7 @@ export class McpServerStore {
     return {
       servers: this.servers.map(copyServer),
       agentAccess: this.access,
+      agentScope: this.scope,
       userSettings: { enabled: this.options.syncUserSettings !== undefined, outcomes: [...this.outcomes] },
       signIns: this.signInStates(),
       health: this.healthStates(),
@@ -439,6 +446,21 @@ export class McpServerStore {
     });
   }
 
+  setAgentScope(scope: AgentToolScope): Promise<McpListResult> {
+    return this.serialize(async () => {
+      const next = AgentToolScope.parse(scope);
+      const previous = this.scope;
+      this.scope = next;
+      try {
+        await this.write();
+      } catch (error) {
+        this.scope = previous;
+        throw error;
+      }
+      return this.list();
+    });
+  }
+
   /** Picks up a change in the extra servers: rewrites their bridge files and agent settings. */
   refresh(): Promise<void> {
     return this.serialize(async () => {
@@ -538,7 +560,13 @@ export class McpServerStore {
   }
 
   private async write(servers: McpServerConfig[] = this.servers): Promise<void> {
-    const file: StoredFile = { version: 1, servers, owned: this.owned, agentAccess: this.access };
+    const file: StoredFile = {
+      version: 1,
+      servers,
+      owned: this.owned,
+      agentAccess: this.access,
+      agentScope: this.scope,
+    };
     await writeFileAtomic(this.options.path, `${JSON.stringify(file, null, 2)}\n`);
   }
 }

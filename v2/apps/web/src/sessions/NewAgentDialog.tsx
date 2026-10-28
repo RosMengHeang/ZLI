@@ -1,6 +1,7 @@
 import {
   type Account,
   type ListedProviderKind,
+  MAX_AGENT_NAME_LENGTH,
   type PermissionMode,
   type ProjectProjection,
   type RuntimeProjection,
@@ -26,7 +27,7 @@ import { Icon } from "../ui/Icon.js";
 import { ModelMark, modelOptions } from "../ui/ModelMark.js";
 import { Picker } from "../ui/Picker.js";
 import { checkoutWorktree, type LaunchOptions, type Placement, safeBranchName } from "./launch.js";
-import type { SessionMode } from "./sessions.js";
+import { agentNameProblem, type SessionMode } from "./sessions.js";
 import "../issues/issues.css";
 
 const LAST_LAUNCH_KEY = "zli.lastLaunch.v1";
@@ -121,6 +122,7 @@ export function NewAgentDialog({
       : branchFromTemplate(settings.branchTemplate, agent);
   const [branch, setBranch] = useState(() => branchFor(provider));
   const [prompt, setPrompt] = useState(prefill?.prompt ?? "");
+  const [name, setName] = useState("");
   const [branchEdited, setBranchEdited] = useState(false);
   const [baseRef, setBaseRef] = useState("");
   const [existingId, setExistingId] = useState<string | undefined>(
@@ -187,7 +189,10 @@ export function NewAgentDialog({
     if (override.permissionMode) setPermissionMode(override.permissionMode);
   };
 
+  const nameError = agentNameProblem(projection, projectId, name);
+
   const ready =
+    nameError === undefined &&
     project !== undefined &&
     discovery?.status === "found" &&
     (placementKind !== "new" || newBranch.length > 0) &&
@@ -221,6 +226,7 @@ export function NewAgentDialog({
         ...(model && !modelUnsupported ? { model } : {}),
         ...(prompt.trim() ? { prompt: prompt.trim() } : {}),
         ...(accountId ? { accountId } : {}),
+        ...(name.trim() ? { name: name.trim() } : {}),
       });
     } catch (cause) {
       failure = cause instanceof Error ? cause.message : String(cause);
@@ -317,6 +323,31 @@ export function NewAgentDialog({
               />
             </FormSection>
           ) : null}
+
+          <FormSection
+            label="Name"
+            htmlFor={`${ids}-name`}
+            hint={nameError ? undefined : "Optional. You and other agents can use it in place of the agent's id."}
+          >
+            <input
+              id={`${ids}-name`}
+              className="input"
+              aria-label="Name"
+              aria-invalid={nameError ? true : undefined}
+              aria-describedby={nameError ? `${ids}-name-error` : undefined}
+              value={name}
+              maxLength={MAX_AGENT_NAME_LENGTH}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Bob"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            {nameError ? (
+              <p id={`${ids}-name-error`} className="form-section-hint is-warning" role="alert">
+                {nameError}
+              </p>
+            ) : null}
+          </FormSection>
 
           <FormSection label="View" hint={viewHint[mode]}>
             <ChoiceSegmented<SessionMode>

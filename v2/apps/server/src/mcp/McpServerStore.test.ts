@@ -38,6 +38,7 @@ describe("McpServerStore", () => {
     expect(store.list()).toEqual({
       servers: [],
       agentAccess: "full",
+      agentScope: "project",
       userSettings: { enabled: false, outcomes: [] },
       signIns: [],
       health: [],
@@ -62,6 +63,18 @@ describe("McpServerStore", () => {
     expect(reloaded.list().servers).toEqual([github]);
     await expect(store.setAgentAccess("everything" as never)).rejects.toThrow();
     expect(store.agentAccess()).toBe("read");
+  });
+
+  it("keeps which projects' agents the zli tool reaches", async () => {
+    const path = await storePath();
+    const store = new McpServerStore({ path });
+    await store.load();
+    expect((await store.setAgentScope("all")).agentScope).toBe("all");
+    const reloaded = new McpServerStore({ path });
+    await reloaded.load();
+    expect(reloaded.list().agentScope).toBe("all");
+    await expect(store.setAgentScope("everywhere" as never)).rejects.toThrow();
+    expect(store.list().agentScope).toBe("all");
   });
 
   it("passes what ZLI owns to each sync and stores the new ownership", async () => {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { AgentToolAccess } from "./agentControl.js";
+import { AgentToolAccess, AgentToolScope } from "./agentControl.js";
 
 /** Server names agents accept in every config format: Codex TOML keys, Claude tool prefixes, JSON keys. */
 export const MCP_SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/u;
@@ -141,6 +141,7 @@ export const McpCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("mcp.list") }),
   z.object({ type: z.literal("mcp.save"), servers: McpServerList }),
   z.object({ type: z.literal("mcp.agentAccess"), access: AgentToolAccess }),
+  z.object({ type: z.literal("mcp.agentScope"), scope: AgentToolScope }),
   /** Starts signing in to a sign-in server; replies with McpSignInStart. */
   z.object({ type: z.literal("mcp.signIn"), name: ServerName }),
   /** Replies with McpListResult once the browser sign-in is saved. */
@@ -157,6 +158,7 @@ export const MCP_COMMAND_TYPES = [
   "mcp.list",
   "mcp.save",
   "mcp.agentAccess",
+  "mcp.agentScope",
   "mcp.signIn",
   "mcp.signIn.wait",
   "mcp.signIn.cancel",
@@ -221,6 +223,8 @@ export const McpListResult = z.object({
   servers: z.array(McpServerConfig),
   /** What the built-in `zli` server lets agents do with other agents. */
   agentAccess: AgentToolAccess,
+  /** Which projects' agents the `zli` server can see. Older runtimes leave it out, which means the caller's project. */
+  agentScope: AgentToolScope.default("project"),
   /** Cursor, Droid, Gemini, Kimi, and Qwen read MCP servers only from their own settings files. */
   userSettings: z.object({
     enabled: z.boolean(),

@@ -57,10 +57,13 @@ import { createWorktree, ensureCheckout, samePath, startAccountSignIn, startSess
 import { NewAgentDialog, type NewAgentPrefill, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
 import {
   type AgentSession,
+  agentNameProblem,
   deriveSessions,
   gridLayout,
   type PendingLaunch,
   type SessionMode,
+  sessionAgentName,
+  sessionRenameCommand,
   sessionStopCommands,
   sessionTitle,
 } from "../sessions/sessions.js";
@@ -84,7 +87,13 @@ import { UpdatePill } from "../updates/UpdatePill.js";
 import { busyAgentCount } from "../updates/updateCopy.js";
 import { useUpdates } from "../updates/useUpdates.js";
 import { PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
-import { CloseAgentDialog, DeleteAgentDialog, deletableWorktree, KeepRunDialog } from "./AgentDialogs.js";
+import {
+  CloseAgentDialog,
+  DeleteAgentDialog,
+  deletableWorktree,
+  KeepRunDialog,
+  RenameAgentDialog,
+} from "./AgentDialogs.js";
 import { CommandPalette, type PaletteCommand } from "./CommandPalette.js";
 import { HelpDialog } from "./HelpDialog.js";
 import { useShortcuts } from "./keybindings.js";
@@ -153,6 +162,7 @@ function WorkspaceApp() {
   const [usageOpen, setUsageOpen] = useState(false);
   const [closeRequest, setCloseRequest] = useState<AgentSession>();
   const [deleteRequest, setDeleteRequest] = useState<AgentSession>();
+  const [renameRequestId, setRenameRequestId] = useState<string>();
   const [actionRequest, setActionRequest] = useState<{
     action: PluginAction;
     pluginName: string;
@@ -557,6 +567,7 @@ function WorkspaceApp() {
               permissionMode: launch.permissionMode ?? "full-access",
               ...(launch.model ? { model: launch.model } : {}),
               ...(launch.accountId ? { accountId: launch.accountId } : {}),
+              ...(launch.name ? { name: launch.name } : {}),
               sessionId: launch.sessionId,
               worktreeId: worktree.worktreeId,
               cwd: worktree.path,
@@ -911,6 +922,7 @@ function WorkspaceApp() {
       ...(request.model ? { model: request.model } : {}),
       ...(request.prompt ? { prompt: request.prompt } : {}),
       ...(request.accountId ? { accountId: request.accountId } : {}),
+      ...(request.name ? { name: request.name } : {}),
       createdAt: new Date().toISOString(),
     };
     if (issueStart) {
@@ -1069,6 +1081,20 @@ function WorkspaceApp() {
       if (!live || sessionStopCommands(live).length === 0) return;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
+  };
+
+  const renameSession = async (session: AgentSession, name: string | null): Promise<string | undefined> => {
+    const command = sessionRenameCommand(session, name);
+    if (!command) return "This agent has not started yet. Try again once it is running.";
+    try {
+      const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
+      if (!response) return "The runtime is not connected.";
+      if (response.accepted === false) return response.error.message;
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : "The name could not be saved.";
+    }
+    setRenameRequestId(undefined);
+    return undefined;
   };
 
   const deleteSession = async (session: AgentSession, removeWorktree: boolean, deleteBranch = false): Promise<void> => {
@@ -1664,6 +1690,8 @@ function WorkspaceApp() {
         }))
       : []),
   ];
+  // Looked up by id so the dialog follows the agent as it changes, and closes if it is deleted.
+  const renaming = renameRequestId ? sessions.find((session) => session.sessionId === renameRequestId) : undefined;
   const otherOverlayOpen =
     paletteOpen ||
     quickOpen ||
@@ -1675,6 +1703,7 @@ function WorkspaceApp() {
     usageOpen ||
     closeRequest !== undefined ||
     deleteRequest !== undefined ||
+    renaming !== undefined ||
     actionRequest !== undefined ||
     handoffRequest !== undefined ||
     workbench.groups.some((group) => group.groupId === compareGroupId) ||
@@ -1710,6 +1739,7 @@ function WorkspaceApp() {
             onSelectSession={focusSession}
             onStopSession={(session) => void stopSession(session)}
             onDeleteSession={setDeleteRequest}
+            onRenameSession={(session) => setRenameRequestId(session.sessionId)}
             onSelectWorktree={(worktree) => {
               setNotice(undefined);
               setSelectedWorktreeId(worktree.worktreeId);
@@ -1837,6 +1867,11 @@ function WorkspaceApp() {
                           }
                           onStop={() => void stopSession(session)}
                           onClose={() => closeTile(session)}
+                          onRename={
+                            sessionRenameCommand(session, null)
+                              ? () => setRenameRequestId(session.sessionId)
+                              : undefined
+                          }
                           onOpenDiff={(path) => {
                             focusSession(session);
                             setSidePane("review");
@@ -2001,7 +2036,9 @@ function WorkspaceApp() {
         {closeRequest && projection && (
           <CloseAgentDialog
             title={sessionTitle(closeRequest, projection.messages, projection.providers)}
-            provider={providerDisplayName(closeRequest.provider, projection.providers)}
+            provider={
+              sessionAgentName(closeRequest) ?? providerDisplayName(closeRequest.provider, projection.providers)
+            }
             onStopAndClose={() => {
               const session = closeRequest;
               setCloseRequest(undefined);
@@ -2019,7 +2056,9 @@ function WorkspaceApp() {
         {deleteRequest && projection && (
           <DeleteAgentDialog
             title={sessionTitle(deleteRequest, projection.messages, projection.providers)}
-            provider={providerDisplayName(deleteRequest.provider, projection.providers)}
+            provider={
+              sessionAgentName(deleteRequest) ?? providerDisplayName(deleteRequest.provider, projection.providers)
+            }
             running={sessionStopCommands(deleteRequest).length > 0}
             worktree={deletableWorktree(projection, sessions, deleteRequest)}
             onDelete={(removeWorktree) => {
@@ -2030,6 +2069,17 @@ function WorkspaceApp() {
             onCancel={() => setDeleteRequest(undefined)}
           />
         )}
+        {renaming && projection ? (
+          <RenameAgentDialog
+            current={sessionAgentName(renaming)}
+            agent={`${sessionTitle(renaming, projection.messages, projection.providers)} · ${providerDisplayName(renaming.provider, projection.providers)}`}
+            problem={(name) =>
+              agentNameProblem(projection, findWorktree(renaming.worktreeId)?.projectId, name, renaming)
+            }
+            onRename={(name) => renameSession(renaming, name)}
+            onCancel={() => setRenameRequestId(undefined)}
+          />
+        ) : null}
         {actionRequest ? (
           <PluginActionDialog
             action={actionRequest.action}

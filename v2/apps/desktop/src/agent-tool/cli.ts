@@ -2,19 +2,24 @@ import { resolve } from "node:path";
 
 import type { ZliBrowserCall } from "../browser-tool/client.js";
 
-export const ZLI_CLI_HELP = `zli: work with the other agents in this ZLI project.
+export const ZLI_CLI_HELP = `zli: work with the other agents in ZLI.
 
 Usage:
   zli mcp                          Run as an MCP server over stdio.
-  zli agents                       List the agents in this project and their ids.
+  zli agents                       List the agents in this project with their names and ids.
+      --all-projects               Also list agents in other projects, when Settings allow it.
   zli read <agent> [--limit <n>]   Show an agent's recent messages or terminal output.
   zli send <agent> <message>       Send a message to another agent.
   zli start <provider> <task>      Start an agent on a task in a new worktree.
+      --name <name>                Name the agent, such as bob, to use in place of its id.
       --terminal                   Run the agent's CLI in a terminal instead of a chat.
       --same-worktree              Work in this worktree instead of a new one.
       --branch <name>              Branch name for the new worktree.
       --model <id>                 Model to use.
   zli connect <service> [reason]   Ask the person to connect a service such as github or linear.
+
+<agent> is a name or id from zli agents. For an agent in another project, write
+project/agent or add --project <name>. Settings have to let agents reach every project.
 
 Options for every command:
   --cwd <dir>        Directory used to pick the ZLI worktree (default: current directory).
@@ -28,8 +33,8 @@ export type ZliCommand =
 
 export class ZliUsageError extends Error {}
 
-const VALUE_FLAGS = new Set(["cwd", "worktree", "limit", "branch", "model"]);
-const BOOLEAN_FLAGS = new Set(["terminal", "same-worktree", "help"]);
+const VALUE_FLAGS = new Set(["cwd", "worktree", "limit", "branch", "model", "name", "project"]);
+const BOOLEAN_FLAGS = new Set(["terminal", "same-worktree", "all-projects", "help"]);
 
 export function parseZliArgs(argv: readonly string[]): ZliCommand {
   const positional: string[] = [];
@@ -75,9 +80,11 @@ export function parseZliArgs(argv: readonly string[]): ZliCommand {
   switch (command) {
     case "agents":
     case "list":
+      if (flags.has("all-projects")) input.allProjects = true;
       return { kind: "call", action: "agentlist", input };
     case "read": {
-      input.agent = need(rest[0], "an agent id");
+      input.agent = need(rest[0], "an agent name or id");
+      if (text("project") !== undefined) input.project = text("project");
       const limit = text("limit");
       if (limit !== undefined) {
         const parsed = Number(limit);
@@ -87,7 +94,8 @@ export function parseZliArgs(argv: readonly string[]): ZliCommand {
       return { kind: "call", action: "agentread", input };
     }
     case "send":
-      input.agent = need(rest[0], "an agent id");
+      input.agent = need(rest[0], "an agent name or id");
+      if (text("project") !== undefined) input.project = text("project");
       input.text = need(rest.slice(1).join(" ").trim() || undefined, "a message");
       return { kind: "call", action: "agentsend", input };
     case "start":
@@ -97,6 +105,7 @@ export function parseZliArgs(argv: readonly string[]): ZliCommand {
       if (flags.has("same-worktree")) input.worktree = "same";
       if (text("branch") !== undefined) input.branch = text("branch");
       if (text("model") !== undefined) input.model = text("model");
+      if (text("name") !== undefined) input.name = text("name");
       return { kind: "call", action: "agentstart", input };
     case "connect": {
       input.service = need(rest[0], "a service such as github or linear");

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { posix, win32 } from "node:path";
 
 import {
+  agentNameTaken,
   type PermissionMode,
   ProjectId,
   type ProjectProjection,
@@ -33,6 +34,7 @@ export type DomainErrorCode =
   | "thread_missing"
   | "session_missing"
   | "worktree_occupied"
+  | "agent_name_taken"
   | "a2a_cross_project"
   | "a2a_invalid_target"
   | "setup_not_waiting"
@@ -73,6 +75,7 @@ export type DomainDecision = Extract<
       | "terminal.write.requested"
       | "terminal.resize.requested"
       | "terminal.stop.requested"
+      | "terminal.renamed"
       | "browser.updated"
       | "browser.closed"
       | "review.refresh.requested"
@@ -103,6 +106,7 @@ export type DomainDecision = Extract<
       | "thread.a2a.delivered"
       | "thread.interrupt.requested"
       | "thread.stop.requested"
+      | "thread.renamed"
       | "thread.resume.requested"
       | "session.deleted"
       | "thread.status.changed"
@@ -288,6 +292,10 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
         if (error instanceof TerminalCwdError) throw new DomainError("terminal_cwd_rejected", error.message);
         throw error;
       }
+      if (command.name !== undefined) {
+        if (!command.agent) throw new DomainError("unsupported_command", "Only agent terminals take a name.");
+        assertAgentNameFree(projection, worktree.projectId, command.name);
+      }
       return [
         {
           type: "terminal.create.requested",
@@ -299,6 +307,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             lastSequence: 0,
             kind: command.agent ? "agent" : "shell",
             ...(command.agent ? { agent: command.agent } : {}),
+            ...(command.name !== undefined ? { name: command.name } : {}),
             ...(command.sessionId ? { sessionId: command.sessionId } : {}),
           },
           cwd,
@@ -326,6 +335,25 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     case "terminal.stop":
       assertTerminal(projection, command.terminalId);
       return [{ type: "terminal.stop.requested", terminalId: command.terminalId }];
+    case "terminal.rename": {
+      const terminal = projection.terminals.find((candidate) => candidate.terminalId === command.terminalId);
+      if (!terminal) throw new DomainError("terminal_missing", `Terminal does not exist: ${command.terminalId}`);
+      if (!terminal.agent) throw new DomainError("unsupported_command", "Only agent terminals take a name.");
+      if (command.name !== null)
+        assertAgentNameFree(
+          projection,
+          worktreeProjectId(projection, terminal.worktreeId),
+          command.name,
+          terminal.terminalId,
+        );
+      return [
+        {
+          type: "terminal.renamed",
+          terminalId: command.terminalId,
+          ...(command.name !== null ? { name: command.name } : {}),
+        },
+      ];
+    }
     case "thread.start": {
       const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === command.worktreeId);
       if (!worktree) throw new DomainError("worktree_missing", `Worktree does not exist: ${command.worktreeId}`);
@@ -342,6 +370,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           "This worktree already has a live agent. Start on a free worktree, or confirm sharing it.",
         );
       }
+      if (command.name !== undefined) assertAgentNameFree(projection, worktree.projectId, command.name);
       return [
         {
           type: "thread.start.requested",
@@ -356,6 +385,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             capabilities: {},
             ...(command.permissionMode ? { permissionMode: command.permissionMode } : {}),
             ...(command.model ? { model: command.model } : {}),
+            ...(command.name !== undefined ? { name: command.name } : {}),
             ...(command.sessionId ? { sessionId: command.sessionId } : {}),
             ...(command.accountId ? { accountId: command.accountId } : {}),
           },
@@ -393,8 +423,14 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       if (ended) {
         const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread.worktreeId);
         if (!worktree) throw new DomainError("worktree_missing", "This chat's worktree is gone. Start a new chat.");
+        // A stopped agent gives up its name, so another agent may hold it now. That agent keeps it and
+        // this one comes back without a name, rather than refusing the message.
+        const nameTaken =
+          thread.name !== undefined &&
+          agentNameTaken(projection, { projectId: worktree.projectId, name: thread.name, exceptId: thread.threadId });
         // The message waits in the queue and goes out once the resumed agent reports idle.
         return [
+          ...(nameTaken ? [{ type: "thread.renamed" as const, threadId: command.threadId }] : []),
           { type: "thread.queued", message },
           { type: "thread.resume.requested", threadId: command.threadId, cwd: worktree.path },
         ];
@@ -443,6 +479,23 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     case "thread.stop":
       assertThread(projection, command.threadId);
       return [{ type: "thread.stop.requested", threadId: command.threadId }];
+    case "thread.rename": {
+      const thread = requireThread(projection, command.threadId);
+      if (command.name !== null)
+        assertAgentNameFree(
+          projection,
+          worktreeProjectId(projection, thread.worktreeId),
+          command.name,
+          thread.threadId,
+        );
+      return [
+        {
+          type: "thread.renamed",
+          threadId: command.threadId,
+          ...(command.name !== null ? { name: command.name } : {}),
+        },
+      ];
+    }
     case "session.delete": {
       // The session's drawer shells go with it. Agent records from before sessions existed are
       // their own session, keyed by their own id.
@@ -707,6 +760,25 @@ function assertProject(projection: RuntimeProjection, projectId: string): void {
   if (!projection.projects.some((project) => project.projectId === projectId)) {
     throw new DomainError("project_missing", `Project does not exist: ${projectId}`);
   }
+}
+
+function worktreeProjectId(projection: RuntimeProjection, worktreeId: string): string | undefined {
+  return projection.worktrees.find((worktree) => worktree.worktreeId === worktreeId)?.projectId;
+}
+
+/** Agents reach each other by name, so two listed agents in one project cannot share one. */
+function assertAgentNameFree(
+  projection: RuntimeProjection,
+  projectId: string | undefined,
+  name: string,
+  exceptId?: string,
+): void {
+  if (projectId === undefined) return;
+  if (agentNameTaken(projection, { projectId, name, ...(exceptId ? { exceptId } : {}) }))
+    throw new DomainError(
+      "agent_name_taken",
+      `Another agent in this project is already called ${name}. Pick a different name.`,
+    );
 }
 
 function assertTerminal(projection: RuntimeProjection, terminalId: string): void {

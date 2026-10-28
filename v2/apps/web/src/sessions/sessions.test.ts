@@ -7,13 +7,16 @@ import type {
 import { describe, expect, it } from "vitest";
 
 import {
+  agentNameProblem,
   buildTimeline,
   changedFiles,
   deriveSessions,
   gridColumns,
   gridLayout,
   relativeTime,
+  sessionAgentName,
   sessionChats,
+  sessionRenameCommand,
   sessionStopCommands,
   sessionTitle,
 } from "./sessions.js";
@@ -313,5 +316,47 @@ describe("chat history", () => {
     const state = parseWorkbenchState(JSON.stringify({ chats: { [sessionId]: older.threadId, other: 3 } }));
     expect(state.chats).toEqual({ [sessionId]: older.threadId });
     expect(forgetSession(state, sessionId).chats).toEqual({});
+  });
+});
+
+describe("agent names", () => {
+  const projectId = "00000000-0000-4000-8000-000000000021";
+  const named = {
+    worktrees: [{ worktreeId, projectId }],
+    threads: [{ ...thread, name: "Bob" }],
+    terminals: [{ ...agentTerminal, name: "John" }],
+  } as unknown as Pick<RuntimeProjection, "worktrees" | "threads" | "terminals">;
+
+  it("reads and renames the record the tile shows", () => {
+    const [session] = deriveSessions(named);
+    if (!session) throw new Error("no session");
+    expect(session.mode).toBe("chat");
+    expect(sessionAgentName(session)).toBe("Bob");
+    expect(sessionRenameCommand(session, "Ann")).toEqual({ type: "thread.rename", threadId, name: "Ann" });
+    const asTerminal = { ...session, mode: "terminal" as const };
+    expect(sessionAgentName(asTerminal)).toBe("John");
+    expect(sessionRenameCommand(asTerminal, null)).toEqual({
+      type: "terminal.rename",
+      terminalId: agentTerminal.terminalId,
+      name: null,
+    });
+  });
+
+  it("uses the pending name until the agent starts, and cannot rename it yet", () => {
+    const pending = { sessionId, worktreeId, provider: "codex", mode: "chat" as const, name: "Ann", createdAt: "" };
+    const [session] = deriveSessions({ threads: [], terminals: [] }, [pending]);
+    if (!session) throw new Error("no session");
+    expect(sessionAgentName(session)).toBe("Ann");
+    expect(sessionRenameCommand(session, "Bob")).toBeUndefined();
+  });
+
+  it("explains a bad or taken name, and lets an agent keep its own", () => {
+    const [session] = deriveSessions(named);
+    expect(agentNameProblem(named, projectId, "   ")).toBeUndefined();
+    expect(agentNameProblem(named, projectId, "-bob")).toMatch(/starting with a letter or digit/u);
+    expect(agentNameProblem(named, projectId, "a/b")).toMatch(/^Use letters/u);
+    expect(agentNameProblem(named, projectId, "bob")).toBe("Another agent in this project is already called bob.");
+    expect(agentNameProblem(named, projectId, "BOB", session)).toBeUndefined();
+    expect(agentNameProblem(named, "00000000-0000-4000-8000-000000000099", "Bob")).toBeUndefined();
   });
 });

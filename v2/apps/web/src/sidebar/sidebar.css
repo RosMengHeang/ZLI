@@ -67,6 +67,7 @@
 .session-row.has-branch { height: 44px; }
 .session-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; justify-content: center; gap: 2px; }
 .session-line { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); }
+.session-name { max-width: 45%; flex: 0 0 auto; overflow: hidden; padding: 0 var(--zli-space-1-5); border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-text); font-size: var(--zli-text-2xs); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .session-branch { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-dim); line-height: 14px; }
 .session-branch > svg { flex: 0 0 auto; }
 .session-branch .worktree-name { flex: 0 1 auto; color: var(--zli-dim); font-size: var(--zli-text-2xs); }

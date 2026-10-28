@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { AgentName } from "./agentName.js";
 import { AccountId, SessionId, TerminalId, WorktreeId } from "./ids.js";
 import { ListedProviderKind, PermissionMode } from "./provider.js";
 
@@ -32,6 +33,8 @@ export const TerminalProjection = z.object({
   errorMessage: z.string().min(1).optional(),
   kind: z.enum(["shell", "agent"]).optional(),
   agent: TerminalAgentLaunch.optional(),
+  /** The name the person gave this terminal's agent. Only agent terminals have one. */
+  name: AgentName.optional(),
   sessionId: SessionId.optional(),
   createdAt: z.string().datetime({ offset: true }).optional(),
   updatedAt: z.string().datetime({ offset: true }).optional(),

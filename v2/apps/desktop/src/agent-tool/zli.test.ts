@@ -28,6 +28,26 @@ describe("zli command", () => {
       action: "agentconnect",
       input: { service: "github", reason: "to open a PR" },
     });
+    expect(parseZliArgs(["agents", "--all-projects"])).toEqual({
+      kind: "call",
+      action: "agentlist",
+      input: { allProjects: true },
+    });
+    expect(parseZliArgs(["send", "bob", "--project", "api", "check", "the", "contract"])).toEqual({
+      kind: "call",
+      action: "agentsend",
+      input: { agent: "bob", project: "api", text: "check the contract" },
+    });
+    expect(parseZliArgs(["read", "api/bob"])).toEqual({
+      kind: "call",
+      action: "agentread",
+      input: { agent: "api/bob" },
+    });
+    expect(parseZliArgs(["start", "codex", "Review", "auth", "--name", "John"])).toEqual({
+      kind: "call",
+      action: "agentstart",
+      input: { provider: "codex", prompt: "Review auth", name: "John" },
+    });
     expect(parseZliArgs(["--help"])).toEqual({ kind: "help" });
     expect(parseZliArgs(["mcp"])).toEqual({ kind: "mcp" });
   });

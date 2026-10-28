@@ -22,6 +22,10 @@
 .tile-branch { display: inline-flex; min-width: 0; flex: 0 100 auto; align-items: center; gap: var(--zli-space-1); overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); white-space: nowrap; }
 .tile-run { flex: 0 0 auto; padding: 1px var(--zli-space-1-5); border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-muted); font-size: var(--zli-text-2xs); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tile-branch span { overflow: hidden; text-overflow: ellipsis; }
+.tile-name { max-width: 120px; flex: 0 0 auto; overflow: hidden; padding: 1px var(--zli-space-1-5); border: 0; border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-text); font: inherit; font-size: var(--zli-text-2xs); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+button.tile-name { cursor: pointer; }
+button.tile-name:hover { background: var(--zli-hover); }
+button.tile-name:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
 .tile-account { display: inline-flex; min-width: 0; max-width: 140px; flex: 0 50 auto; align-items: center; gap: var(--zli-space-1); overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); white-space: nowrap; }
 .tile-account span { overflow: hidden; text-overflow: ellipsis; }
 .tile-spacer { flex: 1; }

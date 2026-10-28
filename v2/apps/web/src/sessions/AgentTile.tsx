@@ -24,6 +24,7 @@ import {
   type SessionChat,
   type SessionMode,
   type SessionStatus,
+  sessionAgentName,
   sessionChats,
   sessionStatusLabel,
   sessionStopCommands,
@@ -76,6 +77,7 @@ export function AgentTile({
   newChatShortcut,
   onOpenChat,
   tall = false,
+  onRename,
 }: {
   projection: RuntimeProjection;
   session: AgentSession;
@@ -113,12 +115,15 @@ export function AgentTile({
   onOpenChat?: ((threadId: string) => void) | undefined;
   /** Spans two grid rows to fill the space a short last row leaves. */
   tall?: boolean | undefined;
+  /** Opens the dialog that names or renames the agent. Absent until the agent has started. */
+  onRename?: (() => void) | undefined;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const displayName = providerDisplayName(session.provider, projection.providers);
   const title = sessionTitle(session, projection.messages, projection.providers);
+  const agentName = sessionAgentName(session);
   const branch = worktree?.branch ?? "worktree";
   const terminal = session.terminal;
   const thread = session.thread;
@@ -203,7 +208,7 @@ export function AgentTile({
     <section
       className={`agent-tile${active ? " is-active" : ""}${tall ? " is-tall" : ""}`}
       data-session-id={session.sessionId}
-      aria-label={`${title}, ${displayName}`}
+      aria-label={agentName ? `${agentName}, ${title}, ${displayName}` : `${title}, ${displayName}`}
       onFocusCapture={onFocus}
       onMouseDown={onFocus}
     >
@@ -211,6 +216,23 @@ export function AgentTile({
         <span className="tile-mark" aria-hidden="true">
           <ProviderMark provider={session.provider} size={13} />
         </span>
+        {agentName ? (
+          onRename ? (
+            <button
+              type="button"
+              className="tile-name"
+              title={`${agentName}. Click to rename`}
+              aria-label={`Rename ${agentName}`}
+              onClick={onRename}
+            >
+              {agentName}
+            </button>
+          ) : (
+            <span className="tile-name" title={agentName}>
+              {agentName}
+            </span>
+          )
+        ) : null}
         <span className="tile-title" title={title}>
           {title}
         </span>
@@ -273,6 +295,16 @@ export function AgentTile({
               size="sm"
               iconSize={13}
               onClick={onHandoff}
+            />
+          ) : null}
+          {onRename && !agentName ? (
+            <IconButton
+              label="Name this agent"
+              tooltip="Name this agent so you and other agents can refer to it"
+              icon="pencil"
+              size="sm"
+              iconSize={13}
+              onClick={onRename}
             />
           ) : null}
           {canStop ? (

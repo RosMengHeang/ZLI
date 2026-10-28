@@ -1,10 +1,12 @@
-import type {
-  PermissionMode,
-  RuntimeProjection,
-  TerminalProjection,
-  ThreadActivityProjection,
-  ThreadMessageProjection,
-  ThreadProjection,
+import {
+  AgentName,
+  agentNameTaken,
+  type PermissionMode,
+  type RuntimeProjection,
+  type TerminalProjection,
+  type ThreadActivityProjection,
+  type ThreadMessageProjection,
+  type ThreadProjection,
 } from "@zli-v2/contracts";
 
 import { providerDisplayName } from "../agent/providers.js";
@@ -25,6 +27,7 @@ export type PendingLaunch = {
   model?: string;
   permissionMode?: PermissionMode;
   accountId?: string;
+  name?: string;
   shareWorktree?: boolean;
   createdAt: string;
   errorMessage?: string;
@@ -199,6 +202,57 @@ export function sessionStopCommands(
     commands.push({ type: "thread.stop", threadId: thread.threadId });
   }
   return commands;
+}
+
+type NamedSession = Pick<AgentSession, "mode" | "terminal" | "thread">;
+
+/** The terminal or chat that holds the session's name: the one its tile shows. */
+function namedRecord(session: NamedSession): { id: string; name: string | undefined } | undefined {
+  if (session.mode === "terminal") {
+    return session.terminal ? { id: session.terminal.terminalId, name: session.terminal.name } : undefined;
+  }
+  return session.thread ? { id: session.thread.threadId, name: session.thread.name } : undefined;
+}
+
+/** The name the person gave the session's agent, if any. */
+export function sessionAgentName(session: NamedSession & Pick<AgentSession, "pending">): string | undefined {
+  const record = namedRecord(session);
+  return record ? record.name : session.pending?.name;
+}
+
+/** The command that sets or clears the agent's name. Undefined while the agent has not started. */
+export function sessionRenameCommand(
+  session: NamedSession,
+  name: string | null,
+):
+  | { type: "terminal.rename"; terminalId: string; name: string | null }
+  | { type: "thread.rename"; threadId: string; name: string | null }
+  | undefined {
+  const record = namedRecord(session);
+  if (!record) return undefined;
+  return session.mode === "terminal"
+    ? { type: "terminal.rename", terminalId: record.id, name }
+    : { type: "thread.rename", threadId: record.id, name };
+}
+
+/**
+ * Why a typed name can't be used, or undefined when it can. An empty name means no name.
+ * `session` is the agent being renamed, which may keep its own name.
+ */
+export function agentNameProblem(
+  projection: Pick<RuntimeProjection, "worktrees" | "threads" | "terminals">,
+  projectId: string | undefined,
+  name: string,
+  session?: NamedSession,
+): string | undefined {
+  if (!name.trim()) return undefined;
+  const parsed = AgentName.safeParse(name);
+  if (!parsed.success) return parsed.error.issues[0]?.message ?? "This name can't be used.";
+  const exceptId = session ? namedRecord(session)?.id : undefined;
+  if (projectId && agentNameTaken(projection, { projectId, name: parsed.data, ...(exceptId ? { exceptId } : {}) })) {
+    return `Another agent in this project is already called ${parsed.data}.`;
+  }
+  return undefined;
 }
 
 export const sessionStatusLabel: Record<SessionStatus, string> = {

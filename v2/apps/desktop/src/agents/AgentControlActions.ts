@@ -7,11 +7,18 @@ import {
   AgentControlReadInput,
   AgentControlSendInput,
   AgentControlStartInput,
+  type AgentControlTarget,
   type AgentToolAccess,
+  type AgentToolScope,
+  agentNameKey,
+  agentNameTaken,
   catalogEntryServer,
   isHttpServer,
+  isListedTerminalStatus,
+  isListedThreadStatus,
   MCP_CATALOG,
   McpListResult,
+  type ProjectProjection,
   READ_AGENT_CONTROL_ACTIONS,
   type RpcResponse,
   type RuntimeProjection,
@@ -47,12 +54,17 @@ export type AgentControlHost = {
 
 export type AgentSummary = {
   id: string;
+  /** The name the person gave the agent, which the other tools take in place of the id. */
+  name?: string;
   kind: "chat" | "terminal";
   provider: string;
   providerName: string;
   status: string;
   branch: string;
   worktreeId: string;
+  /** The name of the project the agent works in. */
+  project: string;
+  projectId: string;
   /** The agent works in the same worktree as the caller. */
   sameWorktree: boolean;
   model?: string;
@@ -60,13 +72,16 @@ export type AgentSummary = {
 
 type Agent = AgentSummary & { createdAt: string };
 
+type AgentSettings = { access: AgentToolAccess; scope: AgentToolScope };
+
 export function isAgentControlAction(action: string): boolean {
   return AgentControlAction.safeParse(action).success;
 }
 
 /**
- * Lets an agent see, read, start, and message the other agents in its project. Access comes from
- * Settings and is read on every call, so a change applies to agents that are already running.
+ * Lets an agent see, read, start, and message the other agents in its project, and, when Settings
+ * allow it, list, read, and message agents in other projects. Settings are read on every call, so a
+ * change applies to agents that are already running.
  */
 export function createAgentControlActions(host: AgentControlHost): BrowserControlDispatch {
   const platform = host.platform ?? process.platform;
@@ -90,8 +105,10 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     return response.result;
   };
 
-  const currentAccess = async (): Promise<AgentToolAccess> =>
-    McpListResult.parse(await run({ type: "mcp.list" })).agentAccess;
+  const currentSettings = async (): Promise<AgentSettings> => {
+    const listed = McpListResult.parse(await run({ type: "mcp.list" }));
+    return { access: listed.agentAccess, scope: listed.agentScope };
+  };
 
   const projection = (): RuntimeProjection => {
     const current = host.projection();
@@ -99,7 +116,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     return current;
   };
 
-  const caller = (input: AgentControlListInput, state: RuntimeProjection) => {
+  const caller = (input: AgentControlTarget, state: RuntimeProjection) => {
     const worktree = resolveBrowserControlWorktree(input, state.worktrees, platform);
     const full = state.worktrees.find(
       (candidate) => candidate.worktreeId === worktree.worktreeId,
@@ -112,42 +129,48 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
   const providerName = (state: RuntimeProjection, provider: string) =>
     state.providers?.find((entry) => entry.provider === provider)?.displayName ?? provider;
 
-  const projectAgents = (state: RuntimeProjection, projectId: string, callerWorktreeId: string): Agent[] => {
+  /** Listed agents in the given projects, oldest first. */
+  const agentsIn = (state: RuntimeProjection, projectIds: ReadonlySet<string>, callerWorktreeId: string): Agent[] => {
+    const projects = new Map(state.projects.map((project) => [project.projectId, project]));
     const worktrees = new Map(
       state.worktrees
-        .filter((worktree) => worktree.projectId === projectId)
+        .filter((worktree) => projectIds.has(worktree.projectId))
         .map((worktree) => [worktree.worktreeId, worktree]),
     );
+    const placed = (worktree: WorktreeProjection) => ({
+      branch: worktree.branch,
+      worktreeId: worktree.worktreeId,
+      project: projects.get(worktree.projectId)?.name ?? "",
+      projectId: worktree.projectId,
+      sameWorktree: worktree.worktreeId === callerWorktreeId,
+    });
     const agents: Agent[] = [];
     for (const thread of state.threads) {
       const worktree = worktrees.get(thread.worktreeId);
-      if (!worktree || thread.status === "stopped") continue;
+      if (!worktree || !isListedThreadStatus(thread.status)) continue;
       agents.push({
         id: thread.threadId,
+        ...(thread.name ? { name: thread.name } : {}),
         kind: "chat",
         provider: thread.provider,
         providerName: providerName(state, thread.provider),
         status: thread.status,
-        branch: worktree.branch,
-        worktreeId: worktree.worktreeId,
-        sameWorktree: worktree.worktreeId === callerWorktreeId,
+        ...placed(worktree),
         ...(thread.model ? { model: thread.model } : {}),
         createdAt: thread.createdAt ?? "",
       });
     }
     for (const terminal of state.terminals) {
       const worktree = worktrees.get(terminal.worktreeId);
-      if (!worktree || !terminal.agent) continue;
-      if (terminal.status !== "starting" && terminal.status !== "running") continue;
+      if (!worktree || !terminal.agent || !isListedTerminalStatus(terminal.status)) continue;
       agents.push({
         id: terminal.terminalId,
+        ...(terminal.name ? { name: terminal.name } : {}),
         kind: "terminal",
         provider: terminal.agent.provider,
         providerName: providerName(state, terminal.agent.provider),
         status: terminal.status,
-        branch: worktree.branch,
-        worktreeId: worktree.worktreeId,
-        sameWorktree: worktree.worktreeId === callerWorktreeId,
+        ...placed(worktree),
         ...(terminal.agent.model ? { model: terminal.agent.model } : {}),
         createdAt: terminal.createdAt ?? "",
       });
@@ -155,16 +178,84 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     return agents.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   };
 
+  const projectAgents = (state: RuntimeProjection, projectId: string, callerWorktreeId: string): Agent[] =>
+    agentsIn(state, new Set([projectId]), callerWorktreeId);
+
   const summary = ({ createdAt: _createdAt, ...agent }: Agent): AgentSummary => agent;
 
-  const findAgent = (agents: readonly Agent[], ref: string): Agent => {
+  const requireAllProjects = (settings: AgentSettings) => {
+    if (settings.scope !== "all")
+      throw new BrowserControlError(
+        "ZLI Settings keep agents to their own project. The person can let agents reach every project in Settings, under Integrations.",
+        403,
+      );
+  };
+
+  /** A project by id, or by name without regard to case. */
+  const findProject = (state: RuntimeProjection, ref: string): ProjectProjection => {
+    const exact = state.projects.find((project) => project.projectId === ref);
+    if (exact) return exact;
+    const key = ref.toLocaleLowerCase();
+    const named = state.projects.filter((project) => project.name.toLocaleLowerCase() === key);
+    if (named.length === 1 && named[0]) return named[0];
+    if (named.length > 1)
+      throw new BrowserControlError(
+        `More than one project is called ${ref}. Use the project id: ${named.map((project) => `${project.projectId} (${project.path})`).join(", ")}.`,
+      );
+    throw new BrowserControlError(
+      `ZLI has no project called ${ref}. Call list_agents with allProjects for the project names.`,
+      404,
+    );
+  };
+
+  /** Exact id first, then name, then a unique id prefix, so a name can never hide an id. */
+  const findAgent = (agents: readonly Agent[], ref: string, projectName: string): Agent => {
     const exact = agents.find((agent) => agent.id === ref);
     if (exact) return exact;
+    const key = agentNameKey(ref);
+    const named = agents.filter((agent) => agent.name !== undefined && agentNameKey(agent.name) === key);
+    if (named.length === 1 && named[0]) return named[0];
+    if (named.length > 1)
+      throw new BrowserControlError(
+        `More than one agent is called ${ref}. Use the id instead: ${named.map((agent) => agent.id).join(", ")}.`,
+      );
     const matches = ref.length >= 4 ? agents.filter((agent) => agent.id.startsWith(ref)) : [];
     if (matches.length === 1 && matches[0]) return matches[0];
     if (matches.length > 1)
       throw new BrowserControlError(`More than one agent id starts with ${ref}. Use the full id.`);
-    throw new BrowserControlError(`This project has no running agent ${ref}. Call list_agents for the ids.`, 404);
+    throw new BrowserControlError(
+      `Project ${projectName} has no running agent ${ref}. Call list_agents for the names and ids.`,
+      404,
+    );
+  };
+
+  /**
+   * Finds the agent a read or send is about. `project/agent` and the project field both point at
+   * another project, which Settings have to allow.
+   */
+  const target = (
+    state: RuntimeProjection,
+    input: AgentControlReadInput | AgentControlSendInput,
+    settings: AgentSettings,
+  ) => {
+    const from = caller(input, state);
+    let agentRef = input.agent;
+    let projectRef = input.project;
+    if (agentRef.includes("/")) {
+      const parts = agentRef.split("/").map((part) => part.trim());
+      if (parts.length !== 2 || !parts[0] || !parts[1])
+        throw new BrowserControlError("Write an agent in another project as project/agent, such as api/bob.");
+      if (projectRef !== undefined && projectRef.toLocaleLowerCase() !== parts[0].toLocaleLowerCase())
+        throw new BrowserControlError(
+          `${agentRef} points at project ${parts[0]}, but project is ${projectRef}. Give the project in one place.`,
+        );
+      [projectRef, agentRef] = parts as [string, string];
+    }
+    const project = projectRef === undefined ? from.project : findProject(state, projectRef);
+    const crossProject = project.projectId !== from.project.projectId;
+    if (crossProject) requireAllProjects(settings);
+    const agents = projectAgents(state, project.projectId, from.worktree.worktreeId);
+    return { ...from, agent: findAgent(agents, agentRef, project.name), crossProject };
   };
 
   /** Resolves once `pick` returns a value, rejects when it throws or time runs out. */
@@ -207,22 +298,31 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     await run({ type: "terminal.write", terminalId, data: "\r" });
   };
 
-  const list = async (raw: unknown) => {
+  const list = async (raw: unknown, settings: AgentSettings) => {
     const input = AgentControlListInput.parse(raw);
     const state = projection();
     const { worktree, project } = caller(input, state);
+    if (!input.allProjects)
+      return {
+        project: project.name,
+        yourBranch: worktree.branch,
+        agents: projectAgents(state, project.projectId, worktree.worktreeId).map(summary),
+      };
+    requireAllProjects(settings);
+    const order = (agent: Agent) => (agent.projectId === project.projectId ? "" : agent.project.toLocaleLowerCase());
+    const agents = agentsIn(state, new Set(state.projects.map((entry) => entry.projectId)), worktree.worktreeId);
     return {
       project: project.name,
       yourBranch: worktree.branch,
-      agents: projectAgents(state, project.projectId, worktree.worktreeId).map(summary),
+      // Stable sort: the caller's project first, then the others by name, each oldest agent first.
+      agents: agents.sort((left, right) => order(left).localeCompare(order(right))).map(summary),
     };
   };
 
-  const read = async (raw: unknown) => {
+  const read = async (raw: unknown, settings: AgentSettings) => {
     const input = AgentControlReadInput.parse(raw);
     const state = projection();
-    const { worktree, project } = caller(input, state);
-    const agent = findAgent(projectAgents(state, project.projectId, worktree.worktreeId), input.agent);
+    const { agent } = target(state, input, settings);
     if (agent.kind === "terminal") {
       const output = TerminalReadResult.parse(await run({ type: "terminal.read", terminalId: agent.id }));
       return { agent: summary(agent), output: output.text, truncated: output.truncated };
@@ -239,18 +339,18 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     };
   };
 
-  const send = async (raw: unknown) => {
+  const send = async (raw: unknown, settings: AgentSettings) => {
     const input = AgentControlSendInput.parse(raw);
     const state = projection();
-    const { worktree, project } = caller(input, state);
-    const agents = projectAgents(state, project.projectId, worktree.worktreeId);
-    const agent = findAgent(agents, input.agent);
-    const neighbors = agents.filter((candidate) => candidate.sameWorktree);
+    const { worktree, project, agent, crossProject } = target(state, input, settings);
+    const neighbors = projectAgents(state, project.projectId, worktree.worktreeId).filter(
+      (candidate) => candidate.sameWorktree,
+    );
     if (agent.sameWorktree && neighbors.length === 1)
       throw new BrowserControlError("That agent is you. Pick another agent from list_agents.");
     const sender = neighbors.length === 1 ? neighbors[0] : undefined;
     const text = [
-      `Message from another agent in ZLI, working on branch ${worktree.branch}${sender ? ` (agent id ${sender.id})` : ""}:`,
+      messageHeading({ sender, project: project.name, branch: worktree.branch, crossProject }),
       "",
       input.text,
     ].join("\n");
@@ -282,6 +382,12 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     const discovery = state.providers?.find((entry) => entry.provider === input.provider);
     if (discovery?.status === "missing")
       throw new BrowserControlError(`${discovery.displayName} is not installed here. ${discovery.reason}`, 409);
+    // Checked before a worktree is made, so a taken name does not leave an empty worktree behind.
+    if (input.name !== undefined && agentNameTaken(state, { projectId: project.projectId, name: input.name }))
+      throw new BrowserControlError(
+        `Another agent in this project is already called ${input.name}. Pick a different name.`,
+        409,
+      );
 
     let target: WorktreeProjection;
     if (input.worktree === "same") target = callerWorktree;
@@ -325,6 +431,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         sessionId,
         permissionMode: "full-access",
         ...(input.model ? { model: input.model } : {}),
+        ...(input.name !== undefined ? { name: input.name } : {}),
         ...(shared ? { shareWorktree: true } : {}),
       });
       await waitFor((next) => {
@@ -346,6 +453,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         cols: 120,
         rows: 32,
         sessionId,
+        ...(input.name !== undefined ? { name: input.name } : {}),
         agent: {
           provider: input.provider,
           permissionMode: "full-access",
@@ -368,7 +476,16 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
       started: true,
       agent: started
         ? summary(started)
-        : { id: agentId, kind: mode, provider: input.provider, branch: target.branch, worktreeId: target.worktreeId },
+        : {
+            id: agentId,
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            kind: mode,
+            provider: input.provider,
+            branch: target.branch,
+            worktreeId: target.worktreeId,
+            project: project.name,
+            projectId: project.projectId,
+          },
       worktree: { branch: target.branch, path: target.path },
     };
   };
@@ -407,7 +524,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         const neighbors = projectAgents(state, project.projectId, worktree.worktreeId).filter(
           (agent) => agent.sameWorktree,
         );
-        if (neighbors.length === 1 && neighbors[0]) agentName = neighbors[0].providerName;
+        if (neighbors.length === 1 && neighbors[0]) agentName = neighbors[0].name ?? neighbors[0].providerName;
       } catch {
         // An agent outside a ZLI worktree can still ask; the notification just names less.
       }
@@ -431,8 +548,8 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         };
   };
 
-  const handlers: Record<AgentControlAction, (input: unknown) => Promise<unknown>> = {
-    agentaccess: async () => ({ access: await currentAccess() }),
+  const handlers: Record<AgentControlAction, (input: unknown, settings: AgentSettings) => Promise<unknown>> = {
+    agentaccess: async (_input, settings) => settings,
     agentlist: list,
     agentread: read,
     agentsend: send,
@@ -443,18 +560,38 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
   return async (action, input) => {
     const parsed = AgentControlAction.safeParse(action);
     if (!parsed.success) throw new BrowserControlError(`Unknown agent action: ${action}`, 404);
+    const settings = await currentSettings();
     if (parsed.data !== "agentaccess") {
-      const access = await currentAccess();
-      if (access === "off")
+      if (settings.access === "off")
         throw new BrowserControlError("Agent tools are turned off in ZLI Settings, under Integrations.", 403);
-      if (access === "read" && !READ_AGENT_CONTROL_ACTIONS.includes(parsed.data))
+      if (settings.access === "read" && !READ_AGENT_CONTROL_ACTIONS.includes(parsed.data))
         throw new BrowserControlError(
           "ZLI Settings let agents list and read other agents, but not start or message them.",
           403,
         );
     }
-    return handlers[parsed.data](input ?? {});
+    return handlers[parsed.data](input ?? {}, settings);
   };
+}
+
+/**
+ * The first line of a message from another agent. It says who sent it and how to answer: an agent
+ * in another project has to be reached as project/agent.
+ */
+function messageHeading(options: {
+  sender: Agent | undefined;
+  project: string;
+  branch: string;
+  crossProject: boolean;
+}): string {
+  const { sender, project, branch, crossProject } = options;
+  const who = `${sender?.name ? `${sender.name}, ` : ""}${crossProject ? `an agent in the ZLI project ${project}` : "another agent in ZLI"}`;
+  const reply = !sender
+    ? ""
+    : crossProject
+      ? ` (reply to ${project}/${sender.name ?? sender.id})`
+      : ` (agent id ${sender.id})`;
+  return `Message from ${who}, working on branch ${branch}${reply}:`;
 }
 
 export function safeBranchName(branch: string): string {

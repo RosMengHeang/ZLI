@@ -1,5 +1,6 @@
 export * from "./accounts.js";
 export * from "./agentControl.js";
+export * from "./agentName.js";
 export * from "./browser.js";
 export * from "./checkpoints.js";
 export * from "./devServers.js";

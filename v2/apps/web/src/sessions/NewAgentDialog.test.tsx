@@ -81,3 +81,38 @@ describe("NewAgentDialog workspace", () => {
     expect(placements.find((input) => input.checked)?.value).toBe("new");
   });
 });
+
+describe("NewAgentDialog name", () => {
+  const typeName = async (value: string) => {
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="Name"]');
+    if (!input) throw new Error("no name input");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    return input;
+  };
+  const submitButton = () =>
+    [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.type === "submit");
+
+  it("sends a trimmed name and leaves it out when empty", async () => {
+    const { onSubmit } = await render(false);
+    await typeName("  Bob ");
+    await act(async () => {
+      document.querySelector("form")?.requestSubmit();
+    });
+    expect(onSubmit.mock.calls[0]?.[0].name).toBe("Bob");
+  });
+
+  it("blocks a name with a slash and says why", async () => {
+    const { onSubmit } = await render(false);
+    const input = await typeName("team/bob");
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(document.querySelector('[role="alert"]')?.textContent).toMatch(/^Use letters, digits/u);
+    expect(submitButton()?.disabled).toBe(true);
+    await act(async () => {
+      document.querySelector("form")?.requestSubmit();
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+});

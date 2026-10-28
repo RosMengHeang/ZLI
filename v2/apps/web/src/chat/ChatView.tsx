@@ -69,7 +69,7 @@ export function ChatView({
   const [peerTargetId, setPeerTargetId] = useState<string>();
   const logRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
-  const displayName = providerDisplayName(thread.provider, projection.providers);
+  const displayName = thread.name ?? providerDisplayName(thread.provider, projection.providers);
   const discovery = projection.providers?.find((entry) => entry.provider === thread.provider);
   const models = discovery?.status === "found" ? discovery.models : undefined;
   const [chosenReasoning, setChosenReasoning] = useState<string>();

@@ -13,6 +13,7 @@ import {
   upsertDevServer,
   upsertThreadActivity,
   upsertUsageRecord,
+  withAgentName,
 } from "@zli-v2/contracts";
 
 function touchThread(
@@ -263,6 +264,26 @@ export class ProjectionStore {
       case "thread.interrupt.requested":
       case "thread.stop.requested":
         this.#projection = { ...current, lastSequence: envelope.sequence };
+        break;
+      case "thread.renamed":
+        this.#projection = {
+          ...current,
+          threads: current.threads.map((thread) =>
+            thread.threadId === event.threadId ? withAgentName(thread, event.name, envelope.occurredAt) : thread,
+          ),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "terminal.renamed":
+        this.#projection = {
+          ...current,
+          terminals: current.terminals.map((terminal) =>
+            terminal.terminalId === event.terminalId
+              ? withAgentName(terminal, event.name, envelope.occurredAt)
+              : terminal,
+          ),
+          lastSequence: envelope.sequence,
+        };
         break;
       case "thread.send.requested": {
         const { permissionMode } = event;

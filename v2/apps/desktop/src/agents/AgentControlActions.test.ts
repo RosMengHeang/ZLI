@@ -65,6 +65,7 @@ type Sent = { type: string; [key: string]: unknown };
 function harness(
   options: {
     access?: string;
+    scope?: string;
     onCommand?: (command: Sent, state: RuntimeProjection) => void;
     servers?: unknown[];
     signIns?: unknown[];
@@ -94,6 +95,7 @@ function harness(
           result: {
             servers: options.servers ?? [],
             agentAccess: options.access ?? "full",
+            agentScope: options.scope ?? "project",
             userSettings: { enabled: false, outcomes: [] },
             signIns: options.signIns ?? [],
           },
@@ -249,7 +251,7 @@ describe("agent control", () => {
 
   it("follows the access chosen in Settings", async () => {
     const off = harness({ access: "off" });
-    expect(await off.dispatch("agentaccess", {})).toEqual({ access: "off" });
+    expect(await off.dispatch("agentaccess", {})).toEqual({ access: "off", scope: "project" });
     await expect(off.dispatch("agentlist", { cwd: "/work/app" })).rejects.toMatchObject({ status: 403 });
 
     const read = harness({ access: "read" });
@@ -306,6 +308,167 @@ describe("agent control", () => {
     expect(asked).toEqual([{ title: "ZLI", body: "An agent asks to connect my-db.", connectorId: "my-db" }]);
     await expect(dispatch("agentconnect", { cwd: "/work/app", service: "nope" })).rejects.toThrow(
       "ZLI has no connector called nope.",
+    );
+  });
+});
+
+describe("agent names", () => {
+  const named = (names: Record<string, string>) => {
+    const h = harness();
+    h.update({
+      ...h.state(),
+      threads: h
+        .state()
+        .threads.map((entry) => (names[entry.threadId] ? { ...entry, name: names[entry.threadId] } : entry)),
+      terminals: h
+        .state()
+        .terminals.map((entry) => (names[entry.terminalId] ? { ...entry, name: names[entry.terminalId] } : entry)),
+    } as RuntimeProjection);
+    return h;
+  };
+
+  it("lists names and finds an agent by name without regard to case", async () => {
+    const { dispatch, sent } = named({ [PEER]: "Bob", [TERMINAL]: "John" });
+    const listed = (await dispatch("agentlist", { cwd: "/work/app" })) as {
+      agents: Array<{ id: string; name?: string; project: string }>;
+    };
+    expect(listed.agents.map((agent) => [agent.id, agent.name, agent.project])).toEqual([
+      [ME, undefined, "app"],
+      [PEER, "Bob", "app"],
+      [TERMINAL, "John", "app"],
+    ]);
+    await expect(dispatch("agentread", { cwd: "/work/app", agent: "bob" })).resolves.toMatchObject({
+      agent: { id: PEER, name: "Bob" },
+    });
+    await dispatch("agentsend", { cwd: "/work/app", agent: "JOHN", text: "hi" });
+    expect(sent.at(-2)).toMatchObject({ type: "terminal.write", terminalId: TERMINAL });
+  });
+
+  it("signs a message with the sender's name", async () => {
+    const { dispatch, sent } = named({ [ME]: "Ana", [PEER]: "Bob" });
+    await dispatch("agentsend", { cwd: "/work/app", agent: "Bob", text: "Please rebase." });
+    expect(sent[0]).toMatchObject({
+      type: "thread.queue",
+      threadId: PEER,
+      text: `Message from Ana, another agent in ZLI, working on branch main (agent id ${ME}):\n\nPlease rebase.`,
+    });
+  });
+
+  it("prefers an exact id over a name, and asks for the id when a name is shared", async () => {
+    const { dispatch } = named({ [PEER]: TERMINAL, [TERMINAL]: "Bob", [ME]: "bob" });
+    await expect(dispatch("agentread", { cwd: "/work/app", agent: TERMINAL })).resolves.toMatchObject({
+      agent: { id: TERMINAL },
+    });
+    await expect(dispatch("agentread", { cwd: "/work/app", agent: "Bob" })).rejects.toThrow(
+      `More than one agent is called Bob. Use the id instead: ${ME}, ${TERMINAL}.`,
+    );
+  });
+
+  it("names a new agent, and refuses a taken name before making a worktree", async () => {
+    const { dispatch, sent } = named({ [PEER]: "Bob" });
+    await expect(
+      dispatch("agentstart", { cwd: "/work/app", provider: "codex", prompt: "x", name: "BOB" }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(sent).toEqual([]);
+
+    const started = harness({
+      onCommand: (command, current) => {
+        if (command.type === "thread.start")
+          started.update({
+            ...current,
+            threads: [
+              ...current.threads,
+              {
+                ...thread(command.threadId as string, command.worktreeId as string, "idle", "2026-01-02T00:00:00.000Z"),
+                name: command.name as string,
+              },
+            ],
+          } as RuntimeProjection);
+      },
+    });
+    const result = (await started.dispatch("agentstart", {
+      cwd: "/work/app",
+      provider: "codex",
+      prompt: "Review the auth endpoint",
+      worktree: "same",
+      name: "John",
+    })) as { agent: { name?: string } };
+    expect(started.sent[0]).toMatchObject({ type: "thread.start", name: "John" });
+    expect(result.agent.name).toBe("John");
+  });
+});
+
+describe("agents in other projects", () => {
+  it("keeps agents to their own project unless Settings allow every project", async () => {
+    const { dispatch, sent } = harness();
+    await expect(dispatch("agentlist", { cwd: "/work/app", allProjects: true })).rejects.toMatchObject({
+      status: 403,
+    });
+    await expect(dispatch("agentread", { cwd: "/work/app", agent: `other/${FOREIGN}` })).rejects.toThrow(
+      "ZLI Settings keep agents to their own project.",
+    );
+    await expect(
+      dispatch("agentsend", { cwd: "/work/app", agent: FOREIGN, project: "other", text: "hi" }),
+    ).rejects.toMatchObject({
+      status: 403,
+    });
+    // Without a project, an agent in another project is simply not found.
+    await expect(dispatch("agentread", { cwd: "/work/app", agent: FOREIGN })).rejects.toThrow(
+      `Project app has no running agent ${FOREIGN}.`,
+    );
+    expect(sent).toEqual([]);
+  });
+
+  it("lists every project's agents with the caller's project first", async () => {
+    const { dispatch } = harness({ scope: "all" });
+    const listed = (await dispatch("agentlist", { cwd: "/work/other", allProjects: true })) as {
+      project: string;
+      agents: Array<{ id: string; project: string; projectId: string }>;
+    };
+    expect(listed.project).toBe("other");
+    expect(listed.agents.map((agent) => [agent.id, agent.project])).toEqual([
+      [FOREIGN, "other"],
+      [ME, "app"],
+      [PEER, "app"],
+      [TERMINAL, "app"],
+    ]);
+    expect(listed.agents[1]?.projectId).toBe(PROJECT);
+  });
+
+  it("reads and messages an agent in another project by project/agent or the project field", async () => {
+    const { dispatch, sent, update, state } = harness({ scope: "all" });
+    update({
+      ...state(),
+      threads: state().threads.map((entry) => (entry.threadId === FOREIGN ? { ...entry, name: "Api" } : entry)),
+    } as RuntimeProjection);
+    await expect(dispatch("agentread", { cwd: "/work/app", agent: "OTHER/api" })).resolves.toMatchObject({
+      agent: { id: FOREIGN, project: "other" },
+    });
+    await dispatch("agentsend", {
+      cwd: "/work/app",
+      agent: "api",
+      project: OTHER_PROJECT,
+      text: "What does /login return?",
+    });
+    expect(sent[0]).toEqual({
+      type: "thread.queue",
+      queueId: expect.any(String),
+      threadId: FOREIGN,
+      text: `Message from an agent in the ZLI project app, working on branch main (reply to app/${ME}):\n\nWhat does /login return?`,
+    });
+  });
+
+  it("explains a bad project reference", async () => {
+    const { dispatch } = harness({ scope: "all" });
+    await expect(dispatch("agentread", { cwd: "/work/app", agent: "nope/bob" })).rejects.toMatchObject({
+      status: 404,
+      message: "ZLI has no project called nope. Call list_agents with allProjects for the project names.",
+    });
+    await expect(dispatch("agentread", { cwd: "/work/app", agent: "a/b/c" })).rejects.toThrow(
+      "Write an agent in another project as project/agent, such as api/bob.",
+    );
+    await expect(dispatch("agentread", { cwd: "/work/app", agent: "other/x", project: "app" })).rejects.toThrow(
+      "other/x points at project other, but project is app. Give the project in one place.",
     );
   });
 });

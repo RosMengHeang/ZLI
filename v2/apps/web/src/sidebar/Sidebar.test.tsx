@@ -59,6 +59,7 @@ type MountOptions = {
   sessions?: AgentSession[];
   onStopSession?: (session: AgentSession) => void;
   onDeleteSession?: (session: AgentSession) => void;
+  onRenameSession?: (session: AgentSession) => void;
   onWorktreeAction?: (worktree: { worktreeId: string }, action: WorktreeAction) => void;
   onCreateWorktree?: (project?: { projectId: string }) => void;
   onRemoveProject?: (projectId: string) => Promise<string | undefined>;
@@ -81,6 +82,7 @@ async function mount(current: RuntimeProjection, options: MountOptions = {}) {
           onSelectSession={noop}
           onStopSession={options.onStopSession ?? noop}
           onDeleteSession={options.onDeleteSession ?? noop}
+          onRenameSession={options.onRenameSession}
           onSelectWorktree={noop}
           onNewAgent={noop}
           onOpenProject={noop}
@@ -290,6 +292,30 @@ describe("Sidebar projects", () => {
     expect(items).toContain("Delete agent");
     await act(async () => button(document.body, "Delete agent").click());
     expect(onDeleteSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session-1" }));
+  });
+
+  it("shows an agent's name and renames it from the ... menu", async () => {
+    const onRenameSession = vi.fn();
+    const session: AgentSession = {
+      ...agent(featureId),
+      terminal: {
+        terminalId: "terminal-1",
+        worktreeId: featureId,
+        title: "Codex",
+        status: "running",
+        name: "Bob",
+      } as unknown as NonNullable<AgentSession["terminal"]>,
+    };
+    const { container } = await mount(
+      projection([{ worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat", status: "ready" }]),
+      { sessions: [session], onRenameSession },
+    );
+    expect(container.querySelector(".session-name")?.textContent).toBe("Bob");
+    expect(container.querySelector(".session-row")?.getAttribute("aria-label")).toMatch(/^Bob, /u);
+    const items = await openMenu(container, "Agent actions");
+    expect(items[0]).toBe("Rename agent");
+    await act(async () => button(document.body, "Rename agent").click());
+    expect(onRenameSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session-1" }));
   });
 
   it("lets a stuck checkout be removed, but only cancels a worktree still being created", async () => {

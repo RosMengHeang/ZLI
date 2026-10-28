@@ -13,6 +13,7 @@ import {
   upsertDevServer,
   upsertThreadActivity,
   upsertUsageRecord,
+  withAgentName,
 } from "@zli-v2/contracts";
 
 export function createEmptyProjection(environment: EnvironmentDescriptor): RuntimeProjection {
@@ -155,6 +156,24 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
     case "terminal.resize.requested":
     case "terminal.stop.requested":
       return { ...projection, lastSequence: envelope.sequence };
+    case "terminal.renamed":
+      return {
+        ...projection,
+        terminals: projection.terminals.map((terminal) =>
+          terminal.terminalId === event.terminalId
+            ? withAgentName(terminal, event.name, envelope.occurredAt)
+            : terminal,
+        ),
+        lastSequence: envelope.sequence,
+      };
+    case "thread.renamed":
+      return {
+        ...projection,
+        threads: projection.threads.map((thread) =>
+          thread.threadId === event.threadId ? withAgentName(thread, event.name, envelope.occurredAt) : thread,
+        ),
+        lastSequence: envelope.sequence,
+      };
     case "thread.start.requested":
       return {
         ...projection,

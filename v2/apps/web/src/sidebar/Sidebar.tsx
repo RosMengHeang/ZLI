@@ -14,6 +14,8 @@ import { runStateLabel } from "../sessions/bestOf.js";
 import {
   type AgentSession,
   relativeTime,
+  sessionAgentName,
+  sessionRenameCommand,
   sessionStatusLabel,
   sessionStopCommands,
   sessionTitle,
@@ -107,6 +109,8 @@ type Props = {
   onSelectSession(session: AgentSession): void;
   onStopSession(session: AgentSession): void;
   onDeleteSession(session: AgentSession): void;
+  /** Opens the dialog that names or renames a started agent. */
+  onRenameSession?: ((session: AgentSession) => void) | undefined;
   onSelectWorktree(worktree: WorktreeProjection): void;
   onNewAgent(project?: ProjectProjection): void;
   onOpenProject(): void;
@@ -141,6 +145,7 @@ export function Sidebar({
   onSelectSession,
   onStopSession,
   onDeleteSession,
+  onRenameSession,
   onSelectWorktree,
   onNewAgent,
   onOpenProject,
@@ -524,6 +529,10 @@ export function Sidebar({
     worktree: WorktreeProjection | undefined,
   ): MenuItem[] => {
     const items: MenuItem[] = [];
+    if (onRenameSession && sessionRenameCommand(session, null)) {
+      const label = sessionAgentName(session) ? "Rename agent" : "Name agent";
+      items.push({ label, icon: "pencil", run: () => onRenameSession(session) });
+    }
     if (stoppable)
       items.push({
         label: "Stop agent",
@@ -567,7 +576,9 @@ export function Sidebar({
     const background = backgroundSessionIds.has(session.sessionId);
     const stoppable = sessionStopCommands(session).length > 0;
     const quiet = runStatus === undefined && (session.status === "ready" || session.status === "ended");
-    const name = runIndex === undefined ? title : `Run ${runIndex}`;
+    const agentName = sessionAgentName(session);
+    const runName = runIndex === undefined ? title : `Run ${runIndex}`;
+    const name = agentName ? `${agentName}, ${runName}` : runName;
     const branchLine = runIndex === undefined && worktree && info;
     return (
       <li className={`session-entry${runIndex === undefined ? "" : " is-run"}`} key={session.sessionId}>
@@ -577,11 +588,12 @@ export function Sidebar({
           aria-label={`${name}, ${providerName}, ${status}${background ? ", in the background" : ""}`}
           aria-current={active ? "true" : undefined}
           onClick={() => onSelectSession(session)}
-          title={`${worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}${account ? `\nAccount: ${account}` : ""}`}
+          title={`${agentName ? `${agentName}\n` : ""}${worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}${account ? `\nAccount: ${account}` : ""}`}
         >
           <ProviderMark provider={session.provider} size={14} />
           <span className="session-copy">
             <span className="session-line">
+              {agentName ? <span className="session-name">{agentName}</span> : null}
               {runIndex === undefined ? (
                 <span className="session-title">{title}</span>
               ) : (
