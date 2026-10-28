@@ -7,6 +7,7 @@ import { expect, test } from "@playwright/test";
 import {
   closeApp,
   closeDesktop,
+  openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
   git,
@@ -24,7 +25,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    await openCreateWorktree(page);
     const dialog = page.getByRole("dialog", { name: "Create worktree" });
     await dialog.getByLabel("Branch").fill("e2e");
     await dialog.getByRole("button", { name: "Create worktree" }).click();

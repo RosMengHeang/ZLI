@@ -51,6 +51,13 @@ export async function sendChatMessage(page: Page, message: string): Promise<void
   await composer.press("Enter");
 }
 
+/** Opens the Create worktree dialog. The sidebar shows a project's actions only while its row is hovered. */
+export async function openCreateWorktree(page: Page): Promise<void> {
+  // The hidden button is display:none, so it can't anchor the row locator; hover the row first.
+  await page.locator(".project-label").first().hover();
+  await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+}
+
 export async function createGitFixture(): Promise<{ root: string; repo: string }> {
   const root = await mkdtemp(join(tmpdir(), "zli-v2-e2e-"));
   const repo = join(root, "repo");

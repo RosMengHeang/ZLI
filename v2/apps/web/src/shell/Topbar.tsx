@@ -103,7 +103,7 @@ export function Topbar({
       {updateNotice}
       {sidebarOpen || !hasProjects ? null : (
         <Button variant="ghost" size="sm" icon="plus" shortcut={shortcuts.newAgent} onClick={onNewAgent}>
-          New agent
+          <span className="topbar-new-agent-label">New agent</span>
         </Button>
       )}
       {hasProjects && onOpenIssues ? (

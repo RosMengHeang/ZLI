@@ -29,7 +29,10 @@
 .project-toggle:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
 .project-toggle > svg:first-child { flex: 0 0 auto; color: var(--zli-dim); }
 .project-label:hover .project-toggle > svg:first-child { color: var(--zli-muted); }
+.project-confirm-problem { display: block; margin-top: var(--zli-space-1); color: var(--zli-red); overflow-wrap: anywhere; }
 .project-name { min-width: 0; overflow: hidden; color: var(--zli-text); text-overflow: ellipsis; white-space: nowrap; }
+.project-pin { flex: 0 0 auto; color: var(--zli-dim); }
+.project-rename { min-width: 0; flex: 1; height: 100%; padding: 0 var(--zli-space-2); border: 1px solid var(--zli-focus); border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-text); font: inherit; outline: none; }
 /* The chevron says the folder folds. It stays out of the way until the row is pointed at, or the folder is closed. */
 .project-chevron { flex: 0 0 auto; color: var(--zli-dim); opacity: 0; transform: rotate(90deg); transition: opacity var(--zli-duration-fast) var(--zli-ease), transform var(--zli-duration-fast) var(--zli-ease); }
 .project-label:hover .project-chevron, .project-toggle:focus-visible .project-chevron, .project-toggle[aria-expanded="false"] .project-chevron { opacity: 1; }
@@ -43,6 +46,10 @@
 .sidebar-project.is-collapsed + .sidebar-project { margin-top: var(--zli-space-1); }
 .project-action { opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
 .project-label:hover .project-action, .project-action:focus-visible { opacity: 1; }
+/* Hidden actions would still hold their width and push the agent count off the end of the row. */
+@media (hover: hover) { .project-label:not(:hover):not(:has(:focus-visible)) .project-action { display: none; } }
+/* Without hover there is no way to reveal the row's actions, so they stay in view. */
+@media (hover: none) { .project-action { opacity: 1; } }
 .sidebar-note { margin: var(--zli-space-0-5) var(--zli-space-2) var(--zli-space-1-5) 32px; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
 .sidebar-note.is-error { margin-left: 24px; color: var(--zli-red); overflow-wrap: anywhere; }
 
@@ -132,6 +139,7 @@
 .worktree-status.is-danger { color: var(--zli-red); }
 
 .sidebar-footer { display: flex; align-items: center; gap: var(--zli-space-2); height: 44px; flex: 0 0 auto; padding: 0 var(--zli-space-2) 0 var(--zli-space-4); color: var(--zli-dim); font-size: var(--zli-text-sm); }
+.sidebar-runtime { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .connection-dot { width: 6px; height: 6px; flex-basis: 6px; }
 .sidebar-bottom { display: flex; flex: 0 0 auto; flex-direction: column; }
 .sidebar-usage-strip {

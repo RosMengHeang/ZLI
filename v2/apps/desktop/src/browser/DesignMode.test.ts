@@ -3,9 +3,22 @@ import { describe, expect, it } from "vitest";
 import type { BrowserAutomation } from "./BrowserAutomation.js";
 import { cropFor, DesignMode } from "./DesignMode.js";
 
+function automationWith(overrides: Record<string, unknown>) {
+  const scripts: string[] = [];
+  const automation = {
+    evaluate: async (expression: string) => {
+      scripts.push(expression);
+      return { type: "boolean", value: true };
+    },
+    ...overrides,
+  } as unknown as BrowserAutomation;
+  return { automation, scripts };
+}
+
 describe("DesignMode", () => {
-  it("returns a bounded element inspection and a crop for the selected element", async () => {
-    const automation = {
+  it("returns a bounded element inspection and a crop with the overlay hidden", async () => {
+    const order: string[] = [];
+    const { automation, scripts } = automationWith({
       inspectElement: async () => ({
         tag: "button",
         name: "Save",
@@ -17,40 +30,76 @@ describe("DesignMode", () => {
         url: "https://example.com",
       }),
       screenshot: async (options: unknown) => {
+        order.push(`screenshot after ${scripts.at(-1)?.includes(".capture(null)") ? "capture" : "other"}`);
         expect(options).toMatchObject({ clip: { x: 2, y: 12, width: 96, height: 46 } });
         return { data: "aGVsbG8=", mimeType: "image/png" as const };
       },
-    } as unknown as BrowserAutomation;
+    });
     const result = await new DesignMode(automation).inspect({ selector: "#save" });
-    expect(result).toMatchObject({ tag: "button", name: "Save", selector: "#save", screenshot: { data: "aGVsbG8=" } });
+    expect(result).toMatchObject({
+      tag: "button",
+      name: "Save",
+      selector: "#save",
+      screenshot: { data: "aGVsbG8=" },
+    });
+    expect(order).toEqual(["screenshot after capture"]);
+    expect(scripts.at(-1)).toContain("release()");
   });
 
-  it("keeps the inspection when the screenshot fails", async () => {
-    const automation = {
+  it("keeps the inspection when the screenshot fails and still restores the overlay", async () => {
+    const { automation, scripts } = automationWith({
       inspectElement: async () => ({ tag: "div", name: "", bounds: { x: 0, y: 0, width: 10, height: 10 } }),
       screenshot: async () => {
         throw new Error("Browser screenshot timed out.");
       },
-    } as unknown as BrowserAutomation;
+      evaluate: async (expression: string) => {
+        scripts.push(expression);
+        return { type: "object", value: null };
+      },
+    });
     const result = await new DesignMode(automation).inspect({ selector: "div" });
     expect(result).toEqual({ tag: "div", name: "", selector: "div", bounds: { x: 0, y: 0, width: 10, height: 10 } });
+    expect(scripts.at(-1)).toContain("release()");
   });
 
-  it("passes picks and cancels through to the page", async () => {
+  it("passes picks, marks with their previews, dropped notes, and the end of the session through to the page", async () => {
     const calls: string[] = [];
-    const automation = {
+    const { automation, scripts } = automationWith({
       pickElement: async () => {
         calls.push("pick");
-        return { selector: "main > h1" };
+        return { kind: "element", id: "a", selector: "main > h1" };
       },
       cancelPick: async () => {
         calls.push("cancel");
       },
-    } as unknown as BrowserAutomation;
+    });
     const design = new DesignMode(automation);
-    await expect(design.pick()).resolves.toEqual({ selector: "main > h1" });
+    await expect(design.pick()).resolves.toEqual({ kind: "element", id: "a", selector: "main > h1" });
+    await design.mark(
+      [{ kind: "element", id: "a", n: 1, selector: "main > h1", preview: { styles: { color: "green" } } }],
+      ["b"],
+    );
+    expect(scripts.at(-1)).toContain('"selector":"main > h1"');
+    expect(scripts.at(-1)).toContain('"color":"green"');
+    expect(scripts.at(-1)).toContain('["b"]');
     await design.cancelPick();
     expect(calls).toEqual(["pick", "cancel"]);
+  });
+
+  it("captures a drawn region with its sketch showing", async () => {
+    const { automation, scripts } = automationWith({
+      screenshot: async (options: unknown) => {
+        expect(scripts.at(-1)).toContain('"strokes":[{"tool":"pen","points":[1,2,3,4]}]');
+        expect(options).toEqual({ clip: { x: 100, y: 0, width: 2_000, height: 50, scale: 1 } });
+        return { data: "cmVnaW9u", mimeType: "image/png" as const };
+      },
+    });
+    const screenshot = await new DesignMode(automation).captureRegion({
+      bounds: { x: 100, y: -5, width: 5_000, height: 50 },
+      strokes: [{ tool: "pen", points: [1, 2, 3, 4] }],
+    });
+    expect(screenshot).toEqual({ data: "cmVnaW9u", mimeType: "image/png" });
+    expect(scripts.at(-1)).toContain("release()");
   });
 });
 

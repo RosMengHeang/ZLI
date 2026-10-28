@@ -10,21 +10,25 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DevServerBar, devServerLabel, originOf } from "../devservers/DevServers.js";
 import { SendToAgentDialog } from "../review/SendToAgentDialog.js";
-import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import type { SessionMode } from "../sessions/sessions.js";
-import { Button, IconButton } from "../ui/Button.js";
+import { Button, cx, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, PaneHeader } from "../ui/Pane.js";
 import { Picker } from "../ui/Picker.js";
 import { DesignPanel } from "./DesignPanel.js";
 import {
-  type DesignPick,
+  type DesignAnnotateMode,
+  type DesignAnnotation,
+  type DesignPickResult,
+  designAnnotationReady,
   designAttachments,
+  designMarks,
   formatDesignMessage,
-  MAX_DESIGN_PICKS,
+  MAX_DESIGN_ANNOTATIONS,
+  parseDesignImage,
   parseDesignInspection,
-  pickedSelector,
+  parseDesignPickResult,
 } from "./designMode.js";
 import "./browser.css";
 
@@ -75,13 +79,16 @@ export function BrowserPane({
   const [url, setUrlState] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const [picking, setPicking] = useState(false);
+  const [annotating, setAnnotating] = useState(false);
+  const [annotateMode, setAnnotateMode] = useState<DesignAnnotateMode>("select");
   const [inspecting, setInspecting] = useState(false);
-  const [picks, setPicks] = useState<DesignPick[]>([]);
-  const [designNote, setDesignNote] = useState("");
+  const [annotations, setAnnotations] = useState<DesignAnnotation[]>([]);
   const [sendingDesign, setSendingDesign] = useState(false);
-  /** The tab a pick is waiting on, so a pick that ends after the tab changed is dropped. */
-  const pickingTabRef = useRef<string | undefined>(undefined);
+  /** The running annotate session; a pick that resolves after it ended or moved to another tab is dropped. */
+  const annotateRef = useRef<{ browserTabId: string } | undefined>(undefined);
+  const annotationsRef = useRef(annotations);
+  annotationsRef.current = annotations;
+  const tabUrlRef = useRef<string | undefined>(undefined);
   const canDesign = typeof bridge?.browser.designPick === "function";
   // The native view draws over the DOM, so it is hidden while the send dialog is open.
   const obscured = obscuredByApp || sendingDesign;
@@ -127,8 +134,7 @@ export function BrowserPane({
     setTab(undefined);
     showUrl("");
     setError(undefined);
-    setPicks([]);
-    setDesignNote("");
+    setAnnotations([]);
     setSendingDesign(false);
   }, [showUrl, worktreeId]);
 
@@ -387,57 +393,148 @@ export function BrowserPane({
     }
   };
 
-  const stopPicking = useCallback(() => {
-    const browserTabId = pickingTabRef.current;
-    pickingTabRef.current = undefined;
-    setPicking(false);
-    if (browserTabId) void bridge?.browser.designCancel?.(browserTabId).catch(() => undefined);
+  tabUrlRef.current = tab?.url;
+
+  /** Ends the session on the page. Annotations stay in the panel until they are sent or cleared. */
+  const stopAnnotating = useCallback(() => {
+    const session = annotateRef.current;
+    annotateRef.current = undefined;
+    setAnnotating(false);
+    setAnnotateMode("select");
+    if (session) void bridge?.browser.designCancel?.(session.browserTabId).catch(() => undefined);
   }, [bridge]);
 
-  const startPicking = async () => {
-    const designPick = bridge?.browser.designPick;
-    if (!bridge || !designPick || !tab || pickingTabRef.current) return;
-    const browserTabId = tab.browserTabId;
-    pickingTabRef.current = browserTabId;
-    setPicking(true);
-    setError(undefined);
-    try {
-      const selector = pickedSelector(await designPick(browserTabId));
-      if (!selector || pickingTabRef.current !== browserTabId) return;
-      setInspecting(true);
+  const readAnnotation = async (
+    browserTabId: string,
+    result: Extract<DesignPickResult, { kind: "element" | "region" }>,
+  ): Promise<DesignAnnotation | undefined> => {
+    if (!bridge) return undefined;
+    if (result.kind === "element") {
       const pick = parseDesignInspection(
-        await bridge.browser.designInspect({ browserTabId, selector }),
-        selector,
-        makeCommandId(),
+        await bridge.browser.designInspect({ browserTabId, selector: result.selector }),
+        result.selector,
+        result.id,
       );
-      if (!pick) throw new Error("The picked element could not be read. Try picking it again.");
-      setPicks((current) => [...current, pick].slice(-MAX_DESIGN_PICKS));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The element could not be picked.");
-    } finally {
-      if (pickingTabRef.current === browserTabId) {
-        pickingTabRef.current = undefined;
-        setPicking(false);
+      if (!pick) throw new Error("The element could not be read. Try clicking it again.");
+      return { ...pick, kind: "element", instruction: "" };
+    }
+    const screenshot = parseDesignImage(
+      await bridge.browser
+        .designCapture?.({ browserTabId, bounds: result.bounds, strokes: result.strokes })
+        .catch(() => undefined),
+    );
+    const url = tabUrlRef.current;
+    return {
+      kind: "region",
+      id: result.id,
+      ...(url ? { url } : {}),
+      bounds: result.bounds,
+      ...(result.viewport ? { viewport: result.viewport } : {}),
+      strokes: result.strokes,
+      ...(screenshot ? { screenshot } : {}),
+      instruction: result.instruction,
+    };
+  };
+
+  /** Keeps the page's annotate session open and turns what happens there into annotations and their notes. */
+  const startAnnotating = async () => {
+    const designPick = bridge?.browser.designPick;
+    if (!bridge || !designPick || !tab || annotateRef.current) return;
+    const browserTabId = tab.browserTabId;
+    const session = { browserTabId };
+    annotateRef.current = session;
+    setAnnotating(true);
+    setError(undefined);
+    // The page draws a pick and opens its note right away, so one the panel turns down is dropped there.
+    const dropInPage = (id: string) =>
+      void bridge.browser
+        .designMark?.({ browserTabId, marks: designMarks(annotationsRef.current, tabUrlRef.current), drop: [id] })
+        .catch(() => undefined);
+    while (annotateRef.current === session) {
+      let result: DesignPickResult | undefined;
+      try {
+        result = parseDesignPickResult(await designPick(browserTabId));
+      } catch (cause) {
+        if (annotateRef.current !== session) return;
+        setError(cause instanceof Error ? cause.message : "Annotate could not start on this page.");
+        stopAnnotating();
+        return;
       }
-      setInspecting(false);
+      if (annotateRef.current !== session) return;
+      // Escape in the page, a navigation, or a closed tab ends the session.
+      if (!result) {
+        stopAnnotating();
+        return;
+      }
+      if (result.kind === "mode") {
+        setAnnotateMode(result.mode);
+        continue;
+      }
+      const { id } = result;
+      if (result.kind === "remove") {
+        setAnnotations((current) => current.filter((annotation) => annotation.id !== id));
+        continue;
+      }
+      if (result.kind === "note") {
+        const { instruction, edits } = result;
+        setAnnotations((current) =>
+          current.map((annotation) => {
+            if (annotation.id !== id) return annotation;
+            if (annotation.kind === "element" && edits !== undefined)
+              return { ...annotation, instruction, edits: edits ?? undefined };
+            return { ...annotation, instruction };
+          }),
+        );
+        continue;
+      }
+      if (annotationsRef.current.length >= MAX_DESIGN_ANNOTATIONS) {
+        setError(`Send these first. Up to ${MAX_DESIGN_ANNOTATIONS} annotations go in one message.`);
+        dropInPage(id);
+        continue;
+      }
+      setInspecting(true);
+      try {
+        const annotation = await readAnnotation(browserTabId, result);
+        if (annotation)
+          setAnnotations((current) => (current.length >= MAX_DESIGN_ANNOTATIONS ? current : [...current, annotation]));
+        else dropInPage(id);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "The annotation could not be read.");
+        dropInPage(id);
+      } finally {
+        setInspecting(false);
+      }
     }
   };
 
   const pickTabId = tab?.browserTabId;
-  // A pick belongs to the page it started on; switching tabs or closing the pane ends it.
+  // A session belongs to the page it started on; switching tabs or closing the pane ends it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: pickTabId is the trigger to stop.
-  useEffect(() => () => stopPicking(), [pickTabId, stopPicking]);
+  useEffect(() => () => stopAnnotating(), [pickTabId, stopAnnotating]);
 
   useEffect(() => {
-    if (!picking) return;
+    if (!annotating || sendingDesign) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      stopPicking();
+      stopAnnotating();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [picking, stopPicking]);
+  }, [annotating, sendingDesign, stopAnnotating]);
+
+  const marksKey = JSON.stringify(designMarks(annotations, tab?.url));
+  useEffect(() => {
+    const designMark = bridge?.browser.designMark;
+    if (!annotating || !pickTabId || !designMark) return;
+    void designMark({ browserTabId: pickTabId, marks: JSON.parse(marksKey) }).catch(() => undefined);
+  }, [annotating, bridge, marksKey, pickTabId]);
+
+  const designReady = annotations.some(designAnnotationReady);
+  const openDesignSend = () => {
+    if (designReady) setSendingDesign(true);
+  };
+  const annotationCount = `${annotations.length} annotation${annotations.length === 1 ? "" : "s"}`;
 
   return (
     <div className="tool-pane browser-pane">
@@ -525,35 +622,55 @@ export function BrowserPane({
             tooltip="Reload"
           />
         </nav>
-        <form className="browser-address" onSubmit={(event) => void openUrl(event)}>
-          <span className="browser-address-icon">
-            <Icon name="globe" size={13} />
-          </span>
-          <input
-            ref={urlInputRef}
-            aria-label="Browser URL"
-            placeholder="localhost:3000 or https://…"
-            value={url}
-            onChange={(event) => {
-              urlEditedRef.current = true;
-              setUrlState(event.target.value);
-            }}
-          />
-          <Button variant="primary" size="sm" type="submit" disabled={!worktree || !url.trim() || busy}>
-            {busy ? "Opening" : tab ? "Go" : "Open"}
-          </Button>
-        </form>
-        {canDesign ? (
-          <IconButton
-            icon="crosshair"
+        {annotating ? (
+          <AnnotateHint mode={annotateMode} />
+        ) : (
+          <form className="browser-address" onSubmit={(event) => void openUrl(event)}>
+            <span className="browser-address-icon">
+              <Icon name="globe" size={13} />
+            </span>
+            <input
+              ref={urlInputRef}
+              aria-label="Browser URL"
+              placeholder="localhost:3000 or https://…"
+              value={url}
+              onChange={(event) => {
+                urlEditedRef.current = true;
+                setUrlState(event.target.value);
+              }}
+            />
+            <Button variant="primary" size="sm" type="submit" disabled={!worktree || !url.trim() || busy}>
+              {busy ? "Opening" : tab ? "Go" : "Open"}
+            </Button>
+          </form>
+        )}
+        {annotations.length > 0 ? (
+          <Button
             size="sm"
-            iconSize={14}
-            disabled={!tab || inspecting || (!picking && picks.length >= MAX_DESIGN_PICKS)}
-            onClick={() => (picking ? stopPicking() : void startPicking())}
-            pressed={picking}
-            label="Pick element"
-            tooltip={picking ? "Stop picking" : "Pick an element to change"}
-          />
+            variant="primary"
+            className="browser-annotate-send"
+            aria-label={`Send ${annotationCount}`}
+            tooltip={designReady ? `Send ${annotationCount} in one message` : "Add a note to send"}
+            disabled={!designReady}
+            onClick={openDesignSend}
+          >
+            <span className="browser-annotate-count">{annotations.length}</span>
+            Send
+          </Button>
+        ) : null}
+        {canDesign ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            icon="annotate"
+            className={cx("browser-annotate-toggle", annotating && "is-on")}
+            disabled={!tab}
+            aria-pressed={annotating}
+            onClick={() => (annotating ? stopAnnotating() : void startAnnotating())}
+            tooltip={annotating ? "Stop annotating" : "Point at the page and leave notes for an agent"}
+          >
+            Annotate
+          </Button>
         ) : null}
         <IconButton
           icon="smartphone"
@@ -624,15 +741,6 @@ export function BrowserPane({
           onOpen={(target) => void openDevServer(target)}
         />
       ) : null}
-      {picking ? (
-        <div className="browser-design-hint" role="status">
-          <Icon name="crosshair" size={13} />
-          <span>Click an element in the page. Esc cancels.</span>
-          <Button size="xs" variant="ghost" onClick={stopPicking}>
-            Cancel
-          </Button>
-        </div>
-      ) : null}
       {(error ?? tab?.loadError) && (
         <div className="banner banner-danger" role="alert">
           <Icon name="alert" size={14} />
@@ -701,37 +809,26 @@ export function BrowserPane({
           />
         ) : null}
       </div>
-      {picks.length > 0 ? (
+      {annotations.length > 0 ? (
         <DesignPanel
-          picks={picks}
-          note={designNote}
-          picking={picking}
+          annotations={annotations}
           inspecting={inspecting}
-          canPick={!!tab}
-          onNoteChange={setDesignNote}
-          onPickAnother={() => void startPicking()}
-          onRemove={(id) => setPicks((current) => current.filter((pick) => pick.id !== id))}
-          onClear={() => {
-            setPicks([]);
-            setDesignNote("");
-          }}
-          onSend={() => {
-            if (picking) stopPicking();
-            setSendingDesign(true);
-          }}
+          annotating={annotating}
+          onRemove={(id) => setAnnotations((current) => current.filter((annotation) => annotation.id !== id))}
+          onClear={() => setAnnotations([])}
         />
       ) : null}
-      {sendingDesign && worktree && picks.length > 0 ? (
+      {sendingDesign && worktree && annotations.length > 0 ? (
         <SendToAgentDialog
-          label="Send picked elements"
-          title={`Send ${picks.length} element${picks.length === 1 ? "" : "s"}`}
+          label="Send annotations"
+          title={`Send ${annotationCount}`}
           worktree={worktree}
-          message={formatDesignMessage(picks, designNote, worktree.branch)}
-          attachments={designAttachments(picks)}
-          noAgentMessage={`No agent is running in ${worktree.branch}. Start one with New agent, then send the elements. They stay here until then.`}
+          message={formatDesignMessage(annotations, worktree.branch)}
+          attachments={designAttachments(annotations)}
+          noAgentMessage={`No agent is running in ${worktree.branch}. Start one with New agent, then send the annotations. They stay here until then.`}
           onSent={() => {
-            setPicks([]);
-            setDesignNote("");
+            setAnnotations([]);
+            stopAnnotating();
           }}
           onClose={() => setSendingDesign(false)}
           onShowAgent={onShowAgent}
@@ -741,6 +838,32 @@ export function BrowserPane({
   );
 }
 
+const ANNOTATE_HELP: Record<DesignAnnotateMode, string> = {
+  select: "Click an element or drag over an area. ↑ and ↓ move to the parent or child. Esc exits Annotate.",
+  note: "Return saves the note, Shift+Return adds a line, and Esc cancels it.",
+  draw: "Draw, circle, or point at what should change. Return saves and Esc cancels.",
+};
+
+/** The gestures for the step the page is on, in place of the address while Annotate is on. */
+function AnnotateHint({ mode }: { mode: DesignAnnotateMode }) {
+  return (
+    <span className="browser-annotate-hint" role="status" title={ANNOTATE_HELP[mode]}>
+      {mode === "note" ? (
+        <>
+          <b>Return</b> to save · <b>Esc</b> to cancel
+        </>
+      ) : mode === "draw" ? (
+        <>
+          Draw on the area · <b>Esc</b> to cancel
+        </>
+      ) : (
+        <>
+          <b>Click</b> or <b>drag</b> · <b>Esc</b> to exit
+        </>
+      )}
+    </span>
+  );
+}
 function sameViewport(left: BrowserViewport | undefined, right: BrowserViewport | undefined) {
   if (!left || !right) return left === right;
   return (

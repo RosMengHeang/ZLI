@@ -55,6 +55,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("project.archive"), projectId: ProjectId }),
   z.object({ type: z.literal("project.git"), projectId: ProjectId, git: z.boolean() }),
   z.object({ type: z.literal("project.agents"), projectId: ProjectId, trusted: z.boolean() }),
+  z.object({ type: z.literal("project.rename"), projectId: ProjectId, name: z.string().trim().min(1) }),
   z.object({
     type: z.literal("worktree.create"),
     worktreeId: WorktreeId,

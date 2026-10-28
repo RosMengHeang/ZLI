@@ -49,7 +49,7 @@ ZLI runs the agent CLIs you already have installed. Install and sign in to at le
 ZLI checks GitHub Releases a few seconds after it starts and every four hours after that.
 
 - **Windows and Linux (AppImage):** the new version downloads in the background and **Restart to update** appears in the title bar. Otherwise it installs the next time you quit. If agents are still working when you restart, ZLI asks first. To download updates only when you choose, turn off **Install updates automatically** in **Settings > Updates**.
-- **Linux (.deb and .rpm):** these packages do not update themselves. Download the new `.deb` or `.rpm` from the release page and install it again with `apt` or `dnf`.
+- **Linux (.deb and .rpm):** the new version downloads in the background and **Restart to update** appears in the title bar. When you restart, Linux asks for your password so `dpkg` or `dnf` can install the new package, then ZLI opens again. These packages install only when you choose **Restart to update**, not when you quit. If you cancel the password prompt, ZLI opens again on the version you have.
 - **macOS:** ZLI tells you when a new version is out and opens the release page, because macOS only lets signed apps update themselves.
 
 **Settings > Updates** and **Help and diagnostics** show the running version and let you check for updates by hand. After an update, ZLI shows what changed.

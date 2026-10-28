@@ -6,6 +6,7 @@ import { expect, test } from "@playwright/test";
 import {
   captureProcessTree,
   closeDesktop,
+  openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
   launchDesktop,
@@ -19,7 +20,7 @@ test("leaves no ZLI process running after it quits with a terminal open", async 
   try {
     fixture = await launchDesktop(repo, root);
     const { page } = fixture;
-    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    await openCreateWorktree(page);
     const dialog = page.getByRole("dialog", { name: "Create worktree" });
     await dialog.getByLabel("Branch").fill("quit");
     await dialog.getByRole("button", { name: "Create worktree" }).click();

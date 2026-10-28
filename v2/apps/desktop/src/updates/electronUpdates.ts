@@ -34,6 +34,11 @@ export async function registerUpdates(options: {
     settings,
     openExternal: options.openExternal,
     prepareToInstall: options.prepareToInstall,
+    // The app's processes are already stopped, so skip before-quit and start fresh.
+    relaunch: () => {
+      app.relaunch();
+      app.exit(0);
+    },
     log: options.log,
   });
   service.subscribe((status) => {

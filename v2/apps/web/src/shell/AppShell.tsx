@@ -12,7 +12,7 @@ import {
   type WorktreeSetupProjection,
   worktreeDevServers,
 } from "@zli-v2/contracts";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { accountLabel, launchAccountId, sessionAccountId, useAccounts } from "../accounts/accounts.js";
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
@@ -421,7 +421,17 @@ function WorkspaceApp() {
   );
 
   const toggleSidePane = (next: SidePane) => setSidePane((current) => (current === next ? undefined : next));
-  const toggleSidebar = () => updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
+  // Zoomed far in, the window is too narrow to keep the sidebar beside the work, so it starts hidden
+  // there without changing the saved choice for wider windows.
+  const narrow = useNarrowWindow();
+  const [narrowSidebarOpen, setNarrowSidebarOpen] = useState(false);
+  const sidebarOpen = narrow ? narrowSidebarOpen : workbench.sidebarOpen;
+  const toggleSidebar = () =>
+    narrow
+      ? setNarrowSidebarOpen((open) => !open)
+      : updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
+  const hideSidebar = () =>
+    narrow ? setNarrowSidebarOpen(false) : updateWorkbench((state) => ({ ...state, sidebarOpen: false }));
   const toggleDrawer = () => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }));
   const openSettings = (section: SettingsSection = "agents") => {
     setPaletteOpen(false);
@@ -1096,6 +1106,15 @@ function WorkspaceApp() {
     if (removed && worktree.worktreeId === selectedWorktreeId) setSelectedWorktreeId(undefined);
   };
 
+  const renameProject = async (projectId: string, name: string) => {
+    const response = await dispatch({
+      protocolVersion: 1,
+      commandId: makeCommandId(),
+      command: { type: "project.rename", projectId, name },
+    });
+    if (response?.accepted === false) showError(response.error.message);
+  };
+
   /** Removes a project from ZLI. Its folder, and the folders of its worktrees, stay on disk. */
   const removeProject = async (projectId: string): Promise<string | undefined> => {
     const current = projectionRef.current;
@@ -1589,12 +1608,37 @@ function WorkspaceApp() {
       action: () => setSidePane("review"),
     },
     {
-      label: workbench.sidebarOpen ? "Hide sidebar" : "Show sidebar",
+      label: sidebarOpen ? "Hide sidebar" : "Show sidebar",
       icon: "panelLeft",
       group: "View",
       shortcut: shortcuts.toggleSidebar,
       action: toggleSidebar,
     },
+    ...(bridge?.app.zoom
+      ? [
+          {
+            label: "Zoom in",
+            icon: "zoomIn" as const,
+            group: "View" as const,
+            shortcut: "Mod+=",
+            action: () => void bridge.app.zoom?.("in"),
+          },
+          {
+            label: "Zoom out",
+            icon: "zoomOut" as const,
+            group: "View" as const,
+            shortcut: "Mod+-",
+            action: () => void bridge.app.zoom?.("out"),
+          },
+          {
+            label: "Actual size",
+            icon: "search" as const,
+            group: "View" as const,
+            shortcut: "Mod+0",
+            action: () => void bridge.app.zoom?.("reset"),
+          },
+        ]
+      : []),
     { label: "Export support bundle", icon: "download", group: "App", action: () => void exportSupportBundle() },
     { label: "Import legacy snapshot", icon: "upload", group: "App", action: () => void startLegacyImport() },
     { label: "Settings", icon: "settings", group: "App", shortcut: shortcuts.settings, action: () => openSettings() },
@@ -1684,8 +1728,8 @@ function WorkspaceApp() {
 
   return (
     <FileIndexProvider onOpenFile={openFile}>
-      <div className={`app-shell${workbench.sidebarOpen ? "" : " is-sidebar-hidden"}`}>
-        {workbench.sidebarOpen ? (
+      <div className={`app-shell${sidebarOpen ? "" : " is-sidebar-hidden"}`}>
+        {sidebarOpen ? (
           <Sidebar
             projection={projection}
             sessions={sessions}
@@ -1707,13 +1751,21 @@ function WorkspaceApp() {
             onCreateWorktree={(project) =>
               setWorktreeDialogProject(project ?? contextProject ?? projection?.projects[0])
             }
+            onRemoveProject={async (projectId) => {
+              const name = projection?.projects.find((project) => project.projectId === projectId)?.name ?? "project";
+              const problem = await removeProject(projectId);
+              if (!problem)
+                setNotice({ message: `Removed ${name} from ZLI. Its folder is still on disk.`, tone: "info" });
+              return problem;
+            }}
+            onRenameProject={(projectId, name) => void renameProject(projectId, name)}
             onWorktreeAction={(worktree, action) => void worktreeAction(worktree, action)}
             onReviewSetup={(worktree) => reviewSetup(worktree.worktreeId)}
             onShowSetupOutput={(worktree) => showSetupOutput(worktree.worktreeId)}
             onOpenHelp={() => setHelpOpen(true)}
             onOpenSettings={() => openSettings()}
             onOpenUsage={openUsage}
-            onHideSidebar={() => updateWorkbench((state) => ({ ...state, sidebarOpen: false }))}
+            onHideSidebar={hideSidebar}
             runGroups={workbench.groups}
             runStates={runStates}
             onCompareRuns={(group) => setCompareGroupId(group.groupId)}
@@ -1721,7 +1773,7 @@ function WorkspaceApp() {
         ) : null}
         <main className="main-workspace">
           <Topbar
-            sidebarOpen={workbench.sidebarOpen}
+            sidebarOpen={sidebarOpen}
             project={contextWorktree ? contextProject : undefined}
             worktree={contextWorktree}
             hasProjects={hasProjects}
@@ -2198,4 +2250,19 @@ function useElementWidth<T extends HTMLElement>(): [(element: T | null) => void,
     return () => observer.disconnect();
   }, []);
   return [ref, width];
+}
+
+const NARROW_WINDOW = "(max-width: 720px)";
+
+/** Whether the window is too narrow for the sidebar and the work side by side, which zooming in can cause. */
+function useNarrowWindow(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      if (typeof window.matchMedia !== "function") return () => undefined;
+      const query = window.matchMedia(NARROW_WINDOW);
+      query.addEventListener("change", onChange);
+      return () => query.removeEventListener("change", onChange);
+    },
+    () => typeof window.matchMedia === "function" && window.matchMedia(NARROW_WINDOW).matches,
+  );
 }

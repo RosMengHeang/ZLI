@@ -1,4 +1,10 @@
-import { CANCEL_DESIGN_PICKER_SCRIPT, DESIGN_PICKER_SCRIPT, SELECTOR_FOR_SOURCE } from "./DesignPicker.js";
+import {
+  CANCEL_DESIGN_PICKER_SCRIPT,
+  DESIGN_PICKER_SCRIPT,
+  type DesignPickResult,
+  parseDesignPickResult,
+  SELECTOR_FOR_SOURCE,
+} from "./DesignPicker.js";
 
 const MAX_RESULT_BYTES = 8 * 1024 * 1024;
 const MAX_DIAGNOSTIC_ENTRIES = 500;
@@ -510,10 +516,11 @@ export class BrowserAutomation {
   }
 
   /**
-   * Lets the person pick an element in the page and resolves with its selector, or null when the
-   * pick is cancelled, the page navigates away, or the tab closes.
+   * Waits for the next element the person clicks or region they draw in the page's annotate
+   * session, starting the session if needed. Null when the session ends, the page navigates away,
+   * or the tab closes.
    */
-  async pickElement(): Promise<{ selector: string } | null> {
+  async pickElement(): Promise<DesignPickResult | null> {
     await this.start();
     let response: unknown;
     try {
@@ -526,10 +533,7 @@ export class BrowserAutomation {
       return null;
     }
     if (isRecord(response) && isRecord(response.exceptionDetails)) return null;
-    const value = extractValue(response);
-    return isRecord(value) && typeof value.selector === "string" && value.selector
-      ? { selector: value.selector }
-      : null;
+    return parseDesignPickResult(extractValue(response));
   }
 
   async cancelPick(): Promise<void> {

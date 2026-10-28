@@ -667,6 +667,12 @@ describe("projects without Git", () => {
     ]);
   });
 
+  it("renames a project", () => {
+    expect(decide(plain(undefined), { type: "project.rename", projectId, name: "Shop" })).toEqual([
+      { type: "project.renamed", projectId, name: "Shop" },
+    ]);
+  });
+
   it("refuses a new worktree for a folder that is not a Git repository", () => {
     expect(() => decide(plain(false), create)).toThrow(/not a Git repository/u);
     expect(decide(plain(undefined), create)[0]?.type).toBe("worktree.create.requested");

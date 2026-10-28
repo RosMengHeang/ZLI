@@ -1,69 +1,54 @@
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { type DesignPick, designSize, designSummary, MAX_DESIGN_PICKS } from "./designMode.js";
+import { type DesignAnnotation, designEditSummary, designSize, designSummary } from "./designMode.js";
 
-/** Elements picked in design mode, with the request that goes to the agent along with them. */
+/** The annotations waiting to go to the agent. Their notes are written on the page, next to what they point at. */
 export function DesignPanel({
-  picks,
-  note,
-  picking,
+  annotations,
   inspecting,
-  canPick,
-  onNoteChange,
-  onPickAnother,
+  annotating,
   onRemove,
   onClear,
-  onSend,
 }: {
-  picks: readonly DesignPick[];
-  note: string;
-  picking: boolean;
+  annotations: readonly DesignAnnotation[];
   inspecting: boolean;
-  canPick: boolean;
-  onNoteChange(note: string): void;
-  onPickAnother(): void;
+  annotating: boolean;
   onRemove(id: string): void;
   onClear(): void;
-  onSend(): void;
 }) {
-  const full = picks.length >= MAX_DESIGN_PICKS;
-  const ready = note.trim().length > 0;
   return (
-    <section className="browser-design" aria-label="Picked elements">
+    <section className="browser-design" aria-label="Annotations">
       <header className="browser-design-header">
-        <Icon name="crosshair" size={13} />
         <span className="browser-design-title">
-          {picks.length} element{picks.length === 1 ? "" : "s"} picked
+          {annotations.length} annotation{annotations.length === 1 ? "" : "s"}
         </span>
         {inspecting ? (
           <span className="browser-design-status" role="status">
             <span className="spinner" aria-hidden="true" />
-            Reading the element
+            Reading the page
           </span>
-        ) : null}
-        <Button
-          size="xs"
-          variant="ghost"
-          icon="crosshair"
-          disabled={!canPick || picking || full}
-          tooltip={full ? `Send these first. Up to ${MAX_DESIGN_PICKS} elements go in one message.` : undefined}
-          onClick={onPickAnother}
-        >
-          Pick another
+        ) : annotating ? null : (
+          <span className="browser-design-status">Turn on Annotate to edit notes on the page.</span>
+        )}
+        <Button size="xs" variant="ghost" icon="trash" onClick={onClear}>
+          Clear all
         </Button>
-        <IconButton label="Clear picked elements" tooltip="Clear" icon="x" size="xs" iconSize={12} onClick={onClear} />
       </header>
-      <ul className="browser-design-picks">
-        {picks.map((pick) => {
-          const summary = designSummary(pick);
-          const size = designSize(pick);
+      <ol className="browser-design-picks">
+        {annotations.map((annotation, index) => {
+          const n = index + 1;
+          const summary = designSummary(annotation);
+          const size = designSize(annotation);
+          const edits = annotation.kind === "element" ? designEditSummary(annotation.edits) : undefined;
+          const instruction = annotation.instruction.trim();
           return (
-            <li className="browser-design-pick" key={pick.id}>
-              {pick.screenshot ? (
+            <li className="browser-design-pick" key={annotation.id}>
+              <span className="browser-design-index">{n}</span>
+              {annotation.screenshot ? (
                 <img
                   className="browser-design-thumb"
-                  src={`data:${pick.screenshot.mimeType};base64,${pick.screenshot.data}`}
-                  alt={`Screenshot of ${summary}`}
+                  src={`data:${annotation.screenshot.mimeType};base64,${annotation.screenshot.data}`}
+                  alt={`Screenshot of annotation ${n}, ${summary}`}
                 />
               ) : (
                 <span className="browser-design-thumb is-empty" aria-hidden="true">
@@ -71,43 +56,32 @@ export function DesignPanel({
                 </span>
               )}
               <span className="browser-design-pick-copy">
-                <span className="browser-design-pick-name">{summary}</span>
-                <span className="browser-design-pick-detail">
-                  <code title={pick.selector}>{pick.selector}</code>
+                <span className="browser-design-pick-name">
+                  <code>{summary}</code>
                   {size ? <span>{size}</span> : null}
+                  {annotation.kind === "region" && annotation.strokes.length > 0 ? (
+                    <span>
+                      {annotation.strokes.length} mark{annotation.strokes.length === 1 ? "" : "s"}
+                    </span>
+                  ) : null}
+                  {edits ? <span className="browser-design-edits">{edits}</span> : null}
+                </span>
+                <span className={`browser-design-pick-note${instruction ? "" : " is-empty"}`}>
+                  {instruction || "No note yet"}
                 </span>
               </span>
               <IconButton
-                label={`Remove ${summary}`}
+                label={`Remove annotation ${n}`}
                 tooltip="Remove"
-                icon="trash"
+                icon="x"
                 size="xs"
                 iconSize={12}
-                onClick={() => onRemove(pick.id)}
+                onClick={() => onRemove(annotation.id)}
               />
             </li>
           );
         })}
-      </ul>
-      <textarea
-        className="textarea browser-design-note"
-        aria-label="What should change?"
-        placeholder="What should change?"
-        rows={2}
-        value={note}
-        onChange={(event) => onNoteChange(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && ready) {
-            event.preventDefault();
-            onSend();
-          }
-        }}
-      />
-      <div className="browser-design-actions">
-        <Button size="sm" variant="primary" icon="message" shortcut="Mod+Enter" disabled={!ready} onClick={onSend}>
-          Send to agent
-        </Button>
-      </div>
+      </ol>
     </section>
   );
 }

@@ -17,6 +17,16 @@ describe("update settings", () => {
     expect(
       parseUpdateSettings({ autoInstall: "no", lastSeenVersion: "latest", offered: { version: "1.2.3", notes: 4 } }),
     ).toEqual({ autoInstall: true, offered: { version: "1.2.3" } });
+    expect(parseUpdateSettings({ installError: "  ZLI 0.2.0 was not installed.  " }).installError).toBe(
+      "ZLI 0.2.0 was not installed.",
+    );
+    expect(parseUpdateSettings({ installError: 4 }, { autoInstall: false, installError: "kept" })).toEqual({
+      autoInstall: false,
+      installError: "kept",
+    });
+    expect(parseUpdateSettings({ installError: "" }, { autoInstall: true, installError: "kept" })).toEqual({
+      autoInstall: true,
+    });
   });
 
   it("saves changes and reads them back, falling back to defaults for a broken file", async () => {

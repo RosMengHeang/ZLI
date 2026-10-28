@@ -78,6 +78,14 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
         ),
         lastSequence: envelope.sequence,
       };
+    case "project.renamed":
+      return {
+        ...projection,
+        projects: projection.projects.map((project) =>
+          project.projectId === event.projectId ? { ...project, name: event.name } : project,
+        ),
+        lastSequence: envelope.sequence,
+      };
     case "worktree.create.requested":
       return {
         ...projection,
