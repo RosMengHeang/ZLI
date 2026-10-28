@@ -124,7 +124,6 @@ describe("UpdateService schedule", () => {
     ["packaged end-to-end runs", { env: { ZLI_DISABLE_UPDATES: "1" } }],
     ["mock provider test runs", { env: { ZLI_TEST_PROVIDER: "mock" } }],
     ["launches with a throwaway database", { env: { ZLI_DATABASE_PATH: "/tmp/runtime.sqlite" } }],
-    ["Linux runs outside the AppImage", { platform: "linux" as const, env: {} }],
   ])("never loads the updater in %s", async (_name, overrides) => {
     const { service, loadUpdater } = createService(overrides);
     service.start();
@@ -136,10 +135,8 @@ describe("UpdateService schedule", () => {
     expect(service.whatsNew()).toBeUndefined();
   });
 
-  it("tells installed .deb and .rpm builds to download the release", () => {
-    expect(updateDisabledReason({ isPackaged: true, platform: "linux", env: {} })).toBe(
-      "Only the AppImage build updates itself. Download the new .deb or .rpm from the releases page.",
-    );
+  it("checks for updates in installed .deb and .rpm builds", () => {
+    expect(updateDisabledReason({ isPackaged: true, env: {} })).toBeUndefined();
   });
 
   it("runs one check at a time", async () => {
@@ -178,6 +175,60 @@ describe("UpdateService downloads", () => {
     expect(updater.checks).toBe(1);
     expect(await service.quitAndInstall()).toBe(true);
     expect(updater.installs).toEqual([[true, true]]);
+  });
+
+  it("downloads on .deb and .rpm installs and installs only on Restart to update", async () => {
+    const { service, updater } = createService({ platform: "linux", env: {} });
+    updater.available = { version: "0.2.0" };
+
+    await service.check();
+    // dpkg and dnf ask for a password, which must not appear while ZLI quits.
+    expect(updater.autoInstallOnAppQuit).toBe(false);
+    expect(updater.downloads).toBe(1);
+    await service.setAutoInstall(false);
+    await service.setAutoInstall(true);
+    expect(updater.autoInstallOnAppQuit).toBe(false);
+
+    updater.emit("update-downloaded", { version: "0.2.0" });
+    expect(await service.quitAndInstall()).toBe(true);
+    expect(updater.installs).toEqual([[true, true]]);
+  });
+
+  it("still installs the AppImage on quit when automatic installs are on", async () => {
+    const { service, updater } = createService({
+      platform: "linux",
+      env: { APPIMAGE: "/opt/ZLI.AppImage" },
+      settings: memorySettings({ autoInstall: true }),
+    });
+    updater.available = { version: "0.2.0" };
+    await service.check();
+    expect(updater.autoInstallOnAppQuit).toBe(true);
+  });
+
+  it("starts the current version again when the package install fails", async () => {
+    const relaunch = vi.fn();
+    const prepareToInstall = vi.fn(async () => {});
+    const { service, updater, settings } = createService({ platform: "linux", env: {}, relaunch, prepareToInstall });
+    updater.available = { version: "0.2.0" };
+    await service.check();
+    updater.emit("update-downloaded", { version: "0.2.0" });
+    updater.quitAndInstall = () => updater.emit("error", new Error("Command pkexec exited with code 126"));
+
+    expect(await service.quitAndInstall()).toBe(false);
+    expect(prepareToInstall).toHaveBeenCalledOnce();
+    expect(relaunch).toHaveBeenCalledOnce();
+    const message = "ZLI 0.2.0 was not installed. Check for updates, then try Restart to update again.";
+    expect(service.status().state).toEqual({ status: "error", message });
+    expect(settings.current().installError).toBe(message);
+
+    // The relaunched app still explains the failure. The next check downloads it again.
+    const restarted = createService({ platform: "linux", env: {}, settings });
+    expect(restarted.service.status().state).toEqual({ status: "error", message });
+    restarted.updater.available = { version: "0.2.0" };
+    await restarted.service.check();
+    expect(settings.current().installError).toBeUndefined();
+    expect(restarted.updater.downloads).toBe(1);
+    expect(restarted.service.status().state).toMatchObject({ status: "downloading", version: "0.2.0" });
   });
 
   it("stops the app's processes before electron-updater starts the installer", async () => {
