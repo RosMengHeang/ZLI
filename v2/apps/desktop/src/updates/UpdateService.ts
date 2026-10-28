@@ -146,6 +146,9 @@ export class UpdateService {
     this.canInstallOnQuit = !isLinuxPackage(deps);
     this.timers = deps.timers ?? globalTimers;
     this.now = deps.now ?? (() => new Date());
+    // The process that failed the install has exited. The next launch is what the person sees.
+    const installError = deps.settings.current().installError;
+    if (installError) this.state = { status: "error", message: installError };
   }
 
   status(): UpdateStatus {
@@ -223,7 +226,11 @@ export class UpdateService {
       this.installing = false;
     }
     if (!this.installFailed) return true;
+    // Staying on ready would look like the install worked, including when the password prompt was closed.
+    const message = `ZLI ${version} was not installed. Check for updates, then try Restart to update again.`;
     this.deps.log?.("warn", `ZLI ${version} was not installed; starting the current version again`);
+    this.setState({ status: "error", message });
+    await this.saveSettings({ installError: message });
     this.deps.relaunch?.();
     return false;
   }
@@ -272,6 +279,7 @@ export class UpdateService {
   }
 
   private async runCheck(): Promise<void> {
+    await this.clearInstallError();
     // An offer already on screen stays there while the next check runs in the background.
     if (this.state.status !== "available") this.setState({ status: "checking" });
     try {
@@ -361,6 +369,12 @@ export class UpdateService {
     // A later failed check must not hide an update that is already downloaded.
     if (this.state.status === "ready") return;
     this.setState({ status: "error", message });
+  }
+
+  /** Drops a stored install failure once a check is trying again. An empty string clears it. */
+  private async clearInstallError(): Promise<void> {
+    if (!this.deps.settings.current().installError) return;
+    await this.saveSettings({ installError: "" });
   }
 
   private async saveSettings(patch: Partial<UpdateSettings>): Promise<void> {
