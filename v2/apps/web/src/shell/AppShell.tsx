@@ -65,7 +65,7 @@ import {
   sessionTitle,
 } from "../sessions/sessions.js";
 import { groupFinished, useRunStates } from "../sessions/useRunStates.js";
-import { forgetSession, useWorkbenchState } from "../sessions/workbench.js";
+import { forgetSession, keepPendingLaunch, useWorkbenchState } from "../sessions/workbench.js";
 import { resolveLaunchDefaults, updateAppSettings, useAppSettings } from "../settings/appSettings.js";
 import { ExpiredSignInNotice } from "../settings/ExpiredSignInNotice.js";
 import type { IntegrationsView } from "../settings/IntegrationsSection.js";
@@ -504,11 +504,11 @@ function WorkspaceApp() {
   useEffect(() => {
     if (!projection) return;
     const existing = new Set(sessions.filter((session) => !session.pending).map((session) => session.sessionId));
-    const settled = workbench.pending.filter((launch) => existing.has(launch.sessionId));
-    if (settled.length > 0) {
+    const worktreeIds = new Set(projection.worktrees.map((worktree) => worktree.worktreeId));
+    if (workbench.pending.some((launch) => !keepPendingLaunch(launch, existing, worktreeIds))) {
       updateWorkbench((state) => ({
         ...state,
-        pending: state.pending.filter((launch) => !existing.has(launch.sessionId)),
+        pending: state.pending.filter((launch) => keepPendingLaunch(launch, existing, worktreeIds)),
       }));
     }
     for (const launch of workbench.pending) {

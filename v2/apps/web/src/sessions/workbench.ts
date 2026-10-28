@@ -60,6 +60,20 @@ export function forgetSession(state: WorkbenchState, sessionId: string): Workben
   };
 }
 
+/**
+ * Whether a waiting launch still belongs on screen. It goes once its session exists. A failed launch can
+ * only be tried again in its worktree, so it also goes when that worktree is gone, as after a reset
+ * workspace, where it would otherwise stay on screen for good.
+ */
+export function keepPendingLaunch(
+  launch: PendingLaunch,
+  sessionIds: ReadonlySet<string>,
+  worktreeIds: ReadonlySet<string>,
+): boolean {
+  if (sessionIds.has(launch.sessionId)) return false;
+  return launch.errorMessage === undefined || worktreeIds.has(launch.worktreeId);
+}
+
 /** Earlier versions stored the first message as a bare string. */
 function parseFirstMessage(value: unknown): FirstMessage | undefined {
   if (typeof value === "string") return value.length > 0 ? { text: value } : undefined;

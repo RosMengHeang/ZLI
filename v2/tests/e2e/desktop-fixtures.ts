@@ -37,6 +37,8 @@ export type DesktopLaunchOptions = {
   legacySnapshotPath?: string;
   /** Extra environment for the app and the runtime it starts, such as a PATH with stand-in CLIs. */
   env?: Record<string, string>;
+  /** Answers yes when the app asks to let agents work in the project. On unless a test checks that question. */
+  trustAgents?: boolean;
 };
 
 /** Sends a message from the chat composer of a newly started Codex agent once it is ready. */
@@ -121,11 +123,19 @@ export async function launchDesktop(
       const page = await app.firstWindow().catch((error: unknown) => {
         throw new WindowTimeout(error);
       });
-      // The first window can start loading before the init script is registered.
-      await page.evaluate(DISABLE_WEBGL);
+      // The first window can start loading before the init script is registered. When that page
+      // navigates mid-call, the new page already ran the registered init script.
+      await page.evaluate(DISABLE_WEBGL).catch((error: unknown) => {
+        if (!(error instanceof Error && error.message.includes("Execution context was destroyed"))) throw error;
+      });
       await page.waitForLoadState("domcontentloaded");
       // The app also forces reduced motion through ZLI_REDUCED_MOTION; this covers a page loaded before it applied.
       await page.emulateMedia({ reducedMotion: "reduce" });
+      if (options.trustAgents !== false) {
+        await page.addLocatorHandler(page.getByRole("dialog", { name: "Let agents work in this project" }), (dialog) =>
+          dialog.getByRole("button", { name: "Let agents work" }).click(),
+        );
+      }
       const runtime = page.getByText("Local runtime");
       const showSidebar = page.getByRole("button", { name: "Show sidebar" });
       await runtime.or(showSidebar).first().waitFor({ state: "visible" });
