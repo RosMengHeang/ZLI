@@ -1,6 +1,13 @@
 import type { ListedProviderKind, TerminalAgentLaunch } from "@zli-v2/contracts";
 
-import { codexMcpArgs, gooseMcpArgs, type McpConfigFileKind, type McpServerSpec } from "../browser-tool/browserTool.js";
+import {
+  codexMcpArgs,
+  gooseMcpArgs,
+  type McpConfigFileKind,
+  type McpServerSpec,
+  opencodeConfigContent,
+  writeAgentMcpConfig,
+} from "../browser-tool/browserTool.js";
 
 /**
  * Model ids reach cmd.exe when the CLI is an npm .cmd shim, so only characters that real
@@ -44,8 +51,8 @@ export function agentCliMissingMessage(provider: ListedProviderKind): string {
 
 /**
  * Interactive CLI arguments for an agent terminal. Permission mode defaults to full access.
- * Read only uses the CLI's plan or read-only mode where it has one; Gemini, Qwen, and Copilot
- * have none, so they keep their default of asking before each change.
+ * Read only uses the CLI's plan or read-only mode where it has one; Copilot has none, so it keeps
+ * its default of asking before each change.
  */
 export function buildAgentArgs(agent: TerminalAgentLaunch): string[] {
   const mode = agent.permissionMode ?? "full-access";
@@ -62,7 +69,8 @@ export function buildAgentArgs(agent: TerminalAgentLaunch): string[] {
     case "claude-code":
       return [
         ...(fullAccess ? ["--dangerously-skip-permissions"] : []),
-        ...(readOnly ? ["--permission-mode", "plan"] : []),
+        // Without a mode, current releases start in Auto mode, where a model decides which actions need asking.
+        ...(readOnly ? ["--permission-mode", "plan"] : fullAccess ? [] : ["--permission-mode", "acceptEdits"]),
         ...(model ? ["--model", model] : []),
       ];
     case "cursor-agent":
@@ -82,16 +90,37 @@ export function buildAgentArgs(agent: TerminalAgentLaunch): string[] {
         ...(model ? ["--model", model] : []),
       ];
     case "gemini":
+      return [
+        ...(fullAccess ? ["--approval-mode", "yolo"] : []),
+        ...(readOnly ? ["--approval-mode", "plan"] : []),
+        ...(model ? ["--model", model] : []),
+      ];
     case "qwen":
-      return [...(fullAccess ? ["--approval-mode", "yolo"] : []), ...(model ? ["--model", model] : [])];
+      // Without a flag Qwen starts in its Auto mode, where a model decides which actions need asking.
+      return [
+        "--approval-mode",
+        fullAccess ? "yolo" : readOnly ? "plan" : "default",
+        ...(model ? ["--model", model] : []),
+      ];
     case "copilot":
       return [...(fullAccess ? ["--allow-all"] : []), ...(model ? ["--model", model] : [])];
     case "kimi":
-      return [...(fullAccess ? ["--yolo"] : []), ...(readOnly ? ["--plan"] : []), ...(model ? ["--model", model] : [])];
+      // Kimi's --yolo still asks when it thinks it should; --auto never asks.
+      return [...(fullAccess ? ["--auto"] : []), ...(readOnly ? ["--plan"] : []), ...(model ? ["--model", model] : [])];
     case "goose":
-      // goose session has no permission or model flags; GOOSE_MODE and GOOSE_MODEL in its config decide both.
+      // goose session has no permission or model flags; see agentModeEnv for its mode.
       return ["session"];
   }
+}
+
+/**
+ * Environment that sets the permission mode for CLIs without a flag for it. Goose otherwise runs in
+ * the mode from its own config, which defaults to auto and never asks.
+ */
+export function agentModeEnv(agent: TerminalAgentLaunch): Record<string, string> {
+  if (agent.provider !== "goose") return {};
+  const mode = agent.permissionMode ?? "full-access";
+  return { GOOSE_MODE: mode === "full-access" ? "auto" : mode === "supervised" ? "smart_approve" : "chat" };
 }
 
 /** CLIs that read MCP servers from a config file passed on their command line. */
@@ -132,6 +161,43 @@ export function mcpLaunchArgs(
     case "qwen":
       return [];
   }
+}
+
+export type AgentMcpLaunchOptions = {
+  /** Where the config file goes for CLIs that take one on the command line. */
+  configDir?: string;
+  worktreeId: string;
+  /** The environment OPENCODE_CONFIG_CONTENT is merged with. */
+  env?: NodeJS.ProcessEnv;
+  writeMcpConfig?: typeof writeAgentMcpConfig;
+};
+
+/** Flags and environment that give one agent launch its MCP servers. A config file that cannot be written leaves its flag out. */
+export async function agentMcpLaunch(
+  provider: ListedProviderKind,
+  specs: readonly McpServerSpec[],
+  options: AgentMcpLaunchOptions,
+): Promise<{ args: string[]; env: Record<string, string> }> {
+  const kind = mcpConfigFileKind(provider);
+  let configFile: string | undefined;
+  if (kind && options.configDir) {
+    try {
+      configFile = await (options.writeMcpConfig ?? writeAgentMcpConfig)(
+        options.configDir,
+        kind,
+        options.worktreeId,
+        specs,
+      );
+    } catch {
+      configFile = undefined;
+    }
+  }
+  const env: Record<string, string> = {};
+  if (provider === "opencode") {
+    const content = opencodeConfigContent(specs, (options.env ?? process.env).OPENCODE_CONFIG_CONTENT);
+    if (content) env.OPENCODE_CONFIG_CONTENT = content;
+  }
+  return { args: mcpLaunchArgs(provider, { specs, ...(configFile ? { configFile } : {}) }), env };
 }
 
 function validModel(model: string): string {

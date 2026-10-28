@@ -40,6 +40,8 @@ export const ProjectProjection = z.object({
   name: z.string().min(1),
   /** False when the folder is not a Git repository. Missing means it is one, or it has not been checked yet. */
   git: z.boolean().optional(),
+  /** The person let agents work in this folder, so ZLI answers each agent CLI's own "trust this folder?" question. */
+  agentsTrusted: z.boolean().optional(),
 });
 export type ProjectProjection = z.infer<typeof ProjectProjection>;
 

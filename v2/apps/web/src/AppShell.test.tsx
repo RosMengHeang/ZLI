@@ -321,16 +321,44 @@ describe("AppShell", () => {
       button(container, "Start agent")?.click();
     });
     expect(container.querySelector('[aria-label="New agent"][role="dialog"]')).toBeNull();
-    const create = dispatched
-      .map((request) => (request as { command: Record<string, unknown> }).command)
-      .find((command) => command.type === "terminal.create");
+    // The first agent in a project waits until the person lets agents work there.
+    await vi.waitFor(() =>
+      expect(container.querySelector('[role="dialog"][aria-label="Let agents work in this project"]')).not.toBeNull(),
+    );
+    expect(commands(dispatched).some((command) => command.type === "terminal.create")).toBe(false);
+    await act(async () => {
+      button(container, "Let agents work")?.click();
+    });
+    expect(commands(dispatched)).toContainEqual({ type: "project.agents", projectId, trusted: true });
+    await vi.waitFor(() =>
+      expect(commands(dispatched).some((command) => command.type === "terminal.create")).toBe(true),
+    );
+    const create = commands(dispatched).find((command) => command.type === "terminal.create");
     expect(create).toMatchObject({
       worktreeId,
       cwd: "C:/repo",
-      agent: { provider: "claude-code", permissionMode: "full-access" },
+      agent: { provider: "claude-code", permissionMode: "supervised" },
     });
     expect(typeof create?.sessionId).toBe("string");
     expect(container.querySelector(".agent-tile")?.textContent).toContain("Claude Code");
+  });
+
+  it("does not start an agent when the person does not let agents work in the project", async () => {
+    const dispatched: unknown[] = [];
+    const container = await render(makeBridge(discovered, dispatched));
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".sidebar-new-agent")?.click();
+    });
+    await act(async () => {
+      button(container, "Start agent")?.click();
+    });
+    await vi.waitFor(() => expect(button(container, "Not now")).not.toBeUndefined());
+    await act(async () => {
+      button(container, "Not now")?.click();
+    });
+    await vi.waitFor(() => expect(container.textContent).toContain("only after you let them work here"));
+    expect(commands(dispatched).some((command) => command.type === "terminal.create")).toBe(false);
+    expect(commands(dispatched).some((command) => command.type === "project.agents")).toBe(false);
   });
 
   it("shows running agent terminals as tiles and sidebar rows grouped under the project", async () => {
@@ -429,6 +457,7 @@ describe("AppShell", () => {
     const latestId = "00000000-0000-4000-8000-000000000403";
     const chats: RuntimeProjection = {
       ...discovered,
+      projects: discovered.projects.map((project) => ({ ...project, agentsTrusted: true })),
       threads: [
         {
           threadId: olderId,

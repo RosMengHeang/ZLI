@@ -14,6 +14,7 @@ import {
   type McpServerSource,
   zliMcpServerSpecs,
 } from "../browser-tool/browserTool.js";
+import { agentFolderTrust } from "../terminal/agentTrust.js";
 import { approvalAllowed } from "./ClaudeCodeProviderAdapter.js";
 import type {
   ProviderAdapter,
@@ -47,7 +48,7 @@ type AcpSessionClient = Pick<
   Partial<Pick<AcpClient, "reasoningEfforts" | "agentSessionId">>;
 type ClientStart = Pick<
   ProviderSessionStart,
-  "cwd" | "permissionMode" | "model" | "worktreeId" | "account" | "resumeSessionId"
+  "cwd" | "permissionMode" | "model" | "worktreeId" | "account" | "resumeSessionId" | "trustedProjectPath"
 >;
 
 const MAX_TITLE = 500;
@@ -78,9 +79,16 @@ export class AcpProviderAdapter implements ProviderAdapter {
     this.provider = config.provider;
     this.createClient =
       options.createClient ??
-      (async ({ worktreeId, account, ...input }) => {
+      (async ({ worktreeId, account, trustedProjectPath, ...input }) => {
         const browserTool = config.browserTool;
-        const env = { ...(browserTool ? agentEnv(browserTool, worktreeId) : {}), ...account?.env };
+        const trust = trustedProjectPath
+          ? await agentFolderTrust(config.provider, {
+              projectPath: trustedProjectPath,
+              cwd: input.cwd,
+              env: { ...process.env, ...account?.env },
+            })
+          : undefined;
+        const env = { ...(browserTool ? agentEnv(browserTool, worktreeId) : {}), ...trust?.env, ...account?.env };
         const specs = [
           ...(browserTool ? zliMcpServerSpecs(browserTool, worktreeId) : []),
           ...((await config.mcpServers?.(worktreeId ? { worktreeId } : {})) ?? []),
@@ -88,7 +96,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
         return AcpClient.start({
           ...input,
           command: await config.resolveCommand(),
-          args: config.acpArgs,
+          args: [...config.acpArgs, ...(trust?.args ?? [])],
           displayName: config.displayName,
           authHint: config.authHint,
           ...(Object.keys(env).length > 0 ? { env } : {}),
@@ -105,6 +113,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
       ...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
       ...(input.account ? { account: input.account } : {}),
       ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
+      ...(input.trustedProjectPath ? { trustedProjectPath: input.trustedProjectPath } : {}),
     });
     // Agents name their own levels; only ones the runtime can carry and pass back are offered.
     const reasoningEfforts = (client.reasoningEfforts ?? [])

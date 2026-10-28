@@ -60,6 +60,7 @@ export type DomainDecision = Extract<
       | "project.registered"
       | "project.archived"
       | "project.git.changed"
+      | "project.agents.changed"
       | "project.renamed"
       | "worktree.create.requested"
       | "worktree.imported"
@@ -172,6 +173,9 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     case "project.git":
       assertProject(projection, command.projectId);
       return [{ type: "project.git.changed", projectId: command.projectId, git: command.git }];
+    case "project.agents":
+      assertProject(projection, command.projectId);
+      return [{ type: "project.agents.changed", projectId: command.projectId, trusted: command.trusted }];
     case "project.rename":
       assertProject(projection, command.projectId);
       return [{ type: "project.renamed", projectId: command.projectId, name: command.name }];

@@ -13,6 +13,7 @@ import {
 
 import type { TurnCheckpoints, TurnStart } from "../checkpoints/TurnCheckpoints.js";
 import type { Engine } from "../orchestration/Engine.js";
+import { trustedProject } from "../terminal/agentTrust.js";
 import type {
   ProviderAccount,
   ProviderEvent,
@@ -153,6 +154,7 @@ export class ProviderReactor {
   private async sessionInput(thread: ThreadProjection, cwd: string): Promise<SessionInput> {
     const provider = ProviderKind.parse(thread.provider);
     const account = await this.options.resolveAccount?.(provider, thread.accountId);
+    const trustedProjectPath = await trustedProject(this.engine, thread.worktreeId);
     return {
       provider,
       threadId: ThreadId.parse(thread.threadId),
@@ -161,6 +163,7 @@ export class ProviderReactor {
       ...(thread.permissionMode ? { permissionMode: thread.permissionMode } : {}),
       ...(thread.model ? { model: thread.model } : {}),
       ...(account ? { account } : {}),
+      ...(trustedProjectPath ? { trustedProjectPath } : {}),
     };
   }
 

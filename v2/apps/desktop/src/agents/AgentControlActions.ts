@@ -12,6 +12,7 @@ import {
   isHttpServer,
   MCP_CATALOG,
   McpListResult,
+  type PermissionMode,
   READ_AGENT_CONTROL_ACTIONS,
   type RpcResponse,
   type RuntimeProjection,
@@ -26,6 +27,8 @@ import {
 } from "../browser/BrowserControlActions.js";
 
 const MAX_MESSAGE_CHARS = 4_000;
+const STRICTEST_FIRST: readonly PermissionMode[] = ["read-only", "supervised", "full-access"];
+const LIVE_THREAD = ["starting", "idle", "working", "waiting"];
 const DEFAULT_READ_LIMIT = 20;
 
 export type AgentControlHost = {
@@ -107,6 +110,27 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     const project = state.projects.find((candidate) => candidate.projectId === full.projectId);
     if (!project) throw new BrowserControlError("The worktree this agent works in has no ZLI project.", 404);
     return { worktree: full, project };
+  };
+
+  /**
+   * The caller is known only by its worktree, so a started agent gets the strictest mode of the agents
+   * working there. Agents from before permission modes existed ran with full access.
+   */
+  const callerPermission = (state: RuntimeProjection, worktreeId: string): PermissionMode => {
+    const modes = [
+      ...state.threads
+        .filter((thread) => thread.worktreeId === worktreeId && LIVE_THREAD.includes(thread.status))
+        .map((thread) => thread.permissionMode ?? "full-access"),
+      ...state.terminals
+        .filter(
+          (terminal) =>
+            terminal.worktreeId === worktreeId &&
+            terminal.kind === "agent" &&
+            (terminal.status === "running" || terminal.status === "starting"),
+        )
+        .map((terminal) => terminal.agent?.permissionMode ?? "full-access"),
+    ];
+    return STRICTEST_FIRST.find((mode) => modes.includes(mode)) ?? "supervised";
   };
 
   const providerName = (state: RuntimeProjection, provider: string) =>
@@ -309,6 +333,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
 
     const sessionId = newId();
     const mode = input.mode ?? "chat";
+    const permissionMode = callerPermission(state, callerWorktree.worktreeId);
     let agentId: string;
     if (mode === "chat") {
       agentId = newId();
@@ -323,7 +348,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         provider: input.provider,
         cwd: target.path,
         sessionId,
-        permissionMode: "full-access",
+        permissionMode,
         ...(input.model ? { model: input.model } : {}),
         ...(shared ? { shareWorktree: true } : {}),
       });
@@ -348,7 +373,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         sessionId,
         agent: {
           provider: input.provider,
-          permissionMode: "full-access",
+          permissionMode,
           ...(input.model ? { model: input.model } : {}),
         },
       });
