@@ -3,7 +3,7 @@
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { cleanupRuntimeRenders, pressModEnter, renderWithRuntime, typeInto } from "../review/testRuntime.js";
+import { cleanupRuntimeRenders, renderWithRuntime, typeInto } from "../review/testRuntime.js";
 import { HuddlePane } from "./HuddlePane.js";
 import {
   buttonNamed,
@@ -109,9 +109,15 @@ describe("HuddlePane", () => {
 
     await click(document.querySelector('[aria-label^="Send to"]'));
     await click([...document.querySelectorAll('[role="option"]')].find((option) => option.textContent === "Coder"));
-    await click(buttonNamed("Task", byLabel("Message kind", document)));
+    await click(document.querySelector('[aria-label^="Message kind"]'));
+    await click(
+      [...document.querySelectorAll('[role="option"]')].find((option) => option.textContent?.startsWith("Task")),
+    );
     await typeInto(textarea, "Write the tests");
-    await pressModEnter(textarea);
+    const sent = commands.length;
+    await pressEnter(textarea, { shiftKey: true });
+    expect(commands).toHaveLength(sent);
+    await pressEnter(textarea);
     expect(commands.at(-1)).toMatchObject({
       type: "huddle.post",
       to: [coderId],
@@ -133,7 +139,7 @@ describe("HuddlePane", () => {
     await renderPane(huddleProjection({ huddles: [huddle({ members: [] })], huddlePosts: [] }));
     expect(byLabel<HTMLTextAreaElement>("Message to the huddle").disabled).toBe(true);
     expect(buttonNamed("Send").disabled).toBe(true);
-    expect(document.body.textContent).toContain("Add an agent to the huddle first.");
+    expect(byLabel<HTMLTextAreaElement>("Message to the huddle").placeholder).toBe("Add an agent to the huddle first.");
   });
 
   it("shows the paused bar and resumes", async () => {
@@ -208,3 +214,9 @@ describe("HuddlePane", () => {
     expect(commands).toContainEqual({ type: "huddle.join", huddleId, agentId: helperId });
   });
 });
+
+async function pressEnter(target: HTMLElement, init: KeyboardEventInit = {}): Promise<void> {
+  await act(async () => {
+    target.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, ...init }));
+  });
+}

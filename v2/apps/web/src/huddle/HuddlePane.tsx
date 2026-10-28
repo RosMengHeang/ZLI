@@ -23,11 +23,9 @@ import {
 
 import { Badge } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
-import { Select } from "../ui/Field.js";
-import { Icon } from "../ui/Icon.js";
+import { Icon, type IconName } from "../ui/Icon.js";
 import { EmptyState } from "../ui/Pane.js";
-import { Segmented, type SegmentedOption } from "../ui/Segmented.js";
-import { shortcutText } from "../ui/shortcuts.js";
+import { Picker, type PickerOption } from "../ui/Picker.js";
 import {
   agentDisplay,
   agentStatusLabel,
@@ -44,6 +42,7 @@ import {
   shortText,
 } from "./huddles.js";
 import { type HuddleCommands, useHuddleCommands } from "./useHuddleCommands.js";
+import "../chat/chat.css";
 import "./huddle.css";
 
 const kindHints: Record<HuddlePostKind, string> = {
@@ -52,10 +51,13 @@ const kindHints: Record<HuddlePostKind, string> = {
   note: "Shares information. No reply expected.",
 };
 
-const kindOptions: SegmentedOption<HuddlePostKind>[] = (["ask", "assign", "note"] as const).map((value) => ({
+const kindIcons: Record<HuddlePostKind, IconName> = { ask: "help", assign: "handoff", note: "fileText" };
+
+const kindOptions: PickerOption<HuddlePostKind>[] = (["ask", "assign", "note"] as const).map((value) => ({
   value,
   label: huddleKindLabel[value],
-  tooltip: kindHints[value],
+  description: kindHints[value],
+  icon: <Icon name={kindIcons[value]} size={13} />,
 }));
 
 const REPLY_LIMIT_TEXT = HUDDLE_REPLY_LIMIT.toLocaleString("en-US");
@@ -682,7 +684,6 @@ function HuddleComposer({
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
-  const hintId = useId();
   const noMembers = huddle.members.length === 0;
   const target = to === "everyone" || huddle.members.some((member) => member.agentId === to) ? to : "everyone";
   useEffect(() => {
@@ -715,26 +716,26 @@ function HuddleComposer({
     else setText("");
   };
 
+  const recipient = target === "everyone" ? "Everyone" : (views.get(target)?.display ?? "A removed agent");
+
   return (
     <form
-      className="huddle-composer"
+      className="composer huddle-composer"
       onSubmit={(event) => {
         event.preventDefault();
         void send();
       }}
     >
-      <div className="huddle-composer-row">
-        <Select label="Send to" value={target} options={options} onChange={setTo} disabled={noMembers} />
-        <Segmented<HuddlePostKind> label="Message kind" value={kind} options={kindOptions} onChange={setKind} />
-      </div>
       <textarea
-        className="textarea huddle-composer-input"
         aria-label="Message to the huddle"
-        aria-describedby={hintId}
-        rows={3}
+        rows={2}
         maxLength={MAX_HUDDLE_TEXT}
         placeholder={
-          target === "everyone" ? "Write to everyone in the huddle" : `Write to ${views.get(target)?.display}`
+          noMembers
+            ? "Add an agent to the huddle first."
+            : target === "everyone"
+              ? "Write to everyone in the huddle"
+              : `Write to ${recipient}`
         }
         disabled={noMembers}
         value={text}
@@ -743,24 +744,52 @@ function HuddleComposer({
           setError(undefined);
         }}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault();
             void send();
           }
         }}
       />
-      <div className="huddle-composer-foot">
-        <span className="huddle-composer-hint" id={hintId}>
-          {noMembers
-            ? "Add an agent to the huddle first."
-            : `${huddleKindLabel[kind]} ${kindHints[kind].charAt(0).toLowerCase()}${kindHints[kind].slice(1)} ${shortcutText("Mod+Enter")} sends.`}
-        </span>
-        <Button type="submit" variant="primary" size="sm" loading={sending} disabled={noMembers || !text.trim()}>
-          Send
-        </Button>
+      <div className="composer-footer">
+        <Picker
+          label="Send to"
+          className="huddle-composer-to"
+          value={target}
+          options={options}
+          onChange={setTo}
+          disabled={noMembers}
+          tooltip="Who gets this message"
+        >
+          <Icon name={target === "everyone" ? "users" : "user"} size={13} />
+          <span className="picker-trigger-label">{recipient}</span>
+        </Picker>
+        <Picker<HuddlePostKind>
+          label="Message kind"
+          value={kind}
+          options={kindOptions}
+          onChange={setKind}
+          disabled={noMembers}
+          tooltip={kindHints[kind]}
+        >
+          <Icon name={kindIcons[kind]} size={13} />
+          <span className="picker-trigger-label">{huddleKindLabel[kind]}</span>
+        </Picker>
+        <span className="composer-spacer" />
+        <button
+          className="send-button"
+          type="submit"
+          aria-label="Send"
+          data-tooltip="Send"
+          data-shortcut="Enter"
+          aria-keyshortcuts="Enter"
+          disabled={noMembers || sending || !text.trim()}
+        >
+          <Icon name="arrowUp" size={15} />
+        </button>
       </div>
       {error ? (
-        <p className="inline-error huddle-inline-error" role="alert">
+        <p className="composer-error" role="alert">
+          <Icon name="alert" size={12} />
           {error}
         </p>
       ) : null}
