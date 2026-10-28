@@ -90,6 +90,39 @@ export function visibleWindows(reading: Pick<PlanLimitReading, "windows">): Plan
   return [...plan, ...scoped, ...spend].slice(0, MAX_WINDOWS);
 }
 
+/** What a login's row says when it has no current reading. */
+export const LIMIT_STATE_TEXT: Record<Exclude<PlanLimitReading["state"], "ok">, string> = {
+  "signed-out": "Signed out",
+  expired: "Expired",
+  unavailable: "No plan limits",
+  error: "Could not check",
+};
+
+/**
+ * Every window a reading has, for the full list under Usage: the whole plan shortest first, then each
+ * model or pool in the provider's order, then a paid cap.
+ */
+export function allWindows(reading: Pick<PlanLimitReading, "windows">): PlanLimitWindow[] {
+  const plan = reading.windows
+    .filter((window) => window.kind !== "spend" && !window.scope)
+    .sort((left, right) => (left.durationMinutes ?? 0) - (right.durationMinutes ?? 0));
+  const scoped = reading.windows.filter((window) => window.kind !== "spend" && window.scope);
+  const spend = reading.windows.filter((window) => window.kind === "spend");
+  return [...plan, ...scoped, ...spend];
+}
+
+/** How a window draws: its share, its reset text, and whether it is nearly or fully spent. */
+export function windowDisplay(
+  window: PlanLimitWindow,
+  now: number,
+  timeZone?: string,
+): { used: number; reset: { text: string; passed: boolean }; tone: "passed" | "full" | "warning" | undefined } {
+  const reset = resetText(window, now, timeZone);
+  const used = Math.min(100, Math.max(0, window.usedPercent));
+  const tone = reset.passed ? "passed" : used >= 100 ? "full" : used >= LIMIT_WARN_PERCENT ? "warning" : undefined;
+  return { used, reset, tone };
+}
+
 /** A short name for a circle: "5h", "Day", "Week", "Month", a model name, or "Extra" for a paid cap. */
 export function windowLabel(window: PlanLimitWindow): string {
   if (window.kind === "spend") return "Extra";

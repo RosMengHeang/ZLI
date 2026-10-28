@@ -1,0 +1,7 @@
+.limit-ring { display: block; flex: 0 0 auto; }
+.limit-ring-track, .limit-ring-fill { fill: none; stroke-width: 2.5; }
+.limit-ring-track { stroke: var(--zli-border); }
+.limit-ring-fill { stroke: var(--zli-muted); stroke-linecap: round; transition: stroke-dasharray var(--zli-duration-fast) var(--zli-ease); }
+.is-warning > .limit-ring .limit-ring-fill { stroke: var(--zli-amber); }
+.is-full > .limit-ring .limit-ring-fill { stroke: var(--zli-red); }
+.is-stale .limit-ring .limit-ring-fill { stroke: var(--zli-dim); }

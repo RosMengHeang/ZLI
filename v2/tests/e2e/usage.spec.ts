@@ -34,7 +34,7 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
     await settings.getByRole("switch", { name: /Show plan limits/u }).check();
     await page.keyboard.press("Escape");
     await expect(settings).toHaveCount(0);
-    // Six agents report limits; three rows fit, and the rest are counted.
+    // Eight agents report limits; three rows fit, and the rest are counted.
     await expect(limits.locator(".usage-strip-name")).toHaveText(["Claude Code", "Codex", "Gemini"]);
     await expect(limits.locator(".usage-strip-window-label")).toHaveText([
       "5h",
@@ -54,7 +54,7 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
       "58%",
       "12%",
     ]);
-    await expect(limits.locator(".usage-strip-more")).toHaveText("+3 more");
+    await expect(limits.locator(".usage-strip-more")).toHaveText("+5 more");
     // Every circle says when it resets: a countdown and the local time.
     await expect(limits.locator(".usage-strip-window-reset").first()).toHaveText(/^\d+m · \d{1,2}:\d{2}\s?[AP]M$/u);
     await limits.click();
@@ -63,6 +63,23 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
 
     await page.getByRole("button", { name: "Usage", exact: true }).click();
     const usage = page.getByRole("dialog", { name: "Usage" });
+    // The dialog lists every agent's limits in full, past the three rows the sidebar card fits.
+    await expect(usage.locator(".usage-limit-provider")).toHaveText([
+      "Claude Code",
+      "Codex",
+      "Gemini",
+      "Cursor",
+      "Kimi Code",
+      "OpenCode",
+      "Droid",
+      "GitHub Copilot",
+    ]);
+    await expect(usage.getByRole("list", { name: "Droid limits" }).locator(".usage-limit-window-label")).toHaveText([
+      "5h",
+      "Week",
+      "Month",
+      "Core",
+    ]);
     const summary = usage.locator(".usage-summary");
     await expect(summary).toContainText("Turns1");
     await expect(summary).toContainText("12k8k cached");

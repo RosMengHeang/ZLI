@@ -10,8 +10,11 @@ export type LimitRead = {
   retryAfterMs?: number;
 };
 
-/** One login to read: the usual one, or a saved sign-in account and the folder that holds its login. */
-export type LimitTarget = { provider: PlanLimitProvider; accountId: string; configDir?: string };
+/**
+ * One login to read: the usual one, a saved sign-in account and the folder that holds its login, or a
+ * saved API key account whose key can read the plan's limits.
+ */
+export type LimitTarget = { provider: PlanLimitProvider; accountId: string; configDir?: string; apiKey?: string };
 
 export type LimitReader = (target: LimitTarget) => Promise<LimitRead>;
 
@@ -117,7 +120,8 @@ function targetKey(target: LimitTarget): string {
  * Fixed readings for the Electron integration harness, which runs no real agent CLI. Each login gets
  * the same numbers on every run, with reset times counted from now, in the shape each provider
  * reports: Claude with a model limit near full, Gemini per model only, Cursor by the month with its
- * pools. Saved accounts are weekly-only, like some Codex plans.
+ * pools, Droid with its Core pool, Copilot by allowance. Saved accounts are weekly-only, like some
+ * Codex plans.
  */
 export function mockLimitRead(target: LimitTarget, now = Date.now()): LimitRead {
   const window = (
@@ -168,6 +172,22 @@ export function mockLimitRead(target: LimitTarget, now = Date.now()): LimitRead 
           window(WEEKLY_WINDOW, 27, 6 * 1_440),
           window(MONTHLY_WINDOW, 51, 20 * 1_440),
         ],
+      };
+    case "droid":
+      return {
+        state: "ok",
+        windows: [
+          window(FIVE_HOUR_WINDOW, 4, 220),
+          window(WEEKLY_WINDOW, 25, 4 * 1_440),
+          window(MONTHLY_WINDOW, 63, 5 * 1_440),
+          window(WEEKLY_WINDOW, 14, 8 * 60, "Core"),
+        ],
+      };
+    case "copilot":
+      return {
+        state: "ok",
+        plan: "individual",
+        windows: [window(MONTHLY_WINDOW, 38, 4 * 1_440, "Premium")],
       };
   }
 }

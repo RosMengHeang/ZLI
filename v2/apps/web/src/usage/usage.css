@@ -1,8 +1,34 @@
 .dialog.usage-dialog { width: min(780px, 100%); }
-.usage-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--zli-space-2); padding: var(--zli-space-3) var(--zli-space-5); border-top: 1px solid var(--zli-border); }
+.usage-body { display: flex; min-height: 0; max-height: min(600px, 72vh); flex-direction: column; gap: var(--zli-space-6, 24px); padding: var(--zli-space-4) var(--zli-space-5) var(--zli-space-5); border-top: 1px solid var(--zli-border); overflow: auto; }
+.usage-group { display: flex; flex-direction: column; gap: var(--zli-space-3); }
+.usage-group > .empty-state { padding-block: var(--zli-space-6, 24px); }
+.usage-group-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--zli-space-2); }
+.usage-group-heading { margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
+.usage-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-2); }
 .usage-toolbar .picker-field { width: auto; flex: 0 0 auto; min-width: 160px; }
-.usage-body { display: flex; min-height: 0; max-height: min(600px, 72vh); flex-direction: column; gap: var(--zli-space-5); padding: 0 var(--zli-space-5) var(--zli-space-5); overflow: auto; }
-.usage-body > .empty-state { padding-block: var(--zli-space-8); }
+/* Plan limits: who on the left, every window on the right, aligned across logins like the sidebar card. */
+.usage-limits { margin: 0; padding: 0; list-style: none; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); }
+.usage-limit { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--zli-space-1) var(--zli-space-4); padding: var(--zli-space-2-5) var(--zli-space-3); font-size: var(--zli-text-sm); }
+.usage-limit + .usage-limit { border-top: 1px solid var(--zli-border); }
+.usage-limit-who { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-1); }
+.usage-limit-provider { flex: 0 0 auto; color: var(--zli-text); }
+.usage-limit-plan { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; text-transform: capitalize; white-space: nowrap; }
+.usage-limit-status { display: flex; min-width: 0; flex-direction: column; gap: 2px; padding-left: 22px; font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.usage-limit-state { color: var(--zli-muted); font-weight: 500; }
+.usage-limit-state.needs-action { color: var(--zli-amber); }
+.usage-limit-message { color: var(--zli-dim); }
+.usage-limit-windows { display: grid; grid-template-columns: 14px 84px 34px 136px; align-items: center; gap: var(--zli-space-1) var(--zli-space-2); margin: 0; padding: 0; list-style: none; font-variant-numeric: tabular-nums; }
+.usage-limit-window { display: contents; }
+.usage-limit-window-label { overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.usage-limit-window-percent { color: var(--zli-text); text-align: right; }
+.usage-limit-window-reset { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.usage-limit-window.is-warning .usage-limit-window-percent { color: var(--zli-amber); }
+.usage-limit-window.is-full .usage-limit-window-percent { color: var(--zli-red); }
+.usage-limit-window.is-passed .usage-limit-window-percent,
+.usage-limit.is-stale .usage-limit-window-percent { color: var(--zli-dim); }
+.usage-limits-loading { padding-block: var(--zli-space-4); }
+.usage-limits-error { margin: 0; color: var(--zli-red); font-size: var(--zli-text-xs); }
+.usage-limits-empty { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-sm); }
 .usage-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--zli-space-2); margin: 0; }
 .usage-metric { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-1-5); padding: var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: rgb(255 255 255 / 0.02); }
 .usage-summary dt { color: var(--zli-muted); font-size: var(--zli-text-xs); }
@@ -28,4 +54,6 @@
 .usage-note { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
 @media (max-width: 640px) {
   .usage-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .usage-limit { grid-template-columns: minmax(0, 1fr); }
+  .usage-limit-windows { padding-left: 22px; }
 }

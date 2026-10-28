@@ -4,14 +4,16 @@ import { useId } from "react";
 
 import { accountLabel, USUAL_LOGIN_LABEL } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
+import { LimitRing } from "../limits/LimitRing.js";
 import {
   formatPercent,
-  LIMIT_WARN_PERCENT,
+  LIMIT_STATE_TEXT,
   limitKey,
   resetText,
   showsReading,
   usePlanLimits,
   visibleWindows,
+  windowDisplay,
   windowLabel,
   windowName,
 } from "../limits/limits.js";
@@ -19,14 +21,7 @@ import { useAppSettings } from "../settings/appSettings.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 
 const MAX_ROWS = 3;
-const TOOLTIP = "Plan limits used. Tokens and cost are under Usage.";
-
-const stateText: Record<Exclude<PlanLimitReading["state"], "ok">, string> = {
-  "signed-out": "Signed out",
-  expired: "Sign in again",
-  unavailable: "No plan limits",
-  error: "Could not check",
-};
+const TOOLTIP = "Plan limits used. Usage lists every agent's limits, tokens, and cost.";
 
 type Props = {
   /** Undefined while the first reading loads. */
@@ -149,7 +144,7 @@ function LoginRow({ row, now, timeZone }: { row: Row; now: number; timeZone: str
         <ProviderMark provider={reading.provider} size={12} />
         <span className="usage-strip-provider">{row.name}</span>
         {row.account ? <span className="usage-strip-account">{row.account}</span> : null}
-        {reading.state === "ok" ? null : <span className="usage-strip-state">{stateText[reading.state]}</span>}
+        {reading.state === "ok" ? null : <span className="usage-strip-state">{LIMIT_STATE_TEXT[reading.state]}</span>}
       </span>
       {row.windows.length > 0 ? (
         <span className="usage-strip-windows">
@@ -163,35 +158,14 @@ function LoginRow({ row, now, timeZone }: { row: Row; now: number; timeZone: str
 }
 
 function WindowLine({ window, now, timeZone }: { window: PlanLimitWindow; now: number; timeZone: string | undefined }) {
-  const reset = resetText(window, now, timeZone);
-  const used = Math.min(100, Math.max(0, window.usedPercent));
-  const tone = reset.passed ? " is-passed" : used >= 100 ? " is-full" : used >= LIMIT_WARN_PERCENT ? " is-warning" : "";
+  const { used, reset, tone } = windowDisplay(window, now, timeZone);
   return (
-    <span className={`usage-strip-window${tone}`}>
-      <LimitRing percent={reset.passed ? 0 : used} />
+    <span className={`usage-strip-window${tone ? ` is-${tone}` : ""}`}>
+      <LimitRing className="usage-strip-ring" percent={reset.passed ? 0 : used} />
       <span className="usage-strip-window-label">{windowLabel(window)}</span>
       <span className="usage-strip-window-percent">{reset.passed ? "–" : formatPercent(used)}</span>
       <span className="usage-strip-window-reset">{reset.text}</span>
     </span>
-  );
-}
-
-const RING_RADIUS = 5.5;
-const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
-
-function LimitRing({ percent }: { percent: number }) {
-  return (
-    <svg className="usage-strip-ring" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-      <circle className="usage-strip-ring-track" cx="8" cy="8" r={RING_RADIUS} />
-      <circle
-        className="usage-strip-ring-fill"
-        cx="8"
-        cy="8"
-        r={RING_RADIUS}
-        strokeDasharray={`${(percent / 100) * RING_LENGTH} ${RING_LENGTH}`}
-        transform="rotate(-90 8 8)"
-      />
-    </svg>
   );
 }
 
@@ -205,6 +179,6 @@ function rowDescription(row: Row, now: number, timeZone: string | undefined): st
     if (reset.passed) return `the ${windowName(window)} limit just reset`;
     return `${formatPercent(window.usedPercent)} of the ${windowName(window)} limit used, ${reset.text.replace(" · ", " at ")}`;
   });
-  const state = row.reading.state === "ok" ? "" : (row.reading.message ?? stateText[row.reading.state]);
+  const state = row.reading.state === "ok" ? "" : (row.reading.message ?? LIMIT_STATE_TEXT[row.reading.state]);
   return `${[parts.join("; "), state].filter(Boolean).join(". ")}${row.current ? ", selected agent" : ""}.`;
 }

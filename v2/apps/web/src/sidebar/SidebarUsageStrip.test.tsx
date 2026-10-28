@@ -114,7 +114,7 @@ describe("SidebarUsageStrip", () => {
     const [first, second] = container.querySelectorAll(".usage-strip-window");
     expect(first?.classList.contains("is-warning")).toBe(true);
     expect(second?.classList.contains("is-full")).toBe(true);
-    const fill = first?.querySelector(".usage-strip-ring-fill")?.getAttribute("stroke-dasharray") ?? "";
+    const fill = first?.querySelector(".limit-ring-fill")?.getAttribute("stroke-dasharray") ?? "";
     const [filled, total] = fill.split(" ").map(Number);
     expect((filled ?? 0) / (total ?? 1)).toBeCloseTo(0.86);
   });
@@ -158,7 +158,7 @@ describe("SidebarUsageStrip", () => {
       reading("claude-code", [], { accountId: "work", state: "expired", message: "Sign in again, please." }),
       reading("codex", [fiveHour(34)], { state: "error", message: "Codex did not answer." }),
     ]);
-    expect(names(container)).toEqual(["Claude CodeWorkSign in again", "CodexCould not check"]);
+    expect(names(container)).toEqual(["Claude CodeWorkExpired", "CodexCould not check"]);
     const rows = container.querySelectorAll(".usage-strip-row");
     expect(rows[1]?.classList.contains("is-stale")).toBe(true);
     expect(rows[1]?.getAttribute("title")).toBe("Codex did not answer.");

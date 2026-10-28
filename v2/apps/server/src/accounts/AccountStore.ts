@@ -31,6 +31,8 @@ type StoredAccount = {
 
 type StoredFile = { version: 1; accounts: StoredAccount[]; defaults: Partial<Record<ListedProviderKind, string>> };
 
+type LimitAccountTarget = { provider: PlanLimitProvider; accountId: string; configDir?: string; apiKey?: string };
+
 /** The environment an agent process runs with for one account, merged over ZLI's own. */
 export type AccountLaunch = { accountId: string; env: Record<string, string> };
 
@@ -192,13 +194,20 @@ export class AccountStore {
     return { accountId: account.id, env: await this.launchEnv(account) };
   }
 
-  /** Sign-in accounts of agents whose plans report limits, with the folder that holds each login. */
-  limitTargets(): Array<{ provider: PlanLimitProvider; accountId: string; configDir: string }> {
-    return this.accounts.flatMap((account) =>
-      account.kind === "sign-in" && isPlanLimitProvider(account.provider)
-        ? [{ provider: account.provider, accountId: account.id, configDir: this.accountDir(account.id) }]
-        : [],
-    );
+  /**
+   * Accounts of agents whose plans report limits: sign-in accounts with the folder that holds each
+   * login, and API key accounts whose key reads the plan, as Droid's and Copilot's do.
+   */
+  limitTargets(): LimitAccountTarget[] {
+    return this.accounts.flatMap((account): LimitAccountTarget[] => {
+      if (!isPlanLimitProvider(account.provider)) return [];
+      if (account.kind === "sign-in") {
+        return [{ provider: account.provider, accountId: account.id, configDir: this.accountDir(account.id) }];
+      }
+      return account.apiKey && API_KEY_LIMIT_PROVIDERS.has(account.provider)
+        ? [{ provider: account.provider, accountId: account.id, apiKey: account.apiKey }]
+        : [];
+    });
   }
 
   async waitForIdle(): Promise<void> {
@@ -325,6 +334,9 @@ function storedAccount(value: unknown): StoredAccount | undefined {
     ...(mcpOwned.length > 0 ? { mcpOwned } : {}),
   };
 }
+
+/** Other agents' API keys bill per use and have no plan limits. */
+const API_KEY_LIMIT_PROVIDERS: ReadonlySet<PlanLimitProvider> = new Set(["droid", "copilot"]);
 
 function isPlanLimitProvider(provider: ListedProviderKind): provider is PlanLimitProvider {
   return (PLAN_LIMIT_PROVIDERS as readonly string[]).includes(provider);

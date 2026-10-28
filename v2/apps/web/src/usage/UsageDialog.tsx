@@ -3,6 +3,7 @@ import { type ReactNode, useCallback, useMemo, useState } from "react";
 
 import { accountLabel } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
+import { usePlanLimits } from "../limits/limits.js";
 import { useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { relativeTime } from "../sessions/sessions.js";
 import { Dialog } from "../ui/Dialog.js";
@@ -21,6 +22,7 @@ import {
   type UsageTotals,
   usagePeriods,
 } from "./usage.js";
+import { PlanLimitsList } from "./PlanLimitsList.js";
 import "./usage.css";
 
 const EMPTY: readonly ThreadUsageRecord[] = [];
@@ -63,104 +65,118 @@ export function UsageDialog({ projection, initialProjectId, accounts, onClose }:
   const cursorInstalled = projection?.providers?.some(
     (entry) => entry.provider === "cursor-agent" && entry.status === "found",
   );
+  const limits = usePlanLimits(accounts?.map((account) => account.id).join(","));
 
   return (
     <Dialog
       label="Usage"
       title="Usage"
-      subtitle="Tokens and estimated cost, as reported by agents in chat view."
+      subtitle="Plan limits for every agent on this computer, then tokens and estimated cost from chat view."
       size="lg"
       className="usage-dialog"
       scrimLabel="Close usage"
       onClose={onClose}
     >
-      <div className="usage-toolbar">
-        <Segmented<UsagePeriod> label="Period" value={period} options={periodOptions} onChange={setPeriod} />
-        {projects.length > 1 ? (
-          <Select<string>
-            className="input-sm"
-            label="Project"
-            value={projectId ?? ""}
-            options={[
-              { value: "", label: "All projects" },
-              ...projects.map((project) => ({ value: project.projectId, label: project.name })),
-            ]}
-            onChange={(next) => setProjectId((next || undefined) as typeof projectId)}
-          />
-        ) : null}
-      </div>
       <div className="usage-body">
-        {records.length === 0 ? (
-          <EmptyState
-            icon="gauge"
-            title="No usage yet"
-            detail="Agents in chat view report tokens after each turn. Totals appear here."
-          />
-        ) : visible.length === 0 ? (
-          <EmptyState
-            icon="gauge"
-            title="Nothing in this period"
-            detail="Choose a longer period to see earlier turns."
-          />
-        ) : (
-          <>
-            <UsageSummary totals={totals} />
-            <section className="usage-section" aria-labelledby="usage-agents">
-              <h3 className="usage-heading" id="usage-agents">
-                By agent
-              </h3>
-              <UsageTable
-                label="Agent"
-                rows={agents}
-                name={(group) => (
-                  <span className="usage-name">
-                    <ProviderMark provider={group.provider} size={14} />
-                    {providerName(group.provider)}
-                    {group.accountId ? (
-                      <span className="usage-account">{accountLabel(accounts, group.accountId) ?? "Account"}</span>
-                    ) : null}
-                  </span>
-                )}
-              />
-            </section>
-            <section className="usage-section" aria-labelledby="usage-chats">
-              <h3 className="usage-heading" id="usage-chats">
-                Recent chats
-              </h3>
-              <UsageTable
-                label="Chat"
-                rows={chats}
-                name={(group) => {
-                  const record = visible.find((entry) => entry.threadId === group.key);
-                  const title = titles.get(group.key) ?? providerName(group.provider);
-                  const project = projectName(record?.projectId);
-                  return (
+        <section className="usage-group" aria-labelledby="usage-limits">
+          <h3 className="usage-group-heading" id="usage-limits">
+            Plan limits
+          </h3>
+          <PlanLimitsList state={limits} providers={projection?.providers} accounts={accounts} now={now} />
+        </section>
+        <section className="usage-group" aria-labelledby="usage-tokens">
+          <div className="usage-group-head">
+            <h3 className="usage-group-heading" id="usage-tokens">
+              Tokens and cost
+            </h3>
+            <div className="usage-toolbar">
+              <Segmented<UsagePeriod> label="Period" value={period} options={periodOptions} onChange={setPeriod} />
+              {projects.length > 1 ? (
+                <Select<string>
+                  className="input-sm"
+                  label="Project"
+                  value={projectId ?? ""}
+                  options={[
+                    { value: "", label: "All projects" },
+                    ...projects.map((project) => ({ value: project.projectId, label: project.name })),
+                  ]}
+                  onChange={(next) => setProjectId((next || undefined) as typeof projectId)}
+                />
+              ) : null}
+            </div>
+          </div>
+          {records.length === 0 ? (
+            <EmptyState
+              icon="gauge"
+              title="No usage yet"
+              detail="Agents in chat view report tokens after each turn. Totals appear here."
+            />
+          ) : visible.length === 0 ? (
+            <EmptyState
+              icon="gauge"
+              title="Nothing in this period"
+              detail="Choose a longer period to see earlier turns."
+            />
+          ) : (
+            <>
+              <UsageSummary totals={totals} />
+              <section className="usage-section" aria-labelledby="usage-agents">
+                <h4 className="usage-heading" id="usage-agents">
+                  By agent
+                </h4>
+                <UsageTable
+                  label="Agent"
+                  rows={agents}
+                  name={(group) => (
                     <span className="usage-name">
                       <ProviderMark provider={group.provider} size={14} />
-                      <span className="usage-chat">
-                        <span className="usage-chat-title" title={title}>
-                          {title}
-                        </span>
-                        <span className="usage-chat-meta">
-                          {[
-                            project,
-                            liveThreads.has(group.key) ? undefined : "Deleted",
-                            relativeTime(new Date(group.lastAt).toISOString(), now),
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
+                      {providerName(group.provider)}
+                      {group.accountId ? (
+                        <span className="usage-account">{accountLabel(accounts, group.accountId) ?? "Account"}</span>
+                      ) : null}
+                    </span>
+                  )}
+                />
+              </section>
+              <section className="usage-section" aria-labelledby="usage-chats">
+                <h4 className="usage-heading" id="usage-chats">
+                  Recent chats
+                </h4>
+                <UsageTable
+                  label="Chat"
+                  rows={chats}
+                  name={(group) => {
+                    const record = visible.find((entry) => entry.threadId === group.key);
+                    const title = titles.get(group.key) ?? providerName(group.provider);
+                    const project = projectName(record?.projectId);
+                    return (
+                      <span className="usage-name">
+                        <ProviderMark provider={group.provider} size={14} />
+                        <span className="usage-chat">
+                          <span className="usage-chat-title" title={title}>
+                            {title}
+                          </span>
+                          <span className="usage-chat-meta">
+                            {[
+                              project,
+                              liveThreads.has(group.key) ? undefined : "Deleted",
+                              relativeTime(new Date(group.lastAt).toISOString(), now),
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
                         </span>
                       </span>
-                    </span>
-                  );
-                }}
-              />
-            </section>
-          </>
-        )}
+                    );
+                  }}
+                />
+              </section>
+            </>
+          )}
+        </section>
         <p className="usage-note">
-          Figures are what each agent reports. Cost is the agent's own estimate, not your bill. Agents in terminal view
-          are not counted.
+          Plan limits come from each agent's provider. Tokens and cost are what each agent reports in chat view, so
+          agents in terminal view are not counted, and cost is the agent's own estimate, not your bill.
           {silentOnCost.length > 0
             ? ` ${listNames(silentOnCost.map(providerName))} ${silentOnCost.length === 1 ? "does" : "do"} not report cost.`
             : ""}

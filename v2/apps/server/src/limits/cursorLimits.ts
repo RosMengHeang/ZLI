@@ -2,7 +2,7 @@ import { join } from "node:path";
 
 import { MONTHLY_WINDOW, type PlanLimitWindow } from "@zli-v2/contracts";
 
-import { clamp, isoTime, number, parseJson, record, retryAfterMs, secret } from "./answerFields.js";
+import { clamp, isoTime, jwtExpiry, number, parseJson, record, retryAfterMs, secret } from "./answerFields.js";
 import type { LimitRead } from "./PlanLimits.js";
 import { jsonBody, type LimitReaderDeps, send } from "./readerDeps.js";
 
@@ -124,13 +124,4 @@ function cursorConfigDir(deps: LimitReaderDeps): string {
 async function fileToken(path: string, deps: LimitReaderDeps): Promise<string | undefined> {
   const file = await deps.readFile(path).catch(() => undefined);
   return file ? secret(record(parseJson(file))?.accessToken) : undefined;
-}
-
-/** When a JWT expires, in milliseconds, or undefined when it does not say. */
-export function jwtExpiry(token: string): number | undefined {
-  const payload = token.split(".")[1];
-  if (!payload) return undefined;
-  const claims = record(parseJson(Buffer.from(payload, "base64url").toString("utf8")));
-  const exp = number(claims?.exp);
-  return exp === undefined ? undefined : exp * 1000;
 }
