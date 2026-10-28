@@ -116,3 +116,49 @@ describe("NewAgentDialog name", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 });
+
+describe("NewAgentDialog project switch", () => {
+  it("does not start in a worktree from the project it switched away from", async () => {
+    const otherId = ProjectId.parse("00000000-0000-4000-8000-000000000011");
+    const worktreeId = "00000000-0000-4000-8000-000000000012";
+    const base = projectionFor(undefined);
+    const projection = {
+      ...base,
+      projects: [...base.projects, { projectId: otherId, path: "D:/api", name: "api" }],
+      worktrees: [{ worktreeId, projectId, path: "D:/taxzy_cli_web-worktrees/a", branch: "a", status: "ready" }],
+    } as RuntimeProjection;
+    const onSubmit = vi.fn(async (_request: NewAgentRequest) => undefined);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    roots.push(root);
+    await act(async () => {
+      root.render(
+        <NewAgentDialog
+          projection={projection}
+          initialProject={projection.projects[0]}
+          initialWorktreeId={worktreeId}
+          onClose={() => undefined}
+          onSubmit={onSubmit}
+        />,
+      );
+    });
+    const checked = () =>
+      [...document.querySelectorAll<HTMLInputElement>('input[name="agent-placement"]')].find((input) => input.checked)
+        ?.value;
+    expect(checked()).toBe("existing");
+    const projectButton = document.querySelector<HTMLButtonElement>('button[aria-label^="Project"]');
+    await act(async () => projectButton?.click());
+    const api = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) =>
+      option.textContent?.includes("api"),
+    );
+    await act(async () => api?.click());
+    expect(checked()).toBe("new");
+    await act(async () => {
+      document.querySelector("form")?.requestSubmit();
+    });
+    const request = onSubmit.mock.calls[0]?.[0];
+    expect(request?.project.name).toBe("api");
+    expect(request?.placement.kind).toBe("new");
+  });
+});

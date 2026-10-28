@@ -114,8 +114,6 @@ export function NewAgentDialog({
       ? "existing"
       : "new",
   );
-  // Worktrees need Git, so a folder without it only has its own checkout.
-  const placementKind = noGit ? "checkout" : chosenPlacement;
   const branchFor = (agent: ListedProviderKind | undefined) =>
     prefill
       ? issueBranchName(settings.branchTemplate, agent, prefill.issue)
@@ -125,10 +123,20 @@ export function NewAgentDialog({
   const [name, setName] = useState("");
   const [branchEdited, setBranchEdited] = useState(false);
   const [baseRef, setBaseRef] = useState("");
-  const [existingId, setExistingId] = useState<string | undefined>(
+  const [pickedExistingId, setExistingId] = useState<string | undefined>(
     projectWorktrees.find((worktree) => worktree.worktreeId === initialWorktreeId)?.worktreeId ??
       projectWorktrees[0]?.worktreeId,
   );
+  // A worktree picked before switching projects belongs to the old project, so it gives way to this one's.
+  const existingId = projectWorktrees.some((worktree) => worktree.worktreeId === pickedExistingId)
+    ? pickedExistingId
+    : projectWorktrees[0]?.worktreeId;
+  // Worktrees need Git, so a folder without it only has its own checkout.
+  const placementKind = noGit
+    ? "checkout"
+    : chosenPlacement === "existing" && existingId === undefined
+      ? "new"
+      : chosenPlacement;
   const [busy, setBusy] = useState(false);
   // `busy` state lags a render behind, so two quick Cmd/Ctrl+Enter presses would both see it false.
   const launching = useRef(false);
