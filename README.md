@@ -58,7 +58,7 @@ ZLI checks GitHub Releases a few seconds after it starts and every four hours af
 
 ### Requirements
 
-- Node.js 24
+- Node.js 24.22.1 or a newer 24.x
 - pnpm 10.34.9, through Corepack
 - Git
 
