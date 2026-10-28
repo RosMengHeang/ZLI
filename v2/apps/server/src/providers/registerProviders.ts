@@ -81,6 +81,8 @@ export const ACP_PROVIDERS: ReadonlyArray<Omit<AcpProviderConfig, "resolveComman
     provider: "gemini",
     displayName: "Gemini",
     acpArgs: ["--acp"],
+    // Gemini turns off every MCP server in a folder it does not trust, and each worktree is a new folder.
+    fullAccessArgs: ["--skip-trust"],
     authHint: "Sign in to Gemini in a terminal first (run `gemini` and choose a login method).",
   },
   {

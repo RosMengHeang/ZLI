@@ -16,17 +16,15 @@ import {
   type McpServerSource,
   type McpServerSpec,
   zliMcpServerSpecs,
-  opencodeConfigContent,
-  writeAgentMcpConfig,
+  type writeAgentMcpConfig,
 } from "../browser-tool/browserTool.js";
 import type { Engine } from "../orchestration/Engine.js";
 import {
   AGENT_PTY_ENV,
   AgentLaunchError,
   agentCliMissingMessage,
+  agentMcpLaunch,
   buildAgentArgs,
-  mcpConfigFileKind,
-  mcpLaunchArgs,
 } from "./agentLaunch.js";
 import type { TerminalService } from "./TerminalService.js";
 
@@ -259,22 +257,13 @@ export class TerminalReactor {
     agent: TerminalAgentLaunch,
     worktreeId: string,
   ): Promise<{ args: string[]; env: Record<string, string> }> {
-    const kind = mcpConfigFileKind(agent.provider);
-    const dir = this.options.browserTool?.mcpConfigDir ?? this.options.mcpConfigDir;
-    let configFile: string | undefined;
-    if (kind && dir) {
-      try {
-        configFile = await (this.options.writeMcpConfig ?? writeAgentMcpConfig)(dir, kind, worktreeId, specs);
-      } catch {
-        configFile = undefined;
-      }
-    }
-    const env: Record<string, string> = {};
-    if (agent.provider === "opencode") {
-      const content = opencodeConfigContent(specs, (this.options.env ?? process.env).OPENCODE_CONFIG_CONTENT);
-      if (content) env.OPENCODE_CONFIG_CONTENT = content;
-    }
-    return { args: mcpLaunchArgs(agent.provider, { specs, ...(configFile ? { configFile } : {}) }), env };
+    const configDir = this.options.browserTool?.mcpConfigDir ?? this.options.mcpConfigDir;
+    return agentMcpLaunch(agent.provider, specs, {
+      worktreeId,
+      ...(configDir ? { configDir } : {}),
+      ...(this.options.env ? { env: this.options.env } : {}),
+      ...(this.options.writeMcpConfig ? { writeMcpConfig: this.options.writeMcpConfig } : {}),
+    });
   }
 
   private async worktreePath(worktreeId: string): Promise<string | undefined> {

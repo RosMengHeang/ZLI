@@ -7,7 +7,8 @@ import {
 } from "@zli-v2/provider-acp";
 import { describe, expect, it } from "vitest";
 
-import { AcpProviderAdapter, type AcpProviderConfig, acpActivity } from "./AcpProviderAdapter.js";
+import { AcpProviderAdapter, type AcpProviderConfig, acpActivity, acpLaunchArgs } from "./AcpProviderAdapter.js";
+import { ACP_PROVIDERS } from "./registerProviders.js";
 import { type ProviderEvent, ProviderRegistry, ProviderService } from "./ProviderService.js";
 
 const threadId = ThreadId.parse("00000000-0000-4000-8000-000000000931");
@@ -253,6 +254,22 @@ describe("AcpProviderAdapter", () => {
       code: "cli_missing",
       message: "Goose CLI was not found on PATH or in known install locations.",
     });
+  });
+});
+
+describe("acpLaunchArgs", () => {
+  const gemini = ACP_PROVIDERS.find((entry) => entry.provider === "gemini");
+
+  it("lets Gemini skip its folder trust check only with full access", () => {
+    if (!gemini) throw new Error("Gemini is missing from ACP_PROVIDERS.");
+    expect(acpLaunchArgs(gemini, undefined)).toEqual(["--acp", "--skip-trust"]);
+    expect(acpLaunchArgs(gemini, "full-access")).toEqual(["--acp", "--skip-trust"]);
+    expect(acpLaunchArgs(gemini, "supervised")).toEqual(["--acp"]);
+    expect(acpLaunchArgs(gemini, "read-only")).toEqual(["--acp"]);
+  });
+
+  it("keeps the plain ACP arguments for agents without full access flags", () => {
+    expect(acpLaunchArgs(config, "full-access")).toEqual(["acp"]);
   });
 });
 

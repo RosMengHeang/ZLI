@@ -32,6 +32,8 @@ export type AcpProviderConfig = {
   resolveCommand: () => Promise<string>;
   /** Arguments that start the CLI's ACP server on stdio. */
   acpArgs: readonly string[];
+  /** Added to `acpArgs` when the session runs with full access. */
+  fullAccessArgs?: readonly string[];
   /** Shown when the agent reports that it needs a login. */
   authHint: string;
   /** Offered to every session as an MCP server, with its shell shim on PATH. */
@@ -52,6 +54,15 @@ type ClientStart = Pick<
 
 const MAX_TITLE = 500;
 const GENERIC_TITLES = new Set(["Read file", "Edit files", "Search", "List files", "Tool call"]);
+
+/** The ACP server arguments for one session. Permission mode defaults to full access, as in terminals. */
+export function acpLaunchArgs(
+  config: Pick<AcpProviderConfig, "acpArgs" | "fullAccessArgs">,
+  permissionMode: ClientStart["permissionMode"],
+): string[] {
+  const fullAccess = (permissionMode ?? "full-access") === "full-access";
+  return [...config.acpArgs, ...(fullAccess ? (config.fullAccessArgs ?? []) : [])];
+}
 
 /** One adapter per ACP agent CLI. Each session is one long-lived `<cli> <acpArgs>` process. */
 export class AcpProviderAdapter implements ProviderAdapter {
@@ -88,7 +99,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
         return AcpClient.start({
           ...input,
           command: await config.resolveCommand(),
-          args: config.acpArgs,
+          args: acpLaunchArgs(config, input.permissionMode),
           displayName: config.displayName,
           authHint: config.authHint,
           ...(Object.keys(env).length > 0 ? { env } : {}),

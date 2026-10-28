@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { codexMcpArgs, gooseExtension, mcpServerSpec } from "../browser-tool/browserTool.js";
+import { codexMcpArgs, gooseExtension, mcpServerSpec, opencodeConfigContent } from "../browser-tool/browserTool.js";
 import {
   AgentLaunchError,
   agentCliMissingMessage,
+  agentMcpLaunch,
   buildAgentArgs,
   mcpConfigFileKind,
   mcpLaunchArgs,
@@ -16,7 +17,7 @@ describe("buildAgentArgs", () => {
     expect(buildAgentArgs({ provider: "cursor-agent" })).toEqual(["--force", "--trust"]);
     expect(buildAgentArgs({ provider: "droid" })).toEqual(["--auto", "high"]);
     expect(buildAgentArgs({ provider: "opencode" })).toEqual(["--auto"]);
-    expect(buildAgentArgs({ provider: "gemini" })).toEqual(["--approval-mode", "yolo"]);
+    expect(buildAgentArgs({ provider: "gemini" })).toEqual(["--approval-mode", "yolo", "--skip-trust"]);
     expect(buildAgentArgs({ provider: "copilot" })).toEqual(["--allow-all"]);
     expect(buildAgentArgs({ provider: "kimi" })).toEqual(["--yolo"]);
     expect(buildAgentArgs({ provider: "qwen" })).toEqual(["--approval-mode", "yolo"]);
@@ -175,6 +176,40 @@ describe("mcpLaunchArgs", () => {
     expect(mcpLaunchArgs("claude-code", { specs })).toEqual([]);
     expect(mcpLaunchArgs("copilot", { specs })).toEqual([]);
     expect(mcpLaunchArgs("cursor-agent", { specs: [] })).toEqual([]);
+  });
+
+  it("writes the config file and passes it to Claude Code", async () => {
+    const written: unknown[] = [];
+    const launch = await agentMcpLaunch("claude-code", specs, {
+      configDir: "/data/mcp",
+      worktreeId: "wt-1",
+      writeMcpConfig: async (dir, kind, worktreeId, given) => {
+        written.push({ dir, kind, worktreeId, given });
+        return "/data/mcp/claude-wt-1.json";
+      },
+    });
+    expect(written).toEqual([{ dir: "/data/mcp", kind: "claude", worktreeId: "wt-1", given: specs }]);
+    expect(launch).toEqual({ args: ["--mcp-config", "/data/mcp/claude-wt-1.json"], env: {} });
+  });
+
+  it("leaves the config flag out when the file cannot be written", async () => {
+    const launch = await agentMcpLaunch("copilot", specs, {
+      configDir: "/data/mcp",
+      worktreeId: "wt-1",
+      writeMcpConfig: async () => {
+        throw new Error("disk full");
+      },
+    });
+    expect(launch).toEqual({ args: [], env: {} });
+  });
+
+  it("gives OpenCode its servers in OPENCODE_CONFIG_CONTENT, merged with the person's own", async () => {
+    const existing = JSON.stringify({ theme: "dark" });
+    const launch = await agentMcpLaunch("opencode", specs, {
+      worktreeId: "wt-1",
+      env: { OPENCODE_CONFIG_CONTENT: existing },
+    });
+    expect(launch).toEqual({ args: [], env: { OPENCODE_CONFIG_CONTENT: opencodeConfigContent(specs, existing) } });
   });
 
   it("asks for a config file only from Claude Code and Copilot", () => {

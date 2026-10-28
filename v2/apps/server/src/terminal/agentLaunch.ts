@@ -1,6 +1,13 @@
 import type { ListedProviderKind, TerminalAgentLaunch } from "@zli-v2/contracts";
 
-import { codexMcpArgs, gooseMcpArgs, type McpConfigFileKind, type McpServerSpec } from "../browser-tool/browserTool.js";
+import {
+  codexMcpArgs,
+  gooseMcpArgs,
+  type McpConfigFileKind,
+  type McpServerSpec,
+  opencodeConfigContent,
+  writeAgentMcpConfig,
+} from "../browser-tool/browserTool.js";
 
 /**
  * Model ids reach cmd.exe when the CLI is an npm .cmd shim, so only characters that real
@@ -82,6 +89,8 @@ export function buildAgentArgs(agent: TerminalAgentLaunch): string[] {
         ...(model ? ["--model", model] : []),
       ];
     case "gemini":
+      // Gemini turns off every MCP server in a folder it does not trust, and each worktree is a new folder.
+      return [...(fullAccess ? ["--approval-mode", "yolo", "--skip-trust"] : []), ...(model ? ["--model", model] : [])];
     case "qwen":
       return [...(fullAccess ? ["--approval-mode", "yolo"] : []), ...(model ? ["--model", model] : [])];
     case "copilot":
@@ -132,6 +141,43 @@ export function mcpLaunchArgs(
     case "qwen":
       return [];
   }
+}
+
+export type AgentMcpLaunchOptions = {
+  /** Where the config file goes for CLIs that take one on the command line. */
+  configDir?: string;
+  worktreeId: string;
+  /** The environment OPENCODE_CONFIG_CONTENT is merged with. */
+  env?: NodeJS.ProcessEnv;
+  writeMcpConfig?: typeof writeAgentMcpConfig;
+};
+
+/** Flags and environment that give one agent launch its MCP servers. A config file that cannot be written leaves its flag out. */
+export async function agentMcpLaunch(
+  provider: ListedProviderKind,
+  specs: readonly McpServerSpec[],
+  options: AgentMcpLaunchOptions,
+): Promise<{ args: string[]; env: Record<string, string> }> {
+  const kind = mcpConfigFileKind(provider);
+  let configFile: string | undefined;
+  if (kind && options.configDir) {
+    try {
+      configFile = await (options.writeMcpConfig ?? writeAgentMcpConfig)(
+        options.configDir,
+        kind,
+        options.worktreeId,
+        specs,
+      );
+    } catch {
+      configFile = undefined;
+    }
+  }
+  const env: Record<string, string> = {};
+  if (provider === "opencode") {
+    const content = opencodeConfigContent(specs, (options.env ?? process.env).OPENCODE_CONFIG_CONTENT);
+    if (content) env.OPENCODE_CONFIG_CONTENT = content;
+  }
+  return { args: mcpLaunchArgs(provider, { specs, ...(configFile ? { configFile } : {}) }), env };
 }
 
 function validModel(model: string): string {
