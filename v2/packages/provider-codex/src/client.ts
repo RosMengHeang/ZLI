@@ -15,6 +15,7 @@ export type CodexPeer = {
   request(method: string, params?: unknown): Promise<unknown>;
   notify?(method: string, params?: unknown): Promise<void>;
   respond(requestId: JsonRpcId, result: unknown): Promise<void>;
+  respondError(requestId: JsonRpcId, error: { code: number; message: string }): Promise<void>;
   onMessage(listener: (message: unknown) => void): () => void;
   onClose(listener: (error?: Error) => void): () => void;
   close(): Promise<void>;
@@ -86,7 +87,8 @@ export class CodexProviderError extends Error {
 
 export class CodexAppServerClient {
   private readonly eventListeners = new Set<(event: CodexProviderEvent) => void>();
-  private readonly serverRequestIds = new Map<string, JsonRpcId>();
+  /** Requests from the app server waiting on the person. Codex blocks the turn until each is answered. */
+  private readonly serverRequests = new Map<string, PendingServerRequest>();
   /** Codex reports a running total per thread; a turn's usage is the growth since the previous turn ended. */
   private readonly tokenTotals = new Map<string, { turnId: string; before?: TokenBreakdown; latest: TokenBreakdown }>();
   /**
@@ -173,9 +175,12 @@ export class CodexAppServerClient {
 
   async respondToRequest(requestId: string | number, result: unknown): Promise<void> {
     const key = String(requestId);
-    const providerRequestId = this.serverRequestIds.get(key) ?? JsonRpcId.parse(requestId);
-    this.serverRequestIds.delete(key);
-    await this.peer.respond(providerRequestId, result);
+    const pending = this.serverRequests.get(key);
+    this.serverRequests.delete(key);
+    await this.peer.respond(
+      pending?.id ?? JsonRpcId.parse(requestId),
+      pending ? serverRequestResult(pending, result) : result,
+    );
   }
 
   async readThread(providerThreadId: string): Promise<{ providerThreadId: string; turns: unknown[] }> {
@@ -228,26 +233,8 @@ export class CodexAppServerClient {
     if (!("method" in parsed.data)) return;
     const params = asRecord(parsed.data.params);
     const method = parsed.data.method;
-    if ("id" in parsed.data && isApprovalMethod(method)) {
-      const requestId = String(parsed.data.id);
-      this.serverRequestIds.set(requestId, parsed.data.id);
-      if (method.includes("requestUserInput")) {
-        this.emit({
-          type: "user-input.requested",
-          requestId,
-          providerThreadId: String(params?.threadId ?? ""),
-          providerTurnId: String(params?.turnId ?? ""),
-          payload: params ?? {},
-        });
-      } else {
-        this.emit({
-          type: "approval.requested",
-          requestId,
-          providerThreadId: String(params?.threadId ?? ""),
-          providerTurnId: String(params?.turnId ?? ""),
-          payload: params ?? {},
-        });
-      }
+    if ("id" in parsed.data) {
+      this.handleServerRequest(parsed.data.id, method, params ?? {});
       return;
     }
     if (method === "thread/tokenUsage/updated") {
@@ -261,6 +248,39 @@ export class CodexAppServerClient {
     else if (isKnownNotificationMethod(method))
       this.emit({ type: "protocol.error", message: "Malformed Codex server message." });
     else this.emit({ type: "protocol.notification", method, payload: parsed.data.params });
+  }
+
+  private handleServerRequest(id: JsonRpcId, method: string, params: Record<string, unknown>): void {
+    const kind = serverRequestKind(method);
+    if (!kind) {
+      // Unanswered, the app server waits forever and the turn never ends.
+      this.rejectServerRequest(id, method);
+      return;
+    }
+    const requestId = String(id);
+    this.serverRequests.set(requestId, { id, kind, params });
+    const ids = {
+      requestId,
+      providerThreadId: String(params.threadId ?? ""),
+      providerTurnId: String(params.turnId ?? ""),
+    };
+    if (kind === "user-input") {
+      this.emit({ type: "user-input.requested", ...ids, payload: params });
+      return;
+    }
+    const decisions =
+      kind === "elicitation" ? elicitationDecisions(params) : kind === "permissions" ? DEFAULT_DECISIONS : undefined;
+    this.emit({
+      type: "approval.requested",
+      ...ids,
+      payload: decisions ? { ...params, availableDecisions: decisions } : params,
+    });
+  }
+
+  private rejectServerRequest(id: JsonRpcId, method: string): void {
+    void Promise.resolve()
+      .then(() => this.peer.respondError(id, { code: -32601, message: `Method not found: ${method}` }))
+      .catch(() => undefined);
   }
 
   private turnUsage(params: Record<string, unknown> | undefined): CodexProviderEvent | undefined {
@@ -358,6 +378,11 @@ class JsonlCodexPeer implements SpawnedPeer {
 
   respond(requestId: JsonRpcId, result: unknown): Promise<void> {
     this.write({ jsonrpc: "2.0", id: requestId, result });
+    return Promise.resolve();
+  }
+
+  respondError(requestId: JsonRpcId, error: { code: number; message: string }): Promise<void> {
+    this.write({ jsonrpc: "2.0", id: requestId, error });
     return Promise.resolve();
   }
 
@@ -487,10 +512,68 @@ function isKnownNotificationMethod(method: string): boolean {
   );
 }
 
-function isApprovalMethod(method: string): boolean {
-  return (
-    method.includes("requestApproval") || method.includes("requestUserInput") || method.includes("request_user_input")
-  );
+type ServerRequestKind = "approval" | "permissions" | "elicitation" | "user-input";
+type PendingServerRequest = { id: JsonRpcId; kind: ServerRequestKind; params: Record<string, unknown> };
+
+const DEFAULT_DECISIONS = ["accept", "acceptForSession", "decline"] as const;
+
+function serverRequestKind(method: string): ServerRequestKind | undefined {
+  if (method === "mcpServer/elicitation/request") return "elicitation";
+  if (method === "item/permissions/requestApproval") return "permissions";
+  if (method.includes("requestUserInput") || method.includes("request_user_input")) return "user-input";
+  if (method.includes("requestApproval")) return "approval";
+  return undefined;
+}
+
+/** The UI answers every approval with { decision }; each request kind takes its own response shape. */
+function serverRequestResult(pending: PendingServerRequest, result: unknown): unknown {
+  if (pending.kind !== "elicitation" && pending.kind !== "permissions") return result;
+  const decision = asRecord(result)?.decision;
+  const accepted = decision === "accept" || decision === "acceptForSession";
+  if (pending.kind === "permissions") {
+    if (!accepted) return { permissions: {}, scope: "turn" };
+    return {
+      permissions: withoutNulls(asRecord(pending.params.permissions) ?? {}),
+      scope: decision === "acceptForSession" ? "session" : "turn",
+    };
+  }
+  if (!accepted) return { action: decision === "cancel" ? "cancel" : "decline", content: null, _meta: null };
+  const content = elicitationContent(pending.params);
+  if (!content) return { action: "decline", content: null, _meta: null };
+  return {
+    action: "accept",
+    content,
+    _meta:
+      decision === "acceptForSession" && elicitationPersists(pending.params, "session") ? { persist: "session" } : null,
+  };
+}
+
+/** Accepting a form fills each field with its default; a required field without one cannot be accepted. */
+function elicitationContent(params: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (params.mode === "url") return undefined;
+  const schema = asRecord(params.requestedSchema);
+  const properties = asRecord(schema?.properties) ?? {};
+  const content: Record<string, unknown> = {};
+  for (const [key, field] of Object.entries(properties)) {
+    const value = asRecord(field)?.default;
+    if (value !== undefined && value !== null) content[key] = value;
+  }
+  const required = Array.isArray(schema?.required) ? schema.required : [];
+  return required.every((key) => typeof key === "string" && key in content) ? content : undefined;
+}
+
+function elicitationPersists(params: Record<string, unknown>, scope: string): boolean {
+  const persist = asRecord(params._meta)?.persist;
+  return persist === scope || (Array.isArray(persist) && persist.includes(scope));
+}
+
+function elicitationDecisions(params: Record<string, unknown>): string[] {
+  if (!elicitationContent(params)) return ["decline"];
+  return elicitationPersists(params, "session") ? [...DEFAULT_DECISIONS] : ["accept", "decline"];
+}
+
+function withoutNulls(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== null && value !== undefined));
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

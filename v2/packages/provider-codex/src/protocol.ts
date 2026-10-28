@@ -3,8 +3,11 @@ import { z } from "zod";
 export const JsonRpcId = z.union([z.string().min(1), z.number().int().nonnegative()]);
 export type JsonRpcId = z.infer<typeof JsonRpcId>;
 
+// The Codex app server leaves "jsonrpc" off everything it sends, so it is optional when decoding.
+const JsonRpcVersion = z.literal("2.0").optional();
+
 export const JsonRpcRequest = z.object({
-  jsonrpc: z.literal("2.0"),
+  jsonrpc: JsonRpcVersion,
   id: JsonRpcId,
   method: z.string().min(1),
   params: z.unknown().optional(),
@@ -12,14 +15,14 @@ export const JsonRpcRequest = z.object({
 export type JsonRpcRequest = z.infer<typeof JsonRpcRequest>;
 
 export const JsonRpcNotification = z.object({
-  jsonrpc: z.literal("2.0"),
+  jsonrpc: JsonRpcVersion,
   method: z.string().min(1),
   params: z.unknown().optional(),
 });
 export type JsonRpcNotification = z.infer<typeof JsonRpcNotification>;
 
 export const JsonRpcResponse = z.object({
-  jsonrpc: z.literal("2.0"),
+  jsonrpc: JsonRpcVersion,
   id: JsonRpcId,
   result: z.unknown().optional(),
   error: z.object({ code: z.number(), message: z.string(), data: z.unknown().optional() }).optional(),

@@ -21,10 +21,18 @@ export const CLAUDE_SESSION_ARGS = [...BASE_ARGS, "--permission-mode", "bypassPe
 // with can_use_tool control requests before anything else instead of denying it.
 // Read only is Claude's plan mode: it researches and proposes, and asks the same way
 // before it leaves plan mode.
+// A new conversation gets its id from us with --session-id: the CLI only prints its init
+// record after the first user message, so the id cannot be read from it before then.
 // --mcp-config adds servers for this process only and keeps the user's own; it is variadic,
 // so it goes last where no positional argument can be mistaken for another config.
 export function claudeSessionArgs(
-  input: { permissionMode?: ClaudePermissionMode; model?: string; resumeSessionId?: string; mcpConfig?: string } = {},
+  input: {
+    permissionMode?: ClaudePermissionMode;
+    model?: string;
+    sessionId?: string;
+    resumeSessionId?: string;
+    mcpConfig?: string;
+  } = {},
 ): string[] {
   const args: string[] =
     input.permissionMode === "supervised" || input.permissionMode === "read-only"
@@ -38,6 +46,7 @@ export function claudeSessionArgs(
       : [...CLAUDE_SESSION_ARGS];
   if (input.model) args.push("--model", input.model);
   if (input.resumeSessionId) args.push("--resume", input.resumeSessionId);
+  else if (input.sessionId) args.push("--session-id", input.sessionId);
   if (input.mcpConfig) args.push("--mcp-config", input.mcpConfig);
   return args;
 }

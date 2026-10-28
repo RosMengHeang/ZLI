@@ -44,7 +44,11 @@ export function describeApproval(provider: string, payload: Record<string, unkno
 
 function codexApproval(payload: Record<string, unknown>): ApprovalView {
   const command = commandText(payload.command);
+  const server = text(payload.serverName);
   const fields: RequestField[] = [];
+  if (server) fields.push({ label: "Server", value: server, mono: true });
+  const message = text(payload.message);
+  if (message) fields.push({ label: "Request", value: clip(message) });
   if (command) fields.push({ label: "Command", value: clip(command), mono: true });
   const cwd = text(payload.cwd);
   if (cwd) fields.push({ label: "In", value: cwd, mono: true });
@@ -61,7 +65,14 @@ function codexApproval(payload: Record<string, unknown>): ApprovalView {
     const known = CODEX_DECISIONS[decision] ?? { label: decision, tone: "secondary" as const };
     return { key: decision, label: known.label, tone: known.tone, decision: { decision } };
   });
-  return { title: command ? "Run a command" : "Change files", fields, choices };
+  return { title: codexTitle(payload, command, server), fields, choices };
+}
+
+function codexTitle(payload: Record<string, unknown>, command: string | undefined, server: string | undefined): string {
+  if (server)
+    return record(payload._meta)?.codex_approval_kind === "mcp_tool_call" ? "Use an MCP tool" : "Answer an MCP server";
+  if (record(payload.permissions)) return "Allow more access";
+  return command ? "Run a command" : "Change files";
 }
 
 function acpApproval(payload: Record<string, unknown>): ApprovalView {
