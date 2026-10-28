@@ -3,22 +3,15 @@ import {
   DESIGN_RELEASE_SCRIPT,
   type DesignMark,
   type DesignPickResult,
-  type DesignPreview,
   type DesignRect,
   type DesignStroke,
   designCaptureScript,
-  designEditableScript,
   designMarkScript,
-  designPreviewScript,
 } from "./DesignPicker.js";
-
-/** The element's text, when it holds only text, and current values of the styles the preview can change. */
-export type DesignEditable = { readonly text: string | null; readonly styles: Record<string, string> };
 
 export type DesignInspection = BrowserInspection & {
   readonly selector: string;
   readonly screenshot?: BrowserScreenshot;
-  readonly editable?: DesignEditable;
 };
 
 const MAX_CROP = 2_000;
@@ -42,18 +35,16 @@ export class DesignMode {
     return this.automation.cancelPick();
   }
 
-  async mark(marks: readonly DesignMark[]): Promise<void> {
-    await this.automation.evaluate(designMarkScript(marks));
+  async mark(marks: readonly DesignMark[], drop: readonly string[] = []): Promise<void> {
+    await this.automation.evaluate(designMarkScript(marks, drop));
   }
 
   async inspect(input: { selector: string }): Promise<DesignInspection> {
     const element = { ...(await this.automation.inspectElement(input)), selector: input.selector };
-    const editable = await this.#editable(input.selector);
-    const withEditable = editable ? { ...element, editable } : element;
     const clip = cropFor(element);
-    if (!clip) return withEditable;
+    if (!clip) return element;
     const screenshot = await this.#capture(null, clip);
-    return screenshot ? { ...withEditable, screenshot } : withEditable;
+    return screenshot ? { ...element, screenshot } : element;
   }
 
   /** The page under a drawn region with its sketch on top, cropped to the region. */
@@ -68,22 +59,6 @@ export class DesignMode {
       height,
       scale: 1,
     });
-  }
-
-  async preview(input: { selector: string; preview: DesignPreview }): Promise<boolean> {
-    const result = await this.automation.evaluate(designPreviewScript(input.selector, input.preview));
-    return result.value === true;
-  }
-
-  async #editable(selector: string): Promise<DesignEditable | undefined> {
-    const result = await this.automation.evaluate(designEditableScript(selector)).catch(() => undefined);
-    const value = result?.value;
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-    const record = value as Record<string, unknown>;
-    const styles: Record<string, string> = {};
-    if (typeof record.styles === "object" && record.styles !== null)
-      for (const [key, style] of Object.entries(record.styles)) if (typeof style === "string") styles[key] = style;
-    return { text: typeof record.text === "string" ? record.text.slice(0, 2_000) : null, styles };
   }
 
   /** The overlay is part of the page, so it is hidden while the screenshot is taken. */

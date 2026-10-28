@@ -15,7 +15,7 @@ const PAGE = [
   "</body>",
 ].join("");
 
-test("annotates elements and a region in the browser panel and sends them to a chat agent in one message", async () => {
+test("annotates elements and a region on the page and sends them to a chat agent in one message", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
   const { root, repo } = await createGitFixture();
   let fixture: DesktopFixture | undefined;
@@ -56,11 +56,35 @@ test("annotates elements and a region in the browser panel and sends them to a c
     // Trusted clicks in the page, the same input a person's mouse produces.
     const clickInPage = (selector: string) =>
       page.evaluate(async (input) => window.zli?.browser.click(input), { browserTabId, selector });
+    type GuestInput =
+      | { text: string }
+      | { key: string }
+      | { mouse: "mouseDown" | "mouseUp" | "mouseMove"; x: number; y: number };
+    const inPage = (inputs: GuestInput[]) =>
+      fixture?.app.evaluate(
+        async ({ webContents }, { url, inputs }) => {
+          const guest = webContents.getAllWebContents().find((candidate) => candidate.getURL().startsWith(url));
+          if (!guest) throw new Error("The page's web contents were not found.");
+          guest.focus();
+          for (const input of inputs) {
+            if ("text" in input) await guest.insertText(input.text);
+            else if ("key" in input) {
+              guest.sendInputEvent({ type: "keyDown", keyCode: input.key });
+              guest.sendInputEvent({ type: "keyUp", keyCode: input.key });
+            } else guest.sendInputEvent({ type: input.mouse, x: input.x, y: input.y, button: "left", clickCount: 1 });
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          }
+        },
+        { url: pageUrl, inputs },
+      );
+    // The note card opens next to the pick with its text box focused; Return saves it.
+    const writeNote = (note: string) => inPage([{ text: note }, { key: "Enter" }]);
 
     const annotate = page.getByRole("button", { name: "Annotate", exact: true });
     await annotate.click();
     await expect(annotate).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByRole("status").filter({ hasText: "Esc exits" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Click or drag" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Browser URL" })).toHaveCount(0);
 
     // Exact, because the chat that receives the message is a region named after it.
     const panel = page.getByRole("region", { name: "Annotations", exact: true });
@@ -68,38 +92,37 @@ test("annotates elements and a region in the browser panel and sends them to a c
     await expect(panel).toContainText("1 annotation", { timeout: 15_000 });
     await expect(panel).toContainText('<button> "Pay now"');
     await expect(panel.getByRole("img", { name: /Screenshot of annotation 1/u })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Return to save" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send 1 annotation" })).toBeDisabled();
+    await writeNote("Make the pay button green.");
+    await expect(panel).toContainText("Make the pay button green.");
+    await expect(page.getByRole("button", { name: "Send 1 annotation" })).toBeEnabled();
     // Annotate stays on after a pick, and the page never saw the click.
     await expect(annotate).toHaveAttribute("aria-pressed", "true");
     await clickInPage("h1");
     await expect(panel).toContainText("2 annotations", { timeout: 15_000 });
+    await writeNote("Bigger, tighter.");
+    await expect(panel).toContainText("Bigger, tighter.");
     const title = await page.evaluate(
       async (tabId) => (await window.zli?.browser.snapshot(tabId)) as { title?: string } | undefined,
       browserTabId,
     );
     expect(title?.title).toBe("Design fixture");
 
-    // A drag over empty space draws a region; Enter in the page confirms it.
-    await fixture.app.evaluate(async ({ webContents }, url) => {
-      const guest = webContents.getAllWebContents().find((candidate) => candidate.getURL().startsWith(url));
-      if (!guest) throw new Error("The page's web contents were not found.");
-      const mouse = (type: "mouseDown" | "mouseUp" | "mouseMove", x: number, y: number) =>
-        guest.sendInputEvent({ type, x, y, button: "left", clickCount: 1 });
-      mouse("mouseMove", 40, 160);
-      mouse("mouseDown", 40, 160);
-      for (let step = 1; step <= 10; step += 1) mouse("mouseMove", 40 + step * 18, 160 + step * 10);
-      mouse("mouseUp", 220, 260);
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      guest.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
-      guest.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
-    }, pageUrl);
+    // A drag over empty space marks a region and opens its note.
+    const drag: GuestInput[] = [
+      { mouse: "mouseMove", x: 40, y: 160 },
+      { mouse: "mouseDown", x: 40, y: 160 },
+    ];
+    for (let step = 1; step <= 10; step += 1) drag.push({ mouse: "mouseMove", x: 40 + step * 18, y: 160 + step * 10 });
+    drag.push({ mouse: "mouseUp", x: 220, y: 260 });
+    await inPage(drag);
+    await expect(page.getByRole("status").filter({ hasText: "Draw on the area" })).toBeVisible();
+    await writeNote("Add a signup card here.");
     await expect(panel).toContainText("3 annotations", { timeout: 15_000 });
     await expect(panel).toContainText("Region");
-
     const send = page.getByRole("button", { name: "Send 3 annotations" });
-    await expect(send).toBeDisabled();
-    await panel.getByRole("textbox", { name: "Instruction for annotation 1" }).fill("Make the pay button green.");
-    await panel.getByRole("textbox", { name: "Instruction for annotation 2" }).fill("Bigger, tighter.");
-    await panel.getByRole("textbox", { name: "Instruction for annotation 3" }).fill("Add a signup card here.");
+    await expect(send).toBeEnabled();
 
     // The device size preview still works while annotating.
     await page.getByRole("button", { name: "Device size" }).click();
@@ -110,9 +133,9 @@ test("annotates elements and a region in the browser panel and sends them to a c
     // Escape leaves Annotate but keeps the annotations for sending.
     await page.keyboard.press("Escape");
     await expect(annotate).toHaveAttribute("aria-pressed", "false");
-    await expect(page.getByRole("status").filter({ hasText: "Annotate is off" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Browser URL" })).toBeVisible();
+    await expect(panel).toContainText("Turn on Annotate to edit notes on the page.");
     await expect(panel).toContainText("3 annotations");
-
     await send.click();
     const dialog = page.getByRole("dialog", { name: "Send annotations" });
     await expect(dialog.locator(".choice-detail")).toHaveText(/Codex chat/u);

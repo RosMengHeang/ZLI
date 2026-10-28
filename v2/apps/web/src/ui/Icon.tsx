@@ -99,6 +99,12 @@ const paths = {
     </>
   ),
   code: <path d="m16 18 6-6-6-6M8 6l-6 6 6 6" />,
+  annotate: (
+    <>
+      <path d="M20 10V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2v3l3.5-3" />
+      <path d="m13.5 12.5 7.5 2.6-3.2 1.4-1.4 3.2Z" />
+    </>
+  ),
   crosshair: (
     <>
       <circle cx="12" cy="12" r="8" />

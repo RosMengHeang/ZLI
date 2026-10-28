@@ -1,13 +1,13 @@
 import type { SendAttachment } from "../review/SendToAgentDialog.js";
 
 export type DesignRect = { x: number; y: number; width: number; height: number };
-export type DesignStroke = { tool: "pen" | "rect" | "ellipse"; points: number[] };
+export type DesignStroke = { tool: "pen" | "rect" | "ellipse" | "arrow"; points: number[] };
 export type DesignImage = { data: string; mimeType: "image/png" | "image/jpeg" };
-/** The element's text, when it holds only text, and current values of the styles the editor offers. */
-export type DesignEditable = { text: string | null; styles: Record<string, string> };
 export type DesignCssEdit = { property: string; from: string; to: string };
 /** Changes previewed on the live page, which the agent should make in the source. */
 export type DesignEdits = { text?: { from: string; to: string } | undefined; css: DesignCssEdit[] };
+/** What the page is waiting for, which picks the hint the toolbar shows. */
+export type DesignAnnotateMode = "select" | "note" | "draw";
 
 /** One element picked in the browser panel, as design mode read it from the page. */
 export type DesignPick = {
@@ -21,7 +21,6 @@ export type DesignPick = {
   styles: Record<string, string>;
   bounds?: DesignRect | undefined;
   screenshot?: DesignImage | undefined;
-  editable?: DesignEditable | undefined;
 };
 
 export type DesignElementAnnotation = DesignPick & {
@@ -34,8 +33,6 @@ export type DesignElementAnnotation = DesignPick & {
 export type DesignRegionAnnotation = {
   kind: "region";
   id: string;
-  /** The page's own id for the region, which its overlay uses. */
-  regionId: string;
   url?: string | undefined;
   bounds: DesignRect;
   viewport?: { width: number; height: number } | undefined;
@@ -46,49 +43,94 @@ export type DesignRegionAnnotation = {
 
 export type DesignAnnotation = DesignElementAnnotation | DesignRegionAnnotation;
 
+/** Something the person did in the page while annotating. Ids come from the page and name its pins. */
 export type DesignPickResult =
-  | { kind: "element"; selector: string }
+  | { kind: "element"; id: string; selector: string }
   | {
       kind: "region";
-      regionId: string;
+      id: string;
       bounds: DesignRect;
       viewport?: { width: number; height: number } | undefined;
       strokes: DesignStroke[];
-    };
+      instruction: string;
+    }
+  | { kind: "note"; id: string; instruction: string; edits?: DesignEdits | null | undefined }
+  | { kind: "remove"; id: string }
+  | { kind: "mode"; mode: DesignAnnotateMode };
+
+export type DesignPreview = { text?: string; styles: Record<string, string> };
 
 export type DesignMark =
-  | { kind: "element"; id: string; n: number; selector: string }
-  | { kind: "region"; id: string; n: number; bounds: DesignRect; strokes: DesignStroke[] };
+  | { kind: "element"; id: string; n: number; selector: string; note?: string; preview?: DesignPreview }
+  | { kind: "region"; id: string; n: number; bounds: DesignRect; strokes: DesignStroke[]; note?: string };
 
 /** Chat messages take up to 8 attachments, one image per annotation. */
 export const MAX_DESIGN_ANNOTATIONS = 8;
-/** Style properties the editor previews on the page, in the CSS spelling the message uses. */
-export const DESIGN_EDITABLE_STYLES = ["background-color", "color", "padding", "font-size", "border-radius"] as const;
+/** Style properties the page's note editor changes, in the CSS spelling the message uses. */
+const DESIGN_EDITABLE_STYLES: readonly string[] = [
+  "background-color",
+  "color",
+  "padding",
+  "font-size",
+  "border-radius",
+];
 const MAX_NAME_CHARS = 60;
-const STROKE_TOOLS: readonly string[] = ["pen", "rect", "ellipse"];
+const STROKE_TOOLS: readonly string[] = ["pen", "rect", "ellipse", "arrow"];
+const MODES: readonly string[] = ["select", "note", "draw"];
 
 /** What the person did in the page while annotating, or undefined when the session ended. */
 export function parseDesignPickResult(value: unknown): DesignPickResult | undefined {
   if (!isRecord(value)) return undefined;
+  if (value.kind === "mode")
+    return typeof value.mode === "string" && MODES.includes(value.mode)
+      ? { kind: "mode", mode: value.mode as DesignAnnotateMode }
+      : undefined;
+  if (typeof value.id !== "string" || !value.id) return undefined;
+  const id = value.id;
+  const instruction = typeof value.instruction === "string" ? value.instruction.trim() : "";
   if (value.kind === "region") {
     const bounds = parseRect(value.bounds);
-    if (typeof value.id !== "string" || !value.id || !bounds) return undefined;
+    if (!bounds) return undefined;
     const viewport = isRecord(value.viewport) ? value.viewport : undefined;
     return {
       kind: "region",
-      regionId: value.id,
+      id,
       bounds,
       ...(viewport && finite(viewport.width) && finite(viewport.height) && viewport.width > 0 && viewport.height > 0
         ? { viewport: { width: Math.round(viewport.width), height: Math.round(viewport.height) } }
         : {}),
       strokes: parseStrokes(value.strokes),
+      instruction,
     };
   }
-  if (typeof value.selector !== "string") return undefined;
+  if (value.kind === "note") {
+    if (value.edits === null) return { kind: "note", id, instruction, edits: null };
+    const edits = parseDesignEdits(value.edits);
+    return edits ? { kind: "note", id, instruction, edits } : { kind: "note", id, instruction };
+  }
+  if (value.kind === "remove") return { kind: "remove", id };
+  if (value.kind !== "element" || typeof value.selector !== "string") return undefined;
   const selector = value.selector.trim();
-  return selector ? { kind: "element", selector } : undefined;
+  return selector ? { kind: "element", id, selector } : undefined;
 }
 
+export function parseDesignEdits(value: unknown): DesignEdits | undefined {
+  if (!isRecord(value) || !Array.isArray(value.css)) return undefined;
+  const css: DesignCssEdit[] = [];
+  for (const edit of value.css) {
+    if (!isRecord(edit) || typeof edit.property !== "string" || !DESIGN_EDITABLE_STYLES.includes(edit.property))
+      continue;
+    if (typeof edit.from !== "string" || typeof edit.to !== "string" || !edit.to.trim()) continue;
+    if (css.some((existing) => existing.property === edit.property)) continue;
+    css.push({ property: edit.property, from: edit.from, to: edit.to.trim() });
+  }
+  const text =
+    isRecord(value.text) && typeof value.text.from === "string" && typeof value.text.to === "string"
+      ? { from: value.text.from, to: value.text.to }
+      : undefined;
+  if (css.length === 0 && !text) return undefined;
+  return text ? { css, text } : { css };
+}
 /** Reads what the desktop app returned for a picked element; undefined when it is not usable. */
 export function parseDesignInspection(value: unknown, selector: string, id: string): DesignPick | undefined {
   if (!isRecord(value) || typeof value.tag !== "string" || !value.tag) return undefined;
@@ -99,7 +141,6 @@ export function parseDesignInspection(value: unknown, selector: string, id: stri
   }
   const bounds = isRecord(value.bounds) ? value.bounds : undefined;
   const screenshot = parseDesignImage(value.screenshot);
-  const editable = parseEditable(value.editable);
   return {
     id,
     selector,
@@ -117,7 +158,6 @@ export function parseDesignInspection(value: unknown, selector: string, id: stri
       ? { bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } }
       : {}),
     ...(screenshot ? { screenshot } : {}),
-    ...(editable ? { editable } : {}),
   };
 }
 
@@ -180,29 +220,9 @@ export function designEditSummary(edits: DesignEdits | undefined): string | unde
   return parts.filter(Boolean).join(" · ");
 }
 
-/** The values the editor changed from what the page had, or undefined when nothing changed. */
-export function diffDesignEdits(
-  editable: DesignEditable,
-  next: { text?: string | undefined; styles: Record<string, string> },
-): DesignEdits | undefined {
-  const css: DesignCssEdit[] = [];
-  for (const property of DESIGN_EDITABLE_STYLES) {
-    const to = next.styles[property]?.trim() ?? "";
-    const from = editable.styles[property] ?? "";
-    if (to && to !== from) css.push({ property, from, to });
-  }
-  const text =
-    editable.text !== null && next.text !== undefined && next.text !== editable.text
-      ? { from: editable.text, to: next.text }
-      : undefined;
-  return css.length > 0 || text ? { css, ...(text ? { text } : {}) } : undefined;
-}
-
-/** The page preview that shows these edits, or null to put the element back. */
-export function designEditsPreview(
-  edits: DesignEdits | undefined,
-): { text?: string; styles: Record<string, string> } | null {
-  if (!edits || designEditCount(edits) === 0) return null;
+/** The page preview that shows these edits, or undefined when there is nothing to show. */
+export function designEditsPreview(edits: DesignEdits | undefined): DesignPreview | undefined {
+  if (!edits || designEditCount(edits) === 0) return undefined;
   return {
     ...(edits.text ? { text: edits.text.to } : {}),
     styles: Object.fromEntries(edits.css.map((edit) => [edit.property, edit.to])),
@@ -216,21 +236,34 @@ export function designAnnotationReady(annotation: DesignAnnotation): boolean {
   );
 }
 
-/** Numbered markers for the annotations made on the page the tab shows now. */
+/** Numbered pins, with their notes and previews, for the annotations made on the page the tab shows now. */
 export function designMarks(annotations: readonly DesignAnnotation[], url: string | undefined): DesignMark[] {
   return annotations.slice(0, MAX_DESIGN_ANNOTATIONS).flatMap((annotation, index): DesignMark[] => {
     if (annotation.url && url && annotation.url !== url) return [];
-    return annotation.kind === "region"
-      ? [
-          {
-            kind: "region",
-            id: annotation.regionId,
-            n: index + 1,
-            bounds: annotation.bounds,
-            strokes: annotation.strokes,
-          },
-        ]
-      : [{ kind: "element", id: annotation.id, n: index + 1, selector: annotation.selector }];
+    const instruction = annotation.instruction.trim();
+    const note = instruction ? { note: instruction } : {};
+    if (annotation.kind === "region")
+      return [
+        {
+          kind: "region",
+          id: annotation.id,
+          n: index + 1,
+          bounds: annotation.bounds,
+          strokes: annotation.strokes,
+          ...note,
+        },
+      ];
+    const preview = designEditsPreview(annotation.edits);
+    return [
+      {
+        kind: "element",
+        id: annotation.id,
+        n: index + 1,
+        selector: annotation.selector,
+        ...note,
+        ...(preview ? { preview } : {}),
+      },
+    ];
   });
 }
 
@@ -308,16 +341,6 @@ function kebab(key: string): string {
 function fenceFor(text: string): string {
   const longest = Math.max(0, ...[...text.matchAll(/`+/gu)].map((match) => match[0].length));
   return "`".repeat(Math.max(3, longest + 1));
-}
-
-function parseEditable(value: unknown): DesignEditable | undefined {
-  if (!isRecord(value) || !isRecord(value.styles)) return undefined;
-  const styles: Record<string, string> = {};
-  for (const property of DESIGN_EDITABLE_STYLES) {
-    const style = value.styles[property];
-    if (typeof style === "string") styles[property] = style;
-  }
-  return { text: typeof value.text === "string" ? value.text : null, styles };
 }
 
 function parseRect(value: unknown): DesignRect | undefined {

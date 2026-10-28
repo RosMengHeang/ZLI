@@ -295,7 +295,7 @@ describe("BrowserAutomation device emulation", () => {
   it("waits in the page for the next annotation and treats a lost page as the end of the session", async () => {
     const evaluations: Array<Record<string, unknown>> = [];
     let answer: () => Promise<unknown> = async () => ({
-      result: { value: { kind: "element", selector: "main > button" } },
+      result: { value: { kind: "element", id: "a-1", selector: "main > button" } },
     });
     const cdp: CdpClientLike = {
       send: async (method, params) => {
@@ -306,7 +306,7 @@ describe("BrowserAutomation device emulation", () => {
       onMessage: () => () => undefined,
     };
     const automation = new BrowserAutomation(cdp);
-    await expect(automation.pickElement()).resolves.toEqual({ kind: "element", selector: "main > button" });
+    await expect(automation.pickElement()).resolves.toEqual({ kind: "element", id: "a-1", selector: "main > button" });
     expect(evaluations[0]).toMatchObject({ awaitPromise: true, returnByValue: true });
     expect(String(evaluations[0]?.expression)).toContain("__zliAnnotate");
 
@@ -318,6 +318,7 @@ describe("BrowserAutomation device emulation", () => {
           bounds: { x: 10, y: 20, width: 30, height: 40 },
           viewport: { width: 800, height: 600 },
           strokes: [{ tool: "pen", points: [11, 21, 12, 22] }],
+          instruction: " Tighten the spacing ",
         },
       },
     });
@@ -327,6 +328,7 @@ describe("BrowserAutomation device emulation", () => {
       bounds: { x: 10, y: 20, width: 30, height: 40 },
       viewport: { width: 800, height: 600 },
       strokes: [{ tool: "pen", points: [11, 21, 12, 22] }],
+      instruction: "Tighten the spacing",
     });
 
     answer = async () => ({ result: { value: null } });

@@ -3,7 +3,6 @@ import {
   BrowserBounds,
   BrowserDesignCaptureInput,
   BrowserDesignMarkInput,
-  BrowserDesignPreviewInput,
   BrowserFillInput,
   BrowserNavigateInput,
   BrowserPressInput,
@@ -339,12 +338,10 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
       /** Ends the annotate session and removes its overlay from the page. */
       designCancel: (browserTabId: string) =>
         ipc.invoke("zli:browser:design-cancel", BrowserTabIdInput.parse({ browserTabId })),
-      designMark: (input: { browserTabId: string; marks: unknown }) =>
+      designMark: (input: { browserTabId: string; marks: unknown; drop?: unknown }) =>
         ipc.invoke("zli:browser:design-mark", BrowserDesignMarkInput.parse(input)),
       designCapture: (input: { browserTabId: string; bounds: unknown; strokes: unknown }) =>
         ipc.invoke("zli:browser:design-capture", BrowserDesignCaptureInput.parse(input)),
-      designPreview: (input: { browserTabId: string; selector: string; preview: unknown }) =>
-        ipc.invoke("zli:browser:design-preview", BrowserDesignPreviewInput.parse(input)),
       consoleEntries: (browserTabId: string) =>
         ipc.invoke("zli:browser:console", BrowserTabIdInput.parse({ browserTabId })),
       networkEntries: (browserTabId: string) =>

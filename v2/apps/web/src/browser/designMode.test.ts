@@ -9,9 +9,9 @@ import {
   designEditsPreview,
   designMarks,
   designSummary,
-  diffDesignEdits,
   formatDesignMessage,
   MAX_DESIGN_ANNOTATIONS,
+  parseDesignEdits,
   parseDesignInspection,
   parseDesignPickResult,
 } from "./designMode.js";
@@ -33,7 +33,6 @@ const button: DesignElementAnnotation = {
 const region: DesignRegionAnnotation = {
   kind: "region",
   id: "2",
-  regionId: "region-a",
   url: "http://127.0.0.1:4000/",
   bounds: { x: 120, y: 340, width: 400, height: 200 },
   viewport: { width: 1280, height: 720 },
@@ -44,14 +43,45 @@ const region: DesignRegionAnnotation = {
 
 describe("parseDesignPickResult", () => {
   it("reads a clicked element and treats anything unusable as the end of the session", () => {
-    expect(parseDesignPickResult({ kind: "element", selector: " main > h1 " })).toEqual({
+    expect(parseDesignPickResult({ kind: "element", id: "a-1", selector: " main > h1 " })).toEqual({
       kind: "element",
+      id: "a-1",
       selector: "main > h1",
     });
-    expect(parseDesignPickResult({ selector: "#pay" })).toEqual({ kind: "element", selector: "#pay" });
+    expect(parseDesignPickResult({ kind: "element", selector: "#pay" })).toBeUndefined();
     expect(parseDesignPickResult(null)).toBeUndefined();
-    expect(parseDesignPickResult({ selector: "" })).toBeUndefined();
+    expect(parseDesignPickResult({ kind: "element", id: "a-1", selector: "" })).toBeUndefined();
     expect(parseDesignPickResult("main")).toBeUndefined();
+  });
+
+  it("reads saved notes, removals, and mode changes", () => {
+    expect(parseDesignPickResult({ kind: "note", id: "a-1", instruction: " Bigger " })).toEqual({
+      kind: "note",
+      id: "a-1",
+      instruction: "Bigger",
+    });
+    expect(
+      parseDesignPickResult({
+        kind: "note",
+        id: "a-1",
+        instruction: "",
+        edits: { css: [{ property: "color", from: "red", to: "blue" }] },
+      }),
+    ).toEqual({
+      kind: "note",
+      id: "a-1",
+      instruction: "",
+      edits: { css: [{ property: "color", from: "red", to: "blue" }] },
+    });
+    expect(parseDesignPickResult({ kind: "note", id: "a-1", instruction: "", edits: null })).toEqual({
+      kind: "note",
+      id: "a-1",
+      instruction: "",
+      edits: null,
+    });
+    expect(parseDesignPickResult({ kind: "remove", id: "a-1" })).toEqual({ kind: "remove", id: "a-1" });
+    expect(parseDesignPickResult({ kind: "mode", mode: "note" })).toEqual({ kind: "mode", mode: "note" });
+    expect(parseDesignPickResult({ kind: "mode", mode: "zoom" })).toBeUndefined();
   });
 
   it("reads a drawn region and drops malformed strokes", () => {
@@ -66,13 +96,15 @@ describe("parseDesignPickResult", () => {
           { tool: "laser", points: [1, 2] },
           { tool: "rect", points: [1, "2"] },
         ],
+        instruction: "Add a card",
       }),
     ).toEqual({
       kind: "region",
-      regionId: "region-a",
+      id: "region-a",
       bounds: { x: 10, y: 20, width: 100, height: 50 },
       viewport: { width: 800, height: 600 },
       strokes: [{ tool: "pen", points: [1, 2, 3, 4] }],
+      instruction: "Add a card",
     });
     expect(parseDesignPickResult({ kind: "region", id: "r", bounds: { x: 0, y: 0, width: 0, height: 5 } })).toBe(
       undefined,
@@ -91,7 +123,6 @@ describe("parseDesignInspection", () => {
         styles: { color: "red", width: 3, display: "" },
         bounds: { x: 1, y: 2, width: "wide", height: 4 },
         screenshot: { data: "abc", mimeType: "image/gif" },
-        editable: { text: "Welcome back", styles: { color: "red", "font-size": "32px", width: "10px", padding: 4 } },
       },
       "main > h1",
       "id-1",
@@ -104,7 +135,6 @@ describe("parseDesignInspection", () => {
       url: "http://127.0.0.1:4000/",
       html: "<h1>Welcome back</h1>",
       styles: { color: "red" },
-      editable: { text: "Welcome back", styles: { color: "red", "font-size": "32px" } },
     });
     expect(parseDesignInspection({ name: "x" }, "x", "id")).toBeUndefined();
   });
@@ -228,24 +258,23 @@ describe("designAttachments", () => {
 });
 
 describe("design edits", () => {
-  const editable = { text: "Save", styles: { color: "rgb(0, 0, 0)", padding: "8px" } };
-
-  it("keeps only the values that changed", () => {
-    expect(diffDesignEdits(editable, { text: "Save", styles: { color: "rgb(0, 0, 0)", padding: " " } })).toBe(
-      undefined,
-    );
-    const edits = diffDesignEdits(editable, { text: "Save all", styles: { color: "red", padding: "8px" } });
+  it("keeps allowed changes from the page and turns them into a preview", () => {
+    const edits = parseDesignEdits({
+      text: { from: "Save", to: "Save all" },
+      css: [
+        { property: "color", from: "rgb(0, 0, 0)", to: " red " },
+        { property: "width", from: "10px", to: "20px" },
+        { property: "padding", from: "8px", to: " " },
+      ],
+    });
     expect(edits).toEqual({
       text: { from: "Save", to: "Save all" },
       css: [{ property: "color", from: "rgb(0, 0, 0)", to: "red" }],
     });
     expect(designEditSummary(edits)).toBe("1 CSS edit · text");
     expect(designEditsPreview(edits)).toEqual({ text: "Save all", styles: { color: "red" } });
-    expect(designEditsPreview(undefined)).toBeNull();
-  });
-
-  it("ignores text edits on elements whose text cannot be previewed", () => {
-    expect(diffDesignEdits({ ...editable, text: null }, { text: "x", styles: {} })).toBeUndefined();
+    expect(designEditsPreview(undefined)).toBeUndefined();
+    expect(parseDesignEdits({ css: [{ property: "width", from: "1px", to: "2px" }] })).toBeUndefined();
   });
 
   it("counts an annotation as ready once it has an instruction or edits", () => {
@@ -262,11 +291,19 @@ describe("design edits", () => {
 });
 
 describe("designMarks", () => {
-  it("numbers the annotations and leaves out ones from other pages", () => {
+  it("numbers the annotations with their notes and previews and leaves out ones from other pages", () => {
     const other = { ...button, id: "9", url: "http://127.0.0.1:4000/about" };
-    expect(designMarks([button, other, region], "http://127.0.0.1:4000/")).toEqual([
-      { kind: "element", id: "1", n: 1, selector: "#save" },
-      { kind: "region", id: "region-a", n: 3, bounds: region.bounds, strokes: region.strokes },
+    const edited = { ...button, edits: { css: [{ property: "color", from: "black", to: "green" }] } };
+    expect(designMarks([edited, other, { ...region, instruction: "" }], "http://127.0.0.1:4000/")).toEqual([
+      {
+        kind: "element",
+        id: "1",
+        n: 1,
+        selector: "#save",
+        note: "Make it green.",
+        preview: { styles: { color: "green" } },
+      },
+      { kind: "region", id: "2", n: 3, bounds: region.bounds, strokes: region.strokes },
     ]);
   });
 });

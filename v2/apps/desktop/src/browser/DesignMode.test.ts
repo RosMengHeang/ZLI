@@ -8,9 +8,6 @@ function automationWith(overrides: Record<string, unknown>) {
   const automation = {
     evaluate: async (expression: string) => {
       scripts.push(expression);
-      if (expression.includes(".editable("))
-        return { type: "object", value: { text: "Save", styles: { color: "red", padding: 4 } } };
-      if (expression.includes(".preview(")) return { type: "boolean", value: true };
       return { type: "boolean", value: true };
     },
     ...overrides,
@@ -19,7 +16,7 @@ function automationWith(overrides: Record<string, unknown>) {
 }
 
 describe("DesignMode", () => {
-  it("returns a bounded element inspection, its editable values, and a crop with the overlay hidden", async () => {
+  it("returns a bounded element inspection and a crop with the overlay hidden", async () => {
     const order: string[] = [];
     const { automation, scripts } = automationWith({
       inspectElement: async () => ({
@@ -44,7 +41,6 @@ describe("DesignMode", () => {
       name: "Save",
       selector: "#save",
       screenshot: { data: "aGVsbG8=" },
-      editable: { text: "Save", styles: { color: "red" } },
     });
     expect(order).toEqual(["screenshot after capture"]);
     expect(scripts.at(-1)).toContain("release()");
@@ -66,23 +62,26 @@ describe("DesignMode", () => {
     expect(scripts.at(-1)).toContain("release()");
   });
 
-  it("passes picks, marks, previews, and the end of the session through to the page", async () => {
+  it("passes picks, marks with their previews, dropped notes, and the end of the session through to the page", async () => {
     const calls: string[] = [];
     const { automation, scripts } = automationWith({
       pickElement: async () => {
         calls.push("pick");
-        return { kind: "element", selector: "main > h1" };
+        return { kind: "element", id: "a", selector: "main > h1" };
       },
       cancelPick: async () => {
         calls.push("cancel");
       },
     });
     const design = new DesignMode(automation);
-    await expect(design.pick()).resolves.toEqual({ kind: "element", selector: "main > h1" });
-    await design.mark([{ kind: "element", id: "a", n: 1, selector: "main > h1" }]);
+    await expect(design.pick()).resolves.toEqual({ kind: "element", id: "a", selector: "main > h1" });
+    await design.mark(
+      [{ kind: "element", id: "a", n: 1, selector: "main > h1", preview: { styles: { color: "green" } } }],
+      ["b"],
+    );
     expect(scripts.at(-1)).toContain('"selector":"main > h1"');
-    await expect(design.preview({ selector: "#save", preview: { styles: { color: "green" } } })).resolves.toBe(true);
     expect(scripts.at(-1)).toContain('"color":"green"');
+    expect(scripts.at(-1)).toContain('["b"]');
     await design.cancelPick();
     expect(calls).toEqual(["pick", "cancel"]);
   });
