@@ -13,6 +13,7 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "desktop:pack": "pnpm --filter @zli-v2/desktop run pack",
+    "desktop:pack:prebuilt": "pnpm --filter @zli-v2/desktop run pack:prebuilt",
     "desktop:dir": "pnpm --filter @zli-v2/desktop run pack:dir",
     "desktop:release": "pnpm --filter @zli-v2/desktop run release",
     "desktop:dev": "pnpm run build && node scripts/desktop-dev.mjs",

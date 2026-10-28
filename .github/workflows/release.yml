@@ -24,34 +24,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Nothing is tagged or built until the release commit passes the same audit and checks as pull requests,
-  # so a merge with a known high or critical advisory or a failing check never ships.
+  # Nothing is tagged or built until the release commit passes the pull request checks (audit, verify,
+  # installers, and the Electron journey), so a merge with a known high or critical advisory or a failing
+  # check never ships.
   gate:
     if: github.ref == 'refs/heads/main'
     permissions:
       contents: read
-    strategy:
-      fail-fast: true
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: v2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.34.9
-          run_install: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: v2/.nvmrc
-          cache: pnpm
-          cache-dependency-path: v2/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm audit --audit-level high
-      - run: pnpm run verify
+      actions: write
+    uses: ./.github/workflows/v2-desktop.yml
 
   version:
     needs: gate
@@ -128,6 +109,18 @@ jobs:
           node-version-file: v2/.nvmrc
           cache: pnpm
           cache-dependency-path: v2/pnpm-lock.yaml
+      - name: Cache Electron and electron-builder downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('v2/pnpm-lock.yaml') }}
+          restore-keys: electron-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
       - name: Set the release version for this build
         run: node scripts/release-version.mjs apply "${{ needs.version.outputs.version }}"
