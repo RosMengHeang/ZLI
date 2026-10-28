@@ -63,7 +63,7 @@ pnpm run build
 pnpm run desktop:pack
 ```
 
-The repository currently requires Node 24. The local Electron binary must be installed by pnpm before packaging or running the Electron journeys.
+The repository currently requires Node 24.22.1 or a newer 24.x release. The local Electron binary must be installed by pnpm before packaging or running the Electron journeys.
 
 ## Electron journeys
 
