@@ -575,8 +575,8 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
 }
 
 /**
- * The first line of a message from another agent. It says who sent it and how to answer: an agent
- * in another project has to be reached as project/agent.
+ * The first line of a message from another agent. It says who sent it and how to answer: by name
+ * when the sender has one, and as project/agent from another project.
  */
 function messageHeading(options: {
   sender: Agent | undefined;
@@ -590,7 +590,9 @@ function messageHeading(options: {
     ? ""
     : crossProject
       ? ` (reply to ${project}/${sender.name ?? sender.id})`
-      : ` (agent id ${sender.id})`;
+      : sender.name
+        ? ` (reply to ${sender.name})`
+        : ` (agent id ${sender.id})`;
   return `Message from ${who}, working on branch ${branch}${reply}:`;
 }
 

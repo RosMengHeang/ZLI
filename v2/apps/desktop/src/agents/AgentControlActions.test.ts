@@ -350,7 +350,7 @@ describe("agent names", () => {
     expect(sent[0]).toMatchObject({
       type: "thread.queue",
       threadId: PEER,
-      text: `Message from Ana, another agent in ZLI, working on branch main (agent id ${ME}):\n\nPlease rebase.`,
+      text: "Message from Ana, another agent in ZLI, working on branch main (reply to Ana):\n\nPlease rebase.",
     });
   });
 

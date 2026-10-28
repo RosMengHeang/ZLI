@@ -2072,7 +2072,7 @@ function WorkspaceApp() {
         {renaming && projection ? (
           <RenameAgentDialog
             current={sessionAgentName(renaming)}
-            agent={`${sessionTitle(renaming, projection.messages, projection.providers)} · ${providerDisplayName(renaming.provider, projection.providers)}`}
+            agent={renameSubtitle(renaming, projection)}
             problem={(name) =>
               agentNameProblem(projection, findWorktree(renaming.worktreeId)?.projectId, name, renaming)
             }
@@ -2252,6 +2252,13 @@ function notificationCommands(
 }
 
 /** The content width of an element, kept current as it resizes. */
+/** The agent's task and provider. A chat with no messages yet is titled by its provider, so that shows once. */
+function renameSubtitle(session: AgentSession, projection: RuntimeProjection): string {
+  const provider = providerDisplayName(session.provider, projection.providers);
+  const title = sessionTitle(session, projection.messages, projection.providers);
+  return title === provider ? provider : `${title} · ${provider}`;
+}
+
 function useElementWidth<T extends HTMLElement>(): [(element: T | null) => void, number | undefined] {
   const [width, setWidth] = useState<number>();
   const ref = useCallback((element: T | null) => {
