@@ -10,10 +10,12 @@ import {
   limitKey,
   resetText,
   showsReading,
+  usePlanLimits,
   visibleWindows,
   windowLabel,
   windowName,
 } from "../limits/limits.js";
+import { useAppSettings } from "../settings/appSettings.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 
 const MAX_ROWS = 3;
@@ -35,6 +37,8 @@ type Props = {
   now: number;
   /** The limit key of the selected agent's login, to mark its row and keep it in view. */
   currentKey?: string | undefined;
+  /** Agents switched off in Settings. */
+  hidden?: readonly string[] | undefined;
   /** For tests; the person's own time zone otherwise. */
   timeZone?: string;
   onOpen(): void;
@@ -50,12 +54,27 @@ type Row = {
 };
 
 /**
+ * The card, when it is turned on in Settings. Limits are read only while it is on, so ZLI never asks
+ * a provider about a plan the person did not ask to see.
+ */
+export function SidebarPlanLimits(props: Omit<Props, "readings" | "hidden">) {
+  const { sidebarLimits } = useAppSettings();
+  if (!sidebarLimits.enabled) return null;
+  return <LiveUsageStrip {...props} hidden={sidebarLimits.hidden} />;
+}
+
+function LiveUsageStrip(props: Omit<Props, "readings">) {
+  const limits = usePlanLimits(props.accounts?.map((account) => account.id).join(","));
+  return <SidebarUsageStrip {...props} readings={limits.status === "loading" ? undefined : limits.readings} />;
+}
+
+/**
  * How much of each login's plan limits is used, above Settings: one circle per limit the provider
  * reports, each with its reset. The numbers come from each agent's provider; the card opens Usage.
  */
-export function SidebarUsageStrip({ readings, providers, accounts, now, currentKey, timeZone, onOpen }: Props) {
+export function SidebarUsageStrip({ readings, providers, accounts, now, currentKey, hidden, timeZone, onOpen }: Props) {
   const descriptionId = useId();
-  const shown = readings?.filter(showsReading) ?? [];
+  const shown = readings?.filter((reading) => showsReading(reading) && !hidden?.includes(reading.provider)) ?? [];
   if (shown.length === 0) return null;
 
   const withAccounts = new Set(

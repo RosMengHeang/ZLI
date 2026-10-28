@@ -3,9 +3,10 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
+import { resetPlanLimitsStore } from "../limits/limits.js";
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
+import { DEFAULT_SETTINGS, readAppSettings, updateAppSettings } from "./appSettings.js";
 import { matchingSections, SettingsDialog } from "./SettingsDialog.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -17,6 +18,7 @@ afterEach(() => {
   root = undefined;
   document.body.replaceChildren();
   window.localStorage.clear();
+  updateAppSettings(() => structuredClone(DEFAULT_SETTINGS));
 });
 
 const bridge = {
@@ -58,6 +60,7 @@ describe("matchingSections", () => {
     expect(matchingSections("MCP").map((entry) => entry.id)).toEqual(["integrations"]);
     expect(matchingSections("workspace").map((entry) => entry.id)).toEqual(["projects", "worktrees", "files"]);
     expect(matchingSections("branch template").map((entry) => entry.id)).toEqual(["worktrees"]);
+    expect(matchingSections("plan limits").map((entry) => entry.id)).toEqual(["usage"]);
     expect(matchingSections("nothing like this")).toEqual([]);
   });
 });
@@ -104,5 +107,77 @@ describe("SettingsDialog", () => {
     // The shell closes Settings on Escape, so clearing the search must keep the key from reaching it.
     expect(reachedWindow).not.toHaveBeenCalled();
     expect(tabs(container).length).toBeGreaterThan(10);
+  });
+});
+
+describe("Usage settings", () => {
+  const ok = (provider: string, accountId = "usual") => ({
+    provider,
+    accountId,
+    state: "ok",
+    windows: [{ durationMinutes: 300, usedPercent: 20 }],
+  });
+
+  async function openUsage(readings: unknown[]) {
+    resetPlanLimitsStore();
+    const dispatch = vi.fn(async (request: { commandId: string }) => ({
+      commandId: request.commandId,
+      accepted: true,
+      result: { readings },
+    }));
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(
+        <RuntimeProvider bridge={{ runtime: { ...bridge.runtime, dispatch } } as unknown as ZliBridge}>
+          <SettingsDialog
+            projection={undefined}
+            initialSection="usage"
+            notifications={{ settings: undefined, update: () => undefined }}
+            onClose={() => undefined}
+          />
+        </RuntimeProvider>,
+      );
+    });
+    return container;
+  }
+
+  const switches = (container: HTMLElement) =>
+    [...container.querySelectorAll<HTMLInputElement>('input[role="switch"]')].map((input) => ({
+      label: input.closest("label")?.querySelector(".switch-label")?.textContent,
+      checked: input.checked,
+      disabled: input.disabled,
+      input,
+    }));
+
+  it("is off by default and lists only the agents with a plan that reports limits", async () => {
+    const container = await openUsage([
+      ok("claude-code"),
+      { provider: "codex", accountId: "usual", state: "error", windows: [] },
+      { provider: "opencode", accountId: "usual", state: "expired", windows: [] },
+      ok("gemini", "work"),
+    ]);
+    expect(switches(container).map(({ input: _input, ...rest }) => rest)).toEqual([
+      { label: "Show plan limits", checked: false, disabled: false },
+      { label: "Claude Code", checked: true, disabled: true },
+      { label: "Gemini", checked: true, disabled: true },
+    ]);
+  });
+
+  it("turns the card on and hides one agent", async () => {
+    const container = await openUsage([ok("claude-code"), ok("codex")]);
+    await act(async () => switches(container)[0]?.input.click());
+    expect(readAppSettings().sidebarLimits).toEqual({ enabled: true, hidden: [] });
+    const codex = switches(container).find((entry) => entry.label === "Codex");
+    expect(codex?.disabled).toBe(false);
+    await act(async () => codex?.input.click());
+    expect(readAppSettings().sidebarLimits).toEqual({ enabled: true, hidden: ["codex"] });
+  });
+
+  it("says so when no agent reports plan limits", async () => {
+    const container = await openUsage([{ provider: "codex", accountId: "usual", state: "signed-out", windows: [] }]);
+    expect(container.querySelector(".settings-panel")?.textContent).toContain("None of your agents report plan limits");
+    expect(switches(container)).toHaveLength(1);
   });
 });
