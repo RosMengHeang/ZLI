@@ -15,7 +15,7 @@
     "desktop:pack": "pnpm --filter @zli-v2/desktop run pack",
     "desktop:dir": "pnpm --filter @zli-v2/desktop run pack:dir",
     "desktop:release": "pnpm --filter @zli-v2/desktop run release",
-    "desktop:dev": "pnpm run build && pnpm exec electron apps/desktop/dist/main.js",
+    "desktop:dev": "pnpm run build && node scripts/desktop-dev.mjs",
     "e2e": "playwright test",
     "build": "node scripts/build.mjs && pnpm run web:build",
     "web:build": "pnpm --filter @zli-v2/web exec vite build",
