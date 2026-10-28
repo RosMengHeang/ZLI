@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,7 +13,9 @@ describe("agentFolderTrust", () => {
   const now = () => new Date("2026-10-28T10:00:00.000Z");
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), "zli-trust-"));
+    // macOS links the temp folder under /private and Windows gives it a short name, so resolve it to
+    // keep the folder ZLI knows and the folder the system resolves the same.
+    home = await realpath(await mkdtemp(join(tmpdir(), "zli-trust-")));
     project = join(home, "my.app");
     worktree = join(home, "my.app-worktrees", "feature");
     await mkdir(project, { recursive: true });
@@ -57,7 +59,7 @@ describe("agentFolderTrust", () => {
     await trust("codex");
     await trust("codex");
     expect(await readFile(join(home, ".codex", "config.toml"), "utf8")).toBe(
-      `model = "gpt-6"\n\n[projects."${project}"]\ntrust_level = "trusted"\n`,
+      `model = "gpt-6"\n\n[projects."${project.replaceAll("\\", "\\\\")}"]\ntrust_level = "trusted"\n`,
     );
   });
 
@@ -79,6 +81,14 @@ describe("agentFolderTrust", () => {
     const text = await readFile(join(home, ".copilot", "config.json"), "utf8");
     expect(text.startsWith("// This file is managed automatically.\n{")).toBe(true);
     expect(JSON.parse(text.slice(text.indexOf("{"))).trustedFolders).toEqual(["/elsewhere", project]);
+  });
+
+  it("trusts both the linked folder and the folder it resolves to", async () => {
+    const link = join(home, "linked.app");
+    await symlink(project, link, "junction");
+    await agentFolderTrust("copilot", { projectPath: link, cwd: link, env: {}, home, platform: "linux" });
+    const config = JSON.parse(await readFile(join(home, ".copilot", "config.json"), "utf8"));
+    expect(config.trustedFolders).toEqual([link, project]);
   });
 
   it("trusts the worktree itself in Droid's settings", async () => {
