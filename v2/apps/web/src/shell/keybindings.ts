@@ -32,6 +32,9 @@ const reserved = new Map<string, string>([
   ["Mod+L", "asking an agent about code"],
   ["Mod+F", "find"],
   ["Mod+Enter", "sending"],
+  ["Mod+=", "zooming in"],
+  ["Mod+-", "zooming out"],
+  ["Mod+0", "resetting zoom"],
 ]);
 
 const codeKeys: Record<string, string> = {

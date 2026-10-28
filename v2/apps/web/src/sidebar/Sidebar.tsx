@@ -855,7 +855,7 @@ export function Sidebar({
         />
         <div className="sidebar-footer">
           <span className={`connection-dot${projection ? " is-connected" : ""}`} aria-hidden="true" />
-          <span>{projection ? "Local runtime" : "Waiting for runtime"}</span>
+          <span className="sidebar-runtime">{projection ? "Local runtime" : "Waiting for runtime"}</span>
           <IconButton
             className="sidebar-usage"
             label="Usage"

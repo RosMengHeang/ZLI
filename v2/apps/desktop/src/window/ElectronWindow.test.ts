@@ -1,8 +1,74 @@
 import { describe, expect, it } from "vitest";
 
-import { createMainWindow, secureWebPreferences, titleBarOptions } from "./ElectronWindow.js";
+import {
+  applyZoomKeys,
+  createMainWindow,
+  fitTitleBar,
+  nextZoomFactor,
+  secureWebPreferences,
+  titleBarOptions,
+} from "./ElectronWindow.js";
 
 describe("ElectronWindow", () => {
+  it("turns Ctrl or Cmd with +, - and 0 into zoom requests", () => {
+    let onInput: ((event: { preventDefault(): void }, input: unknown) => void) | undefined;
+    const window = {
+      webContents: {
+        setWindowOpenHandler: () => undefined,
+        on: (name: string, listener: never) => {
+          if (name === "before-input-event") onInput = listener;
+        },
+        reload: () => undefined,
+      },
+    };
+    const zooms: string[] = [];
+    applyZoomKeys(window, (zoom) => zooms.push(zoom));
+    const press = (key: string, mods: { control?: boolean; meta?: boolean; alt?: boolean } = { control: true }) => {
+      let prevented = false;
+      onInput?.(
+        { preventDefault: () => (prevented = true) },
+        { type: "keyDown", key, control: false, meta: false, alt: false, ...mods },
+      );
+      return prevented;
+    };
+    expect(press("=")).toBe(true);
+    expect(press("+", { meta: true })).toBe(true);
+    expect(press("-")).toBe(true);
+    expect(press("0")).toBe(true);
+    expect(press("=", {})).toBe(false);
+    expect(press("=", { control: true, alt: true })).toBe(false);
+    expect(press("k")).toBe(false);
+    expect(zooms).toEqual(["in", "in", "out", "reset"]);
+  });
+
+  it("steps zoom between 50% and 300%", () => {
+    expect(nextZoomFactor(1, "in")).toBe(1.1);
+    expect(nextZoomFactor(1, "out")).toBe(0.9);
+    expect(nextZoomFactor(2.5, "in")).toBe(3);
+    expect(nextZoomFactor(3, "in")).toBe(3);
+    expect(nextZoomFactor(0.67, "out")).toBe(0.5);
+    expect(nextZoomFactor(0.5, "out")).toBe(0.5);
+    expect(nextZoomFactor(2.5, "reset")).toBe(1);
+    // A factor between steps moves to the neighbouring step.
+    expect(nextZoomFactor(1.3, "in")).toBe(1.5);
+    expect(nextZoomFactor(1.3, "out")).toBe(1.25);
+  });
+
+  it("scales the native window controls with the zoom", () => {
+    const overlays: unknown[] = [];
+    const buttons: unknown[] = [];
+    const window = {
+      webContents: { setWindowOpenHandler: () => undefined, on: () => undefined, reload: () => undefined },
+      setTitleBarOverlay: (options: unknown) => overlays.push(options),
+      setWindowButtonPosition: (position: unknown) => buttons.push(position),
+    };
+    fitTitleBar(window, "linux", 2);
+    fitTitleBar(window, "win32", 0.5, 36);
+    fitTitleBar(window, "darwin", 3);
+    expect(overlays).toEqual([{ height: 88 }, { height: 18 }]);
+    expect(buttons).toEqual([{ x: 16, y: 59 }]);
+  });
+
   it("creates a Chromium window with the security posture required by Codex/Cursor-style shells", () => {
     const created: Array<Record<string, unknown>> = [];
     const webContents = {

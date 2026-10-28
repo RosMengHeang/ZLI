@@ -7,6 +7,7 @@ import { writeJsonFile } from "../storage/writeJsonFile.js";
 import {
   applyNavigationPolicy,
   type BrowserWindowLike,
+  fitTitleBar,
   secureWebPreferences,
   titleBarOptions,
 } from "../window/ElectronWindow.js";
@@ -125,7 +126,15 @@ export class PopOutWindows {
     const url = new URL(this.#options.rendererUrl);
     url.search = new URLSearchParams({ view: "mobile-device", deviceId }).toString();
     await window.loadURL(url.toString());
+    if (!window.isDestroyed())
+      fitTitleBar(window, this.#options.platform, window.webContents.getZoomFactor?.() ?? 1, POP_OUT_TITLE_BAR_HEIGHT);
     return this.list();
+  }
+
+  /** Refits every pop-out's native controls after the shared page zoom changes. */
+  fitTitleBars(factor: number): void {
+    for (const { window } of this.#open.values())
+      if (!window.isDestroyed()) fitTitleBar(window, this.#options.platform, factor, POP_OUT_TITLE_BAR_HEIGHT);
   }
 
   close(deviceId: string): MobilePopOut[] {
@@ -151,7 +160,9 @@ export class PopOutWindows {
   setAspect(input: MobilePopOutAspectInput): void {
     const entry = this.#open.get(input.deviceId);
     if (!entry || entry.window.isDestroyed()) return;
-    const extra = { width: input.extraWidth, height: input.extraHeight };
+    // The renderer measures in CSS pixels; the window is sized in screen points, which differ when zoomed.
+    const factor = entry.window.webContents.getZoomFactor?.() ?? 1;
+    const extra = { width: input.extraWidth * factor, height: input.extraHeight * factor };
     entry.window.setAspectRatio(input.aspect, extra);
     const [width = 0, height = 0] = entry.window.getContentSize();
     const device = { width: width - extra.width, height: height - extra.height };

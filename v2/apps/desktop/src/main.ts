@@ -73,7 +73,14 @@ import { ensureScratchFolder } from "./scratch/ScratchFolder.js";
 import { shouldOpenExternal } from "./security/NavigationPolicy.js";
 import { registerUpdates } from "./updates/electronUpdates.js";
 import { resolveAppAsset } from "./window/ElectronProtocol.js";
-import { type BrowserWindowConstructor, createMainWindow } from "./window/ElectronWindow.js";
+import {
+  applyZoomKeys,
+  type BrowserWindowConstructor,
+  createMainWindow,
+  fitTitleBar,
+  nextZoomFactor,
+  type Zoom,
+} from "./window/ElectronWindow.js";
 import { windowsAppDetails, windowsAppId } from "./window/windowsTaskbar.js";
 
 const DEFAULT_ENVIRONMENT_ID = "00000000-0000-4000-8000-000000000001";
@@ -179,6 +186,7 @@ async function main(): Promise<void> {
   );
   const electronWindow = window as unknown as BrowserWindow;
   mainWindow = electronWindow;
+  applyZoomKeys(window, zoomApp);
   const rendererUrl = process.env.ZLI_RENDERER_URL ?? `${APP_ORIGIN}/index.html`;
   popOuts = new PopOutWindows({
     create: (options) => new BrowserWindow(options) as unknown as PopOutWindowLike,
@@ -287,7 +295,11 @@ async function main(): Promise<void> {
   });
   // ready-to-show can fire before loadURL resolves, so the listener goes first. A window that misses it
   // stays hidden and Chromium stops drawing frames for it.
-  window.once?.("ready-to-show", () => window.show?.());
+  window.once?.("ready-to-show", () => {
+    // Chromium restores the last zoom for the app's origin, so the native controls are fitted to it first.
+    fitTitleBar(window, process.platform, window.webContents.getZoomFactor?.() ?? 1);
+    window.show?.();
+  });
   if (window.loadURL) await window.loadURL(rendererUrl);
   if (window.isVisible?.() === false) window.show?.();
 }
@@ -432,6 +444,10 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
   ipcMain.handle("zli:app:version", () => app.getVersion());
   ipcMain.handle("zli:app:quit", () => {
     app.quit();
+  });
+  ipcMain.handle("zli:app:zoom", (event, input: { zoom?: unknown }) => {
+    if (input?.zoom !== "in" && input?.zoom !== "out" && input?.zoom !== "reset") throw new Error("Unknown zoom.");
+    zoomApp(input.zoom);
   });
   ipcMain.handle("zli:test:restart-runtime", () => {
     if (process.env.ZLI_TEST_PROVIDER !== "mock") throw new Error("Test runtime controls are disabled.");
@@ -644,6 +660,18 @@ function registerMobileIpc(): void {
   });
   for (const [channel, handle] of Object.entries(handlers))
     ipcMain.handle(channel, (event, input: unknown) => handle(input, { viewer: streamViewer(event.sender.id) }));
+}
+
+/**
+ * Chromium shares a page zoom across windows on the same origin, so pop-outs follow the main window and
+ * every window's native controls are refitted.
+ */
+function zoomApp(zoom: Zoom): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const factor = nextZoomFactor(mainWindow.webContents.getZoomFactor(), zoom);
+  mainWindow.webContents.setZoomFactor(factor);
+  fitTitleBar(mainWindow, process.platform, factor);
+  popOuts?.fitTitleBars(factor);
 }
 
 /** Device and stream events go to the main window and to every pop-out window showing a device. */

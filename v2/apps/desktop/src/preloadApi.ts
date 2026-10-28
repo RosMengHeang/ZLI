@@ -383,6 +383,7 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
     app: {
       getVersion: () => ipc.invoke("zli:app:version"),
       quit: () => ipc.invoke("zli:app:quit"),
+      zoom: (zoom: "in" | "out" | "reset") => ipc.invoke("zli:app:zoom", { zoom }),
       openExternal: (url: string) => ipc.invoke("zli:app:open-external", { url }),
     },
     notifications: {

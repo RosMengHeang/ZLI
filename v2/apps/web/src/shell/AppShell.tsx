@@ -12,7 +12,7 @@ import {
   type WorktreeSetupProjection,
   worktreeDevServers,
 } from "@zli-v2/contracts";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { accountLabel, launchAccountId, sessionAccountId, useAccounts } from "../accounts/accounts.js";
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
@@ -417,7 +417,17 @@ function WorkspaceApp() {
   );
 
   const toggleSidePane = (next: SidePane) => setSidePane((current) => (current === next ? undefined : next));
-  const toggleSidebar = () => updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
+  // Zoomed far in, the window is too narrow to keep the sidebar beside the work, so it starts hidden
+  // there without changing the saved choice for wider windows.
+  const narrow = useNarrowWindow();
+  const [narrowSidebarOpen, setNarrowSidebarOpen] = useState(false);
+  const sidebarOpen = narrow ? narrowSidebarOpen : workbench.sidebarOpen;
+  const toggleSidebar = () =>
+    narrow
+      ? setNarrowSidebarOpen((open) => !open)
+      : updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
+  const hideSidebar = () =>
+    narrow ? setNarrowSidebarOpen(false) : updateWorkbench((state) => ({ ...state, sidebarOpen: false }));
   const toggleDrawer = () => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }));
   const openSettings = (section: SettingsSection = "agents") => {
     setPaletteOpen(false);
@@ -1572,12 +1582,37 @@ function WorkspaceApp() {
       action: () => setSidePane("review"),
     },
     {
-      label: workbench.sidebarOpen ? "Hide sidebar" : "Show sidebar",
+      label: sidebarOpen ? "Hide sidebar" : "Show sidebar",
       icon: "panelLeft",
       group: "View",
       shortcut: shortcuts.toggleSidebar,
       action: toggleSidebar,
     },
+    ...(bridge?.app.zoom
+      ? [
+          {
+            label: "Zoom in",
+            icon: "zoomIn" as const,
+            group: "View" as const,
+            shortcut: "Mod+=",
+            action: () => void bridge.app.zoom?.("in"),
+          },
+          {
+            label: "Zoom out",
+            icon: "zoomOut" as const,
+            group: "View" as const,
+            shortcut: "Mod+-",
+            action: () => void bridge.app.zoom?.("out"),
+          },
+          {
+            label: "Actual size",
+            icon: "search" as const,
+            group: "View" as const,
+            shortcut: "Mod+0",
+            action: () => void bridge.app.zoom?.("reset"),
+          },
+        ]
+      : []),
     { label: "Export support bundle", icon: "download", group: "App", action: () => void exportSupportBundle() },
     { label: "Import legacy snapshot", icon: "upload", group: "App", action: () => void startLegacyImport() },
     { label: "Settings", icon: "settings", group: "App", shortcut: shortcuts.settings, action: () => openSettings() },
@@ -1663,8 +1698,8 @@ function WorkspaceApp() {
 
   return (
     <FileIndexProvider onOpenFile={openFile}>
-      <div className={`app-shell${workbench.sidebarOpen ? "" : " is-sidebar-hidden"}`}>
-        {workbench.sidebarOpen ? (
+      <div className={`app-shell${sidebarOpen ? "" : " is-sidebar-hidden"}`}>
+        {sidebarOpen ? (
           <Sidebar
             projection={projection}
             sessions={sessions}
@@ -1700,7 +1735,7 @@ function WorkspaceApp() {
             onOpenHelp={() => setHelpOpen(true)}
             onOpenSettings={() => openSettings()}
             onOpenUsage={openUsage}
-            onHideSidebar={() => updateWorkbench((state) => ({ ...state, sidebarOpen: false }))}
+            onHideSidebar={hideSidebar}
             runGroups={workbench.groups}
             runStates={runStates}
             onCompareRuns={(group) => setCompareGroupId(group.groupId)}
@@ -1708,7 +1743,7 @@ function WorkspaceApp() {
         ) : null}
         <main className="main-workspace">
           <Topbar
-            sidebarOpen={workbench.sidebarOpen}
+            sidebarOpen={sidebarOpen}
             project={contextWorktree ? contextProject : undefined}
             worktree={contextWorktree}
             hasProjects={hasProjects}
@@ -2177,4 +2212,19 @@ function useElementWidth<T extends HTMLElement>(): [(element: T | null) => void,
     return () => observer.disconnect();
   }, []);
   return [ref, width];
+}
+
+const NARROW_WINDOW = "(max-width: 720px)";
+
+/** Whether the window is too narrow for the sidebar and the work side by side, which zooming in can cause. */
+function useNarrowWindow(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      if (typeof window.matchMedia !== "function") return () => undefined;
+      const query = window.matchMedia(NARROW_WINDOW);
+      query.addEventListener("change", onChange);
+      return () => query.removeEventListener("change", onChange);
+    },
+    () => typeof window.matchMedia === "function" && window.matchMedia(NARROW_WINDOW).matches,
+  );
 }

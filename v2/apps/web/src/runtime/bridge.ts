@@ -90,7 +90,12 @@ export type ZliBridge = {
     take(id: string): Promise<{ name: string; dataBase64: string }>;
   };
   menu: { trigger(command: string): Promise<unknown> };
-  app: { getVersion(): Promise<string>; quit(): Promise<void>; openExternal?(url: string): Promise<unknown> };
+  app: {
+    getVersion(): Promise<string>;
+    quit(): Promise<void>;
+    openExternal?(url: string): Promise<unknown>;
+    zoom?(zoom: "in" | "out" | "reset"): Promise<unknown>;
+  };
   test?: {
     restartRuntime(): Promise<unknown>;
     crashMain(): Promise<unknown>;
