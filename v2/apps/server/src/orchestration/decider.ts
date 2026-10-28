@@ -60,6 +60,7 @@ export type DomainDecision = Extract<
       | "project.registered"
       | "project.archived"
       | "project.git.changed"
+      | "project.agents.changed"
       | "worktree.create.requested"
       | "worktree.imported"
       | "worktree.status.changed"
@@ -171,6 +172,9 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     case "project.git":
       assertProject(projection, command.projectId);
       return [{ type: "project.git.changed", projectId: command.projectId, git: command.git }];
+    case "project.agents":
+      assertProject(projection, command.projectId);
+      return [{ type: "project.agents.changed", projectId: command.projectId, trusted: command.trusted }];
     case "worktree.create": {
       const project = projection.projects.find((entry) => entry.projectId === command.projectId);
       if (!project) throw new DomainError("project_missing", `Project does not exist: ${command.projectId}`);

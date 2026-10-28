@@ -51,8 +51,8 @@ export function agentCliMissingMessage(provider: ListedProviderKind): string {
 
 /**
  * Interactive CLI arguments for an agent terminal. Permission mode defaults to full access.
- * Read only uses the CLI's plan or read-only mode where it has one; Gemini, Qwen, and Copilot
- * have none, so they keep their default of asking before each change.
+ * Read only uses the CLI's plan or read-only mode where it has one; Copilot has none, so it keeps
+ * its default of asking before each change.
  */
 export function buildAgentArgs(agent: TerminalAgentLaunch): string[] {
   const mode = agent.permissionMode ?? "full-access";
@@ -69,7 +69,8 @@ export function buildAgentArgs(agent: TerminalAgentLaunch): string[] {
     case "claude-code":
       return [
         ...(fullAccess ? ["--dangerously-skip-permissions"] : []),
-        ...(readOnly ? ["--permission-mode", "plan"] : []),
+        // Without a mode, current releases start in Auto mode, where a model decides which actions need asking.
+        ...(readOnly ? ["--permission-mode", "plan"] : fullAccess ? [] : ["--permission-mode", "acceptEdits"]),
         ...(model ? ["--model", model] : []),
       ];
     case "cursor-agent":
@@ -89,18 +90,37 @@ export function buildAgentArgs(agent: TerminalAgentLaunch): string[] {
         ...(model ? ["--model", model] : []),
       ];
     case "gemini":
-      // Gemini turns off every MCP server in a folder it does not trust, and each worktree is a new folder.
-      return [...(fullAccess ? ["--approval-mode", "yolo", "--skip-trust"] : []), ...(model ? ["--model", model] : [])];
+      return [
+        ...(fullAccess ? ["--approval-mode", "yolo"] : []),
+        ...(readOnly ? ["--approval-mode", "plan"] : []),
+        ...(model ? ["--model", model] : []),
+      ];
     case "qwen":
-      return [...(fullAccess ? ["--approval-mode", "yolo"] : []), ...(model ? ["--model", model] : [])];
+      // Without a flag Qwen starts in its Auto mode, where a model decides which actions need asking.
+      return [
+        "--approval-mode",
+        fullAccess ? "yolo" : readOnly ? "plan" : "default",
+        ...(model ? ["--model", model] : []),
+      ];
     case "copilot":
       return [...(fullAccess ? ["--allow-all"] : []), ...(model ? ["--model", model] : [])];
     case "kimi":
-      return [...(fullAccess ? ["--yolo"] : []), ...(readOnly ? ["--plan"] : []), ...(model ? ["--model", model] : [])];
+      // Kimi's --yolo still asks when it thinks it should; --auto never asks.
+      return [...(fullAccess ? ["--auto"] : []), ...(readOnly ? ["--plan"] : []), ...(model ? ["--model", model] : [])];
     case "goose":
-      // goose session has no permission or model flags; GOOSE_MODE and GOOSE_MODEL in its config decide both.
+      // goose session has no permission or model flags; see agentModeEnv for its mode.
       return ["session"];
   }
+}
+
+/**
+ * Environment that sets the permission mode for CLIs without a flag for it. Goose otherwise runs in
+ * the mode from its own config, which defaults to auto and never asks.
+ */
+export function agentModeEnv(agent: TerminalAgentLaunch): Record<string, string> {
+  if (agent.provider !== "goose") return {};
+  const mode = agent.permissionMode ?? "full-access";
+  return { GOOSE_MODE: mode === "full-access" ? "auto" : mode === "supervised" ? "smart_approve" : "chat" };
 }
 
 /** CLIs that read MCP servers from a config file passed on their command line. */

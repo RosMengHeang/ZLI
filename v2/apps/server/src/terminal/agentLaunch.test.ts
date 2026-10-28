@@ -5,6 +5,7 @@ import {
   AgentLaunchError,
   agentCliMissingMessage,
   agentMcpLaunch,
+  agentModeEnv,
   buildAgentArgs,
   mcpConfigFileKind,
   mcpLaunchArgs,
@@ -17,21 +18,25 @@ describe("buildAgentArgs", () => {
     expect(buildAgentArgs({ provider: "cursor-agent" })).toEqual(["--force", "--trust"]);
     expect(buildAgentArgs({ provider: "droid" })).toEqual(["--auto", "high"]);
     expect(buildAgentArgs({ provider: "opencode" })).toEqual(["--auto"]);
-    expect(buildAgentArgs({ provider: "gemini" })).toEqual(["--approval-mode", "yolo", "--skip-trust"]);
+    expect(buildAgentArgs({ provider: "gemini" })).toEqual(["--approval-mode", "yolo"]);
     expect(buildAgentArgs({ provider: "copilot" })).toEqual(["--allow-all"]);
-    expect(buildAgentArgs({ provider: "kimi" })).toEqual(["--yolo"]);
+    expect(buildAgentArgs({ provider: "kimi" })).toEqual(["--auto"]);
     expect(buildAgentArgs({ provider: "qwen" })).toEqual(["--approval-mode", "yolo"]);
     expect(buildAgentArgs({ provider: "goose" })).toEqual(["session"]);
   });
 
   it("drops permission bypass flags in supervised mode", () => {
     expect(buildAgentArgs({ provider: "codex", permissionMode: "supervised" })).toEqual([]);
-    expect(buildAgentArgs({ provider: "claude-code", permissionMode: "supervised" })).toEqual([]);
+    expect(buildAgentArgs({ provider: "claude-code", permissionMode: "supervised" })).toEqual([
+      "--permission-mode",
+      "acceptEdits",
+    ]);
     expect(buildAgentArgs({ provider: "cursor-agent", permissionMode: "supervised" })).toEqual(["--trust"]);
     expect(buildAgentArgs({ provider: "droid", permissionMode: "supervised" })).toEqual([]);
-    for (const provider of ["opencode", "gemini", "copilot", "kimi", "qwen"] as const) {
+    for (const provider of ["opencode", "gemini", "copilot", "kimi"] as const) {
       expect(buildAgentArgs({ provider, permissionMode: "supervised" })).toEqual([]);
     }
+    expect(buildAgentArgs({ provider: "qwen", permissionMode: "supervised" })).toEqual(["--approval-mode", "default"]);
     expect(buildAgentArgs({ provider: "goose", permissionMode: "supervised" })).toEqual(["session"]);
   });
 
@@ -44,8 +49,17 @@ describe("buildAgentArgs", () => {
     expect(readOnly("droid")).toEqual(["--use-spec"]);
     expect(readOnly("opencode")).toEqual(["--agent", "plan"]);
     expect(readOnly("kimi")).toEqual(["--plan"]);
-    for (const provider of ["gemini", "qwen", "copilot"] as const) expect(readOnly(provider)).toEqual([]);
+    expect(readOnly("gemini")).toEqual(["--approval-mode", "plan"]);
+    expect(readOnly("qwen")).toEqual(["--approval-mode", "plan"]);
+    expect(readOnly("copilot")).toEqual([]);
     expect(readOnly("goose")).toEqual(["session"]);
+  });
+
+  it("sets Goose's mode through GOOSE_MODE, since goose session has no flag for it", () => {
+    expect(agentModeEnv({ provider: "goose" })).toEqual({ GOOSE_MODE: "auto" });
+    expect(agentModeEnv({ provider: "goose", permissionMode: "supervised" })).toEqual({ GOOSE_MODE: "smart_approve" });
+    expect(agentModeEnv({ provider: "goose", permissionMode: "read-only" })).toEqual({ GOOSE_MODE: "chat" });
+    expect(agentModeEnv({ provider: "claude-code", permissionMode: "supervised" })).toEqual({});
   });
 
   it("passes the model with each CLI's own flag", () => {
@@ -56,7 +70,7 @@ describe("buildAgentArgs", () => {
     ]);
     expect(
       buildAgentArgs({ provider: "claude-code", model: "claude-sonnet-4-5", permissionMode: "supervised" }),
-    ).toEqual(["--model", "claude-sonnet-4-5"]);
+    ).toEqual(["--permission-mode", "acceptEdits", "--model", "claude-sonnet-4-5"]);
     expect(buildAgentArgs({ provider: "cursor-agent", model: "claude-opus-4-8[context=1m,effort=high]" })).toEqual([
       "--force",
       "--trust",
@@ -79,7 +93,7 @@ describe("buildAgentArgs", () => {
       "claude-sonnet-4.5",
     ]);
     expect(buildAgentArgs({ provider: "kimi", model: "kimi-k2.7-code" })).toEqual([
-      "--yolo",
+      "--auto",
       "--model",
       "kimi-k2.7-code",
     ]);

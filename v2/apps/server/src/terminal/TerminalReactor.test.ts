@@ -172,7 +172,7 @@ describe("TerminalReactor", () => {
     const pty = new FakePty();
     const spawned: PtySpawnInput[] = [];
     const resolved: string[] = [];
-    const { engine, worktreeId } = await setup(
+    const { engine, reactor, worktreeId } = await setup(
       {
         spawn: async (input) => {
           spawned.push(input);
@@ -199,7 +199,7 @@ describe("TerminalReactor", () => {
         agent: { provider: "claude-code", model: "claude-sonnet-4-5" },
       }),
     );
-    await engine.waitForReactors();
+    await reactor.waitForIdle();
 
     expect(resolved).toEqual(["claude-code"]);
     expect(spawned).toMatchObject([
@@ -568,5 +568,29 @@ describe("TerminalReactor accounts", () => {
     await reactor.waitForIdle();
     expect(spawned).toEqual([]);
     expect((await engine.projection()).terminals[0]).toMatchObject({ status: "failed" });
+  });
+
+  it("answers the agent's folder trust question only in a project the person trusted", async () => {
+    const spawned: PtySpawnInput[] = [];
+    const { engine, reactor, worktreeId } = await setup(spawnInto(spawned), {
+      resolveAgentCli: async (provider) => `C:\\bin\\${provider}.exe`,
+      env: {},
+    });
+    await create(engine, worktreeId, 6, { provider: "gemini", permissionMode: "supervised" });
+    await create(engine, worktreeId, 7, { provider: "kimi", permissionMode: "supervised" });
+    await reactor.waitForIdle();
+    const projectId = (await engine.projection()).projects[0]?.projectId;
+    await engine.dispatchPromise(command("project.agents", { projectId, trusted: true }));
+    await create(engine, worktreeId, 8, { provider: "gemini", permissionMode: "supervised" });
+    await create(engine, worktreeId, 9, { provider: "kimi", permissionMode: "supervised" });
+    await reactor.waitForIdle();
+
+    expect(spawned.map((input) => input.args)).toEqual([[], [], ["--skip-trust"], []]);
+    expect(spawned.map((input) => input.envOverrides?.KIMI_CODE_TRUST_WORKSPACE)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      "1",
+    ]);
   });
 });

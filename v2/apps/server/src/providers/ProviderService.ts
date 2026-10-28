@@ -50,6 +50,8 @@ export type ProviderSessionStart = {
   account?: ProviderAccount;
   /** The agent CLI's id from an earlier process. Adapters that can resume continue that conversation. */
   resumeSessionId?: string;
+  /** Set when the person let agents work in this project, so the CLI's own folder trust question is answered. */
+  trustedProjectPath?: string;
 };
 
 export type ProviderAccount = { accountId: string; env: Readonly<Record<string, string>> };

@@ -24,8 +24,10 @@ import {
   AgentLaunchError,
   agentCliMissingMessage,
   agentMcpLaunch,
+  agentModeEnv,
   buildAgentArgs,
 } from "./agentLaunch.js";
+import { type AgentFolderTrustLaunch, agentFolderTrust, trustedProject } from "./agentTrust.js";
 import type { TerminalService } from "./TerminalService.js";
 
 type CreateIntent = Extract<RuntimeEventEnvelope["event"], { type: "terminal.create.requested" }>;
@@ -137,12 +139,18 @@ export class TerminalReactor {
       // An await with no resolver would still delay the spawn past callers that only wait on the engine.
       const account = launch && resolveAccount ? await resolveAccount(launch.provider, launch.accountId) : undefined;
       if (launch?.login && !account) throw new AgentLaunchError("Choose an account to sign in to.");
-      const agent = launch ? await this.agentCommand(launch, worktreeId) : undefined;
+      const [agent, trust] = launch
+        ? await Promise.all([
+            this.agentCommand(launch, worktreeId),
+            launch.login ? undefined : this.folderTrust(launch.provider, worktreeId, worktreePath, account?.env),
+          ])
+        : [];
       const browserTool = this.options.browserTool;
       const envOverrides = {
         ...(agent ? AGENT_PTY_ENV : {}),
         ...(browserTool ? browserToolEnv(browserTool, worktreeId) : {}),
         ...agent?.env,
+        ...trust?.env,
         ...account?.env,
       };
       await this.service.create({
@@ -151,7 +159,7 @@ export class TerminalReactor {
         worktreePath,
         cwd: intent.cwd,
         shell: agent?.file ?? intent.shell,
-        ...(agent ? { args: agent.args } : intent.args ? { args: intent.args } : {}),
+        ...(agent ? { args: [...agent.args, ...(trust?.args ?? [])] } : intent.args ? { args: intent.args } : {}),
         ...(Object.keys(envOverrides).length > 0 ? { envOverrides } : {}),
         ...(browserTool ? { pathPrepend: browserTool.shimDir } : {}),
         cols: intent.cols,
@@ -230,12 +238,13 @@ export class TerminalReactor {
       file = undefined;
     }
     if (!file) throw new AgentLaunchError(agentCliMissingMessage(agent.provider));
+    const modeEnv = login ? {} : agentModeEnv(agent);
     const specs = login
       ? []
       : this.mcpSpecs(worktreeId, this.options.mcpServers ? await this.addedMcpServers(worktreeId) : []);
-    if (specs.length === 0) return { file, args, env: {} };
+    if (specs.length === 0) return { file, args, env: modeEnv };
     const mcp = await this.mcpLaunch(specs, agent, worktreeId);
-    return { file, args: [...args, ...mcp.args], env: mcp.env };
+    return { file, args: [...args, ...mcp.args], env: { ...modeEnv, ...mcp.env } };
   }
 
   private mcpSpecs(worktreeId: string, added: readonly McpServerSpec[]): McpServerSpec[] {
@@ -263,6 +272,21 @@ export class TerminalReactor {
       ...(configDir ? { configDir } : {}),
       ...(this.options.env ? { env: this.options.env } : {}),
       ...(this.options.writeMcpConfig ? { writeMcpConfig: this.options.writeMcpConfig } : {}),
+    });
+  }
+
+  private async folderTrust(
+    provider: ListedProviderKind,
+    worktreeId: string,
+    worktreePath: string,
+    accountEnv: Readonly<Record<string, string>> | undefined,
+  ): Promise<AgentFolderTrustLaunch | undefined> {
+    const projectPath = await trustedProject(this.engine, worktreeId);
+    if (!projectPath) return undefined;
+    return agentFolderTrust(provider, {
+      projectPath,
+      cwd: worktreePath,
+      env: { ...(this.options.env ?? process.env), ...accountEnv },
     });
   }
 

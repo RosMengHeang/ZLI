@@ -15,6 +15,7 @@ import {
   zliMcpServerSpecs,
   writeAgentMcpConfig,
 } from "../browser-tool/browserTool.js";
+import { agentFolderTrust } from "../terminal/agentTrust.js";
 import { type AcpProviderConfig, AcpProviderAdapter, type AcpProviderKind } from "./AcpProviderAdapter.js";
 import { ClaudeCodeProviderAdapter } from "./ClaudeCodeProviderAdapter.js";
 import { CodexProviderAdapter } from "./CodexProviderAdapter.js";
@@ -81,8 +82,6 @@ export const ACP_PROVIDERS: ReadonlyArray<Omit<AcpProviderConfig, "resolveComman
     provider: "gemini",
     displayName: "Gemini",
     acpArgs: ["--acp"],
-    // Gemini turns off every MCP server in a folder it does not trust, and each worktree is a new folder.
-    fullAccessArgs: ["--skip-trust"],
     authHint: "Sign in to Gemini in a terminal first (run `gemini` and choose a login method).",
   },
   {
@@ -153,6 +152,18 @@ export function createProviderRegistry(
     ...(browserTool ? zliMcpServerSpecs(browserTool, worktreeId) : []),
     ...(await addedServers(worktreeId)),
   ];
+  // Claude Code, Codex, and Droid take folder trust only from their settings files, so nothing is added to the launch.
+  const trustFolder = async (
+    provider: "claude-code" | "codex" | "droid",
+    {
+      cwd,
+      account,
+      trustedProjectPath,
+    }: { cwd: string; account?: ProviderAccount | undefined; trustedProjectPath?: string | undefined },
+  ) => {
+    if (!trustedProjectPath) return;
+    await agentFolderTrust(provider, { projectPath: trustedProjectPath, cwd, env: { ...env, ...account?.env } });
+  };
   const browserEnv = (worktreeId: string | undefined, account?: ProviderAccount) => {
     const merged = { ...(browserTool ? agentEnv(browserTool, worktreeId, env) : {}), ...account?.env };
     return Object.keys(merged).length > 0 ? { env: merged } : {};
@@ -185,16 +196,21 @@ export function createProviderRegistry(
           ...(browserTool ? { args: zliMcpServerSpecs(browserTool).flatMap(codexMcpArgs) } : {}),
           ...browserEnv(undefined, account),
         }),
-      ...(browserTool || options.mcpServers ? { threadConfig: (input) => codexThreadOverrides(input.worktreeId) } : {}),
+      threadConfig: async (input) => {
+        await trustFolder("codex", input);
+        return browserTool || options.mcpServers ? codexThreadOverrides(input.worktreeId) : undefined;
+      },
     }),
     new ClaudeCodeProviderAdapter({
-      createClient: async ({ worktreeId, account, ...input }) =>
-        ClaudeCodeClient.start({
+      createClient: async ({ worktreeId, account, trustedProjectPath, ...input }) => {
+        await trustFolder("claude-code", { cwd: input.cwd, account, trustedProjectPath });
+        return ClaudeCodeClient.start({
           ...input,
           command: await resolveClaudeCommand(),
           ...browserEnv(worktreeId, account),
           ...(await claudeMcpConfig(worktreeId)),
-        }),
+        });
+      },
     }),
     new CursorAgentProviderAdapter({
       createClient: async ({ worktreeId, account, ...input }) =>
@@ -206,8 +222,14 @@ export function createProviderRegistry(
         }),
     }),
     new DroidProviderAdapter({
-      createClient: async ({ worktreeId, account, ...input }) =>
-        DroidClient.start({ ...input, command: await resolveDroidCommand(), ...browserEnv(worktreeId, account) }),
+      createClient: async ({ worktreeId, account, trustedProjectPath, ...input }) => {
+        await trustFolder("droid", { cwd: input.cwd, account, trustedProjectPath });
+        return DroidClient.start({
+          ...input,
+          command: await resolveDroidCommand(),
+          ...browserEnv(worktreeId, account),
+        });
+      },
     }),
     ...ACP_PROVIDERS.map(
       (config) =>

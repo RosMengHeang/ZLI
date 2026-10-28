@@ -14,6 +14,7 @@ import {
   type McpServerSource,
   zliMcpServerSpecs,
 } from "../browser-tool/browserTool.js";
+import { agentFolderTrust } from "../terminal/agentTrust.js";
 import { approvalAllowed } from "./ClaudeCodeProviderAdapter.js";
 import type {
   ProviderAdapter,
@@ -32,8 +33,6 @@ export type AcpProviderConfig = {
   resolveCommand: () => Promise<string>;
   /** Arguments that start the CLI's ACP server on stdio. */
   acpArgs: readonly string[];
-  /** Added to `acpArgs` when the session runs with full access. */
-  fullAccessArgs?: readonly string[];
   /** Shown when the agent reports that it needs a login. */
   authHint: string;
   /** Offered to every session as an MCP server, with its shell shim on PATH. */
@@ -49,20 +48,11 @@ type AcpSessionClient = Pick<
   Partial<Pick<AcpClient, "reasoningEfforts" | "agentSessionId">>;
 type ClientStart = Pick<
   ProviderSessionStart,
-  "cwd" | "permissionMode" | "model" | "worktreeId" | "account" | "resumeSessionId"
+  "cwd" | "permissionMode" | "model" | "worktreeId" | "account" | "resumeSessionId" | "trustedProjectPath"
 >;
 
 const MAX_TITLE = 500;
 const GENERIC_TITLES = new Set(["Read file", "Edit files", "Search", "List files", "Tool call"]);
-
-/** The ACP server arguments for one session. Permission mode defaults to full access, as in terminals. */
-export function acpLaunchArgs(
-  config: Pick<AcpProviderConfig, "acpArgs" | "fullAccessArgs">,
-  permissionMode: ClientStart["permissionMode"],
-): string[] {
-  const fullAccess = (permissionMode ?? "full-access") === "full-access";
-  return [...config.acpArgs, ...(fullAccess ? (config.fullAccessArgs ?? []) : [])];
-}
 
 /** One adapter per ACP agent CLI. Each session is one long-lived `<cli> <acpArgs>` process. */
 export class AcpProviderAdapter implements ProviderAdapter {
@@ -89,9 +79,16 @@ export class AcpProviderAdapter implements ProviderAdapter {
     this.provider = config.provider;
     this.createClient =
       options.createClient ??
-      (async ({ worktreeId, account, ...input }) => {
+      (async ({ worktreeId, account, trustedProjectPath, ...input }) => {
         const browserTool = config.browserTool;
-        const env = { ...(browserTool ? agentEnv(browserTool, worktreeId) : {}), ...account?.env };
+        const trust = trustedProjectPath
+          ? await agentFolderTrust(config.provider, {
+              projectPath: trustedProjectPath,
+              cwd: input.cwd,
+              env: { ...process.env, ...account?.env },
+            })
+          : undefined;
+        const env = { ...(browserTool ? agentEnv(browserTool, worktreeId) : {}), ...trust?.env, ...account?.env };
         const specs = [
           ...(browserTool ? zliMcpServerSpecs(browserTool, worktreeId) : []),
           ...((await config.mcpServers?.(worktreeId ? { worktreeId } : {})) ?? []),
@@ -99,7 +96,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
         return AcpClient.start({
           ...input,
           command: await config.resolveCommand(),
-          args: acpLaunchArgs(config, input.permissionMode),
+          args: [...config.acpArgs, ...(trust?.args ?? [])],
           displayName: config.displayName,
           authHint: config.authHint,
           ...(Object.keys(env).length > 0 ? { env } : {}),
@@ -116,6 +113,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
       ...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
       ...(input.account ? { account: input.account } : {}),
       ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
+      ...(input.trustedProjectPath ? { trustedProjectPath: input.trustedProjectPath } : {}),
     });
     // Agents name their own levels; only ones the runtime can carry and pass back are offered.
     const reasoningEfforts = (client.reasoningEfforts ?? [])
