@@ -36,7 +36,12 @@ function projection(worktrees: RuntimeProjection["worktrees"]): RuntimeProjectio
       environmentId: EnvironmentId.parse("00000000-0000-4000-8000-000000000001"),
       label: "Local",
       protocolVersion: 1,
-      capabilities: { worktrees: true, terminals: true, browser: true, eventReplay: true },
+      capabilities: {
+        worktrees: true,
+        terminals: true,
+        browser: true,
+        eventReplay: true,
+      },
     },
     projects: [{ projectId, path: "/work/repo", name: "repo" }],
     worktrees,
@@ -56,6 +61,8 @@ type MountOptions = {
   onDeleteSession?: (session: AgentSession) => void;
   onWorktreeAction?: (worktree: { worktreeId: string }, action: WorktreeAction) => void;
   onCreateWorktree?: (project?: { projectId: string }) => void;
+  onRemoveProject?: (projectId: string) => Promise<string | undefined>;
+  onRenameProject?: (projectId: string, name: string) => void;
 };
 
 async function mount(current: RuntimeProjection, options: MountOptions = {}) {
@@ -78,6 +85,8 @@ async function mount(current: RuntimeProjection, options: MountOptions = {}) {
           onNewAgent={noop}
           onOpenProject={noop}
           onCreateWorktree={options.onCreateWorktree ?? noop}
+          onRemoveProject={options.onRemoveProject ?? (async () => undefined)}
+          onRenameProject={options.onRenameProject ?? noop}
           onWorktreeAction={options.onWorktreeAction ?? noop}
           onReviewSetup={noop}
           onShowSetupOutput={noop}
@@ -128,7 +137,14 @@ const agent = (worktreeId: string): AgentSession => ({
 describe("Sidebar projects", () => {
   it("folds a project and remembers it after a restart", async () => {
     const current = projection([
-      { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "main", status: "ready", kind: "checkout" },
+      {
+        worktreeId: checkoutId,
+        projectId,
+        path: "/work/repo",
+        branch: "main",
+        status: "ready",
+        kind: "checkout",
+      },
     ]);
     const first = await mount(current);
     const toggle = button(first.container, "repo, collapse");
@@ -152,8 +168,21 @@ describe("Sidebar projects", () => {
 
   it("folds worktrees without agents into one row and remembers when it is opened", async () => {
     const current = projection([
-      { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "main", status: "ready", kind: "checkout" },
-      { worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat", status: "ready" },
+      {
+        worktreeId: checkoutId,
+        projectId,
+        path: "/work/repo",
+        branch: "main",
+        status: "ready",
+        kind: "checkout",
+      },
+      {
+        worktreeId: featureId,
+        projectId,
+        path: "/work/repo-feat",
+        branch: "feat",
+        status: "ready",
+      },
     ]);
     const first = await mount(current);
     const toggle = first.container.querySelector<HTMLButtonElement>(".worktree-toggle");
@@ -173,8 +202,21 @@ describe("Sidebar projects", () => {
   it("shows the branch under the agent working on it instead of a worktree row", async () => {
     const { container } = await mount(
       projection([
-        { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "main", status: "ready", kind: "checkout" },
-        { worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat/login", status: "ready" },
+        {
+          worktreeId: checkoutId,
+          projectId,
+          path: "/work/repo",
+          branch: "main",
+          status: "ready",
+          kind: "checkout",
+        },
+        {
+          worktreeId: featureId,
+          projectId,
+          path: "/work/repo-feat",
+          branch: "feat/login",
+          status: "ready",
+        },
       ]),
       { sessions: [agent(featureId)] },
     );
@@ -229,7 +271,15 @@ describe("Sidebar projects", () => {
       } as unknown as NonNullable<AgentSession["terminal"]>,
     };
     const { container } = await mount(
-      projection([{ worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat", status: "ready" }]),
+      projection([
+        {
+          worktreeId: featureId,
+          projectId,
+          path: "/work/repo-feat",
+          branch: "feat",
+          status: "ready",
+        },
+      ]),
       { sessions: [session], onStopSession, onDeleteSession },
     );
     expect(container.querySelector(".session-entry [data-tooltip='Stop agent']")).toBeNull();
@@ -246,8 +296,21 @@ describe("Sidebar projects", () => {
     const onWorktreeAction = vi.fn<(worktree: { worktreeId: string }, action: WorktreeAction) => void>();
     const { container } = await mount(
       projection([
-        { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "HEAD", status: "queued", kind: "checkout" },
-        { worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat", status: "creating" },
+        {
+          worktreeId: checkoutId,
+          projectId,
+          path: "/work/repo",
+          branch: "HEAD",
+          status: "queued",
+          kind: "checkout",
+        },
+        {
+          worktreeId: featureId,
+          projectId,
+          path: "/work/repo-feat",
+          branch: "feat",
+          status: "creating",
+        },
       ]),
       { onWorktreeAction },
     );
@@ -265,7 +328,15 @@ describe("Sidebar projects", () => {
 
   it("names a worktree delete as a worktree, not a checkout", async () => {
     const { container } = await mount(
-      projection([{ worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat", status: "ready" }]),
+      projection([
+        {
+          worktreeId: featureId,
+          projectId,
+          path: "/work/repo-feat",
+          branch: "feat",
+          status: "ready",
+        },
+      ]),
     );
     await act(async () => container.querySelector<HTMLButtonElement>(".worktree-toggle")?.click());
     expect(await openMenu(container, "Worktree actions")).toEqual(["Delete worktree"]);
@@ -274,11 +345,106 @@ describe("Sidebar projects", () => {
     expect(has(container, "Keep")).toBe(true);
     expect(has(container, "Forget checkout")).toBe(false);
   });
+
+  const rightClick = async (container: HTMLElement) => {
+    const label = container.querySelector<HTMLElement>(".project-label");
+    await act(async () => {
+      label?.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          clientX: 20,
+          clientY: 20,
+        }),
+      );
+    });
+    return [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((item) => item.textContent);
+  };
+
+  it("offers pin and edit on right-click, but not in the ... menu", async () => {
+    const { container } = await mount(projection([]));
+    expect(await rightClick(container)).toEqual(["Pin", "Edit", "New agent", "New worktree", "Remove project"]);
+    await act(async () => document.body.dispatchEvent(new Event("pointerdown")));
+    await act(async () => button(container, "repo actions").click());
+    expect([...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((item) => item.textContent)).toEqual([
+      "New agent",
+      "New worktree",
+      "Remove project",
+    ]);
+  });
+
+  it("pins a project and remembers it", async () => {
+    const { container } = await mount(projection([]));
+    await rightClick(container);
+    await act(async () => button(document.body, "Pin").click());
+    expect(container.querySelector(".project-pin")).not.toBeNull();
+    expect(parseSidebarCollapsed(window.localStorage.getItem("zli.sidebar.collapsed")).pinned).toEqual([projectId]);
+    expect(await rightClick(container)).toContain("Unpin");
+  });
+
+  it("renames a project from Edit, and Escape keeps the old name", async () => {
+    const onRenameProject = vi.fn();
+    const { container } = await mount(projection([]), { onRenameProject });
+    await rightClick(container);
+    await act(async () => button(document.body, "Edit").click());
+    const input = container.querySelector<HTMLInputElement>(".project-rename");
+    expect(input?.value).toBe("repo");
+    await act(async () => {
+      if (!input) return;
+      input.value = "  Shop  ";
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(onRenameProject).toHaveBeenCalledWith(projectId, "Shop");
+    expect(container.querySelector(".project-rename")).toBeNull();
+
+    await rightClick(container);
+    await act(async () => button(document.body, "Edit").click());
+    await act(async () => {
+      const again = container.querySelector<HTMLInputElement>(".project-rename");
+      if (!again) return;
+      again.value = "Other";
+      again.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(onRenameProject).toHaveBeenCalledTimes(1);
+  });
+
+  it("removes a project only after the confirm under its row", async () => {
+    const onRemoveProject = vi.fn(async () => undefined);
+    const { container } = await mount(projection([]), { onRemoveProject });
+    await act(async () => button(container, "repo actions").click());
+    await act(async () => button(document.body, "Remove project").click());
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Remove repo from ZLI?");
+    expect(onRemoveProject).not.toHaveBeenCalled();
+    await act(async () => button(document.body, "Remove").click());
+    expect(onRemoveProject).toHaveBeenCalledWith(projectId);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("keeps the confirm open and says why the project could not be removed", async () => {
+    const onRemoveProject = vi.fn(async () => "The runtime is not connected.");
+    const { container } = await mount(projection([]), { onRemoveProject });
+    await act(async () => button(container, "repo actions").click());
+    await act(async () => button(document.body, "Remove project").click());
+    await act(async () => button(document.body, "Remove").click());
+    expect(document.querySelector(".project-confirm-problem")?.textContent).toBe("The runtime is not connected.");
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  });
 });
 describe("parseSidebarCollapsed", () => {
   it("keeps only string ids and survives bad storage", () => {
-    expect(parseSidebarCollapsed('{"projects":["a",1],"idle":"b"}')).toEqual({ projects: ["a"], idle: [] });
-    expect(parseSidebarCollapsed("not json")).toEqual({ projects: [], idle: [] });
-    expect(parseSidebarCollapsed(null)).toEqual({ projects: [], idle: [] });
+    expect(parseSidebarCollapsed('{"projects":["a",1],"idle":"b"}')).toEqual({
+      projects: ["a"],
+      idle: [],
+      pinned: [],
+    });
+    expect(parseSidebarCollapsed("not json")).toEqual({
+      projects: [],
+      idle: [],
+      pinned: [],
+    });
+    expect(parseSidebarCollapsed(null)).toEqual({
+      projects: [],
+      idle: [],
+      pinned: [],
+    });
   });
 });

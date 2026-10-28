@@ -85,6 +85,15 @@ export class ProjectionStore {
           lastSequence: envelope.sequence,
         };
         break;
+      case "project.renamed":
+        this.#projection = {
+          ...current,
+          projects: current.projects.map((project) =>
+            project.projectId === event.projectId ? { ...project, name: event.name } : project,
+          ),
+          lastSequence: envelope.sequence,
+        };
+        break;
       case "project.archived":
         this.#projection = {
           ...current,

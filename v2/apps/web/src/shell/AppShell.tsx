@@ -1089,6 +1089,15 @@ function WorkspaceApp() {
     if (removed && worktree.worktreeId === selectedWorktreeId) setSelectedWorktreeId(undefined);
   };
 
+  const renameProject = async (projectId: string, name: string) => {
+    const response = await dispatch({
+      protocolVersion: 1,
+      commandId: makeCommandId(),
+      command: { type: "project.rename", projectId, name },
+    });
+    if (response?.accepted === false) showError(response.error.message);
+  };
+
   /** Removes a project from ZLI. Its folder, and the folders of its worktrees, stay on disk. */
   const removeProject = async (projectId: string): Promise<string | undefined> => {
     const current = projectionRef.current;
@@ -1677,6 +1686,14 @@ function WorkspaceApp() {
             onCreateWorktree={(project) =>
               setWorktreeDialogProject(project ?? contextProject ?? projection?.projects[0])
             }
+            onRemoveProject={async (projectId) => {
+              const name = projection?.projects.find((project) => project.projectId === projectId)?.name ?? "project";
+              const problem = await removeProject(projectId);
+              if (!problem)
+                setNotice({ message: `Removed ${name} from ZLI. Its folder is still on disk.`, tone: "info" });
+              return problem;
+            }}
+            onRenameProject={(projectId, name) => void renameProject(projectId, name)}
             onWorktreeAction={(worktree, action) => void worktreeAction(worktree, action)}
             onReviewSetup={(worktree) => reviewSetup(worktree.worktreeId)}
             onShowSetupOutput={(worktree) => showSetupOutput(worktree.worktreeId)}

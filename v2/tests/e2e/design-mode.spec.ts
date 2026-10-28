@@ -2,7 +2,13 @@ import { createServer, type Server } from "node:http";
 
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, type DesktopFixture, launchDesktop } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  openCreateWorktree,
+  createGitFixture,
+  type DesktopFixture,
+  launchDesktop,
+} from "./desktop-fixtures.js";
 
 const PAGE = [
   "<!doctype html><title>Design fixture</title>",
@@ -24,7 +30,7 @@ test("picks an element in the browser panel and sends it to a chat agent", async
     const port = await listen(server);
     fixture = await launchDesktop(repo, root);
     const page = fixture.page;
-    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    await openCreateWorktree(page);
     const createWorktree = page.getByRole("dialog", { name: "Create worktree" });
     await createWorktree.getByLabel("Branch").fill("design");
     await createWorktree.getByRole("button", { name: "Create worktree" }).click();

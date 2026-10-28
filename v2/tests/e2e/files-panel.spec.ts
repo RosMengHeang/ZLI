@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 
 import {
   closeDesktop,
+  openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
   launchDesktop,
@@ -19,7 +20,7 @@ test("browses, edits, finds, and searches files in a worktree", async () => {
   try {
     fixture = await launchDesktop(repo, root);
     const page = fixture.page;
-    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    await openCreateWorktree(page);
     const dialog = page.getByRole("dialog", { name: "Create worktree" });
     await dialog.getByLabel("Branch").fill("files");
     await dialog.getByRole("button", { name: "Create worktree" }).click();
