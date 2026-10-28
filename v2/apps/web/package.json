@@ -25,6 +25,8 @@
     "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@lezer/highlight": "1.2.5",
     "@xterm/addon-fit": "0.10.0",
+    "@xterm/addon-unicode11": "0.8.0",
+    "@xterm/addon-webgl": "0.18.0",
     "@xterm/xterm": "5.5.0",
     "@zli-v2/contracts": "workspace:*",
     "@zli-v2/ui": "workspace:*",

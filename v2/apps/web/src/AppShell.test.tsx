@@ -20,6 +20,8 @@ vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     cols = 80;
     rows = 24;
+    options = {};
+    unicode = { activeVersion: "6" };
     loadAddon(): void {}
     open(): void {}
     focus(): void {}
@@ -39,6 +41,15 @@ vi.mock("@xterm/addon-fit", () => ({
     fit(): void {}
   },
 }));
+vi.mock("@xterm/addon-webgl", () => ({
+  WebglAddon: class {
+    onContextLoss() {
+      return { dispose: () => undefined };
+    }
+    dispose(): void {}
+  },
+}));
+vi.mock("@xterm/addon-unicode11", () => ({ Unicode11Addon: class {} }));
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
