@@ -3,6 +3,10 @@ import { randomUUID } from "node:crypto";
 import {
   AgentControlAction,
   AgentControlConnectInput,
+  AgentControlHuddleDecisionsInput,
+  AgentControlHuddlePostInput,
+  AgentControlHuddleReadInput,
+  AgentControlHuddleWaitInput,
   AgentControlListInput,
   AgentControlReadInput,
   AgentControlSendInput,
@@ -13,6 +17,12 @@ import {
   agentNameKey,
   agentNameTaken,
   catalogEntryServer,
+  HUDDLE_AGENT_STREAK_LIMIT,
+  type HuddlePost,
+  type HuddleProjection,
+  huddleAgentInfo,
+  huddlePostsOf,
+  huddlesOf,
   isHttpServer,
   isListedTerminalStatus,
   isListedThreadStatus,
@@ -22,6 +32,7 @@ import {
   READ_AGENT_CONTROL_ACTIONS,
   type RpcResponse,
   type RuntimeProjection,
+  shortHuddleId,
   TerminalReadResult,
   type WorktreeProjection,
 } from "@zli-v2/contracts";
@@ -34,6 +45,8 @@ import {
 
 const MAX_MESSAGE_CHARS = 4_000;
 const DEFAULT_READ_LIMIT = 20;
+const MAX_HUDDLE_READ = 50;
+const DEFAULT_HUDDLE_WAIT_SECONDS = 120;
 
 export type AgentControlHost = {
   projection(): RuntimeProjection | undefined;
@@ -421,8 +434,8 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     };
   };
 
-  const start = async (raw: unknown) => {
-    const input = AgentControlStartInput.parse(raw);
+  /** Starts an agent and waits until it can take its first message. */
+  const launch = async (input: Omit<AgentControlStartInput, "prompt">) => {
     const state = projection();
     const { worktree: callerWorktree, project } = caller(input, state);
     const discovery = state.providers?.find((entry) => entry.provider === input.provider);
@@ -474,18 +487,6 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     const sessionId = newId();
     const mode = input.mode ?? "chat";
     const agentId = newId();
-    const task = parent
-      ? [
-          taskHeading({
-            parent,
-            where: workPlace(project, callerWorktree),
-            self: input.name ?? agentId,
-            sharesWorktree: target.worktreeId === callerWorktree.worktreeId,
-          }),
-          "",
-          input.prompt,
-        ].join("\n")
-      : input.prompt;
     if (mode === "chat") {
       const occupied = state.threads.some(
         (thread) =>
@@ -510,7 +511,6 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
           throw new BrowserControlError(`The agent did not start. ${thread.errorMessage ?? ""}`.trim(), 409);
         return thread?.status === "idle" ? true : undefined;
       }, "Starting the agent");
-      await run({ type: "thread.send", threadId: agentId, text: task });
     } else {
       await run({
         type: "terminal.create",
@@ -537,8 +537,27 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         return terminal?.status === "running" ? true : undefined;
       }, "Starting the agent");
       await sleep(terminalPromptDelayMs);
-      await typeIntoTerminal(agentId, task);
     }
+    return { agentId, mode, target, project, callerWorktree, parent, note };
+  };
+
+  const start = async (raw: unknown) => {
+    const input = AgentControlStartInput.parse(raw);
+    const { agentId, mode, target, project, callerWorktree, parent, note } = await launch(input);
+    const task = parent
+      ? [
+          taskHeading({
+            parent,
+            where: workPlace(project, callerWorktree),
+            self: input.name ?? agentId,
+            sharesWorktree: target.worktreeId === callerWorktree.worktreeId,
+          }),
+          "",
+          input.prompt,
+        ].join("\n")
+      : input.prompt;
+    if (mode === "chat") await run({ type: "thread.send", threadId: agentId, text: task });
+    else await typeIntoTerminal(agentId, task);
     const started = projectAgents(projection(), project.projectId, callerWorktree.worktreeId).find(
       (agent) => agent.id === agentId,
     );
@@ -617,6 +636,281 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         };
   };
 
+  /**
+   * What each agent last read in each huddle, by huddle and agent id. Kept in memory, since a restart
+   * only means an agent reads a few messages again.
+   */
+  const huddleCursors = new Map<string, number>();
+
+  /** The calling agent. Huddle tools act for one member, so the caller has to be known. */
+  const huddleCaller = (state: RuntimeProjection, input: AgentControlTarget & { as?: string | undefined }) => {
+    const { worktree, project } = caller(input, state);
+    const { agent, shared } = callerAgent(state, project, worktree.worktreeId, input.as);
+    if (!agent)
+      throw new BrowserControlError(
+        shared
+          ? "Other agents share your worktree, so ZLI cannot tell which one you are. Pass as with your own name or id."
+          : "ZLI found no agent of yours in this worktree, so it cannot tell which huddles you are in.",
+      );
+    return { worktree, project, agent };
+  };
+
+  /** One of the caller's huddles. Being taken out of a huddle ends access to it at once. */
+  const pickHuddle = (state: RuntimeProjection, agent: Agent, ref: string | undefined): HuddleProjection => {
+    const mine = huddlesOf(state, agent.id);
+    const listed = (huddles: readonly HuddleProjection[]) =>
+      huddles.map((huddle) => `${huddle.name} (${shortHuddleId(huddle.huddleId)})`).join(", ");
+    if (ref === undefined) {
+      if (mine.length === 1 && mine[0]) return mine[0];
+      if (mine.length === 0)
+        throw new BrowserControlError("You are not in a huddle. The person adds agents to huddles in ZLI.", 404);
+      throw new BrowserControlError(`You are in more than one huddle. Pass huddle with one of: ${listed(mine)}.`);
+    }
+    const key = ref.toLocaleLowerCase();
+    const matching = (huddles: readonly HuddleProjection[]) =>
+      huddles.filter(
+        (huddle) =>
+          huddle.huddleId === ref ||
+          huddle.name.toLocaleLowerCase() === key ||
+          (ref.length >= 4 && huddle.huddleId.startsWith(ref)),
+      );
+    const found = matching(mine);
+    if (found.length === 1 && found[0]) return found[0];
+    if (found.length > 1)
+      throw new BrowserControlError(`More than one of your huddles matches ${ref}: ${listed(found)}. Use the id.`);
+    if (matching(state.huddles ?? []).length > 0)
+      throw new BrowserControlError(`You are not in the huddle ${ref}, so you cannot read or post there.`, 403);
+    throw new BrowserControlError(
+      mine.length > 0 ? `You have no huddle called ${ref}. Yours: ${listed(mine)}.` : `ZLI has no huddle ${ref}.`,
+      404,
+    );
+  };
+
+  /** A member as the reader should write it: project/name when it works in another project. */
+  const memberLabel = (state: RuntimeProjection, agentId: string, reader: Agent) => {
+    const info = huddleAgentInfo(state, agentId);
+    if (!info) return "an agent that has left";
+    return info.projectId !== undefined && info.projectId !== reader.projectId && info.projectName
+      ? `${info.projectName}/${info.label}`
+      : info.label;
+  };
+
+  const describePost = (state: RuntimeProjection, post: HuddlePost, posts: readonly HuddlePost[], reader: Agent) => {
+    const answers = post.replyTo ? posts.find((candidate) => candidate.postId === post.replyTo)?.number : undefined;
+    return {
+      number: post.number,
+      from:
+        post.from.kind === "person"
+          ? "the person"
+          : post.from.agentId === reader.id
+            ? "you"
+            : memberLabel(state, post.from.agentId, reader),
+      to:
+        post.to === "everyone"
+          ? "everyone"
+          : post.to === "person"
+            ? "the person"
+            : post.to.map((agentId) => (agentId === reader.id ? "you" : memberLabel(state, agentId, reader))),
+      kind: post.kind,
+      text: post.text,
+      ...(answers !== undefined ? { answers } : {}),
+      ...(post.decision ? { decision: true } : {}),
+      ...(post.cut ? { cut: "Cut at 2,000 characters. read_agent shows the whole answer." } : {}),
+    };
+  };
+
+  const describeHuddle = (state: RuntimeProjection, huddle: HuddleProjection, reader: Agent) => ({
+    huddle: huddle.name,
+    id: shortHuddleId(huddle.huddleId),
+    members: huddle.members.map((member) => ({
+      name: memberLabel(state, member.agentId, reader),
+      id: member.agentId,
+      kind: member.kind,
+      status: huddleAgentInfo(state, member.agentId)?.status ?? "gone",
+      ...(member.agentId === reader.id ? { you: true } : {}),
+    })),
+    ...(huddle.paused
+      ? {
+          paused:
+            "Agents wrote 12 messages in a row, so their messages are held until the person writes or resumes. Wait for the person instead of posting more.",
+        }
+      : {}),
+  });
+
+  /** Messages after `after`, newest last, and moves the reader's place to the end. */
+  const readFrom = (state: RuntimeProjection, huddle: HuddleProjection, reader: Agent, after: number) => {
+    const posts = huddlePostsOf(state, huddle.huddleId);
+    const chosen = posts.filter((post) => post.number > after);
+    const shown = chosen.slice(-MAX_HUDDLE_READ);
+    const last = posts.at(-1);
+    if (last) huddleCursors.set(`${huddle.huddleId}:${reader.id}`, last.number);
+    return {
+      ...describeHuddle(state, huddle, reader),
+      messages: shown.map((post) => describePost(state, post, posts, reader)),
+      ...(chosen.length > shown.length ? { earlierNotShown: chosen.length - shown.length } : {}),
+    };
+  };
+
+  const huddleRead = async (raw: unknown) => {
+    const input = AgentControlHuddleReadInput.parse(raw);
+    const state = projection();
+    const { agent } = huddleCaller(state, input);
+    const huddle = pickHuddle(state, agent, input.huddle);
+    return readFrom(state, huddle, agent, input.all ? 0 : (huddleCursors.get(`${huddle.huddleId}:${agent.id}`) ?? 0));
+  };
+
+  const huddleWait = async (raw: unknown) => {
+    const input = AgentControlHuddleWaitInput.parse(raw);
+    const state = projection();
+    const { agent } = huddleCaller(state, input);
+    const huddle = pickHuddle(state, agent, input.huddle);
+    const after = huddleCursors.get(`${huddle.huddleId}:${agent.id}`) ?? 0;
+    const timeoutMs = (input.timeoutSeconds ?? DEFAULT_HUDDLE_WAIT_SECONDS) * 1_000;
+    const arrived = await new Promise<RuntimeProjection | undefined>((resolve, reject) => {
+      let unsubscribe: () => void = () => undefined;
+      let done = false;
+      const finish = (value: RuntimeProjection | undefined, error?: Error) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        unsubscribe();
+        if (error) reject(error);
+        else resolve(value);
+      };
+      const check = () => {
+        const next = host.projection();
+        if (!next) return;
+        if (!huddlesOf(next, agent.id).some((candidate) => candidate.huddleId === huddle.huddleId)) {
+          finish(
+            undefined,
+            new BrowserControlError("You were taken out of the huddle, so you can no longer read it.", 403),
+          );
+          return;
+        }
+        const fresh = huddlePostsOf(next, huddle.huddleId).some(
+          (post) => post.number > after && !(post.from.kind === "agent" && post.from.agentId === agent.id),
+        );
+        if (fresh) finish(next);
+      };
+      const timer = setTimeout(() => finish(undefined), timeoutMs);
+      check();
+      if (!done) unsubscribe = host.subscribe(check);
+    });
+    if (!arrived)
+      return {
+        ...describeHuddle(projection(), huddle, agent),
+        messages: [],
+        timedOut: `Nobody else wrote in ${Math.round(timeoutMs / 1_000)} seconds.`,
+      };
+    const current = huddlesOf(arrived, agent.id).find((candidate) => candidate.huddleId === huddle.huddleId) ?? huddle;
+    return readFrom(arrived, current, agent, after);
+  };
+
+  const huddleDecisions = async (raw: unknown) => {
+    const input = AgentControlHuddleDecisionsInput.parse(raw);
+    const state = projection();
+    const { agent } = huddleCaller(state, input);
+    const huddle = pickHuddle(state, agent, input.huddle);
+    const posts = huddlePostsOf(state, huddle.huddleId);
+    return {
+      huddle: huddle.name,
+      id: shortHuddleId(huddle.huddleId),
+      decisions: posts.filter((post) => post.decision).map((post) => describePost(state, post, posts, agent)),
+    };
+  };
+
+  const huddlePost = async (raw: unknown) => {
+    const input = AgentControlHuddlePostInput.parse(raw);
+    const state = projection();
+    const { worktree, project, agent } = huddleCaller(state, input);
+    const huddle = pickHuddle(state, agent, input.huddle);
+    const memberIds = new Set(huddle.members.map((member) => member.agentId));
+    const memberProjects = new Set(
+      huddle.members.flatMap((member) => huddleAgentInfo(state, member.agentId)?.projectId ?? []),
+    );
+    const members = agentsIn(state, memberProjects, worktree.worktreeId).filter((candidate) =>
+      memberIds.has(candidate.id),
+    );
+    const names = members
+      .filter((member) => member.id !== agent.id)
+      .map((member) => memberLabel(state, member.id, agent));
+    // MCP clients send a list, so a list holding only "everyone" or "person" means that word.
+    const asked =
+      Array.isArray(input.to) && input.to.length === 1 && (input.to[0] === "everyone" || input.to[0] === "person")
+        ? input.to[0]
+        : input.to;
+    let to: "everyone" | "person" | string[] =
+      asked === undefined || asked === "everyone" || asked === "person"
+        ? (asked ?? "everyone")
+        : asked.map((ref) => {
+            const local = ref.includes("/") ? (ref.split("/").at(-1) ?? ref).trim() : ref;
+            const found = findAgent(
+              members,
+              local,
+              project.name,
+              `${ref} is not in the huddle ${huddle.name}. Its other members: ${names.join(", ") || "none yet"}.`,
+            );
+            if (found.id === agent.id) throw new BrowserControlError("That is you. Name another member of the huddle.");
+            return found.id;
+          });
+    const kind = input.kind ?? (input.start ? "assign" : "note");
+    let started: AgentSummary | undefined;
+    if (input.start) {
+      if (kind !== "assign")
+        throw new BrowserControlError("start goes with kind assign: the message is the new agent's first task.");
+      const {
+        huddle: _huddle,
+        text: _text,
+        to: _to,
+        kind: _kind,
+        replyTo: _replyTo,
+        start,
+        as: _as,
+        ...target
+      } = input;
+      const launched = await launch({ ...target, ...start, as: agent.id });
+      await run({ type: "huddle.join", huddleId: huddle.huddleId, agentId: launched.agentId });
+      to = Array.isArray(to) ? [...to, launched.agentId] : asked === undefined ? [launched.agentId] : to;
+      const found = agentsIn(projection(), new Set([project.projectId]), worktree.worktreeId).find(
+        (candidate) => candidate.id === launched.agentId,
+      );
+      if (found) started = summary(found);
+    }
+    const posts = huddlePostsOf(state, huddle.huddleId);
+    const replyTo =
+      input.replyTo === undefined ? undefined : posts.find((post) => post.number === input.replyTo)?.postId;
+    if (input.replyTo !== undefined && replyTo === undefined)
+      throw new BrowserControlError(`The huddle has no message ${input.replyTo}. huddle_read lists them.`, 404);
+    const postId = newId();
+    await run({
+      type: "huddle.post",
+      huddleId: huddle.huddleId,
+      postId,
+      from: agent.id,
+      to,
+      kind,
+      text: input.text,
+      ...(replyTo ? { replyTo } : {}),
+    });
+    const posted = huddlePostsOf(projection(), huddle.huddleId).find((post) => post.postId === postId);
+    return {
+      posted: true,
+      huddle: huddle.name,
+      number: posted?.number ?? huddle.nextNumber,
+      to:
+        to === "everyone"
+          ? "everyone"
+          : to === "person"
+            ? "the person"
+            : to.map((id) => memberLabel(projection(), id, agent)),
+      ...(started ? { started } : {}),
+      ...(huddle.paused || huddle.agentStreak + 1 > HUDDLE_AGENT_STREAK_LIMIT
+        ? {
+            held: `Agents wrote ${HUDDLE_AGENT_STREAK_LIMIT} messages in a row, so this waits until the person writes or resumes the huddle.`,
+          }
+        : {}),
+    };
+  };
   const handlers: Record<AgentControlAction, (input: unknown, settings: AgentSettings) => Promise<unknown>> = {
     agentaccess: async (_input, settings) => settings,
     agentlist: list,
@@ -624,6 +918,10 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     agentsend: send,
     agentstart: start,
     agentconnect: connect,
+    huddleread: huddleRead,
+    huddlepost: huddlePost,
+    huddlewait: huddleWait,
+    huddledecisions: huddleDecisions,
   };
 
   return async (action, input) => {

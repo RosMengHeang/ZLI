@@ -3,7 +3,7 @@ import { ListedProviderKind, READ_AGENT_CONTROL_ACTIONS } from "@zli-v2/contract
 import type { ZliBrowserCall } from "../browser-tool/client.js";
 import { createToolServer, type McpServer, type McpTool } from "../browser-tool/mcp.js";
 
-export const ZLI_AGENT_TOOL_VERSION = "1.2.0";
+export const ZLI_AGENT_TOOL_VERSION = "1.3.0";
 
 const ROOM =
   "ZLI is the app you are running in. The person sees every agent in it as a tile and can watch and steer each one.";
@@ -19,6 +19,15 @@ const AS_CALLER = {
   description:
     "Your own name or id from list_agents. ZLI knows you by your worktree, so pass this when other agents share it, such as in a folder without Git. Without it, your message goes unsigned and a new agent is not linked to you.",
 };
+
+const HUDDLE_REF = {
+  type: "string",
+  description:
+    "The huddle's name or id. Leave it out when you are in one huddle only; the result of every huddle tool names the huddle and its id.",
+};
+
+const HUDDLE =
+  "A huddle is a ZLI conversation between several agents that the person follows and can write in. The person adds agents to it, and taking an agent out ends its access.";
 
 export const AGENT_MCP_TOOLS: readonly McpTool[] = [
   {
@@ -96,6 +105,79 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
     required: ["provider", "prompt"],
   },
   {
+    name: "huddle_read",
+    title: "Read huddle",
+    action: "huddleread",
+    description: `${HUDDLE} Read the huddle messages you have not read yet, with who wrote each one, to whom, and its number, plus the members. The first call returns the whole recent conversation.`,
+    properties: {
+      huddle: HUDDLE_REF,
+      all: { type: "boolean", description: "Return the latest 50 messages, read or not." },
+      as: AS_CALLER,
+    },
+    readOnly: true,
+  },
+  {
+    name: "huddle_post",
+    title: "Post in huddle",
+    action: "huddlepost",
+    description: `${HUDDLE} Write in the huddle. Members get it as their next prompt; a busy chat agent reads it after its turn. kind ask wants an answer and assign hands over a task: a chat agent's answer to either is posted back to the huddle for it. note (the default) shares information or answers, and expects nothing back, so use note to answer. After 12 agent messages in a row the huddle holds the rest until the person writes.`,
+    properties: {
+      huddle: HUDDLE_REF,
+      text: { type: "string", description: "The message, up to 8000 characters." },
+      to: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          'Member names or ids to write to. Leave it out to write to every member. ["person"] writes to the person only.',
+      },
+      kind: { type: "string", enum: ["ask", "assign", "note"], description: "ask, assign, or note (default)." },
+      replyTo: { type: "integer", minimum: 1, description: "The number of the message this answers." },
+      start: {
+        type: "object",
+        description:
+          "Start a new agent as your sub-agent, add it to the huddle, and give it this message as its task. Goes with kind assign.",
+        properties: {
+          name: {
+            type: "string",
+            description: "The new agent's name, such as tester. No other agent in the project may have it.",
+          },
+          provider: { type: "string", enum: [...ListedProviderKind.options], description: "Which agent to start." },
+          mode: { type: "string", enum: ["chat", "terminal"], description: "chat (default) or terminal." },
+          worktree: {
+            type: "string",
+            enum: ["new", "same"],
+            description: "new (default) makes a worktree on its own branch. same shares your worktree.",
+          },
+          branch: { type: "string", description: "Branch name for a new worktree." },
+          model: { type: "string", description: "Model id, when the provider offers a choice." },
+        },
+        required: ["name", "provider"],
+      },
+      as: AS_CALLER,
+    },
+    required: ["text"],
+  },
+  {
+    name: "huddle_wait",
+    title: "Wait for huddle",
+    action: "huddlewait",
+    description: `${HUDDLE} Wait until someone else writes in the huddle, then return the new messages. Use it when you are blocked on an answer and have nothing else to do. Returns timedOut when nobody wrote in time.`,
+    properties: {
+      huddle: HUDDLE_REF,
+      timeoutSeconds: { type: "integer", minimum: 1, maximum: 600, description: "How long to wait. Default 120." },
+      as: AS_CALLER,
+    },
+    readOnly: true,
+  },
+  {
+    name: "huddle_decisions",
+    title: "Huddle decisions",
+    action: "huddledecisions",
+    description: `${HUDDLE} List the messages the person pinned as agreed decisions. Check them before you start work the huddle discussed.`,
+    properties: { huddle: HUDDLE_REF, as: AS_CALLER },
+    readOnly: true,
+  },
+  {
     name: "connect_service",
     title: "Ask to connect a service",
     action: "agentconnect",
@@ -123,7 +205,7 @@ export function createAgentMcpServer(call: ZliBrowserCall): McpServer {
   return createToolServer(call, {
     tools: AGENT_MCP_TOOLS,
     serverInfo: { name: "zli", title: "ZLI agents", version: ZLI_AGENT_TOOL_VERSION },
-    instructions: `${ROOM} Use list_agents to see who else is working in this project, read_agent to check on them, message_agent to coordinate, and start_agent to hand off a separate task. Refer to agents by name when they have one. Agents in other projects are written project/agent and need ZLI Settings to allow every project. Use connect_service when you need a service such as GitHub or Linear that you have no tools for, or that needs a sign-in.`,
+    instructions: `${ROOM} Use list_agents to see who else is working in this project, read_agent to check on them, message_agent to coordinate, and start_agent to hand off a separate task. When you are in a huddle, talk there with huddle_read, huddle_post, and huddle_wait, and follow the decisions from huddle_decisions. Refer to agents by name when they have one. Agents in other projects are written project/agent and need ZLI Settings to allow every project. Use connect_service when you need a service such as GitHub or Linear that you have no tools for, or that needs a sign-in.`,
     targetProperties: {
       cwd: {
         type: "string",

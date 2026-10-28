@@ -58,6 +58,35 @@ describe("zli command", () => {
       action: "agentstart",
       input: { provider: "codex", prompt: "Review auth", name: "John" },
     });
+    expect(parseZliArgs(["huddle", "read", "--all", "--huddle", "Login"])).toEqual({
+      kind: "call",
+      action: "huddleread",
+      input: { huddle: "Login", all: true },
+    });
+    expect(parseZliArgs(["huddle", "post", "API", "is", "ready", "--to", "lead,ana", "--reply-to", "3"])).toEqual({
+      kind: "call",
+      action: "huddlepost",
+      input: { text: "API is ready", to: ["lead", "ana"], replyTo: 3 },
+    });
+    expect(
+      parseZliArgs(["huddle", "post", "Write", "tests", "--new-agent", "tester", "--provider", "codex", "--terminal"]),
+    ).toEqual({
+      kind: "call",
+      action: "huddlepost",
+      input: { text: "Write tests", start: { name: "tester", provider: "codex", mode: "terminal" } },
+    });
+    expect(parseZliArgs(["huddle", "post", "Done", "--to", "person", "--as", "helper"])).toEqual({
+      kind: "call",
+      action: "huddlepost",
+      input: { text: "Done", to: "person", as: "helper" },
+    });
+    expect(parseZliArgs(["huddle", "wait", "--timeout", "30"])).toEqual({
+      kind: "call",
+      action: "huddlewait",
+      input: { timeoutSeconds: 30 },
+    });
+    expect(parseZliArgs(["huddle", "decisions"])).toEqual({ kind: "call", action: "huddledecisions", input: {} });
+    expect(() => parseZliArgs(["huddle", "shout"])).toThrow("zli huddle takes read, post, wait, or decisions.");
     expect(parseZliArgs(["--help"])).toEqual({ kind: "help" });
     expect(parseZliArgs(["mcp"])).toEqual({ kind: "mcp" });
   });
@@ -111,9 +140,20 @@ describe("zli MCP server", () => {
       "read_agent",
       "message_agent",
       "start_agent",
+      "huddle_read",
+      "huddle_post",
+      "huddle_wait",
+      "huddle_decisions",
       "connect_service",
     ]);
-    expect(await listNames("read")).toEqual(["list_agents", "read_agent", "connect_service"]);
+    expect(await listNames("read")).toEqual([
+      "list_agents",
+      "read_agent",
+      "huddle_read",
+      "huddle_wait",
+      "huddle_decisions",
+      "connect_service",
+    ]);
     expect(await listNames("off")).toEqual([]);
   });
 

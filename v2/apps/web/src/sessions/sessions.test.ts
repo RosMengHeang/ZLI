@@ -408,4 +408,11 @@ describe("sub-agents", () => {
     expect(sessionTitle(sub, [message], undefined)).toBe("Write the API docs");
     expect(sessionTitle({ provider: "codex", thread }, [message], undefined)).toMatch(/^Task from Lead/u);
   });
+
+  it("titles a chat whose first message came from a huddle by that message", () => {
+    const text =
+      'Huddle "Login plan", message 1: The person running ZLI asks everyone:\n\nHow should we split the work?';
+    const message = { messageId: "m1", threadId, role: "user", text } as ThreadMessageProjection;
+    expect(sessionTitle({ provider: "codex", thread }, [message], undefined)).toBe("How should we split the work?");
+  });
 });

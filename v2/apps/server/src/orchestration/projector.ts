@@ -1,9 +1,11 @@
 import {
   appendCheckpoint,
   appendThreadMessage,
+  applyHuddleEvent,
   deliverAgentMessage,
   deriveSharedProjectContexts,
   type EnvironmentDescriptor,
+  isHuddleEvent,
   pruneDevServers,
   RuntimeEvent,
   type RuntimeEventEnvelope,
@@ -47,6 +49,12 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
       `Projection sequence mismatch: expected ${projection.lastSequence + 1}, received ${envelope.sequence}`,
     );
   }
+  if (isHuddleEvent(event))
+    return {
+      ...projection,
+      ...applyHuddleEvent(projection, event, envelope.occurredAt),
+      lastSequence: envelope.sequence,
+    };
 
   switch (event.type) {
     case "project.registered":

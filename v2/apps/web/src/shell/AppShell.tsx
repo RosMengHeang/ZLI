@@ -27,6 +27,8 @@ import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
 import type { AskAgentTarget, FilesFocus } from "../files/FilesPane.js";
 import { filesWorktreeFor } from "../files/filesWorktree.js";
 import { QuickOpen } from "../files/QuickOpen.js";
+import { HuddlePane } from "../huddle/HuddlePane.js";
+import { sessionOfAgent } from "../huddle/huddles.js";
 import { type IssueLink, issuePrompt, rememberIssueLink } from "../issues/issueStart.js";
 import { MobilePane, type MobileReveal } from "../mobile/MobilePane.js";
 import { useAgentNotifications } from "../notifications/useAgentNotifications.js";
@@ -140,6 +142,8 @@ function WorkspaceApp() {
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string>();
   const [sidePane, setSidePane] = useState<SidePane>();
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
+  /** The huddle tab in view in the Huddle panel. */
+  const [huddleId, setHuddleId] = useState<string>();
   const [panelWidth, setPanelWidth] = usePanelWidth(sidePane ?? "files");
   const [gridRegionRef, gridWidth] = useElementWidth<HTMLElement>();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -449,6 +453,10 @@ function WorkspaceApp() {
       : updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
   const hideSidebar = () =>
     narrow ? setNarrowSidebarOpen(false) : updateWorkbench((state) => ({ ...state, sidebarOpen: false }));
+  const openHuddle = useCallback((next: string) => {
+    setHuddleId(next);
+    setSidePane("huddle");
+  }, []);
   const toggleDrawer = () => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }));
   const openSettings = (section: SettingsSection = "agents") => {
     setPaletteOpen(false);
@@ -493,6 +501,7 @@ function WorkspaceApp() {
       if (mobileAvailable) toggleSidePane("mobile");
     },
     toggleChanges: () => toggleSidePane("review"),
+    toggleHuddle: () => toggleSidePane("huddle"),
     settings: () => openSettings(),
     escape: () => {
       setPaletteOpen(false);
@@ -1199,6 +1208,19 @@ function WorkspaceApp() {
     return undefined;
   };
 
+  /** Brings forward the tile that holds a huddle member, switching to that chat when it is an earlier one. */
+  const openHuddleAgent = async (agentId: string) => {
+    const session = sessionOfAgent(sessionsRef.current, agentId);
+    if (!session) {
+      showError("This agent is gone. It may have been deleted.");
+      return;
+    }
+    const isEarlierChat =
+      session.thread?.threadId !== agentId && session.threads?.some((thread) => thread.threadId === agentId);
+    if (isEarlierChat) await openChat(session, agentId);
+    showAgent(session.sessionId);
+  };
+
   const closeTileNow = (session: AgentSession) =>
     updateWorkbench((state) => ({
       ...state,
@@ -1619,6 +1641,13 @@ function WorkspaceApp() {
       action: () => setSidePane("review"),
     },
     {
+      label: "Focus huddle",
+      icon: "users",
+      group: "View",
+      shortcut: shortcuts.toggleHuddle,
+      action: () => setSidePane("huddle"),
+    },
+    {
       label: sidebarOpen ? "Hide sidebar" : "Show sidebar",
       icon: "panelLeft",
       group: "View",
@@ -1780,6 +1809,8 @@ function WorkspaceApp() {
             runGroups={workbench.groups}
             runStates={runStates}
             onCompareRuns={(group) => setCompareGroupId(group.groupId)}
+            onOpenHuddle={openHuddle}
+            onHuddleError={showError}
           />
         ) : null}
         <main className="main-workspace">
@@ -1884,6 +1915,7 @@ function WorkspaceApp() {
                               : undefined
                           }
                           startedBy={parentChip(session)}
+                          onOpenHuddle={openHuddle}
                           onOpenDiff={(path) => {
                             focusSession(session);
                             setSidePane("review");
@@ -1959,6 +1991,13 @@ function WorkspaceApp() {
                         onShowAgent={showAgent}
                         projects={projection?.projects}
                         onOpenProject={openBrowserInProject}
+                      />
+                    ) : sidePane === "huddle" ? (
+                      <HuddlePane
+                        projection={projection}
+                        selectedId={huddleId}
+                        onSelect={setHuddleId}
+                        onOpenAgent={(agentId) => void openHuddleAgent(agentId)}
                       />
                     ) : sidePane === "mobile" ? (
                       <MobilePane

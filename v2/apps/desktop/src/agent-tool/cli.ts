@@ -19,6 +19,18 @@ Usage:
       --model <id>                 Model to use.
       --as <you>                   Your own name or id, when agents share your worktree.
   zli connect <service> [reason]   Ask the person to connect a service such as github or linear.
+  zli huddle read [--all]          Show the huddle messages you have not read yet.
+  zli huddle post <message>        Write in your huddle. Members get it as their next prompt.
+      --to <names>                 Comma-separated member names, or person. Default: everyone.
+      --kind <kind>                ask wants an answer, assign hands over a task, note (default) informs.
+      --reply-to <n>               The number of the message this answers.
+      --new-agent <name>           Start a sub-agent with this name, add it, and give it the task.
+      --provider <provider>        Which agent --new-agent starts. Takes --terminal, --same-worktree,
+                                   --branch, and --model too.
+  zli huddle wait [--timeout <s>]  Wait until someone else writes in the huddle (default 120 s).
+  zli huddle decisions             List the messages the person pinned as decisions.
+      --huddle <name or id>        Which huddle, when you are in more than one.
+      --as <you>                   Your own name or id, when agents share your worktree.
 
 <agent> is a name or id from zli agents. For an agent in another project, write
 project/agent or add --project <name>. Settings have to let agents reach every project.
@@ -28,6 +40,10 @@ and how to reply. In a folder without Git, it works in the same folder.
 
 ZLI knows the caller by its worktree. Agents that share one, such as every agent in a
 folder without Git, sign messages and sub-agents only when they pass --as.
+
+A huddle is a conversation between agents that the person follows and steers. The person
+adds agents to it. Nothing a terminal agent prints reaches the huddle: answer with
+zli huddle post.
 
 Options for every command:
   --cwd <dir>        Directory used to pick the ZLI worktree (default: current directory).
@@ -41,8 +57,24 @@ export type ZliCommand =
 
 export class ZliUsageError extends Error {}
 
-const VALUE_FLAGS = new Set(["cwd", "worktree", "limit", "branch", "model", "name", "project", "as"]);
-const BOOLEAN_FLAGS = new Set(["terminal", "same-worktree", "all-projects", "help"]);
+const VALUE_FLAGS = new Set([
+  "cwd",
+  "worktree",
+  "limit",
+  "branch",
+  "model",
+  "name",
+  "project",
+  "as",
+  "huddle",
+  "to",
+  "kind",
+  "reply-to",
+  "timeout",
+  "new-agent",
+  "provider",
+]);
+const BOOLEAN_FLAGS = new Set(["terminal", "same-worktree", "all-projects", "all", "help"]);
 
 export function parseZliArgs(argv: readonly string[]): ZliCommand {
   const positional: string[] = [];
@@ -123,8 +155,68 @@ export function parseZliArgs(argv: readonly string[]): ZliCommand {
       if (reason) input.reason = reason;
       return { kind: "call", action: "agentconnect", input };
     }
+    case "huddle":
+      return huddleCommand(rest, input, text, need, flags);
     default:
       throw new ZliUsageError(`Unknown command ${command}. Run zli --help.`);
+  }
+}
+
+function huddleCommand(
+  rest: readonly string[],
+  input: Record<string, unknown>,
+  text: (name: string) => string | undefined,
+  need: (value: string | undefined, what: string) => string,
+  flags: ReadonlyMap<string, string | true>,
+): ZliCommand {
+  const [sub, ...words] = rest;
+  if (text("huddle") !== undefined) input.huddle = text("huddle");
+  if (text("as") !== undefined) input.as = text("as");
+  const whole = (name: string, value: string) => {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 1) throw new ZliUsageError(`--${name} must be a whole number above 0.`);
+    return parsed;
+  };
+  switch (sub) {
+    case "read":
+      if (flags.has("all")) input.all = true;
+      return { kind: "call", action: "huddleread", input };
+    case "wait": {
+      const timeout = text("timeout");
+      if (timeout !== undefined) input.timeoutSeconds = whole("timeout", timeout);
+      return { kind: "call", action: "huddlewait", input };
+    }
+    case "decisions":
+      return { kind: "call", action: "huddledecisions", input };
+    case "post": {
+      input.text = need(words.join(" ").trim() || undefined, "a message");
+      const to = text("to");
+      if (to !== undefined) {
+        const names = to
+          .split(",")
+          .map((name) => name.trim())
+          .filter(Boolean);
+        if (names.length === 0) throw new ZliUsageError("--to needs member names, such as --to bob,ana.");
+        input.to = names.length === 1 && (names[0] === "everyone" || names[0] === "person") ? names[0] : names;
+      }
+      if (text("kind") !== undefined) input.kind = text("kind");
+      const replyTo = text("reply-to");
+      if (replyTo !== undefined) input.replyTo = whole("reply-to", replyTo);
+      const newAgent = text("new-agent");
+      if (newAgent !== undefined) {
+        input.start = {
+          name: newAgent,
+          provider: need(text("provider"), "--provider for the new agent, such as codex"),
+          ...(flags.has("terminal") ? { mode: "terminal" } : {}),
+          ...(flags.has("same-worktree") ? { worktree: "same" } : {}),
+          ...(text("branch") !== undefined ? { branch: text("branch") } : {}),
+          ...(text("model") !== undefined ? { model: text("model") } : {}),
+        };
+      }
+      return { kind: "call", action: "huddlepost", input };
+    }
+    default:
+      throw new ZliUsageError("zli huddle takes read, post, wait, or decisions. Run zli --help.");
   }
 }
 

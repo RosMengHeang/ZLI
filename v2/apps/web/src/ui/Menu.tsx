@@ -41,6 +41,8 @@ export type MenuAction = {
   /** Why the item is disabled, or what it does. */
   title?: string | undefined;
   tone?: "danger" | undefined;
+  /** Makes the item an on and off choice, shown with a check while it is on. */
+  checked?: boolean | undefined;
   run(): void;
 };
 /** A separator draws a rule between two runs of items. */
@@ -59,7 +61,7 @@ export type MenuRequest = {
 const EDGE = 4;
 const GAP = 4;
 const ANCHORED_GAP = 6;
-const ENABLED = '[role="menuitem"]:not([aria-disabled="true"])';
+const ENABLED = ':is([role="menuitem"], [role="menuitemcheckbox"]):not([aria-disabled="true"])';
 
 type Placement = { left: number; maxHeight: number } & ({ top: number } | { bottom: number });
 
@@ -149,7 +151,9 @@ export function Menu({ request, onClose }: { request: MenuRequest; onClose(): vo
             key={item.label}
             className={cx("menu-item", item.tone === "danger" && "is-danger")}
             type="button"
-            role="menuitem"
+            {...(item.checked === undefined
+              ? { role: "menuitem" }
+              : { role: "menuitemcheckbox", "aria-checked": item.checked })}
             tabIndex={-1}
             aria-disabled={item.disabled || undefined}
             title={item.title}
@@ -166,6 +170,7 @@ export function Menu({ request, onClose }: { request: MenuRequest; onClose(): vo
             ) : null}
             <span className="menu-item-label">{item.label}</span>
             {item.shortcut ? <span className="menu-shortcut">{shortcutText(item.shortcut)}</span> : null}
+            {item.checked ? <Icon className="menu-item-check" name="check" size={13} /> : null}
           </button>
         ) : (
           // biome-ignore lint/suspicious/noArrayIndexKey: separators have no identity of their own.

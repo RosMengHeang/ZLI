@@ -306,11 +306,11 @@ export function sessionTitle(
     : undefined;
   if (first) {
     const lines = first.text.trim().split(/\r?\n/u);
-    // A sub-agent's first message opens with a line on who started it; the task itself follows.
-    const task =
-      session.thread?.startedBy && lines[0]?.startsWith("Task from ")
-        ? lines.slice(1).find((entry) => entry.trim())
-        : undefined;
+    // A sub-agent's first message opens with a line on who started it, and a huddle message with a
+    // line on who wrote it; the task or message itself follows.
+    const heading =
+      (session.thread?.startedBy && lines[0]?.startsWith("Task from ")) || lines[0]?.startsWith('Huddle "');
+    const task = heading ? lines.slice(1).find((entry) => entry.trim()) : undefined;
     const line = (task ?? lines[0] ?? "").trim();
     return line.length > 72 ? `${line.slice(0, 71)}…` : line;
   }

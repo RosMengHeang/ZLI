@@ -1,9 +1,11 @@
-import type { RpcResponse, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
+import { huddlesOf, type RpcResponse, type RuntimeProjection, type WorktreeProjection } from "@zli-v2/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
 import { ChatView, type StartRunsRequest } from "../chat/ChatView.js";
 import { useFileLinks } from "../files/FileIndex.js";
+import { HUDDLE_AGENT_DRAG_TYPE, sessionAgentId, typingHeldCount } from "../huddle/huddles.js";
+import { HuddleHeldPill, HuddleMenuButton, TileHuddleChip } from "../huddle/TileHuddle.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { setupProgress, worktreeSetup } from "../setup/setup.js";
@@ -11,7 +13,7 @@ import { LazyTerminalView } from "../terminal/LazyTerminalView.js";
 import { Badge, type BadgeTone } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { type MenuEntry, MenuButton } from "../ui/Menu.js";
+import { MenuButton, type MenuEntry } from "../ui/Menu.js";
 import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { StopButton } from "../ui/StopButton.js";
@@ -79,6 +81,7 @@ export function AgentTile({
   tall = false,
   onRename,
   startedBy,
+  onOpenHuddle,
 }: {
   projection: RuntimeProjection;
   session: AgentSession;
@@ -120,6 +123,8 @@ export function AgentTile({
   onRename?: (() => void) | undefined;
   /** The agent that started this one, for a sub-agent whose starter is still around. */
   startedBy?: { label: string; onOpen(): void } | undefined;
+  /** Opens the Huddle panel on a huddle. Without it the tile shows no huddle controls. */
+  onOpenHuddle?: ((huddleId: string) => void) | undefined;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
@@ -206,6 +211,9 @@ export function AgentTile({
   const status = session.status;
   const statusBusy = status === "working" || status === "starting" || status === "preparing";
   const mark = <ProviderMark provider={session.provider} size={18} />;
+  const huddleAgentId = onOpenHuddle ? sessionAgentId(session) : undefined;
+  const memberOf = huddleAgentId ? huddlesOf(projection, huddleAgentId) : [];
+  const heldForTyping = huddleAgentId && mode === "terminal" ? typingHeldCount(projection, huddleAgentId) : 0;
 
   return (
     <section
@@ -215,7 +223,20 @@ export function AgentTile({
       onFocusCapture={onFocus}
       onMouseDown={onFocus}
     >
-      <header className="tile-header">
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: dragging the header onto the Huddle panel is a mouse shortcut; the Add to huddle menu does the same from the keyboard. */}
+      <header
+        className="tile-header"
+        draggable={huddleAgentId ? true : undefined}
+        onDragStart={
+          huddleAgentId
+            ? (event) => {
+                event.dataTransfer.setData(HUDDLE_AGENT_DRAG_TYPE, huddleAgentId);
+                event.dataTransfer.setData("text/plain", agentName ?? title);
+                event.dataTransfer.effectAllowed = "copy";
+              }
+            : undefined
+        }
+      >
         <span className="tile-mark" aria-hidden="true">
           <ProviderMark provider={session.provider} size={13} />
         </span>
@@ -247,6 +268,7 @@ export function AgentTile({
             Sub-agent of {startedBy.label}
           </button>
         ) : null}
+        {onOpenHuddle ? <TileHuddleChip huddles={memberOf} onOpen={onOpenHuddle} /> : null}
         <span className="tile-title" title={title}>
           {title}
         </span>
@@ -299,6 +321,15 @@ export function AgentTile({
               size="sm"
               iconSize={13}
               items={newChatItems}
+            />
+          ) : null}
+          {huddleAgentId && onOpenHuddle ? (
+            <HuddleMenuButton
+              projection={projection}
+              agentId={huddleAgentId}
+              agentLabel={agentName ?? title}
+              onOpen={onOpenHuddle}
+              onError={setError}
             />
           ) : null}
           {mode === "chat" && onHandoff ? (
@@ -402,6 +433,9 @@ export function AgentTile({
                 onFocus={onFocus}
                 fileLinks={fileLinks}
               />
+              {huddleAgentId && terminalLive ? (
+                <HuddleHeldPill count={heldForTyping} agentId={huddleAgentId} onError={setError} />
+              ) : null}
               {!terminalLive ? (
                 <div className={`tile-ended${terminal.status === "failed" ? " is-failed" : ""}`} role="status">
                   <Icon name={terminal.status === "failed" ? "alert" : "square"} size={12} />

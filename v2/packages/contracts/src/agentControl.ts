@@ -28,6 +28,10 @@ export const AGENT_CONTROL_ACTIONS = [
   "agentsend",
   "agentstart",
   "agentconnect",
+  "huddleread",
+  "huddlepost",
+  "huddlewait",
+  "huddledecisions",
 ] as const;
 export const AgentControlAction = z.enum(AGENT_CONTROL_ACTIONS);
 export type AgentControlAction = z.infer<typeof AgentControlAction>;
@@ -38,6 +42,9 @@ export const READ_AGENT_CONTROL_ACTIONS: readonly AgentControlAction[] = [
   "agentlist",
   "agentread",
   "agentconnect",
+  "huddleread",
+  "huddlewait",
+  "huddledecisions",
 ];
 
 /** An agent's name or id, or a unique id prefix. `project/agent` reaches an agent in another project. */
@@ -96,6 +103,53 @@ export const AgentControlStartInput = AgentControlTarget.extend({
   as: CallerRef.optional(),
 });
 export type AgentControlStartInput = z.infer<typeof AgentControlStartInput>;
+
+/** A huddle's name or id, or a unique id prefix. Optional when the caller is in one huddle only. */
+const HuddleRef = z.string().trim().min(1).max(200);
+
+export const AgentControlHuddleReadInput = AgentControlTarget.extend({
+  huddle: HuddleRef.optional(),
+  /** The latest messages, read before or not, instead of only the ones the caller has not read. */
+  all: z.boolean().optional(),
+  as: CallerRef.optional(),
+});
+export type AgentControlHuddleReadInput = z.infer<typeof AgentControlHuddleReadInput>;
+
+export const AgentControlHuddlePostInput = AgentControlTarget.extend({
+  huddle: HuddleRef.optional(),
+  text: z.string().trim().min(1, "Write the message to post.").max(8_000),
+  /** everyone (default), person for only the person, or member names or ids. */
+  to: z.union([z.literal("everyone"), z.literal("person"), z.array(AgentRef).min(1).max(12)]).optional(),
+  kind: z.enum(["ask", "assign", "note"]).optional(),
+  /** The number of the message this answers. */
+  replyTo: z.number().int().positive().optional(),
+  /** Starts a new agent as the caller's sub-agent, adds it to the huddle, and sends it this message. */
+  start: z
+    .object({
+      name: AgentName,
+      provider: ListedProviderKind,
+      mode: z.enum(["chat", "terminal"]).optional(),
+      worktree: z.enum(["new", "same"]).optional(),
+      branch: z.string().trim().min(1).max(200).optional(),
+      model: z.string().trim().min(1).max(200).optional(),
+    })
+    .optional(),
+  as: CallerRef.optional(),
+});
+export type AgentControlHuddlePostInput = z.infer<typeof AgentControlHuddlePostInput>;
+
+export const AgentControlHuddleWaitInput = AgentControlTarget.extend({
+  huddle: HuddleRef.optional(),
+  timeoutSeconds: z.number().int().min(1).max(600).optional(),
+  as: CallerRef.optional(),
+});
+export type AgentControlHuddleWaitInput = z.infer<typeof AgentControlHuddleWaitInput>;
+
+export const AgentControlHuddleDecisionsInput = AgentControlTarget.extend({
+  huddle: HuddleRef.optional(),
+  as: CallerRef.optional(),
+});
+export type AgentControlHuddleDecisionsInput = z.infer<typeof AgentControlHuddleDecisionsInput>;
 
 export const AgentControlConnectInput = AgentControlTarget.extend({
   /** A connector id such as github, its name, or the name of a server the person added. */

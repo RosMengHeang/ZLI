@@ -3,6 +3,8 @@ import { posix, win32 } from "node:path";
 
 import {
   agentNameTaken,
+  HuddleCommand,
+  type HuddleEvent,
   type PermissionMode,
   ProjectId,
   type ProjectProjection,
@@ -21,6 +23,7 @@ import {
 
 import { resolveTerminalCwd, TerminalCwdError } from "../terminal/terminalCwd.js";
 import { NOT_GIT_WORKTREE_MESSAGE } from "../worktrees/WorktreeService.js";
+import { decideHuddle } from "./huddleDecider.js";
 
 export type DomainErrorCode =
   | "project_exists"
@@ -39,6 +42,10 @@ export type DomainErrorCode =
   | "a2a_cross_project"
   | "a2a_invalid_target"
   | "setup_not_waiting"
+  | "huddle_exists"
+  | "huddle_missing"
+  | "huddle_closed"
+  | "huddle_member_missing"
   | "unsupported_command";
 
 export class DomainError extends Error {
@@ -122,7 +129,8 @@ export type DomainDecision = Extract<
       | "devserver.stopped"
       | "worktree.setup.changed"
       | "worktree.setup.responded"
-      | "project.setup.trusted";
+      | "project.setup.trusted"
+      | HuddleEvent["type"];
   }
 >;
 
@@ -698,8 +706,17 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     case "worktree.setup.respond":
       return decideSetupResponse(projection, command);
     default:
+      if (isHuddleCommand(command)) return decideHuddle(projection, command);
       throw new DomainError("unsupported_command", `Command ${command.type} is not a domain mutation.`);
   }
+}
+
+const HUDDLE_COMMAND_TYPES: ReadonlySet<string> = new Set(
+  HuddleCommand.options.map((option) => option.shape.type.value),
+);
+
+function isHuddleCommand(command: RuntimeCommand): command is HuddleCommand {
+  return HUDDLE_COMMAND_TYPES.has(command.type);
 }
 
 function decideSetupResponse(

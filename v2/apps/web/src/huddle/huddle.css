@@ -1,0 +1,106 @@
+/* ---------- Huddle pane ---------- */
+/* The pane keeps the island layout of the other side panes; the transcript is the one part that scrolls. */
+.huddle-pane { position: relative; }
+.huddle-pane.is-drop-target { box-shadow: inset 0 0 0 2px var(--zli-accent-line); }
+.huddle-drop-hint {
+  position: absolute; right: var(--zli-space-3); bottom: var(--zli-space-3); left: var(--zli-space-3); padding: var(--zli-space-2) var(--zli-space-3);
+  border: 1px dashed var(--zli-accent-line); border-radius: var(--zli-radius-md); background: var(--zli-raised); color: var(--zli-text); font-size: var(--zli-text-sm); pointer-events: none; text-align: center;
+}
+
+.huddle-bar { gap: var(--zli-space-2); padding-left: var(--zli-space-3); border-bottom: 1px solid var(--zli-border); }
+.huddle-bar-icon { flex: 0 0 auto; color: var(--zli-dim); }
+.huddle-bar-title { flex: 1; margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
+.huddle-tabs { display: flex; min-width: 0; flex: 1; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.huddle-tab {
+  display: inline-flex; max-width: 180px; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1-5); height: var(--zli-control-sm); padding: 0 var(--zli-space-2);
+  border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-sm);
+}
+.huddle-tab:hover { background: var(--zli-hover); color: var(--zli-text); }
+.huddle-tab[aria-selected="true"] { background: var(--zli-active); color: var(--zli-text); font-weight: 550; }
+.huddle-tab:focus-visible { outline-offset: -2px; }
+.huddle-tab-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.huddle-tab-flag { flex: 0 0 auto; color: var(--zli-amber); font-size: var(--zli-text-2xs); }
+.huddle-new { flex: 0 0 auto; }
+
+.huddle-create, .huddle-rename { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1-5); }
+.huddle-create { padding: var(--zli-space-2) var(--zli-space-3); border-bottom: 1px solid var(--zli-border); }
+.huddle-create .input, .huddle-rename .input { min-width: 0; flex: 1; }
+.huddle-create-error { flex-basis: 100%; margin: 0; }
+.huddle-drop-error { margin: var(--zli-space-2) var(--zli-space-3) 0; }
+.huddle-inline-error { margin: var(--zli-space-1) var(--zli-space-3); }
+
+.huddle-view { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.huddle-head { display: flex; min-height: 36px; flex: 0 0 auto; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1-5); padding: var(--zli-space-1-5) var(--zli-space-2) var(--zli-space-1) var(--zli-space-3); }
+.huddle-head .huddle-rename { min-width: 200px; flex: 1; }
+.huddle-name { min-width: 0; margin: 0; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-md); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.huddle-meta { display: inline-flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-xs); white-space: nowrap; }
+.huddle-meta-id { color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); }
+.huddle-spacer { flex: 1; }
+.huddle-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1-5); margin: 0 var(--zli-space-3) var(--zli-space-2); padding: var(--zli-space-2) var(--zli-space-2-5); border: 1px solid var(--zli-red-line); border-radius: var(--zli-radius-md); background: var(--zli-red-soft); color: var(--zli-red-ink); font-size: var(--zli-text-sm); }
+.huddle-confirm { min-inline-size: 0; }
+.huddle-confirm p { min-width: 160px; flex: 1; margin: 0; }
+
+.huddle-members { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: var(--zli-space-1); margin: 0; padding: 0 var(--zli-space-3) var(--zli-space-2); list-style: none; }
+.huddle-member { display: inline-flex; max-width: 100%; align-items: center; gap: var(--zli-space-1-5); height: var(--zli-control-sm); padding: 0 2px 0 var(--zli-space-2); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-sm); background: var(--zli-raised); font-size: var(--zli-text-xs); }
+.huddle-member-name { min-width: 0; padding: 0; border: 0; background: transparent; color: var(--zli-text); cursor: pointer; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.huddle-member-name:hover { text-decoration: underline; }
+.huddle-member-meta { flex: 0 0 auto; color: var(--zli-dim); white-space: nowrap; }
+.huddle-member-held { flex: 0 0 auto; color: var(--zli-amber); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.huddle-note { margin: 0 var(--zli-space-3) var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.huddle-paused { margin: 0 var(--zli-space-3) var(--zli-space-2); border: 1px solid var(--zli-amber-line); border-radius: var(--zli-radius-md); }
+
+.huddle-decisions { flex: 0 0 auto; margin: 0 var(--zli-space-3) var(--zli-space-2); border-top: 1px solid var(--zli-border); }
+.huddle-decisions-toggle { display: inline-flex; align-items: center; gap: var(--zli-space-1-5); height: var(--zli-control-sm); margin-top: var(--zli-space-1); padding: 0 var(--zli-space-1); border: 0; border-radius: var(--zli-radius-xs); background: transparent; color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-xs); font-weight: 600; }
+.huddle-decisions-toggle:hover { color: var(--zli-text); }
+.huddle-decisions-chevron { transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.huddle-decisions-toggle[aria-expanded="true"] .huddle-decisions-chevron { transform: rotate(90deg); }
+.huddle-decision-list { display: flex; max-height: 120px; flex-direction: column; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.huddle-decision { display: flex; width: 100%; align-items: baseline; gap: var(--zli-space-2); padding: var(--zli-space-1) var(--zli-space-1); border: 0; border-radius: var(--zli-radius-xs); background: transparent; color: var(--zli-text); cursor: pointer; font-size: var(--zli-text-sm); text-align: left; }
+.huddle-decision:hover { background: var(--zli-hover); }
+.huddle-decision-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.huddle-transcript { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: var(--zli-space-1); margin: 0; padding: var(--zli-space-2) var(--zli-space-2) var(--zli-space-3); overflow-y: auto; border-top: 1px solid var(--zli-border); list-style: none; }
+.huddle-transcript-empty { margin-top: var(--zli-space-3); }
+.huddle-post { padding: var(--zli-space-2) var(--zli-space-2-5); border-radius: var(--zli-radius-md); }
+/* The person's own messages sit on a faint well so a long agent exchange still shows where they spoke. */
+.huddle-post.is-person { background: var(--zli-well); }
+.huddle-post:focus-visible { outline-offset: -2px; }
+.huddle-post-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1-5); min-height: var(--zli-control-xs); font-size: var(--zli-text-xs); }
+.huddle-post-number { color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; }
+.huddle-post-from { color: var(--zli-text); font-weight: 600; }
+.huddle-post-to { min-width: 0; color: var(--zli-muted); overflow-wrap: anywhere; }
+.huddle-post-marker { color: var(--zli-muted); font-size: var(--zli-text-2xs); }
+.huddle-post-marker.is-decision { color: var(--zli-green); }
+.huddle-post-time { color: var(--zli-dim); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; }
+.huddle-pin { color: var(--zli-dim); }
+.huddle-pin.is-on { color: var(--zli-green); }
+.huddle-post-reply { margin-top: 2px; padding: 0; border: 0; background: transparent; color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-2xs); }
+.huddle-post-reply:hover { color: var(--zli-text); text-decoration: underline; }
+.huddle-post-text { margin: var(--zli-space-1) 0 0; color: var(--zli-text); font-size: var(--zli-text-base); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; white-space: pre-wrap; }
+.huddle-post-cut { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1-5); margin: var(--zli-space-1) 0 0; color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.huddle-post-deliveries { margin: var(--zli-space-1) 0 0; padding: 0; color: var(--zli-amber-ink); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); list-style: none; overflow-wrap: anywhere; }
+
+.huddle-composer { display: flex; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-1-5); padding: var(--zli-space-2) var(--zli-space-3) var(--zli-space-3); border-top: 1px solid var(--zli-border); }
+.huddle-composer-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-2); }
+.huddle-composer-row .picker-field { min-width: 140px; max-width: 100%; flex: 1; }
+.huddle-composer-input { min-height: 64px; max-height: 240px; }
+.huddle-composer-foot { display: flex; align-items: center; gap: var(--zli-space-2); }
+.huddle-composer-hint { min-width: 0; flex: 1; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-tight); }
+
+/* ---------- Huddle bits on agent tiles ---------- */
+.tile-huddle { display: inline-flex; max-width: 160px; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); overflow: hidden; padding: 1px var(--zli-space-1-5); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-xs); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-2xs); white-space: nowrap; }
+.tile-huddle span { overflow: hidden; text-overflow: ellipsis; }
+.tile-huddle:hover { background: var(--zli-hover); color: var(--zli-text); }
+.tile-huddle:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+.tile-header[draggable="true"] { cursor: grab; }
+.tile-header[draggable="true"] :is(button, a) { cursor: pointer; }
+.huddle-held-pill {
+  display: flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2); margin: 0 var(--zli-space-2) var(--zli-space-2); padding: var(--zli-space-1) var(--zli-space-1) var(--zli-space-1) var(--zli-space-3);
+  border: 1px solid var(--zli-amber-line); border-radius: var(--zli-radius-md); background: var(--zli-amber-soft); color: var(--zli-amber-ink); font-size: var(--zli-text-sm);
+}
+.huddle-held-pill > svg { color: var(--zli-amber); }
+.huddle-held-text { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+
+@container tile (max-width: 480px) {
+  .tile-huddle { display: none; }
+}
