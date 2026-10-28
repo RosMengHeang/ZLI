@@ -5,7 +5,9 @@ import { useEffect, useState } from "react";
 import { accountLabel, sessionAccountId } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
 import { limitKey } from "../limits/limits.js";
+import { projectStats, removalDetail } from "../projects/removal.js";
 import { trackDescription, trackText } from "../review/branches.js";
+import { ConfirmDialog } from "../review/ConfirmDialog.js";
 import { type PullRequestEntry, usePullRequestEntries } from "../review/pullRequestStore.js";
 import type { RunGroup, RunState } from "../sessions/bestOf.js";
 import { runStateLabel } from "../sessions/bestOf.js";
@@ -22,7 +24,7 @@ import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
-import { MenuButton, type MenuItem } from "../ui/Menu.js";
+import { Menu, MenuButton, type MenuItem, type MenuRequest } from "../ui/Menu.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ariaShortcut } from "../ui/shortcuts.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
@@ -53,7 +55,11 @@ function pullRequestBadge(
         : pending > 0
           ? `${state}, checks running`
           : `${state}, checks passed`;
-  return { label: `#${pullRequest.number}`, tone, title: `Pull request ${detail.toLowerCase()}` };
+  return {
+    label: `#${pullRequest.number}`,
+    tone,
+    title: `Pull request ${detail.toLowerCase()}`,
+  };
 }
 
 /** Commits to push and pull, from the status lookup the sidebar already polls for pull requests. */
@@ -105,6 +111,9 @@ type Props = {
   onNewAgent(project?: ProjectProjection): void;
   onOpenProject(): void;
   onCreateWorktree(project?: ProjectProjection): void;
+  /** Removes a project from ZLI, leaving its folder on disk. Resolves to what went wrong, if anything. */
+  onRemoveProject(projectId: string): Promise<string | undefined>;
+  onRenameProject(projectId: string, name: string): void;
   onWorktreeAction(worktree: WorktreeProjection, action: WorktreeAction): void;
   onReviewSetup(worktree: WorktreeProjection): void;
   onShowSetupOutput(worktree: WorktreeProjection): void;
@@ -136,6 +145,8 @@ export function Sidebar({
   onNewAgent,
   onOpenProject,
   onCreateWorktree,
+  onRemoveProject,
+  onRenameProject,
   onWorktreeAction,
   onReviewSetup,
   onShowSetupOutput,
@@ -152,10 +163,22 @@ export function Sidebar({
   const sidebarShortcut = useShortcut("toggleSidebar");
   const settingsShortcut = useShortcut("settings");
   const [confirmRemoveId, setConfirmRemoveId] = useState<string>();
+  const [projectMenu, setProjectMenu] = useState<MenuRequest>();
+  const [confirmRemoveProjectId, setConfirmRemoveProjectId] = useState<string>();
+  const [removingProjectId, setRemovingProjectId] = useState<string>();
+  const [removeProjectProblem, setRemoveProjectProblem] = useState<{
+    projectId: string;
+    message: string;
+  }>();
+  const [renamingProjectId, setRenamingProjectId] = useState<string>();
   const layout = useSidebarCollapsed();
   const [now, setNow] = useState(() => Date.now());
   const prEntries = usePullRequestEntries();
   const projects = projection?.projects ?? [];
+  // Pinned projects first; the sort is stable, so each group keeps its order.
+  const orderedProjects = [...projects].sort(
+    (left, right) => Number(layout.pinned(right.projectId)) - Number(layout.pinned(left.projectId)),
+  );
   const worktrees = projection?.worktrees ?? [];
   const threads = projection?.threads ?? [];
   const activeSession = sessions.find((session) => session.sessionId === activeSessionId);
@@ -248,12 +271,30 @@ export function Sidebar({
   const worktreeMenuItems = (worktree: WorktreeProjection, info: ReturnType<typeof worktreeInfo>): MenuItem[] => {
     const busy = inProgress.has(worktree.status);
     const items: MenuItem[] = [];
-    if (info.needsApproval) items.push({ label: "Review setup", icon: "check", run: () => onReviewSetup(worktree) });
+    if (info.needsApproval)
+      items.push({
+        label: "Review setup",
+        icon: "check",
+        run: () => onReviewSetup(worktree),
+      });
     if (info.setup?.terminalId)
-      items.push({ label: "Setup output", icon: "terminal", run: () => onShowSetupOutput(worktree) });
+      items.push({
+        label: "Setup output",
+        icon: "terminal",
+        run: () => onShowSetupOutput(worktree),
+      });
     if (worktree.status === "failed")
-      items.push({ label: "Retry", icon: "reload", run: () => onWorktreeAction(worktree, "retry") });
-    if (busy) items.push({ label: "Cancel", icon: "x", run: () => onWorktreeAction(worktree, "cancel") });
+      items.push({
+        label: "Retry",
+        icon: "reload",
+        run: () => onWorktreeAction(worktree, "retry"),
+      });
+    if (busy)
+      items.push({
+        label: "Cancel",
+        icon: "x",
+        run: () => onWorktreeAction(worktree, "cancel"),
+      });
     // A checkout never touches disk when removed, so it can go even while it is stuck.
     if (!busy || info.checkout) {
       if (items.length > 0) items.push({ separator: true });
@@ -330,6 +371,108 @@ export function Sidebar({
       </p>
     ) : null;
 
+  /** What a project's "..." menu, and a right-click on its row, offers. */
+  const projectMenuItems = (project: ProjectProjection): MenuItem[] => [
+    { label: "New agent", icon: "plus", run: () => onNewAgent(project) },
+    {
+      label: "New worktree",
+      icon: "branch",
+      disabled: project.git === false,
+      title: project.git === false ? "Worktrees need Git. This folder is not a Git repository." : "New worktree here",
+      run: () => onCreateWorktree(project),
+    },
+    { separator: true },
+    {
+      label: "Remove project",
+      icon: "trash",
+      tone: "danger",
+      title: "Remove from ZLI. The folder stays on disk.",
+      run: () => {
+        setRemoveProjectProblem(undefined);
+        setConfirmRemoveProjectId(project.projectId);
+      },
+    },
+  ];
+
+  /** A right-click on a project's row adds pinning and renaming to its "..." menu. */
+  const projectContextItems = (project: ProjectProjection): MenuItem[] => [
+    {
+      label: layout.pinned(project.projectId) ? "Unpin" : "Pin",
+      icon: "pin",
+      run: () => layout.togglePinned(project.projectId),
+    },
+    {
+      label: "Edit",
+      icon: "pencil",
+      title: "Rename this project",
+      run: () => setRenamingProjectId(project.projectId),
+    },
+    { separator: true },
+    ...projectMenuItems(project),
+  ];
+
+  const renderProjectRename = (project: ProjectProjection) => (
+    <input
+      className="project-rename"
+      aria-label={`Rename ${project.name}`}
+      defaultValue={project.name}
+      // biome-ignore lint/a11y/noAutofocus: the field opens because the person chose Edit.
+      autoFocus
+      onFocus={(event) => event.currentTarget.select()}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") event.currentTarget.value = project.name;
+        if (event.key === "Enter" || event.key === "Escape") event.currentTarget.blur();
+      }}
+      onBlur={(event) => {
+        setRenamingProjectId(undefined);
+        const name = event.currentTarget.value.trim();
+        if (name && name !== project.name) onRenameProject(project.projectId, name);
+      }}
+    />
+  );
+
+  const removeProject = async (project: ProjectProjection) => {
+    setRemovingProjectId(project.projectId);
+    setRemoveProjectProblem(undefined);
+    const problem = await onRemoveProject(project.projectId);
+    setRemovingProjectId(undefined);
+    if (problem) {
+      setRemoveProjectProblem({
+        projectId: project.projectId,
+        message: problem,
+      });
+      return;
+    }
+    setConfirmRemoveProjectId(undefined);
+  };
+
+  /** Removing takes two clicks on purpose: the menu only asks, and this dialog confirms. */
+  const renderProjectConfirm = () => {
+    const project = projects.find((entry) => entry.projectId === confirmRemoveProjectId);
+    if (!project) return null;
+    const problem = removeProjectProblem?.projectId === project.projectId ? removeProjectProblem.message : undefined;
+    return (
+      <ConfirmDialog
+        label="Remove project"
+        title={`Remove ${project.name} from ZLI?`}
+        detail={
+          <>
+            {removalDetail(projectStats(projection, project))}
+            {problem ? (
+              <span className="project-confirm-problem" role="alert">
+                {problem}
+              </span>
+            ) : null}
+          </>
+        }
+        confirmLabel="Remove"
+        busy={removingProjectId === project.projectId}
+        onConfirm={() => void removeProject(project)}
+        onCancel={() => setConfirmRemoveProjectId(undefined)}
+      />
+    );
+  };
+
   /** A worktree no agent runs in: selectable, and removable from its hover actions. */
   const renderWorktree = (worktree: WorktreeProjection) => {
     const info = worktreeInfo(worktree);
@@ -381,13 +524,27 @@ export function Sidebar({
     worktree: WorktreeProjection | undefined,
   ): MenuItem[] => {
     const items: MenuItem[] = [];
-    if (stoppable) items.push({ label: "Stop agent", icon: "stop", run: () => onStopSession(session) });
+    if (stoppable)
+      items.push({
+        label: "Stop agent",
+        icon: "stop",
+        run: () => onStopSession(session),
+      });
     if (worktree) {
       const { branch } = worktree;
-      items.push({ label: "Copy branch name", icon: "copy", run: () => void navigator.clipboard?.writeText(branch) });
+      items.push({
+        label: "Copy branch name",
+        icon: "copy",
+        run: () => void navigator.clipboard?.writeText(branch),
+      });
     }
     if (items.length > 0) items.push({ separator: true });
-    items.push({ label: "Delete agent", icon: "trash", tone: "danger", run: () => onDeleteSession(session) });
+    items.push({
+      label: "Delete agent",
+      icon: "trash",
+      tone: "danger",
+      run: () => onDeleteSession(session),
+    });
     return items;
   };
   const renderSession = (
@@ -526,13 +683,14 @@ export function Sidebar({
             </p>
           </div>
         ) : (
-          projects.map((project) => {
+          orderedProjects.map((project) => {
             const projectWorktrees = worktrees.filter((worktree) => worktree.projectId === project.projectId);
             const worktreeIds = new Set<string>(projectWorktrees.map((worktree) => worktree.worktreeId));
             const projectSessions = sessions
               .filter((session) => worktreeIds.has(session.worktreeId))
               .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
             const open = layout.projectOpen(project.projectId);
+            const pinned = layout.pinned(project.projectId);
             const idleOpen = layout.idleOpen(project.projectId);
             const agentCount = projectSessions.filter((session) => !runIds.has(session.sessionId)).length;
             const busy = projectSessions.some(
@@ -564,18 +722,39 @@ export function Sidebar({
                 key={project.projectId}
                 aria-label={project.name}
               >
-                <div className="project-label" title={project.path}>
-                  <button
-                    className="project-toggle"
-                    type="button"
-                    aria-expanded={open}
-                    aria-label={`${project.name}, ${open ? "collapse" : "expand"}`}
-                    onClick={() => layout.toggleProject(project.projectId)}
-                  >
-                    <Icon name={open ? "folderOpen" : "folder"} size={14} />
-                    <span className="project-name">{project.name}</span>
-                    <Icon name="chevronRight" size={11} className="project-chevron" />
-                  </button>
+                {/* biome-ignore lint/a11y/noStaticElementInteractions: Shift+F10 or the Menu key on the focused toggle opens this menu too. */}
+                <div
+                  className="project-label"
+                  title={project.path}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    // Shift+F10 or the Menu key fire this with no pointer position, so open under the row.
+                    const row = event.currentTarget.getBoundingClientRect();
+                    const fromKeyboard = event.clientX === 0 && event.clientY === 0;
+                    setProjectMenu({
+                      x: fromKeyboard ? row.left : event.clientX,
+                      y: fromKeyboard ? row.bottom : event.clientY,
+                      label: `${project.name} actions`,
+                      items: projectContextItems(project),
+                    });
+                  }}
+                >
+                  {renamingProjectId === project.projectId ? (
+                    renderProjectRename(project)
+                  ) : (
+                    <button
+                      className="project-toggle"
+                      type="button"
+                      aria-expanded={open}
+                      aria-label={`${project.name}${pinned ? ", pinned" : ""}, ${open ? "collapse" : "expand"}`}
+                      onClick={() => layout.toggleProject(project.projectId)}
+                    >
+                      <Icon name={open ? "folderOpen" : "folder"} size={14} />
+                      <span className="project-name">{project.name}</span>
+                      {pinned ? <Icon name="pin" size={11} className="project-pin" aria-hidden="true" /> : null}
+                      <Icon name="chevronRight" size={11} className="project-chevron" />
+                    </button>
+                  )}
                   {open || agentCount === 0 ? null : (
                     <span
                       className={`project-summary${waiting ? " is-waiting" : busy ? " is-working" : ""}`}
@@ -607,6 +786,13 @@ export function Sidebar({
                     size="xs"
                     iconSize={13}
                     onClick={() => onNewAgent(project)}
+                  />
+                  <MenuButton
+                    className="project-action"
+                    label={`${project.name} actions`}
+                    tooltip="More"
+                    size="xs"
+                    items={() => projectMenuItems(project)}
                   />
                 </div>
                 {!open ? null : (
@@ -687,6 +873,8 @@ export function Sidebar({
           />
         </div>
       </div>
+      {projectMenu ? <Menu request={projectMenu} onClose={() => setProjectMenu(undefined)} /> : null}
+      {renderProjectConfirm()}
     </aside>
   );
 }

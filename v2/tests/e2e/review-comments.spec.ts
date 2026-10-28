@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 
 import {
   closeDesktop,
+  openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
   launchDesktop,
@@ -19,7 +20,7 @@ test("comments on diff lines and sends them to a chat agent", async () => {
   try {
     fixture = await launchDesktop(repo, root);
     const page = fixture.page;
-    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    await openCreateWorktree(page);
     const createWorktree = page.getByRole("dialog", { name: "Create worktree" });
     await createWorktree.getByLabel("Branch").fill("comments");
     await createWorktree.getByRole("button", { name: "Create worktree" }).click();
