@@ -95,6 +95,15 @@
   .pane-detail { display: none; }
 }
 @media (max-width: 1080px) {
-  .command-trigger { width: auto; }
+  .command-trigger { width: var(--zli-control-md); justify-content: center; padding: 0; }
   .command-trigger-label, .command-trigger .kbd-group { display: none; }
+}
+/* Zoomed far in, the bar keeps every button and drops the New agent label, which stays its accessible name. */
+@media (max-width: 720px) {
+  .topbar-new-agent-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+/* At the narrowest the panel buttons scroll sideways rather than push the bar past the window. */
+@media (max-width: 480px) {
+  .topbar-context { display: none; }
+  .topbar-tools { overflow-x: auto; scrollbar-width: none; }
 }
