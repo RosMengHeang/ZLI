@@ -30,6 +30,9 @@
       "esbuild": "0.28.1",
       "http-cache-semantics": "4.3.0",
       "source-map-js": "1.2.2"
+    },
+    "patchedDependencies": {
+      "@xterm/addon-webgl@0.18.0": "patches/@xterm__addon-webgl@0.18.0.patch"
     }
   },
   "devDependencies": {

@@ -203,10 +203,26 @@ describe("helpers", () => {
   });
 
   it("stacks tiles into rows when the grid is too narrow for them side by side", () => {
-    expect(gridLayout(4, 1600)).toEqual({ columns: 2, rows: 2 });
-    expect(gridLayout(2, 700)).toEqual({ columns: 1, rows: 2 });
-    expect(gridLayout(9, 800)).toEqual({ columns: 2, rows: 5 });
-    expect(gridLayout(3, undefined)).toEqual({ columns: 2, rows: 2 });
+    expect(gridLayout(4, 1600)).toEqual({ columns: 2, rows: 2, tall: 0 });
+    expect(gridLayout(2, 700)).toEqual({ columns: 1, rows: 2, tall: 0 });
+    expect(gridLayout(9, 800)).toEqual({ columns: 2, rows: 5, tall: 1 });
+    expect(gridLayout(3, undefined)).toEqual({ columns: 2, rows: 2, tall: 1 });
+  });
+
+  it("makes the first tiles span two rows so the grid has no empty cells", () => {
+    const cells = (count: number) => {
+      const { columns, rows, tall } = gridLayout(count, undefined);
+      return { columns, rows, tall, filled: count + tall };
+    };
+    expect(cells(1)).toEqual({ columns: 1, rows: 1, tall: 0, filled: 1 });
+    expect(cells(2)).toEqual({ columns: 2, rows: 1, tall: 0, filled: 2 });
+    expect(cells(3)).toEqual({ columns: 2, rows: 2, tall: 1, filled: 4 });
+    expect(cells(5)).toEqual({ columns: 3, rows: 2, tall: 1, filled: 6 });
+    expect(cells(7)).toEqual({ columns: 3, rows: 3, tall: 2, filled: 9 });
+    expect(cells(9)).toEqual({ columns: 3, rows: 3, tall: 0, filled: 9 });
+    expect(cells(10)).toEqual({ columns: 4, rows: 3, tall: 2, filled: 12 });
+    expect(cells(11)).toEqual({ columns: 4, rows: 3, tall: 1, filled: 12 });
+    expect(cells(13)).toEqual({ columns: 4, rows: 4, tall: 3, filled: 16 });
   });
 
   it("stops both the agent CLI and the chat of a session", () => {

@@ -75,6 +75,7 @@ export function AgentTile({
   newChatRequest,
   newChatShortcut,
   onOpenChat,
+  tall = false,
 }: {
   projection: RuntimeProjection;
   session: AgentSession;
@@ -110,6 +111,8 @@ export function AgentTile({
   newChatShortcut?: string | undefined;
   /** Shows one of this session's earlier chats in the tile. */
   onOpenChat?: ((threadId: string) => void) | undefined;
+  /** Spans two grid rows to fill the space a short last row leaves. */
+  tall?: boolean | undefined;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
@@ -198,7 +201,7 @@ export function AgentTile({
 
   return (
     <section
-      className={`agent-tile${active ? " is-active" : ""}`}
+      className={`agent-tile${active ? " is-active" : ""}${tall ? " is-tall" : ""}`}
       data-session-id={session.sessionId}
       aria-label={`${title}, ${displayName}`}
       onFocusCapture={onFocus}

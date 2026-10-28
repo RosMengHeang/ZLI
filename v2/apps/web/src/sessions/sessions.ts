@@ -379,9 +379,12 @@ const GRID_GAP = 8;
 /**
  * Columns for n tiles in a grid `width` pixels wide. Tiles that would fall under the minimum width
  * stack into more rows instead, so opening a side panel does not squeeze every agent into a sliver.
+ * When the tiles do not fill the last row, the first `tall` tiles span two rows so no cell is left
+ * empty: three tiles become one tall tile beside two stacked ones.
  */
-export function gridLayout(count: number, width: number | undefined): { columns: number; rows: number } {
+export function gridLayout(count: number, width: number | undefined): { columns: number; rows: number; tall: number } {
   const fit = width ? Math.max(1, Math.floor((width + GRID_GAP) / (MIN_TILE_WIDTH + GRID_GAP))) : Infinity;
   const columns = Math.max(1, Math.min(gridColumns(count), fit));
-  return { columns, rows: Math.max(1, Math.ceil(count / columns)) };
+  const rows = Math.max(1, Math.ceil(count / columns));
+  return { columns, rows, tall: rows > 1 ? columns * rows - count : 0 };
 }
