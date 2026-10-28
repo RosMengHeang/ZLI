@@ -61,9 +61,17 @@ export type ZliBridge = {
     screenshot(input: unknown): Promise<unknown>;
     inspectElement(input: unknown): Promise<unknown>;
     designInspect(input: unknown): Promise<unknown>;
-    /** Resolves with the selector of the element the person clicks, or null when the pick is cancelled. */
+    /**
+     * Resolves with the next thing done in the page's annotate session (a pick, a saved note, a
+     * removal, or a change of step), starting the session if needed, or null when it ends.
+     */
     designPick?(browserTabId: string): Promise<unknown>;
+    /** Ends the annotate session and removes its overlay from the page. */
     designCancel?(browserTabId: string): Promise<unknown>;
+    /** Draws numbered pins for the annotations on the page; `drop` closes notes the panel turned down. */
+    designMark?(input: { browserTabId: string; marks: unknown; drop?: unknown }): Promise<unknown>;
+    /** A screenshot of a drawn region with its sketch on top. */
+    designCapture?(input: { browserTabId: string; bounds: unknown; strokes: unknown }): Promise<unknown>;
     consoleEntries(browserTabId: string): Promise<readonly unknown[]>;
     networkEntries(browserTabId: string): Promise<readonly unknown[]>;
   };
