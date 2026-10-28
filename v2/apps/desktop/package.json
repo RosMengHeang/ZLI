@@ -10,7 +10,8 @@
   "main": "dist/main.js",
   "desktopName": "zli.desktop",
   "scripts": {
-    "pack": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml --publish never",
+    "pack": "pnpm --dir ../.. run build && pnpm run pack:prebuilt",
+    "pack:prebuilt": "electron-builder --config electron-builder.yml --publish never",
     "pack:dir": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml --dir --publish never",
     "release": "pnpm --dir ../.. run build && electron-builder --config electron-builder.yml --publish always"
   },

@@ -1,20 +1,21 @@
 name: ZLI V2 desktop
 
+# Pushes to main run these checks through the Release workflow's gate, so they are not triggered here too.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "v2/**"
-      - "package.json"
-      - ".github/workflows/v2-desktop.yml"
   pull_request:
     paths:
       - "v2/**"
       - "package.json"
       - ".github/workflows/v2-desktop.yml"
+  workflow_call:
 
 permissions:
   contents: read
+
+# A new push to a pull request replaces its running checks. Other runs get a group of their own.
+concurrency:
+  group: v2-desktop-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   verify:
@@ -40,11 +41,26 @@ jobs:
           node-version-file: v2/.nvmrc
           cache: pnpm
           cache-dependency-path: v2/pnpm-lock.yaml
+      - name: Cache Electron and electron-builder downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('v2/pnpm-lock.yaml') }}
+          restore-keys: electron-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
       - run: pnpm run verify
       - run: pnpm audit --audit-level high
       - run: pnpm run build
-      - run: pnpm run desktop:dir
+      # The installers build leaves the unpacked app (linux-unpacked, mac-<arch>/ZLI.app, win-unpacked)
+      # next to them, so the checks and the Electron journey below run against that same build.
+      - name: Build installers from the build above
+        run: pnpm run desktop:pack:prebuilt
       - name: Inspect unpacked Linux application files
         if: runner.os == 'Linux'
         run: find apps/desktop/release/linux-unpacked -maxdepth 2 -type f -printf '%P (%m)\n' | sort
@@ -74,7 +90,6 @@ jobs:
       - name: Inspect remaining Linux runtime processes
         if: always() && runner.os == 'Linux'
         run: ps -eo pid,ppid,stat,args | grep -Ei '[e]lectron|[c]hromium|dev-server\.mjs|[z]li|[d]aemon-entry|[s]erver-entry' || true
-      - run: pnpm run desktop:pack
       - name: Upload Electron diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4

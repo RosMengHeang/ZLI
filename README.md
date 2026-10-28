@@ -103,7 +103,7 @@ On Linux without a display, run them under `xvfb-run -a`.
 
 Every merge to `main` publishes a new patch release through the [Release workflow](.github/workflows/release.yml):
 
-1. Runs `pnpm audit --audit-level high` and `pnpm run verify` on Windows, macOS, and Linux, and stops if either fails.
+1. Runs the pull request checks from the [ZLI V2 desktop workflow](.github/workflows/v2-desktop.yml) on Windows, macOS, and Linux: `pnpm audit --audit-level high`, `pnpm run verify`, the installers build, and the Electron journey. It stops if any of them fail.
 2. Takes the next version from the highest `vX.Y.Z` tag, tags the merge commit, and creates a draft release with generated notes.
 3. Builds the installers and update files (`latest*.yml`, `.blockmap`) on each platform, including the Linux `.deb` and `.rpm`, uploads them to the draft, and publishes it once every file is there.
 
