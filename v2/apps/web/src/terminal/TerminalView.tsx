@@ -9,6 +9,7 @@ import type { RpcResponse } from "@zli-v2/contracts";
 import { themeColors } from "@zli-v2/ui/colors";
 import type { FileLinks } from "../files/FileIndex.js";
 import type { ZliBridge } from "../runtime/bridge.js";
+import { extendScreenBackground } from "./screenBackground.js";
 import { registerTerminalModes } from "./terminalModes.js";
 
 type Props = {
@@ -98,6 +99,7 @@ export function TerminalView({
     terminal.unicode.activeVersion = "11";
     terminal.open(host);
     terminalRef.current = terminal;
+    const backgroundExtension = extendScreenBackground(terminal, host, terminalTheme);
     const linkProvider = terminal.registerLinkProvider({
       provideLinks(lineNumber, callback) {
         const links = fileLinksRef.current;
@@ -247,6 +249,7 @@ export function TerminalView({
       observer?.disconnect();
       dataSubscription.dispose();
       linkProvider.dispose();
+      backgroundExtension.dispose();
       focusSubscription?.();
       unregisterModes();
       unsubscribe();

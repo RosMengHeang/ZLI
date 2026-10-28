@@ -68,6 +68,9 @@ const xterm = vi.hoisted(() => {
       this.linkProviders.push(provider);
       return { dispose: () => undefined };
     }
+    onRender() {
+      return { dispose: () => undefined };
+    }
     type(data: string): void {
       this.dataListener?.(data);
     }

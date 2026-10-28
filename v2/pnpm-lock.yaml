@@ -9,6 +9,11 @@ overrides:
   http-cache-semantics: 4.3.0
   source-map-js: 1.2.2
 
+patchedDependencies:
+  '@xterm/addon-webgl@0.18.0':
+    hash: 128c296d75b31967c08ef2590aa24c350a33f8332aa57153fcc66cadafaa301a
+    path: patches/@xterm__addon-webgl@0.18.0.patch
+
 importers:
 
   .:
@@ -182,7 +187,7 @@ importers:
         version: 0.8.0(@xterm/xterm@5.5.0)
       '@xterm/addon-webgl':
         specifier: 0.18.0
-        version: 0.18.0(@xterm/xterm@5.5.0)
+        version: 0.18.0(patch_hash=128c296d75b31967c08ef2590aa24c350a33f8332aa57153fcc66cadafaa301a)(@xterm/xterm@5.5.0)
       '@xterm/xterm':
         specifier: 5.5.0
         version: 5.5.0
@@ -3562,7 +3567,7 @@ snapshots:
     dependencies:
       '@xterm/xterm': 5.5.0
 
-  '@xterm/addon-webgl@0.18.0(@xterm/xterm@5.5.0)':
+  '@xterm/addon-webgl@0.18.0(patch_hash=128c296d75b31967c08ef2590aa24c350a33f8332aa57153fcc66cadafaa301a)(@xterm/xterm@5.5.0)':
     dependencies:
       '@xterm/xterm': 5.5.0
 

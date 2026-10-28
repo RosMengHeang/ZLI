@@ -1719,7 +1719,7 @@ function WorkspaceApp() {
   whatsNewRef.current = whatsNew !== undefined;
   const overlayOpen =
     otherOverlayOpen || setupApproval !== undefined || agentTrustProjectId !== undefined || whatsNew !== undefined;
-  const { columns, rows } = gridLayout(visibleTiles.length, gridWidth);
+  const { columns, rows, tall } = gridLayout(visibleTiles.length, gridWidth);
   const handoffSession = handoffRequest
     ? sessions.find((session) => session.sessionId === handoffRequest.sessionId)
     : undefined;
@@ -1846,11 +1846,12 @@ function WorkspaceApp() {
                         gridTemplateRows: `repeat(${rows}, minmax(${rows > 1 ? 260 : 0}px, 1fr))`,
                       }}
                     >
-                      {visibleTiles.map((session) => (
+                      {visibleTiles.map((session, index) => (
                         <AgentTile
                           key={session.sessionId}
                           projection={projection}
                           session={session}
+                          tall={index < tall}
                           accountLabel={accountLabel(loadedAccounts, sessionAccountId(session))}
                           worktree={findWorktree(session.worktreeId)}
                           active={session.sessionId === activeSession?.sessionId}
