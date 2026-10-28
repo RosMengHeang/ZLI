@@ -41,8 +41,47 @@ mac:
 linux:
   executableName: zli
   icon: build/icon-square.png
+  # Freedesktop menu category. Written into the desktop entry as Categories.
+  category: Development
   # Electron uses desktopName from package.json as the Wayland app_id and X11 WM_CLASS. Docks link the
   # running window to the desktop entry, and its icon, only when the entry's name and StartupWMClass match it.
+  # deb and rpm install that entry (Icon=zli, StartupWMClass=zli) plus a /usr/bin/zli link. The AppImage
+  # keeps its own launcher.
   syncDesktopName: true
   target:
     - AppImage
+    - deb
+    - rpm
+# Runtime libraries Electron loads. Ubuntu 24.04 renamed some of them in the t64 transition; the
+# alternative keeps one package installable there and on Debian and older Ubuntu, where the original
+# name still exists. deb and rpm package names stay lowercase so apt and dnf can install `zli`.
+deb:
+  packageName: zli
+  packageCategory: devel
+  depends:
+    - "libgtk-3-0 | libgtk-3-0t64"
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - "libatspi2.0-0 | libatspi2.0-0t64"
+    - libuuid1
+    - libsecret-1-0
+    - "libasound2 | libasound2t64"
+    - libgbm1
+rpm:
+  packageName: zli
+  packageCategory: Development/Tools
+  depends:
+    - gtk3
+    - libnotify
+    - nss
+    - libXScrnSaver
+    - "(libXtst or libXtst6)"
+    - xdg-utils
+    - at-spi2-core
+    - "(libuuid or libuuid1)"
+    - libsecret
+    - alsa-lib
+    - mesa-libgbm

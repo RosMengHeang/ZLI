@@ -131,6 +131,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Set the release version for this build
         run: node scripts/release-version.mjs apply "${{ needs.version.outputs.version }}"
+      # electron-builder calls rpmbuild for the .rpm. Ubuntu runners do not ship it.
+      - name: Install rpmbuild for the .rpm package
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm
       - name: Build installers and upload them to the draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -162,7 +166,7 @@ jobs:
           echo "$assets"
           missing=0
           for pattern in '^latest\.yml$' '^latest-mac\.yml$' '^latest-linux\.yml$' '\.exe$' '\.exe\.blockmap$' \
-            '\.dmg$' '-mac-.*\.zip$' '\.AppImage$'; do
+            '\.dmg$' '-mac-.*\.zip$' '\.AppImage$' '\.deb$' '\.rpm$'; do
             if ! grep -Eq -- "$pattern" <<< "$assets"; then
               echo "::error::No release file matches $pattern"
               missing=1

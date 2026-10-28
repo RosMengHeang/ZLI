@@ -80,7 +80,7 @@ export function updateDisabledReason({
     return "Updates are off for test and development launches.";
   }
   if (platform === "linux" && !env.APPIMAGE) {
-    return "Only the AppImage build updates itself. Download new versions from the releases page.";
+    return "Only the AppImage build updates itself. Download the new .deb or .rpm from the releases page.";
   }
   return undefined;
 }

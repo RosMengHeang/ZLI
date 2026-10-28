@@ -8,6 +8,7 @@ import {
   type UpdaterLike,
   UpdateService,
   type UpdateServiceDependencies,
+  updateDisabledReason,
   updateErrorMessage,
 } from "./UpdateService.js";
 import { parseUpdateSettings, type UpdateSettings } from "./UpdateSettingsStore.js";
@@ -133,6 +134,12 @@ describe("UpdateService schedule", () => {
     expect(await service.quitAndInstall()).toBe(false);
     expect(loadUpdater).not.toHaveBeenCalled();
     expect(service.whatsNew()).toBeUndefined();
+  });
+
+  it("tells installed .deb and .rpm builds to download the release", () => {
+    expect(updateDisabledReason({ isPackaged: true, platform: "linux", env: {} })).toBe(
+      "Only the AppImage build updates itself. Download the new .deb or .rpm from the releases page.",
+    );
   });
 
   it("runs one check at a time", async () => {
