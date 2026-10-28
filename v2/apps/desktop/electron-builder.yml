@@ -20,6 +20,7 @@ publish:
   releaseType: draft
 # The icons in build/ are rendered at 1024px from branding/zli-icon.svg (macOS, inset to Apple's grid)
 # and branding/zli-icon-square.svg (Windows and Linux); electron-builder makes the .icns and .ico.
+# build/icons holds icon-square.png scaled down to the Linux icon sizes.
 win:
   icon: build/icon-square.png
   target:
@@ -40,7 +41,9 @@ mac:
   # notarize: true
 linux:
   executableName: zli
-  icon: build/icon-square.png
+  # The hicolor icon theme has no 1024x1024 folder, so a single 1024px PNG lands where desktops never
+  # look and docks show a generic icon. A folder of NxN.png files installs one per size they search.
+  icon: build/icons
   # Freedesktop menu category. Written into the desktop entry as Categories.
   category: Development
   # Electron uses desktopName from package.json as the Wayland app_id and X11 WM_CLASS. Docks link the
