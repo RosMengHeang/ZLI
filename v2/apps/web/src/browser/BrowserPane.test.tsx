@@ -263,88 +263,176 @@ describe("BrowserPane", () => {
     expect(container.querySelector<HTMLInputElement>('input[aria-label="Browser URL"]')?.value).toBe(otherTab.url);
   });
 
-  it("hides Pick element without the desktop design mode bridge", async () => {
+  it("hides Annotate without the desktop design mode bridge", async () => {
     const fake = createBridge(baseTab);
     const { container } = await renderPane(fake.bridge, false);
     expect(container.querySelector('button[aria-label="Device size"]')).not.toBeNull();
-    expect(container.querySelector('button[aria-label="Pick element"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="Annotate"]')).toBeNull();
   });
 
-  it("picks an element, collects the request, and opens the send dialog over a hidden page", async () => {
+  it("keeps Annotate on across picks, gives each element its own instruction, and sends them in one message", async () => {
     const fake = createBridge(baseTab);
-    let finishPick: ((value: unknown) => void) | undefined;
-    const designPick = vi.fn(
-      () =>
-        new Promise<unknown>((resolve) => {
-          finishPick = resolve;
-        }),
-    );
-    const designInspect = vi.fn(async () => ({
-      tag: "button",
-      name: "Save",
-      url: baseTab.url,
-      html: '<button id="save">Save</button>',
-      styles: { color: "rgb(0, 0, 0)" },
-      bounds: { x: 10, y: 20, width: 80, height: 30 },
-      screenshot: { data: "aGVsbG8=", mimeType: "image/png" },
-    }));
-    Object.assign(fake.bridge.browser, { designPick, designInspect, designCancel: vi.fn(async () => undefined) });
+    const design = withAnnotate(fake.bridge);
     const { container } = await renderPane(fake.bridge, false);
-    const pickButton = container.querySelector<HTMLButtonElement>('button[aria-label="Pick element"]');
+    const annotate = container.querySelector<HTMLButtonElement>('button[aria-label="Annotate"]');
     await act(async () => {
-      pickButton?.click();
+      annotate?.click();
     });
-    expect(designPick).toHaveBeenCalledWith(baseTab.browserTabId);
-    expect(pickButton?.getAttribute("aria-pressed")).toBe("true");
-    expect(container.querySelector(".browser-design-hint")?.textContent).toContain("Esc cancels");
+    expect(design.designPick).toHaveBeenCalledWith(baseTab.browserTabId);
+    expect(annotate?.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector(".browser-annotate-hint")?.textContent).toContain(
+      "drag to mark a region. Esc exits.",
+    );
 
-    await act(async () => {
-      finishPick?.({ selector: "#save" });
-    });
-    expect(designInspect).toHaveBeenCalledWith({ browserTabId: baseTab.browserTabId, selector: "#save" });
-    expect(pickButton?.getAttribute("aria-pressed")).toBe("false");
-    const panel = container.querySelector('[aria-label="Picked elements"]');
-    expect(panel?.textContent).toContain("1 element picked");
+    await design.answer({ kind: "element", selector: "#save" });
+    expect(design.designInspect).toHaveBeenCalledWith({ browserTabId: baseTab.browserTabId, selector: "#save" });
+    expect(design.designPick).toHaveBeenCalledTimes(2);
+    expect(annotate?.getAttribute("aria-pressed")).toBe("true");
+    await design.answer({ kind: "element", selector: "h1" });
+    const panel = container.querySelector('[aria-label="Annotations"]');
+    expect(panel?.textContent).toContain("2 annotations");
     expect(panel?.textContent).toContain('<button> "Save"');
     expect(panel?.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,aGVsbG8=");
-
-    const send = [...(panel?.querySelectorAll("button") ?? [])].find(
-      (button) => button.textContent === "Send to agent",
-    );
-    expect(send?.disabled).toBe(true);
-    const note = panel?.querySelector<HTMLTextAreaElement>('textarea[aria-label="What should change?"]');
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(note, "Make it green.");
-      note?.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(design.designMark).toHaveBeenLastCalledWith({
+      browserTabId: baseTab.browserTabId,
+      marks: [
+        { kind: "element", id: expect.any(String), n: 1, selector: "#save" },
+        { kind: "element", id: expect.any(String), n: 2, selector: "h1" },
+      ],
     });
+
+    const send = container.querySelector<HTMLButtonElement>('button[aria-label="Send 2 annotations"]');
+    expect(send?.textContent).toBe("2Send");
+    expect(send?.disabled).toBe(true);
+    await type(panel?.querySelector('textarea[aria-label="Instruction for annotation 1"]'), "Make it green.");
+    await type(panel?.querySelector('textarea[aria-label="Instruction for annotation 2"]'), "Bigger, tighter.");
+    expect(send?.disabled).toBe(false);
     fake.calls.length = 0;
     await act(async () => {
       send?.click();
     });
     expect(fake.calls).toContain("hide");
-    const dialog = document.querySelector('[role="dialog"][aria-label="Send picked elements"]');
+    const dialog = document.querySelector('[role="dialog"][aria-label="Send annotations"]');
     const preview = dialog?.querySelector(".send-preview")?.textContent ?? "";
-    expect(preview).toContain("What should change:\nMake it green.");
-    expect(preview).toContain("Selector: `#save`");
+    expect(preview).toContain("Please apply these 2 design annotations I made in the ZLI browser panel");
+    expect(preview).toContain('### Annotation 1: <button> "Save"\nSelector: `#save`\nInstruction: Make it green.');
+    expect(preview).toContain("### Annotation 2: <h1>");
+    expect(preview).toContain("Instruction: Bigger, tighter.");
   });
 
-  it("cancels a pick with Escape", async () => {
+  it("adds a drawn region with its sketch to the message", async () => {
     const fake = createBridge(baseTab);
-    const designCancel = vi.fn(async () => undefined);
-    Object.assign(fake.bridge.browser, { designPick: vi.fn(() => new Promise(() => undefined)), designCancel });
+    const design = withAnnotate(fake.bridge);
     const { container } = await renderPane(fake.bridge, false);
-    const pickButton = container.querySelector<HTMLButtonElement>('button[aria-label="Pick element"]');
     await act(async () => {
-      pickButton?.click();
+      container.querySelector<HTMLButtonElement>('button[aria-label="Annotate"]')?.click();
     });
+    const region = {
+      kind: "region",
+      id: "region-1",
+      bounds: { x: 40, y: 60, width: 300, height: 120 },
+      viewport: { width: 1280, height: 720 },
+      strokes: [{ tool: "pen", points: [50, 70, 60, 80] }],
+    };
+    await design.answer(region);
+    expect(design.designCapture).toHaveBeenCalledWith({
+      browserTabId: baseTab.browserTabId,
+      bounds: region.bounds,
+      strokes: region.strokes,
+    });
+    const panel = container.querySelector('[aria-label="Annotations"]');
+    expect(panel?.textContent).toContain("Region");
+    expect(panel?.textContent).toContain("1 mark drawn");
+    expect(panel?.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,cmVnaW9u");
+    expect(design.designMark).toHaveBeenLastCalledWith({
+      browserTabId: baseTab.browserTabId,
+      marks: [{ kind: "region", id: "region-1", n: 1, bounds: region.bounds, strokes: region.strokes }],
+    });
+    await type(panel?.querySelector('textarea[aria-label="Instruction for annotation 1"]'), "Add a signup card here");
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('button[aria-label="Send 1 annotation"]')?.click();
+    });
+    const preview = document.querySelector('[aria-label="Send annotations"] .send-preview')?.textContent ?? "";
+    expect(preview).toContain("### Annotation 1: Region");
+    expect(preview).toContain("Bounds: x 40, y 60, 300 × 120 px in page coordinates (viewport 1280 × 720)");
+    expect(preview).toContain("Instruction: Add a signup card here");
+    expect(preview).toContain("Sketch: region-1.png (attached; the red marks are my drawing)");
+  });
+
+  it("exits Annotate with Escape and keeps the annotations until they are sent or cleared", async () => {
+    const fake = createBridge(baseTab);
+    const design = withAnnotate(fake.bridge);
+    const { container } = await renderPane(fake.bridge, false);
+    const annotate = container.querySelector<HTMLButtonElement>('button[aria-label="Annotate"]');
+    await act(async () => {
+      annotate?.click();
+    });
+    await design.answer({ kind: "element", selector: "#save" });
     await act(async () => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
-    expect(designCancel).toHaveBeenCalledWith(baseTab.browserTabId);
-    expect(pickButton?.getAttribute("aria-pressed")).toBe("false");
-    expect(container.querySelector(".browser-design-hint")).toBeNull();
+    expect(design.designCancel).toHaveBeenCalledWith(baseTab.browserTabId);
+    expect(annotate?.getAttribute("aria-pressed")).toBe("false");
+    expect(container.querySelector(".browser-annotate-hint")?.textContent).toContain(
+      "Annotate is off. Your annotations stay here until you send or clear them.",
+    );
+    expect(container.querySelector('[aria-label="Annotations"]')?.textContent).toContain("1 annotation");
+
+    // Escape in the page ends the session the same way.
+    const resume = [...container.querySelectorAll("button")].find((button) => button.textContent === "Resume");
+    await act(async () => {
+      resume?.click();
+    });
+    expect(annotate?.getAttribute("aria-pressed")).toBe("true");
+    design.designCancel.mockClear();
+    await design.answer(null);
+    expect(annotate?.getAttribute("aria-pressed")).toBe("false");
+    expect(design.designCancel).toHaveBeenCalledWith(baseTab.browserTabId);
+
+    const clear = [...container.querySelectorAll("button")].find((button) => button.textContent === "Clear all");
+    await act(async () => {
+      clear?.click();
+    });
+    expect(container.querySelector('[aria-label="Annotations"]')).toBeNull();
+    expect(container.querySelector(".browser-annotate-bar")).toBeNull();
   });
 
+  it("previews text and CSS edits on the page and sends them as changes to make in code", async () => {
+    const fake = createBridge(baseTab);
+    const design = withAnnotate(fake.bridge);
+    const { container } = await renderPane(fake.bridge, false);
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('button[aria-label="Annotate"]')?.click();
+    });
+    await design.answer({ kind: "element", selector: "#save" });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('button[aria-label="Edit text and CSS of annotation 1"]')?.click();
+    });
+    const editor = container.querySelector(".browser-design-editor");
+    const inputs = editor?.querySelectorAll<HTMLInputElement>("input") ?? [];
+    await type(inputs[0], "Save all");
+    expect(design.designPreview).toHaveBeenLastCalledWith({
+      browserTabId: baseTab.browserTabId,
+      selector: "#save",
+      preview: { text: "Save all", styles: {} },
+    });
+    await type(inputs[1], "green");
+    expect(editor?.textContent).toContain("was rgb(0, 0, 255)");
+    const add = [...(editor?.querySelectorAll("button") ?? [])].find((button) => button.textContent === "Add 2 edits");
+    await act(async () => {
+      add?.click();
+    });
+    expect(container.querySelector(".browser-design-editor")).toBeNull();
+    expect(container.querySelector(".browser-design-edits")?.textContent).toBe("1 CSS edit · text");
+    const send = container.querySelector<HTMLButtonElement>('button[aria-label="Send 1 annotation"]');
+    expect(send?.disabled).toBe(false);
+    await act(async () => {
+      send?.click();
+    });
+    const preview = document.querySelector('[aria-label="Send annotations"] .send-preview')?.textContent ?? "";
+    expect(preview).toContain('Text: "Save" → "Save all"');
+    expect(preview).toContain("CSS: background-color: rgb(0, 0, 255) → green");
+  });
   it("shows a page load failure reported by the tab", async () => {
     const fake = createBridge({
       ...baseTab,
@@ -399,3 +487,66 @@ describe("BrowserPane without a worktree", () => {
     expect(container.textContent).toContain("Select a worktree first");
   });
 });
+
+function withAnnotate(bridge: ZliBridge) {
+  const waiting: Array<(value: unknown) => void> = [];
+  const design = {
+    designPick: vi.fn(
+      () =>
+        new Promise<unknown>((resolve) => {
+          waiting.push(resolve);
+        }),
+    ),
+    designInspect: vi.fn(async (input: unknown) => {
+      const selector = (input as { selector: string }).selector;
+      return selector === "#save"
+        ? {
+            tag: "button",
+            name: "Save",
+            url: baseTab.url,
+            html: '<button id="save">Save</button>',
+            styles: { color: "rgb(0, 0, 0)" },
+            bounds: { x: 10, y: 20, width: 80, height: 30 },
+            screenshot: { data: "aGVsbG8=", mimeType: "image/png" },
+            editable: {
+              text: "Save",
+              styles: {
+                "background-color": "rgb(0, 0, 255)",
+                color: "rgb(0, 0, 0)",
+                padding: "8px",
+                "font-size": "14px",
+                "border-radius": "4px",
+              },
+            },
+          }
+        : { tag: "h1", name: "Welcome", url: baseTab.url, styles: {} };
+    }),
+    // Ending the session in the page resolves the pick waiting on it with null.
+    designCancel: vi.fn(async () => {
+      for (const resolve of waiting.splice(0)) resolve(null);
+    }),
+    designMark: vi.fn(async () => true),
+    designCapture: vi.fn(async () => ({ data: "cmVnaW9u", mimeType: "image/png" })),
+    designPreview: vi.fn(async () => true),
+  };
+  Object.assign(bridge.browser, design);
+  return {
+    ...design,
+    /** Resolves the pick the pane is waiting on and lets it read the result and wait for the next one. */
+    async answer(value: unknown) {
+      await act(async () => {
+        waiting.shift()?.(value);
+        for (let turn = 0; turn < 5; turn += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    },
+  };
+}
+
+async function type(field: HTMLInputElement | HTMLTextAreaElement | null | undefined, value: string) {
+  if (!field) throw new Error("The field is missing.");
+  const prototype = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(field, value);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
