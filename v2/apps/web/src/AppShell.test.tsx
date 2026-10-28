@@ -33,6 +33,9 @@ vi.mock("@xterm/xterm", () => ({
     registerLinkProvider() {
       return { dispose: () => undefined };
     }
+    onRender() {
+      return { dispose: () => undefined };
+    }
     dispose(): void {}
   },
 }));

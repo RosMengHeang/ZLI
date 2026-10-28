@@ -9,6 +9,7 @@
   container-type: inline-size; container-name: tile;
   transition: border-color var(--zli-duration-base) var(--zli-ease);
 }
+.agent-tile.is-tall { grid-row: span 2; }
 /* The selected agent is the one place a tile carries the accent: it is where typing goes. */
 .agent-tile.is-active { border-color: var(--zli-accent-edge); }
 .tile-header {
