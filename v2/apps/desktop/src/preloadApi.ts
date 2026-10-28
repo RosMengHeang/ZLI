@@ -1,6 +1,9 @@
 import { ProjectionStore } from "@zli-v2/client-runtime";
 import {
   BrowserBounds,
+  BrowserDesignCaptureInput,
+  BrowserDesignMarkInput,
+  BrowserDesignPreviewInput,
   BrowserFillInput,
   BrowserNavigateInput,
   BrowserPressInput,
@@ -327,11 +330,21 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
         ipc.invoke("zli:browser:inspect", BrowserSelectorInput.parse(input)),
       designInspect: (input: { browserTabId: string; selector: string }) =>
         ipc.invoke("zli:browser:design-inspect", BrowserSelectorInput.parse(input)),
-      /** Waits for the person to click an element in the page; null when the pick is cancelled. */
+      /**
+       * Waits for the next element clicked or region drawn in the page's annotate session, starting
+       * the session if needed; null when the session ends.
+       */
       designPick: (browserTabId: string) =>
         ipc.invoke("zli:browser:design-pick", BrowserTabIdInput.parse({ browserTabId })),
+      /** Ends the annotate session and removes its overlay from the page. */
       designCancel: (browserTabId: string) =>
         ipc.invoke("zli:browser:design-cancel", BrowserTabIdInput.parse({ browserTabId })),
+      designMark: (input: { browserTabId: string; marks: unknown }) =>
+        ipc.invoke("zli:browser:design-mark", BrowserDesignMarkInput.parse(input)),
+      designCapture: (input: { browserTabId: string; bounds: unknown; strokes: unknown }) =>
+        ipc.invoke("zli:browser:design-capture", BrowserDesignCaptureInput.parse(input)),
+      designPreview: (input: { browserTabId: string; selector: string; preview: unknown }) =>
+        ipc.invoke("zli:browser:design-preview", BrowserDesignPreviewInput.parse(input)),
       consoleEntries: (browserTabId: string) =>
         ipc.invoke("zli:browser:console", BrowserTabIdInput.parse({ browserTabId })),
       networkEntries: (browserTabId: string) =>

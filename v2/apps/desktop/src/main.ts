@@ -4,6 +4,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { RuntimeClient, type RuntimeTransport } from "@zli-v2/client-runtime";
 import {
+  BrowserDesignCaptureInput,
+  BrowserDesignMarkInput,
+  BrowserDesignPreviewInput,
   BrowserFillInput,
   BrowserNavigateInput,
   BrowserPressInput,
@@ -572,6 +575,18 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
   ipcMain.handle("zli:browser:design-cancel", (_event, input: unknown) =>
     browserManager?.designCancel(BrowserTabIdInput.parse(input).browserTabId),
   );
+  ipcMain.handle("zli:browser:design-mark", (_event, input: unknown) => {
+    const parsed = BrowserDesignMarkInput.parse(input);
+    return browserManager?.designMark(parsed.browserTabId, parsed.marks);
+  });
+  ipcMain.handle("zli:browser:design-capture", (_event, input: unknown) => {
+    const parsed = BrowserDesignCaptureInput.parse(input);
+    return browserManager?.designCapture(parsed.browserTabId, { bounds: parsed.bounds, strokes: parsed.strokes });
+  });
+  ipcMain.handle("zli:browser:design-preview", (_event, input: unknown) => {
+    const parsed = BrowserDesignPreviewInput.parse(input);
+    return browserManager?.designPreview(parsed.browserTabId, { selector: parsed.selector, preview: parsed.preview });
+  });
   ipcMain.handle("zli:browser:console", (_event, input: unknown) =>
     browserManager?.consoleEntries(BrowserTabIdInput.parse(input).browserTabId),
   );

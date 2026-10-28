@@ -106,6 +106,61 @@ export function browserViewportForPreset(presetId: string): BrowserViewport | un
 export const BrowserSetViewportInput = BrowserTabIdInput.extend({ viewport: BrowserViewport.nullable() });
 export type BrowserSetViewportInput = z.infer<typeof BrowserSetViewportInput>;
 
+/** A rectangle in page coordinates, which stay put when the page scrolls. */
+export const BrowserDesignRect = z.object({
+  x: z.number().min(-100_000).max(1_000_000),
+  y: z.number().min(-100_000).max(1_000_000),
+  width: z.number().positive().max(100_000),
+  height: z.number().positive().max(100_000),
+});
+export type BrowserDesignRect = z.infer<typeof BrowserDesignRect>;
+
+/** A mark drawn on an annotated region. Pen strokes list x,y pairs; shapes list two corners. */
+export const BrowserDesignStroke = z.object({
+  tool: z.enum(["pen", "rect", "ellipse"]),
+  points: z.array(z.number().min(-100_000).max(1_000_000)).max(2_000),
+});
+export type BrowserDesignStroke = z.infer<typeof BrowserDesignStroke>;
+const BrowserDesignStrokes = z.array(BrowserDesignStroke).max(200);
+
+/** A numbered marker the page draws for an annotation the Browser panel holds. */
+export const BrowserDesignMark = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("element"),
+    id: z.string().min(1).max(100),
+    n: z.number().int().min(1).max(99),
+    selector: z.string().min(1).max(2_000),
+  }),
+  z.object({
+    kind: z.literal("region"),
+    id: z.string().min(1).max(100),
+    n: z.number().int().min(1).max(99),
+    bounds: BrowserDesignRect,
+    strokes: BrowserDesignStrokes,
+  }),
+]);
+export type BrowserDesignMark = z.infer<typeof BrowserDesignMark>;
+
+export const BrowserDesignMarkInput = BrowserTabIdInput.extend({ marks: z.array(BrowserDesignMark).max(20) });
+export type BrowserDesignMarkInput = z.infer<typeof BrowserDesignMarkInput>;
+
+export const BrowserDesignCaptureInput = BrowserTabIdInput.extend({
+  bounds: BrowserDesignRect,
+  strokes: BrowserDesignStrokes,
+});
+export type BrowserDesignCaptureInput = z.infer<typeof BrowserDesignCaptureInput>;
+
+/** A live text or style change shown on the page only; `null` puts the element back. */
+export const BrowserDesignPreviewInput = BrowserSelectorInput.extend({
+  preview: z
+    .object({
+      text: z.string().max(10_000).optional(),
+      styles: z.record(z.string().max(40), z.string().max(200)).optional(),
+    })
+    .nullable(),
+});
+export type BrowserDesignPreviewInput = z.infer<typeof BrowserDesignPreviewInput>;
+
 /** Sent to the renderer when an agent opens a tab so the Browser panel can show it. */
 export const BrowserRevealEvent = z.object({ browserTabId: BrowserTabId, worktreeId: WorktreeId });
 export type BrowserRevealEvent = z.infer<typeof BrowserRevealEvent>;

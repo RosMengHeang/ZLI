@@ -28,6 +28,7 @@ import type {
 } from "./BrowserAutomation.js";
 import { BrowserSessionManager, type BrowserSessionModule } from "./BrowserSession.js";
 import type { DesignMode, DesignInspection } from "./DesignMode.js";
+import type { DesignMark, DesignPickResult, DesignPreview, DesignRect, DesignStroke } from "./DesignPicker.js";
 import { isAllowedBrowserNavigation } from "../security/NavigationPolicy.js";
 
 export type BrowserWebContentsLike = {
@@ -313,11 +314,20 @@ export class BrowserManager {
   async designInspect(browserTabId: string, input: { selector: string }): Promise<DesignInspection> {
     return this.#designMode(browserTabId).inspect(input);
   }
-  async designPick(browserTabId: string): Promise<{ selector: string } | null> {
+  async designPick(browserTabId: string): Promise<DesignPickResult | null> {
     return this.#designMode(browserTabId).pick();
   }
   async designCancel(browserTabId: string): Promise<void> {
     return this.#designMode(browserTabId).cancelPick();
+  }
+  async designMark(browserTabId: string, marks: readonly DesignMark[]): Promise<void> {
+    return this.#designMode(browserTabId).mark(marks);
+  }
+  async designCapture(browserTabId: string, region: { bounds: DesignRect; strokes: DesignStroke[] }) {
+    return this.#designMode(browserTabId).captureRegion(region);
+  }
+  async designPreview(browserTabId: string, input: { selector: string; preview: DesignPreview }): Promise<boolean> {
+    return this.#designMode(browserTabId).preview(input);
   }
   #designMode(browserTabId: string): DesignMode {
     const tab = this.#require(browserTabId);
