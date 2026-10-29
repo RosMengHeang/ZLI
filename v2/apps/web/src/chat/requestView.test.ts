@@ -80,6 +80,23 @@ describe("describeApproval", () => {
     expect(view.choices.map((choice) => choice.label)).toEqual(["Approve", "Allow Edit for this chat", "Reject"]);
   });
 
+  it("shows the command Droid wants to run and the plan it wants to leave spec mode with", () => {
+    const command = describeApproval("droid", {
+      toolName: "Execute",
+      input: { command: "echo hi", riskLevel: "medium", summary: "Print hi" },
+      toolUseId: "t1",
+    });
+    expect(command.title).toBe("Run a command");
+    expect(command.fields).toEqual([{ label: "Command", value: "echo hi", mono: true }]);
+    expect(command.choices.map((choice) => choice.label)).toEqual(["Approve", "Allow Execute for this chat", "Reject"]);
+
+    const plan = describeApproval("droid", {
+      toolName: "ExitSpecMode",
+      input: { title: "Create note.txt", plan: "Create note.txt containing x." },
+    });
+    expect(plan.fields).toEqual([{ label: "Plan", value: "Create note.txt containing x.", mono: false }]);
+  });
+
   it("falls back to approve and reject for anything else, and shortens long values", () => {
     const view = describeApproval("mock", { command: "x".repeat(700) });
     expect(view.fields[0]?.value).toHaveLength(601);

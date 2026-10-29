@@ -2,6 +2,7 @@ import type { ProviderCapabilities, ThreadId } from "@zli-v2/contracts";
 import type { DroidClient, DroidProviderEvent } from "@zli-v2/provider-droid";
 import { DroidProviderError } from "@zli-v2/provider-droid";
 
+import { approvalAllowed, approvalForSession } from "./ClaudeCodeProviderAdapter.js";
 import type {
   ProviderAdapter,
   ProviderEvent,
@@ -11,7 +12,8 @@ import type {
 } from "./ProviderService.js";
 import { toolActivity } from "./toolActivity.js";
 
-type DroidSessionClient = Pick<DroidClient, "sendTurn" | "interruptTurn" | "transcript" | "subscribe" | "close">;
+type DroidSessionClient = Pick<DroidClient, "sendTurn" | "interruptTurn" | "transcript" | "subscribe" | "close"> &
+  Partial<Pick<DroidClient, "respondToApproval" | "respondToUserInput">>;
 type ClientStart = Pick<
   ProviderSessionStart,
   "cwd" | "permissionMode" | "model" | "worktreeId" | "account" | "resumeSessionId" | "trustedProjectPath"
@@ -21,8 +23,8 @@ export class DroidProviderAdapter implements ProviderAdapter {
   readonly provider = "droid" as const;
   readonly capabilities: ProviderCapabilities = {
     exactResume: false,
-    structuredApproval: false,
-    structuredUserInput: false,
+    structuredApproval: true,
+    structuredUserInput: true,
     conversationRollback: false,
     modelSwitch: "in-session",
     permissionSwitch: "in-session",
@@ -75,8 +77,13 @@ export class DroidProviderAdapter implements ProviderAdapter {
   }
 
   async respondToRequest(input: { threadId: ThreadId; requestId: string; decision: unknown }): Promise<void> {
-    this.context(input.threadId);
-    throw new DroidProviderError("unsupported", "Droid CLI adapter does not handle structured approvals.");
+    const context = this.context(input.threadId);
+    if (!context.client.respondToApproval) {
+      throw new DroidProviderError("unsupported", "Droid CLI adapter does not handle structured approvals.");
+    }
+    await context.client.respondToApproval(input.requestId, approvalAllowed(input.decision), {
+      forSession: approvalForSession(input.decision),
+    });
   }
 
   async respondToUserInput(input: {
@@ -84,8 +91,11 @@ export class DroidProviderAdapter implements ProviderAdapter {
     requestId: string;
     answers: Record<string, string>;
   }): Promise<void> {
-    this.context(input.threadId);
-    throw new DroidProviderError("unsupported", "Droid CLI adapter does not handle structured user input.");
+    const context = this.context(input.threadId);
+    if (!context.client.respondToUserInput) {
+      throw new DroidProviderError("unsupported", "Droid CLI adapter does not handle structured user input.");
+    }
+    await context.client.respondToUserInput(input.requestId, input.answers);
   }
 
   async stopSession(input: { threadId: ThreadId }): Promise<void> {
@@ -166,6 +176,12 @@ export class DroidProviderAdapter implements ProviderAdapter {
           turnId: event.providerTurnId,
           activity: toolActivity(event.tool, cwd),
         });
+        return;
+      case "approval.requested":
+        this.emit({ type: "approval.requested", threadId, requestId: event.requestId, payload: event.payload });
+        return;
+      case "user-input.requested":
+        this.emit({ type: "user-input.requested", threadId, requestId: event.requestId, payload: event.payload });
         return;
       case "session.identified": {
         const context = this.sessions.get(threadId);

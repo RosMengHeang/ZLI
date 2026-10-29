@@ -47,8 +47,8 @@ describe("createProviderRegistry", () => {
     });
     expect(registry.get("droid")?.capabilities).toEqual({
       exactResume: false,
-      structuredApproval: false,
-      structuredUserInput: false,
+      structuredApproval: true,
+      structuredUserInput: true,
       conversationRollback: false,
       modelSwitch: "in-session",
       permissionSwitch: "in-session",

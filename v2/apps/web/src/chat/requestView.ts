@@ -130,6 +130,7 @@ const INPUT_FIELDS: readonly { key: string; label: string; mono: boolean }[] = [
   { key: "pattern", label: "Pattern", mono: true },
   { key: "query", label: "Query", mono: false },
   { key: "description", label: "Description", mono: false },
+  { key: "plan", label: "Plan", mono: false },
 ];
 
 function inputFields(input: Record<string, unknown>): RequestField[] {
