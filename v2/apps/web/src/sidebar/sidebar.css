@@ -9,17 +9,19 @@
 .brand-mark { display: block; flex: 0 0 auto; }
 .wordmark { color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 650; letter-spacing: .06em; }
 
-.sidebar-primary { display: flex; flex: 0 0 auto; flex-direction: column; gap: 1px; padding: var(--zli-space-1) var(--zli-space-2) var(--zli-space-4); }
-.sidebar-primary .btn { width: 100%; height: 32px; justify-content: flex-start; gap: var(--zli-space-2-5); padding: 0 var(--zli-space-1-5) 0 var(--zli-space-2-5); color: var(--zli-text); font-weight: 450; }
-.sidebar-primary .btn > svg { color: var(--zli-muted); }
-.sidebar-primary .btn:hover:not(:disabled) > svg { color: var(--zli-text); }
-.sidebar-new-agent > span:not(.kbd-group) { flex: 1; text-align: left; }
+.sidebar-primary { display: flex; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-0-5); padding: var(--zli-space-1) var(--zli-space-2) var(--zli-space-5); }
+.sidebar-primary .btn { width: 100%; height: var(--zli-control-lg); justify-content: flex-start; gap: var(--zli-space-2-5); padding: 0 var(--zli-space-1-5) 0 var(--zli-space-2-5); }
+.sidebar-primary .btn > span:not(.kbd-group) { flex: 1; text-align: left; }
+.sidebar-add-project { color: var(--zli-text); font-weight: 450; }
+.sidebar-add-project > svg { color: var(--zli-muted); }
+.sidebar-add-project:hover > svg { color: var(--zli-text); }
+/* New agent is the window's main action, so it is the one raised control here; Add project above it stays a flat row. */
 /* The shortcut is a reminder, so it shows when the row is pointed at or focused rather than on every frame. */
 .sidebar-new-agent .kbd-group { opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
 .sidebar-new-agent:hover .kbd-group, .sidebar-new-agent:focus-visible .kbd-group { opacity: 1; }
 
 .sidebar-scroll { min-height: 0; flex: 1; overflow: auto; padding: 0 var(--zli-space-2) var(--zli-space-3); }
-.sidebar-empty { display: flex; flex-direction: column; align-items: flex-start; gap: var(--zli-space-3); padding: var(--zli-space-2) var(--zli-space-2-5); color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.sidebar-empty { display: flex; flex-direction: column; align-items: flex-start; gap: var(--zli-space-3); padding: var(--zli-space-1) var(--zli-space-2-5); color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 .sidebar-empty p { margin: 0; }
 .sidebar-heading { margin: 0 0 var(--zli-space-1); padding: 0 var(--zli-space-2-5); color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; line-height: 24px; }
 .sidebar-project + .sidebar-project { margin-top: var(--zli-space-4); }
@@ -144,12 +146,13 @@
 .connection-dot { width: 6px; height: 6px; flex-basis: 6px; }
 .sidebar-bottom { display: flex; flex: 0 0 auto; flex-direction: column; }
 .sidebar-usage-strip {
-  display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0 var(--zli-space-2); padding: var(--zli-space-2) var(--zli-space-2-5);
-  border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: pointer;
+  display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0 var(--zli-space-2); padding: var(--zli-space-2-5);
+  border: 0; border-radius: var(--zli-radius-md); background: var(--zli-surface); color: var(--zli-muted); cursor: pointer;
   font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; text-align: left;
-  transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease);
+  transition: background-color var(--zli-duration-fast) var(--zli-ease);
 }
-.sidebar-usage-strip:hover { border-color: var(--zli-border-strong); background: var(--zli-hover); }
+/* Told apart from the canvas by tone like the islands beside it, so the sidebar chrome keeps no box lines. */
+.sidebar-usage-strip:hover { background: var(--zli-raised); }
 .usage-strip-head { color: var(--zli-dim); font-size: var(--zli-text-2xs); }
 .usage-strip-row { display: flex; flex-direction: column; gap: 3px; }
 .usage-strip-name { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); overflow: hidden; white-space: nowrap; }
@@ -162,7 +165,7 @@
 .usage-strip-window { display: contents; }
 .usage-strip-ring { display: block; }
 .usage-strip-ring-track, .usage-strip-ring-fill { fill: none; stroke-width: 2.5; }
-.usage-strip-ring-track { stroke: var(--zli-border); }
+.usage-strip-ring-track { stroke: var(--zli-border-strong); }
 .usage-strip-ring-fill { stroke: var(--zli-muted); stroke-linecap: round; transition: stroke-dasharray var(--zli-duration-fast) var(--zli-ease); }
 .usage-strip-window-label { min-width: 38px; max-width: 64px; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
 .usage-strip-window-percent { color: var(--zli-text); text-align: right; }
