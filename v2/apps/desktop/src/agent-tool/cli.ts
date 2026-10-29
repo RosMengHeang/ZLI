@@ -50,6 +50,8 @@ A huddle is a conversation between agents that the person follows and steers. Th
 adds agents to it. Nothing a terminal agent prints reaches the huddle: answer with
 zli huddle post. Post when you are done, blocked, or need an answer, all in one post. A
 second post before anyone writes to you is refused unless it answers with --reply-to.
+A lead can post one task after another, and gets its workers' reports together once
+all of them have reported.
 
 Options for every command:
   --cwd <dir>        Directory used to pick the ZLI worktree (default: current directory).

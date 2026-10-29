@@ -1,13 +1,15 @@
 import {
-  HUDDLE_PAUSED_REASON,
+  HUDDLE_REPORTS_REASON,
   type HuddleCommand,
   type HuddleMemberKind,
   type HuddleProjection,
   type HuddleSender,
   huddleAgentInfo,
-  huddleKindWantsAnswer,
+  huddlePausedReason,
+  huddlePostIsFree,
   huddlePostsOf,
   huddleRecipients,
+  huddleReportsBack,
   huddleWakes,
   MAX_HUDDLE_MEMBERS,
   type RuntimeProjection,
@@ -153,14 +155,20 @@ function decidePost(
   const posts = huddlePostsOf(projection, huddle.huddleId);
   const sender = huddle.members.find((member) => member.agentId === command.from);
   const replied = command.replyTo ? posts.find((post) => post.postId === command.replyTo) : undefined;
-  if (sender?.posted && !command.auto && !(replied && huddleKindWantsAnswer(replied.kind)))
+  const draft = {
+    from,
+    to: command.to,
+    kind: command.kind,
+    ...(command.replyTo ? { replyTo: command.replyTo } : {}),
+    ...(command.auto ? { auto: true as const } : {}),
+  };
+  if (sender?.posted && !huddlePostIsFree(huddle, draft, replied))
     throw new DomainError(
       "huddle_posted",
       "You already posted since your last huddle message, so this was not posted. Wait until someone writes to you, and next time put everything into one post; it can name several members. Answers to an ask, a task, or a blocker are always allowed: pass the number you answer as replyTo (--reply-to in the CLI).",
     );
   // Agent messages past the limit wait, unseen by other agents, until the person writes or resumes.
   const held = from.kind === "agent" && huddle.paused === true;
-  const draft = { from, to: command.to, kind: command.kind, ...(command.replyTo ? { replyTo: command.replyTo } : {}) };
   return {
     type: "huddle.posted",
     post: {
@@ -174,13 +182,15 @@ function decidePost(
       ...(command.replyTo !== undefined ? { replyTo: command.replyTo } : {}),
       ...(command.auto ? { auto: true as const } : {}),
       ...(command.cut ? { cut: true as const } : {}),
-      deliveries: recipients.map((agentId) =>
-        !huddleWakes(huddle, posts, draft, agentId)
-          ? { agentId, status: "inbox" as const }
-          : held
-            ? { agentId, status: "held" as const, reason: HUDDLE_PAUSED_REASON }
-            : { agentId, status: "pending" as const },
-      ),
+      deliveries: recipients.map((agentId) => {
+        if (huddleWakes(huddle, posts, draft, agentId))
+          return held
+            ? { agentId, status: "held" as const, reason: huddlePausedReason(huddle) }
+            : { agentId, status: "pending" as const };
+        return agentId === huddle.lead && huddleReportsBack(huddle, posts, draft)
+          ? { agentId, status: "inbox" as const, reason: HUDDLE_REPORTS_REASON }
+          : { agentId, status: "inbox" as const };
+      }),
     },
   };
 }

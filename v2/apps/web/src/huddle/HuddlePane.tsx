@@ -37,7 +37,7 @@ import {
   liveHuddles,
   type MemberView,
   memberViews,
-  PAUSED_MESSAGE,
+  pausedMessage,
   recipientsText,
   shortText,
   unreadCount,
@@ -565,13 +565,14 @@ function HuddleView({
       ) : null}
       {leadName ? (
         <p className="huddle-note huddle-lead-note">
-          {leadName} leads. The other agents report to {leadName} unless they name someone.
+          {leadName} leads. The other agents report to {leadName} unless they name someone, and {leadName} gets their
+          reports together once everyone with a task has reported.
         </p>
       ) : null}
       {huddle.paused ? (
         <div className="banner banner-warning huddle-paused" role="status">
           <Icon name="pause" size={14} />
-          <span className="banner-message">{PAUSED_MESSAGE}</span>
+          <span className="banner-message">{pausedMessage(huddle)}</span>
           <Button size="xs" variant="secondary" onClick={() => void resume()}>
             Resume
           </Button>
