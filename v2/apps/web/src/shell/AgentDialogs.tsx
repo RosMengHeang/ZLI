@@ -1,9 +1,10 @@
-import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
-import { useRef, useState } from "react";
+import { MAX_AGENT_NAME_LENGTH, type RuntimeProjection, type WorktreeProjection } from "@zli-v2/contracts";
+import { useId, useRef, useState } from "react";
 
 import type { AgentSession } from "../sessions/sessions.js";
 import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
+import { Icon } from "../ui/Icon.js";
 
 /** A worktree that only this session uses, which deleting the agent may also delete. */
 export function deletableWorktree(
@@ -167,6 +168,96 @@ export function KeepRunDialog({
           Keep this one
         </Button>
       </div>
+    </Dialog>
+  );
+}
+
+export function RenameAgentDialog({
+  current,
+  agent,
+  problem,
+  onRename,
+  onCancel,
+}: {
+  current: string | undefined;
+  /** How the agent shows without a name, for the dialog's subtitle. */
+  agent: string;
+  problem(name: string): string | undefined;
+  /** Resolves with an error message, or undefined once the name is saved. */
+  onRename(name: string | null): Promise<string | undefined>;
+  onCancel(): void;
+}) {
+  const [value, setValue] = useState(current ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const ids = useId();
+  const trimmed = value.trim();
+  const invalid = problem(value);
+  const changed = trimmed !== (current ?? "");
+  const shownError = invalid ?? error;
+  const submit = async () => {
+    if (!changed || invalid || busy) return;
+    setBusy(true);
+    setError(undefined);
+    const failure = await onRename(trimmed || null);
+    setBusy(false);
+    if (failure) setError(failure);
+  };
+  return (
+    <Dialog
+      label={current ? "Rename agent" : "Name agent"}
+      size="sm"
+      title={current ? `Rename ${current}` : "Name this agent"}
+      subtitle={agent}
+      scrimLabel="Cancel"
+      onClose={onCancel}
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <div className="dialog-body">
+          <label className="form-section-label" htmlFor={`${ids}-name`}>
+            Name
+          </label>
+          <input
+            id={`${ids}-name`}
+            className="input"
+            value={value}
+            maxLength={MAX_AGENT_NAME_LENGTH}
+            placeholder="Bob"
+            spellCheck={false}
+            autoComplete="off"
+            aria-invalid={invalid ? true : undefined}
+            aria-describedby={`${ids}-hint`}
+            autoFocus
+            onFocus={(event) => event.currentTarget.select()}
+            onChange={(event) => {
+              setValue(event.target.value);
+              setError(undefined);
+            }}
+          />
+          <p id={`${ids}-hint`} className="field-hint">
+            You and other agents can use the name in place of the agent's id. Leave it empty to remove the name.
+          </p>
+          {shownError ? (
+            <p className="inline-error" role="alert">
+              <Icon name="alert" size={13} />
+              {shownError}
+            </p>
+          ) : null}
+        </div>
+        <div className="dialog-footer">
+          <Button disabled={busy} onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" icon="pencil" loading={busy} disabled={!changed || !!invalid}>
+            {trimmed ? "Save name" : "Remove name"}
+          </Button>
+        </div>
+      </form>
     </Dialog>
   );
 }

@@ -1,8 +1,10 @@
 import {
   appendCheckpoint,
   appendThreadMessage,
+  applyHuddleEvent,
   deliverAgentMessage,
   deriveSharedProjectContexts,
+  isHuddleEvent,
   pruneDevServers,
   RuntimeEventEnvelope,
   type RuntimeEventEnvelope as RuntimeEventEnvelopeValue,
@@ -13,6 +15,7 @@ import {
   upsertDevServer,
   upsertThreadActivity,
   upsertUsageRecord,
+  withAgentName,
 } from "@zli-v2/contracts";
 
 function touchThread(
@@ -51,6 +54,15 @@ export class ProjectionStore {
     if (envelope.sequence !== current.lastSequence + 1) return "gap";
 
     const event = envelope.event;
+    if (isHuddleEvent(event)) {
+      this.#projection = {
+        ...current,
+        ...applyHuddleEvent(current, event, envelope.occurredAt),
+        lastSequence: envelope.sequence,
+      };
+      this.#publish({ kind: "event", envelope });
+      return "applied";
+    }
     switch (event.type) {
       case "runtime.ready":
         this.#projection = { ...current, lastSequence: envelope.sequence };
@@ -272,6 +284,26 @@ export class ProjectionStore {
       case "thread.interrupt.requested":
       case "thread.stop.requested":
         this.#projection = { ...current, lastSequence: envelope.sequence };
+        break;
+      case "thread.renamed":
+        this.#projection = {
+          ...current,
+          threads: current.threads.map((thread) =>
+            thread.threadId === event.threadId ? withAgentName(thread, event.name, envelope.occurredAt) : thread,
+          ),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "terminal.renamed":
+        this.#projection = {
+          ...current,
+          terminals: current.terminals.map((terminal) =>
+            terminal.terminalId === event.terminalId
+              ? withAgentName(terminal, event.name, envelope.occurredAt)
+              : terminal,
+          ),
+          lastSequence: envelope.sequence,
+        };
         break;
       case "thread.send.requested": {
         const { permissionMode } = event;

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { BrowserTabProjection } from "./browser.js";
 import { ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
+import { dropHuddleMembers, HuddlePost, HuddleProjection } from "./huddles.js";
 import { EnvironmentId, ProjectId, ThreadId, WorktreeId } from "./ids.js";
 import { LegacyImportProjection } from "./import.js";
 import { SetupTrustProjection, WorktreeSetupProjection } from "./projectConfig.js";
@@ -131,6 +132,8 @@ export const RuntimeProjection = z.object({
   lastSequence: z.number().int().nonnegative(),
   worktreeSetups: z.array(WorktreeSetupProjection).optional(),
   setupTrust: z.array(SetupTrustProjection).optional(),
+  huddles: z.array(HuddleProjection).optional(),
+  huddlePosts: z.array(HuddlePost).optional(),
 });
 export type RuntimeProjection = z.infer<typeof RuntimeProjection>;
 
@@ -171,7 +174,7 @@ export function removeSession(
     requests.filter((request) => threads.has(request.threadId)).map((request) => `thread-request:${request.requestId}`),
   );
   return {
-    ...projection,
+    ...dropHuddleMembers(projection, [...terminalIds, ...threadIds]),
     terminals: projection.terminals.filter((terminal) => !terminals.has(terminal.terminalId)),
     threads: projection.threads.filter((thread) => !threads.has(thread.threadId)),
     ...(projection.messages

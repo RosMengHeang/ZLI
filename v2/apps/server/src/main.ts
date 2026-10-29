@@ -4,7 +4,13 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { EnvironmentId, type McpServerConfig, PLAN_LIMIT_PROVIDERS, USUAL_LOGIN_ACCOUNT_ID } from "@zli-v2/contracts";
+import {
+  EnvironmentId,
+  type McpServerConfig,
+  PLAN_LIMIT_PROVIDERS,
+  TerminalId,
+  USUAL_LOGIN_ACCOUNT_ID,
+} from "@zli-v2/contracts";
 import { CodexAppServerClient } from "@zli-v2/provider-codex";
 import { AccountStore } from "./accounts/AccountStore.js";
 import {
@@ -27,6 +33,8 @@ import { DevServerReactor } from "./devservers/DevServerReactor.js";
 import { DiagnosticsReactor } from "./diagnostics/DiagnosticsReactor.js";
 import { StructuredLogger } from "./diagnostics/StructuredLogger.js";
 import { GitProcess } from "./git/GitProcess.js";
+import { HuddleReactor } from "./huddles/HuddleReactor.js";
+import { TerminalInputTracker } from "./huddles/TerminalInputTracker.js";
 import { LegacyImportReactor } from "./import/LegacyImportReactor.js";
 import { GitHubIssues } from "./issues/GitHubIssues.js";
 import { LinearIssues } from "./issues/LinearIssues.js";
@@ -35,9 +43,9 @@ import { planLimitReader } from "./limits/readers.js";
 import { McpServerStore } from "./mcp/McpServerStore.js";
 import { GITHUB_OAUTH_CLIENT_ID } from "./mcp/signIn/github.js";
 import { McpSignIns } from "./mcp/signIn/McpSignIns.js";
-import { PluginStore } from "./plugins/PluginStore.js";
 import { AgentMessageReactor } from "./orchestration/AgentMessageReactor.js";
 import { Engine } from "./orchestration/Engine.js";
+import { PluginStore } from "./plugins/PluginStore.js";
 import { ProviderReactor } from "./providers/ProviderReactor.js";
 import { ProviderService } from "./providers/ProviderService.js";
 import { createProviderRegistry } from "./providers/registerProviders.js";
@@ -58,6 +66,7 @@ export type RuntimeProcess = {
   engine: Engine;
   server: RpcServer;
   worktreeReactor: WorktreeReactor;
+  huddleReactor: HuddleReactor;
   terminalService: TerminalService;
   terminalReactor: TerminalReactor;
   daemonSupervisor: DaemonSupervisor;
@@ -150,6 +159,8 @@ export async function startRuntime(options: {
     extraServers: (taken): McpServerConfig[] => plugins.mcpServers(taken),
     signIns,
     importFrom: { home: userHome },
+    // Huddles across projects pause or resume at once when this setting changes.
+    onAgentScopeChange: () => huddleReactor.refresh(),
     ...(browserTool?.connectScript
       ? { connectTool: { command: browserTool.command, script: browserTool.connectScript } }
       : {}),
@@ -234,6 +245,12 @@ export async function startRuntime(options: {
   const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
   const legacyImportReactor = new LegacyImportReactor(engine);
   const devServerReactor = new DevServerReactor(engine, terminalService);
+  const terminalInput = new TerminalInputTracker();
+  const huddleReactor = new HuddleReactor(engine, {
+    input: terminalInput,
+    writeTerminal: (terminalId, data) => terminalService.write(TerminalId.parse(terminalId), data),
+    agentScope: () => mcpServers.agentScope(),
+  });
   const linearIssues = new LinearIssues({ keyPath: join(dirname(databasePath), "linear-key.json") });
   const mockLimits = process.env.ZLI_TEST_PROVIDER === "mock";
   const readLimits = planLimitReader({
@@ -259,6 +276,7 @@ export async function startRuntime(options: {
     environment,
     token,
     terminalService,
+    terminalInput,
     discoverProviders: () => providerService.discoverProviders(),
     attachmentsDir: join(dirname(databasePath), "attachments"),
     checkpoints,
@@ -295,6 +313,7 @@ export async function startRuntime(options: {
     engine,
     server,
     worktreeReactor,
+    huddleReactor,
     terminalService,
     terminalReactor,
     daemonSupervisor,
@@ -328,6 +347,8 @@ export async function startRuntime(options: {
       await agentMessageReactor.waitForIdle();
       await diagnosticsReactor.waitForIdle();
       await legacyImportReactor.waitForIdle();
+      await huddleReactor.waitForIdle();
+      huddleReactor.stop();
       worktreeReactor.stop();
       worktreeSetup.stop();
       terminalReactor.stop();

@@ -72,7 +72,7 @@ export function createDefaultCliProbe(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
 ): CliProbe {
-  if (env.ZLI_TEST_PROVIDER === "mock") return mockCodexProbe(platform);
+  if (env.ZLI_TEST_PROVIDER === "mock") return mockCodexProbe(platform, env.ZLI_TEST_CLI_DIR);
   const api = platform === "win32" ? win32 : posix;
   const homeDir = platform === "win32" ? env.USERPROFILE : env.HOME;
   const localAppData = env.LOCALAPPDATA;
@@ -89,10 +89,13 @@ export function createDefaultCliProbe(
   };
 }
 
-/** The mock provider has no Codex binary. E2E still needs Start Codex enabled. */
-function mockCodexProbe(platform: NodeJS.Platform): CliProbe {
+/**
+ * The mock provider has no Codex binary. E2E still needs Start Codex enabled. A test that runs a terminal
+ * agent puts a stand-in `codex` script in `ZLI_TEST_CLI_DIR`, since the default directory never exists.
+ */
+function mockCodexProbe(platform: NodeJS.Platform, testCliDir: string | undefined): CliProbe {
   const api = platform === "win32" ? win32 : posix;
-  const directory = platform === "win32" ? "C:\\zli\\mock-provider" : "/zli/mock-provider";
+  const directory = testCliDir ?? (platform === "win32" ? "C:\\zli\\mock-provider" : "/zli/mock-provider");
   const codexPath = api.join(directory, platform === "win32" ? "codex.exe" : "codex");
   return {
     pathEntries: [directory],

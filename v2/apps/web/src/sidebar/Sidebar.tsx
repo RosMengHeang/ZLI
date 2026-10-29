@@ -1,9 +1,11 @@
 import type { Account, ProjectProjection, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
-import { threadOccupiesWorktree } from "@zli-v2/contracts";
+import { huddlesOf, MAX_HUDDLE_MEMBERS, threadOccupiesWorktree } from "@zli-v2/contracts";
 import { useEffect, useState } from "react";
 
 import { accountLabel, sessionAccountId } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
+import { fitHuddleName, liveHuddles, sessionAgentId } from "../huddle/huddles.js";
+import { useHuddleCommands } from "../huddle/useHuddleCommands.js";
 import { limitKey } from "../limits/limits.js";
 import { projectStats, removalDetail } from "../projects/removal.js";
 import { trackDescription, trackText } from "../review/branches.js";
@@ -14,6 +16,9 @@ import { runStateLabel } from "../sessions/bestOf.js";
 import {
   type AgentSession,
   relativeTime,
+  sessionAgentName,
+  sessionParents,
+  sessionRenameCommand,
   sessionStatusLabel,
   sessionStopCommands,
   sessionTitle,
@@ -107,6 +112,8 @@ type Props = {
   onSelectSession(session: AgentSession): void;
   onStopSession(session: AgentSession): void;
   onDeleteSession(session: AgentSession): void;
+  /** Opens the dialog that names or renames a started agent. */
+  onRenameSession?: ((session: AgentSession) => void) | undefined;
   onSelectWorktree(worktree: WorktreeProjection): void;
   onNewAgent(project?: ProjectProjection): void;
   onOpenProject(): void;
@@ -127,9 +134,14 @@ type Props = {
   onCompareRuns?(group: RunGroup): void;
   /** Undefined until the saved accounts have loaded. */
   accounts?: readonly Account[] | undefined;
+  /** Opens the Huddle panel on a huddle. Without it agent rows offer no huddle actions. */
+  onOpenHuddle?: ((huddleId: string) => void) | undefined;
+  /** Shows why a huddle action from an agent row was refused. */
+  onHuddleError?: ((message: string) => void) | undefined;
 };
 
 const noGroups: readonly RunGroup[] = [];
+const noAncestors: ReadonlySet<string> = new Set();
 const noStates: ReadonlyMap<string, RunState> = new Map();
 
 export function Sidebar({
@@ -141,6 +153,7 @@ export function Sidebar({
   onSelectSession,
   onStopSession,
   onDeleteSession,
+  onRenameSession,
   onSelectWorktree,
   onNewAgent,
   onOpenProject,
@@ -158,6 +171,8 @@ export function Sidebar({
   runStates = noStates,
   onCompareRuns = () => undefined,
   accounts,
+  onOpenHuddle,
+  onHuddleError = () => undefined,
 }: Props) {
   const newAgentShortcut = useShortcut("newAgent");
   const sidebarShortcut = useShortcut("toggleSidebar");
@@ -171,6 +186,8 @@ export function Sidebar({
     message: string;
   }>();
   const [renamingProjectId, setRenamingProjectId] = useState<string>();
+  const [huddleMenu, setHuddleMenu] = useState<MenuRequest>();
+  const huddleCommands = useHuddleCommands();
   const layout = useSidebarCollapsed();
   const [now, setNow] = useState(() => Date.now());
   const prEntries = usePullRequestEntries();
@@ -186,6 +203,15 @@ export function Sidebar({
   const groupsBySource = new Map<string, RunGroup[]>();
   for (const group of runGroups) {
     groupsBySource.set(group.sourceSessionId, [...(groupsBySource.get(group.sourceSessionId) ?? []), group]);
+  }
+  const parents = sessionParents(sessions);
+  const subAgentsOf = new Map<string, AgentSession[]>();
+  for (const session of [...sessions].sort((left, right) =>
+    (left.createdAt ?? "").localeCompare(right.createdAt ?? ""),
+  )) {
+    const parent = parents.get(session.sessionId);
+    if (!parent || runIds.has(session.sessionId)) continue;
+    subAgentsOf.set(parent.sessionId, [...(subAgentsOf.get(parent.sessionId) ?? []), session]);
   }
 
   // Relative times only need minute precision.
@@ -517,13 +543,86 @@ export function Sidebar({
     );
   };
 
+  const runHuddleCommand = async (command: Record<string, unknown>) => {
+    const error = await huddleCommands.run(command);
+    if (error) onHuddleError(error);
+  };
+  const createHuddle = async (name: string, members: string[]) => {
+    const result = await huddleCommands.create(fitHuddleName(name), members);
+    if ("error" in result) onHuddleError(result.error);
+    else onOpenHuddle?.(result.huddleId);
+  };
+  /** A second menu, at the row's "..." button, listing the huddles the agent can join or leave. */
+  const openHuddleMenu = (agentId: string, label: string) => {
+    if (!projection) return;
+    const anchor = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    const rect = anchor?.getBoundingClientRect();
+    const memberOf = new Set(huddlesOf(projection, agentId).map((huddle) => huddle.huddleId));
+    const live = liveHuddles(projection);
+    setHuddleMenu({
+      x: rect?.right ?? 0,
+      y: (rect?.bottom ?? 0) + 4,
+      align: "end",
+      anchor,
+      label: "Add to huddle",
+      items: [
+        ...live.map(
+          (huddle): MenuItem => ({
+            label: huddle.name,
+            checked: memberOf.has(huddle.huddleId),
+            title: memberOf.has(huddle.huddleId) ? `Remove ${label} from ${huddle.name}` : undefined,
+            run: () =>
+              void runHuddleCommand({
+                type: memberOf.has(huddle.huddleId) ? "huddle.leave" : "huddle.join",
+                huddleId: huddle.huddleId,
+                agentId,
+              }),
+          }),
+        ),
+        ...(live.length > 0 ? [{ separator: true } as const] : []),
+        {
+          label: "New huddle with this agent",
+          icon: "plus",
+          run: () => void createHuddle(`Huddle with ${label}`, [agentId]),
+        },
+      ],
+    });
+  };
+  const startSubAgentHuddle = (agentId: string, label: string, subAgents: readonly AgentSession[]) => {
+    const members = [agentId, ...subAgents.map(sessionAgentId).filter((id): id is string => id !== undefined)];
+    if (members.length > MAX_HUDDLE_MEMBERS) {
+      onHuddleError(
+        `A huddle holds up to ${MAX_HUDDLE_MEMBERS} agents, and ${label} has ${members.length - 1} sub-agents. Start an empty huddle and add the ones you need.`,
+      );
+      return;
+    }
+    void createHuddle(`${label} and sub-agents`, members);
+  };
+
   /** What the "..." menu on an agent row offers. */
   const sessionMenuItems = (
     session: AgentSession,
     stoppable: boolean,
     worktree: WorktreeProjection | undefined,
+    subAgents: readonly AgentSession[] = [],
   ): MenuItem[] => {
     const items: MenuItem[] = [];
+    if (onRenameSession && sessionRenameCommand(session, null)) {
+      const label = sessionAgentName(session) ? "Rename agent" : "Name agent";
+      items.push({ label, icon: "pencil", run: () => onRenameSession(session) });
+    }
+    const agentId = onOpenHuddle ? sessionAgentId(session) : undefined;
+    if (agentId) {
+      const label = sessionAgentName(session) ?? sessionTitle(session, projection?.messages, projection?.providers);
+      items.push({ label: "Add to huddle", icon: "users", run: () => openHuddleMenu(agentId, label) });
+      if (subAgents.length > 0) {
+        items.push({
+          label: "Start a huddle with its sub-agents",
+          icon: "users",
+          run: () => startSubAgentHuddle(agentId, label, subAgents),
+        });
+      }
+    }
     if (stoppable)
       items.push({
         label: "Stop agent",
@@ -554,6 +653,8 @@ export function Sidebar({
     runIndex?: number,
     /** Set on the first agent of a worktree that needs attention, so its fix shows once. */
     showWorktreeAlert = false,
+    /** Sessions above this one in the sub-agent tree, so bad data can't nest a row inside itself. */
+    ancestors = noAncestors,
   ) => {
     const worktree = projectWorktrees.find((entry) => entry.worktreeId === session.worktreeId);
     const info = worktree ? worktreeInfo(worktree) : undefined;
@@ -567,8 +668,18 @@ export function Sidebar({
     const background = backgroundSessionIds.has(session.sessionId);
     const stoppable = sessionStopCommands(session).length > 0;
     const quiet = runStatus === undefined && (session.status === "ready" || session.status === "ended");
-    const name = runIndex === undefined ? title : `Run ${runIndex}`;
+    const agentName = sessionAgentName(session);
+    const runName = runIndex === undefined ? title : `Run ${runIndex}`;
+    const name = agentName ? `${agentName}, ${runName}` : runName;
     const branchLine = runIndex === undefined && worktree && info;
+    const parent = parents.get(session.sessionId);
+    const parentName = parent
+      ? (sessionAgentName(parent) ?? sessionTitle(parent, projection?.messages, projection?.providers))
+      : undefined;
+    const subAgents = (subAgentsOf.get(session.sessionId) ?? []).filter(
+      (child) => child.sessionId !== session.sessionId && !ancestors.has(child.sessionId),
+    );
+    const below = subAgents.length > 0 ? new Set([...ancestors, session.sessionId]) : ancestors;
     return (
       <li className={`session-entry${runIndex === undefined ? "" : " is-run"}`} key={session.sessionId}>
         <button
@@ -577,11 +688,12 @@ export function Sidebar({
           aria-label={`${name}, ${providerName}, ${status}${background ? ", in the background" : ""}`}
           aria-current={active ? "true" : undefined}
           onClick={() => onSelectSession(session)}
-          title={`${worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}${account ? `\nAccount: ${account}` : ""}`}
+          title={`${agentName ? `${agentName}\n` : ""}${worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}${account ? `\nAccount: ${account}` : ""}${parentName ? `\nStarted by ${parentName}` : ""}`}
         >
           <ProviderMark provider={session.provider} size={14} />
           <span className="session-copy">
             <span className="session-line">
+              {agentName ? <span className="session-name">{agentName}</span> : null}
               {runIndex === undefined ? (
                 <span className="session-title">{title}</span>
               ) : (
@@ -630,7 +742,7 @@ export function Sidebar({
             label="Agent actions"
             tooltip="More"
             size="xs"
-            items={() => sessionMenuItems(session, stoppable, runIndex === undefined ? worktree : undefined)}
+            items={() => sessionMenuItems(session, stoppable, runIndex === undefined ? worktree : undefined, subAgents)}
           />
         </span>{" "}
         {showWorktreeAlert && worktree && info?.needsAttention ? (
@@ -642,6 +754,13 @@ export function Sidebar({
         {groups?.map((group) => (
           <div key={group.groupId}>{renderGroup(group, projectWorktrees)}</div>
         ))}
+        {subAgents.length > 0 ? (
+          <ul className="session-list sub-agent-list" aria-label={`Sub-agents of ${agentName ?? title}`}>
+            {subAgents.map((child) =>
+              renderSession(child, projectWorktrees, groupsBySource.get(child.sessionId), undefined, false, below),
+            )}
+          </ul>
+        ) : null}
       </li>
     );
   };
@@ -803,6 +922,8 @@ export function Sidebar({
                       <ul className="session-list">
                         {projectSessions.map((session) => {
                           if (runIds.has(session.sessionId)) return null;
+                          // A sub-agent lists under the agent that started it, which is in this project too.
+                          if (parents.has(session.sessionId)) return null;
                           return renderSession(
                             session,
                             projectWorktrees,
@@ -875,6 +996,7 @@ export function Sidebar({
       </div>
       {projectMenu ? <Menu request={projectMenu} onClose={() => setProjectMenu(undefined)} /> : null}
       {renderProjectConfirm()}
+      {huddleMenu ? <Menu request={huddleMenu} onClose={() => setHuddleMenu(undefined)} /> : null}
     </aside>
   );
 }

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AccountCommand } from "./accounts.js";
+import { AgentName, StartedBy } from "./agentName.js";
 import { BrowserTabProjection } from "./browser.js";
 import { CheckpointCommand, ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
@@ -7,6 +8,7 @@ import { DesktopAppInfo, DiagnosticLog } from "./diagnostics.js";
 import { RuntimeEventEnvelope } from "./events.js";
 import { FileCommand } from "./files.js";
 import { GitChangesCommand } from "./gitChanges.js";
+import { HuddleCommand } from "./huddles.js";
 import {
   AccountId,
   BrowserTabId,
@@ -106,6 +108,10 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     rows: z.number().int().positive(),
     /** Start this agent CLI instead of an interactive shell. The runtime resolves the executable. */
     agent: TerminalAgentLaunch.optional(),
+    /** A name for the agent. Rejected when another agent in the project has it. */
+    name: AgentName.optional(),
+    /** The agent starting this one as its sub-agent. It must be an agent in the same project. */
+    startedBy: StartedBy.optional(),
     sessionId: SessionId.optional(),
     /** Arguments for `shell`, so the terminal runs one command instead of an interactive shell. */
     args: z.array(z.string().max(8_000)).max(16).optional(),
@@ -129,6 +135,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     maxBytes: z.number().int().min(1).max(262_144).optional(),
   }),
   z.object({ type: z.literal("terminal.stop"), terminalId: TerminalId }),
+  /** Names a terminal agent, or clears its name with null. */
+  z.object({ type: z.literal("terminal.rename"), terminalId: TerminalId, name: AgentName.nullable() }),
   z.object({ type: z.literal("terminal.list") }),
   z.object({ type: z.literal("browser.updated"), tab: BrowserTabProjection }),
   z.object({ type: z.literal("browser.closed"), browserTabId: BrowserTabId }),
@@ -142,6 +150,10 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     shareWorktree: z.boolean().optional(),
     permissionMode: PermissionMode.optional(),
     model: z.string().min(1).max(200).optional(),
+    /** A name for the agent. Rejected when another agent in the project has it. */
+    name: AgentName.optional(),
+    /** The agent starting this one as its sub-agent. It must be an agent in the same project. */
+    startedBy: StartedBy.optional(),
     sessionId: SessionId.optional(),
     /** Omitted runs the provider's default account. */
     accountId: AccountId.optional(),
@@ -182,6 +194,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("thread.interrupt"), threadId: ThreadId, turnId: TurnId.optional() }),
   z.object({ type: z.literal("thread.stop"), threadId: ThreadId }),
+  /** Names a chat agent, or clears its name with null. */
+  z.object({ type: z.literal("thread.rename"), threadId: ThreadId, name: AgentName.nullable() }),
   /** Stops every terminal and thread in the session and removes them, with their history, for good. */
   z.object({ type: z.literal("session.delete"), sessionId: SessionId }),
   z.object({
@@ -277,6 +291,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   ...PluginCommand.options,
   ...AccountCommand.options,
   ...LimitsCommand.options,
+  ...HuddleCommand.options,
   /** Reported by the runtime while it copies files and runs zli.json setup in a new worktree. */
   z.object({ type: z.literal("worktree.setup"), setup: WorktreeSetupProjection }),
   /** The person's answer to running zli.json setup commands; the hash pins the exact list they saw. */

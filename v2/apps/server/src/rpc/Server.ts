@@ -8,6 +8,7 @@ import {
   type AccountDraft,
   type AccountListResult,
   type AgentToolAccess,
+  type AgentToolScope,
   CHECKPOINT_COMMAND_TYPES,
   type CheckpointCommand,
   ClientWireMessage,
@@ -36,8 +37,8 @@ import {
   type McpSignInStart,
   type McpTestResult,
   PLUGIN_COMMAND_TYPES,
-  type PluginCommand,
   type PlanLimitsResult,
+  type PluginCommand,
   type ProviderDiscovery,
   PULL_REQUEST_COMMAND_TYPES,
   type PullRequestCommand,
@@ -53,6 +54,8 @@ import { type RawData, WebSocket, WebSocketServer } from "ws";
 
 import { CheckpointError, type TurnCheckpoints } from "../checkpoints/TurnCheckpoints.js";
 import { errorCode, FileService, FileServiceError } from "../files/FileService.js";
+import { huddleScopeError } from "../huddles/huddleScope.js";
+import type { TerminalInputTracker } from "../huddles/TerminalInputTracker.js";
 import { defaultIssueSources, IssueError, type IssueSources, runIssueCommand } from "../issues/IssueService.js";
 import { McpRequestError } from "../mcp/McpServerStore.js";
 import { SignInError } from "../mcp/signIn/oauth.js";
@@ -93,6 +96,8 @@ type RpcServerOptions = {
   environment: EnvironmentDescriptor;
   token: string;
   terminalService?: TerminalService;
+  /** Told about the person's keystrokes, so huddle messages wait while they type in a terminal. */
+  terminalInput?: TerminalInputTracker;
   fileService?: FileService;
   discoverProviders?: () => Promise<readonly ProviderDiscovery[]>;
   /** Root for uploaded thread images. Without it, image uploads are rejected. */
@@ -127,6 +132,7 @@ export class RpcServer {
   private readonly environment: EnvironmentDescriptor;
   private readonly token: string;
   private readonly terminalService: TerminalService | undefined;
+  private readonly terminalInput: TerminalInputTracker | undefined;
   private readonly fileService: FileService;
   private readonly discoverProviders: RpcServerOptions["discoverProviders"];
   private readonly attachmentsDir: string | undefined;
@@ -156,6 +162,7 @@ export class RpcServer {
     this.environment = options.environment;
     this.token = options.token;
     this.terminalService = options.terminalService;
+    this.terminalInput = options.terminalInput;
     this.fileService = options.fileService ?? new FileService();
     this.discoverProviders = options.discoverProviders;
     this.attachmentsDir = options.attachmentsDir;
@@ -347,8 +354,10 @@ export class RpcServer {
         send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
         return true;
       }
-      if (command.type === "terminal.write") terminalService.write(command.terminalId, command.data);
-      else terminalService.resize(command.terminalId, command.cols, command.rows);
+      if (command.type === "terminal.write") {
+        terminalService.write(command.terminalId, command.data);
+        this.terminalInput?.record(command.terminalId, command.data);
+      } else terminalService.resize(command.terminalId, command.cols, command.rows);
       send(client, { type: "response", response: { commandId: request.commandId, accepted: true } });
     } catch (error) {
       send(client, {
@@ -808,6 +817,25 @@ export class RpcServer {
             });
             return;
           }
+          const scopeError =
+            request.command.type === "huddle.create" || request.command.type === "huddle.join"
+              ? huddleScopeError(
+                  await this.engine.projection(),
+                  request.command,
+                  this.mcpServers?.list().agentScope ?? "project",
+                )
+              : undefined;
+          if (scopeError) {
+            send(client, {
+              type: "response",
+              response: {
+                commandId: request.commandId,
+                accepted: false,
+                error: { code: "invalid_request", message: scopeError, retryable: false },
+              },
+            });
+            return;
+          }
           const receipt = await this.engine.dispatchPromise(request);
           if (receipt.status === "accepted") {
             send(client, {
@@ -913,6 +941,7 @@ export type McpServerCommands = {
   list(): McpListResult;
   save(servers: readonly McpServerConfig[]): Promise<McpListResult>;
   setAgentAccess(access: AgentToolAccess): Promise<McpListResult>;
+  setAgentScope(scope: AgentToolScope): Promise<McpListResult>;
   signIn?(name: string): Promise<McpSignInStart>;
   waitForSignIn?(attemptId: string): Promise<McpListResult>;
   cancelSignIn?(attemptId: string): McpListResult;
@@ -949,6 +978,8 @@ function runMcpCommand(
       return store.save(command.servers);
     case "mcp.agentAccess":
       return store.setAgentAccess(command.access);
+    case "mcp.agentScope":
+      return store.setAgentScope(command.scope);
     case "mcp.signIn":
       return store.signIn ? store.signIn(command.name) : missing();
     case "mcp.signIn.wait":

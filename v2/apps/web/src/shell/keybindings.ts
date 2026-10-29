@@ -16,6 +16,7 @@ export const shortcutActions: readonly ShortcutAction[] = [
   { id: "toggleBrowser", label: "Show or hide the browser", shortcut: "Mod+Shift+B" },
   { id: "toggleMobile", label: "Show or hide the mobile panel", shortcut: "Mod+Shift+M" },
   { id: "toggleChanges", label: "Show or hide changes", shortcut: "Mod+Shift+G" },
+  { id: "toggleHuddle", label: "Show or hide the huddle panel", shortcut: "Mod+Shift+H" },
   { id: "settings", label: "Settings", shortcut: "Mod+," },
 ];
 

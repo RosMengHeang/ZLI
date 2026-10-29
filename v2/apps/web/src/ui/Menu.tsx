@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { scrollMovesAnchor, useAnchoredPlacement } from "./anchoredPopup.js";
 import { type ButtonVariant, cx } from "./Button.js";
 import { Icon, type IconName } from "./Icon.js";
 import { ariaShortcut, shortcutText } from "./shortcuts.js";
@@ -41,6 +42,8 @@ export type MenuAction = {
   /** Why the item is disabled, or what it does. */
   title?: string | undefined;
   tone?: "danger" | undefined;
+  /** Makes the item an on and off choice, shown with a check while it is on. */
+  checked?: boolean | undefined;
   run(): void;
 };
 /** A separator draws a rule between two runs of items. */
@@ -59,9 +62,7 @@ export type MenuRequest = {
 const EDGE = 4;
 const GAP = 4;
 const ANCHORED_GAP = 6;
-const ENABLED = '[role="menuitem"]:not([aria-disabled="true"])';
-
-type Placement = { left: number; maxHeight: number } & ({ top: number } | { bottom: number });
+const ENABLED = ':is([role="menuitem"], [role="menuitemcheckbox"]):not([aria-disabled="true"])';
 
 function isAction(item: MenuItem): item is MenuAction {
   return !("separator" in item);
@@ -96,6 +97,7 @@ export function Menu({ request, onClose }: { request: MenuRequest; onClose(): vo
       if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
       if (event.type === "pointerdown" && event.target instanceof Node && request.anchor?.contains(event.target))
         return;
+      if (event.type === "scroll" && !scrollMovesAnchor(event, request.anchor)) return;
       onClose();
     };
     document.addEventListener("pointerdown", close, true);
@@ -149,7 +151,9 @@ export function Menu({ request, onClose }: { request: MenuRequest; onClose(): vo
             key={item.label}
             className={cx("menu-item", item.tone === "danger" && "is-danger")}
             type="button"
-            role="menuitem"
+            {...(item.checked === undefined
+              ? { role: "menuitem" }
+              : { role: "menuitemcheckbox", "aria-checked": item.checked })}
             tabIndex={-1}
             aria-disabled={item.disabled || undefined}
             title={item.title}
@@ -166,6 +170,7 @@ export function Menu({ request, onClose }: { request: MenuRequest; onClose(): vo
             ) : null}
             <span className="menu-item-label">{item.label}</span>
             {item.shortcut ? <span className="menu-shortcut">{shortcutText(item.shortcut)}</span> : null}
+            {item.checked ? <Icon className="menu-item-check" name="check" size={13} /> : null}
           </button>
         ) : (
           // biome-ignore lint/suspicious/noArrayIndexKey: separators have no identity of their own.
@@ -275,9 +280,14 @@ function AnchoredMenuButton({
   ref,
 }: AnchoredMenuButtonProps) {
   const [open, setOpen] = useState(false);
-  const [placement, setPlacement] = useState<Placement>();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const placement = useAnchoredPlacement(open, triggerRef, menuRef, {
+    prefer: "above",
+    align: "end",
+    gap: ANCHORED_GAP,
+    edge: EDGE,
+  });
   const menuId = useId();
   const focusLastRef = useRef(false);
 
@@ -289,25 +299,8 @@ function AnchoredMenuButton({
 
   const close = (returnFocus: boolean) => {
     setOpen(false);
-    setPlacement(undefined);
     if (returnFocus) triggerRef.current?.focus();
   };
-
-  useLayoutEffect(() => {
-    if (!open) return;
-    const anchor = triggerRef.current?.getBoundingClientRect();
-    const menu = menuRef.current;
-    if (!anchor || !menu) return;
-    const above = anchor.top - ANCHORED_GAP - EDGE;
-    const below = window.innerHeight - anchor.bottom - ANCHORED_GAP - EDGE;
-    const left = Math.max(EDGE, Math.min(anchor.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - EDGE));
-    const up = menu.offsetHeight <= above || above >= below;
-    setPlacement(
-      up
-        ? { left, bottom: window.innerHeight - anchor.top + ANCHORED_GAP, maxHeight: above }
-        : { left, top: anchor.bottom + ANCHORED_GAP, maxHeight: below },
-    );
-  }, [open]);
 
   // The menu is measured while hidden, and hidden elements cannot take focus, so focus waits for placement.
   const placed = placement !== undefined;
@@ -326,7 +319,7 @@ function AnchoredMenuButton({
       if (!inside(event.target)) close(false);
     };
     const onScroll = (event: Event) => {
-      if (!inside(event.target)) close(false);
+      if (scrollMovesAnchor(event, triggerRef.current)) close(false);
     };
     const onLeave = () => close(false);
     document.addEventListener("pointerdown", onPointerDown, true);

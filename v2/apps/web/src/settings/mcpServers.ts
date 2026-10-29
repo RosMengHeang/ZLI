@@ -1,5 +1,6 @@
 import {
   type AgentToolAccess,
+  type AgentToolScope,
   isHttpServer,
   MCP_CATALOG,
   MCP_HEADER_NAME_PATTERN,
@@ -241,6 +242,15 @@ export const AGENT_ACCESS_LABELS: Record<AgentToolAccess, string> = {
   off: "Off",
 };
 
+export function setAgentToolScope(dispatch: Dispatch, scope: AgentToolScope): Promise<McpListResult> {
+  return request(dispatch, { type: "mcp.agentScope", scope });
+}
+
+export const AGENT_SCOPE_LABELS: Record<AgentToolScope, string> = {
+  project: "In their own project",
+  all: "In every project",
+};
+
 export function draftFromServer(server: McpServerConfig): McpDraft {
   if (isHttpServer(server)) {
     return {
@@ -446,6 +456,7 @@ export function useMcpServers(): {
   reload(): void;
   save(servers: readonly McpServerConfig[]): Promise<McpListResult>;
   setAgentAccess(access: AgentToolAccess): Promise<McpListResult>;
+  setAgentScope(scope: AgentToolScope): Promise<McpListResult>;
   /** Signs in and resolves once it is saved. Rejects with the problem, or SIGN_IN_CANCELED. */
   signIn(name: string): Promise<void>;
   cancelSignIn(name: string): void;
@@ -569,6 +580,15 @@ export function useMcpServers(): {
     [dispatch],
   );
 
+  const setAgentScope = useCallback(
+    async (scope: AgentToolScope) => {
+      const result = await setAgentToolScope(dispatch, scope);
+      setState({ status: "ready", result });
+      return result;
+    },
+    [dispatch],
+  );
+
   const test = useCallback(
     async (name: string) => {
       setTesting((current) => ({ ...current, [name]: true }));
@@ -601,6 +621,7 @@ export function useMcpServers(): {
     reload: () => setAttempt((value) => value + 1),
     save,
     setAgentAccess,
+    setAgentScope,
     signIn,
     cancelSignIn,
     reopenSignIn,

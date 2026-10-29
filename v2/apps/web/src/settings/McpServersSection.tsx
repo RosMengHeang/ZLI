@@ -1,4 +1,4 @@
-import { AgentToolAccess, isHttpServer, MCP_CATALOG, type McpServerConfig } from "@zli-v2/contracts";
+import { AgentToolAccess, AgentToolScope, isHttpServer, MCP_CATALOG, type McpServerConfig } from "@zli-v2/contracts";
 import { Fragment, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
@@ -15,6 +15,7 @@ import { McpStatusDot } from "./McpStatusDot.js";
 import { McpToolsPanel } from "./McpToolsPanel.js";
 import {
   AGENT_ACCESS_LABELS,
+  AGENT_SCOPE_LABELS,
   applyDraft,
   catalogEntryForUrl,
   draftFromServer,
@@ -63,8 +64,20 @@ export function McpServersSection({
   onCustom?(): void;
   onInstalled?(): void;
 }) {
-  const { state, reload, save, setAgentAccess, signIn, cancelSignIn, signOut, pending, test, tests, testing } =
-    useMcpServers();
+  const {
+    state,
+    reload,
+    save,
+    setAgentAccess,
+    setAgentScope,
+    signIn,
+    cancelSignIn,
+    signOut,
+    pending,
+    test,
+    tests,
+    testing,
+  } = useMcpServers();
   const knownProjects = useKnownProjects();
   const [signInProblems, setSignInProblems] = useState<Record<string, string>>({});
   const [openTools, setOpenTools] = useState<ReadonlySet<string>>(new Set());
@@ -102,7 +115,7 @@ export function McpServersSection({
     );
   }
 
-  const { servers, userSettings, agentAccess, problem: storeProblem } = state.result;
+  const { servers, userSettings, agentAccess, agentScope, problem: storeProblem } = state.result;
   const problems = settingsProblems(userSettings.outcomes);
   const pluginSignIns = pluginSignInsOf(state.result);
   const result = state.result;
@@ -469,18 +482,29 @@ export function McpServersSection({
           <span className="mcp-row-copy">
             <strong>zli</strong>
             <span className="mcp-row-detail">
-              Lets agents list and read the other agents in their project, and start or message them when allowed. Also
+              Lets agents list and read other agents, and start or message them when allowed. Agents see only their own
+              project unless you let them reach every project, and new agents always start in the caller's project. Also
               available as the zli command in terminals.
             </span>
           </span>
-          <Select<AgentToolAccess>
-            className="input-sm"
-            label="What agents may do with other agents"
-            value={agentAccess}
-            disabled={saving}
-            options={AgentToolAccess.options.map((access) => ({ value: access, label: AGENT_ACCESS_LABELS[access] }))}
-            onChange={(access) => void run(() => setAgentAccess(access))}
-          />
+          <span className="mcp-row-actions is-stacked">
+            <Select<AgentToolAccess>
+              className="input-sm"
+              label="What agents may do with other agents"
+              value={agentAccess}
+              disabled={saving}
+              options={AgentToolAccess.options.map((access) => ({ value: access, label: AGENT_ACCESS_LABELS[access] }))}
+              onChange={(access) => void run(() => setAgentAccess(access))}
+            />
+            <Select<AgentToolScope>
+              className="input-sm"
+              label="Which agents they can reach"
+              value={agentScope}
+              disabled={saving || agentAccess === "off"}
+              options={AgentToolScope.options.map((scope) => ({ value: scope, label: AGENT_SCOPE_LABELS[scope] }))}
+              onChange={(scope) => void run(() => setAgentScope(scope))}
+            />
+          </span>
         </li>
         <li className="mcp-row">
           <ZliLogo size={28} className="mcp-row-logo" />

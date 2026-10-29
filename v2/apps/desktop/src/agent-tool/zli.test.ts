@@ -28,6 +28,71 @@ describe("zli command", () => {
       action: "agentconnect",
       input: { service: "github", reason: "to open a PR" },
     });
+    expect(parseZliArgs(["agents", "--all-projects"])).toEqual({
+      kind: "call",
+      action: "agentlist",
+      input: { allProjects: true },
+    });
+    expect(parseZliArgs(["send", "bob", "--project", "api", "check", "the", "contract"])).toEqual({
+      kind: "call",
+      action: "agentsend",
+      input: { agent: "bob", project: "api", text: "check the contract" },
+    });
+    expect(parseZliArgs(["send", "lead", "done", "--as", "helper"])).toEqual({
+      kind: "call",
+      action: "agentsend",
+      input: { agent: "lead", text: "done", as: "helper" },
+    });
+    expect(parseZliArgs(["start", "codex", "Check", "links", "--as=helper"])).toEqual({
+      kind: "call",
+      action: "agentstart",
+      input: { provider: "codex", prompt: "Check links", as: "helper" },
+    });
+    expect(parseZliArgs(["read", "api/bob"])).toEqual({
+      kind: "call",
+      action: "agentread",
+      input: { agent: "api/bob" },
+    });
+    expect(parseZliArgs(["start", "codex", "Review", "auth", "--name", "John"])).toEqual({
+      kind: "call",
+      action: "agentstart",
+      input: { provider: "codex", prompt: "Review auth", name: "John" },
+    });
+    expect(parseZliArgs(["huddle", "read", "--all", "--huddle", "Login"])).toEqual({
+      kind: "call",
+      action: "huddleread",
+      input: { huddle: "Login", all: true },
+    });
+    expect(parseZliArgs(["huddle", "read", "--before", "11", "--limit", "5"])).toEqual({
+      kind: "call",
+      action: "huddleread",
+      input: { before: 11, limit: 5 },
+    });
+    expect(() => parseZliArgs(["huddle", "read", "--before", "0"])).toThrow("--before must be a whole number above 0.");
+    expect(parseZliArgs(["huddle", "post", "API", "is", "ready", "--to", "lead,ana", "--reply-to", "3"])).toEqual({
+      kind: "call",
+      action: "huddlepost",
+      input: { text: "API is ready", to: ["lead", "ana"], replyTo: 3 },
+    });
+    expect(
+      parseZliArgs(["huddle", "post", "Write", "tests", "--new-agent", "tester", "--provider", "codex", "--terminal"]),
+    ).toEqual({
+      kind: "call",
+      action: "huddlepost",
+      input: { text: "Write tests", start: { name: "tester", provider: "codex", mode: "terminal" } },
+    });
+    expect(parseZliArgs(["huddle", "post", "Done", "--to", "person", "--as", "helper"])).toEqual({
+      kind: "call",
+      action: "huddlepost",
+      input: { text: "Done", to: "person", as: "helper" },
+    });
+    expect(parseZliArgs(["huddle", "wait", "--timeout", "30"])).toEqual({
+      kind: "call",
+      action: "huddlewait",
+      input: { timeoutSeconds: 30 },
+    });
+    expect(parseZliArgs(["huddle", "decisions"])).toEqual({ kind: "call", action: "huddledecisions", input: {} });
+    expect(() => parseZliArgs(["huddle", "shout"])).toThrow("zli huddle takes read, post, wait, or decisions.");
     expect(parseZliArgs(["--help"])).toEqual({ kind: "help" });
     expect(parseZliArgs(["mcp"])).toEqual({ kind: "mcp" });
   });
@@ -81,9 +146,20 @@ describe("zli MCP server", () => {
       "read_agent",
       "message_agent",
       "start_agent",
+      "huddle_read",
+      "huddle_post",
+      "huddle_wait",
+      "huddle_decisions",
       "connect_service",
     ]);
-    expect(await listNames("read")).toEqual(["list_agents", "read_agent", "connect_service"]);
+    expect(await listNames("read")).toEqual([
+      "list_agents",
+      "read_agent",
+      "huddle_read",
+      "huddle_wait",
+      "huddle_decisions",
+      "connect_service",
+    ]);
     expect(await listNames("off")).toEqual([]);
   });
 

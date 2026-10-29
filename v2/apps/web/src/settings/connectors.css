@@ -141,6 +141,8 @@
 .connector-form-actions { display: flex; align-items: center; gap: var(--zli-space-1-5); }
 .connector-card .inline-error { font-size: var(--zli-text-sm); }
 .mcp-row-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); }
+/* Two settings for one server stack in the row's control column, so the row keeps its width. */
+.mcp-row-actions.is-stacked { flex-direction: column; align-items: stretch; }
 .mcp-row-signin { color: var(--zli-dim); font-size: var(--zli-text-xs); white-space: nowrap; }
 .mcp-row-signin.is-signed-in { color: var(--zli-green); }
 .mcp-row-signin.is-expired, .connector-status.is-warning { color: var(--zli-amber); }

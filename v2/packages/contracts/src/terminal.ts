@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { AgentName, StartedBy } from "./agentName.js";
 import { AccountId, SessionId, TerminalId, WorktreeId } from "./ids.js";
 import { ListedProviderKind, PermissionMode } from "./provider.js";
 
@@ -32,6 +33,9 @@ export const TerminalProjection = z.object({
   errorMessage: z.string().min(1).optional(),
   kind: z.enum(["shell", "agent"]).optional(),
   agent: TerminalAgentLaunch.optional(),
+  /** The name the person gave this terminal's agent. Only agent terminals have one. */
+  name: AgentName.optional(),
+  startedBy: StartedBy.optional(),
   sessionId: SessionId.optional(),
   createdAt: z.string().datetime({ offset: true }).optional(),
   updatedAt: z.string().datetime({ offset: true }).optional(),
@@ -77,3 +81,23 @@ export const TerminalStreamMessage = z.discriminatedUnion("kind", [
   }),
 ]);
 export type TerminalStreamMessage = z.infer<typeof TerminalStreamMessage>;
+
+/**
+ * Terminal input for a message, without a final Enter. Control characters are dropped so the text
+ * cannot inject terminal sequences or end a bracketed paste early with its own ESC [201~. With bracketed
+ * paste the program receives line breaks as part of one paste; without it a line break would submit,
+ * so the message is sent as one line.
+ */
+export function terminalPaste(message: string, bracketedPaste: boolean): string {
+  const clean = message
+    .replace(/\r\n?/gu, "\n")
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: removing control characters is the point.
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/gu, "");
+  if (bracketedPaste) return `\x1b[200~${clean.replace(/\n/gu, "\r")}\x1b[201~`;
+  return clean.replace(/\s*\n\s*/gu, " ").trim();
+}
+
+/** What ZLI types into an agent CLI for a message: one bracketed paste when it spans lines. */
+export function agentTerminalInput(message: string): string {
+  return terminalPaste(message, /[\r\n]/u.test(message));
+}

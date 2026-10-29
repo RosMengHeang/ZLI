@@ -33,6 +33,7 @@ const vercel: McpServerConfig = {
 const listOf = (servers: McpServerConfig[], signedIn: string[] = []): McpListResult => ({
   servers,
   agentAccess: "full",
+  agentScope: "project",
   userSettings: { enabled: true, outcomes: [] },
   health: [],
   signIns: servers

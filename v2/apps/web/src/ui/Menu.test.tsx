@@ -14,6 +14,8 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   document.body.replaceChildren();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 async function render(items: readonly MenuEntry[]) {
@@ -39,6 +41,46 @@ function key(target: Element, name: string) {
 const focused = () => document.activeElement?.textContent;
 
 describe("MenuButton", () => {
+  it("moves below its button when items arriving while open no longer fit above it", async () => {
+    const observers: Array<() => void> = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(private readonly callback: () => void) {}
+        observe() {
+          observers.push(this.callback);
+        }
+        disconnect() {}
+      },
+    );
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("picker-menu") ? 10 + 28 * this.querySelectorAll(".menu-item").length : 0;
+    });
+    const trigger = await render([{ id: "new", label: "New huddle with this agent", run: vi.fn() }]);
+    // 40px fits above the button: 50 from the top, less the 6px gap and 4px edge.
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue(new DOMRect(376, 50, 24, 24));
+    await act(async () => trigger.click());
+    const menu = document.querySelector<HTMLElement>(".picker-menu");
+    expect(menu?.style.bottom).not.toBe("");
+
+    await act(async () => {
+      root?.render(
+        <MenuButton
+          label="More"
+          icon="more"
+          items={[
+            { id: "login", label: "Login plan", checked: false, run: vi.fn() },
+            { id: "new", label: "New huddle with this agent", run: vi.fn() },
+          ]}
+        />,
+      );
+    });
+    await act(async () => {
+      for (const observe of observers) observe();
+    });
+    expect(menu?.style.bottom).toBe("");
+    expect(menu?.style.top).toBe("80px");
+  });
   it("opens a labelled menu, moves with the arrow keys past disabled items, and runs the picked item", async () => {
     const first = vi.fn();
     const third = vi.fn();
@@ -118,6 +160,22 @@ describe("MenuButton", () => {
     expect(document.querySelector('[role="menu"]')).not.toBeNull();
     act(() => {
       document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    });
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it("stays open while another part of the window scrolls, and closes when the button's own container scrolls", async () => {
+    const trigger = await render([{ id: "a", label: "First", run: vi.fn() }]);
+    const elsewhere = document.createElement("div");
+    document.body.append(elsewhere);
+    await act(async () => trigger.click());
+    act(() => {
+      elsewhere.dispatchEvent(new Event("scroll"));
+      (document.querySelector('[role="menu"]') as HTMLElement).dispatchEvent(new Event("scroll"));
+    });
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    act(() => {
+      trigger.parentElement?.dispatchEvent(new Event("scroll"));
     });
     expect(document.querySelector('[role="menu"]')).toBeNull();
   });

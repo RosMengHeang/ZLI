@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { AgentName } from "./agentName.js";
 import { BrowserTabProjection } from "./browser.js";
 import { ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
 import { DesktopAppInfo, DiagnosticLog } from "./diagnostics.js";
+import { HuddleEvent } from "./huddles.js";
 import {
   BrowserTabId,
   EventId,
@@ -88,6 +90,8 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     rows: z.number().int().positive(),
   }),
   z.object({ type: z.literal("terminal.stop.requested"), terminalId: TerminalId }),
+  /** No name means the name was cleared. */
+  z.object({ type: z.literal("terminal.renamed"), terminalId: TerminalId, name: AgentName.optional() }),
   z.object({
     type: z.literal("thread.start.requested"),
     thread: ThreadProjection,
@@ -116,6 +120,8 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("thread.interrupt.requested"), threadId: ThreadId, turnId: TurnId.optional() }),
   z.object({ type: z.literal("thread.stop.requested"), threadId: ThreadId }),
+  /** No name means the name was cleared. */
+  z.object({ type: z.literal("thread.renamed"), threadId: ThreadId, name: AgentName.optional() }),
   /** A message reached an ended chat that knows its agent's conversation id, so the agent is started again on it. */
   z.object({ type: z.literal("thread.resume.requested"), threadId: ThreadId, cwd: z.string().min(1) }),
   z.object({
@@ -212,6 +218,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     decision: SetupDecision,
   }),
   z.object({ type: z.literal("project.setup.trusted"), projectId: ProjectId, commandsHash: z.string().min(1) }),
+  ...HuddleEvent.options,
 ]);
 export type RuntimeEvent = z.infer<typeof RuntimeEvent>;
 

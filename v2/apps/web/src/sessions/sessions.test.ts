@@ -2,18 +2,23 @@ import type {
   RuntimeProjection,
   TerminalProjection,
   ThreadActivityProjection,
+  ThreadMessageProjection,
   ThreadProjection,
 } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
+  agentNameProblem,
   buildTimeline,
   changedFiles,
   deriveSessions,
   gridColumns,
   gridLayout,
   relativeTime,
+  sessionAgentName,
   sessionChats,
+  sessionParents,
+  sessionRenameCommand,
   sessionStopCommands,
   sessionTitle,
 } from "./sessions.js";
@@ -323,5 +328,101 @@ describe("chat history", () => {
     const state = parseWorkbenchState(JSON.stringify({ chats: { [sessionId]: older.threadId, other: 3 } }));
     expect(state.chats).toEqual({ [sessionId]: older.threadId });
     expect(forgetSession(state, sessionId).chats).toEqual({});
+  });
+});
+
+describe("agent names", () => {
+  const projectId = "00000000-0000-4000-8000-000000000021";
+  const named = {
+    worktrees: [{ worktreeId, projectId }],
+    threads: [{ ...thread, name: "Bob" }],
+    terminals: [{ ...agentTerminal, name: "John" }],
+  } as unknown as Pick<RuntimeProjection, "worktrees" | "threads" | "terminals">;
+
+  it("reads and renames the record the tile shows", () => {
+    const [session] = deriveSessions(named);
+    if (!session) throw new Error("no session");
+    expect(session.mode).toBe("chat");
+    expect(sessionAgentName(session)).toBe("Bob");
+    expect(sessionRenameCommand(session, "Ann")).toEqual({ type: "thread.rename", threadId, name: "Ann" });
+    const asTerminal = { ...session, mode: "terminal" as const };
+    expect(sessionAgentName(asTerminal)).toBe("John");
+    expect(sessionRenameCommand(asTerminal, null)).toEqual({
+      type: "terminal.rename",
+      terminalId: agentTerminal.terminalId,
+      name: null,
+    });
+  });
+
+  it("uses the pending name until the agent starts, and cannot rename it yet", () => {
+    const pending = { sessionId, worktreeId, provider: "codex", mode: "chat" as const, name: "Ann", createdAt: "" };
+    const [session] = deriveSessions({ threads: [], terminals: [] }, [pending]);
+    if (!session) throw new Error("no session");
+    expect(sessionAgentName(session)).toBe("Ann");
+    expect(sessionRenameCommand(session, "Bob")).toBeUndefined();
+  });
+
+  it("explains a bad or taken name, and lets an agent keep its own", () => {
+    const [session] = deriveSessions(named);
+    expect(agentNameProblem(named, projectId, "   ")).toBeUndefined();
+    expect(agentNameProblem(named, projectId, "-bob")).toMatch(/starting with a letter or digit/u);
+    expect(agentNameProblem(named, projectId, "a/b")).toMatch(/^Use letters/u);
+    expect(agentNameProblem(named, projectId, "bob")).toBe("Another agent in this project is already called bob.");
+    expect(agentNameProblem(named, projectId, "BOB", session)).toBeUndefined();
+    expect(agentNameProblem(named, "00000000-0000-4000-8000-000000000099", "Bob")).toBeUndefined();
+  });
+});
+
+describe("sub-agents", () => {
+  it("finds the session of the agent that started each sub-agent, even after it opened a new chat", () => {
+    const child = "00000000-0000-4000-8000-000000000202";
+    const grandchild = "00000000-0000-4000-8000-000000000203";
+    const sessions = deriveSessions({
+      terminals: [
+        {
+          ...agentTerminal,
+          terminalId: "00000000-0000-4000-8000-000000000302",
+          sessionId: grandchild,
+          startedBy: "00000000-0000-4000-8000-000000000402",
+        },
+      ],
+      threads: [
+        thread,
+        { ...thread, threadId: "00000000-0000-4000-8000-000000000409", createdAt: "2026-01-01T11:00:00.000Z" },
+        {
+          ...thread,
+          threadId: "00000000-0000-4000-8000-000000000402",
+          sessionId: child,
+          startedBy: threadId,
+        },
+        {
+          ...thread,
+          threadId: "00000000-0000-4000-8000-000000000403",
+          sessionId: "00000000-0000-4000-8000-000000000204",
+          startedBy: "00000000-0000-4000-8000-000000000499",
+        },
+      ],
+    } as unknown as Pick<RuntimeProjection, "terminals" | "threads">);
+    const parents = sessionParents(sessions);
+    expect(parents.get(child)?.sessionId).toBe(sessionId);
+    expect(parents.get(grandchild)?.sessionId).toBe(child);
+    expect(parents.has(sessionId)).toBe(false);
+    expect(parents.has("00000000-0000-4000-8000-000000000204")).toBe(false);
+  });
+
+  it("titles a sub-agent by its task, not the line that says who started it", () => {
+    const text =
+      "Task from Lead, the agent in ZLI that started you, working on branch main. You are Helper in ZLI. Reply to Lead when you finish or get stuck:\n\nWrite the API docs";
+    const message = { messageId: "m1", threadId, role: "user", text } as ThreadMessageProjection;
+    const sub = { provider: "codex", thread: { ...thread, startedBy: "00000000-0000-4000-8000-000000000499" } };
+    expect(sessionTitle(sub, [message], undefined)).toBe("Write the API docs");
+    expect(sessionTitle({ provider: "codex", thread }, [message], undefined)).toMatch(/^Task from Lead/u);
+  });
+
+  it("titles a chat whose first message came from a huddle by that message", () => {
+    const text =
+      'Huddle "Login plan", message 1: The person running ZLI asks everyone:\n\nHow should we split the work?';
+    const message = { messageId: "m1", threadId, role: "user", text } as ThreadMessageProjection;
+    expect(sessionTitle({ provider: "codex", thread }, [message], undefined)).toBe("How should we split the work?");
   });
 });

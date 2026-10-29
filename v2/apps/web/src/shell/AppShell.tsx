@@ -27,6 +27,8 @@ import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
 import type { AskAgentTarget, FilesFocus } from "../files/FilesPane.js";
 import { filesWorktreeFor } from "../files/filesWorktree.js";
 import { QuickOpen } from "../files/QuickOpen.js";
+import { HuddlePane } from "../huddle/HuddlePane.js";
+import { sessionOfAgent } from "../huddle/huddles.js";
 import { type IssueLink, issuePrompt, rememberIssueLink } from "../issues/issueStart.js";
 import { MobilePane, type MobileReveal } from "../mobile/MobilePane.js";
 import { useAgentNotifications } from "../notifications/useAgentNotifications.js";
@@ -57,10 +59,14 @@ import { createWorktree, ensureCheckout, samePath, startAccountSignIn, startSess
 import { NewAgentDialog, type NewAgentPrefill, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
 import {
   type AgentSession,
+  agentNameProblem,
   deriveSessions,
   gridLayout,
   type PendingLaunch,
   type SessionMode,
+  sessionAgentName,
+  sessionParents,
+  sessionRenameCommand,
   sessionStopCommands,
   sessionTitle,
 } from "../sessions/sessions.js";
@@ -86,7 +92,13 @@ import { UpdatePill } from "../updates/UpdatePill.js";
 import { busyAgentCount } from "../updates/updateCopy.js";
 import { useUpdates } from "../updates/useUpdates.js";
 import { PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
-import { CloseAgentDialog, DeleteAgentDialog, deletableWorktree, KeepRunDialog } from "./AgentDialogs.js";
+import {
+  CloseAgentDialog,
+  DeleteAgentDialog,
+  deletableWorktree,
+  KeepRunDialog,
+  RenameAgentDialog,
+} from "./AgentDialogs.js";
 import { CommandPalette, type PaletteCommand } from "./CommandPalette.js";
 import { HelpDialog } from "./HelpDialog.js";
 import { useShortcuts } from "./keybindings.js";
@@ -132,6 +144,8 @@ function WorkspaceApp() {
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string>();
   const [sidePane, setSidePane] = useState<SidePane>();
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
+  /** The huddle tab in view in the Huddle panel. */
+  const [huddleId, setHuddleId] = useState<string>();
   const [panelWidth, setPanelWidth] = usePanelWidth(sidePane ?? "files");
   const [gridRegionRef, gridWidth] = useElementWidth<HTMLElement>();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -155,6 +169,7 @@ function WorkspaceApp() {
   const [usageOpen, setUsageOpen] = useState(false);
   const [closeRequest, setCloseRequest] = useState<AgentSession>();
   const [deleteRequest, setDeleteRequest] = useState<AgentSession>();
+  const [renameRequestId, setRenameRequestId] = useState<string>();
   const [actionRequest, setActionRequest] = useState<{
     action: PluginAction;
     pluginName: string;
@@ -256,6 +271,16 @@ function WorkspaceApp() {
     },
     [updateWorkbench],
   );
+
+  const parents = useMemo(() => sessionParents(sessions), [sessions]);
+  const parentChip = (session: AgentSession) => {
+    const parent = parents.get(session.sessionId);
+    if (!parent || !projection) return undefined;
+    return {
+      label: sessionAgentName(parent) ?? sessionTitle(parent, projection.messages, projection.providers),
+      onOpen: () => focusSession(parent),
+    };
+  };
 
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
@@ -432,6 +457,10 @@ function WorkspaceApp() {
       : updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
   const hideSidebar = () =>
     narrow ? setNarrowSidebarOpen(false) : updateWorkbench((state) => ({ ...state, sidebarOpen: false }));
+  const openHuddle = useCallback((next: string) => {
+    setHuddleId(next);
+    setSidePane("huddle");
+  }, []);
   const toggleDrawer = () => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }));
   const openSettings = (section: SettingsSection = "agents") => {
     setPaletteOpen(false);
@@ -476,6 +505,7 @@ function WorkspaceApp() {
       if (mobileAvailable) toggleSidePane("mobile");
     },
     toggleChanges: () => toggleSidePane("review"),
+    toggleHuddle: () => toggleSidePane("huddle"),
     settings: () => openSettings(),
     escape: () => {
       setPaletteOpen(false);
@@ -564,6 +594,7 @@ function WorkspaceApp() {
               permissionMode: launch.permissionMode ?? "supervised",
               ...(launch.model ? { model: launch.model } : {}),
               ...(launch.accountId ? { accountId: launch.accountId } : {}),
+              ...(launch.name ? { name: launch.name } : {}),
               sessionId: launch.sessionId,
               worktreeId: worktree.worktreeId,
               cwd: worktree.path,
@@ -918,6 +949,7 @@ function WorkspaceApp() {
       ...(request.model ? { model: request.model } : {}),
       ...(request.prompt ? { prompt: request.prompt } : {}),
       ...(request.accountId ? { accountId: request.accountId } : {}),
+      ...(request.name ? { name: request.name } : {}),
       createdAt: new Date().toISOString(),
     };
     if (issueStart) {
@@ -1078,6 +1110,20 @@ function WorkspaceApp() {
     }
   };
 
+  const renameSession = async (session: AgentSession, name: string | null): Promise<string | undefined> => {
+    const command = sessionRenameCommand(session, name);
+    if (!command) return "This agent has not started yet. Try again once it is running.";
+    try {
+      const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
+      if (!response) return "The runtime is not connected.";
+      if (response.accepted === false) return response.error.message;
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : "The name could not be saved.";
+    }
+    setRenameRequestId(undefined);
+    return undefined;
+  };
+
   const deleteSession = async (session: AgentSession, removeWorktree: boolean, deleteBranch = false): Promise<void> => {
     setNotice(undefined);
     const worktree = removeWorktree ? findWorktree(session.worktreeId) : undefined;
@@ -1167,6 +1213,19 @@ function WorkspaceApp() {
     });
     if (selectedWorktreeId && worktreeIds.has(selectedWorktreeId)) setSelectedWorktreeId(undefined);
     return undefined;
+  };
+
+  /** Brings forward the tile that holds a huddle member, switching to that chat when it is an earlier one. */
+  const openHuddleAgent = async (agentId: string) => {
+    const session = sessionOfAgent(sessionsRef.current, agentId);
+    if (!session) {
+      showError("This agent is gone. It may have been deleted.");
+      return;
+    }
+    const isEarlierChat =
+      session.thread?.threadId !== agentId && session.threads?.some((thread) => thread.threadId === agentId);
+    if (isEarlierChat) await openChat(session, agentId);
+    showAgent(session.sessionId);
   };
 
   const closeTileNow = (session: AgentSession) =>
@@ -1608,6 +1667,13 @@ function WorkspaceApp() {
       action: () => setSidePane("review"),
     },
     {
+      label: "Focus huddle",
+      icon: "users",
+      group: "View",
+      shortcut: shortcuts.toggleHuddle,
+      action: () => setSidePane("huddle"),
+    },
+    {
       label: sidebarOpen ? "Hide sidebar" : "Show sidebar",
       icon: "panelLeft",
       group: "View",
@@ -1690,6 +1756,8 @@ function WorkspaceApp() {
         }))
       : []),
   ];
+  // Looked up by id so the dialog follows the agent as it changes, and closes if it is deleted.
+  const renaming = renameRequestId ? sessions.find((session) => session.sessionId === renameRequestId) : undefined;
   const otherOverlayOpen =
     paletteOpen ||
     quickOpen ||
@@ -1701,6 +1769,7 @@ function WorkspaceApp() {
     usageOpen ||
     closeRequest !== undefined ||
     deleteRequest !== undefined ||
+    renaming !== undefined ||
     actionRequest !== undefined ||
     handoffRequest !== undefined ||
     workbench.groups.some((group) => group.groupId === compareGroupId) ||
@@ -1740,6 +1809,7 @@ function WorkspaceApp() {
             onSelectSession={focusSession}
             onStopSession={(session) => void stopSession(session)}
             onDeleteSession={setDeleteRequest}
+            onRenameSession={(session) => setRenameRequestId(session.sessionId)}
             onSelectWorktree={(worktree) => {
               setNotice(undefined);
               setSelectedWorktreeId(worktree.worktreeId);
@@ -1769,6 +1839,8 @@ function WorkspaceApp() {
             runGroups={workbench.groups}
             runStates={runStates}
             onCompareRuns={(group) => setCompareGroupId(group.groupId)}
+            onOpenHuddle={openHuddle}
+            onHuddleError={showError}
           />
         ) : null}
         <main className="main-workspace">
@@ -1867,6 +1939,13 @@ function WorkspaceApp() {
                           }
                           onStop={() => void stopSession(session)}
                           onClose={() => closeTile(session)}
+                          onRename={
+                            sessionRenameCommand(session, null)
+                              ? () => setRenameRequestId(session.sessionId)
+                              : undefined
+                          }
+                          startedBy={parentChip(session)}
+                          onOpenHuddle={openHuddle}
                           onOpenDiff={(path) => {
                             focusSession(session);
                             setSidePane("review");
@@ -1942,6 +2021,13 @@ function WorkspaceApp() {
                         onShowAgent={showAgent}
                         projects={projection?.projects}
                         onOpenProject={openBrowserInProject}
+                      />
+                    ) : sidePane === "huddle" ? (
+                      <HuddlePane
+                        projection={projection}
+                        selectedId={huddleId}
+                        onSelect={setHuddleId}
+                        onOpenAgent={(agentId) => void openHuddleAgent(agentId)}
                       />
                     ) : sidePane === "mobile" ? (
                       <MobilePane
@@ -2031,7 +2117,9 @@ function WorkspaceApp() {
         {closeRequest && projection && (
           <CloseAgentDialog
             title={sessionTitle(closeRequest, projection.messages, projection.providers)}
-            provider={providerDisplayName(closeRequest.provider, projection.providers)}
+            provider={
+              sessionAgentName(closeRequest) ?? providerDisplayName(closeRequest.provider, projection.providers)
+            }
             onStopAndClose={() => {
               const session = closeRequest;
               setCloseRequest(undefined);
@@ -2049,7 +2137,9 @@ function WorkspaceApp() {
         {deleteRequest && projection && (
           <DeleteAgentDialog
             title={sessionTitle(deleteRequest, projection.messages, projection.providers)}
-            provider={providerDisplayName(deleteRequest.provider, projection.providers)}
+            provider={
+              sessionAgentName(deleteRequest) ?? providerDisplayName(deleteRequest.provider, projection.providers)
+            }
             running={sessionStopCommands(deleteRequest).length > 0}
             worktree={deletableWorktree(projection, sessions, deleteRequest)}
             onDelete={(removeWorktree) => {
@@ -2060,6 +2150,17 @@ function WorkspaceApp() {
             onCancel={() => setDeleteRequest(undefined)}
           />
         )}
+        {renaming && projection ? (
+          <RenameAgentDialog
+            current={sessionAgentName(renaming)}
+            agent={renameSubtitle(renaming, projection)}
+            problem={(name) =>
+              agentNameProblem(projection, findWorktree(renaming.worktreeId)?.projectId, name, renaming)
+            }
+            onRename={(name) => renameSession(renaming, name)}
+            onCancel={() => setRenameRequestId(undefined)}
+          />
+        ) : null}
         {actionRequest ? (
           <PluginActionDialog
             action={actionRequest.action}
@@ -2237,6 +2338,13 @@ function notificationCommands(
         ]
       : []),
   ];
+}
+
+/** The agent's task and provider. A chat with no messages yet is titled by its provider, so that shows once. */
+function renameSubtitle(session: AgentSession, projection: RuntimeProjection): string {
+  const provider = providerDisplayName(session.provider, projection.providers);
+  const title = sessionTitle(session, projection.messages, projection.providers);
+  return title === provider ? provider : `${title} · ${provider}`;
 }
 
 /** The content width of an element, kept current as it resizes. */
