@@ -14,7 +14,7 @@ import { toolActivity } from "./toolActivity.js";
 type DroidSessionClient = Pick<DroidClient, "sendTurn" | "interruptTurn" | "transcript" | "subscribe" | "close">;
 type ClientStart = Pick<
   ProviderSessionStart,
-  "cwd" | "permissionMode" | "model" | "worktreeId" | "account" | "resumeSessionId"
+  "cwd" | "permissionMode" | "model" | "worktreeId" | "account" | "resumeSessionId" | "trustedProjectPath"
 >;
 
 export class DroidProviderAdapter implements ProviderAdapter {
@@ -44,6 +44,7 @@ export class DroidProviderAdapter implements ProviderAdapter {
       ...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
       ...(input.account ? { account: input.account } : {}),
       ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
+      ...(input.trustedProjectPath ? { trustedProjectPath: input.trustedProjectPath } : {}),
     });
     const session: ProviderSession = {
       threadId: input.threadId,

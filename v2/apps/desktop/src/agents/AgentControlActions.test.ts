@@ -241,6 +241,33 @@ describe("agent control", () => {
     expect(sent[2]).toMatchObject({ type: "thread.send", text: "Write the API docs" });
   });
 
+  it("never starts an agent with more access than the agents in the caller's worktree", async () => {
+    const start = async (me: { status: string; permissionMode?: string }) => {
+      const { dispatch, sent, update, state } = harness({
+        onCommand: (command, current) => {
+          if (command.type !== "thread.start") return;
+          update({
+            ...current,
+            threads: [
+              ...current.threads,
+              thread(command.threadId as string, command.worktreeId as string, "idle", "2026-01-02T00:00:00.000Z"),
+            ],
+          } as RuntimeProjection);
+        },
+      });
+      update({
+        ...state(),
+        threads: state().threads.map((entry) => (entry.threadId === ME ? { ...entry, ...me } : entry)),
+      } as RuntimeProjection);
+      await dispatch("agentstart", { cwd: "/work/app", provider: "codex", prompt: "Review it", worktree: "same" });
+      return sent.find((command) => command.type === "thread.start")?.permissionMode;
+    };
+    expect(await start({ status: "idle", permissionMode: "read-only" })).toBe("read-only");
+    expect(await start({ status: "idle", permissionMode: "supervised" })).toBe("supervised");
+    expect(await start({ status: "idle" })).toBe("full-access");
+    expect(await start({ status: "stopped", permissionMode: "full-access" })).toBe("supervised");
+  });
+
   it("explains why an agent cannot start", async () => {
     const { dispatch, sent } = harness();
     await expect(dispatch("agentstart", { cwd: "/work/app", provider: "gemini", prompt: "x" })).rejects.toThrow(

@@ -50,6 +50,8 @@ test("runs a huddle where agents and the person talk, assign work, and pin a dec
     await dialog.getByText("Chat", { exact: true }).click();
     await dialog.getByRole("textbox", { name: "Name", exact: true }).fill("Lead");
     await dialog.getByRole("button", { name: "Start agent" }).click();
+    // Waiting through a locator lets the fixture answer the one-time "Let agents work" question.
+    await expect(page.getByRole("textbox", { name: "Message Lead" })).toBeEnabled({ timeout: 30_000 });
     const leadPath = await idleWorktreePath(page);
 
     const started = await zli(["start", "codex", "Wait for the huddle.", "--name", "Helper", "--cwd", leadPath]);

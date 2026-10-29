@@ -79,6 +79,14 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
         ),
         lastSequence: envelope.sequence,
       };
+    case "project.agents.changed":
+      return {
+        ...projection,
+        projects: projection.projects.map((project) =>
+          project.projectId === event.projectId ? { ...project, agentsTrusted: event.trusted } : project,
+        ),
+        lastSequence: envelope.sequence,
+      };
     case "project.renamed":
       return {
         ...projection,

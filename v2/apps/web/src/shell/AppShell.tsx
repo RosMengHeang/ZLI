@@ -71,12 +71,14 @@ import {
   sessionTitle,
 } from "../sessions/sessions.js";
 import { groupFinished, useRunStates } from "../sessions/useRunStates.js";
-import { forgetSession, useWorkbenchState } from "../sessions/workbench.js";
+import { forgetSession, keepPendingLaunch, useWorkbenchState } from "../sessions/workbench.js";
 import { resolveLaunchDefaults, updateAppSettings, useAppSettings } from "../settings/appSettings.js";
 import { ExpiredSignInNotice } from "../settings/ExpiredSignInNotice.js";
 import type { IntegrationsView } from "../settings/IntegrationsSection.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
 import { SettingsDialog, type SettingsSection } from "../settings/SettingsDialog.js";
+import { AgentTrustDialog } from "../setup/AgentTrustDialog.js";
+import { AGENTS_NOT_TRUSTED, useAgentTrust } from "../setup/agentTrust.js";
 import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
 import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
 import { Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
@@ -194,6 +196,8 @@ function WorkspaceApp() {
   const launching = useRef(new Set<string>());
   const projectionRef = useRef(projection);
   projectionRef.current = projection;
+  const { asking: trustAsking, ensureTrusted, answer: answerTrust } = useAgentTrust(projectionRef);
+  const agentTrustRef = useRef<string>(undefined);
 
   const sessions = useMemo(
     () => (projection ? deriveSessions(projection, workbench.pending, workbench.chats) : []),
@@ -525,6 +529,7 @@ function WorkspaceApp() {
       if (whatsNewRef.current) updates.dismissWhatsNew();
       const approval = setupApprovalRef.current;
       if (approval) deferSetup(approval);
+      if (agentTrustRef.current) answerTrust(agentTrustRef.current, false);
     },
   });
   useEffect(
@@ -539,11 +544,11 @@ function WorkspaceApp() {
   useEffect(() => {
     if (!projection) return;
     const existing = new Set(sessions.filter((session) => !session.pending).map((session) => session.sessionId));
-    const settled = workbench.pending.filter((launch) => existing.has(launch.sessionId));
-    if (settled.length > 0) {
+    const worktreeIds = new Set(projection.worktrees.map((worktree) => worktree.worktreeId));
+    if (workbench.pending.some((launch) => !keepPendingLaunch(launch, existing, worktreeIds))) {
       updateWorkbench((state) => ({
         ...state,
-        pending: state.pending.filter((launch) => !existing.has(launch.sessionId)),
+        pending: state.pending.filter((launch) => keepPendingLaunch(launch, existing, worktreeIds)),
       }));
     }
     for (const launch of workbench.pending) {
@@ -570,13 +575,15 @@ function WorkspaceApp() {
       }
       launching.current.add(launch.sessionId);
       const fork = launch.fork;
-      const forked = fork
-        ? forkWorktree(dispatch, worktree.worktreeId, fork).then(
-            () => undefined,
-            (cause: unknown) =>
-              cause instanceof Error ? cause.message : "The files could not be copied into the new worktree.",
-          )
-        : Promise.resolve(undefined);
+      const forked = ensureTrusted(worktree.projectId).then((trusted) => {
+        if (!trusted) return AGENTS_NOT_TRUSTED;
+        if (!fork) return undefined;
+        return forkWorktree(dispatch, worktree.worktreeId, fork).then(
+          () => undefined,
+          (cause: unknown) =>
+            cause instanceof Error ? cause.message : "The files could not be copied into the new worktree.",
+        );
+      });
       void forked
         .then(
           (failure) =>
@@ -584,7 +591,7 @@ function WorkspaceApp() {
             startSessionAgent(dispatch, projection, {
               provider,
               mode: launch.mode,
-              permissionMode: launch.permissionMode ?? "full-access",
+              permissionMode: launch.permissionMode ?? "supervised",
               ...(launch.model ? { model: launch.model } : {}),
               ...(launch.accountId ? { accountId: launch.accountId } : {}),
               ...(launch.name ? { name: launch.name } : {}),
@@ -615,7 +622,7 @@ function WorkspaceApp() {
           });
         });
     }
-  }, [dispatch, projection, sessions, updateWorkbench, workbench.pending]);
+  }, [dispatch, ensureTrusted, projection, sessions, updateWorkbench, workbench.pending]);
 
   // A first message goes out once its agent can take input: an idle chat, or a CLI that had time to draw.
   const delivering = useRef(new Set<string>());
@@ -770,7 +777,7 @@ function WorkspaceApp() {
         worktreeId: checkout.worktreeId,
         provider,
         mode: "chat",
-        permissionMode: defaults.permissionMode ?? "full-access",
+        permissionMode: defaults.permissionMode ?? "supervised",
         ...(defaults.provider === provider && defaults.model ? { model: defaults.model } : {}),
         ...(accountId ? { accountId } : {}),
         createdAt: new Date().toISOString(),
@@ -1273,16 +1280,21 @@ function WorkspaceApp() {
     if (!isSelectableProvider(session.provider)) return Promise.resolve("This agent is not supported.");
     const model = session.thread?.model ?? session.terminal?.agent?.model;
     const accountId = sessionAccountId(session);
-    const started = startSessionAgent(dispatch, projection, {
-      provider: session.provider,
-      mode,
-      permissionMode: session.thread?.permissionMode ?? session.terminal?.agent?.permissionMode ?? "full-access",
-      ...(model ? { model } : {}),
-      ...(accountId ? { accountId } : {}),
-      sessionId: session.sessionId,
-      worktreeId: worktree.worktreeId,
-      cwd: worktree.path,
-    });
+    const provider = session.provider;
+    const started = ensureTrusted(worktree.projectId).then((trusted) =>
+      trusted
+        ? startSessionAgent(dispatch, projection, {
+            provider,
+            mode,
+            permissionMode: session.thread?.permissionMode ?? session.terminal?.agent?.permissionMode ?? "full-access",
+            ...(model ? { model } : {}),
+            ...(accountId ? { accountId } : {}),
+            sessionId: session.sessionId,
+            worktreeId: worktree.worktreeId,
+            cwd: worktree.path,
+          })
+        : AGENTS_NOT_TRUSTED,
+    );
     // A chat started while an earlier one is on screen is the newest, so the tile shows it instead.
     return started.then((failure) => {
       if (!failure && mode === "chat") {
@@ -1450,6 +1462,20 @@ function WorkspaceApp() {
   const showSetupOutput = (worktreeId: string) => {
     focusWorktree(worktreeId);
     updateWorkbench((state) => ({ ...state, drawerOpen: true }));
+  };
+  const trustAgents = async (projectId: string): Promise<string | undefined> => {
+    try {
+      const response = await dispatch({
+        protocolVersion: 1,
+        commandId: makeCommandId(),
+        command: { type: "project.agents", projectId, trusted: true },
+      });
+      if (response?.accepted === false) return response.error.message;
+      answerTrust(projectId, true);
+      return undefined;
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : "The answer could not be saved.";
+    }
   };
   const respondToSetup = async (
     setup: WorktreeSetupProjection,
@@ -1754,10 +1780,14 @@ function WorkspaceApp() {
   // Waits behind other dialogs so it never stacks on top of one.
   const setupApproval = otherOverlayOpen ? undefined : nextSetupApproval(projection, deferredSetups);
   setupApprovalRef.current = setupApproval;
+  // Agents wait for this answer, and their worktree's setup comes first.
+  const agentTrustProjectId = otherOverlayOpen || setupApproval ? undefined : trustAsking;
+  agentTrustRef.current = agentTrustProjectId;
   // What's new waits behind everything else, setup approvals included.
-  const whatsNew = otherOverlayOpen || setupApproval ? undefined : updates.whatsNew;
+  const whatsNew = otherOverlayOpen || setupApproval || agentTrustProjectId ? undefined : updates.whatsNew;
   whatsNewRef.current = whatsNew !== undefined;
-  const overlayOpen = otherOverlayOpen || setupApproval !== undefined || whatsNew !== undefined;
+  const overlayOpen =
+    otherOverlayOpen || setupApproval !== undefined || agentTrustProjectId !== undefined || whatsNew !== undefined;
   const { columns, rows, tall } = gridLayout(visibleTiles.length, gridWidth);
   const handoffSession = handoffRequest
     ? sessions.find((session) => session.sessionId === handoffRequest.sessionId)
@@ -2248,6 +2278,14 @@ function WorkspaceApp() {
             worktree={findWorktree(setupApproval.worktreeId)}
             onRespond={(decision) => respondToSetup(setupApproval, decision)}
             onDefer={() => deferSetup(setupApproval)}
+          />
+        ) : null}
+        {agentTrustProjectId && projection ? (
+          <AgentTrustDialog
+            key={agentTrustProjectId}
+            project={projection.projects.find((project) => project.projectId === agentTrustProjectId)}
+            onTrust={() => trustAgents(agentTrustProjectId)}
+            onDecline={() => answerTrust(agentTrustProjectId, false)}
           />
         ) : null}
         {restartConfirm && readyUpdate ? (

@@ -884,3 +884,54 @@ describe("ProviderReactor accounts", () => {
     reactor.stop();
   });
 });
+
+describe("ProviderReactor folder trust", () => {
+  it("names the project folder for the agent to trust only after the person trusted the project", async () => {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service);
+    let sequence = 0;
+    const dispatch = (command: Parameters<Engine["dispatchPromise"]>[0]["command"]) => {
+      sequence += 1;
+      return engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`30000000-0000-4000-8000-0000000010${String(sequence).padStart(2, "0")}`),
+        command,
+      });
+    };
+    await dispatch({ type: "project.register", path: "C:\\workspace\\trust" });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    const projectId = ProjectId.parse(project.projectId);
+    const start = async (n: number) => {
+      const tree = WorktreeId.parse(`00000000-0000-4000-8000-000000000a1${n}`);
+      await dispatch({
+        type: "worktree.create",
+        worktreeId: tree,
+        projectId,
+        path: `C:\\workspace\\trust-${n}`,
+        workspaceRoot: "C:\\workspace",
+        branch: `feature/trust-${n}`,
+      });
+      await dispatch({
+        type: "thread.start",
+        threadId: ThreadId.parse(`00000000-0000-4000-8000-000000000a2${n}`),
+        worktreeId: tree,
+        provider: "codex",
+        cwd: `C:\\workspace\\trust-${n}`,
+      });
+      await reactor.waitForIdle();
+      // The fake reports one session for every thread, so the next start would look like a duplicate.
+      adapter.started = false;
+    };
+    await start(1);
+    await dispatch({ type: "project.agents", projectId, trusted: true });
+    await start(2);
+
+    expect(adapter.startInputs.map((input) => input.trustedProjectPath)).toEqual([undefined, "C:\\workspace\\trust"]);
+    reactor.stop();
+  });
+});

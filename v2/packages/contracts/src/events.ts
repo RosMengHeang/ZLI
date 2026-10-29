@@ -40,6 +40,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("project.archive.requested"), projectId: ProjectId }),
   z.object({ type: z.literal("project.archived"), projectId: ProjectId }),
   z.object({ type: z.literal("project.git.changed"), projectId: ProjectId, git: z.boolean() }),
+  z.object({ type: z.literal("project.agents.changed"), projectId: ProjectId, trusted: z.boolean() }),
   z.object({ type: z.literal("project.renamed"), projectId: ProjectId, name: z.string().min(1) }),
   z.object({
     type: z.literal("runtime.reactor.failed"),

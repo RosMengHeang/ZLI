@@ -89,7 +89,7 @@ export function NewAgentDialog({
   const [initial] = useState(() => launchStart(listed, resolveLaunchDefaults(settings, projectId, last)));
   const [provider, setProvider] = useState<ListedProviderKind | undefined>(initial.provider);
   const [mode, setMode] = useState<SessionMode>(initial.mode ?? "terminal");
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>(initial.permissionMode ?? "full-access");
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(initial.permissionMode ?? "supervised");
   const [model, setModel] = useState(initial.model ?? "");
   const [showMissing, setShowMissing] = useState(false);
   // Unset follows the agent's default account, which can change while the dialog is open.

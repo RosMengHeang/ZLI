@@ -624,6 +624,27 @@ describe("turn usage", () => {
   });
 });
 
+describe("agent trust", () => {
+  const projectId = ProjectId.parse("00000000-0000-4000-8000-000000000404");
+  const state: RuntimeProjection = {
+    ...projection("/work/app"),
+    projects: [{ projectId, path: "/work/app", name: "app" }],
+  };
+
+  it("records that the person let agents work in a project, and refuses an unknown project", () => {
+    expect(decide(state, { type: "project.agents", projectId, trusted: true })).toEqual([
+      { type: "project.agents.changed", projectId, trusted: true },
+    ]);
+    expect(() =>
+      decide(state, {
+        type: "project.agents",
+        projectId: ProjectId.parse("00000000-0000-4000-8000-000000000405"),
+        trusted: true,
+      }),
+    ).toThrow(DomainError);
+  });
+});
+
 describe("projects without Git", () => {
   const projectId = ProjectId.parse("00000000-0000-4000-8000-000000000403");
   const plain = (git: boolean | undefined): RuntimeProjection => ({

@@ -22,7 +22,7 @@ import {
   sessionStopCommands,
   sessionTitle,
 } from "./sessions.js";
-import { forgetSession, parseWorkbenchState } from "./workbench.js";
+import { forgetSession, keepPendingLaunch, parseWorkbenchState } from "./workbench.js";
 
 const worktreeId = "00000000-0000-4000-8000-000000000011";
 const sessionId = "00000000-0000-4000-8000-000000000201";
@@ -260,6 +260,16 @@ describe("helpers", () => {
     expect(next.pending).toEqual([]);
     expect(next.activeSessionId).toBeUndefined();
     expect(next.maximizedSessionId).toBeUndefined();
+  });
+
+  it("keeps a waiting launch until its session exists, and a failed one only while its worktree does", () => {
+    const launch = { sessionId: "a", worktreeId, provider: "codex", mode: "chat" as const, createdAt: "" };
+    const failed = { ...launch, errorMessage: "Not trusted" };
+    const none = new Set<string>();
+    expect(keepPendingLaunch(launch, none, none)).toBe(true);
+    expect(keepPendingLaunch(launch, new Set(["a"]), new Set([worktreeId]))).toBe(false);
+    expect(keepPendingLaunch(failed, none, new Set([worktreeId]))).toBe(true);
+    expect(keepPendingLaunch(failed, none, none)).toBe(false);
   });
 
   it("drops malformed workbench state from storage", () => {
