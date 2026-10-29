@@ -121,4 +121,20 @@ describe("MenuButton", () => {
     });
     expect(document.querySelector('[role="menu"]')).toBeNull();
   });
+
+  it("stays open while another part of the window scrolls, and closes when the button's own container scrolls", async () => {
+    const trigger = await render([{ id: "a", label: "First", run: vi.fn() }]);
+    const elsewhere = document.createElement("div");
+    document.body.append(elsewhere);
+    await act(async () => trigger.click());
+    act(() => {
+      elsewhere.dispatchEvent(new Event("scroll"));
+      (document.querySelector('[role="menu"]') as HTMLElement).dispatchEvent(new Event("scroll"));
+    });
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    act(() => {
+      trigger.parentElement?.dispatchEvent(new Event("scroll"));
+    });
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+  });
 });

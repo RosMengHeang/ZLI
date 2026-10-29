@@ -1,6 +1,7 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { scrollMovesAnchor } from "./anchoredScroll.js";
 import { Icon } from "./Icon.js";
 
 export type PickerOption<T extends string> = {
@@ -109,7 +110,7 @@ export function Picker<T extends string>({
       if (!inside(event.target)) close(false);
     };
     const onScroll = (event: Event) => {
-      if (!inside(event.target)) close(false);
+      if (scrollMovesAnchor(event, triggerRef.current)) close(false);
     };
     const onLeave = () => close(false);
     document.addEventListener("pointerdown", onPointerDown, true);

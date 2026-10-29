@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { scrollMovesAnchor } from "./anchoredScroll.js";
 import { type ButtonVariant, cx } from "./Button.js";
 import { Icon, type IconName } from "./Icon.js";
 import { ariaShortcut, shortcutText } from "./shortcuts.js";
@@ -98,6 +99,7 @@ export function Menu({ request, onClose }: { request: MenuRequest; onClose(): vo
       if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
       if (event.type === "pointerdown" && event.target instanceof Node && request.anchor?.contains(event.target))
         return;
+      if (event.type === "scroll" && !scrollMovesAnchor(event, request.anchor)) return;
       onClose();
     };
     document.addEventListener("pointerdown", close, true);
@@ -331,7 +333,7 @@ function AnchoredMenuButton({
       if (!inside(event.target)) close(false);
     };
     const onScroll = (event: Event) => {
-      if (!inside(event.target)) close(false);
+      if (scrollMovesAnchor(event, triggerRef.current)) close(false);
     };
     const onLeave = () => close(false);
     document.addEventListener("pointerdown", onPointerDown, true);

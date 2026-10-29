@@ -56,6 +56,9 @@ test("runs a huddle where agents and the person talk, assign work, and pin a dec
     expect(started.stderr).toBe("");
     const helperPath = (JSON.parse(started.stdout) as { worktree: { path: string } }).worktree.path;
     await expect(page.locator(".agent-tile")).toHaveCount(2);
+    // Helper's first answer lands while its tile settles; adding it to the huddle waits until then.
+    const helperTile = page.getByRole("region", { name: /^Helper,/u });
+    await expect(helperTile.getByText(/^Mock response/u).first()).toBeVisible({ timeout: 20_000 });
 
     await page.getByRole("button", { name: "Huddle", exact: true }).click();
     const pane = page.getByRole("region", { name: "Huddle", exact: true });
