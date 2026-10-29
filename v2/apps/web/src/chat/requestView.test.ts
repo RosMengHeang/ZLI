@@ -29,6 +29,24 @@ describe("describeApproval", () => {
     expect(view.choices.map((choice) => choice.label)).toEqual(["Approve", "Approve for this chat", "Decline"]);
   });
 
+  it("names the MCP server and its question when Codex asks before a tool call", () => {
+    const view = describeApproval("codex", {
+      serverName: "zli-browser",
+      message: 'Allow the zli-browser MCP server to run tool "open"?',
+      _meta: { codex_approval_kind: "mcp_tool_call" },
+      availableDecisions: ["accept", "acceptForSession", "decline"],
+    });
+    expect(view.title).toBe("Use an MCP tool");
+    expect(view.fields).toEqual([
+      { label: "Server", value: "zli-browser", mono: true },
+      { label: "Request", value: 'Allow the zli-browser MCP server to run tool "open"?' },
+    ]);
+    expect(view.choices.map((choice) => choice.label)).toEqual(["Approve", "Approve for this chat", "Decline"]);
+    expect(describeApproval("codex", { reason: "fetch", permissions: { network: {} } }).title).toBe(
+      "Allow more access",
+    );
+  });
+
   it("uses the agent's own options for ACP requests", () => {
     const view = describeApproval("gemini", {
       toolName: "Edit README.md",

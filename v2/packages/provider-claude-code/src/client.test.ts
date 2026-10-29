@@ -90,6 +90,12 @@ function line(value: unknown): string {
   return `${JSON.stringify(value)}\n`;
 }
 
+/** What the CLI prints when it accepts the initialize request written first on stdin. */
+function initializeReply(written: readonly string[]): string {
+  const request = JSON.parse(written[0] ?? "{}") as { request_id?: string };
+  return line({ type: "control_response", response: { subtype: "success", request_id: request.request_id } });
+}
+
 async function startedClient(): Promise<{ client: ClaudeCodeClient; peer: FakePeer; events: ClaudeProviderEvent[] }> {
   const peer = new FakePeer();
   const pending = ClaudeCodeClient.start({ peer, cwd: "/work/tree" });
@@ -260,6 +266,21 @@ describe("ClaudeCodeClient", () => {
     expect(peer.written).toHaveLength(6);
   });
 
+  it("starts on the initialize reply, because the CLI prints its init record only after the first message", async () => {
+    const peer = new FakePeer();
+    const pending = ClaudeCodeClient.start({ peer, cwd: "/work/tree", initTimeoutMs: 1_000 });
+    peer.emit(JSON.parse(initializeReply(peer.written)));
+    const client = await pending;
+    const events: ClaudeProviderEvent[] = [];
+    client.subscribe((event) => events.push(event));
+    expect(client.sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u);
+
+    await client.sendTurn({ text: "Hi" });
+    expect(JSON.parse(peer.written.at(-1) ?? "{}")).toMatchObject({ type: "user", session_id: client.sessionId });
+    peer.emit({ type: "system", subtype: "init", session_id: client.sessionId });
+    expect(events).toEqual([{ type: "turn.started", providerTurnId: expect.any(String) }]);
+  });
+
   it("does not hang when session init never arrives", async () => {
     const peer = new FakePeer();
     const started = Date.now();
@@ -310,8 +331,9 @@ describe("ClaudeCodeClient", () => {
         return child;
       },
     });
-    child.stdout.emit("data", '{"type":"system","subtype":"init",');
-    child.stdout.emit("data", '"session_id":"sess-9"}\r\n');
+    const reply = initializeReply(child.written);
+    child.stdout.emit("data", reply.slice(0, 20));
+    child.stdout.emit("data", `${reply.slice(20, -1)}\r\n`);
     child.stderr.emit("data", "debug line\n");
     const client = await pending;
     const events: ClaudeProviderEvent[] = [];
@@ -322,7 +344,7 @@ describe("ClaudeCodeClient", () => {
     expect(command).toBe("/usr/bin/claude");
     expect(args[0]).toBe("-p");
     expect(args).toContain("-p");
-    expect(args).toEqual(CLAUDE_SESSION_ARGS);
+    expect(args).toEqual([...CLAUDE_SESSION_ARGS, "--session-id", client.sessionId]);
     expect(calls[0]).toMatchObject({ cwd: "/work/tree", shell: false, windowsHide: true });
     expect(calls[0]?.env.PWD).toBe("/work/tree");
     expect(calls[0]?.env.CLAUDECODE).toBeUndefined();
@@ -488,8 +510,8 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
         return child;
       },
     });
-    child.stdout.emit("data", line({ type: "system", subtype: "init", session_id: "sess-s" }));
-    await pending;
+    child.stdout.emit("data", initializeReply(child.written));
+    const client = await pending;
     expect(args).toEqual([
       "-p",
       "--output-format",
@@ -504,6 +526,8 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
       "stdio",
       "--model",
       "sonnet",
+      "--session-id",
+      client.sessionId,
     ]);
   });
 
@@ -520,9 +544,16 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
         return child;
       },
     });
-    child.stdout.emit("data", line({ type: "system", subtype: "init", session_id: "sess-m" }));
-    await pending;
-    expect(args.slice(-4)).toEqual(["--model", "sonnet", "--mcp-config", "/data/mcp/claude-wt.json"]);
+    child.stdout.emit("data", initializeReply(child.written));
+    const client = await pending;
+    expect(args.slice(-6)).toEqual([
+      "--model",
+      "sonnet",
+      "--session-id",
+      client.sessionId,
+      "--mcp-config",
+      "/data/mcp/claude-wt.json",
+    ]);
     expect(args).toContain("bypassPermissions");
   });
 
@@ -686,8 +717,9 @@ describe("ClaudeCodeClient resume", () => {
         return child;
       },
     });
-    child.stdout.emit("data", line({ type: "system", subtype: "init", session_id: "sess-old" }));
+    child.stdout.emit("data", initializeReply(child.written));
     const client = await pending;
+    expect(args).not.toContain("--session-id");
     expect(args.slice(-6)).toEqual([
       "--model",
       "sonnet",
@@ -699,7 +731,7 @@ describe("ClaudeCodeClient resume", () => {
     expect(client.sessionId).toBe("sess-old");
   });
 
-  it("does not pass --resume for a new conversation", async () => {
+  it("passes its own --session-id instead of --resume for a new conversation", async () => {
     const child = new FakeProcess();
     let args: readonly string[] = [];
     const pending = ClaudeCodeClient.start({
@@ -712,10 +744,10 @@ describe("ClaudeCodeClient resume", () => {
         return child;
       },
     });
-    child.stdout.emit("data", line({ type: "system", subtype: "init", session_id: "sess-new" }));
+    child.stdout.emit("data", initializeReply(child.written));
     const client = await pending;
     expect(args).not.toContain("--resume");
-    expect(client.sessionId).toBe("sess-new");
+    expect(args[args.indexOf("--session-id") + 1]).toBe(client.sessionId);
   });
 
   it("reports a changed conversation id from a later init and sends turns under it", async () => {
