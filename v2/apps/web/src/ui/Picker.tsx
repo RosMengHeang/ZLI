@@ -1,7 +1,7 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { scrollMovesAnchor } from "./anchoredScroll.js";
+import { scrollMovesAnchor, useAnchoredPlacement } from "./anchoredPopup.js";
 import { Icon } from "./Icon.js";
 
 export type PickerOption<T extends string> = {
@@ -15,8 +15,6 @@ export type PickerOption<T extends string> = {
    */
   group?: string | undefined;
 };
-
-type Placement = { left: number; maxHeight: number; minWidth: number } & ({ top: number } | { bottom: number });
 
 const GAP = 6;
 const EDGE = 8;
@@ -57,9 +55,15 @@ export function Picker<T extends string>({
   id?: string | undefined;
 }) {
   const [open, setOpen] = useState(false);
-  const [placement, setPlacement] = useState<Placement>();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const placement = useAnchoredPlacement(open, triggerRef, menuRef, {
+    prefer: variant === "field" ? "below" : "above",
+    align: "start",
+    gap: GAP,
+    edge: EDGE,
+    matchWidth: variant === "field",
+  });
   const listId = useId();
   const current = options.find((option) => option.value === value);
   const withIcons = options.some((option) => option.icon !== undefined);
@@ -67,28 +71,8 @@ export function Picker<T extends string>({
 
   const close = (returnFocus: boolean) => {
     setOpen(false);
-    setPlacement(undefined);
     if (returnFocus) triggerRef.current?.focus();
   };
-
-  useLayoutEffect(() => {
-    if (!open) return;
-    const anchor = triggerRef.current?.getBoundingClientRect();
-    const menu = menuRef.current;
-    if (!anchor || !menu) return;
-    const above = anchor.top - GAP - EDGE;
-    const below = window.innerHeight - anchor.bottom - GAP - EDGE;
-    const minWidth = variant === "field" ? anchor.width : 0;
-    const width = Math.max(menu.offsetWidth, minWidth);
-    const left = Math.max(EDGE, Math.min(anchor.left, window.innerWidth - width - EDGE));
-    const height = menu.offsetHeight;
-    const up = variant === "field" ? height > below && above > below : height <= above || above >= below;
-    setPlacement(
-      up
-        ? { left, minWidth, bottom: window.innerHeight - anchor.top + GAP, maxHeight: above }
-        : { left, minWidth, top: anchor.bottom + GAP, maxHeight: below },
-    );
-  }, [open, variant]);
 
   // The list is measured while hidden, and hidden elements cannot take focus, so focus waits for placement.
   const placed = placement !== undefined;
@@ -221,7 +205,7 @@ export function Picker<T extends string>({
               data-side={placement && "top" in placement ? "bottom" : "top"}
               style={
                 placement
-                  ? { ...placement, maxHeight: Math.max(120, placement.maxHeight) }
+                  ? { minWidth: 0, ...placement, maxHeight: Math.max(120, placement.maxHeight) }
                   : { left: 0, top: 0, visibility: "hidden" }
               }
             >

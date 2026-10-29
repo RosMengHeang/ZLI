@@ -10,7 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { scrollMovesAnchor } from "./anchoredScroll.js";
+import { scrollMovesAnchor, useAnchoredPlacement } from "./anchoredPopup.js";
 import { type ButtonVariant, cx } from "./Button.js";
 import { Icon, type IconName } from "./Icon.js";
 import { ariaShortcut, shortcutText } from "./shortcuts.js";
@@ -63,8 +63,6 @@ const EDGE = 4;
 const GAP = 4;
 const ANCHORED_GAP = 6;
 const ENABLED = ':is([role="menuitem"], [role="menuitemcheckbox"]):not([aria-disabled="true"])';
-
-type Placement = { left: number; maxHeight: number } & ({ top: number } | { bottom: number });
 
 function isAction(item: MenuItem): item is MenuAction {
   return !("separator" in item);
@@ -282,9 +280,14 @@ function AnchoredMenuButton({
   ref,
 }: AnchoredMenuButtonProps) {
   const [open, setOpen] = useState(false);
-  const [placement, setPlacement] = useState<Placement>();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const placement = useAnchoredPlacement(open, triggerRef, menuRef, {
+    prefer: "above",
+    align: "end",
+    gap: ANCHORED_GAP,
+    edge: EDGE,
+  });
   const menuId = useId();
   const focusLastRef = useRef(false);
 
@@ -296,25 +299,8 @@ function AnchoredMenuButton({
 
   const close = (returnFocus: boolean) => {
     setOpen(false);
-    setPlacement(undefined);
     if (returnFocus) triggerRef.current?.focus();
   };
-
-  useLayoutEffect(() => {
-    if (!open) return;
-    const anchor = triggerRef.current?.getBoundingClientRect();
-    const menu = menuRef.current;
-    if (!anchor || !menu) return;
-    const above = anchor.top - ANCHORED_GAP - EDGE;
-    const below = window.innerHeight - anchor.bottom - ANCHORED_GAP - EDGE;
-    const left = Math.max(EDGE, Math.min(anchor.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - EDGE));
-    const up = menu.offsetHeight <= above || above >= below;
-    setPlacement(
-      up
-        ? { left, bottom: window.innerHeight - anchor.top + ANCHORED_GAP, maxHeight: above }
-        : { left, top: anchor.bottom + ANCHORED_GAP, maxHeight: below },
-    );
-  }, [open]);
 
   // The menu is measured while hidden, and hidden elements cannot take focus, so focus waits for placement.
   const placed = placement !== undefined;
