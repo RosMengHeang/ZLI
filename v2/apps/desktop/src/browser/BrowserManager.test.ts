@@ -2,7 +2,13 @@ import { browserViewportForPreset } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { BrowserAutomation } from "./BrowserAutomation.js";
-import { BrowserManager, type BrowserViewFactory, emulationFor, fitViewport } from "./BrowserManager.js";
+import {
+  BrowserManager,
+  type BrowserViewFactory,
+  emulationFor,
+  fitViewport,
+  toWindowPixels,
+} from "./BrowserManager.js";
 
 const worktreeId = "00000000-0000-4000-8000-000000000001";
 const profileId = "00000000-0000-4000-8000-000000000002";
@@ -504,5 +510,74 @@ describe("fitViewport and emulationFor", () => {
     expect(emulationFor({ preset: "pixel-8", width: 412, height: 915, mobile: true }, 1).userAgent).toContain(
       "Android",
     );
+  });
+});
+
+describe("toWindowPixels", () => {
+  it("keeps bounds as they are at 100% zoom", () => {
+    const bounds = { x: 630, y: 65, width: 300, height: 431 };
+    expect(toWindowPixels(bounds, 1)).toBe(bounds);
+  });
+
+  it("scales the pane's CSS pixels to window pixels without opening a gap at the edges", () => {
+    expect(toWindowPixels({ x: 630, y: 65, width: 301, height: 431 }, 1.1)).toEqual({
+      x: 693,
+      y: 72,
+      width: 331,
+      height: 474,
+    });
+    expect(toWindowPixels({ x: 100, y: 50, width: 400, height: 300 }, 0.9)).toEqual({
+      x: 90,
+      y: 45,
+      width: 360,
+      height: 270,
+    });
+  });
+});
+
+describe("BrowserManager zoom", () => {
+  it("places the page on the pane when the window is zoomed, and again after the zoom changes", async () => {
+    let zoom = 1.1;
+    const view = createFakeView("https://example.com");
+    const manager = new BrowserManager(
+      { create: () => view },
+      { addChildView: () => undefined, removeChildView: () => undefined },
+      { zoomFactor: () => zoom },
+    );
+    const tab = await manager.create({ worktreeId, profileId, url: "https://example.com" });
+    await manager.setBounds(tab.browserTabId, { x: 630, y: 65, width: 301, height: 431 });
+    expect(view.bounds).toEqual({ x: 693, y: 72, width: 331, height: 474 });
+
+    zoom = 1;
+    await manager.relayout();
+    expect(view.bounds).toEqual({ x: 630, y: 65, width: 301, height: 431 });
+  });
+
+  it("draws an emulated device at the window's zoom", async () => {
+    const emulations: unknown[] = [];
+    const view = createFakeView("https://example.com");
+    const manager = new BrowserManager(
+      { create: () => view },
+      { addChildView: () => undefined, removeChildView: () => undefined },
+      {
+        zoomFactor: () => 1.25,
+        automationFactory: () => ({
+          cdp: {} as never,
+          designMode: {} as never,
+          automation: {
+            start: async () => undefined,
+            dispose: () => undefined,
+            emulate: async (emulation: unknown) => {
+              emulations.push(emulation);
+            },
+          } as unknown as BrowserAutomation,
+        }),
+      },
+    );
+    const tab = await manager.create({ worktreeId, profileId, url: "https://example.com" });
+    await manager.setBounds(tab.browserTabId, { x: 0, y: 0, width: 800, height: 1000 });
+    await manager.setViewport(tab.browserTabId, { width: 400, height: 800, mobile: true });
+    expect(view.bounds).toEqual({ x: 250, y: 125, width: 500, height: 1000 });
+    expect(emulations.at(-1)).toMatchObject({ width: 400, height: 800, scale: 1.25 });
   });
 });
