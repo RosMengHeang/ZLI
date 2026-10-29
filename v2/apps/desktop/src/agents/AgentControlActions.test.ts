@@ -670,6 +670,18 @@ describe("huddles", () => {
     const h = harness({
       ...options,
       onCommand: (command, current) => {
+        if (command.type === "huddle.read")
+          h.update({
+            ...current,
+            huddles: current.huddles?.map((huddle) => ({
+              ...huddle,
+              members: huddle.members.map((member) =>
+                member.agentId === command.agentId
+                  ? { ...member, readUpTo: Math.max(member.readUpTo ?? 0, command.upTo as number) }
+                  : member,
+              ),
+            })),
+          });
         if (command.type === "thread.start")
           h.update({
             ...current,
@@ -705,7 +717,7 @@ describe("huddles", () => {
           })),
           createdAt: "2026-01-03T00:00:00.000Z",
           updatedAt: "2026-01-03T00:00:00.000Z",
-          agentStreak: 0,
+          agentTurns: 0,
           nextNumber: posts.length + 1,
         },
       ],
@@ -877,6 +889,35 @@ describe("huddles", () => {
       huddles: h.state().huddles?.map((huddle) => ({ ...huddle, members: huddle.members.slice(1) })),
     } as RuntimeProjection);
     await expect(left).rejects.toThrow("You were taken out of the huddle, so you can no longer read it.");
+  });
+
+  it("keeps the read place in the runtime, so it survives a restart of the tool", async () => {
+    const h = inHuddle([ME, PEER], [post(1, undefined, "Plan"), post(2, PEER, "API is ready")]);
+    await h.dispatch("huddleread", { cwd: "/work/app" });
+    expect(h.sent.filter((command) => command.type === "huddle.read")).toEqual([
+      { type: "huddle.read", huddleId: HUDDLE, agentId: ME, upTo: 2 },
+    ]);
+    expect(h.state().huddles?.[0]?.members[0]?.readUpTo).toBe(2);
+  });
+
+  it("writes to the lead by default in lead mode, and to everyone as the lead", async () => {
+    const h = inHuddle([ME, PEER, TERMINAL]);
+    const lead = (agentId: string) =>
+      h.update({
+        ...h.state(),
+        huddles: h.state().huddles?.map((huddle) => ({ ...huddle, lead: agentId })),
+      } as RuntimeProjection);
+    lead(PEER);
+    const result = (await h.dispatch("huddlepost", { cwd: "/work/app", text: "Login form done", kind: "done" })) as {
+      to: unknown;
+    };
+    expect(h.sent.at(-1)).toMatchObject({ type: "huddle.post", to: [PEER], kind: "done" });
+    expect(result.to).toEqual(["Helper"]);
+    const read = (await h.dispatch("huddleread", { cwd: "/work/app" })) as { lead?: string };
+    expect(read.lead).toBe("Helper leads this huddle. Your posts go to the lead unless you name someone else.");
+    lead(ME);
+    await h.dispatch("huddlepost", { cwd: "/work/app", text: "Split the work", kind: "assign" });
+    expect(h.sent.at(-1)).toMatchObject({ to: "everyone" });
   });
 
   it("lists pinned decisions", async () => {

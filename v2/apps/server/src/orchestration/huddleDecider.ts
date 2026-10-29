@@ -1,12 +1,14 @@
 import {
-  HUDDLE_AGENT_STREAK_LIMIT,
   HUDDLE_PAUSED_REASON,
   type HuddleCommand,
   type HuddleMemberKind,
   type HuddleProjection,
   type HuddleSender,
   huddleAgentInfo,
+  huddleKindWantsAnswer,
+  huddlePostsOf,
   huddleRecipients,
+  huddleWakes,
   MAX_HUDDLE_MEMBERS,
   type RuntimeProjection,
 } from "@zli-v2/contracts";
@@ -76,8 +78,34 @@ export function decideHuddle(projection: RuntimeProjection, command: HuddleComma
     }
     case "huddle.resume": {
       const huddle = requireOpenHuddle(projection, command.huddleId);
-      if (!huddle.paused && huddle.agentStreak === 0) return [];
+      if (!huddle.paused && !huddle.agentTurns) return [];
       return [{ type: "huddle.resumed", huddleId: command.huddleId }];
+    }
+    case "huddle.lead": {
+      const huddle = requireOpenHuddle(projection, command.huddleId);
+      if (command.agentId !== undefined && !huddle.members.some((member) => member.agentId === command.agentId))
+        throw new DomainError("huddle_member_missing", "Only a member of the huddle can lead it.");
+      if (huddle.lead === command.agentId) return [];
+      return [
+        {
+          type: "huddle.lead.changed",
+          huddleId: command.huddleId,
+          ...(command.agentId !== undefined ? { agentId: command.agentId } : {}),
+        },
+      ];
+    }
+    case "huddle.read": {
+      const huddle = requireOpenHuddle(projection, command.huddleId);
+      const member = huddle.members.find((candidate) => candidate.agentId === command.agentId);
+      if (!member) throw new DomainError("huddle_member_missing", "Only members of the huddle can read it.");
+      const upTo = Math.min(command.upTo, huddle.nextNumber - 1);
+      const unread = huddlePostsOf(projection, huddle.huddleId).some(
+        (post) =>
+          post.number <= upTo &&
+          post.deliveries.some((delivery) => delivery.agentId === command.agentId && delivery.status === "inbox"),
+      );
+      if (upTo <= (member.readUpTo ?? 0) && !unread && !member.typed) return [];
+      return [{ type: "huddle.member.read", huddleId: command.huddleId, agentId: command.agentId, upTo }];
     }
     case "huddle.delivery": {
       const post = (projection.huddlePosts ?? []).find((candidate) => candidate.postId === command.postId);
@@ -122,8 +150,17 @@ function decidePost(
       "huddle_member_missing",
       from.kind === "person" ? "Add an agent to the huddle first." : "Nobody else is in this huddle yet.",
     );
+  const posts = huddlePostsOf(projection, huddle.huddleId);
+  const sender = huddle.members.find((member) => member.agentId === command.from);
+  const replied = command.replyTo ? posts.find((post) => post.postId === command.replyTo) : undefined;
+  if (sender?.posted && !command.auto && !(replied && huddleKindWantsAnswer(replied.kind)))
+    throw new DomainError(
+      "huddle_posted",
+      "You already posted since your last huddle message, so this was not posted. Wait until someone writes to you, and next time put everything into one post; it can name several members. Answers to an ask, a task, or a blocker are always allowed: pass the number you answer as replyTo (--reply-to in the CLI).",
+    );
   // Agent messages past the limit wait, unseen by other agents, until the person writes or resumes.
-  const held = from.kind === "agent" && (huddle.paused === true || huddle.agentStreak + 1 > HUDDLE_AGENT_STREAK_LIMIT);
+  const held = from.kind === "agent" && huddle.paused === true;
+  const draft = { from, to: command.to, kind: command.kind, ...(command.replyTo ? { replyTo: command.replyTo } : {}) };
   return {
     type: "huddle.posted",
     post: {
@@ -138,9 +175,11 @@ function decidePost(
       ...(command.auto ? { auto: true as const } : {}),
       ...(command.cut ? { cut: true as const } : {}),
       deliveries: recipients.map((agentId) =>
-        held
-          ? { agentId, status: "held" as const, reason: HUDDLE_PAUSED_REASON }
-          : { agentId, status: "pending" as const },
+        !huddleWakes(huddle, posts, draft, agentId)
+          ? { agentId, status: "inbox" as const }
+          : held
+            ? { agentId, status: "held" as const, reason: HUDDLE_PAUSED_REASON }
+            : { agentId, status: "pending" as const },
       ),
     },
   };

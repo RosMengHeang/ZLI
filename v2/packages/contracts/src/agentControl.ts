@@ -125,9 +125,9 @@ export type AgentControlHuddleReadInput = z.infer<typeof AgentControlHuddleReadI
 export const AgentControlHuddlePostInput = AgentControlTarget.extend({
   huddle: HuddleRef.optional(),
   text: z.string().trim().min(1, "Write the message to post.").max(8_000),
-  /** everyone (default), person for only the person, or member names or ids. */
+  /** everyone (the default, or the lead in lead mode), person for only the person, or member names or ids. */
   to: z.union([z.literal("everyone"), z.literal("person"), z.array(AgentRef).min(1).max(12)]).optional(),
-  kind: z.enum(["ask", "assign", "note"]).optional(),
+  kind: z.enum(["ask", "assign", "done", "blocked", "note"]).optional(),
   /** The number of the message this answers. */
   replyTo: z.number().int().positive().optional(),
   /** Starts a new agent as the caller's sub-agent, adds it to the huddle, and sends it this message. */

@@ -143,12 +143,62 @@ describe("HuddlePane", () => {
   });
 
   it("shows the paused bar and resumes", async () => {
-    const { commands } = await renderPane(huddleProjection({ huddles: [huddle({ paused: true, agentStreak: 13 })] }));
+    const { commands } = await renderPane(huddleProjection({ huddles: [huddle({ paused: true, agentTurns: 8 })] }));
     expect(document.body.textContent).toContain(
-      "Paused after 12 agent messages in a row. Agent messages wait until you write or resume.",
+      "Paused after agents started 8 turns for each other. Their messages wait until you write or resume.",
     );
     await click(buttonNamed("Resume"));
     expect(commands).toContainEqual({ type: "huddle.resume", huddleId });
+  });
+
+  it("marks the lead, picks another one, and ends lead mode", async () => {
+    const { commands } = await renderPane(huddleProjection({ huddles: [huddle({ lead: helperId })] }));
+    const members = byLabel<HTMLUListElement>("Members");
+    expect(members.querySelector(".huddle-member-lead")?.closest("li")?.textContent).toContain("Helper");
+    expect(document.body.textContent).toContain(
+      "Helper leads. The other agents report to Helper unless they name someone.",
+    );
+    const pick = async (label: string) => {
+      await click(document.querySelector('[aria-label^="Lead"]'));
+      await click(
+        [...document.querySelectorAll('[role="option"]')].find((option) => option.textContent?.startsWith(label)),
+      );
+    };
+    await pick("Coder");
+    expect(commands).toContainEqual({ type: "huddle.lead", huddleId, agentId: coderId });
+    await pick("No lead");
+    expect(commands).toContainEqual({ type: "huddle.lead", huddleId });
+  });
+
+  it("labels Done and Blocked, and says which members a post started no turn for", async () => {
+    const reports = [
+      ...posts,
+      {
+        ...posts[2],
+        postId: "00000000-0000-4000-8000-000000000604",
+        number: 4,
+        kind: "done",
+        to: "everyone",
+        decision: undefined,
+        text: "Changelog written.",
+        deliveries: [{ agentId: helperId, status: "inbox" }],
+      },
+      {
+        ...posts[2],
+        postId: "00000000-0000-4000-8000-000000000605",
+        number: 5,
+        kind: "blocked",
+        to: "person",
+        decision: undefined,
+        text: "Which version number?",
+        deliveries: [],
+      },
+    ] as unknown as typeof posts;
+    await renderPane(huddleProjection({ huddlePosts: reports }));
+    expect(post(4).querySelector(".huddle-kind")?.textContent).toBe("Done");
+    expect(post(4).textContent).toContain("No turn started for Helper. They see it when they next read the huddle.");
+    expect(post(5).querySelector(".huddle-kind")?.textContent).toBe("Blocked");
+    expect(byLabel<HTMLUListElement>("Members").textContent).toContain("1 unread");
   });
 
   it("pins and unpins decisions", async () => {

@@ -1,4 +1,4 @@
-import { ListedProviderKind, READ_AGENT_CONTROL_ACTIONS } from "@zli-v2/contracts";
+import { HUDDLE_AGENT_TURN_LIMIT, ListedProviderKind, READ_AGENT_CONTROL_ACTIONS } from "@zli-v2/contracts";
 
 import type { ZliBrowserCall } from "../browser-tool/client.js";
 import { createToolServer, type McpServer, type McpTool } from "../browser-tool/mcp.js";
@@ -108,7 +108,7 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
     name: "huddle_read",
     title: "Read huddle",
     action: "huddleread",
-    description: `${HUDDLE} Read the huddle messages you have not read yet, with who wrote each one, to whom, and its number, plus the members. The first call returns the latest messages. Up to 50 come back at a time, oldest unread first: when moreUnread is set, call again for the rest. earlierNotShown means older messages exist; pass before with the oldest number you got to read them.`,
+    description: `${HUDDLE} Read the huddle messages you have not read yet, with who wrote each one, to whom, and its number, plus the members. The first call returns the latest messages. Up to 50 come back at a time, oldest unread first: when moreUnread is set, call again for the rest. earlierNotShown means older messages exist; pass before with the oldest number you got to read them. Reading clears your inbox, the messages that started no turn for you.`,
     properties: {
       huddle: HUDDLE_REF,
       all: { type: "boolean", description: "Return the latest messages, read or not." },
@@ -126,7 +126,7 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
     name: "huddle_post",
     title: "Post in huddle",
     action: "huddlepost",
-    description: `${HUDDLE} Write in the huddle. Members get it as their next prompt; a busy chat agent reads it after its turn. kind ask wants an answer and assign hands over a task: a chat agent's answer to either is posted back to the huddle for it. note (the default) shares information or answers, and expects nothing back, so use note to answer. After 12 agent messages in a row the huddle holds the rest until the person writes.`,
+    description: `${HUDDLE} Write in the huddle. Post when you finish (kind done), are stuck (blocked), or need an answer (ask), and put everything in one post: a second post before anyone writes to you is refused unless it answers an ask, a task, or a blocker. Do not post to acknowledge or thank. A post starts a turn only for the members it names, when it asks, assigns, reports done, or is blocked; a busy chat agent gets them together after its turn. A note, or a post to everyone, starts no turn: members see it when they next read. A chat agent's answer to an ask or a task is posted back for it. After agents start ${HUDDLE_AGENT_TURN_LIMIT} turns for each other, the huddle holds their messages until the person writes.`,
     properties: {
       huddle: HUDDLE_REF,
       text: { type: "string", description: "The message, up to 8000 characters." },
@@ -134,10 +134,20 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
         type: "array",
         items: { type: "string" },
         description:
-          'Member names or ids to write to. Leave it out to write to every member. ["person"] writes to the person only.',
+          'Member names or ids to write to: name who should act. Leave it out to write to every member, or to the lead when the huddle has one. ["person"] writes to the person only.',
       },
-      kind: { type: "string", enum: ["ask", "assign", "note"], description: "ask, assign, or note (default)." },
-      replyTo: { type: "integer", minimum: 1, description: "The number of the message this answers." },
+      kind: {
+        type: "string",
+        enum: ["ask", "assign", "done", "blocked", "note"],
+        description:
+          "ask wants an answer, assign hands over a task, done reports finished work, blocked asks for a decision you need, note (default) shares information and starts no turn.",
+      },
+      replyTo: {
+        type: "integer",
+        minimum: 1,
+        description:
+          "The number of the message this answers. Answers to an ask, a task, or a blocker are always allowed.",
+      },
       start: {
         type: "object",
         description:
@@ -211,7 +221,7 @@ export function createAgentMcpServer(call: ZliBrowserCall): McpServer {
   return createToolServer(call, {
     tools: AGENT_MCP_TOOLS,
     serverInfo: { name: "zli", title: "ZLI agents", version: ZLI_AGENT_TOOL_VERSION },
-    instructions: `${ROOM} Use list_agents to see who else is working in this project, read_agent to check on them, message_agent to coordinate, and start_agent to hand off a separate task. When you are in a huddle, talk there with huddle_read, huddle_post, and huddle_wait, and follow the decisions from huddle_decisions. Refer to agents by name when they have one. Agents in other projects are written project/agent and need ZLI Settings to allow every project. Use connect_service when you need a service such as GitHub or Linear that you have no tools for, or that needs a sign-in.`,
+    instructions: `${ROOM} Use list_agents to see who else is working in this project, read_agent to check on them, message_agent to coordinate, and start_agent to hand off a separate task. When you are in a huddle, talk there with huddle_read, huddle_post, and huddle_wait, post only when you are done, blocked, or need an answer, and follow the decisions from huddle_decisions. Refer to agents by name when they have one. Agents in other projects are written project/agent and need ZLI Settings to allow every project. Use connect_service when you need a service such as GitHub or Linear that you have no tools for, or that needs a sign-in.`,
     targetProperties: {
       cwd: {
         type: "string",
