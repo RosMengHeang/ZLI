@@ -22,7 +22,7 @@ describe("app settings", () => {
           branchTemplate: "   ",
           shortcuts: { newAgent: "Mod+Shift+N", unknown: "Mod+U", palette: 3 },
           fileTreePosition: "top",
-          sidebarLimits: { enabled: "yes", hidden: ["codex", "droid", 4] },
+          sidebarLimits: { enabled: "yes", hidden: ["codex", "goose", 4] },
         }),
       ),
     ).toEqual({

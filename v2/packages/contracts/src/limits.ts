@@ -3,10 +3,18 @@ import { z } from "zod";
 import { ListedProviderKind } from "./provider.js";
 
 /**
- * Agents whose subscription plans report usage limits that ZLI can read. Copilot, Qwen Code, Droid,
- * and Goose report none a sign-in can read, so they never show.
+ * Agents whose subscription plans report usage limits that ZLI can read. Copilot, Qwen Code, and
+ * Goose report none a sign-in can read, so they never show.
  */
-export const PLAN_LIMIT_PROVIDERS = ["claude-code", "codex", "gemini", "cursor-agent", "kimi", "opencode"] as const;
+export const PLAN_LIMIT_PROVIDERS = [
+  "claude-code",
+  "codex",
+  "gemini",
+  "cursor-agent",
+  "droid",
+  "kimi",
+  "opencode",
+] as const;
 export type PlanLimitProvider = (typeof PLAN_LIMIT_PROVIDERS)[number];
 
 /** Minutes in the usual window lengths. */

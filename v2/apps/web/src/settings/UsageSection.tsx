@@ -7,7 +7,7 @@ import { type SidebarLimits, updateAppSettings, useAppSettings } from "./appSett
 import { SectionHeader, SettingGroup } from "./SectionHeader.js";
 
 const NONE_FOUND =
-  "None of your agents report plan limits yet. Sign in to Claude Code, Codex, Gemini CLI, Cursor Agent, Kimi Code, or OpenCode Go with a subscription, and it shows up here.";
+  "None of your agents report plan limits yet. Sign in to Claude Code, Codex, Gemini CLI, Cursor Agent, Droid, Kimi Code, or OpenCode Go with a subscription, and it shows up here.";
 
 /** Turns the plan limits card on, and picks which agents it shows. Only agents with a plan that reports limits are listed. */
 export function UsageSection({ projection }: { projection: RuntimeProjection | undefined }) {

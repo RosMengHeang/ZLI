@@ -34,7 +34,7 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
     await settings.getByRole("switch", { name: /Show plan limits/u }).check();
     await page.keyboard.press("Escape");
     await expect(settings).toHaveCount(0);
-    // Six agents report limits; three rows fit, and the rest are counted.
+    // Seven agents report limits; three rows fit, and the rest are counted.
     await expect(limits.locator(".usage-strip-name")).toHaveText(["Claude Code", "Codex", "Gemini"]);
     await expect(limits.locator(".usage-strip-window-label")).toHaveText([
       "5h",
@@ -54,7 +54,7 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
       "58%",
       "12%",
     ]);
-    await expect(limits.locator(".usage-strip-more")).toHaveText("+3 more");
+    await expect(limits.locator(".usage-strip-more")).toHaveText("+4 more");
     // Every circle says when it resets: a countdown and the local time.
     await expect(limits.locator(".usage-strip-window-reset").first()).toHaveText(/^\d+m · \d{1,2}:\d{2}\s?[AP]M$/u);
     await limits.click();
