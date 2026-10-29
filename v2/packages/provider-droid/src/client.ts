@@ -1,13 +1,36 @@
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { accessSync, constants, statSync } from "node:fs";
+import { hostname } from "node:os";
 
 import { type ProviderUsage, spawnCli } from "@zli-v2/shared";
 
-import { type DroidPermissionMode, decodeDroidLine, droidTurnArgs, MAX_DROID_LINE_CHARS } from "./protocol.js";
-import { classifyDroidMessage } from "./schema.js";
+import {
+  type DroidPermissionMode,
+  decodeDroidLine,
+  droidArgs,
+  droidErrorResponse,
+  droidRequest,
+  droidResponse,
+  droidSessionSettings,
+  MAX_DROID_LINE_CHARS,
+} from "./protocol.js";
+import {
+  classifyDroidMessage,
+  type DroidNotification,
+  type DroidQuestion,
+  type DroidReportedSettings,
+  type DroidToolUse,
+  modelDefaults,
+  parsePermissionRequest,
+  parseQuestions,
+  reportedSettings,
+} from "./schema.js";
 
 const VERSION_PROBE_MS = 1_000;
+const REQUEST_TIMEOUT_MS = 60_000;
+/** How long a new turn waits for Droid to wind down a turn that ended early on this side. */
+const SETTLE_MS = 5_000;
 const MESSAGE_SEPARATOR = "\n\n";
 
 export type DroidProviderEvent =
@@ -17,8 +40,10 @@ export type DroidProviderEvent =
   | { type: "turn.failed"; providerTurnId: string; message: string }
   | { type: "tool.updated"; providerTurnId: string; tool: DroidToolUpdate }
   | { type: "usage.updated"; providerTurnId: string; usage: ProviderUsage }
+  | { type: "approval.requested"; requestId: string; payload: Record<string, unknown> }
+  | { type: "user-input.requested"; requestId: string; payload: Record<string, unknown> }
   | { type: "protocol.error"; message: string }
-  /** The CLI reported the session id that later turns, and a later process, continue with -s. */
+  /** The session id a later process continues with droid.load_session. */
   | { type: "session.identified"; sessionId: string }
   | { type: "session.closed"; reason: string };
 
@@ -35,7 +60,6 @@ export type DroidTranscriptTurn = { providerTurnId: string; text: string; status
 
 export type DroidPeer = {
   write(data: string): void;
-  endInput(): void;
   onMessage(listener: (message: unknown) => void): () => void;
   onClose(listener: (error?: Error) => void): () => void;
   close(): Promise<void>;
@@ -76,7 +100,7 @@ export type DroidClientOptions = {
   permissionMode?: DroidPermissionMode;
   /** Default model for every turn that does not name one. */
   model?: string;
-  /** A session from an earlier process. The first turn continues it with -s instead of starting a new one. */
+  /** A session from an earlier process. The first turn loads it instead of starting a new one. */
   resumeSessionId?: string;
   spawnProcess?: (command: string, args: readonly string[], options: DroidSpawnOptions) => DroidChild;
 };
@@ -94,19 +118,50 @@ export class DroidProviderError extends Error {
 
 type ActiveTurn = {
   id: string;
+  /** False until Droid accepts the message; events wait in queued until then. */
+  started: boolean;
+  queued: DroidProviderEvent[];
   text: string;
   sawText: boolean;
-  tools: Map<string, { name: string; input?: Record<string, unknown> }>;
+  lastBlock?: string;
+  streamedMessages: Set<string>;
+  /** Tool calls Droid announced, with the latest input it streamed for each. */
+  calls: Map<string, DroidToolUse>;
+  running: Map<string, { name: string; input?: Record<string, unknown> }>;
+  finishedTools: Set<string>;
+  busy: boolean;
+  error?: string;
 };
+
+type PendingRequest = {
+  method: string;
+  resolve: (result: Record<string, unknown>) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+
+type Settle = { turnId: string; done: Promise<void>; resolve: () => void };
 
 export class DroidClient {
   private readonly listeners = new Set<(event: DroidProviderEvent) => void>();
   private readonly completed: DroidTranscriptTurn[] = [];
+  private readonly requests = new Map<string, PendingRequest>();
+  private readonly approvals = new Map<string, { toolNames: string[]; options: string[] }>();
+  private readonly userInputs = new Map<string, DroidQuestion[]>();
+  private readonly sessionAllowedTools = new Set<string>();
   private sessionId: string | undefined;
-  /** False while a resumed id has not been echoed by the CLI, so a failed first turn is not treated as resumable. */
+  /** False while a resumed id has not been loaded, so a failed first turn is not treated as resumable. */
   private sessionConfirmed = false;
+  private reported: DroidReportedSettings = {};
+  private defaultEfforts = new Map<string, string>();
+  /** The last turn set its own reasoning level, so a turn without one goes back to the model default. */
+  private effortPinned = false;
   private active: ActiveTurn | undefined;
+  private sending = false;
+  private settle: Settle | undefined;
   private peer: DroidPeer | undefined;
+  private ready = false;
+  private starting: Promise<void> | undefined;
   private unlistenMessage: (() => void) | undefined;
   private unlistenClose: (() => void) | undefined;
   private closed = false;
@@ -151,8 +206,8 @@ export class DroidClient {
   }
 
   /**
-   * Each turn is its own process, so a turn-level model or reasoning level only applies to that
-   * run. A permission mode applies to this turn and every later one.
+   * The first turn starts the CLI and its session. A turn-level model or reasoning level only
+   * applies to that turn; a permission mode applies to this turn and every later one.
    */
   async sendTurn(input: {
     text: string;
@@ -161,53 +216,145 @@ export class DroidClient {
     permissionMode?: DroidPermissionMode;
   }): Promise<DroidTurnResult> {
     this.assertOpen();
-    if (this.active) throw new DroidProviderError("request_failed", "Droid CLI already has a turn in progress.");
-    if (input.permissionMode) this.permissionMode = input.permissionMode;
-    const providerTurnId = randomUUID();
-    const peer = this.spawnTurn(input.model?.trim() || this.model, input.reasoningEffort?.trim() || undefined);
-    this.active = { id: providerTurnId, text: "", sawText: false, tools: new Map() };
-    try {
-      peer.write(input.text);
-      peer.endInput();
-    } catch (error) {
-      this.active = undefined;
-      await peer.close().catch(() => undefined);
-      throw error;
+    if (this.active || this.sending) {
+      throw new DroidProviderError("request_failed", "Droid CLI already has a turn in progress.");
     }
-    this.emit({ type: "turn.started", providerTurnId });
-    this.attach(peer);
-    return { providerTurnId };
+    this.sending = true;
+    try {
+      if (input.permissionMode) this.permissionMode = input.permissionMode;
+      await this.settle?.done;
+      await this.ensureSession();
+      await this.applySettings(input.model?.trim() || this.model, input.reasoningEffort?.trim() || undefined);
+      const turn = newTurn(randomUUID());
+      this.active = turn;
+      try {
+        // The message id comes back as agent_turn_completed's turnId, which ties completions to turns.
+        await this.request("droid.add_user_message", { text: input.text, messageId: turn.id });
+      } catch (error) {
+        if (this.active === turn) this.active = undefined;
+        throw error;
+      }
+      turn.started = true;
+      this.emit({ type: "turn.started", providerTurnId: turn.id });
+      for (const event of turn.queued.splice(0)) this.emit(event);
+      return { providerTurnId: turn.id };
+    } finally {
+      this.sending = false;
+    }
   }
 
   async interruptTurn(providerTurnId?: string): Promise<void> {
     this.assertOpen();
-    if (!this.active) return;
-    if (providerTurnId && providerTurnId !== this.active.id) {
+    const turn = this.active;
+    if (!turn) return;
+    if (providerTurnId && providerTurnId !== turn.id) {
       throw new DroidProviderError("request_failed", "Droid CLI turn does not match the active turn.");
     }
+    this.declinePending();
     this.finishTurn("interrupted");
-    await this.stopPeer();
+    this.expectSettle(turn.id);
+    try {
+      await this.request("droid.interrupt_session", {});
+    } catch {
+      // The process is gone or already idle; the turn is over either way.
+    }
+  }
+
+  /**
+   * Answers a droid.request_permission request. forSession also allows later calls of the same
+   * tools without asking.
+   */
+  async respondToApproval(requestId: string, allow: boolean, options: { forSession?: boolean } = {}): Promise<void> {
+    this.assertOpen();
+    const pending = this.approvals.get(requestId);
+    if (!pending) throw new DroidProviderError("request_failed", `Droid CLI approval request not found: ${requestId}`);
+    this.approvals.delete(requestId);
+    if (allow && options.forSession) for (const name of pending.toolNames) this.sessionAllowedTools.add(name);
+    this.respond(requestId, { selectedOption: allow ? approveOption(pending.options) : "cancel" });
+  }
+
+  /** Answers a droid.ask_user request; answers are keyed by each question's index. */
+  async respondToUserInput(requestId: string, answers: Record<string, string>): Promise<void> {
+    this.assertOpen();
+    const questions = this.userInputs.get(requestId);
+    if (!questions) throw new DroidProviderError("request_failed", `Droid CLI question not found: ${requestId}`);
+    this.userInputs.delete(requestId);
+    this.respond(requestId, {
+      answers: questions.map((question) => ({
+        index: question.index,
+        question: question.question,
+        answer: answers[String(question.index)] ?? "",
+      })),
+    });
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
     this.active = undefined;
+    this.approvals.clear();
+    this.userInputs.clear();
     await this.stopPeer();
   }
 
-  private spawnTurn(model: string | undefined, reasoningEffort: string | undefined): DroidPeer {
+  private async ensureSession(): Promise<void> {
+    if (this.peer && this.ready) return;
+    if (!this.starting) {
+      this.starting = this.startSession().finally(() => {
+        this.starting = undefined;
+      });
+    }
+    await this.starting;
+  }
+
+  private async startSession(): Promise<void> {
+    this.attach(this.spawn());
+    try {
+      if (this.sessionId) {
+        const result = await this.request("droid.load_session", { sessionId: this.sessionId });
+        this.noteSettings(result.settings, result.availableModels);
+        this.noteSession(this.sessionId);
+      } else {
+        const result = await this.request("droid.initialize_session", {
+          machineId: hostname() || "zli",
+          cwd: this.cwd,
+          ...droidSessionSettings(this.permissionMode),
+          ...(this.model ? { modelId: this.model } : {}),
+        });
+        const sessionId = typeof result.sessionId === "string" ? result.sessionId.trim() : "";
+        if (!sessionId) {
+          throw new DroidProviderError("invalid_response", "Droid CLI session init did not include a session id.");
+        }
+        this.noteSettings(result.settings, result.availableModels);
+        this.noteSession(sessionId);
+      }
+      this.ready = true;
+    } catch (error) {
+      await this.stopPeer();
+      throw error;
+    }
+  }
+
+  private async applySettings(model: string | undefined, effort: string | undefined): Promise<void> {
+    const wanted = droidSessionSettings(this.permissionMode);
+    const patch: Record<string, string> = {};
+    if (this.reported.interactionMode !== wanted.interactionMode) patch.interactionMode = wanted.interactionMode;
+    if (this.reported.autonomyLevel !== wanted.autonomyLevel) patch.autonomyLevel = wanted.autonomyLevel;
+    if (model && model !== this.reported.modelId) patch.modelId = model;
+    const modelId = model ?? this.reported.modelId;
+    const level = effort ?? (this.effortPinned && modelId ? this.defaultEfforts.get(modelId) : undefined);
+    if (level && (level !== this.reported.reasoningEffort || patch.modelId)) patch.reasoningEffort = level;
+    this.effortPinned = effort !== undefined;
+    if (Object.keys(patch).length === 0) return;
+    await this.request("droid.update_session_settings", patch);
+    this.reported = { ...this.reported, ...patch };
+  }
+
+  private spawn(): DroidPeer {
     const spawnProcess = this.spawnProcess ?? defaultSpawn;
-    const args = droidTurnArgs({
-      cwd: this.cwd,
-      permissionMode: this.permissionMode,
-      ...(model ? { model } : {}),
-      ...(reasoningEffort ? { reasoningEffort } : {}),
-      ...(this.sessionId ? { sessionId: this.sessionId } : {}),
-    });
     let child: DroidChild;
     try {
-      child = spawnProcess(this.command, args, {
+      child = spawnProcess(this.command, droidArgs(this.cwd), {
         cwd: this.cwd,
         env: sessionEnv(this.baseEnv, this.cwd),
         shell: false,
@@ -245,144 +392,335 @@ export class DroidClient {
     const peer = this.peer;
     this.detach();
     this.peer = undefined;
+    this.ready = false;
+    this.failRequests(new DroidProviderError("closed", "Droid CLI session is closed."));
     await peer?.close().catch(() => undefined);
+  }
+
+  private request(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const peer = this.peer;
+    if (!peer) return Promise.reject(new DroidProviderError("closed", "Droid CLI session is closed."));
+    const id = randomUUID();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.requests.delete(id);
+        reject(new DroidProviderError("request_failed", `Droid CLI did not answer ${method}.`));
+      }, REQUEST_TIMEOUT_MS);
+      timer.unref?.();
+      this.requests.set(id, { method, resolve, reject, timer });
+      try {
+        peer.write(`${JSON.stringify(droidRequest(id, method, params))}\n`);
+      } catch (error) {
+        clearTimeout(timer);
+        this.requests.delete(id);
+        reject(error);
+      }
+    });
+  }
+
+  private respond(id: string, result: Record<string, unknown>): void {
+    this.write(droidResponse(id, result));
+  }
+
+  private write(message: Record<string, unknown>): void {
+    if (!this.peer) throw new DroidProviderError("closed", "Droid CLI session is closed.");
+    this.peer.write(`${JSON.stringify(message)}\n`);
+  }
+
+  private failRequests(error: Error): void {
+    const pending = [...this.requests.values()];
+    this.requests.clear();
+    for (const request of pending) {
+      clearTimeout(request.timer);
+      request.reject(error);
+    }
   }
 
   private handleMessage(raw: unknown): void {
     if (this.closed) return;
-    if (!raw || typeof raw !== "object") {
-      this.emit({ type: "protocol.error", message: "Malformed Droid CLI message." });
-      return;
-    }
     const message = classifyDroidMessage(raw);
-    if (message.kind === "init") this.noteSession(message.sessionId, true);
-    else this.noteSession(sessionIdOf(raw), false);
     switch (message.kind) {
-      case "init":
-        return;
       case "invalid":
-        this.emit({
-          type: "protocol.error",
-          message:
-            message.reason === "init"
-              ? "Droid CLI session init did not include a session id."
-              : "Malformed Droid CLI message.",
-        });
+        this.emit({ type: "protocol.error", message: "Malformed Droid CLI message." });
         return;
-      case "text":
-        this.emitText(message.text);
+      case "response":
+      case "error_response": {
+        const pending = this.requests.get(message.id);
+        if (!pending) return;
+        this.requests.delete(message.id);
+        clearTimeout(pending.timer);
+        if (message.kind === "response") pending.resolve(message.result);
+        else pending.reject(new DroidProviderError("request_failed", message.message));
         return;
-      case "completion":
-        this.onCompletion(message);
+      }
+      case "request":
+        this.handleRequest(message.id, message.method, message.params);
         return;
-      case "error":
-        this.onError(message.message);
-        return;
-      case "tool_call":
-        this.onToolCall(message);
-        return;
-      case "tool_result":
-        this.onToolResult(message);
+      case "notification":
+        if (message.sessionId && this.sessionId && message.sessionId !== this.sessionId) return;
+        this.handleNotification(message.notification);
         return;
       default:
         return;
     }
   }
 
-  private onToolCall(message: { callId: string; name: string; input?: Record<string, unknown> }): void {
-    const active = this.active;
-    if (!active) return;
-    const tool = { name: message.name, ...(message.input ? { input: message.input } : {}) };
-    active.tools.set(message.callId, tool);
-    this.emit({
-      type: "tool.updated",
-      providerTurnId: active.id,
-      tool: { callId: message.callId, ...tool, status: "running" },
-    });
+  private handleRequest(id: string, method: string, params: Record<string, unknown>): void {
+    try {
+      if (method === "droid.request_permission") {
+        this.onPermissionRequest(id, params);
+        return;
+      }
+      if (method === "droid.ask_user") {
+        this.onAskUser(id, params);
+        return;
+      }
+      if (method === "droid.pick_options") {
+        this.respond(id, { cancelled: true, selectedIds: [] });
+        return;
+      }
+      this.write(droidErrorResponse(id, -32601, `ZLI does not handle ${method}.`));
+    } catch (error) {
+      this.emit({
+        type: "protocol.error",
+        message: error instanceof Error ? error.message : "Droid CLI request could not be answered.",
+      });
+    }
   }
 
-  private onToolResult(message: { callId: string; name?: string; isError: boolean; output?: string }): void {
-    const active = this.active;
-    if (!active) return;
-    const started = active.tools.get(message.callId);
-    active.tools.delete(message.callId);
-    const name = started?.name ?? message.name ?? "Tool";
+  private onPermissionRequest(id: string, params: Record<string, unknown>): void {
+    const request = parsePermissionRequest(params);
+    const toolNames = request.toolUses.map((tool) => tool.name);
+    const allowed =
+      this.permissionMode === "full-access" ||
+      (toolNames.length > 0 && toolNames.every((name) => this.sessionAllowedTools.has(name)));
+    if (allowed) {
+      this.respond(id, { selectedOption: approveOption(request.options) });
+      return;
+    }
+    const [first, ...rest] = request.toolUses;
+    this.approvals.set(id, { toolNames, options: request.options });
     this.emit({
-      type: "tool.updated",
-      providerTurnId: active.id,
-      tool: {
-        callId: message.callId,
-        name,
-        ...(started?.input ? { input: started.input } : {}),
-        status: message.isError ? "failed" : "completed",
-        ...(message.output ? { output: message.output } : {}),
+      type: "approval.requested",
+      requestId: id,
+      payload: {
+        toolName: first?.displayName ?? "Tool",
+        input: first?.input ?? {},
+        ...(first ? { toolUseId: first.id } : {}),
+        ...(rest.length > 0
+          ? { toolUses: request.toolUses.map((tool) => ({ toolName: tool.displayName, input: tool.input ?? {} })) }
+          : {}),
       },
     });
   }
 
-  private onCompletion(message: { isError: boolean; text?: string; usage?: ProviderUsage }): void {
-    if (!this.active) {
-      void this.stopPeer();
+  private onAskUser(id: string, params: Record<string, unknown>): void {
+    const questions = parseQuestions(params);
+    if (questions.length === 0) {
+      this.respond(id, { cancelled: true, answers: [] });
       return;
     }
-    if (message.usage) this.emit({ type: "usage.updated", providerTurnId: this.active.id, usage: message.usage });
-    if (message.isError) {
-      this.finishTurn("error", message.text?.trim() || "Droid CLI turn failed.");
-      void this.stopPeer();
-      return;
-    }
-    if (!this.active.sawText && message.text?.trim()) this.emitText(message.text);
-    this.finishTurn("completed");
-    void this.stopPeer();
+    this.userInputs.set(id, questions);
+    this.emit({
+      type: "user-input.requested",
+      requestId: id,
+      payload: {
+        questions: questions.map((question) => ({
+          id: String(question.index),
+          ...(question.topic ? { header: question.topic } : {}),
+          question: question.question,
+          options: question.options.map((label) => ({ label })),
+          isOther: true,
+        })),
+      },
+    });
   }
 
-  private onError(detail: string): void {
-    if (!this.active) {
-      this.emit({ type: "protocol.error", message: detail });
-      return;
+  /** Pending questions cannot outlive the turn that asked them. */
+  private declinePending(): void {
+    const approvals = [...this.approvals.keys()];
+    const inputs = [...this.userInputs.keys()];
+    this.approvals.clear();
+    this.userInputs.clear();
+    try {
+      for (const id of approvals) this.respond(id, { selectedOption: "cancel" });
+      for (const id of inputs) this.respond(id, { cancelled: true, answers: [] });
+    } catch {
+      // The process is gone, so nothing waits for these answers.
     }
-    this.finishTurn("error", detail);
-    void this.stopPeer();
   }
 
-  private emitText(text: string): void {
-    if (!this.active || text.length === 0) return;
-    // Each assistant record is a whole message, so separate consecutive ones like paragraphs.
-    const delta = this.active.sawText ? `${MESSAGE_SEPARATOR}${text}` : text;
-    this.active.sawText = true;
-    this.active.text += delta;
-    this.emit({ type: "assistant.delta", providerTurnId: this.active.id, text: delta });
+  private handleNotification(notification: DroidNotification): void {
+    const turn = this.active;
+    switch (notification.type) {
+      case "settings":
+        this.reported = { ...this.reported, ...notification.settings };
+        return;
+      case "permission_resolved":
+        this.approvals.delete(notification.requestId);
+        return;
+      case "turn_completed":
+        this.onTurnCompleted(notification);
+        return;
+      case "working_state":
+        if (notification.state !== "idle") {
+          if (turn) turn.busy = true;
+          return;
+        }
+        this.settle?.resolve();
+        // Droid can report idle more than once after a turn, so idle alone does not end one. A turn
+        // that hit an error and went idle without agent_turn_completed has nothing left to send.
+        if (turn?.started && turn.busy && turn.error) this.finishTurn("error", turn.error);
+        return;
+      case "error":
+        if (turn) turn.error = notification.message;
+        else this.emit({ type: "protocol.error", message: notification.message });
+        return;
+      default:
+        break;
+    }
+    if (!turn) return;
+    switch (notification.type) {
+      case "text_delta": {
+        turn.streamedMessages.add(notification.messageId);
+        this.emitText(turn, notification.text, `${notification.messageId}:${notification.blockIndex}`);
+        return;
+      }
+      case "assistant_message":
+        if (!turn.streamedMessages.has(notification.messageId)) {
+          notification.texts.forEach((text, index) => {
+            this.emitText(turn, text, `${notification.messageId}:full:${index}`);
+          });
+        }
+        for (const tool of notification.toolUses) this.onToolStart(turn, tool);
+        return;
+      case "tool_call":
+        turn.calls.set(notification.tool.id, notification.tool);
+        return;
+      case "tool_result":
+        this.onToolResult(turn, notification);
+        return;
+      default:
+        return;
+    }
+  }
+
+  private onToolStart(turn: ActiveTurn, tool: DroidToolUse): void {
+    if (turn.running.has(tool.id) || turn.finishedTools.has(tool.id)) return;
+    const started = { name: tool.name, ...(tool.input ? { input: tool.input } : {}) };
+    turn.running.set(tool.id, started);
+    this.turnEvent(turn, {
+      type: "tool.updated",
+      providerTurnId: turn.id,
+      tool: { callId: tool.id, ...started, status: "running" },
+    });
+  }
+
+  private onToolResult(turn: ActiveTurn, result: { callId: string; isError: boolean; output?: string }): void {
+    // Droid repeats the result of a call that an interrupt cancelled.
+    if (turn.finishedTools.has(result.callId)) return;
+    turn.finishedTools.add(result.callId);
+    const started = turn.running.get(result.callId) ?? turn.calls.get(result.callId);
+    turn.running.delete(result.callId);
+    this.turnEvent(turn, {
+      type: "tool.updated",
+      providerTurnId: turn.id,
+      tool: {
+        callId: result.callId,
+        name: started?.name ?? "Tool",
+        ...(started?.input ? { input: started.input } : {}),
+        status: result.isError ? "failed" : "completed",
+        ...(result.output ? { output: result.output } : {}),
+      },
+    });
+  }
+
+  private onTurnCompleted(message: { turnId?: string; reason: string; usage?: ProviderUsage }): void {
+    if (message.turnId && this.settle?.turnId === message.turnId) this.settle.resolve();
+    const turn = this.active;
+    if (!turn || (message.turnId && message.turnId !== turn.id)) return;
+    if (message.usage) this.turnEvent(turn, { type: "usage.updated", providerTurnId: turn.id, usage: message.usage });
+    if (message.reason === "completed" && !(turn.error && !turn.sawText)) {
+      this.finishTurn("completed");
+      return;
+    }
+    if (message.reason === "cancelled" || message.reason === "interrupted") {
+      this.finishTurn("interrupted");
+      return;
+    }
+    this.finishTurn("error", turn.error ?? `Droid CLI turn ended: ${message.reason}.`);
+  }
+
+  private emitText(turn: ActiveTurn, text: string, block: string): void {
+    if (text.length === 0) return;
+    // A new message or text block reads like a new paragraph.
+    const delta = turn.sawText && turn.lastBlock !== block ? `${MESSAGE_SEPARATOR}${text}` : text;
+    turn.sawText = true;
+    turn.lastBlock = block;
+    turn.text += delta;
+    this.turnEvent(turn, { type: "assistant.delta", providerTurnId: turn.id, text: delta });
   }
 
   private finishTurn(status: string, errorMessage?: string): void {
-    const active = this.active;
-    if (!active) return;
+    const turn = this.active;
+    if (!turn) return;
     this.active = undefined;
     const sessionId = this.sessionId;
-    if (errorMessage) {
-      this.completed.push({
-        providerTurnId: active.id,
-        text: errorMessage,
-        status,
-        ...(sessionId ? { sessionId } : {}),
-      });
-      this.emit({ type: "turn.failed", providerTurnId: active.id, message: errorMessage });
-      return;
-    }
     this.completed.push({
-      providerTurnId: active.id,
-      text: active.text,
+      providerTurnId: turn.id,
+      text: errorMessage ?? turn.text,
       status,
       ...(sessionId ? { sessionId } : {}),
     });
-    this.emit({ type: "turn.completed", providerTurnId: active.id, status });
+    this.turnEvent(
+      turn,
+      errorMessage
+        ? { type: "turn.failed", providerTurnId: turn.id, message: errorMessage }
+        : { type: "turn.completed", providerTurnId: turn.id, status },
+    );
+  }
+
+  private turnEvent(turn: ActiveTurn, event: DroidProviderEvent): void {
+    if (turn.started) this.emit(event);
+    else turn.queued.push(event);
+  }
+
+  private expectSettle(turnId: string): void {
+    let settled: () => void = () => undefined;
+    const done = new Promise<void>((resolve) => {
+      settled = resolve;
+    });
+    const settle: Settle = {
+      turnId,
+      done,
+      resolve: () => {
+        clearTimeout(timer);
+        if (this.settle === settle) this.settle = undefined;
+        settled();
+      },
+    };
+    const timer = setTimeout(settle.resolve, SETTLE_MS);
+    timer.unref?.();
+    this.settle = settle;
   }
 
   private onPeerClose(error?: Error): void {
     this.detach();
     this.peer = undefined;
-    if (this.closed || !this.active) return;
+    this.ready = false;
     const reason = error?.message ?? "Droid CLI process closed.";
+    this.failRequests(new DroidProviderError("closed", reason));
+    this.settle?.resolve();
+    this.approvals.clear();
+    this.userInputs.clear();
+    if (this.closed) return;
+    const turn = this.active;
+    if (turn && !turn.started) {
+      // sendTurn is still waiting on add_user_message, and its rejection reports the failure.
+      this.active = undefined;
+      return;
+    }
+    if (!turn) return;
     const resumable = this.sessionConfirmed;
     this.finishTurn("error", reason);
     if (!resumable) {
@@ -391,14 +729,14 @@ export class DroidClient {
     }
   }
 
-  /** Only system/init may replace a known id; other records just confirm or fill it in. */
-  private noteSession(sessionId: string | undefined, fromInit: boolean): void {
-    if (!sessionId) return;
-    if (sessionId === this.sessionId) {
-      if (this.sessionConfirmed) return;
-    } else if (this.sessionId && !fromInit) {
-      return;
-    }
+  private noteSettings(settings: unknown, models: unknown): void {
+    this.reported = { ...this.reported, ...reportedSettings(settings) };
+    const defaults = modelDefaults(models);
+    if (defaults.size > 0) this.defaultEfforts = defaults;
+  }
+
+  private noteSession(sessionId: string): void {
+    if (sessionId === this.sessionId && this.sessionConfirmed) return;
     this.sessionId = sessionId;
     this.sessionConfirmed = true;
     this.emit({ type: "session.identified", sessionId });
@@ -419,9 +757,28 @@ export class DroidClient {
   }
 }
 
-function sessionIdOf(raw: unknown): string | undefined {
-  const record = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
-  return typeof record?.session_id === "string" && record.session_id.length > 0 ? record.session_id : undefined;
+function newTurn(id: string): ActiveTurn {
+  return {
+    id,
+    started: false,
+    queued: [],
+    text: "",
+    sawText: false,
+    streamedMessages: new Set(),
+    calls: new Map(),
+    running: new Map(),
+    finishedTools: new Set(),
+    busy: false,
+  };
+}
+
+/** Allow once when Droid offers it; otherwise the first option that proceeds in this session. */
+function approveOption(options: readonly string[]): string {
+  if (options.includes("proceed_once")) return "proceed_once";
+  return (
+    options.find((option) => option.startsWith("proceed") && !option.startsWith("proceed_new_session")) ??
+    "proceed_once"
+  );
 }
 
 function defaultSpawn(command: string, args: readonly string[], options: DroidSpawnOptions): DroidChild {
@@ -441,7 +798,6 @@ function defaultSpawn(command: string, args: readonly string[], options: DroidSp
 function sessionEnv(base: NodeJS.ProcessEnv | undefined, cwd: string): NodeJS.ProcessEnv {
   return { ...process.env, ...(base ?? {}), PWD: cwd };
 }
-
 function assertWorktree(cwd: string): void {
   let stat: ReturnType<typeof statSync>;
   try {
@@ -574,11 +930,6 @@ class JsonlDroidPeer implements DroidPeer {
       throw new DroidProviderError("closed", "Droid CLI session is closed.");
     }
     this.child.stdin.write(data);
-  }
-
-  endInput(): void {
-    if (this.isClosed || this.child.stdin.destroyed) return;
-    this.child.stdin.end?.();
   }
 
   onMessage(listener: (message: unknown) => void): () => void {
