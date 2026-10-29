@@ -472,6 +472,7 @@ export function AgentTile({
             onHandoff={onHandoff}
             onOpenConnectors={onOpenConnectors}
             onStartRuns={onStartRuns}
+            active={active}
           />
         ) : (
           <EmptyState

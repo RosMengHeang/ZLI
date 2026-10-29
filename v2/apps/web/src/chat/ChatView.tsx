@@ -45,6 +45,7 @@ export function ChatView({
   onHandoff,
   onOpenConnectors,
   onStartRuns,
+  active,
 }: {
   projection: RuntimeProjection;
   thread: ThreadProjection;
@@ -56,6 +57,7 @@ export function ChatView({
   onOpenConnectors?: ((connectorId?: string) => void) | undefined;
   /** Starts best-of runs from this chat. Absent where runs cannot start, such as a scratch chat. */
   onStartRuns?: ((request: StartRunsRequest) => Promise<string | undefined>) | undefined;
+  active?: boolean;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
@@ -457,6 +459,7 @@ export function ChatView({
               onSubmit={send}
               onStop={working ? stopTurn : undefined}
               bestOf={bestOf}
+              active={active}
             />
           )}
           {peers.length > 0 && selectedPeerId && !ended ? (
