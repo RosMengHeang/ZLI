@@ -77,6 +77,11 @@ export type BrowserManagerOptions = {
   };
   readonly onProjection?: (tab: BrowserTabProjectionValue) => void;
   readonly onClose?: (tab: BrowserTabProjectionValue) => void;
+  /**
+   * The host window's zoom. The renderer measures the pane in CSS pixels, but a native view is placed
+   * in window pixels, so a zoomed window would put the page off the pane without it.
+   */
+  readonly zoomFactor?: () => number;
 };
 
 type ProjectionPatch = { [Key in keyof BrowserTabProjectionValue]?: BrowserTabProjectionValue[Key] | undefined };
@@ -105,6 +110,7 @@ export class BrowserManager {
   readonly #automationFactory: BrowserManagerOptions["automationFactory"];
   readonly #onProjection: BrowserManagerOptions["onProjection"];
   readonly #onClose: BrowserManagerOptions["onClose"];
+  readonly #zoomFactor: () => number;
   #hidden = false;
   #lastSurface: BrowserBoundsValue | undefined;
 
@@ -119,6 +125,7 @@ export class BrowserManager {
     this.#automationFactory = options.automationFactory;
     this.#onProjection = options.onProjection;
     this.#onClose = options.onClose;
+    this.#zoomFactor = options.zoomFactor ?? (() => 1);
   }
 
   async create(input: unknown): Promise<BrowserTabProjectionValue> {
@@ -139,7 +146,7 @@ export class BrowserManager {
     let attached = false;
     let tab: ManagedTab;
     try {
-      view.setBounds(bounds);
+      this.#place(view, bounds);
       view.setVisible(false);
       this.host.addChildView(view);
       attached = true;
@@ -222,6 +229,14 @@ export class BrowserManager {
     await this.#layout(tab);
   }
 
+  /** Places every tab again, after the window zoom changed. */
+  async relayout(): Promise<void> {
+    for (const tab of this.#tabs.values()) {
+      tab.emulatedScale = undefined;
+      await this.#layout(tab).catch(() => undefined);
+    }
+  }
+
   /** Emulates a device screen, or restores the pane-filling desktop view when `viewport` is null. */
   async setViewport(browserTabId: string, input: unknown): Promise<BrowserTabProjectionValue> {
     const tab = this.#require(browserTabId);
@@ -229,7 +244,7 @@ export class BrowserManager {
     tab.emulatedScale = undefined;
     this.#replace(browserTabId, { viewport: viewport ?? undefined });
     if (!viewport) {
-      tab.view.setBounds(tab.bounds);
+      this.#place(tab.view, tab.bounds);
       await tab.automation?.emulate(null);
       return tab.projection;
     }
@@ -427,7 +442,8 @@ export class BrowserManager {
         ? this.#sessionManager.getSession(this.#sessionModule, worktreeId, profileId)
         : undefined;
       const replacement = this.factory.create({ partition, ...(browserSession ? { session: browserSession } : {}) });
-      replacement.setBounds(
+      this.#place(
+        replacement,
         tab.projection.viewport ? fitViewport(tab.bounds, tab.projection.viewport).bounds : tab.bounds,
       );
       replacement.setVisible(tab.projection.active && !this.#hidden);
@@ -478,14 +494,25 @@ export class BrowserManager {
   async #layout(tab: ManagedTab): Promise<void> {
     const viewport = tab.projection.viewport;
     if (!viewport) {
-      tab.view.setBounds(tab.bounds);
+      this.#place(tab.view, tab.bounds);
       return;
     }
     const fitted = fitViewport(tab.bounds, viewport);
-    tab.view.setBounds(fitted.bounds);
-    if (!tab.automation || tab.emulatedScale === fitted.scale) return;
-    tab.emulatedScale = fitted.scale;
-    await tab.automation.emulate(emulationFor(viewport, fitted.scale));
+    this.#place(tab.view, fitted.bounds);
+    // The page inside the view is not zoomed, so the device has to be drawn at the window's zoom too.
+    const scale = fitted.scale * this.#zoom();
+    if (!tab.automation || tab.emulatedScale === scale) return;
+    tab.emulatedScale = scale;
+    await tab.automation.emulate(emulationFor(viewport, scale));
+  }
+
+  #place(view: BrowserViewLike, bounds: BrowserBoundsValue): void {
+    view.setBounds(toWindowPixels(bounds, this.#zoom()));
+  }
+
+  #zoom(): number {
+    const factor = this.#zoomFactor();
+    return Number.isFinite(factor) && factor > 0 ? factor : 1;
   }
 
   #replace(browserTabId: string, patch: ProjectionPatch): void {
@@ -516,6 +543,19 @@ export class BrowserManager {
     if (!automation) throw new Error("Browser automation is not available for this tab.");
     return automation;
   }
+}
+
+/** Pane bounds in CSS pixels, converted to the window pixels a native view is placed in. */
+export function toWindowPixels(bounds: BrowserBoundsValue, zoomFactor: number): BrowserBoundsValue {
+  if (zoomFactor === 1) return bounds;
+  const x = Math.round(bounds.x * zoomFactor);
+  const y = Math.round(bounds.y * zoomFactor);
+  return {
+    x,
+    y,
+    width: Math.max(1, Math.round((bounds.x + bounds.width) * zoomFactor) - x),
+    height: Math.max(1, Math.round((bounds.y + bounds.height) * zoomFactor) - y),
+  };
 }
 
 /**

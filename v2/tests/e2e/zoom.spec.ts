@@ -1,8 +1,15 @@
 import { writeFile } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
 
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, type DesktopFixture, launchDesktop } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  createGitFixture,
+  type DesktopFixture,
+  launchDesktop,
+  openCreateWorktree,
+} from "./desktop-fixtures.js";
 
 test("zooms the app between 50% and 300% without the layout scrolling sideways", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
@@ -91,4 +98,81 @@ async function expectNoSidewaysScroll(page: Page): Promise<void> {
     return { scroll: document.documentElement.scrollWidth - width, width, wide };
   });
   expect(overflow.scroll, JSON.stringify(overflow)).toBeLessThanOrEqual(0);
+}
+
+test("keeps the browser page on its pane when the app is zoomed", async () => {
+  test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
+  const { root, repo } = await createGitFixture();
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end("<!doctype html><title>ZLI fixture</title><main>zoomed page</main>");
+  });
+  let fixture: DesktopFixture | undefined;
+  try {
+    const port = await listen(server);
+    fixture = await launchDesktop(repo, root);
+    const { app, page } = fixture;
+    await expect(page.locator(".project-label")).toContainText("repo");
+    await press(app, "0");
+    await openCreateWorktree(page);
+    const createWorktree = page.getByRole("dialog", { name: "Create worktree" });
+    await createWorktree.getByLabel("Branch").fill("zoom");
+    await createWorktree.getByRole("button", { name: "Create worktree" }).click();
+    const worktree = page.getByRole("button", { name: /zoom/iu }).first();
+    await expect(worktree).toContainText("Ready", { timeout: 30_000 });
+    await worktree.click();
+    await page.locator(".sidebar-new-agent").click();
+    const newAgent = page.getByRole("dialog", { name: "New agent" });
+    await newAgent.getByText("Codex", { exact: true }).click();
+    await newAgent.getByText("Chat", { exact: true }).click();
+    await newAgent.getByRole("button", { name: "Start agent" }).click();
+    await expect(page.getByRole("textbox", { name: "Message Codex" })).toBeEnabled({ timeout: 20_000 });
+
+    const browserToggle = page.getByRole("button", { name: "Browser", exact: true });
+    if (!(await page.getByRole("complementary", { name: "Browser panel" }).isVisible())) await browserToggle.click();
+    await page.getByRole("textbox", { name: "Browser URL" }).fill(`http://127.0.0.1:${port}`);
+    await page.getByRole("button", { name: "Open", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "ZLI fixture" })).toBeVisible({ timeout: 20_000 });
+
+    for (const key of ["=", "=", "-", "-", "-"]) {
+      await press(app, key);
+      // The native page view is placed in whole window pixels: the pane's CSS box times the zoom, rounded.
+      await expect.poll(() => pageOffPane(app, page), { timeout: 5_000 }).toBeLessThanOrEqual(2);
+    }
+    await capture(app, "browser-zoom-90.png");
+  } finally {
+    if (fixture) await closeDesktop(fixture);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+/** How many window pixels the visible browser view sits away from its pane, on its worst edge. */
+async function pageOffPane(app: ElectronApplication, page: Page): Promise<number> {
+  const pane = await page.evaluate(() => {
+    const rect = document.querySelector(".browser-surface")?.getBoundingClientRect();
+    return rect ? { x: rect.left, y: rect.top, width: rect.width, height: rect.height } : undefined;
+  });
+  const { zoom, view } = await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    const visible = window?.contentView.children.find((child) => child.getVisible());
+    return { zoom: window?.webContents.getZoomFactor() ?? 1, view: visible?.getBounds() };
+  });
+  if (!pane || !view) return Number.POSITIVE_INFINITY;
+  return Math.max(
+    Math.abs(view.x - pane.x * zoom),
+    Math.abs(view.y - pane.y * zoom),
+    Math.abs(view.width - pane.width * zoom),
+    Math.abs(view.height - pane.height * zoom),
+  );
+}
+
+async function listen(server: Server): Promise<number> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address && typeof address !== "string") resolve(address.port);
+      else reject(new Error("The page server did not bind."));
+    });
+  });
 }

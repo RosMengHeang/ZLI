@@ -252,6 +252,7 @@ async function main(): Promise<void> {
     },
     {
       sessionModule: session,
+      zoomFactor: () => (electronWindow.webContents.isDestroyed() ? 1 : electronWindow.webContents.getZoomFactor()),
       onProjection: (tab) => {
         void runtime
           ?.command({
@@ -672,6 +673,7 @@ function zoomApp(zoom: Zoom): void {
   mainWindow.webContents.setZoomFactor(factor);
   fitTitleBar(mainWindow, process.platform, factor);
   popOuts?.fitTitleBars(factor);
+  void browserManager?.relayout();
 }
 
 /** Device and stream events go to the main window and to every pop-out window showing a device. */
