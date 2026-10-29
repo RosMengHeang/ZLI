@@ -22,11 +22,13 @@
 .tile-branch { display: inline-flex; min-width: 0; flex: 0 100 auto; align-items: center; gap: var(--zli-space-1); overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); white-space: nowrap; }
 .tile-run { flex: 0 0 auto; padding: 1px var(--zli-space-1-5); border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-muted); font-size: var(--zli-text-2xs); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tile-branch span { overflow: hidden; text-overflow: ellipsis; }
-.tile-name { max-width: 120px; flex: 0 0 auto; overflow: hidden; padding: 1px var(--zli-space-1-5); border: 0; border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-text); font: inherit; font-size: var(--zli-text-2xs); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+/* The name chip already says who this is, so the title may give up its space before the actions do. */
+.tile-name ~ .tile-title { min-width: 0; flex-shrink: 1000; }
+.tile-name { min-width: 32px; max-width: 120px; flex: 0 1 auto; overflow: hidden; padding: 1px var(--zli-space-1-5); border: 0; border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-text); font: inherit; font-size: var(--zli-text-2xs); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 button.tile-name { cursor: pointer; }
 button.tile-name:hover { background: var(--zli-hover); }
 button.tile-name:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
-.tile-parent { max-width: 160px; flex: 0 0 auto; overflow: hidden; padding: 1px var(--zli-space-1-5); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-xs); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.tile-parent { min-width: 0; max-width: 160px; flex: 0 1000 auto; overflow: hidden; padding: 1px var(--zli-space-1-5); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-xs); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
 .tile-parent:hover { background: var(--zli-hover); color: var(--zli-text); }
 .tile-parent:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
 .tile-account { display: inline-flex; min-width: 0; max-width: 140px; flex: 0 50 auto; align-items: center; gap: var(--zli-space-1); overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); white-space: nowrap; }
@@ -49,8 +51,14 @@ button.tile-name:focus-visible { outline: 2px solid var(--zli-focus); outline-of
 @container tile (max-width: 560px) {
   .tile-branch { display: none; }
 }
+@container tile (max-width: 440px) {
+  /* The sidebar nests sub-agents under their starter, so a narrow tile drops the chip and keeps its actions. */
+  .tile-parent { display: none; }
+}
 @container tile (max-width: 400px) {
   .tile-status .badge-label { display: none; }
+  /* The sidebar row repeats the title, and a few letters of it would read as a glitch. */
+  .tile-name ~ .tile-title { display: none; }
 }
 @media (max-width: 1240px) {
   .tile-branch { display: none; }

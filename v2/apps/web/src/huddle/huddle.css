@@ -85,7 +85,7 @@
 .huddle-composer-to .picker-trigger-label { max-width: 160px; }
 
 /* ---------- Huddle bits on agent tiles ---------- */
-.tile-huddle { display: inline-flex; max-width: 160px; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); overflow: hidden; padding: 1px var(--zli-space-1-5); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-xs); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-2xs); white-space: nowrap; }
+.tile-huddle { display: inline-flex; min-width: 0; max-width: 160px; flex: 0 1000 auto; align-items: center; gap: var(--zli-space-1); overflow: hidden; padding: 1px var(--zli-space-1-5); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-xs); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-2xs); white-space: nowrap; }
 .tile-huddle span { overflow: hidden; text-overflow: ellipsis; }
 .tile-huddle:hover { background: var(--zli-hover); color: var(--zli-text); }
 .tile-huddle:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
