@@ -17,6 +17,34 @@ export type LimitReaderDeps = {
 };
 
 export const READ_TIMEOUT_MS = 15_000;
+const CLI_TIMEOUT_MS = 30_000;
+
+/**
+ * A password keytar saved: from the Keychain on macOS, and from the Secret Service through
+ * secret-tool on Linux. Windows keeps it in the Credential Manager, which ZLI cannot read.
+ */
+export async function keyringSecret(
+  deps: Pick<LimitReaderDeps, "platform" | "keychain">,
+  service: string,
+  account: string,
+): Promise<string | undefined> {
+  if (deps.platform === "darwin") return deps.keychain(service, account);
+  if (deps.platform !== "linux") return undefined;
+  try {
+    const { stdout } = await execFileAsync("secret-tool", ["lookup", "service", service, "account", account], {
+      timeout: 5_000,
+      windowsHide: true,
+    });
+    return stdout.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Runs an agent CLI and waits for it, ignoring its output and exit code. */
+export async function runCli(command: string, args: string[]): Promise<void> {
+  await execFileAsync(command, args, { timeout: CLI_TIMEOUT_MS, windowsHide: true }).catch(() => undefined);
+}
 
 export const defaultLimitReaderDeps = (home: string): LimitReaderDeps => ({
   fetch: (input, init) => fetch(input, init),

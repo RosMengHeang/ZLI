@@ -3,11 +3,12 @@ import type { PlanLimitProvider } from "@zli-v2/contracts";
 import { readClaudeLimits } from "./claudeLimits.js";
 import { type CodexLimitClient, readCodexLimits } from "./codexLimits.js";
 import { readCursorLimits } from "./cursorLimits.js";
+import { readDroidLimits } from "./droidLimits.js";
 import { findGeminiOAuthClient, readGeminiLimits } from "./geminiLimits.js";
 import { readKimiLimits } from "./kimiLimits.js";
 import { openCodeCredentials, readOpenCodeLimits } from "./openCodeLimits.js";
 import type { LimitRead, LimitReader, LimitTarget } from "./PlanLimits.js";
-import { defaultLimitReaderDeps } from "./readerDeps.js";
+import { defaultLimitReaderDeps, keyringSecret, runCli } from "./readerDeps.js";
 
 /** Reads each provider's limits the way its own CLI stores the login. */
 export function planLimitReader(options: {
@@ -36,6 +37,16 @@ export function planLimitReader(options: {
         });
       case "cursor-agent":
         return readCursorLimits(target.configDir, deps);
+      case "droid":
+        return readDroidLimits({
+          ...deps,
+          secretStore: (service, account) => keyringSecret(deps, service, account),
+          // Droid's own auth check renews an expired sign-in through Droid, which saves the new tokens.
+          refreshLogin: async () => {
+            const command = await options.resolveCli("droid");
+            if (command) await runCli(command, ["doctor", "--checks", "auth", "--json"]);
+          },
+        });
       case "kimi":
         return readKimiLimits(target.configDir, deps);
       case "opencode":

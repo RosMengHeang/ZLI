@@ -158,6 +158,15 @@ export function mockLimitRead(target: LimitTarget, now = Date.now()): LimitRead 
         state: "ok",
         windows: [window(MONTHLY_WINDOW, 44, 12 * 1_440), window(MONTHLY_WINDOW, 71, 12 * 1_440, "API")],
       };
+    case "droid":
+      return {
+        state: "ok",
+        windows: [
+          window(FIVE_HOUR_WINDOW, 22, 17),
+          window(WEEKLY_WINDOW, 41, 3 * 1_440),
+          window(MONTHLY_WINDOW, 70, 5 * 1_440),
+        ],
+      };
     case "kimi":
       return { state: "ok", windows: [window(FIVE_HOUR_WINDOW, 22, 190), window(WEEKLY_WINDOW, 35, 5 * 1_440)] };
     case "opencode":
