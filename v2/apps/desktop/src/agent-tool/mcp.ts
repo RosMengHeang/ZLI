@@ -108,10 +108,16 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
     name: "huddle_read",
     title: "Read huddle",
     action: "huddleread",
-    description: `${HUDDLE} Read the huddle messages you have not read yet, with who wrote each one, to whom, and its number, plus the members. The first call returns the whole recent conversation.`,
+    description: `${HUDDLE} Read the huddle messages you have not read yet, with who wrote each one, to whom, and its number, plus the members. The first call returns the latest messages. Up to 50 come back at a time, oldest unread first: when moreUnread is set, call again for the rest. earlierNotShown means older messages exist; pass before with the oldest number you got to read them.`,
     properties: {
       huddle: HUDDLE_REF,
-      all: { type: "boolean", description: "Return the latest 50 messages, read or not." },
+      all: { type: "boolean", description: "Return the latest messages, read or not." },
+      before: {
+        type: "integer",
+        minimum: 1,
+        description: "Return the latest messages numbered below this one, read or not, to go back through history.",
+      },
+      limit: { type: "integer", minimum: 1, maximum: 50, description: "How many messages to return. Default 50." },
       as: AS_CALLER,
     },
     readOnly: true,

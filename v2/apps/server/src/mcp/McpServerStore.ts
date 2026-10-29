@@ -189,6 +189,8 @@ export class McpServerStore {
     private readonly options: {
       path: string;
       syncUserSettings?: McpUserSettingsSync;
+      /** Called after a saved change to which agents others can reach. */
+      onAgentScopeChange?: () => void;
       /** Servers from other sources, such as plugins. `taken` holds the lowercase names of the person's own servers, which win. */
       extraServers?: (taken: ReadonlySet<string>) => McpServerConfig[];
       signIns?: McpSignIns;
@@ -278,6 +280,10 @@ export class McpServerStore {
 
   agentAccess(): AgentToolAccess {
     return this.access;
+  }
+
+  agentScope(): AgentToolScope {
+    return this.scope;
   }
 
   list(): McpListResult {
@@ -457,6 +463,7 @@ export class McpServerStore {
         this.scope = previous;
         throw error;
       }
+      if (next !== previous) this.options.onAgentScopeChange?.();
       return this.list();
     });
   }

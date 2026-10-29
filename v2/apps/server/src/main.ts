@@ -159,6 +159,8 @@ export async function startRuntime(options: {
     extraServers: (taken): McpServerConfig[] => plugins.mcpServers(taken),
     signIns,
     importFrom: { home: userHome },
+    // Huddles across projects pause or resume at once when this setting changes.
+    onAgentScopeChange: () => huddleReactor.refresh(),
     ...(browserTool?.connectScript
       ? { connectTool: { command: browserTool.command, script: browserTool.connectScript } }
       : {}),
@@ -247,6 +249,7 @@ export async function startRuntime(options: {
   const huddleReactor = new HuddleReactor(engine, {
     input: terminalInput,
     writeTerminal: (terminalId, data) => terminalService.write(TerminalId.parse(terminalId), data),
+    agentScope: () => mcpServers.agentScope(),
   });
   const linearIssues = new LinearIssues({ keyPath: join(dirname(databasePath), "linear-key.json") });
   const mockLimits = process.env.ZLI_TEST_PROVIDER === "mock";

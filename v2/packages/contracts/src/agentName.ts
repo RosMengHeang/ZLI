@@ -24,9 +24,12 @@ export type AgentName = z.infer<typeof AgentName>;
 export const StartedBy = z.string().min(1).max(200);
 export type StartedBy = z.infer<typeof StartedBy>;
 
-/** Names compare without case and with runs of spaces counted as one, so "Bob" and "bob" clash. */
+/**
+ * Names compare without case and with runs of spaces counted as one, so "Bob" and "bob" clash. The
+ * lowercasing ignores the machine's locale, so two machines never disagree about a clash.
+ */
 export function agentNameKey(name: string): string {
-  return name.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
+  return name.trim().replace(/\s+/gu, " ").toLowerCase();
 }
 
 /** Chat threads that still show up as agents. A stopped thread is gone until it resumes. */

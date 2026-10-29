@@ -63,6 +63,12 @@ describe("zli command", () => {
       action: "huddleread",
       input: { huddle: "Login", all: true },
     });
+    expect(parseZliArgs(["huddle", "read", "--before", "11", "--limit", "5"])).toEqual({
+      kind: "call",
+      action: "huddleread",
+      input: { before: 11, limit: 5 },
+    });
+    expect(() => parseZliArgs(["huddle", "read", "--before", "0"])).toThrow("--before must be a whole number above 0.");
     expect(parseZliArgs(["huddle", "post", "API", "is", "ready", "--to", "lead,ana", "--reply-to", "3"])).toEqual({
       kind: "call",
       action: "huddlepost",

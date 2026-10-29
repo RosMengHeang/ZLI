@@ -78,12 +78,19 @@ export type HuddlePostKind = z.infer<typeof HuddlePostKind>;
 export const HuddleDeliveryStatus = z.enum(["pending", "held", "queued", "delivered", "failed"]);
 export type HuddleDeliveryStatus = z.infer<typeof HuddleDeliveryStatus>;
 
+const SentHash = z.string().regex(/^[0-9a-f]{16}$/u);
+
 export const HuddleDelivery = z.object({
   agentId: HuddleAgentId,
   status: HuddleDeliveryStatus,
   reason: z.string().min(1).max(300).optional(),
   /** A chat agent got this and its answer has not been posted back yet. */
   awaitingReply: z.literal(true).optional(),
+  /**
+   * A fingerprint of the exact text ZLI handed the member, recorded before typing into a terminal. It
+   * finds a chat's answer and keeps a restart from typing a message twice.
+   */
+  sentHash: SentHash.optional(),
 });
 export type HuddleDelivery = z.infer<typeof HuddleDelivery>;
 
@@ -133,6 +140,7 @@ const DeliveryFields = {
   awaitingReply: z.boolean().optional(),
   /** The delivered text included the member list, so later ones leave it out. */
   introduced: z.literal(true).optional(),
+  sentHash: SentHash.optional(),
 };
 
 export const HuddleCommand = z.discriminatedUnion("type", [
@@ -211,6 +219,27 @@ export type HuddleState = {
 const ARCHIVED_REASON = "The huddle was archived before this went out.";
 const LEFT_REASON = "Left the huddle before this went out.";
 
+/** Fails the open deliveries in matching posts for matching agents, and stops waiting for their answers. */
+function endDeliveries(
+  posts: readonly HuddlePost[],
+  inPost: (post: HuddlePost) => boolean,
+  forAgent: (agentId: string) => boolean,
+  reason: string,
+): HuddlePost[] {
+  return posts.map((post) =>
+    !inPost(post) || !post.deliveries.some((delivery) => forAgent(delivery.agentId))
+      ? post
+      : {
+          ...post,
+          deliveries: post.deliveries.map((delivery) => {
+            if (!forAgent(delivery.agentId)) return delivery;
+            if (delivery.status === "delivered" || delivery.status === "failed") return withoutAwaiting(delivery);
+            return { agentId: delivery.agentId, status: "failed" as const, reason };
+          }),
+        },
+  );
+}
+
 /**
  * Folds one huddle event. The server projector and the client store both use this, so they agree.
  * Returns only the huddle fields.
@@ -223,17 +252,11 @@ export function applyHuddleEvent(state: HuddleState, event: HuddleEvent, occurre
   const updatePost = (postId: string, change: (post: HuddlePost) => HuddlePost) =>
     posts.map((post) => (post.postId === postId ? change(post) : post));
   const endOpenDeliveries = (huddleId: string, agentId: string | undefined, reason: string) =>
-    posts.map((post) =>
-      post.huddleId !== huddleId
-        ? post
-        : {
-            ...post,
-            deliveries: post.deliveries.map((delivery) => {
-              if (agentId !== undefined && delivery.agentId !== agentId) return delivery;
-              if (delivery.status === "delivered" || delivery.status === "failed") return withoutAwaiting(delivery);
-              return { agentId: delivery.agentId, status: "failed" as const, reason };
-            }),
-          },
+    endDeliveries(
+      posts,
+      (post) => post.huddleId === huddleId,
+      (id) => agentId === undefined || id === agentId,
+      reason,
     );
   switch (event.type) {
     case "huddle.created":
@@ -287,10 +310,11 @@ export function applyHuddleEvent(state: HuddleState, event: HuddleEvent, occurre
       const post: HuddlePost = { ...event.post, createdAt: occurredAt };
       const fromAgent = post.from.kind === "agent" ? post.from.agentId : undefined;
       const kept = posts.filter((candidate) => candidate.postId !== post.postId);
-      // A member that writes to the huddle has answered whatever it was expected to answer there.
+      // A member that writes to the huddle has answered what it replies to, or without a reply
+      // number, whatever it was expected to answer there.
       const answered = fromAgent
         ? kept.map((candidate) =>
-            candidate.huddleId !== post.huddleId
+            candidate.huddleId !== post.huddleId || (post.replyTo !== undefined && candidate.postId !== post.replyTo)
               ? candidate
               : {
                   ...candidate,
@@ -346,11 +370,13 @@ export function applyHuddleEvent(state: HuddleState, event: HuddleEvent, occurre
           deliveries: post.deliveries.map((delivery) => {
             if (delivery.agentId !== event.agentId) return delivery;
             const awaiting = event.awaitingReply === undefined ? delivery.awaitingReply === true : event.awaitingReply;
+            const sentHash = event.sentHash ?? delivery.sentHash;
             return {
               agentId: delivery.agentId,
               status: event.status,
               ...(event.reason ? { reason: event.reason } : {}),
               ...(awaiting ? { awaitingReply: true as const } : {}),
+              ...(sentHash ? { sentHash } : {}),
             };
           }),
         })),
@@ -366,11 +392,12 @@ function withoutAwaiting(delivery: HuddleDelivery): HuddleDelivery {
   return rest;
 }
 
+/** Drops the oldest posts past the cap. Pinned decisions stay, since agents read them as the agreed plan. */
 function trimHuddle(posts: HuddlePost[], huddleId: string): HuddlePost[] {
   let excess = posts.filter((post) => post.huddleId === huddleId).length - MAX_POSTS_PER_HUDDLE;
   if (excess <= 0) return posts;
   return posts.filter((post) => {
-    if (excess > 0 && post.huddleId === huddleId) {
+    if (excess > 0 && post.huddleId === huddleId && !post.decision) {
       excess -= 1;
       return false;
     }
@@ -378,7 +405,7 @@ function trimHuddle(posts: HuddlePost[], huddleId: string): HuddlePost[] {
   });
 }
 
-/** Takes deleted agents out of every huddle they were in. */
+/** Takes deleted agents out of every huddle they were in, ending their open deliveries as leaving does. */
 export function dropHuddleMembers<T extends HuddleState>(state: T, agentIds: readonly string[]): T {
   if (!state.huddles || agentIds.length === 0) return state;
   const gone = new Set(agentIds);
@@ -389,6 +416,16 @@ export function dropHuddleMembers<T extends HuddleState>(state: T, agentIds: rea
         ? { ...huddle, members: huddle.members.filter((member) => !gone.has(member.agentId)) }
         : huddle,
     ),
+    ...(state.huddlePosts
+      ? {
+          huddlePosts: endDeliveries(
+            state.huddlePosts,
+            () => true,
+            (agentId) => gone.has(agentId),
+            LEFT_REASON,
+          ),
+        }
+      : {}),
   };
 }
 

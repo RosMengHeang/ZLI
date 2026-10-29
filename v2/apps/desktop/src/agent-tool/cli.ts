@@ -19,7 +19,9 @@ Usage:
       --model <id>                 Model to use.
       --as <you>                   Your own name or id, when agents share your worktree.
   zli connect <service> [reason]   Ask the person to connect a service such as github or linear.
-  zli huddle read [--all]          Show the huddle messages you have not read yet.
+  zli huddle read [--all]          Show the huddle messages you have not read yet, up to 50 at a time.
+      --before <n>                 Show the messages numbered below n instead, to read further back.
+      --limit <n>                  How many messages to show, up to 50.
   zli huddle post <message>        Write in your huddle. Members get it as their next prompt.
       --to <names>                 Comma-separated member names, or person. Default: everyone.
       --kind <kind>                ask wants an answer, assign hands over a task, note (default) informs.
@@ -70,6 +72,7 @@ const VALUE_FLAGS = new Set([
   "to",
   "kind",
   "reply-to",
+  "before",
   "timeout",
   "new-agent",
   "provider",
@@ -178,9 +181,14 @@ function huddleCommand(
     return parsed;
   };
   switch (sub) {
-    case "read":
+    case "read": {
       if (flags.has("all")) input.all = true;
+      const before = text("before");
+      if (before !== undefined) input.before = whole("before", before);
+      const limit = text("limit");
+      if (limit !== undefined) input.limit = whole("limit", limit);
       return { kind: "call", action: "huddleread", input };
+    }
     case "wait": {
       const timeout = text("timeout");
       if (timeout !== undefined) input.timeoutSeconds = whole("timeout", timeout);

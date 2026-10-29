@@ -15,6 +15,8 @@ describe("agent names", () => {
 
   it("compares names without case or extra spaces", () => {
     expect(agentNameKey(" Code  Reviewer ")).toBe(agentNameKey("code reviewer"));
+    // A Turkish locale would lowercase this I to a dotless ı.
+    expect(agentNameKey("IVAN")).toBe("ivan");
   });
 
   it("counts only listed agents in the same project", () => {

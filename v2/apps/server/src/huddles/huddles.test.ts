@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  type AgentToolScope,
   CommandId,
   EnvironmentId,
   HUDDLE_AGENT_STREAK_LIMIT,
@@ -19,7 +20,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Database } from "../db/Database.js";
 import { DomainError, decide } from "../orchestration/decider.js";
 import { Engine } from "../orchestration/Engine.js";
-import { HuddleReactor } from "./HuddleReactor.js";
+import { HUDDLE_SCOPE_REASON, HuddleReactor } from "./HuddleReactor.js";
 import { huddleScopeError } from "./huddleScope.js";
 import { TerminalInputTracker } from "./TerminalInputTracker.js";
 
@@ -97,14 +98,32 @@ function harness(state: RuntimeProjection = seed()) {
     JSON.stringify(state),
   ]);
   const engine = new Engine({ database, environment });
-  const input = new TerminalInputTracker();
+  let input = new TerminalInputTracker();
   const typed: Array<{ terminalId: string; data: string }> = [];
-  const reactor = new HuddleReactor(engine, {
-    input,
-    writeTerminal: (terminalId, data) => typed.push({ terminalId, data }),
-    sleep: () => Promise.resolve(),
-  });
-  reactors.push(reactor);
+  let scope: AgentToolScope = "all";
+  const startReactor = () => {
+    const started = new HuddleReactor(engine, {
+      input,
+      writeTerminal: (terminalId, data) => typed.push({ terminalId, data }),
+      agentScope: () => scope,
+      sleep: () => Promise.resolve(),
+    });
+    reactors.push(started);
+    return started;
+  };
+  let reactor = startReactor();
+  /** Stops ZLI's reactor, as quitting does: what it held in memory is gone. */
+  const stop = () => reactor.stop();
+  /** Starts a fresh reactor on the same event log, as opening ZLI again does. */
+  const restart = () => {
+    reactor.stop();
+    input = new TerminalInputTracker();
+    reactor = startReactor();
+  };
+  const setScope = (next: AgentToolScope) => {
+    scope = next;
+    reactor.refresh();
+  };
   const run = async (command: Record<string, unknown>) => {
     const receipt = await engine.dispatchPromise({
       protocolVersion: 1,
@@ -135,7 +154,7 @@ function harness(state: RuntimeProjection = seed()) {
   };
   const post = (fields: Record<string, unknown>) =>
     run({ type: "huddle.post", huddleId, postId: randomUUID(), to: "everyone", kind: "ask", ...fields });
-  return { engine, input, typed, run, settle, sends, answer, post };
+  return { engine, input, typed, run, settle, sends, answer, post, stop, restart, setScope };
 }
 
 function postCommand(fields: Record<string, unknown>): RuntimeCommand {
@@ -250,6 +269,7 @@ describe("HuddleReactor", () => {
     expect(posts[0]?.deliveries.find((delivery) => delivery.agentId === helper)).toEqual({
       agentId: helper,
       status: "delivered",
+      sentHash: expect.stringMatching(/^[0-9a-f]{16}$/u),
     });
 
     const [toLead] = await sends(lead);
@@ -358,6 +378,92 @@ describe("HuddleReactor", () => {
       status: "failed",
       reason: "Left the huddle before this went out.",
     });
+  });
+
+  it("neither sends a chat message twice nor loses its answer when ZLI stops before recording the send", async () => {
+    const { engine, run, post, settle, sends, answer, stop, restart } = harness();
+    await run({ type: "huddle.create", huddleId, name: "Migration", members: [lead, helper] });
+    await post({ to: [helper], text: "Which tables move first?" });
+    await settle();
+    const [sent] = await sends(helper);
+    const postId = (await engine.projection()).huddlePosts?.[0]?.postId;
+    stop();
+    // The old process handed the message over but quit before marking it delivered.
+    await run({ type: "huddle.delivery", huddleId, postId, agentId: helper, status: "pending" });
+    await answer(helper, sent as string, "Users first.");
+    restart();
+    await settle();
+
+    expect(await sends(helper)).toHaveLength(1);
+    const posts = (await engine.projection()).huddlePosts ?? [];
+    expect(posts.map((entry) => entry.text)).toEqual(["Which tables move first?", "Users first."]);
+    expect(posts[0]?.deliveries[0]).toMatchObject({ status: "delivered" });
+    expect(posts[0]?.deliveries[0]?.awaitingReply).toBeUndefined();
+  });
+
+  it("does not type into a terminal again when ZLI stopped while typing", async () => {
+    const { engine, input, typed, run, post, settle, stop, restart } = harness();
+    await run({ type: "huddle.create", huddleId, name: "Migration", members: [lead, coder] });
+    input.record(coder, "draft");
+    await post({ from: lead, to: [coder], kind: "assign", text: "Run the migration tests." });
+    await settle();
+    const postId = (await engine.projection()).huddlePosts?.[0]?.postId;
+    stop();
+    // The old process recorded what it was about to type, then quit partway through.
+    await run({
+      type: "huddle.delivery",
+      huddleId,
+      postId,
+      agentId: coder,
+      status: "pending",
+      sentHash: "0123456789abcdef",
+    });
+    restart();
+    await settle();
+
+    expect(typed).toEqual([]);
+    expect((await engine.projection()).huddlePosts?.[0]?.deliveries[0]).toMatchObject({
+      status: "delivered",
+      reason: expect.stringContaining("not typed again"),
+    });
+  });
+
+  it("holds a huddle across projects while Settings keep agents to their own project", async () => {
+    const state = seed();
+    state.threads = state.threads.map((thread) =>
+      thread.threadId === helper ? { ...thread, status: "working" } : thread,
+    );
+    const { engine, run, post, settle, sends, setScope } = harness(state);
+    await run({ type: "huddle.create", huddleId, name: "Migration", members: [lead, helper, remote] });
+    await post({ text: "Which tables move first?" });
+    await settle();
+    const deliveries = async () => (await engine.projection()).huddlePosts?.[0]?.deliveries ?? [];
+    expect((await deliveries()).map((delivery) => delivery.status)).toEqual(["delivered", "queued", "delivered"]);
+
+    setScope("project");
+    await post({ text: "And the indexes?" });
+    await settle();
+    const projection = await engine.projection();
+    expect(projection.huddlePosts?.[1]?.deliveries.map((delivery) => delivery.reason)).toEqual([
+      HUDDLE_SCOPE_REASON,
+      HUDDLE_SCOPE_REASON,
+      HUDDLE_SCOPE_REASON,
+    ]);
+    // The queued message had not gone out, so it comes back out of the chat's queue.
+    expect(projection.queuedMessages ?? []).toEqual([]);
+    expect((await deliveries())[1]).toMatchObject({ status: "held", reason: HUDDLE_SCOPE_REASON });
+    expect(await sends(remote)).toHaveLength(1);
+
+    setScope("all");
+    await settle();
+    // Each chat is still busy with the first message, so the second waits in its queue.
+    const resumed = await engine.projection();
+    expect(resumed.huddlePosts?.[1]?.deliveries.map((delivery) => delivery.status)).toEqual([
+      "queued",
+      "queued",
+      "queued",
+    ]);
+    expect(resumed.queuedMessages ?? []).toHaveLength(4);
   });
 });
 

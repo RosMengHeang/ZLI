@@ -107,10 +107,17 @@ export type AgentControlStartInput = z.infer<typeof AgentControlStartInput>;
 /** A huddle's name or id, or a unique id prefix. Optional when the caller is in one huddle only. */
 const HuddleRef = z.string().trim().min(1).max(200);
 
+/** The most messages one huddle read returns. */
+export const MAX_HUDDLE_READ = 50;
+
 export const AgentControlHuddleReadInput = AgentControlTarget.extend({
   huddle: HuddleRef.optional(),
   /** The latest messages, read before or not, instead of only the ones the caller has not read. */
   all: z.boolean().optional(),
+  /** Messages numbered below this one, read before or not, for going back through history. */
+  before: z.number().int().positive().optional(),
+  /** How many messages to return, up to MAX_HUDDLE_READ. */
+  limit: z.number().int().min(1).max(MAX_HUDDLE_READ).optional(),
   as: CallerRef.optional(),
 });
 export type AgentControlHuddleReadInput = z.infer<typeof AgentControlHuddleReadInput>;

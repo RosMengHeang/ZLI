@@ -79,17 +79,4 @@ export function fenceFor(lines: readonly string[]): string {
   return "`".repeat(Math.max(3, longest + 1));
 }
 
-/**
- * Terminal input for a message, without a final Enter so the person can read it before sending.
- * Control characters from the diff are dropped so file contents cannot inject terminal sequences or
- * end the paste early. With bracketed paste the program receives line breaks as part of one paste;
- * without it a line break would submit, so the message is sent as one line.
- */
-export function terminalPaste(message: string, bracketedPaste: boolean): string {
-  const clean = message
-    .replace(/\r\n?/gu, "\n")
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: removing control characters is the point.
-    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/gu, "");
-  if (bracketedPaste) return `\x1b[200~${clean.replace(/\n/gu, "\r")}\x1b[201~`;
-  return clean.replace(/\s*\n\s*/gu, " ").trim();
-}
+export { terminalPaste } from "@zli-v2/contracts";
