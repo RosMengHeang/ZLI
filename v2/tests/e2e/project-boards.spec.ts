@@ -31,7 +31,7 @@ test("swaps project boards and brings each back as it was, without stopping agen
     // Tiles from earlier runs live in localStorage and would crowd the grid.
     await page.evaluate(() => localStorage.removeItem("zli.workbench.v1"));
     await page.reload();
-    await expect(page.getByText("Local runtime")).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Runtime connected" })).toBeVisible();
     await page.evaluate(async (path) => {
       await window.zli?.runtime.dispatch({
         protocolVersion: 1,
@@ -63,7 +63,7 @@ test("swaps project boards and brings each back as it was, without stopping agen
     await expect(page.getByRole("dialog", { name: "Close agent" })).toHaveCount(0);
 
     await page.reload();
-    await expect(page.getByText("Local runtime")).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Runtime connected" })).toBeVisible();
     await expect(project(page, "shop")).toBeVisible();
     await expect(tiles).toHaveCount(0);
     await fromProjectMenu(page, "repo", "Show only this project");
@@ -107,9 +107,13 @@ async function startAgent(page: Page, projectName: string, name: string): Promis
 }
 
 async function fromProjectMenu(page: Page, projectName: string, item: string): Promise<void> {
-  await clickProjectAction(
-    project(page, projectName).locator(".project-label"),
-    page.getByRole("button", { name: `${projectName} actions` }),
-  );
-  await page.getByRole("menuitem", { name: item }).click();
+  const entry = page.getByRole("menuitem", { name: item });
+  // A render can close the menu between opening it and picking the item, so both steps retry.
+  await expect(async () => {
+    if (!(await entry.isVisible())) {
+      await project(page, projectName).locator(".project-label").hover();
+      await page.getByRole("button", { name: `${projectName} actions` }).click({ timeout: 2_000 });
+    }
+    await entry.click({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
 }

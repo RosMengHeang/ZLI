@@ -41,7 +41,7 @@ function reading(
 
 async function render(
   readings: readonly PlanLimitReading[] | undefined,
-  options: { currentKey?: string; hidden?: string[]; onOpen?: () => void } = {},
+  options: { currentKey?: string; hidden?: string[]; onOpenSettings?: () => void; open?: boolean } = {},
 ) {
   const container = document.createElement("div");
   document.body.append(container);
@@ -55,15 +55,16 @@ async function render(
         currentKey={options.currentKey}
         hidden={options.hidden}
         timeZone="UTC"
-        onOpen={options.onOpen ?? (() => undefined)}
+        onOpenSettings={options.onOpenSettings ?? (() => undefined)}
       />,
     );
   });
+  if (options.open) await act(async () => toggle(container).click());
   return container;
 }
 
-function button(container: HTMLElement): HTMLButtonElement {
-  const found = container.querySelector("button");
+function toggle(container: HTMLElement): HTMLButtonElement {
+  const found = container.querySelector<HTMLButtonElement>(".usage-strip-toggle");
   if (!found) throw new Error("No limits card");
   return found;
 }
@@ -79,11 +80,15 @@ function description(target: HTMLButtonElement): string {
 const lines = (container: HTMLElement) =>
   [...container.querySelectorAll(".usage-strip-window")].map((line) => plain(line.textContent));
 const labels = (container: HTMLElement) =>
-  [...container.querySelectorAll(".usage-strip-window-label")].map((label) => label.textContent);
+  [...container.querySelectorAll(".usage-strip-list .usage-strip-window-label")].map((label) => label.textContent);
 const names = (container: HTMLElement) =>
   [...container.querySelectorAll(".usage-strip-name")].map((name) => name.textContent);
+const summary = (container: HTMLElement) => container.querySelector(".usage-strip-summary")?.textContent;
 
-afterEach(() => document.body.replaceChildren());
+afterEach(() => {
+  document.body.replaceChildren();
+  window.localStorage.clear();
+});
 
 describe("SidebarUsageStrip", () => {
   it("shows nothing while loading or when no login reports limits", async () => {
@@ -94,23 +99,116 @@ describe("SidebarUsageStrip", () => {
     expect((await render([apiKey, neverSignedIn])).innerHTML).toBe("");
   });
 
-  it("draws a circle per limit with its share and reset, and opens Usage on click", async () => {
-    let opened = 0;
-    const container = await render([reading("codex", [fiveHour(34), week(12)])], { onOpen: () => (opened += 1) });
-    const card = button(container);
+  it("starts folded to one line with the fullest limit, and still describes every login", async () => {
+    const container = await render([
+      reading("claude-code", [fiveHour(10), week(41)]),
+      reading("codex", [fiveHour(86), week(12)]),
+    ]);
+    const card = toggle(container);
     expect(card.getAttribute("aria-label")).toBe("Plan limits");
-    expect(container.querySelectorAll(".usage-strip-ring")).toHaveLength(2);
-    expect(lines(container)).toEqual(["5h34%47m · 12:47 PM", "Week12%2d 21h · Tue 9:00 AM"]);
+    expect(card.getAttribute("aria-expanded")).toBe("false");
+    expect(summary(container)).toBe("Codex5h86%");
+    expect(card.getAttribute("data-tooltip")).toBe("Codex, 5-hour limit: 86% used");
+    expect(container.querySelector(".usage-strip-summary .provider-mark")).not.toBeNull();
+    expect(container.querySelector(".usage-strip-summary")?.classList.contains("is-warning")).toBe(true);
+    expect(container.querySelectorAll(".usage-strip-row")).toHaveLength(0);
     expect(card.textContent).not.toMatch(/\$|tokens/iu);
-    expect(description(card)).toBe(
-      "Codex: 34% of the 5-hour limit used, 47m at 12:47 PM; 12% of the weekly limit used, 2d 21h at Tue 9:00 AM.",
+    expect(description(card)).toContain("Claude Code: 10% of the 5-hour limit used");
+    expect(description(card)).toContain("Codex: 86% of the 5-hour limit used");
+  });
+
+  it("sums up the selected agent's login while folded", async () => {
+    const container = await render(
+      [reading("claude-code", [fiveHour(10), week(41)]), reading("codex", [fiveHour(86)])],
+      { currentKey: "claude-code:usual" },
     );
-    await act(async () => card.click());
-    expect(opened).toBe(1);
+    expect(summary(container)).toBe("Claude CodeWeek41%");
+  });
+
+  it("skips a window that just reset when summing up", async () => {
+    const container = await render([reading("codex", [fiveHour(95, { resetsAt: at(-2) }), week(12)])]);
+    expect(summary(container)).toBe("CodexWeek12%");
+  });
+
+  it("says why the summed-up login has no numbers", async () => {
+    const container = await render([reading("claude-code", [], { accountId: "work", state: "expired" })]);
+    expect(summary(container)).toBe("Claude CodeWorkSign in again");
+    expect(toggle(container).getAttribute("data-tooltip")).toBe("Claude Code, Work: Sign in again");
+  });
+
+  it("unfolds to a circle per limit with one reset format, and remembers it", async () => {
+    const container = await render([reading("codex", [fiveHour(34), week(12)])], { open: true });
+    const card = toggle(container);
+    expect(card.getAttribute("aria-expanded")).toBe("true");
+    expect(card.getAttribute("aria-controls")).toBe(container.querySelector(".sidebar-usage-strip")?.id);
+    expect(summary(container)).toBe("Codex5h34%");
+    expect(container.querySelectorAll(".usage-strip-list .usage-strip-ring")).toHaveLength(2);
+    expect(lines(container)).toEqual(["5h34%Resets in 47m", "Week12%Resets in 2d 21h"]);
+    const resets = [...container.querySelectorAll(".usage-strip-window-reset")];
+    expect(resets.map((reset) => plain(reset.getAttribute("data-tooltip")))).toEqual([
+      "Resets 12:47 PM",
+      "Resets Tue 9:00 AM",
+    ]);
+    expect(labels(container).length).toBe(2);
+    expect(
+      [...container.querySelectorAll(".usage-strip-list .usage-strip-window-label")].map((label) =>
+        label.getAttribute("data-tooltip"),
+      ),
+    ).toEqual(["5-hour limit", "Weekly limit"]);
+    expect(description(card)).toBe(
+      "Codex: 34% of the 5-hour limit used, resets in 47m at 12:47 PM; 12% of the weekly limit used, resets in 2d 21h at Tue 9:00 AM.",
+    );
+
+    document.body.replaceChildren();
+    const again = await render([reading("codex", [fiveHour(34)])]);
+    expect(toggle(again).getAttribute("aria-expanded")).toBe("true");
+    await act(async () => toggle(again).click());
+    expect(toggle(again).getAttribute("aria-expanded")).toBe("false");
+    expect(window.localStorage.getItem("zli.sidebar.limitsOpen")).toBeNull();
+  });
+
+  it("hands the line and the list to the caller to place, and nothing when there is nothing to show", async () => {
+    const slots: { line: boolean; panel: boolean }[] = [];
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const draw = (readings: PlanLimitReading[]) =>
+      act(async () =>
+        root.render(
+          <SidebarUsageStrip
+            readings={readings}
+            providers={undefined}
+            accounts={[]}
+            now={now}
+            onOpenSettings={() => undefined}
+          >
+            {({ line, panel }) => {
+              slots.push({ line: Boolean(line), panel: Boolean(panel) });
+              return <footer>{line}</footer>;
+            }}
+          </SidebarUsageStrip>,
+        ),
+      );
+    await draw([]);
+    expect(slots.at(-1)).toEqual({ line: false, panel: false });
+    await draw([reading("codex", [fiveHour(34)])]);
+    expect(slots.at(-1)).toEqual({ line: true, panel: false });
+    await act(async () => toggle(container).click());
+    expect(slots.at(-1)).toEqual({ line: true, panel: true });
+    expect(container.querySelector("footer .usage-strip-toggle")).not.toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("opens Settings from the unfolded card", async () => {
+    const onOpenSettings = vi.fn();
+    const container = await render([reading("codex", [fiveHour(34)])], { open: true, onOpenSettings });
+    const choose = [...container.querySelectorAll("button")].find((button) => button.textContent === "Choose agents");
+    await act(async () => choose?.click());
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
   it("fills the circle by the share used and warns from 80%", async () => {
-    const container = await render([reading("claude-code", [fiveHour(86), week(100)])]);
+    const container = await render([reading("claude-code", [fiveHour(86), week(100)])], { open: true });
     const [first, second] = container.querySelectorAll(".usage-strip-window");
     expect(first?.classList.contains("is-warning")).toBe(true);
     expect(second?.classList.contains("is-full")).toBe(true);
@@ -120,52 +218,62 @@ describe("SidebarUsageStrip", () => {
   });
 
   it("shows only the windows a plan has", async () => {
-    const container = await render([reading("codex", [week(31)])]);
-    expect(lines(container)).toEqual(["Week31%2d 21h · Tue 9:00 AM"]);
+    const container = await render([reading("codex", [week(31)])], { open: true });
+    expect(lines(container)).toEqual(["Week31%Resets in 2d 21h"]);
   });
 
   it("explains a missing reset instead of making one up", async () => {
-    const container = await render([
-      reading("claude-code", [fiveHour(0, { resetsAt: undefined }), week(40, { resetsAt: undefined })]),
-    ]);
+    const container = await render(
+      [reading("claude-code", [fiveHour(0, { resetsAt: undefined }), week(40, { resetsAt: undefined })])],
+      { open: true },
+    );
     expect(lines(container)).toEqual(["5h0%Starts when used", "Week40%Reset time unknown"]);
   });
 
   it("hides an old share once its window has reset", async () => {
-    const container = await render([reading("codex", [fiveHour(95, { resetsAt: at(-2) }), week(12)])]);
+    const container = await render([reading("codex", [fiveHour(95, { resetsAt: at(-2) }), week(12)])], {
+      open: true,
+    });
     expect(lines(container)[0]).toBe("5h–Reset, checking");
-    expect(description(button(container))).toContain("the 5-hour limit just reset");
+    expect(description(toggle(container))).toContain("the 5-hour limit just reset");
   });
 
   it("adds the model limit that will stop the agent first", async () => {
-    const container = await render([
-      reading("claude-code", [fiveHour(10), week(41), week(92, { scope: "Fable" }), week(5, { scope: "Sonnet" })]),
-    ]);
+    const container = await render(
+      [reading("claude-code", [fiveHour(10), week(41), week(92, { scope: "Fable" }), week(5, { scope: "Sonnet" })])],
+      { open: true },
+    );
     expect(labels(container)).toEqual(["5h", "Week", "Fable"]);
   });
 
-  it("names saved accounts and the usual login beside them", async () => {
-    const container = await render([
-      reading("claude-code", [fiveHour(10)]),
-      reading("claude-code", [week(63)], { accountId: "work" }),
-      reading("codex", [fiveHour(34)]),
-    ]);
+  it("names the usual login only beside another login of the same agent", async () => {
+    const container = await render(
+      [
+        reading("claude-code", [fiveHour(10)]),
+        reading("claude-code", [week(63)], { accountId: "work" }),
+        reading("codex", [fiveHour(34)]),
+      ],
+      { open: true },
+    );
     expect(names(container)).toEqual(["Claude CodeUsual login", "Claude CodeWork", "Codex"]);
   });
 
   it("says why a saved login has no numbers, and dims old ones", async () => {
-    const container = await render([
-      reading("claude-code", [], { accountId: "work", state: "expired", message: "Sign in again, please." }),
-      reading("codex", [fiveHour(34)], { state: "error", message: "Codex did not answer." }),
-    ]);
+    const container = await render(
+      [
+        reading("claude-code", [], { accountId: "work", state: "expired", message: "Sign in again, please." }),
+        reading("codex", [fiveHour(34)], { state: "error", message: "Codex did not answer." }),
+      ],
+      { open: true },
+    );
     expect(names(container)).toEqual(["Claude CodeWorkSign in again", "CodexCould not check"]);
     const rows = container.querySelectorAll(".usage-strip-row");
     expect(rows[1]?.classList.contains("is-stale")).toBe(true);
     expect(rows[1]?.getAttribute("title")).toBe("Codex did not answer.");
-    expect(description(button(container))).toContain("Claude Code, Work: Sign in again, please.");
+    expect(description(toggle(container))).toContain("Claude Code, Work: Sign in again, please.");
   });
 
-  it("caps at three logins but keeps the selected agent's login in view", async () => {
+  it("lists every login once unfolded and marks the selected agent's", async () => {
     const container = await render(
       [
         reading("claude-code", [fiveHour(1)]),
@@ -174,14 +282,13 @@ describe("SidebarUsageStrip", () => {
         reading("codex", [fiveHour(4)], { accountId: "spare" }),
         reading("codex", [fiveHour(5)], { accountId: "other" }),
       ],
-      { currentKey: "codex:other" },
+      { currentKey: "codex:other", open: true },
     );
     const rows = container.querySelectorAll(".usage-strip-row");
-    expect(rows).toHaveLength(3);
-    expect(rows[2]?.classList.contains("is-current")).toBe(true);
-    expect(rows[2]?.textContent).toContain("5%");
-    expect(container.querySelector(".usage-strip-more")?.textContent).toBe("+2 more");
-    expect(description(button(container))).toContain("selected agent");
+    expect(rows).toHaveLength(5);
+    expect(rows[4]?.classList.contains("is-current")).toBe(true);
+    expect(container.querySelectorAll(".is-current")).toHaveLength(1);
+    expect(description(toggle(container))).toContain("selected agent");
   });
 
   it("leaves out a usual login whose limits were never read, and agents switched off", async () => {
@@ -192,7 +299,7 @@ describe("SidebarUsageStrip", () => {
         reading("claude-code", [fiveHour(10)]),
         reading("gemini", [fiveHour(5)]),
       ],
-      { hidden: ["gemini"] },
+      { hidden: ["gemini"], open: true },
     );
     expect(names(container)).toEqual(["Claude Code"]);
   });
@@ -220,7 +327,13 @@ describe("SidebarPlanLimits", () => {
     await act(async () => {
       root.render(
         <RuntimeProvider bridge={bridge}>
-          <SidebarPlanLimits providers={undefined} accounts={[]} now={now} timeZone="UTC" onOpen={() => undefined} />
+          <SidebarPlanLimits
+            providers={undefined}
+            accounts={[]}
+            now={now}
+            timeZone="UTC"
+            onOpenSettings={() => undefined}
+          />
         </RuntimeProvider>,
       );
     });
@@ -236,6 +349,7 @@ describe("SidebarPlanLimits", () => {
 
   it("shows the agents left on once turned on in Settings", async () => {
     updateAppSettings((current) => ({ ...current, sidebarLimits: { enabled: true, hidden: ["codex"] } }));
+    window.localStorage.setItem("zli.sidebar.limitsOpen", "1");
     const { container, dispatch, root } = await mount();
     expect(dispatch).toHaveBeenCalled();
     expect(names(container)).toEqual(["Claude Code"]);

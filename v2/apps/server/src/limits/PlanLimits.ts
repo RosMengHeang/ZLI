@@ -156,7 +156,7 @@ export function mockLimitRead(target: LimitTarget, now = Date.now()): LimitRead 
     case "cursor-agent":
       return {
         state: "ok",
-        windows: [window(MONTHLY_WINDOW, 44, 12 * 1_440), window(MONTHLY_WINDOW, 71, 12 * 1_440, "API")],
+        windows: [window(MONTHLY_WINDOW, 44, 12 * 1_440), window(MONTHLY_WINDOW, 71, 12 * 1_440, "API models")],
       };
     case "droid":
       return {

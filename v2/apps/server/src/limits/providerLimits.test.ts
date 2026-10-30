@@ -220,8 +220,8 @@ describe("readCursorLimits", () => {
       state: "ok",
       windows: [
         { durationMinutes: 43_200, usedPercent: 44, resetsAt },
-        { scope: "Auto", durationMinutes: 43_200, usedPercent: 20, resetsAt },
-        { scope: "API", durationMinutes: 43_200, usedPercent: 71, resetsAt },
+        { scope: "Auto models", durationMinutes: 43_200, usedPercent: 20, resetsAt },
+        { scope: "API models", durationMinutes: 43_200, usedPercent: 71, resetsAt },
       ],
     });
     expect(calls[0]).toMatchObject({

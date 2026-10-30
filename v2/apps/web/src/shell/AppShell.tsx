@@ -1989,7 +1989,7 @@ function WorkspaceApp() {
             onReviewSetup={(worktree) => reviewSetup(worktree.worktreeId)}
             onShowSetupOutput={(worktree) => showSetupOutput(worktree.worktreeId)}
             onOpenHelp={() => setHelpOpen(true)}
-            onOpenSettings={() => openSettings()}
+            onOpenSettings={openSettings}
             onOpenUsage={openUsage}
             onHideSidebar={hideSidebar}
             runGroups={workbench.groups}

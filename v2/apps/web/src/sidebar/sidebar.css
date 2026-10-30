@@ -145,23 +145,51 @@
 .worktree-status.is-attention { color: var(--zli-amber); }
 .worktree-status.is-danger { color: var(--zli-red); }
 
-.sidebar-footer { display: flex; align-items: center; gap: var(--zli-space-2); height: 44px; flex: 0 0 auto; padding: 0 var(--zli-space-2) 0 var(--zli-space-4); color: var(--zli-dim); font-size: var(--zli-text-sm); }
-.sidebar-runtime { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-footer { display: flex; align-items: center; gap: var(--zli-space-1); height: 44px; flex: 0 0 auto; padding: 0 var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-sm); }
+.sidebar-waiting { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); padding-left: var(--zli-space-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .connection-dot { width: 6px; height: 6px; flex-basis: 6px; }
+.sidebar-settings { color: var(--zli-muted); }
 .sidebar-bottom { display: flex; flex: 0 0 auto; flex-direction: column; }
+/* The unfolded list sits on the canvas by tone like the islands beside it, so the sidebar chrome keeps no box lines. */
 .sidebar-usage-strip {
-  display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0 var(--zli-space-2); padding: var(--zli-space-2-5);
-  border: 0; border-radius: var(--zli-radius-md); background: var(--zli-surface); color: var(--zli-muted); cursor: pointer;
+  display: flex; flex-direction: column; gap: var(--zli-space-2); margin: 0 var(--zli-space-2) var(--zli-space-1); padding: var(--zli-space-2) var(--zli-space-2-5);
+  border-radius: var(--zli-radius-md); background: var(--zli-surface); color: var(--zli-muted); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums;
+}
+.usage-strip-toggle {
+  display: flex; min-width: 0; flex: 1 1 auto; align-items: center; gap: var(--zli-space-1-5); height: 30px; padding: 0 var(--zli-space-1-5);
+  container-type: inline-size;
+  border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: pointer;
   font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; text-align: left;
   transition: background-color var(--zli-duration-fast) var(--zli-ease);
 }
-/* Told apart from the canvas by tone like the islands beside it, so the sidebar chrome keeps no box lines. */
-.sidebar-usage-strip:hover { background: var(--zli-raised); }
+.usage-strip-toggle:hover { background: var(--zli-hover); }
+.usage-strip-toggle[aria-expanded="true"] { background: var(--zli-active); }
+.usage-strip-toggle:focus-visible { outline-offset: -1px; }
+.usage-strip-chevron { flex: 0 0 auto; margin-left: auto; color: var(--zli-dim); transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.usage-strip-toggle[aria-expanded="true"] .usage-strip-chevron { transform: rotate(180deg); }
 .usage-strip-head { color: var(--zli-dim); font-size: var(--zli-text-2xs); }
+.usage-strip-summary { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-1-5); overflow: hidden; white-space: nowrap; }
+.usage-strip-summary > .usage-strip-ring, .usage-strip-summary > .provider-mark { flex: 0 0 auto; }
+.usage-strip-summary > .provider-mark { display: none; color: var(--zli-dim); }
+@container (max-width: 119px) {
+  .usage-strip-summary > .provider-mark { display: block; }
+  .usage-strip-summary > .usage-strip-provider, .usage-strip-summary > .usage-strip-account,
+  .usage-strip-summary .usage-strip-window-label { display: none; }
+}
+.usage-strip-summary-limit { display: inline-flex; flex: 0 0 auto; align-items: baseline; gap: var(--zli-space-1); margin-left: auto; }
+.usage-strip-summary .usage-strip-window-label { min-width: 0; }
+.usage-strip-summary.is-warning .usage-strip-ring-fill { stroke: var(--zli-amber); }
+.usage-strip-summary.is-warning .usage-strip-window-percent { color: var(--zli-amber); }
+.usage-strip-summary.is-full .usage-strip-ring-fill { stroke: var(--zli-red); }
+.usage-strip-summary.is-full .usage-strip-window-percent { color: var(--zli-red); }
+.usage-strip-summary.is-stale .usage-strip-window-percent { color: var(--zli-dim); }
+.usage-strip-summary.is-stale .usage-strip-ring-fill { stroke: var(--zli-dim); }
+/* Capped so a long list of logins scrolls inside the card instead of pushing the projects away. */
+.usage-strip-list { display: flex; max-height: min(320px, 40vh); flex-direction: column; gap: var(--zli-space-2); overflow-y: auto; }
 .usage-strip-row { display: flex; flex-direction: column; gap: 3px; }
 .usage-strip-name { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); overflow: hidden; white-space: nowrap; }
 .usage-strip-name > .provider-mark { flex: 0 0 auto; color: var(--zli-dim); }
-.usage-strip-provider { flex: 0 0 auto; }
+.usage-strip-provider { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .usage-strip-account { min-width: 0; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; }
 .usage-strip-state { margin-left: auto; flex: 0 0 auto; color: var(--zli-amber); font-size: var(--zli-text-2xs); }
 /* Labels, shares, and resets line up across logins; a long model name widens only its own login's labels. */
@@ -171,7 +199,7 @@
 .usage-strip-ring-track, .usage-strip-ring-fill { fill: none; stroke-width: 2.5; }
 .usage-strip-ring-track { stroke: var(--zli-border-strong); }
 .usage-strip-ring-fill { stroke: var(--zli-muted); stroke-linecap: round; transition: stroke-dasharray var(--zli-duration-fast) var(--zli-ease); }
-.usage-strip-window-label { min-width: 38px; max-width: 64px; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.usage-strip-window-label { min-width: 38px; max-width: 72px; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
 .usage-strip-window-percent { color: var(--zli-text); text-align: right; }
 .usage-strip-window-reset { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .usage-strip-window.is-warning .usage-strip-ring-fill { stroke: var(--zli-amber); }
@@ -182,10 +210,13 @@
 .usage-strip-row.is-stale .usage-strip-window-percent { color: var(--zli-dim); }
 .usage-strip-row.is-stale .usage-strip-ring-fill { stroke: var(--zli-dim); }
 .usage-strip-row.is-current .usage-strip-provider, .usage-strip-row.is-current .provider-mark,
-.sidebar-usage-strip:hover .usage-strip-provider { color: var(--zli-text); }
-.usage-strip-more { color: var(--zli-dim); font-size: var(--zli-text-2xs); }
+.usage-strip-toggle:hover .usage-strip-provider { color: var(--zli-text); }
+.usage-strip-settings {
+  align-self: flex-start; padding: 0; border: 0; background: transparent; color: var(--zli-dim); cursor: pointer;
+  font-size: var(--zli-text-2xs); text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 2px;
+}
+.usage-strip-settings:hover { color: var(--zli-text); text-decoration-color: currentColor; }
 .sidebar-usage { margin-left: auto; }
-
 @media (max-width: 1240px) {
   .sidebar { width: 236px; flex-basis: 236px; }
 }

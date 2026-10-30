@@ -134,8 +134,8 @@ export function formatResetIn(resetsAt: string | undefined, now: number): string
 }
 
 /**
- * The local time of a reset: "3:40 PM" within a day, "Tue 9:00 AM" this week, "Nov 3" later. The
- * countdown beside it already says whether a time within a day is today or tomorrow.
+ * The local time of a reset: "3:40 PM" within a day, "Tue 9:00 AM" this week, "Nov 3" later. It is
+ * always read with the countdown, which already says whether a time within a day is today or tomorrow.
  */
 export function formatResetClock(resetsAt: string, now: number, timeZone?: string): string | undefined {
   const at = Date.parse(resetsAt);
@@ -152,14 +152,19 @@ export function formatResetClock(resetsAt: string, now: number, timeZone?: strin
 }
 
 /**
- * What a circle says about its reset, always: "2h 10m · 3:40 PM" when the provider gave a time,
- * otherwise why there is none. A window whose reset has passed shows no share until the next read.
+ * What a circle says about its reset, always: "Resets in 2h 10m" when the provider gave a time, with
+ * the local time kept aside as `clock`, otherwise why there is none. A window whose reset has passed
+ * shows no share until the next read.
  */
-export function resetText(window: PlanLimitWindow, now: number, timeZone?: string): { text: string; passed: boolean } {
+export function resetText(
+  window: PlanLimitWindow,
+  now: number,
+  timeZone?: string,
+): { text: string; passed: boolean; clock?: string } {
   if (window.resetsAt && Date.parse(window.resetsAt) <= now) return { text: "Reset, checking", passed: true };
   const countdown = formatResetIn(window.resetsAt, now);
   const clock = window.resetsAt ? formatResetClock(window.resetsAt, now, timeZone) : undefined;
-  if (countdown && clock) return { text: `${countdown} · ${clock}`, passed: false };
+  if (countdown && clock) return { text: `Resets in ${countdown}`, passed: false, clock };
   if (window.kind === "spend") return { text: "Resets monthly", passed: false };
   // Claude leaves the 5-hour reset empty until the first message opens the window.
   if (window.usedPercent === 0) return { text: "Starts when used", passed: false };

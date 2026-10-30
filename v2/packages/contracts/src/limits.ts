@@ -30,7 +30,7 @@ export const PlanLimitWindow = z.object({
    */
   kind: z.enum(["usage", "spend"]).optional(),
   /**
-   * The model or pool a window is limited to, such as "Fable", "2.5 Pro", or Cursor's "API". Missing
+   * The model or pool a window is limited to, such as "Fable", "2.5 Pro", or Cursor's "API models". Missing
    * for the whole plan.
    */
   scope: z.string().min(1).max(60).optional(),

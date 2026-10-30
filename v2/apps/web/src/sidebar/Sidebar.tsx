@@ -24,6 +24,7 @@ import {
   sessionTitle,
 } from "../sessions/sessions.js";
 import { groupFinished } from "../sessions/useRunStates.js";
+import type { SettingsSection } from "../settings/SettingsDialog.js";
 import { setupBadge, worktreeSetup } from "../setup/setup.js";
 import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
@@ -136,7 +137,8 @@ type Props = {
   onReviewSetup(worktree: WorktreeProjection): void;
   onShowSetupOutput(worktree: WorktreeProjection): void;
   onOpenHelp(): void;
-  onOpenSettings(): void;
+  /** Opens Settings, at `section` when given. */
+  onOpenSettings(section?: SettingsSection): void;
   onOpenUsage(): void;
   onHideSidebar(): void;
   /** Best-of runs still being compared; their sessions list under the chat they came from. */
@@ -1060,34 +1062,66 @@ export function Sidebar({
           </>
         )}
       </div>
-      <div className="sidebar-bottom">
-        <SidebarPlanLimits
-          providers={projection?.providers}
-          accounts={accounts}
-          now={now}
-          currentKey={activeSession ? limitKey(activeSession.provider, sessionAccountId(activeSession)) : undefined}
-          onOpen={onOpenUsage}
-        />
-        <div className="sidebar-footer">
-          <span className={`connection-dot${projection ? " is-connected" : ""}`} aria-hidden="true" />
-          <span className="sidebar-runtime">{projection ? "Local runtime" : "Waiting for runtime"}</span>
-          <IconButton
-            className="sidebar-usage"
-            label="Usage"
-            tooltip="Usage and cost"
-            icon="gauge"
-            onClick={onOpenUsage}
-          />
-          <IconButton label="Settings" icon="settings" shortcut={settingsShortcut} onClick={onOpenSettings} />
-          <IconButton
-            className="sidebar-help"
-            label="Help"
-            tooltip="Help and diagnostics"
-            icon="help"
-            onClick={onOpenHelp}
-          />
-        </div>
-      </div>
+      <SidebarPlanLimits
+        providers={projection?.providers}
+        accounts={accounts}
+        now={now}
+        currentKey={activeSession ? limitKey(activeSession.provider, sessionAccountId(activeSession)) : undefined}
+        onOpenSettings={() => onOpenSettings("usage")}
+      >
+        {({ line, panel }) => (
+          <div className="sidebar-bottom">
+            {panel}
+            <div className="sidebar-footer">
+              <span className="sr-only" role="status">
+                {projection ? "Runtime connected" : ""}
+              </span>
+              {!projection ? (
+                <span className="sidebar-waiting">
+                  <span className="connection-dot" aria-hidden="true" />
+                  Waiting for runtime
+                </span>
+              ) : (
+                (line ?? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="settings"
+                    className="sidebar-settings"
+                    tooltip="Settings"
+                    shortcut={settingsShortcut}
+                    onClick={() => onOpenSettings()}
+                  >
+                    Settings
+                  </Button>
+                ))
+              )}
+              <IconButton
+                className="sidebar-usage"
+                label="Usage"
+                tooltip="Usage and cost"
+                icon="gauge"
+                onClick={onOpenUsage}
+              />
+              {projection && !line ? null : (
+                <IconButton
+                  label="Settings"
+                  icon="settings"
+                  shortcut={settingsShortcut}
+                  onClick={() => onOpenSettings()}
+                />
+              )}
+              <IconButton
+                className="sidebar-help"
+                label="Help"
+                tooltip="Help and diagnostics"
+                icon="help"
+                onClick={onOpenHelp}
+              />
+            </div>
+          </div>
+        )}
+      </SidebarPlanLimits>
       {contextMenu ? <Menu request={contextMenu} onClose={() => setContextMenu(undefined)} /> : null}
       {renderProjectConfirm()}
       {huddleMenu ? <Menu request={huddleMenu} onClose={() => setHuddleMenu(undefined)} /> : null}

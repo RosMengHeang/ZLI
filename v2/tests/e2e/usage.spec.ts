@@ -34,32 +34,26 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
     await settings.getByRole("switch", { name: /Show plan limits/u }).check();
     await page.keyboard.press("Escape");
     await expect(settings).toHaveCount(0);
-    // Seven agents report limits; three rows fit, and the rest are counted.
-    await expect(limits.locator(".usage-strip-name")).toHaveText(["Claude Code", "Codex", "Gemini"]);
-    await expect(limits.locator(".usage-strip-window-label")).toHaveText([
-      "5h",
-      "Week",
-      "Fable",
-      "5h",
-      "Week",
-      "2.5 Pro",
-      "2.5 Flash",
-    ]);
-    await expect(limits.locator(".usage-strip-window-percent")).toHaveText([
-      "86%",
-      "41%",
-      "92%",
-      "34%",
-      "12%",
-      "58%",
-      "12%",
-    ]);
-    await expect(limits.locator(".usage-strip-more")).toHaveText("+4 more");
-    // Every circle says when it resets: a countdown and the local time.
-    await expect(limits.locator(".usage-strip-window-reset").first()).toHaveText(/^\d+m · \d{1,2}:\d{2}\s?[AP]M$/u);
+    // Folded, the limits are one line in the footer for the selected agent's login: the Codex chat,
+    // at its fullest limit. Settings moves to an icon beside it.
+    const card = page.locator(".sidebar-usage-strip");
+    await expect(limits).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator(".sidebar-footer .usage-strip-summary")).toHaveText("Codex5h34%");
+    await expect(page.locator(".sidebar-footer").getByRole("button", { name: "Settings", exact: true })).toHaveText("");
+    await expect(card).toHaveCount(0);
+    // Unfolded, every agent that reports limits gets a row.
     await limits.click();
-    await expect(page.getByRole("dialog", { name: "Usage" })).toBeVisible();
+    await expect(limits).toHaveAttribute("aria-expanded", "true");
+    await expect(card.locator(".usage-strip-row")).toHaveCount(7);
+    await expect(card.locator(".usage-strip-name").first()).toHaveText("Claude Code");
+    await expect(card.locator(".usage-strip-window-label").first()).toHaveText("5h");
+    await expect(card.locator(".usage-strip-window-percent").first()).toHaveText("86%");
+    // Every circle says when it resets, the same way.
+    await expect(card.locator(".usage-strip-window-reset").first()).toHaveText(/^Resets in \d+m$/u);
+    await card.getByRole("button", { name: "Choose agents" }).click();
+    await expect(settings.getByRole("tab", { name: "Usage" })).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Escape");
+    await expect(settings).toHaveCount(0);
 
     await page.getByRole("button", { name: "Usage", exact: true }).click();
     const usage = page.getByRole("dialog", { name: "Usage" });

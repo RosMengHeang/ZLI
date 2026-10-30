@@ -41,7 +41,7 @@ test("runs a huddle where agents and the person talk, assign work, and pin a dec
     // Tiles from earlier runs live in localStorage and would crowd the grid.
     await page.evaluate(() => localStorage.removeItem("zli.workbench.v1"));
     await page.reload();
-    await expect(page.getByText("Local runtime")).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Runtime connected" })).toBeVisible();
     await expect(page.locator(".project-label")).toContainText("repo");
 
     await page.keyboard.press(`${mod}+n`);
