@@ -2,7 +2,7 @@ name: Release
 
 # Every merge to main ships a patch release. Run this workflow by hand for a minor or major one.
 # The v* tag is the only record of the version: package.json files keep 0.0.0 on main and get the
-# release version written into them inside the build jobs.
+# release version written into them inside the gate's build jobs.
 on:
   push:
     branches: [main]
@@ -15,7 +15,7 @@ on:
         default: patch
 
 permissions:
-  contents: write
+  contents: read
 
 # Two quick merges must not compute the same version. A newer push waits for the running release;
 # GitHub keeps only the newest waiting run, which builds main with the changes of the run it replaced.
@@ -24,23 +24,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Nothing is tagged or built until the release commit passes the pull request checks (audit, verify,
-  # installers, and the Electron journey), so a merge with a known high or critical advisory or a failing
-  # check never ships.
-  gate:
-    if: github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-      actions: write
-    uses: ./.github/workflows/v2-desktop.yml
-
+  # Only works the version out. Nothing is tagged until the gate passes.
   version:
-    needs: gate
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.next.outputs.version }}
       tag: ${{ steps.next.outputs.tag }}
+      previous_tag: ${{ steps.next.outputs.previous_tag }}
       sha: ${{ steps.next.outputs.sha }}
       skip: ${{ steps.next.outputs.skip }}
     defaults:
@@ -61,113 +52,60 @@ jobs:
       - name: Explain the skip
         if: steps.next.outputs.skip == 'true'
         run: echo "::notice::No release for this push (${{ steps.next.outputs.reason }})."
-      - name: Tag the release commit
-        if: steps.next.outputs.skip != 'true'
-        env:
-          TAG: ${{ steps.next.outputs.tag }}
-          SHA: ${{ steps.next.outputs.sha }}
-        run: |
-          git tag "$TAG" "$SHA"
-          git push origin "refs/tags/$TAG"
-      # The draft exists before the build jobs start, so the three parallel electron-builder uploads all
-      # find it and add their files to it instead of each creating a release of their own.
-      - name: Create the draft release with notes
-        if: steps.next.outputs.skip != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.next.outputs.tag }}
-          SHA: ${{ steps.next.outputs.sha }}
-          PREVIOUS_TAG: ${{ steps.next.outputs.previous_tag }}
-        run: |
-          args=(-f "tag_name=$TAG" -f "target_commitish=$SHA")
-          if [ -n "$PREVIOUS_TAG" ]; then args+=(-f "previous_tag_name=$PREVIOUS_TAG"); fi
-          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" "${args[@]}" --jq .body > "$RUNNER_TEMP/notes.md"
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
-            --title "ZLI $TAG" --notes-file "$RUNNER_TEMP/notes.md"
 
-  build:
+  # The pull request checks (audit, verify, and the Electron journey) run again on the release commit, so a
+  # merge with a known high or critical advisory or a failing check never ships. When this push releases, the
+  # same jobs build the installers with the release version and the journey runs against them, so the files
+  # that pass are the files that ship. A push that skips the release still gets the checks.
+  gate:
     needs: version
-    if: needs.version.outputs.skip != 'true'
-    strategy:
-      fail-fast: true
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: v2
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.version.outputs.sha }}
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.34.9
-          run_install: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: v2/.nvmrc
-          cache: pnpm
-          cache-dependency-path: v2/pnpm-lock.yaml
-      - name: Cache Electron and electron-builder downloads
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/electron
-            ~/.cache/electron-builder
-            ~/Library/Caches/electron
-            ~/Library/Caches/electron-builder
-            ~/AppData/Local/electron/Cache
-            ~/AppData/Local/electron-builder/Cache
-          key: electron-${{ runner.os }}-${{ hashFiles('v2/pnpm-lock.yaml') }}
-          restore-keys: electron-${{ runner.os }}-
-      - run: pnpm install --frozen-lockfile
-      - name: Set the release version for this build
-        run: node scripts/release-version.mjs apply "${{ needs.version.outputs.version }}"
-      # electron-builder calls rpmbuild for the .rpm. Ubuntu runners do not ship it.
-      - name: Install rpmbuild for the .rpm package
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm
-      - name: Build installers and upload them to the draft release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # TODO(macOS signing): Squirrel.Mac only installs updates into a signed, notarized app, so macOS
-          # users download new versions from the release page for now. To make macOS updates install on
-          # their own, add the repository secrets CSC_LINK (base64 Developer ID Application .p12),
-          # CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID, uncomment the lines
-          # below, and turn on notarize in apps/desktop/electron-builder.yml. ZLI_MAC_SIGNED=1 tells the
-          # app it may install updates itself.
-          # CSC_LINK: ${{ runner.os == 'macOS' && secrets.CSC_LINK || '' }}
-          # CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.CSC_KEY_PASSWORD || '' }}
-          # APPLE_ID: ${{ secrets.APPLE_ID }}
-          # APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # ZLI_MAC_SIGNED: ${{ runner.os == 'macOS' && '1' || '0' }}
-        run: pnpm run desktop:release
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/v2-desktop.yml
+    with:
+      release_version: ${{ needs.version.outputs.skip != 'true' && needs.version.outputs.version || '' }}
 
+  # The only job with write access. It runs no project code: it checks the gate's files, tags the commit, and
+  # publishes the release with them.
   publish:
-    needs: [version, build]
+    needs: [version, gate]
     if: needs.version.outputs.skip != 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.version.outputs.tag }}
+      SHA: ${{ needs.version.outputs.sha }}
+      PREVIOUS_TAG: ${{ needs.version.outputs.previous_tag }}
     steps:
-      - name: Check the installers and update files are attached
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.version.outputs.tag }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installers-*
+          merge-multiple: true
+          path: installers
+      - name: Check the installers and update files are all there
         run: |
-          assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
-          echo "$assets"
+          files="$(ls installers)"
+          echo "$files"
           missing=0
           for pattern in '^latest\.yml$' '^latest-mac\.yml$' '^latest-linux\.yml$' '\.exe$' '\.exe\.blockmap$' \
             '\.dmg$' '-mac-.*\.zip$' '\.AppImage$' '\.deb$' '\.rpm$'; do
-            if ! grep -Eq -- "$pattern" <<< "$assets"; then
+            if ! grep -Eq -- "$pattern" <<< "$files"; then
               echo "::error::No release file matches $pattern"
               missing=1
             fi
           done
           exit "$missing"
+      - name: Tag the release commit
+        run: gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$SHA"
+      - name: Create the draft release with notes and the installers
+        run: |
+          args=(-f "tag_name=$TAG" -f "target_commitish=$SHA")
+          if [ -n "$PREVIOUS_TAG" ]; then args+=(-f "previous_tag_name=$PREVIOUS_TAG"); fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" "${args[@]}" --jq .body > "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG" installers/* --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+            --title "ZLI $TAG" --notes-file "$RUNNER_TEMP/notes.md"
       - name: Publish the release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.version.outputs.tag }}
         run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
