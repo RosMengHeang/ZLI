@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { _electron as electron, type ElectronApplication, expect, type Locator, type Page } from "@playwright/test";
+import { type ElectronApplication, _electron as electron, expect, type Locator, type Page } from "@playwright/test";
 
 import { closeChildProcess } from "../closeChildProcess.js";
 import { getProcessTreeTerminationOrder } from "../processTree.js";
@@ -68,24 +68,30 @@ export async function freePort(): Promise<number> {
   if (!address || typeof address === "string") throw new Error("No free port was found.");
   return address.port;
 }
+
 /**
- * Clicks one of a sidebar project row's actions, which show only while the row is hovered. A render that
- * lands between the hover and the click drops the row's hover state, so both are tried again.
+ * Clicks one of a sidebar project row's actions. They are display:none until the row is hovered, and a
+ * role query skips display:none, so a hover that does not stick makes the lookup wait until it times out.
+ * Put every action on the row back in the layout, then click.
  */
 export async function clickProjectAction(row: Locator, button: Locator): Promise<void> {
   await expect(async () => {
-    await row.hover();
+    await row.evaluate((label) => {
+      for (const element of label.querySelectorAll<HTMLElement>(".project-action")) {
+        element.style.setProperty("display", "inline-flex");
+        element.style.setProperty("opacity", "1");
+      }
+    });
     await button.click({ timeout: 2_000 });
   }).toPass({ timeout: 30_000 });
 }
 
 /** Opens the Create worktree dialog from the first project's row. */
 export async function openCreateWorktree(page: Page): Promise<void> {
-  // The hidden button is display:none, so it can't anchor the row locator.
-  await clickProjectAction(
-    page.locator(".project-label").first(),
-    page.getByRole("button", { name: "Create worktree", exact: true }),
-  );
+  const row = page.locator(".project-label").first();
+  // Scope to the row. The dialog has another Create worktree button, and a page-wide role query
+  // cannot see this one while it is display:none.
+  await clickProjectAction(row, row.getByRole("button", { name: "Create worktree", exact: true }));
 }
 
 export async function createGitFixture(): Promise<{ root: string; repo: string }> {

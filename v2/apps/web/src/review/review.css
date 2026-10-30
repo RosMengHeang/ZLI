@@ -129,6 +129,10 @@ span.review-file-check { cursor: default; }
 .agent-send > .agent-send-more.btn-primary { box-shadow: inset 1px 0 0 rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .18), 0 1px 2px rgba(0, 0, 0, .4); }
 .agent-send > .agent-send-more[aria-expanded="true"] { background: var(--zli-accent-pressed); }
 .send-targets { display: flex; flex-direction: column; gap: var(--zli-space-1-5); }
+.send-targets-group { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-1-5); margin: 0; padding: 0; border: 0; }
+.send-targets-group + .send-targets-group { margin-top: var(--zli-space-1-5); }
+.send-targets-group-label { margin-bottom: var(--zli-space-1-5); padding: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; }
+.send-targets-empty { margin: 0 0 var(--zli-space-1-5); color: var(--zli-muted); font-size: var(--zli-text-sm); }
 .send-preview pre { margin: 0; font: inherit; white-space: inherit; }
 .send-preview { max-height: 220px; margin: 0; padding: var(--zli-space-2) var(--zli-space-2-5); overflow: auto; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); background: var(--zli-well); color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .send-comments-dialog .is-mono { font-family: var(--zli-mono); font-size: .95em; }

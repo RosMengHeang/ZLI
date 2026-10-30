@@ -329,6 +329,31 @@ export function formatDesignMessage(annotations: readonly DesignAnnotation[], br
   return [intro, editNote, ...sections].filter(Boolean).join("\n\n");
 }
 
+function designPages(annotations: readonly DesignAnnotation[]): string[] {
+  return [...new Set(annotations.flatMap((annotation) => (annotation.url ? [annotation.url] : [])))];
+}
+
+/** Tells an agent in another worktree where the annotations were made, since its own checkout can differ. */
+export function designWorktreeContext(
+  annotations: readonly DesignAnnotation[],
+  from: { branch: string; path: string },
+  to: string,
+): string {
+  const pages = designPages(annotations.slice(0, MAX_DESIGN_ANNOTATIONS));
+  const one = Math.min(annotations.length, MAX_DESIGN_ANNOTATIONS) === 1;
+  const page = pages.length === 1 ? `, on ${pages[0]}` : "";
+  return [
+    `${one ? "This annotation was" : "These annotations were"} made in the browser of another worktree, ${from.branch} at ${from.path}${page}.`,
+    `You work on ${to}, and your checkout may differ from that one, so make the ${one ? "change" : "changes"} in your own worktree.`,
+  ].join(" ");
+}
+
+/** The dialog's note while an agent in another worktree is picked. */
+export function designWorktreeNote(annotations: readonly DesignAnnotation[], agent: string, to: string, from: string) {
+  const pages = designPages(annotations).length > 1 ? "The pages were" : "The page was";
+  return `${agent} works on ${to}. ${pages} annotated on ${from}.`;
+}
+
 function quoted(text: string): string {
   return JSON.stringify(text);
 }

@@ -111,8 +111,10 @@ async function fromProjectMenu(page: Page, projectName: string, item: string): P
   // A render can close the menu between opening it and picking the item, so both steps retry.
   await expect(async () => {
     if (!(await entry.isVisible())) {
-      await project(page, projectName).locator(".project-label").hover();
-      await page.getByRole("button", { name: `${projectName} actions` }).click({ timeout: 2_000 });
+      await clickProjectAction(
+        project(page, projectName).locator(".project-label"),
+        page.getByRole("button", { name: `${projectName} actions` }),
+      );
     }
     await entry.click({ timeout: 2_000 });
   }).toPass({ timeout: 30_000 });
