@@ -104,8 +104,10 @@ jobs:
           restore-keys: electron-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test
+      # Windows runs this job in PowerShell, which expands "$RELEASE_VERSION" as an empty shell variable.
       - name: Set the release version for this build
         if: env.RELEASE_VERSION != ''
+        shell: bash
         run: node scripts/release-version.mjs apply "$RELEASE_VERSION"
       - run: pnpm run build
       # The journey below only needs the unpacked app (linux-unpacked, mac-<arch>/ZLI.app, win-unpacked). The
