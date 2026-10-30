@@ -64,6 +64,9 @@ type MountOptions = {
   onCreateWorktree?: (project?: { projectId: string }) => void;
   onRemoveProject?: (projectId: string) => Promise<string | undefined>;
   onRenameProject?: (projectId: string, name: string) => void;
+  onNewAgent?: (project?: { projectId: string }) => void;
+  currentProjectId?: string;
+  selectedProjectId?: string;
   projectAgentActions?: (projectId: string) => ProjectAgentActions;
 };
 
@@ -80,12 +83,14 @@ async function mount(current: RuntimeProjection, options: MountOptions = {}) {
           activeSessionId={undefined}
           backgroundSessionIds={new Set()}
           activeWorktreeId={undefined}
+          currentProjectId={options.currentProjectId}
+          selectedProjectId={options.selectedProjectId}
           onSelectSession={noop}
           onStopSession={options.onStopSession ?? noop}
           onDeleteSession={options.onDeleteSession ?? noop}
           onRenameSession={options.onRenameSession}
           onSelectWorktree={noop}
-          onNewAgent={noop}
+          onNewAgent={options.onNewAgent ?? noop}
           onOpenProject={noop}
           onCreateWorktree={options.onCreateWorktree ?? noop}
           onRemoveProject={options.onRemoveProject ?? (async () => undefined)}
@@ -165,6 +170,52 @@ describe("Sidebar primary actions", () => {
     expect(addProjectButtons(container)).toHaveLength(1);
     expect(container.querySelector(".sidebar-heading")).toBeNull();
     expect(container.querySelector<HTMLButtonElement>(".sidebar-new-agent")?.disabled).toBe(true);
+  });
+});
+
+describe("Sidebar next step in an empty project", () => {
+  const checkout: RuntimeProjection["worktrees"][number] = {
+    worktreeId: checkoutId,
+    projectId,
+    path: "/work/repo",
+    branch: "main",
+    status: "ready",
+    kind: "checkout",
+  };
+  const newAgentButton = (root: ParentNode) => root.querySelector('[aria-label="New agent in repo"]');
+
+  it("offers Start one in a project with no agents, and keeps its New agent button in view", async () => {
+    const onNewAgent = vi.fn();
+    const { container } = await mount(projection([checkout]), { onNewAgent });
+    expect(container.querySelector(".sidebar-project .sidebar-note")?.textContent).toBe("No agents yet. Start one");
+    const startOne = button(container, "Start an agent in repo");
+    expect(startOne.textContent).toBe("Start one");
+    expect(startOne.type).toBe("button");
+    await act(async () => startOne.click());
+    expect(onNewAgent).toHaveBeenCalledWith(expect.objectContaining({ projectId }));
+    expect(newAgentButton(container)?.classList.contains("is-shown")).toBe(true);
+    expect(newAgentButton(container)?.getAttribute("data-tooltip")).toBe("New agent here");
+  });
+
+  it("shows no hint once the project has an agent, and New agent stays in view only while it is current", async () => {
+    const sessions = [agent(checkoutId)];
+    const other = await mount(projection([checkout]), { sessions });
+    expect(other.container.textContent).not.toContain("No agents yet.");
+    expect(has(other.container, "Start an agent in repo")).toBe(false);
+    expect(newAgentButton(other.container)?.classList.contains("is-shown")).toBe(false);
+    await other.unmount();
+    document.body.replaceChildren();
+
+    const current = await mount(projection([checkout]), { sessions, currentProjectId: projectId });
+    expect(newAgentButton(current.container)?.classList.contains("is-shown")).toBe(true);
+  });
+
+  it("opens a folded project when it is the one just added", async () => {
+    window.localStorage.setItem("zli.sidebar.collapsed", JSON.stringify({ projects: [projectId] }));
+    const { container } = await mount(projection([checkout]), { selectedProjectId: projectId });
+    expect(button(container, "repo, collapse").getAttribute("aria-expanded")).toBe("true");
+    expect(has(container, "Start an agent in repo")).toBe(true);
+    expect(parseSidebarCollapsed(window.localStorage.getItem("zli.sidebar.collapsed")).projects).toEqual([]);
   });
 });
 

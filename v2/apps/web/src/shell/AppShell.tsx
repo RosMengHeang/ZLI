@@ -4,6 +4,7 @@ import {
   type PluginAction,
   type PluginOrigin,
   type ProjectProjection,
+  ProjectRegisterResult,
   type RuntimeProjection,
   type SetupDecision,
   threadOccupiesWorktree,
@@ -115,7 +116,13 @@ import {
 import { CommandPalette, type PaletteCommand } from "./CommandPalette.js";
 import { HelpDialog } from "./HelpDialog.js";
 import { useShortcuts } from "./keybindings.js";
-import { DisconnectedState, GridEmptyState, LoadingFilesPane, RuntimeLoadingState } from "./ShellStates.js";
+import {
+  DisconnectedState,
+  GridEmptyState,
+  LoadingFilesPane,
+  ProjectEmptyNotice,
+  RuntimeLoadingState,
+} from "./ShellStates.js";
 import { type SidePane, sidePaneLabel, Topbar } from "./Topbar.js";
 import { useGlobalShortcuts } from "./useGlobalShortcuts.js";
 import { WorktreeDialog } from "./WorktreeDialog.js";
@@ -155,6 +162,8 @@ function WorkspaceApp() {
   const { state: accountsState, accounts } = useAccounts();
   const loadedAccounts = accountsState.status === "ready" ? accounts : undefined;
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string>();
+  /** A project the person just added from this window. It has no worktree yet, so no worktree can stand for it. */
+  const [selectedProjectId, setSelectedProjectId] = useState<string>();
   const [sidePane, setSidePane] = useState<SidePane>();
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
   /** The huddle tab in view in the Huddle panel. */
@@ -262,6 +271,25 @@ function WorkspaceApp() {
     findWorktree(selectedWorktreeId) ??
     projection?.worktrees.find((worktree) => worktree.status === "ready");
   const contextProject = projection?.projects.find((project) => project.projectId === contextWorktree?.projectId);
+  const selectedProject = projection?.projects.find((project) => project.projectId === selectedProjectId);
+  const contextProjectId = contextProject?.projectId;
+  const lastContextProjectId = useRef(contextProjectId);
+  // Starting or showing work in another project moves the person on from the project they added.
+  useEffect(() => {
+    if (lastContextProjectId.current === contextProjectId) return;
+    lastContextProjectId.current = contextProjectId;
+    if (contextProjectId) setSelectedProjectId((current) => (current === contextProjectId ? current : undefined));
+  }, [contextProjectId]);
+  /** The added project while it still has no agents, so the board and sidebar point at New agent there. */
+  const emptySelectedProject = useMemo(() => {
+    if (!selectedProject || !projection) return undefined;
+    const worktreeIds = new Set<string>(
+      projection.worktrees
+        .filter((worktree) => worktree.projectId === selectedProject.projectId)
+        .map((worktree) => worktree.worktreeId),
+    );
+    return sessions.some((session) => worktreeIds.has(session.worktreeId)) ? undefined : selectedProject;
+  }, [selectedProject, projection, sessions]);
   const hasProjects = (projection?.projects.length ?? 0) > 0;
   /** A folder picked in the Files panel while the focused agent's worktree is not ready. */
   const [filesFolderId, setFilesFolderId] = useState<string>();
@@ -271,8 +299,12 @@ function WorkspaceApp() {
   );
   const pluginActions = usePluginContributions(paletteOpen).actions;
 
+  const activeSessionIdRef = useRef(workbench.activeSessionId);
+  activeSessionIdRef.current = workbench.activeSessionId;
   const focusSession = useCallback(
     (session: AgentSession) => {
+      // Focus coming back to the tile that already had it, as when a dialog closes, keeps the added project.
+      if (session.sessionId !== activeSessionIdRef.current) setSelectedProjectId(undefined);
       setSelectedWorktreeId(session.worktreeId);
       updateWorkbench((state) =>
         state.activeSessionId === session.sessionId &&
@@ -740,19 +772,58 @@ function WorkspaceApp() {
     });
   }, [runStates, updateWorkbench, workbench.groups]);
 
-  const openProject = async () => {
+  /**
+   * Adds a folder and points the person at their first agent there. From Settings the project is only
+   * selected, so New agent does not open on top of the Settings dialog.
+   */
+  const openProject = async ({ startAgent = true }: { startAgent?: boolean } = {}) => {
     if (!bridge) {
       showError("The desktop bridge is unavailable. Start ZLI from Electron.");
       return;
     }
     const path = await bridge.dialog.openProject();
     if (!path) return;
+    const byPath = (current: RuntimeProjection) => current.projects.find((candidate) => samePath(candidate.path, path));
+    const existing = projectionRef.current ? byPath(projectionRef.current) : undefined;
+    if (existing) {
+      showAddedProject(existing, { startAgent, existing: true });
+      return;
+    }
     const response = await dispatch({
       protocolVersion: 1,
       commandId: makeCommandId(),
       command: { type: "project.register", path },
     });
-    if (response?.accepted === false) showError(response.error.message);
+    if (response?.accepted === false) {
+      // Another window or the CLI can add the same folder between the check above and this command.
+      const added = projectionRef.current ? byPath(projectionRef.current) : undefined;
+      if (added) showAddedProject(added, { startAgent, existing: true });
+      else showError(response.error.message);
+      return;
+    }
+    const registered = ProjectRegisterResult.safeParse(response?.result);
+    const projectId = registered.success ? registered.data.projectId : undefined;
+    const project = await waitForProjection((current) =>
+      projectId ? current.projects.find((candidate) => candidate.projectId === projectId) : byPath(current),
+    );
+    if (project) showAddedProject(project, { startAgent, existing: false });
+  };
+
+  const showAddedProject = (
+    project: ProjectProjection,
+    { startAgent, existing }: { startAgent: boolean; existing: boolean },
+  ) => {
+    setSelectedProjectId(project.projectId);
+    const worktrees = projectionRef.current?.worktrees ?? [];
+    const hasAgents = sessionsRef.current.some((session) =>
+      worktrees.some(
+        (worktree) => worktree.worktreeId === session.worktreeId && worktree.projectId === project.projectId,
+      ),
+    );
+    if (existing) setNotice({ message: `${project.name} is already in ZLI.`, tone: "info" });
+    if (!startAgent || hasAgents) return;
+    setPaletteOpen(false);
+    setNewAgentProject(project);
   };
 
   /** Polls the projection, which catches up with a command a moment after it is accepted. */
@@ -1885,12 +1956,18 @@ function WorkspaceApp() {
             activeSessionId={activeSession?.sessionId}
             backgroundSessionIds={backgroundSessionIds}
             activeWorktreeId={contextWorktree?.worktreeId}
-            onSelectSession={focusSession}
+            currentProjectId={selectedProject?.projectId ?? contextProject?.projectId}
+            selectedProjectId={selectedProject?.projectId}
+            onSelectSession={(session) => {
+              setSelectedProjectId(undefined);
+              focusSession(session);
+            }}
             onStopSession={(session) => void stopSession(session)}
             onDeleteSession={setDeleteRequest}
             onRenameSession={(session) => setRenameRequestId(session.sessionId)}
             onSelectWorktree={(worktree) => {
               setNotice(undefined);
+              if (worktree.projectId !== selectedProjectId) setSelectedProjectId(undefined);
               setSelectedWorktreeId(worktree.worktreeId);
               const latest = tiles.filter((session) => session.worktreeId === worktree.worktreeId).at(-1);
               updateWorkbench((state) => ({ ...state, activeSessionId: latest?.sessionId }));
@@ -1984,78 +2061,88 @@ function WorkspaceApp() {
                   {visibleTiles.length === 0 ? (
                     <GridEmptyState
                       projection={projection}
+                      project={emptySelectedProject}
                       closedCount={sessions.length}
                       onOpenProject={() => void openProject()}
                       onNewAgent={() => openNewAgent()}
                       onScratchChat={bridge.scratch ? () => void startScratchChat() : undefined}
                     />
                   ) : (
-                    <div
-                      className="agent-grid"
-                      style={{
-                        gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-                        // Rows keep a usable height; past that the grid scrolls.
-                        gridTemplateRows: `repeat(${rows}, minmax(${rows > 1 ? 260 : 0}px, 1fr))`,
-                      }}
-                    >
-                      {visibleTiles.map((session, index) => (
-                        <AgentTile
-                          key={session.sessionId}
-                          projection={projection}
-                          session={session}
-                          tall={index < tall}
-                          accountLabel={accountLabel(loadedAccounts, sessionAccountId(session))}
-                          worktree={findWorktree(session.worktreeId)}
-                          active={session.sessionId === activeSession?.sessionId}
-                          maximized={maximized?.sessionId === session.sessionId}
-                          canMaximize={tiles.length > 1}
-                          onFocus={() => focusSession(session)}
-                          onToggleMaximize={() =>
-                            updateWorkbench((state) => ({
-                              ...state,
-                              maximizedSessionId:
-                                state.maximizedSessionId === session.sessionId ? undefined : session.sessionId,
-                            }))
-                          }
-                          onStop={() => void stopSession(session)}
-                          onClose={() => closeTile(session)}
-                          onRename={
-                            sessionRenameCommand(session, null)
-                              ? () => setRenameRequestId(session.sessionId)
-                              : undefined
-                          }
-                          startedBy={parentChip(session)}
-                          onOpenHuddle={openHuddle}
-                          onOpenDiff={(path) => {
-                            focusSession(session);
-                            setSidePane("review");
-                            setReviewFocus(path ? { path, nonce: Date.now() } : undefined);
-                          }}
-                          onStart={(mode) => startInSession(session, mode)}
-                          onRetryPending={() => retryPending(session)}
-                          onDismissPending={() => closeTileNow(session)}
-                          onReviewSetup={() => reviewSetup(session.worktreeId)}
-                          onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
-                          onHandoff={handoffTarget(session) ? () => setHandoffRequest(session) : undefined}
-                          onNewChat={
-                            newChatTarget(session) ? (withContext) => startNewChat(session, withContext) : undefined
-                          }
-                          canCarryContext={canHandOff(session, projection.messages)}
-                          newChatRequest={
-                            newChatRequest?.sessionId === session.sessionId ? newChatRequest.nonce : undefined
-                          }
-                          newChatShortcut={shortcuts.newChat}
-                          onOpenChat={(threadId) => void openChat(session, threadId)}
-                          onOpenConnectors={openConnectors}
-                          run={runPosition(workbench.groups, session.sessionId)}
-                          onStartRuns={
-                            runPosition(workbench.groups, session.sessionId)
-                              ? undefined
-                              : (request) => startRuns(session, request)
-                          }
+                    <>
+                      {emptySelectedProject ? (
+                        <ProjectEmptyNotice
+                          project={emptySelectedProject}
+                          onNewAgent={() => openNewAgent(emptySelectedProject)}
+                          onDismiss={() => setSelectedProjectId(undefined)}
                         />
-                      ))}
-                    </div>
+                      ) : null}
+                      <div
+                        className="agent-grid"
+                        style={{
+                          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                          // Rows keep a usable height; past that the grid scrolls.
+                          gridTemplateRows: `repeat(${rows}, minmax(${rows > 1 ? 260 : 0}px, 1fr))`,
+                        }}
+                      >
+                        {visibleTiles.map((session, index) => (
+                          <AgentTile
+                            key={session.sessionId}
+                            projection={projection}
+                            session={session}
+                            tall={index < tall}
+                            accountLabel={accountLabel(loadedAccounts, sessionAccountId(session))}
+                            worktree={findWorktree(session.worktreeId)}
+                            active={session.sessionId === activeSession?.sessionId}
+                            maximized={maximized?.sessionId === session.sessionId}
+                            canMaximize={tiles.length > 1}
+                            onFocus={() => focusSession(session)}
+                            onToggleMaximize={() =>
+                              updateWorkbench((state) => ({
+                                ...state,
+                                maximizedSessionId:
+                                  state.maximizedSessionId === session.sessionId ? undefined : session.sessionId,
+                              }))
+                            }
+                            onStop={() => void stopSession(session)}
+                            onClose={() => closeTile(session)}
+                            onRename={
+                              sessionRenameCommand(session, null)
+                                ? () => setRenameRequestId(session.sessionId)
+                                : undefined
+                            }
+                            startedBy={parentChip(session)}
+                            onOpenHuddle={openHuddle}
+                            onOpenDiff={(path) => {
+                              focusSession(session);
+                              setSidePane("review");
+                              setReviewFocus(path ? { path, nonce: Date.now() } : undefined);
+                            }}
+                            onStart={(mode) => startInSession(session, mode)}
+                            onRetryPending={() => retryPending(session)}
+                            onDismissPending={() => closeTileNow(session)}
+                            onReviewSetup={() => reviewSetup(session.worktreeId)}
+                            onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
+                            onHandoff={handoffTarget(session) ? () => setHandoffRequest(session) : undefined}
+                            onNewChat={
+                              newChatTarget(session) ? (withContext) => startNewChat(session, withContext) : undefined
+                            }
+                            canCarryContext={canHandOff(session, projection.messages)}
+                            newChatRequest={
+                              newChatRequest?.sessionId === session.sessionId ? newChatRequest.nonce : undefined
+                            }
+                            newChatShortcut={shortcuts.newChat}
+                            onOpenChat={(threadId) => void openChat(session, threadId)}
+                            onOpenConnectors={openConnectors}
+                            run={runPosition(workbench.groups, session.sessionId)}
+                            onStartRuns={
+                              runPosition(workbench.groups, session.sessionId)
+                                ? undefined
+                                : (request) => startRuns(session, request)
+                            }
+                          />
+                        ))}
+                      </div>
+                    </>
                   )}
                 </section>
                 {workbench.drawerOpen ? (
@@ -2185,7 +2272,7 @@ function WorkspaceApp() {
             updates={updates}
             onRestartToUpdate={restartToUpdate}
             onSignIn={signInAccount}
-            onAddProject={() => void openProject()}
+            onAddProject={() => void openProject({ startAgent: false })}
             onRemoveProject={removeProject}
             onClose={() => setSettingsSection(undefined)}
           />
@@ -2313,7 +2400,9 @@ function WorkspaceApp() {
           <NewAgentDialog
             projection={projection}
             initialProject={
-              newAgentProject === "default" ? (contextProject ?? projection.projects[0]) : newAgentProject
+              newAgentProject === "default"
+                ? (selectedProject ?? contextProject ?? projection.projects[0])
+                : newAgentProject
             }
             initialWorktreeId={selectedWorktreeId ?? contextWorktree?.worktreeId}
             prefill={issueStart?.prefill}

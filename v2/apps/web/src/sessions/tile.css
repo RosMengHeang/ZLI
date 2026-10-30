@@ -3,6 +3,9 @@
 /* An empty board is still a work surface, so it keeps the island shape the tiles would have. */
 .agent-grid-region:has(> .empty-state) { border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-surface); }
 .agent-grid { display: grid; height: 100%; min-height: 0; gap: var(--zli-gutter); overflow-y: auto; }
+/* Drawn like the notices above the workspace; the grid below takes the space that is left. */
+.board-project-notice { margin-bottom: var(--zli-gutter); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); }
+.board-project-notice + .agent-grid { height: auto; flex: 1; }
 .agent-tile {
   display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden;
   border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-surface);

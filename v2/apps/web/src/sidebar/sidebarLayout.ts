@@ -52,7 +52,16 @@ export function useSidebarCollapsed() {
       return next;
     });
   }, []);
+  const expandProject = useCallback((projectId: string) => {
+    setCollapsed((current) => {
+      if (!current.projects.includes(projectId)) return current;
+      const next = { ...current, projects: current.projects.filter((entry) => entry !== projectId) };
+      write(next);
+      return next;
+    });
+  }, []);
   return {
+    expandProject,
     projectOpen: (projectId: string) => !collapsed.projects.includes(projectId),
     idleOpen: (projectId: string) => collapsed.idle.includes(projectId),
     pinned: (projectId: string) => collapsed.pinned.includes(projectId),
