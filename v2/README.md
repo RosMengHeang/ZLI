@@ -34,7 +34,7 @@ An invalid `zli.json` never blocks work. ZLI creates the worktree without copyin
 }
 ```
 
-Type `/` at the start of a message to pick one: the list narrows as you type, arrows move, Enter inserts it. The bookmark button next to the message box opens the same list. Prompts you keep for yourself are saved on this computer under **Saved prompts** in the command palette, where you can add, edit, and delete them; the prompts from `zli.json` are shown there read-only.
+Type `/` at the start of a message to pick one: the list narrows as you type, arrows move, Enter inserts it. **Saved prompts** in the message box's **+** menu opens the same list. Prompts you keep for yourself are saved on this computer under **Saved prompts** in the command palette, where you can add, edit, and delete them; the prompts from `zli.json` are shown there read-only.
 
 ## Best of N
 

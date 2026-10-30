@@ -438,6 +438,7 @@ export function ChatView({
             <Composer
               capture={bridge?.capture}
               displayName={displayName}
+              provider={thread.provider}
               branch={worktree?.branch ?? "this worktree"}
               disabled={thread.status === "starting"}
               queues={busy}

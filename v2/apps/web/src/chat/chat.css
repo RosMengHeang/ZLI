@@ -190,7 +190,7 @@ button.step-row:hover .step-file { background: var(--zli-active); }
 
 /* ---------- Composer ---------- */
 /* The composer is the one raised surface in a chat: it floats over the log, so it carries the shadow. */
-.composer { padding: var(--zli-space-3) var(--zli-space-2) var(--zli-space-2) var(--zli-space-4); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-xl); background: var(--zli-raised); box-shadow: var(--zli-highlight), 0 14px 32px -18px rgba(0, 0, 0, .8); transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease), box-shadow var(--zli-duration-fast) var(--zli-ease); }
+.composer { padding: 14px var(--zli-space-2-5) var(--zli-space-2-5) var(--zli-space-4); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-xl); background: var(--zli-raised); box-shadow: var(--zli-highlight), 0 14px 32px -18px rgba(0, 0, 0, .8); transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease), box-shadow var(--zli-duration-fast) var(--zli-ease); }
 .composer:hover { border-color: var(--zli-border-hover); }
 /* Typing lifts the composer a step and rings it softly; the accent stays reserved for keyboard focus on controls. */
 .composer:focus-within { border-color: var(--zli-border-hover); background: var(--zli-overlay); box-shadow: var(--zli-highlight), 0 14px 32px -18px rgba(0, 0, 0, .8), 0 0 0 3px rgba(255, 255, 255, .04); }
@@ -223,13 +223,33 @@ button.step-row:hover .step-file { background: var(--zli-active); }
 .capture-name { display: flex; align-items: center; gap: var(--zli-space-1); min-width: 0; font-size: var(--zli-text-xs); }
 .capture-name > svg { flex: 0 0 auto; color: var(--zli-dim); }
 .capture-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-footer { display: flex; align-items: center; gap: var(--zli-space-1); margin-left: -6px; padding-top: var(--zli-space-1-5); }
-.composer-badge { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; height: var(--zli-control-md); padding: 0 var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-sm); white-space: nowrap; }
-.composer-badge.is-full-access { color: var(--zli-muted); }
-.composer-footer .picker-trigger { min-width: 0; }
-.composer-model .picker-trigger-label { max-width: 200px; }
+/*
+ * One row of 28px controls on the same radius: Add, then the pickers as quiet chips (icon, label, chevron),
+ * then the context meter and Send on the right. Only the model name gives way when the row runs short.
+ */
+.composer-footer { display: flex; min-width: 0; align-items: center; gap: 2px; margin-left: -6px; padding-top: var(--zli-space-2); }
+.composer-footer > .btn, .composer-footer > .picker-trigger, .composer-badge { border-radius: var(--zli-radius-md); }
+.composer-add { color: var(--zli-muted); }
+.composer-add[aria-expanded="true"] { background: var(--zli-active); color: var(--zli-text); }
+.composer-divider { flex: 0 0 auto; width: 1px; height: 14px; margin: 0 var(--zli-space-1); background: var(--zli-border-strong); }
+.composer-footer .picker-trigger { flex: 0 0 auto; gap: 5px; min-width: 0; padding: 0 var(--zli-space-1-5) 0 7px; font-size: var(--zli-text-sm); }
+.composer-footer .picker-trigger > svg:not(.picker-chevron) { color: var(--zli-muted); }
+.composer-footer .picker-chevron { width: 10px; height: 10px; margin-left: -1px; transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.composer-footer .picker-trigger[aria-expanded="true"] .picker-chevron { transform: rotate(180deg); }
+.composer-footer .composer-model { flex: 0 1 auto; }
+.composer-model .picker-trigger-label { max-width: 180px; }
 .composer-reasoning .picker-trigger-label { max-width: 90px; }
-.composer-spacer { flex: 1; }
+/* An unset model or level reads as secondary, so a choice the person made stands out from the agent's own. */
+.composer-footer .picker-trigger.is-default:not(:hover, [aria-expanded="true"]) .picker-trigger-label { color: var(--zli-dim); }
+.composer-footer .picker-trigger.is-default :is(.model-mark-generic, .provider-mark) { color: var(--zli-dim); }
+/* The meter's unlit bars stay visible, so the level reads against the whole scale. */
+.reasoning-meter-off { fill: var(--zli-disabled); }
+.composer-permission { margin-left: var(--zli-space-1); }
+.composer-badge { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; height: var(--zli-control-md); margin-left: var(--zli-space-1); padding: 0 var(--zli-space-2) 0 7px; color: var(--zli-muted); cursor: default; font-size: var(--zli-text-sm); white-space: nowrap; }
+.composer-badge > svg { color: var(--zli-muted); }
+/* Full access is the one level where the agent acts without asking, so its shield alone carries a calm amber. */
+svg.permission-icon.is-full-access, .composer-footer .picker-trigger > svg.permission-icon.is-full-access, .picker-field > svg.permission-icon.is-full-access { color: var(--zli-amber); }
+.composer-spacer { flex: 1; min-width: var(--zli-space-1); }
 .composer-context { padding: 0 var(--zli-space-1-5); color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .composer-context.is-full { color: var(--zli-amber); }
 .composer-error { display: flex; align-items: center; gap: var(--zli-space-1-5); margin: var(--zli-space-1-5) 0 0; color: var(--zli-red); font-size: var(--zli-text-sm); }
@@ -290,12 +310,19 @@ button.step-row:hover .step-file { background: var(--zli-active); }
   .chat-message p, .markdown, .composer textarea { font-size: var(--zli-text-base); }
   .chat-message-user { max-width: 92%; }
 }
-@container tile (max-width: 520px) {
-  .composer-model .picker-trigger-label { max-width: 120px; }
+/* A narrow tile keeps every control and drops words instead: the level names first, then the model name. */
+@container tile (max-width: 560px) {
+  .composer-reasoning .picker-trigger-label { display: none; }
+  .composer-model .picker-trigger-label { max-width: 140px; }
 }
-@container tile (max-width: 400px) {
-  .composer-badge { padding: 0 var(--zli-space-1); font-size: 0; gap: 0; }
-  .composer-permission .picker-trigger-label, .composer-reasoning .picker-trigger-label { display: none; }
+@container tile (max-width: 460px) {
+  .composer-permission .picker-trigger-label, .composer-badge-label { display: none; }
+  .composer-badge { padding: 0 var(--zli-space-1-5); }
+  .composer-model .picker-trigger-label { max-width: 110px; }
+}
+@container tile (max-width: 360px) {
+  .composer-divider, .composer-context { display: none; }
+  .composer-model .picker-trigger-label { display: none; }
 }
 
 /* ---------- Images in replies ---------- */

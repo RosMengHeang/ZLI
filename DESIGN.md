@@ -166,15 +166,34 @@ not cover, add it to the primitives instead of styling it locally.
 - In chats, user messages are right-aligned bubbles,
   replies are plain text in a centered column, and the log fades out above
   the composer. Tiles under 520px use smaller gutters and 13px text.
-- The composer footer holds attach, window capture, and saved prompts, then
-  the Model and Permissions pickers. Both open a dark popover list instead of
-  a native select, whose option list follows the system's light theme. Each
-  model shows its maker's logo in the list and in the closed chip; the default or an unknown model shows a neutral chip glyph.
+- The composer footer is one row of 28px controls on the 8px radius. On the
+  left a single + button opens a menu with Attach files, Attach a window
+  (only in the desktop app), and Saved prompts, each with an icon and a
+  one-line hint, so the row is not a run of loose icons. Pasting, dropping
+  files, and typing / still work without it. A short rule then separates it
+  from the Model, Reasoning, and Permissions pickers. They are quiet chips
+  (icon, label, small chevron, no border until hovered) and open a dark
+  popover list instead of a native select, whose option list follows the
+  system's light theme. Each model shows its maker's logo in the list and in
+  the closed chip. The default model shows the agent's own mark, since that
+  agent picks it; an unknown model shows a neutral chip glyph (pins on two
+  sides, so it never reads as a gear). Reasoning shows a meter of three
+  rising bars filled up to the level, in the chip and on each option, so the
+  level reads at a glance. Attach a window uses a camera, the usual icon for
+  a screenshot. An unset model or
+  reasoning level is written in the dim text color, so a choice the person
+  made stands out. The tooltip gives the full model name.
+- In a narrow tile the row keeps every control and drops words: the
+  reasoning level under 560px, the permission label under 460px, and the
+  model name, the rule, and the context meter under 360px. Only the model
+  name truncates before that.
 - Permissions have three levels, from least to most an agent may do alone:
-  Read only (eye), Auto (shield with a check), and Full access (shield with an
-  alert). Each option carries a one-line description, and the chip stays
-  neutral because the mode is a choice, not a process state. Agents that keep
-  one mode for the whole chat show it as a static label instead.
+  Read only (a closed lock), Auto (a shield with a check), and Full access (an
+  open lock). Each option carries a one-line description. The chip stays
+  neutral because the mode is a choice, not a process state; only the Full
+  access lock takes a muted amber, wherever it appears, because the agent then
+  acts without asking. Agents that keep one mode for the whole chat show it
+  as a static chip of the same shape without the chevron.
 - Send is a split button: the arrow sends, and a narrow chevron beside it
   opens a one-item menu, Send as Best of N (Mod+Shift+Enter). That opens a
   compact dark popover anchored above the composer, not a dialog: a title

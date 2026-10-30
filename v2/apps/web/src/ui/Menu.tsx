@@ -195,6 +195,9 @@ type AnchoredMenuButtonProps = {
   size?: "xs" | "sm" | "md";
   iconSize?: number | undefined;
   disabled?: boolean | undefined;
+  /** Which edge of the button the menu lines up with. */
+  align?: "start" | "end" | undefined;
+  className?: string | undefined;
   ref?: Ref<HTMLButtonElement>;
 };
 
@@ -279,6 +282,8 @@ function AnchoredMenuButton({
   size = "sm",
   iconSize,
   disabled = false,
+  align = "end",
+  className,
   ref,
 }: AnchoredMenuButtonProps) {
   const [open, setOpen] = useState(false);
@@ -286,7 +291,7 @@ function AnchoredMenuButton({
   const menuRef = useRef<HTMLDivElement>(null);
   const placement = useAnchoredPlacement(open, triggerRef, menuRef, {
     prefer: "above",
-    align: "end",
+    align,
     gap: ANCHORED_GAP,
     edge: EDGE,
   });
@@ -359,7 +364,7 @@ function AnchoredMenuButton({
       <button
         ref={setTrigger}
         type="button"
-        className={cx("btn btn-ghost btn-icon", size !== "md" && `btn-${size}`)}
+        className={cx("btn btn-ghost btn-icon", size !== "md" && `btn-${size}`, className)}
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -383,6 +388,7 @@ function AnchoredMenuButton({
             <div
               ref={menuRef}
               className="picker-menu menu"
+              data-align={align}
               data-side={placement && "top" in placement ? "bottom" : "top"}
               style={
                 placement

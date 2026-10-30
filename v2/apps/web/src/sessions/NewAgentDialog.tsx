@@ -12,7 +12,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { accountOptions, defaultAccountId, launchAccountId } from "../accounts/accounts.js";
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
 import { ISSUE_SOURCE_NAMES, type IssueRef, issueBranchName } from "../issues/issueStart.js";
-import { permissionHint, permissionIcon, permissionLabel, permissionOptions } from "../chat/permissions.js";
+import { PermissionIcon, permissionHint, permissionLabel, permissionOptions } from "../chat/permissions.js";
 import {
   branchFromTemplate,
   type LaunchDefaults,
@@ -146,7 +146,7 @@ export function NewAgentDialog({
   const discovery = listed.find((entry) => entry.provider === provider);
   const models = discovery?.status === "found" ? (discovery.models ?? []) : [];
   const modelUnsupported = mode === "terminal" && provider === "droid";
-  const modelChoices = useMemo(() => modelOptions(models, model || undefined), [models, model]);
+  const modelChoices = useMemo(() => modelOptions(models, model || undefined, provider), [models, model, provider]);
   const shownModel = modelUnsupported ? "" : model;
   const modelLabel = modelChoices.find((option) => option.value === shownModel)?.label ?? shownModel;
   const checkout = project ? checkoutWorktree(projection, project) : undefined;
@@ -463,7 +463,7 @@ export function NewAgentDialog({
                 options={permissionOptions}
                 onChange={setPermissionMode}
               >
-                <Icon name={permissionIcon[permissionMode]} size={15} />
+                <PermissionIcon mode={permissionMode} size={15} />
                 <span className="picker-trigger-label">{permissionLabel[permissionMode]}</span>
               </Picker>
             </FormSection>

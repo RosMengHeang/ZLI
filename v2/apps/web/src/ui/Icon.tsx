@@ -288,11 +288,36 @@ const paths = {
       <path d="M12 8v4M12 16h.01" />
     </>
   ),
+  lock: (
+    <>
+      <rect width="18" height="11" x="3" y="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </>
+  ),
+  lockOpen: (
+    <>
+      <rect width="18" height="11" x="3" y="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+    </>
+  ),
+  camera: (
+    <>
+      <path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z" />
+      <circle cx="12" cy="13" r="3" />
+    </>
+  ),
   cpu: (
     <>
       <rect width="16" height="16" x="4" y="4" rx="2" />
       <rect width="6" height="6" x="9" y="9" rx="1" />
       <path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2" />
+    </>
+  ),
+  /** A chip with pins on two sides: a model with no maker's logo. Pins on all four sides read as a gear when small. */
+  chip: (
+    <>
+      <rect width="12" height="16" x="6" y="4" rx="2" />
+      <path d="M10.5 4a1.5 1.5 0 0 0 3 0M3 9h3M3 15h3M18 9h3M18 15h3" />
     </>
   ),
   loader: (

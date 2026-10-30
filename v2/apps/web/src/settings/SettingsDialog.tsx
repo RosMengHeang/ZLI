@@ -364,7 +364,7 @@ function LaunchFields({
             id={`${ids}-model`}
             label="Model"
             value={value.model ?? ""}
-            options={modelOptions(models, value.model)}
+            options={modelOptions(models, value.model, value.provider)}
             onChange={(model) => set({ model })}
           />
         </SettingRow>

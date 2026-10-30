@@ -20,6 +20,7 @@ import type { RunAgent } from "../sessions/bestOf.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
+import { MenuButton, type MenuEntry } from "../ui/Menu.js";
 import { DEFAULT_MODEL, ModelMark, modelOptions } from "../ui/ModelMark.js";
 import { Picker } from "../ui/Picker.js";
 import { ariaShortcut } from "../ui/shortcuts.js";
@@ -35,7 +36,8 @@ import {
   textBase64,
   textByteLength,
 } from "./pastedText.js";
-import { permissionHint, permissionIcon, permissionLabel, permissionOptions } from "./permissions.js";
+import { PermissionIcon, permissionHint, permissionLabel, permissionOptions } from "./permissions.js";
+import { ReasoningMeter } from "./ReasoningMeter.js";
 import { DEFAULT_REASONING, reasoningLabel, reasoningOptions } from "./reasoning.js";
 
 const NO_LEVELS: readonly string[] = [];
@@ -101,6 +103,7 @@ function readBase64(file: Blob): Promise<string> {
 
 export function Composer({
   displayName,
+  provider,
   branch,
   disabled,
   queues = false,
@@ -126,6 +129,8 @@ export function Composer({
   active = false,
 }: {
   displayName: string;
+  /** The agent's provider. Its mark stands for the default model. */
+  provider?: string | undefined;
   branch: string;
   disabled: boolean;
   /** The agent is busy, so a submitted message waits in its queue. */
@@ -199,10 +204,14 @@ export function Composer({
   const picker = usePromptPicker({ draft, setDraft, prompts });
   const imagesRef = useRef(images);
   imagesRef.current = images;
-  const modelChoices = useMemo(() => modelOptions(models, model), [models, model]);
+  const modelChoices = useMemo(() => modelOptions(models, model, provider), [models, model, provider]);
   const modelLabel = modelChoices.find((option) => option.value === (model ?? DEFAULT_MODEL))?.label ?? model;
   const reasoningChoices = useMemo(
-    () => reasoningOptions(reasoningLevels, defaultReasoning),
+    () =>
+      reasoningOptions(reasoningLevels, defaultReasoning).map((option) => ({
+        ...option,
+        icon: <ReasoningMeter level={option.value || defaultReasoning} />,
+      })),
     [reasoningLevels, defaultReasoning],
   );
 
@@ -388,6 +397,38 @@ export function Composer({
     }
   };
   const bestOfVisible = bestOf !== undefined && (bestOf.retry !== undefined || bestOfOpen);
+
+  const addItems: MenuEntry[] = [
+    {
+      id: "files",
+      label: "Attach files",
+      icon: "paperclip",
+      detail: "Or paste or drop them here",
+      run: () => fileInputRef.current?.click(),
+    },
+    ...(capture
+      ? [
+          {
+            id: "window",
+            label: "Attach a window",
+            icon: "camera" as const,
+            detail: "A picture of an open window",
+            run: () => setCapturing(true),
+          },
+        ]
+      : []),
+    "separator",
+    {
+      id: "prompts",
+      label: "Saved prompts",
+      icon: "bookmark",
+      detail: "Or type / at the start of a message",
+      run: () => {
+        if (!picker.open) picker.toggle();
+        textareaRef.current?.focus();
+      },
+    },
+  ];
 
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = [...event.clipboardData.files].filter((file) => file.type.startsWith("image/"));
@@ -583,11 +624,17 @@ export function Composer({
         rows={2}
       />
       <div className="composer-footer">
-        <IconButton
-          label="Attach files"
-          tooltip="Attach files, or paste them"
-          icon="paperclip"
-          onClick={() => fileInputRef.current?.click()}
+        <MenuButton
+          label="Add files and more"
+          tooltip={
+            capture ? "Attach files or a window, or insert a saved prompt" : "Attach files or insert a saved prompt"
+          }
+          icon="plus"
+          size="md"
+          iconSize={16}
+          align="start"
+          className="composer-add"
+          items={addItems}
         />
         <input
           ref={fileInputRef}
@@ -601,51 +648,42 @@ export function Composer({
             event.target.value = "";
           }}
         />
-        {capture ? (
-          <IconButton
-            label="Attach a window"
-            tooltip="Attach a picture of an open window"
-            icon="appWindow"
-            pressed={capturing}
-            onClick={() => setCapturing((open) => !open)}
-          />
-        ) : null}
-        <IconButton
-          label="Saved prompts"
-          tooltip="Saved prompts, or type / to search them"
-          icon="bookmark"
-          pressed={picker.open}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => {
-            picker.toggle();
-            textareaRef.current?.focus();
-          }}
-        />
+        <span className="composer-divider" aria-hidden="true" />
         <Picker
           label="Model"
-          className="composer-model"
+          className={`composer-model${model ? "" : " is-default"}`}
           value={model ?? DEFAULT_MODEL}
           options={modelChoices}
           onChange={(next) => onModelChange(next || undefined)}
           disabled={modelLocked}
-          tooltip={modelLocked ? `${displayName} keeps its model for the whole session` : "Model"}
+          tooltip={
+            modelLocked
+              ? `${modelLabel}. ${displayName} keeps its model for the whole session.`
+              : model
+                ? `${modelLabel}. Applies from your next message.`
+                : `The model ${displayName} is set to use. Pick another for your next message.`
+          }
         >
-          <ModelMark id={model} label={modelLabel} size={13} />
+          <ModelMark id={model} label={modelLabel} agent={provider} size={14} />
           <span className="picker-trigger-label">{modelLabel}</span>
         </Picker>
         {reasoningLevels.length > 0 && onReasoningEffortChange ? (
           <Picker
             label="Reasoning"
-            className="composer-reasoning"
+            className={`composer-reasoning${reasoningEffort ? "" : " is-default"}`}
             value={reasoningEffort ?? DEFAULT_REASONING}
             options={reasoningChoices}
             onChange={(next) => onReasoningEffortChange(next || undefined)}
-            tooltip="How much the model thinks before it answers. Applies from your next message."
+            tooltip={`Reasoning: ${reasoningEffort ? reasoningLabel(reasoningEffort) : "the model's own level"}. How much the model thinks before it answers.`}
             footer="Applies from your next message."
           >
-            <Icon name="sparkle" size={13} />
+            <ReasoningMeter level={reasoningEffort ?? defaultReasoning} />
             <span className="picker-trigger-label">
-              {reasoningEffort ? reasoningLabel(reasoningEffort) : "Default"}
+              {reasoningEffort
+                ? reasoningLabel(reasoningEffort)
+                : defaultReasoning
+                  ? reasoningLabel(defaultReasoning)
+                  : "Reasoning"}
             </span>
           </Picker>
         ) : null}
@@ -656,19 +694,19 @@ export function Composer({
             value={permissionMode}
             options={permissionOptions}
             onChange={onPermissionModeChange}
-            tooltip={`${permissionHint[permissionMode]} Applies from your next message.`}
+            tooltip={`${permissionLabel[permissionMode]}: ${permissionHint[permissionMode]} Applies from your next message.`}
             footer="Applies from your next message."
           >
-            <Icon name={permissionIcon[permissionMode]} size={13} />
+            <PermissionIcon mode={permissionMode} />
             <span className="picker-trigger-label">{permissionLabel[permissionMode]}</span>
           </Picker>
         ) : (
           <span
             className={`composer-badge is-${permissionMode}`}
-            data-tooltip={`${permissionHint[permissionMode]} ${displayName} keeps this for the whole chat.`}
+            data-tooltip={`${permissionLabel[permissionMode]}: ${permissionHint[permissionMode]} ${displayName} keeps this for the whole chat.`}
           >
-            <Icon name={permissionIcon[permissionMode]} size={12} />
-            {permissionLabel[permissionMode]}
+            <PermissionIcon mode={permissionMode} />
+            <span className="composer-badge-label">{permissionLabel[permissionMode]}</span>
           </span>
         )}
         <span className="composer-spacer" />

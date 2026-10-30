@@ -116,7 +116,7 @@ export function BestOfPopover({
       <ol className="best-of-runs">
         {runs.map((run, index) => {
           const agent = agents.find((entry) => entry.provider === run.provider);
-          const models = modelOptions(agent?.models, run.model);
+          const models = modelOptions(agent?.models, run.model, run.provider);
           const modelLabel = models.find((option) => option.value === (run.model ?? DEFAULT_MODEL))?.label ?? run.model;
           const agentName = agent?.name ?? run.provider;
           return (
