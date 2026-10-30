@@ -142,7 +142,8 @@ test("annotates elements and a region on the page and sends them to a chat agent
     await expect(page.getByRole("textbox", { name: "Browser URL" })).toBeVisible();
     await expect(panel).toContainText("Turn on Annotate to edit notes on the page.");
     await expect(panel).toContainText("3 annotations");
-    await send.click();
+    // Shift+click opens the message to read first; a plain click sends to the only agent.
+    await send.click({ modifiers: ["Shift"] });
     const dialog = page.getByRole("dialog", { name: "Send annotations" });
     await expect(dialog.locator(".choice-detail")).toHaveText(/Codex chat/u);
     const preview = dialog.getByLabel("Message preview");
@@ -157,8 +158,15 @@ test("annotates elements and a region on the page and sends them to a chat agent
     await expect(preview).toContainText("region-3.png (attached)");
     await expect(preview).toContainText('<button id="pay"');
     await expect(dialog).toContainText("with 3 images");
-    await dialog.getByRole("button", { name: "Send", exact: true }).click();
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(dialog).toHaveCount(0);
+    await expect(panel).toContainText("3 annotations");
+
+    await send.click();
+    await expect(dialog).toHaveCount(0);
+    const sent = page.getByRole("status").filter({ hasText: "Sent to Codex." });
+    await expect(sent).toBeVisible();
+    await expect(sent.getByRole("button", { name: "Show", exact: true })).toBeVisible();
 
     await expect(page.getByText(/Mock response: Please apply these 3 design annotations/u)).toBeVisible({
       timeout: 20_000,

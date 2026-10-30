@@ -46,6 +46,7 @@ import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.
 import { usePullRequestPolling } from "../review/pullRequestStore.js";
 import { ReviewNotesPill } from "../review/ReviewNotesPill.js";
 import type { ReviewFocus } from "../review/ReviewPane.js";
+import type { SentNotice } from "../review/SendToAgentButton.js";
 import { getBridge, type NotificationSettings, type ZliBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { RuntimeProvider, useRuntime, useShellProjection } from "../runtime/RuntimeProvider.js";
@@ -172,6 +173,7 @@ function WorkspaceApp() {
     action?: { label: string; run(): void };
   }>();
   const showError = useCallback((message: string) => setNotice({ message, tone: "danger" }), []);
+  const showSent = useCallback((sent: SentNotice) => setNotice({ ...sent, tone: "info" }), []);
   const [legacyImportBatchId, setLegacyImportBatchId] = useState<string>();
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>();
@@ -2097,6 +2099,7 @@ function WorkspaceApp() {
                         reveal={browserReveal}
                         openRequest={browserOpen}
                         onShowAgent={showAgent}
+                        onNotice={showSent}
                         projects={projection?.projects}
                         onOpenProject={openBrowserInProject}
                       />
@@ -2116,7 +2119,12 @@ function WorkspaceApp() {
                       />
                     ) : (
                       <Suspense fallback={<LoadingState label="Loading the changes" />}>
-                        <ReviewPane worktree={contextWorktree} focus={reviewFocus} onShowAgent={showAgent} />
+                        <ReviewPane
+                          worktree={contextWorktree}
+                          focus={reviewFocus}
+                          onShowAgent={showAgent}
+                          onNotice={showSent}
+                        />
                       </Suspense>
                     )}
                   </aside>

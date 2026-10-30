@@ -22,7 +22,7 @@
 .browser-annotate-hint { display: block; min-width: 0; flex: 1; height: var(--zli-control-md); padding: 0 var(--zli-space-2-5); overflow: hidden; line-height: var(--zli-control-md); text-overflow: ellipsis; border-radius: var(--zli-radius-md); background: var(--zli-accent-soft); color: var(--zli-muted); font-size: var(--zli-text-sm); white-space: nowrap; }
 .browser-annotate-hint b { color: var(--zli-accent); font-weight: 600; }
 .browser-annotate-toggle.is-on { background: var(--zli-accent-soft); color: var(--zli-accent); }
-.browser-annotate-send { gap: var(--zli-space-1-5); }
+.browser-annotate-send > .agent-send-main { gap: var(--zli-space-1-5); }
 .browser-annotate-count { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: rgba(255, 255, 255, 0.24); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
 .browser-design { display: flex; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-1-5); max-height: 34%; padding: var(--zli-space-2) var(--zli-space-3); overflow: auto; border-top: 1px solid var(--zli-border); background: var(--zli-well); }
 .browser-design-header { display: flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-sm); }

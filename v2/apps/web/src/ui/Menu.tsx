@@ -33,6 +33,8 @@ export type MenuEntry =
   | "separator";
 
 export type MenuAction = {
+  /** Tells items apart when two can share a label. */
+  id?: string | undefined;
   label: string;
   icon?: IconName | undefined;
   /** Drawn in place of the icon, such as an app's logo. */
@@ -148,7 +150,7 @@ export function Menu({ request, onClose }: { request: MenuRequest; onClose(): vo
       {request.items.map((item, index) =>
         isAction(item) ? (
           <button
-            key={item.label}
+            key={item.id ?? item.label}
             className={cx("menu-item", item.tone === "danger" && "is-danger")}
             type="button"
             {...(item.checked === undefined
