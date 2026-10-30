@@ -8,8 +8,10 @@ import {
   EnvironmentId,
   ProjectId,
   type RuntimeProjection,
+  type TerminalProjection,
   type ThreadProjection,
   WorktreeId,
+  type WorktreeProjection,
 } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -57,10 +59,14 @@ const chatAgent = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 } as ThreadProjection;
 
+/** Other worktrees and terminals in the runtime, and an error the runtime answers commands with. */
+type More = { worktrees?: WorktreeProjection[]; terminals?: TerminalProjection[]; reject?: string };
+
 function projectionWith(
   tab: BrowserTabProjection,
   extra: BrowserTabProjection[] = [],
   threads: ThreadProjection[] = [],
+  more: More = {},
 ): RuntimeProjection {
   return {
     environment: {
@@ -70,9 +76,9 @@ function projectionWith(
       capabilities: { worktrees: true, terminals: true, browser: true, eventReplay: true },
     },
     projects: [{ projectId: worktree.projectId, path: "C:/repo", name: "repo" }],
-    worktrees: [worktree],
+    worktrees: [worktree, ...(more.worktrees ?? [])],
     threads,
-    terminals: [],
+    terminals: more.terminals ?? [],
     browserTabs: [tab, ...extra],
     attention: [],
     lastSequence: 1,
@@ -83,6 +89,7 @@ function createBridge(
   initial: BrowserTabProjection,
   extra: BrowserTabProjection[] = [],
   threads: ThreadProjection[] = [],
+  more: More = {},
 ) {
   let current = initial;
   let projectionListener: ((projection: RuntimeProjection) => void) | undefined;
@@ -92,9 +99,16 @@ function createBridge(
     runtime: {
       dispatch: async (request) => {
         dispatched.push(request as { command: Record<string, unknown> });
-        return { commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"), accepted: true };
+        const commandId = CommandId.parse("00000000-0000-4000-8000-000000000099");
+        if (more.reject)
+          return {
+            commandId,
+            accepted: false as const,
+            error: { code: "unavailable" as const, message: more.reject, retryable: false },
+          };
+        return { commandId, accepted: true };
       },
-      getProjection: async () => projectionWith(current, extra, threads),
+      getProjection: async () => projectionWith(current, extra, threads, more),
       onProjection: (listener) => {
         projectionListener = listener;
         return () => undefined;
@@ -151,7 +165,7 @@ function createBridge(
     dispatched,
     publish(next: BrowserTabProjection) {
       current = next;
-      projectionListener?.(projectionWith(next, extra, threads));
+      projectionListener?.(projectionWith(next, extra, threads, more));
     },
   };
 }
@@ -580,6 +594,193 @@ describe("BrowserPane", () => {
   });
 });
 
+describe("BrowserPane sending to other worktrees", () => {
+  const foia = {
+    ...worktree,
+    worktreeId: WorktreeId.parse("00000000-0000-4000-8000-000000000012"),
+    path: "C:/repo-foia",
+    branch: "cursor-foia",
+  };
+  const elsewhereProject = {
+    ...worktree,
+    worktreeId: WorktreeId.parse("00000000-0000-4000-8000-000000000013"),
+    projectId: ProjectId.parse("00000000-0000-4000-8000-000000000020"),
+    path: "C:/elsewhere",
+    branch: "other-project",
+  };
+  const foiaThreadId = "00000000-0000-4000-8000-000000000402";
+  const foiaAgent = { ...chatAgent, threadId: foiaThreadId, worktreeId: foia.worktreeId } as ThreadProjection;
+  const strangerAgent = {
+    ...chatAgent,
+    threadId: "00000000-0000-4000-8000-000000000403",
+    worktreeId: elsewhereProject.worktreeId,
+  } as ThreadProjection;
+  const worktrees = [foia, elsewhereProject];
+
+  async function annotateOne(container: HTMLElement, design: ReturnType<typeof withAnnotate>) {
+    await act(async () => {
+      buttonNamed(container, "Annotate")?.click();
+    });
+    await design.answer({ kind: "element", id: "a-1", selector: "#save" });
+    await design.answer({ kind: "note", id: "a-1", instruction: "Make it green." });
+  }
+
+  it("asks which agent to use when only other worktrees have one, and tells it where the page came from", async () => {
+    const fake = createBridge(baseTab, [], [foiaAgent, strangerAgent], { worktrees });
+    const design = withAnnotate(fake.bridge);
+    const onNotice = vi.fn();
+    const onShowAgent = vi.fn();
+    const { container } = await renderPane(fake.bridge, false, undefined, { onNotice, onShowAgent });
+    await annotateOne(container, design);
+    const send = () => buttonNamed(container, "Send 1 annotation");
+    await vi.waitFor(() =>
+      expect(send()?.dataset.tooltip).toBe("No agent is running here. Pick one in another worktree."),
+    );
+
+    await act(async () => {
+      send()?.click();
+    });
+    expect(fake.dispatched).toHaveLength(0);
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Send annotations"]');
+    expect(dialog?.textContent).toContain("from main to an agent in this project");
+    expect(dialog?.textContent).toContain("No agent is running in main. Pick one from another worktree.");
+    const groups = [...(dialog?.querySelectorAll('[role="radiogroup"] fieldset legend') ?? [])];
+    expect(groups.map((legend) => legend.textContent)).toEqual(["cursor-foia"]);
+    const radios = [...(dialog?.querySelectorAll<HTMLInputElement>('input[type="radio"]') ?? [])];
+    expect(radios).toHaveLength(1);
+    expect(radios[0]?.checked).toBe(false);
+    const sendButton = () => (dialog ? buttonNamed(dialog, "Send") : undefined);
+    expect(sendButton()?.disabled).toBe(true);
+
+    await act(async () => {
+      radios[0]?.click();
+    });
+    expect(dialog?.querySelector(".send-elsewhere")?.textContent).toBe(
+      "Codex works on cursor-foia. The page was annotated on main.",
+    );
+    const context =
+      "This annotation was made in the browser of another worktree, main at C:/repo, on http://127.0.0.1:5173/. " +
+      "You work on cursor-foia, and your checkout may differ from that one, so make the change in your own worktree.";
+    expect(dialog?.querySelector(".send-preview")?.textContent).toMatch(
+      new RegExp(`^${escapeRegExp(context)}\n\nPlease apply this design annotation`, "u"),
+    );
+    await act(async () => {
+      sendButton()?.click();
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(fake.dispatched.at(-1)?.command).toMatchObject({ type: "thread.queue", threadId: foiaThreadId });
+    expect(String(fake.dispatched.at(-1)?.command.text).startsWith(context)).toBe(true);
+    expect(container.querySelector('[aria-label="Annotations"]')).toBeNull();
+    // The person stays on the page; the notice brings the agent forward when they want.
+    expect(onShowAgent).not.toHaveBeenCalled();
+    expect(onNotice).toHaveBeenCalledWith({
+      message: "Sent to Codex on cursor-foia.",
+      action: { label: "Show", run: expect.any(Function) },
+    });
+    onNotice.mock.calls[0]?.[0].action.run();
+    expect(onShowAgent).toHaveBeenCalledWith(foiaThreadId, "chat");
+
+    // The agent picked there gets the next annotations in one click.
+    await annotateOne(container, design);
+    await vi.waitFor(() =>
+      expect(send()?.dataset.tooltip).toBe("Send to Codex on cursor-foia. Shift+click to edit it first."),
+    );
+    await act(async () => {
+      send()?.click();
+    });
+    expect(fake.dispatched).toHaveLength(2);
+    expect(fake.dispatched.at(-1)?.command).toMatchObject({ type: "thread.queue", threadId: foiaThreadId });
+  });
+
+  it("groups the agents by worktree, keeps one click for the one here, and never lists other projects", async () => {
+    const fake = createBridge(baseTab, [], [chatAgent, foiaAgent, strangerAgent], { worktrees });
+    const design = withAnnotate(fake.bridge);
+    const { container } = await renderPane(fake.bridge, false);
+    await annotateOne(container, design);
+    await vi.waitFor(() =>
+      expect(buttonNamed(container, "Send 1 annotation")?.dataset.tooltip).toBe(
+        "Send to Codex. Shift+click to edit it first.",
+      ),
+    );
+    await act(async () => {
+      buttonNamed(container, "Choose agent")?.click();
+    });
+    const menu = document.querySelector('[role="menu"]');
+    const groups = [...(menu?.querySelectorAll('[role="group"]') ?? [])];
+    expect(groups.map((group) => group.textContent)).toEqual(["main (this worktree)Codex", "cursor-foiaCodex"]);
+    expect(groups.map((group) => group.querySelector('[role^="menuitem"]')?.getAttribute("aria-checked"))).toEqual([
+      "true",
+      "false",
+    ]);
+    await act(async () => {
+      groups[1]?.querySelector<HTMLElement>('[role^="menuitem"]')?.click();
+    });
+    expect(fake.dispatched.at(-1)?.command).toMatchObject({ type: "thread.queue", threadId: foiaThreadId });
+    expect(String(fake.dispatched.at(-1)?.command.text)).toContain("You work on cursor-foia");
+
+    // The agent picked from the menu is the one the next click goes to.
+    await annotateOne(container, design);
+    await vi.waitFor(() =>
+      expect(buttonNamed(container, "Send 1 annotation")?.dataset.tooltip).toContain("on cursor-foia"),
+    );
+  });
+
+  it("pastes in a terminal agent elsewhere without moving the app there, and says the images stay behind", async () => {
+    const terminalId = "00000000-0000-4000-8000-000000000501";
+    const terminal = {
+      terminalId,
+      sessionId: "00000000-0000-4000-8000-000000000502",
+      worktreeId: foia.worktreeId,
+      kind: "agent",
+      agent: { provider: "claude-code" },
+      status: "running",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    } as unknown as TerminalProjection;
+    const fake = createBridge(baseTab, [], [], { worktrees, terminals: [terminal] });
+    const design = withAnnotate(fake.bridge);
+    const onNotice = vi.fn();
+    const onShowAgent = vi.fn();
+    const { container } = await renderPane(fake.bridge, false, undefined, { onNotice, onShowAgent });
+    await annotateOne(container, design);
+    await act(async () => {
+      buttonNamed(container, "Choose agent")?.click();
+    });
+    await act(async () => {
+      document.querySelector<HTMLElement>('[role="menu"] [role="group"] [role^="menuitem"]')?.click();
+    });
+    expect(onShowAgent).not.toHaveBeenCalled();
+    const command = fake.dispatched.at(-1)?.command;
+    expect(command).toMatchObject({ type: "terminal.write", terminalId });
+    expect(
+      String(command?.data).startsWith("\x1b[200~This annotation was made in the browser of another worktree"),
+    ).toBe(true);
+    expect(onNotice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Pasted in Claude Code on cursor-foia without the images. Press Enter there to send it.",
+      }),
+    );
+    expect(container.querySelector('[aria-label="Annotations"]')).toBeNull();
+  });
+
+  it("keeps the annotations when the agent in another worktree does not take them", async () => {
+    const fake = createBridge(baseTab, [], [foiaAgent], { worktrees, reject: "The chat has ended." });
+    const design = withAnnotate(fake.bridge);
+    const onNotice = vi.fn();
+    const { container } = await renderPane(fake.bridge, false, undefined, { onNotice });
+    await annotateOne(container, design);
+    await act(async () => {
+      buttonNamed(container, "Choose agent")?.click();
+    });
+    await act(async () => {
+      document.querySelector<HTMLElement>('[role="menu"] [role="group"] [role^="menuitem"]')?.click();
+    });
+    const dialog = document.querySelector('[role="dialog"][aria-label="Send annotations"]');
+    expect(dialog?.querySelector('[role="alert"]')?.textContent).toBe("The chat has ended.");
+    expect(dialog?.querySelector<HTMLInputElement>('input[type="radio"]')?.checked).toBe(true);
+    expect(container.querySelector('[aria-label="Annotations"]')?.textContent).toContain("1 annotation");
+    expect(onNotice).not.toHaveBeenCalled();
+  });
+});
 describe("BrowserPane without a worktree", () => {
   it("offers each project's folder and opens the one picked", async () => {
     const fake = createBridge(baseTab);
@@ -667,6 +868,10 @@ function withAnnotate(bridge: ZliBridge) {
       });
     },
   };
+}
+
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function buttonNamed(container: ParentNode, name: string) {

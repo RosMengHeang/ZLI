@@ -9,6 +9,8 @@ import {
   designEditsPreview,
   designMarks,
   designSummary,
+  designWorktreeContext,
+  designWorktreeNote,
   formatDesignMessage,
   MAX_DESIGN_ANNOTATIONS,
   parseDesignEdits,
@@ -305,5 +307,30 @@ describe("designMarks", () => {
       },
       { kind: "region", id: "2", n: 3, bounds: region.bounds, strokes: region.strokes },
     ]);
+  });
+});
+
+describe("designWorktreeContext", () => {
+  const from = { branch: "main", path: "/repo" };
+
+  it("says where one annotation was made and that the agent's checkout may differ", () => {
+    expect(designWorktreeContext([button], from, "cursor-foia")).toBe(
+      "This annotation was made in the browser of another worktree, main at /repo, on http://127.0.0.1:4000/. " +
+        "You work on cursor-foia, and your checkout may differ from that one, so make the change in your own worktree.",
+    );
+    expect(designWorktreeNote([button], "Codex", "cursor-foia", "main")).toBe(
+      "Codex works on cursor-foia. The page was annotated on main.",
+    );
+  });
+
+  it("leaves the page out when the annotations were made on several", () => {
+    const elsewhere = { ...region, url: "http://127.0.0.1:4000/checkout" };
+    expect(designWorktreeContext([button, elsewhere], from, "docs")).toBe(
+      "These annotations were made in the browser of another worktree, main at /repo. " +
+        "You work on docs, and your checkout may differ from that one, so make the changes in your own worktree.",
+    );
+    expect(designWorktreeNote([button, elsewhere], "Codex", "docs", "main")).toBe(
+      "Codex works on docs. The pages were annotated on main.",
+    );
   });
 });

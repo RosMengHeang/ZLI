@@ -6,14 +6,17 @@ import type { SessionMode } from "../sessions/sessions.js";
 import { type ButtonSize, type ButtonVariant, cx } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 import { Menu, type MenuItem, type MenuRequest } from "../ui/Menu.js";
-import { SendToAgentDialog, useSendTargets } from "./SendToAgentDialog.js";
+import { SendToAgentDialog, sendGroupLabel, useSendTargets } from "./SendToAgentDialog.js";
 import {
   defaultSendTarget,
   deliverToAgent,
   lastSendTarget,
+  messageForTarget,
+  type OtherWorktrees,
   rememberSendTarget,
   type SendAttachment,
   type SendTarget,
+  sendTargetGroups,
   sentNotice,
 } from "./sendToAgent.js";
 
@@ -32,6 +35,8 @@ type Props = {
   message: string;
   attachments?: readonly SendAttachment[] | undefined;
   noAgentMessage: string;
+  /** Also offers the agents in the project's other worktrees. One click still only goes to one picked before. */
+  otherWorktrees?: OtherWorktrees | undefined;
   disabled?: boolean | undefined;
   /** Why the button is disabled. */
   disabledTooltip?: string | undefined;
@@ -48,9 +53,9 @@ type Props = {
 };
 
 /**
- * Sends a message to an agent in the worktree with one click when it is clear which one should get it: the
- * agent the worktree's last message went to, or the only one running. Otherwise, or with Shift held, it opens
- * the dialog to pick the agent and read the message first. The arrow lists the agents and the dialog too.
+ * Sends a message to an agent with one click when it is clear which one should get it: the agent the
+ * worktree's last message went to, or the only one running in the worktree. Otherwise, or with Shift held, it
+ * opens the dialog to pick the agent and read the message first. The arrow lists the agents and the dialog too.
  */
 export function SendToAgentButton({
   worktree,
@@ -60,6 +65,7 @@ export function SendToAgentButton({
   message,
   attachments = [],
   noAgentMessage,
+  otherWorktrees,
   disabled = false,
   disabledTooltip,
   variant = "primary",
@@ -73,11 +79,12 @@ export function SendToAgentButton({
   onShowAgent,
 }: Props) {
   const { dispatch } = useRuntime();
-  const targets = useSendTargets(worktree.worktreeId);
+  const worktreeId = worktree.worktreeId;
+  const targets = useSendTargets(worktreeId, { otherWorktrees: !!otherWorktrees });
   const [sending, setSending] = useState(false);
   const [dialog, setDialog] = useState<{ target?: string | undefined; error?: string | undefined }>();
   const [menu, setMenu] = useState<MenuRequest>();
-  const target = defaultSendTarget(targets, lastSendTarget(worktree.worktreeId));
+  const target = defaultSendTarget(targets, lastSendTarget(worktreeId), worktreeId);
   const open = !!dialog || !!menu;
 
   useEffect(() => {
@@ -86,17 +93,27 @@ export function SendToAgentButton({
     return () => onOpenChange?.(false);
   }, [onOpenChange, open]);
 
+  const notify = (next: SendTarget) =>
+    onNotice?.({
+      message: sentNotice(next, attachments, worktreeId),
+      ...(onShowAgent ? { action: { label: "Show", run: () => onShowAgent(next.sessionId, next.mode) } } : {}),
+    });
+
   const sendTo = async (next: SendTarget) => {
     if (disabled || sending) return;
     setSending(true);
     try {
-      await deliverToAgent({ dispatch, target: next, message, attachments, onShowAgent });
-      rememberSendTarget(worktree.worktreeId, next.key);
-      onSent?.();
-      onNotice?.({
-        message: sentNotice(next, attachments),
-        ...(onShowAgent ? { action: { label: "Show", run: () => onShowAgent(next.sessionId, next.mode) } } : {}),
+      await deliverToAgent({
+        dispatch,
+        target: next,
+        message: messageForTarget(message, next, worktreeId, otherWorktrees),
+        attachments,
+        worktreeId,
+        onShowAgent,
       });
+      rememberSendTarget(worktreeId, next.key);
+      onSent?.();
+      notify(next);
     } catch (cause) {
       setDialog({
         target: next.key,
@@ -112,26 +129,41 @@ export function SendToAgentButton({
     else void sendTo(target);
   };
 
-  const menuItems = (): MenuItem[] => [
-    ...targets.map((candidate) => ({
-      id: candidate.key,
-      label: candidate.title,
-      icon: candidate.mode === "chat" ? ("message" as const) : ("terminal" as const),
-      title: candidate.detail,
-      checked: candidate.key === target?.key,
-      run: () => void sendTo(candidate),
-    })),
-    ...(targets.length > 0 ? [{ separator: true as const }] : []),
-    { label: "Edit message before sending…", icon: "pencil", run: () => setDialog({ target: target?.key }) },
-  ];
+  const menuItem = (candidate: SendTarget): MenuItem => ({
+    id: candidate.key,
+    label: candidate.title,
+    icon: candidate.mode === "chat" ? "message" : "terminal",
+    title: candidate.detail,
+    checked: candidate.key === target?.key,
+    run: () => void sendTo(candidate),
+  });
+  const menuItems = (): MenuItem[] => {
+    const groups = sendTargetGroups(targets);
+    const grouped = groups.length > 1 || groups.some((group) => group.worktreeId !== worktreeId);
+    return [
+      ...(grouped
+        ? groups.flatMap((group): MenuItem[] => [
+            { heading: sendGroupLabel(group.branch, group.worktreeId === worktreeId) },
+            ...group.targets.map(menuItem),
+          ])
+        : targets.map(menuItem)),
+      ...(targets.length > 0 ? [{ separator: true as const }] : []),
+      { label: "Edit message before sending…", icon: "pencil", run: () => setDialog({ target: target?.key }) },
+    ];
+  };
 
+  const noneHere = targets.length > 0 && !targets.some((candidate) => candidate.worktreeId === worktreeId);
   const tooltip = disabled
     ? disabledTooltip
     : target
-      ? `Send to ${target.agent}. Shift+click to edit it first.`
+      ? target.worktreeId === worktreeId
+        ? `Send to ${target.agent}. Shift+click to edit it first.`
+        : `Send to ${target.agent} on ${target.branch}. Shift+click to edit it first.`
       : targets.length === 0
         ? "No agent is running here yet"
-        : "Pick an agent and read the message first";
+        : noneHere
+          ? "No agent is running here. Pick one in another worktree."
+          : "Pick an agent and read the message first";
   const buttonClass = (part: string) => cx("btn", `btn-${variant}`, size !== "md" && `btn-${size}`, part);
 
   return (
@@ -188,9 +220,14 @@ export function SendToAgentButton({
           message={message}
           attachments={attachments}
           noAgentMessage={noAgentMessage}
+          otherWorktrees={otherWorktrees}
           initialTarget={dialog.target}
           initialError={dialog.error}
-          onSent={onSent}
+          onSent={(sent) => {
+            onSent?.();
+            // The dialog shows an agent here once the message is sent; one elsewhere gets the notice instead.
+            if (sent.worktreeId !== worktreeId) notify(sent);
+          }}
           onClose={() => setDialog(undefined)}
           onShowAgent={onShowAgent}
         />

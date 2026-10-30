@@ -429,4 +429,29 @@ describe("ReviewCommentList", () => {
     expect(dialog?.querySelector('[role="alert"]')?.textContent).toBe("The agent is not accepting messages.");
     expect(container.querySelector('[aria-label="Review comments"]')?.textContent).toContain("1 comment");
   });
+  it("only offers agents in the comments' own worktree, even one picked there for something else", async () => {
+    const worktree = newWorktree();
+    const other = { ...newWorktree(), branch: "cursor-foia" };
+    comment(worktree.worktreeId, "Rename this.");
+    const projection = projectionFor(worktree, { threads: [chat(other)] });
+    projection.worktrees.push(other);
+    // Annotations from this worktree went to the agent in the other one last time.
+    window.localStorage.setItem("zli.sendTarget.v1", JSON.stringify({ [worktree.worktreeId]: `${threadId}:chat` }));
+    const { container, dispatched } = await render(
+      <ReviewCommentList worktree={worktree} onOpenFile={() => undefined} />,
+      projection,
+    );
+    await waitForTarget(container, "No agent is running here yet");
+    await act(async () => button(container, "Choose agent")?.click());
+    expect([...document.querySelectorAll('[role="menu"] [role^="menuitem"]')].map((item) => item.textContent)).toEqual([
+      "Edit message before sending…",
+    ]);
+    await act(async () => button(container, "Choose agent")?.click());
+    await act(async () => sendButton(container)?.click());
+    const dialog = document.querySelector('[role="dialog"][aria-label="Send comments"]');
+    expect(dialog?.querySelector('[role="alert"]')?.textContent).toContain("No agent is running in feature.");
+    expect(dialog?.querySelector('input[type="radio"]')).toBeNull();
+    expect(dispatched).toHaveLength(0);
+    window.localStorage.clear();
+  });
 });

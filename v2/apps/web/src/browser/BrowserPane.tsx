@@ -10,6 +10,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DevServerBar, devServerLabel, originOf } from "../devservers/DevServers.js";
 import { type SentNotice, SendToAgentButton } from "../review/SendToAgentButton.js";
+import type { OtherWorktrees } from "../review/sendToAgent.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import type { SessionMode } from "../sessions/sessions.js";
 import { Button, cx, IconButton } from "../ui/Button.js";
@@ -24,6 +25,8 @@ import {
   designAnnotationReady,
   designAttachments,
   designMarks,
+  designWorktreeContext,
+  designWorktreeNote,
   formatDesignMessage,
   MAX_DESIGN_ANNOTATIONS,
   parseDesignImage,
@@ -539,6 +542,15 @@ export function BrowserPane({
     [annotations, worktree],
   );
   const designFiles = useMemo(() => designAttachments(annotations), [annotations]);
+  // The browser stays with its worktree, but any agent in the project can take the annotations.
+  const designElsewhere = useMemo(
+    (): OtherWorktrees | undefined =>
+      worktree && {
+        context: (target) => designWorktreeContext(annotations, worktree, target.branch),
+        note: (target) => designWorktreeNote(annotations, target.agent, target.branch, worktree.branch),
+      },
+    [annotations, worktree],
+  );
   const annotationCount = `${annotations.length} annotation${annotations.length === 1 ? "" : "s"}`;
 
   return (
@@ -659,6 +671,7 @@ export function BrowserPane({
             message={designMessage}
             attachments={designFiles}
             noAgentMessage={`No agent is running in ${worktree.branch}. Start one with New agent, then send the annotations. They stay here until then.`}
+            otherWorktrees={designElsewhere}
             disabled={!designReady}
             disabledTooltip="Add a note to send"
             onSent={() => {

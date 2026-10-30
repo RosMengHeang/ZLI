@@ -1,4 +1,7 @@
+import { execFile } from "node:child_process";
 import { createServer, type Server } from "node:http";
+import { join } from "node:path";
+import { promisify } from "node:util";
 
 import { expect, test } from "@playwright/test";
 
@@ -8,7 +11,10 @@ import {
   createGitFixture,
   type DesktopFixture,
   launchDesktop,
+  V2_ROOT,
 } from "./desktop-fixtures.js";
+
+const execFileAsync = promisify(execFile);
 
 const PAGE = [
   "<!doctype html><title>Design fixture</title>",
@@ -21,9 +27,29 @@ const PAGE = [
   "</body>",
 ].join("");
 
-test("annotates elements and a region on the page and sends them to a chat agent in one message", async () => {
+test("annotates the page, sends the annotations to a chat agent in one message, then to one in another worktree", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
   const { root, repo } = await createGitFixture();
+  const zli = async (args: string[]): Promise<{ code: number; stdout: string; stderr: string }> => {
+    try {
+      const { stdout, stderr } = await execFileAsync(
+        process.execPath,
+        [join(V2_ROOT, "apps/desktop/dist/zli.js"), ...args],
+        {
+          env: {
+            ...process.env,
+            ZLI_BROWSER_CONTROL_FILE: join(root, "runtime.sqlite.browser-control.json"),
+            ZLI_WORKTREE_ID: undefined,
+          },
+          timeout: 120_000,
+        },
+      );
+      return { code: 0, stdout, stderr };
+    } catch (error) {
+      const failed = error as { code?: number; stdout?: string; stderr?: string };
+      return { code: failed.code ?? 1, stdout: failed.stdout ?? "", stderr: failed.stderr ?? "" };
+    }
+  };
   let fixture: DesktopFixture | undefined;
   const server = createServer((_request, response) => {
     response.writeHead(200, { "content-type": "text/html" });
@@ -174,6 +200,63 @@ test("annotates elements and a region on the page and sends them to a chat agent
     await expect(page.locator(".chat-attachments")).toContainText("element-1.png");
     await expect(page.locator(".chat-attachments")).toContainText("region-3.png");
     await expect(panel).toHaveCount(0);
+
+    // An agent in another worktree of the project can take the next annotations once it is picked.
+    const designPath = await page.evaluate(async () => {
+      const projection = await window.zli?.runtime.getProjection();
+      return projection?.worktrees.find((candidate) => candidate.branch === "design")?.path ?? "";
+    });
+    const started = await zli([
+      "start",
+      "codex",
+      "Wait for the page.",
+      "--name",
+      "Helper",
+      "--branch",
+      "cheap",
+      "--cwd",
+      designPath,
+    ]);
+    expect(started.stderr).toBe("");
+    const helperTile = page.getByRole("region", { name: /^Helper,/u });
+    await expect(helperTile.getByText(/^Mock response/u).first()).toBeVisible({ timeout: 20_000 });
+    await worktree.click();
+    await expect(page.getByRole("heading", { name: "Design fixture" })).toBeVisible();
+
+    await annotate.click();
+    await expect(annotate).toHaveAttribute("aria-pressed", "true");
+    await clickInPage("#pay");
+    await expect(panel).toContainText("1 annotation", { timeout: 15_000 });
+    await writeNote("Make the pay button blue.");
+    await expect(panel).toContainText("Make the pay button blue.");
+    await page.getByRole("button", { name: "Choose agent" }).click();
+    const menu = page.getByRole("menu", { name: "Send to" });
+    await expect(menu.getByRole("group", { name: "design (this worktree)" })).toBeVisible();
+    await expect(menu.getByRole("group", { name: "cheap", exact: true })).toBeVisible();
+    await menu.getByRole("menuitem", { name: "Edit message before sending…" }).click();
+    await expect(dialog).toContainText("to an agent in this project");
+    await dialog.getByRole("group", { name: "cheap", exact: true }).locator(".choice-card").click();
+    await expect(dialog.getByRole("status").filter({ hasText: "Codex works on cheap." })).toContainText(
+      "The page was annotated on design.",
+    );
+    await expect(preview).toContainText(
+      `This annotation was made in the browser of another worktree, design at ${designPath}, on ${pageUrl}.`,
+    );
+    await expect(preview).toContainText("You work on cheap");
+    await dialog.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    const sentElsewhere = page.getByRole("status").filter({ hasText: "Sent to Codex on cheap." });
+    await expect(sentElsewhere).toBeVisible();
+    await expect(panel).toHaveCount(0);
+    await expect(
+      helperTile.getByText(/Mock response: This annotation was made in the browser of another worktree/u),
+    ).toBeVisible({
+      timeout: 20_000,
+    });
+    // The browser stays on design until Show brings the agent forward, which moves the panels to its worktree.
+    await expect(page.getByRole("heading", { name: "Design fixture" })).toBeVisible();
+    await sentElsewhere.getByRole("button", { name: "Show", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Design fixture" })).toHaveCount(0);
   } finally {
     if (fixture) await closeDesktop(fixture);
     server.close();
