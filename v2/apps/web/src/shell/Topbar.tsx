@@ -105,7 +105,7 @@ export function Topbar({
       <span className="topbar-spacer" />
       {updateNotice}
       {sidebarOpen || !hasProjects ? null : (
-        <Button variant="ghost" size="sm" icon="plus" shortcut={shortcuts.newAgent} onClick={onNewAgent}>
+        <Button variant="ghost" size="sm" icon="agentNew" shortcut={shortcuts.newAgent} onClick={onNewAgent}>
           <span className="topbar-new-agent-label">New agent</span>
         </Button>
       )}
@@ -115,7 +115,7 @@ export function Topbar({
       <fieldset className="topbar-tools" aria-label="Panels">
         <ToolToggle
           label="Terminal"
-          icon="panelBottom"
+          icon="terminal"
           shortcut={shortcuts.toggleDrawer}
           active={drawerOpen}
           onClick={onToggleDrawer}

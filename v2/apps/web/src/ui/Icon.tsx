@@ -373,6 +373,14 @@ const paths = {
       <path d="M12 7v5l4 2" />
     </>
   ),
+  /** An agent tile with a shell prompt, and a plus that breaks out of its corner. Distinct from New chat's pen. */
+  agentNew: (
+    <>
+      <path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6" />
+      <path d="m8 10 3 3-3 3M13 16h3" />
+      <path d="M18 3v6M15 6h6" />
+    </>
+  ),
   squarePen: (
     <>
       <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
