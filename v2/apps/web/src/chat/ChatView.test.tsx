@@ -406,11 +406,13 @@ describe("ChatView", () => {
     expect(document.activeElement).toBe(container.querySelector('textarea[aria-label="Message Droid"]'));
   });
 
-  it("dims an unset model and tints only the Full access shield", async () => {
+  it("dims an unset model, marks it with the agent's logo, and tints only the Full access lock", async () => {
     const { container } = await render(
       projectionWith({ threads: [{ ...thread, status: "idle", permissionMode: "full-access" }] }),
     );
-    expect(button(container, "Model: Default model")?.classList.contains("is-default")).toBe(true);
+    const model = button(container, "Model: Default model");
+    expect(model?.classList.contains("is-default")).toBe(true);
+    expect(model?.querySelector(`.provider-mark-${thread.provider}`)).not.toBeNull();
     const badge = container.querySelector(".composer-badge");
     expect(badge?.querySelector(".permission-icon")?.getAttribute("class")).toContain("is-full-access");
     expect(badge?.getAttribute("data-tooltip")).toContain("without asking");
@@ -543,7 +545,7 @@ describe("ChatView", () => {
     const options = [...document.querySelectorAll<HTMLButtonElement>('[role="listbox"] [role="option"]')];
     expect(options.map((option) => option.querySelector(".provider-mark")?.getAttribute("class") ?? "generic")).toEqual(
       [
-        "generic",
+        "provider-mark provider-mark-droid",
         "provider-mark provider-mark-claude-code",
         "provider-mark provider-mark-openai",
         "provider-mark provider-mark-zai",

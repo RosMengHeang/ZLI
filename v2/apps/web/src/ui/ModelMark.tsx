@@ -33,17 +33,23 @@ export function modelMaker(id: string, label?: string | undefined): string | und
   return MAKERS.find(([pattern]) => pattern.test(name))?.[1];
 }
 
-/** The maker's logo for a model, or a neutral chip glyph for the default or an unknown model. */
+/**
+ * The maker's logo for a model. The default model shows the agent's own mark when it is given, since that
+ * agent picks it; an unknown model, or a default with no agent, shows a neutral chip glyph.
+ */
 export function ModelMark({
   id,
   label,
+  agent,
   size = 14,
 }: {
   id: string | undefined;
   label?: string | undefined;
+  /** The agent's provider, whose mark stands for its default model. */
+  agent?: string | undefined;
   size?: number;
 }) {
-  const maker = id ? modelMaker(id, label) : undefined;
+  const maker = id ? modelMaker(id, label) : agent;
   return maker ? (
     <ProviderMark provider={maker} size={size} />
   ) : (
@@ -58,10 +64,11 @@ export function ModelMark({
 export function modelOptions(
   models: readonly ProviderModelOption[] | undefined,
   current: string | undefined,
+  agent?: string | undefined,
 ): PickerOption<string>[] {
   const listed = models ?? [];
   const options: PickerOption<string>[] = [
-    { value: DEFAULT_MODEL, label: "Default model", icon: <ModelMark id={undefined} size={15} /> },
+    { value: DEFAULT_MODEL, label: "Default model", icon: <ModelMark id={undefined} agent={agent} size={15} /> },
   ];
   if (current && !listed.some((option) => option.id === current))
     options.push({ value: current, label: current, icon: <ModelMark id={current} size={15} /> });

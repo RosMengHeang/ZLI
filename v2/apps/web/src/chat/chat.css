@@ -241,7 +241,9 @@ button.step-row:hover .step-file { background: var(--zli-active); }
 .composer-reasoning .picker-trigger-label { max-width: 90px; }
 /* An unset model or level reads as secondary, so a choice the person made stands out from the agent's own. */
 .composer-footer .picker-trigger.is-default:not(:hover, [aria-expanded="true"]) .picker-trigger-label { color: var(--zli-dim); }
-.composer-footer .picker-trigger.is-default .model-mark-generic { color: var(--zli-dim); }
+.composer-footer .picker-trigger.is-default :is(.model-mark-generic, .provider-mark) { color: var(--zli-dim); }
+/* The meter's unlit bars stay visible, so the level reads against the whole scale. */
+.reasoning-meter-off { fill: var(--zli-disabled); }
 .composer-permission { margin-left: var(--zli-space-1); }
 .composer-badge { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; height: var(--zli-control-md); margin-left: var(--zli-space-1); padding: 0 var(--zli-space-2) 0 7px; color: var(--zli-muted); cursor: default; font-size: var(--zli-text-sm); white-space: nowrap; }
 .composer-badge > svg { color: var(--zli-muted); }

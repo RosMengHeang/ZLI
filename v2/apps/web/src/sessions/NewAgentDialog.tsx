@@ -146,7 +146,7 @@ export function NewAgentDialog({
   const discovery = listed.find((entry) => entry.provider === provider);
   const models = discovery?.status === "found" ? (discovery.models ?? []) : [];
   const modelUnsupported = mode === "terminal" && provider === "droid";
-  const modelChoices = useMemo(() => modelOptions(models, model || undefined), [models, model]);
+  const modelChoices = useMemo(() => modelOptions(models, model || undefined, provider), [models, model, provider]);
   const shownModel = modelUnsupported ? "" : model;
   const modelLabel = modelChoices.find((option) => option.value === shownModel)?.label ?? shownModel;
   const checkout = project ? checkoutWorktree(projection, project) : undefined;

@@ -13,9 +13,9 @@ export const permissionLabel: Record<PermissionMode, string> = {
 };
 
 export const permissionIcon: Record<PermissionMode, IconName> = {
-  "read-only": "eye",
+  "read-only": "lock",
   supervised: "shieldCheck",
-  "full-access": "shieldAlert",
+  "full-access": "lockOpen",
 };
 
 export const permissionHint: Record<PermissionMode, string> = {
@@ -24,7 +24,7 @@ export const permissionHint: Record<PermissionMode, string> = {
   "full-access": "Edits files and runs commands without asking.",
 };
 
-/** The level's icon. Full access tints its shield amber because the agent then acts without asking. */
+/** The level's icon. Full access tints its open lock amber because the agent then acts without asking. */
 export function PermissionIcon({ mode, size = 14 }: { mode: PermissionMode; size?: number }) {
   return <Icon name={permissionIcon[mode]} size={size} className={`permission-icon is-${mode}`} />;
 }

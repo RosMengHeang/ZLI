@@ -37,6 +37,7 @@ import {
   textByteLength,
 } from "./pastedText.js";
 import { PermissionIcon, permissionHint, permissionLabel, permissionOptions } from "./permissions.js";
+import { ReasoningMeter } from "./ReasoningMeter.js";
 import { DEFAULT_REASONING, reasoningLabel, reasoningOptions } from "./reasoning.js";
 
 const NO_LEVELS: readonly string[] = [];
@@ -102,6 +103,7 @@ function readBase64(file: Blob): Promise<string> {
 
 export function Composer({
   displayName,
+  provider,
   branch,
   disabled,
   queues = false,
@@ -127,6 +129,8 @@ export function Composer({
   active = false,
 }: {
   displayName: string;
+  /** The agent's provider. Its mark stands for the default model. */
+  provider?: string | undefined;
   branch: string;
   disabled: boolean;
   /** The agent is busy, so a submitted message waits in its queue. */
@@ -200,10 +204,14 @@ export function Composer({
   const picker = usePromptPicker({ draft, setDraft, prompts });
   const imagesRef = useRef(images);
   imagesRef.current = images;
-  const modelChoices = useMemo(() => modelOptions(models, model), [models, model]);
+  const modelChoices = useMemo(() => modelOptions(models, model, provider), [models, model, provider]);
   const modelLabel = modelChoices.find((option) => option.value === (model ?? DEFAULT_MODEL))?.label ?? model;
   const reasoningChoices = useMemo(
-    () => reasoningOptions(reasoningLevels, defaultReasoning),
+    () =>
+      reasoningOptions(reasoningLevels, defaultReasoning).map((option) => ({
+        ...option,
+        icon: <ReasoningMeter level={option.value || defaultReasoning} />,
+      })),
     [reasoningLevels, defaultReasoning],
   );
 
@@ -403,7 +411,7 @@ export function Composer({
           {
             id: "window",
             label: "Attach a window",
-            icon: "appWindow" as const,
+            icon: "camera" as const,
             detail: "A picture of an open window",
             run: () => setCapturing(true),
           },
@@ -656,7 +664,7 @@ export function Composer({
                 : `The model ${displayName} is set to use. Pick another for your next message.`
           }
         >
-          <ModelMark id={model} label={modelLabel} size={14} />
+          <ModelMark id={model} label={modelLabel} agent={provider} size={14} />
           <span className="picker-trigger-label">{modelLabel}</span>
         </Picker>
         {reasoningLevels.length > 0 && onReasoningEffortChange ? (
@@ -669,7 +677,7 @@ export function Composer({
             tooltip={`Reasoning: ${reasoningEffort ? reasoningLabel(reasoningEffort) : "the model's own level"}. How much the model thinks before it answers.`}
             footer="Applies from your next message."
           >
-            <Icon name="sparkle" size={14} />
+            <ReasoningMeter level={reasoningEffort ?? defaultReasoning} />
             <span className="picker-trigger-label">
               {reasoningEffort
                 ? reasoningLabel(reasoningEffort)
