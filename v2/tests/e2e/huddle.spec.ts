@@ -141,5 +141,13 @@ async function addToHuddle(page: Page, agent: string, huddle: string): Promise<v
   // A sub-agent's tile also names its starter, so match the tile's own label.
   const tile = page.getByRole("region", { name: new RegExp(`^${agent},`, "u") });
   await tile.getByRole("button", { name: "Add to huddle" }).click();
+  // The menu can open over the title bar. Playwright's clicks skip the window's drag region, so check that the
+  // menu opts out of it rather than trusting the click below.
+  const menu = page.getByRole("menu", { name: "Add to huddle" });
+  await expect
+    .poll(() =>
+      menu.evaluate((list) => getComputedStyle(list.closest(".menu") ?? list).getPropertyValue("-webkit-app-region")),
+    )
+    .toBe("no-drag");
   await page.getByRole("menuitemcheckbox", { name: huddle }).click();
 }

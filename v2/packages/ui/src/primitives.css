@@ -154,6 +154,12 @@ kbd {
 }
 .popover-title { margin: 0; padding: var(--zli-space-1-5) var(--zli-space-2) var(--zli-space-1); color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 600; }
 
+/*
+ * Menus, pickers, and popovers render into <body>, outside the title bar's own no-drag rules. In the desktop app
+ * a drag region takes the click before the page sees it, so one of these opening over the title bar must opt out.
+ */
+.picker-menu, .menu, .popover { -webkit-app-region: no-drag; }
+
 /* ---------- Badges and dots ---------- */
 .badge {
   display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; height: var(--zli-control-xs); padding: 0 var(--zli-space-1-5);
