@@ -62,6 +62,8 @@ function thread(threadId: string, worktreeId: string, status: string, createdAt:
 
 type Sent = { type: string; [key: string]: unknown };
 
+type ReachAsk = { agent: string; project: string; target?: { agent: string; project: string } };
+
 function harness(
   options: {
     access?: string;
@@ -69,6 +71,7 @@ function harness(
     onCommand?: (command: Sent, state: RuntimeProjection) => void;
     servers?: unknown[];
     signIns?: unknown[];
+    reach?: (request: ReachAsk) => Promise<"allowed" | "declined" | "unanswered">;
   } = {},
 ) {
   let state = baseProjection();
@@ -116,6 +119,7 @@ function harness(
     newId: () => `00000000-0000-4000-8000-${String(++ids).padStart(12, "0")}`,
     startTimeoutMs: 1_000,
     askToConnect: (request) => asked.push(request),
+    ...(options.reach ? { askToReach: options.reach } : {}),
   });
   return { dispatch, sent, asked, update, state: () => state };
 }
@@ -198,7 +202,7 @@ describe("agent control", () => {
     });
     expect(sent.at(-1)).toMatchObject({ type: "thread.queue", threadId: PEER });
     await expect(dispatch("agentsend", { cwd: "/work/app", agent: "nope", text: "hi" })).rejects.toThrow(
-      "no running agent nope",
+      "No ZLI project has a running agent called nope",
     );
   });
 
@@ -385,7 +389,7 @@ describe("agent names", () => {
     expect(sent[0]).toMatchObject({
       type: "thread.queue",
       threadId: PEER,
-      text: "Message from Ana, another agent in ZLI, working on branch main (reply to Ana):\n\nPlease rebase.",
+      text: "Message to Bob from Ana, another agent in ZLI, working on branch main (reply to Ana):\n\nPlease rebase.",
     });
   });
 
@@ -447,10 +451,8 @@ describe("agents in other projects", () => {
     ).rejects.toMatchObject({
       status: 403,
     });
-    // Without a project, an agent in another project is simply not found.
-    await expect(dispatch("agentread", { cwd: "/work/app", agent: FOREIGN })).rejects.toThrow(
-      `Project app has no running agent ${FOREIGN}.`,
-    );
+    // Without a project, an agent in another project is found, and still needs Settings to allow it.
+    await expect(dispatch("agentread", { cwd: "/work/app", agent: FOREIGN })).rejects.toMatchObject({ status: 403 });
     expect(sent).toEqual([]);
   });
 
@@ -489,8 +491,150 @@ describe("agents in other projects", () => {
       type: "thread.queue",
       queueId: expect.any(String),
       threadId: FOREIGN,
-      text: `Message from an agent in the ZLI project app, working on branch main (reply to app/${ME}):\n\nWhat does /login return?`,
+      text: `Message to Api from an agent in the ZLI project app, working on branch main (reply to app/${ME}):\n\nWhat does /login return?`,
     });
+  });
+
+  const withNames = (h: ReturnType<typeof harness>, names: Record<string, string>) =>
+    h.update({
+      ...h.state(),
+      threads: h
+        .state()
+        .threads.map((entry) => (names[entry.threadId] ? { ...entry, name: names[entry.threadId] } : entry)),
+    } as RuntimeProjection);
+
+  it("finds an agent in another project by its name alone", async () => {
+    const h = harness({ scope: "all" });
+    withNames(h, { [ME]: "Bob", [FOREIGN]: "Kim" });
+    await h.dispatch("agentsend", { cwd: "/work/app", agent: "KIM", text: "hi" });
+    expect(h.sent[0]).toEqual({
+      type: "thread.queue",
+      queueId: expect.any(String),
+      threadId: FOREIGN,
+      text: "Message to Kim from Bob, an agent in the ZLI project app, working on branch main (reply to app/Bob):\n\nhi",
+    });
+  });
+
+  it("asks the person before reaching another project, and goes on once they allow it", async () => {
+    const asks: ReachAsk[] = [];
+    const settings = { scope: "project" };
+    const h = harness({
+      get scope() {
+        return settings.scope;
+      },
+      reach: async (request) => {
+        asks.push(request);
+        settings.scope = "all";
+        return "allowed";
+      },
+    });
+    withNames(h, { [ME]: "Bob", [FOREIGN]: "Kim" });
+    await expect(h.dispatch("agentsend", { cwd: "/work/app", agent: "Kim", text: "hi" })).resolves.toMatchObject({
+      delivered: true,
+      agent: { id: FOREIGN, project: "other" },
+    });
+    expect(asks).toEqual([{ agent: "Bob", project: "app", target: { agent: "Kim", project: "other" } }]);
+    await h.dispatch("agentread", { cwd: "/work/app", agent: "other/kim" });
+    expect(asks).toHaveLength(1);
+  });
+
+  it("says what happened when the person declines or does not answer", async () => {
+    let outcome: "declined" | "unanswered" = "declined";
+    const h = harness({ reach: async () => outcome });
+    withNames(h, { [FOREIGN]: "Kim" });
+    await expect(h.dispatch("agentsend", { cwd: "/work/app", agent: "kim", text: "hi" })).rejects.toMatchObject({
+      status: 403,
+      message:
+        "Kim works in another ZLI project, and the person chose to keep agents to their own project. Tell them what you needed. They can change this in ZLI Settings, under Agent messages.",
+    });
+    outcome = "unanswered";
+    await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "kim" })).rejects.toThrow(
+      "they have not answered yet",
+    );
+    expect(h.sent).toEqual([]);
+  });
+
+  it("goes on when the person changed Settings instead of answering", async () => {
+    const settings = { scope: "project" };
+    const h = harness({
+      get scope() {
+        return settings.scope;
+      },
+      reach: async () => {
+        settings.scope = "all";
+        return "unanswered";
+      },
+    });
+    withNames(h, { [FOREIGN]: "Kim" });
+    await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "kim" })).resolves.toMatchObject({
+      agent: { id: FOREIGN },
+    });
+  });
+
+  it("does not ask about an agent that does not exist, and names every match of a shared name", async () => {
+    const asks: ReachAsk[] = [];
+    const h = harness({
+      reach: async (request) => {
+        asks.push(request);
+        return "allowed";
+      },
+    });
+    await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "other/nobody" })).rejects.toThrow(
+      "ZLI Settings keep agents to their own project.",
+    );
+    await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "nobody" })).rejects.toMatchObject({
+      status: 404,
+      message: "No ZLI project has a running agent called nobody. Call list_agents for the names and ids.",
+    });
+    expect(asks).toEqual([]);
+
+    const third = "00000000-0000-4000-8000-0000000000a3";
+    const thirdWorktree = "00000000-0000-4000-8000-0000000000b4";
+    const twin = "00000000-0000-4000-8000-0000000000c5";
+    h.update({
+      ...h.state(),
+      projects: [...h.state().projects, { projectId: third, path: "/work/third", name: "third" }],
+      worktrees: [
+        ...h.state().worktrees,
+        { worktreeId: thirdWorktree, projectId: third, path: "/work/third", branch: "main", status: "ready" },
+      ],
+      threads: [
+        ...h.state().threads.map((entry) => (entry.threadId === FOREIGN ? { ...entry, name: "Kim" } : entry)),
+        { ...thread(twin, thirdWorktree, "idle", "2026-01-01T00:00:05.000Z"), name: "kim" },
+      ],
+    } as RuntimeProjection);
+    await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "Kim" })).rejects.toThrow(
+      "More than one agent in other projects is called Kim: other/Kim, third/kim. Write the one you mean as project/agent.",
+    );
+    expect(asks).toEqual([{ agent: "Codex", project: "app" }]);
+  });
+
+  it("tells the caller who it is and that other projects exist", async () => {
+    const h = harness();
+    withNames(h, { [ME]: "Bob" });
+    const listed = (await h.dispatch("agentlist", { cwd: "/work/app" })) as {
+      you?: { id: string; name?: string };
+      agents: Array<{ id: string; you?: true }>;
+      otherProjects?: string;
+    };
+    expect(listed.you).toEqual({ name: "Bob", id: ME });
+    expect(listed.agents.filter((agent) => agent.you).map((agent) => agent.id)).toEqual([ME]);
+    expect(listed.otherProjects).toContain("ZLI asks the person");
+  });
+
+  it("asks before listing every project", async () => {
+    const asks: ReachAsk[] = [];
+    const h = harness({
+      reach: async (request) => {
+        asks.push(request);
+        return "allowed";
+      },
+    });
+    const listed = (await h.dispatch("agentlist", { cwd: "/work/app", allProjects: true })) as {
+      agents: Array<{ id: string }>;
+    };
+    expect(asks).toEqual([{ agent: "Codex", project: "app" }]);
+    expect(listed.agents.map((agent) => agent.id)).toContain(FOREIGN);
   });
 
   it("explains a bad project reference", async () => {
@@ -569,11 +713,11 @@ describe("sub-agents", () => {
     const johnPath = h.state().worktrees.at(-1)?.path ?? "";
     await h.dispatch("agentsend", { cwd: johnPath, agent: "bob", text: "Docs are done." });
     expect(h.sent.at(-1)?.text).toBe(
-      "Message from John, your sub-agent, working on branch codex-000000 (reply to John):\n\nDocs are done.",
+      "Message to Bob from John, your sub-agent, working on branch codex-000000 (reply to John):\n\nDocs are done.",
     );
     await h.dispatch("agentsend", { cwd: "/work/app", agent: "john", text: "Add examples too." });
     expect(h.sent.at(-1)?.text).toBe(
-      "Message from Bob, the agent that started you, working on branch main (reply to Bob):\n\nAdd examples too.",
+      "Message to John from Bob, the agent that started you, working on branch main (reply to Bob):\n\nAdd examples too.",
     );
   });
 

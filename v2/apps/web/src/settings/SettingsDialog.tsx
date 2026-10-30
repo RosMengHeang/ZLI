@@ -21,6 +21,7 @@ import { shortcutText } from "../ui/shortcuts.js";
 import { UpdatesSection } from "../updates/UpdatesSection.js";
 import type { Updates } from "../updates/useUpdates.js";
 import { AccountsSection } from "./AccountsSection.js";
+import { AgentMessagesSection } from "./AgentMessagesSection.js";
 import {
   type AppSettings,
   branchFromTemplate,
@@ -42,6 +43,7 @@ import "./settings.css";
 
 export type SettingsSection =
   | "agents"
+  | "agentMessages"
   | "accounts"
   | "usage"
   | "projects"
@@ -73,6 +75,13 @@ const sections: readonly SectionEntry[] = [
     icon: "squarePen",
     group: "Agents",
     keywords: "defaults model view permissions",
+  },
+  {
+    id: "agentMessages",
+    label: "Agent messages",
+    icon: "message",
+    group: "Agents",
+    keywords: "zli other agents projects reach cross-project talk send",
   },
   { id: "accounts", label: "Accounts", icon: "user", group: "Agents", keywords: "sign in api key login" },
   { id: "usage", label: "Usage", icon: "gauge", group: "Agents", keywords: "plan limits sidebar quota subscription" },
@@ -271,6 +280,7 @@ export function SettingsDialog({
             aria-labelledby={`${tabsId}-${section}`}
           >
             {section === "agents" ? <AgentDefaults projection={projection} /> : null}
+            {section === "agentMessages" ? <AgentMessagesSection /> : null}
             {section === "accounts" ? (
               <AccountsSection projection={projection} {...(onSignIn ? { onSignIn } : {})} />
             ) : null}
@@ -286,7 +296,11 @@ export function SettingsDialog({
             {section === "worktrees" ? <WorktreeSettings projection={projection} /> : null}
             {section === "files" ? <FilesSettings /> : null}
             {section === "integrations" ? (
-              <IntegrationsSection initialView={integrationsView} focusConnector={focusConnector} />
+              <IntegrationsSection
+                initialView={integrationsView}
+                focusConnector={focusConnector}
+                onAgentMessages={() => select("agentMessages")}
+              />
             ) : null}
             {section === "skills" ? (
               <SkillsSection projection={projection} initialProjectId={initialProjectId} />

@@ -32,6 +32,7 @@ function setup(initial: Partial<NotificationSettings> = {}) {
   const flashes: boolean[] = [];
   const activated: string[] = [];
   const connectors: string[] = [];
+  const focusedWindow: boolean[] = [];
   let focused = false;
   const host: NotifierHost = {
     show: (notification, onClick) =>
@@ -41,6 +42,7 @@ function setup(initial: Partial<NotificationSettings> = {}) {
     isFocused: () => focused,
     activate: (sessionId) => activated.push(sessionId),
     openConnector: (connectorId) => connectors.push(connectorId),
+    focusWindow: () => focusedWindow.push(true),
   };
   const notifier = new AgentNotifier(host, () => settings);
   return {
@@ -51,6 +53,7 @@ function setup(initial: Partial<NotificationSettings> = {}) {
     flashes,
     activated,
     connectors,
+    focusedWindow,
     focus: (value: boolean) => {
       focused = value;
     },
@@ -116,6 +119,19 @@ describe("AgentNotifier", () => {
     const off = setup({ enabled: false });
     off.notifier.connectorRequest({ title: "app", body: "x", connectorId: "github" });
     expect(off.shown).toEqual([]);
+  });
+
+  it("raises a reach request only while the window is in the background", () => {
+    const { notifier, shown, flashes, focusedWindow, focus } = setup();
+    focus(true);
+    notifier.reachRequest({ title: "app", body: "Bob wants to reach Kim in web." });
+    expect(shown).toEqual([]);
+    focus(false);
+    notifier.reachRequest({ title: "app", body: "Bob wants to reach Kim in web." });
+    expect(shown.map((entry) => entry.title)).toEqual(["app"]);
+    expect(flashes).toEqual([true]);
+    shown[0]?.click();
+    expect(focusedWindow).toEqual([true]);
   });
 
   it("keeps the badge at the number of waiting agents and flashes for new requests in the background", () => {

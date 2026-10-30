@@ -68,6 +68,9 @@ export async function registerAgentNotifications(options: {
       bringForward();
       window.webContents.send("zli:connectors:open", { connectorId });
     },
+    focusWindow: () => {
+      if (!window.isDestroyed()) bringForward();
+    },
   };
   const notifier = new AgentNotifier(host, () => store.current());
   const initial = runtime.projection();

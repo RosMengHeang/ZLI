@@ -1,4 +1,4 @@
-import { AgentToolAccess, AgentToolScope, isHttpServer, MCP_CATALOG, type McpServerConfig } from "@zli-v2/contracts";
+import { isHttpServer, MCP_CATALOG, type McpServerConfig } from "@zli-v2/contracts";
 import { Fragment, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
@@ -58,26 +58,15 @@ export function McpServersSection({
   onBrowse,
   onCustom,
   onInstalled,
+  onAgentMessages,
 }: {
   view: McpServersView;
   onBrowse?(): void;
   onCustom?(): void;
   onInstalled?(): void;
+  onAgentMessages?: (() => void) | undefined;
 }) {
-  const {
-    state,
-    reload,
-    save,
-    setAgentAccess,
-    setAgentScope,
-    signIn,
-    cancelSignIn,
-    signOut,
-    pending,
-    test,
-    tests,
-    testing,
-  } = useMcpServers();
+  const { state, reload, save, signIn, cancelSignIn, signOut, pending, test, tests, testing } = useMcpServers();
   const knownProjects = useKnownProjects();
   const [signInProblems, setSignInProblems] = useState<Record<string, string>>({});
   const [openTools, setOpenTools] = useState<ReadonlySet<string>>(new Set());
@@ -116,6 +105,10 @@ export function McpServersSection({
   }
 
   const { servers, userSettings, agentAccess, agentScope, problem: storeProblem } = state.result;
+  const zliStatus =
+    agentAccess === "off"
+      ? "Off."
+      : `${AGENT_ACCESS_LABELS[agentAccess]}, ${AGENT_SCOPE_LABELS[agentScope].toLowerCase()}.`;
   const problems = settingsProblems(userSettings.outcomes);
   const pluginSignIns = pluginSignInsOf(state.result);
   const result = state.result;
@@ -482,28 +475,9 @@ export function McpServersSection({
           <span className="mcp-row-copy">
             <strong>zli</strong>
             <span className="mcp-row-detail">
-              Lets agents list and read other agents, and start or message them when allowed. Agents see only their own
-              project unless you let them reach every project, and new agents always start in the caller's project. Also
-              available as the zli command in terminals.
+              Lets agents list, read, start, and message other agents. Also available as the zli command in terminals.{" "}
+              {zliStatus} Change it in <TextLink onClick={onAgentMessages}>Agent messages</TextLink>.
             </span>
-          </span>
-          <span className="mcp-row-actions is-stacked">
-            <Select<AgentToolAccess>
-              className="input-sm"
-              label="What agents may do with other agents"
-              value={agentAccess}
-              disabled={saving}
-              options={AgentToolAccess.options.map((access) => ({ value: access, label: AGENT_ACCESS_LABELS[access] }))}
-              onChange={(access) => void run(() => setAgentAccess(access))}
-            />
-            <Select<AgentToolScope>
-              className="input-sm"
-              label="Which agents they can reach"
-              value={agentScope}
-              disabled={saving || agentAccess === "off"}
-              options={AgentToolScope.options.map((scope) => ({ value: scope, label: AGENT_SCOPE_LABELS[scope] }))}
-              onChange={(scope) => void run(() => setAgentScope(scope))}
-            />
           </span>
         </li>
         <li className="mcp-row">
