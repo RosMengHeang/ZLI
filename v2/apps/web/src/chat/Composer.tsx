@@ -174,10 +174,19 @@ export function Composer({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // A tile goes active on mousedown, and the browser then moves focus to whatever was clicked.
-  // Waiting a frame lets the message box have the last word.
+  // Waiting a frame lets the message box have the last word, unless the click went into another
+  // field in the same tile, such as a search box.
   useEffect(() => {
     if (!active) return;
-    const frame = requestAnimationFrame(() => textareaRef.current?.focus());
+    const frame = requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      const focused = document.activeElement;
+      const tile = textarea.closest(".agent-tile") ?? document.body;
+      if (focused instanceof HTMLElement && focused !== textarea && tile.contains(focused) && takesInput(focused))
+        return;
+      textarea.focus();
+    });
     return () => cancelAnimationFrame(frame);
   }, [active]);
   const personalPrompts = usePersonalPrompts();
@@ -734,4 +743,13 @@ export function Composer({
       ) : null}
     </form>
   );
+}
+
+const NOT_TYPED_INTO = new Set(["button", "checkbox", "color", "file", "image", "radio", "range", "reset", "submit"]);
+
+/** A field the person types or picks into, which keeps focus when its tile goes active. */
+function takesInput(element: HTMLElement): boolean {
+  if (element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) return true;
+  if (element instanceof HTMLInputElement) return !NOT_TYPED_INTO.has(element.type);
+  return element.isContentEditable;
 }
