@@ -136,6 +136,36 @@ const agent = (worktreeId: string): AgentSession => ({
   updatedAt: "2025-01-01T00:00:00.000Z",
 });
 
+const addProjectButtons = (root: ParentNode) =>
+  [...root.querySelectorAll("button")].filter(
+    (entry) => entry.textContent?.trim() === "Add project" || entry.getAttribute("aria-label") === "Add project",
+  );
+
+const primaryLabels = (root: ParentNode) =>
+  [...root.querySelectorAll(".sidebar-primary > button")].map((entry) =>
+    entry.textContent?.replace(/Ctrl.*$/u, "").trim(),
+  );
+
+describe("Sidebar primary actions", () => {
+  it("shows Add project above New agent, once, with New agent as the one raised button", async () => {
+    const { container } = await mount(projection([]));
+    expect(primaryLabels(container)).toEqual(["Add project", "New agent"]);
+    expect(addProjectButtons(container)).toHaveLength(1);
+    const newAgent = container.querySelector<HTMLButtonElement>(".sidebar-new-agent");
+    expect(newAgent?.classList.contains("btn-secondary")).toBe(true);
+    expect(newAgent?.disabled).toBe(false);
+    expect(container.querySelector(".sidebar-heading")?.textContent).toBe("Projects");
+  });
+
+  it("keeps Add project at the top of an empty sidebar and New agent off until a project exists", async () => {
+    const { container } = await mount({ ...projection([]), projects: [] });
+    expect(primaryLabels(container)).toEqual(["Add project", "New agent"]);
+    expect(addProjectButtons(container)).toHaveLength(1);
+    expect(container.querySelector(".sidebar-heading")).toBeNull();
+    expect(container.querySelector<HTMLButtonElement>(".sidebar-new-agent")?.disabled).toBe(true);
+  });
+});
+
 describe("Sidebar projects", () => {
   it("folds a project and remembers it after a restart", async () => {
     const current = projection([

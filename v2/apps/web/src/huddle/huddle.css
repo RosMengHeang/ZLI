@@ -46,6 +46,9 @@
 .huddle-member-name:hover { text-decoration: underline; }
 .huddle-member-meta { flex: 0 0 auto; color: var(--zli-dim); white-space: nowrap; }
 .huddle-member-held { flex: 0 0 auto; color: var(--zli-amber); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.huddle-member-unread { flex: 0 0 auto; color: var(--zli-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.huddle-member-lead { flex: 0 0 auto; }
+.huddle-lead-picker { flex: 0 1 auto; min-width: 0; }
 .huddle-note { margin: 0 var(--zli-space-3) var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 .huddle-paused { margin: 0 var(--zli-space-3) var(--zli-space-2); border: 1px solid var(--zli-amber-line); border-radius: var(--zli-radius-md); }
 

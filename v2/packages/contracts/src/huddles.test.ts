@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   applyHuddleEvent,
   dropHuddleMembers,
+  HUDDLE_AGENT_TURN_LIMIT,
+  type HuddleEvent,
   HuddleId,
   type HuddlePost,
   HuddlePostId,
@@ -39,7 +41,7 @@ const huddle: HuddleProjection = {
   ],
   createdAt: AT,
   updatedAt: AT,
-  agentStreak: 0,
+  agentTurns: 0,
   nextNumber: 1,
 };
 
@@ -67,6 +69,55 @@ describe("huddle fold", () => {
     const after = posted(asks, reply);
     expect(after[0]?.deliveries[0]?.awaitingReply).toBeUndefined();
     expect(after[1]?.deliveries[0]?.awaitingReply).toBe(true);
+  });
+
+  it("counts turns agents start for each other, pauses at the limit, and resets when the person writes", () => {
+    const fold = (state: ReturnType<typeof applyHuddleEvent>, event: HuddleEvent) => applyHuddleEvent(state, event, AT);
+    let state = applyHuddleEvent(
+      { huddles: [huddle], huddlePosts: [post(1, { deliveries: [{ agentId: HELPER, status: "pending" }] })] },
+      { type: "huddle.resumed", huddleId: HUDDLE },
+      AT,
+    );
+    const turn = {
+      type: "huddle.delivery.changed",
+      huddleId: HUDDLE,
+      postId: post(1).postId,
+      agentId: HELPER,
+      status: "delivered",
+      turn: true,
+    } as const;
+    for (let index = 1; index < HUDDLE_AGENT_TURN_LIMIT; index += 1) state = fold(state, turn);
+    expect(state.huddles?.[0]?.paused).toBeUndefined();
+    state = fold(state, turn);
+    expect(state.huddles?.[0]).toMatchObject({ paused: true, agentTurns: HUDDLE_AGENT_TURN_LIMIT });
+    state = fold(state, { type: "huddle.posted", post: post(2) });
+    expect(state.huddles?.[0]?.paused).toBeUndefined();
+    expect(state.huddles?.[0]?.agentTurns).toBe(0);
+  });
+
+  it("marks a member that posted until it gets a message or reads one from someone else", () => {
+    const fold = (state: ReturnType<typeof applyHuddleEvent>, event: HuddleEvent) => applyHuddleEvent(state, event, AT);
+    const helperOf = (state: ReturnType<typeof applyHuddleEvent>) =>
+      state.huddles?.[0]?.members.find((member) => member.agentId === HELPER);
+    let state = fold(
+      { huddles: [huddle], huddlePosts: [] },
+      { type: "huddle.posted", post: post(1, { from: { kind: "agent", agentId: HELPER }, to: [LEAD] }) },
+    );
+    expect(helperOf(state)?.posted).toBe(true);
+    // Reading only its own post leaves the mark.
+    state = fold(state, { type: "huddle.member.read", huddleId: HUDDLE, agentId: HELPER, upTo: 1 });
+    expect(helperOf(state)).toMatchObject({ posted: true, readUpTo: 1 });
+    state = fold(state, {
+      type: "huddle.posted",
+      post: post(2, {
+        from: { kind: "agent", agentId: LEAD },
+        to: [HELPER],
+        deliveries: [{ agentId: HELPER, status: "inbox" }],
+      }),
+    });
+    state = fold(state, { type: "huddle.member.read", huddleId: HUDDLE, agentId: HELPER, upTo: 2 });
+    expect(helperOf(state)?.posted).toBeUndefined();
+    expect(state.huddlePosts?.[1]?.deliveries[0]?.status).toBe("delivered");
   });
 
   it("fails a deleted agent's open deliveries, as leaving does", () => {

@@ -46,6 +46,7 @@ export type DomainErrorCode =
   | "huddle_missing"
   | "huddle_closed"
   | "huddle_member_missing"
+  | "huddle_posted"
   | "unsupported_command";
 
 export class DomainError extends Error {

@@ -20,11 +20,11 @@ export const MAX_HUDDLE_TEXT = 8_000;
 /** An automatic reply longer than this is cut; the full text stays in the agent's chat. */
 export const HUDDLE_REPLY_LIMIT = 2_000;
 /**
- * Agent messages in a row, with nothing from the person, before the huddle holds the rest. Agents
- * that keep answering each other are coordinating instead of working.
+ * Turns agents can start for each other, with nothing from the person, before the huddle holds the
+ * rest. Agents that keep waking each other are coordinating instead of working.
  */
-export const HUDDLE_AGENT_STREAK_LIMIT = 12;
-export const HUDDLE_PAUSED_REASON = `Held because the huddle paused after ${HUDDLE_AGENT_STREAK_LIMIT} agent messages in a row.`;
+export const HUDDLE_AGENT_TURN_LIMIT = 8;
+export const HUDDLE_PAUSED_REASON = `Held because agents started ${HUDDLE_AGENT_TURN_LIMIT} turns for each other since you last wrote.`;
 /** Why a terminal agent's copy waits: the person has typed there without pressing Enter. */
 export const HUDDLE_TYPING_REASON = "Held while you have unsent typing in this terminal.";
 
@@ -46,6 +46,18 @@ export const HuddleMember = z.object({
   joinedAt: z.string().datetime({ offset: true }),
   /** Set once the member got the list of who else is in the huddle, with its first message. */
   introduced: z.literal(true).optional(),
+  /** The newest message number the member read with huddle_read. */
+  readUpTo: z.number().int().nonnegative().optional(),
+  /**
+   * The member posted since it last got a message. Its next post is refused unless it answers an
+   * ask, a task, or a blocker, so it says everything in one post per turn.
+   */
+  posted: z.literal(true).optional(),
+  /**
+   * A terminal member had a message typed in and has not read or posted since. Further messages wait
+   * in its inbox instead of being typed one after another.
+   */
+  typed: z.literal(true).optional(),
 });
 export type HuddleMember = z.infer<typeof HuddleMember>;
 
@@ -65,17 +77,23 @@ export type HuddleTarget = z.infer<typeof HuddleTarget>;
 
 /**
  * ask wants an answer and assign hands over work; a chat agent's answer to either is posted back for
- * it. note shares information or answers, and expects nothing back, which keeps agents from answering
- * each other's answers forever.
+ * it. done reports finished work and blocked asks for a decision. note shares information and
+ * expects nothing back, which keeps agents from answering each other's answers forever.
  */
-export const HuddlePostKind = z.enum(["ask", "assign", "note"]);
+export const HuddlePostKind = z.enum(["ask", "assign", "done", "blocked", "note"]);
 export type HuddlePostKind = z.infer<typeof HuddlePostKind>;
+
+/** Kinds whose readers owe an answer. */
+export function huddleKindWantsAnswer(kind: HuddlePostKind): boolean {
+  return kind === "ask" || kind === "assign" || kind === "blocked";
+}
 
 /**
  * pending: not handled yet. held: waiting, with the reason. queued: in a busy chat's queue.
- * delivered: the agent has it. failed: it will not arrive, with the reason.
+ * delivered: the agent has it. inbox: it starts no turn; the agent sees it when it reads the huddle
+ * or with its next message. failed: it will not arrive, with the reason.
  */
-export const HuddleDeliveryStatus = z.enum(["pending", "held", "queued", "delivered", "failed"]);
+export const HuddleDeliveryStatus = z.enum(["pending", "held", "queued", "delivered", "inbox", "failed"]);
 export type HuddleDeliveryStatus = z.infer<typeof HuddleDeliveryStatus>;
 
 const SentHash = z.string().regex(/^[0-9a-f]{16}$/u);
@@ -124,8 +142,10 @@ export const HuddleProjection = z.object({
   archived: z.literal(true).optional(),
   /** Agent messages are held until the person writes or resumes. */
   paused: z.literal(true).optional(),
-  /** Agent messages since the person last wrote or resumed. */
-  agentStreak: z.number().int().nonnegative(),
+  /** Turns agents started for each other since the person last wrote or resumed. */
+  agentTurns: z.number().int().nonnegative().optional(),
+  /** The member the others report to. Their posts go to it unless they name someone else. */
+  lead: HuddleAgentId.optional(),
   nextNumber: z.number().int().positive(),
 });
 export type HuddleProjection = z.infer<typeof HuddleProjection>;
@@ -141,6 +161,10 @@ const DeliveryFields = {
   /** The delivered text included the member list, so later ones leave it out. */
   introduced: z.literal(true).optional(),
   sentHash: SentHash.optional(),
+  /** Text was typed into the member's terminal, so later messages wait until it reads or posts. */
+  typed: z.literal(true).optional(),
+  /** This delivery started a turn that another agent caused, which counts toward the turn limit. */
+  turn: z.literal(true).optional(),
 };
 
 export const HuddleCommand = z.discriminatedUnion("type", [
@@ -170,6 +194,15 @@ export const HuddleCommand = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("huddle.decide"), huddleId: HuddleId, postId: HuddlePostId, decision: z.boolean() }),
   z.object({ type: z.literal("huddle.resume"), huddleId: HuddleId }),
+  /** Makes a member the lead, or with no agent, ends lead mode. */
+  z.object({ type: z.literal("huddle.lead"), huddleId: HuddleId, agentId: HuddleAgentId.optional() }),
+  /** A member read the huddle up to this message number. */
+  z.object({
+    type: z.literal("huddle.read"),
+    huddleId: HuddleId,
+    agentId: HuddleAgentId,
+    upTo: z.number().int().nonnegative(),
+  }),
   /** Internal: the runtime reports how a delivery went. */
   z.object({ type: z.literal("huddle.delivery"), ...DeliveryFields }),
   /** Types the messages held for a terminal agent now, even though the person has unsent input there. */
@@ -199,6 +232,13 @@ export const HuddleEvent = z.discriminatedUnion("type", [
     decision: z.boolean(),
   }),
   z.object({ type: z.literal("huddle.resumed"), huddleId: HuddleId }),
+  z.object({ type: z.literal("huddle.lead.changed"), huddleId: HuddleId, agentId: HuddleAgentId.optional() }),
+  z.object({
+    type: z.literal("huddle.member.read"),
+    huddleId: HuddleId,
+    agentId: HuddleAgentId,
+    upTo: z.number().int().nonnegative(),
+  }),
   z.object({ type: z.literal("huddle.delivery.changed"), ...DeliveryFields }),
   z.object({ type: z.literal("huddle.release.requested"), agentId: HuddleAgentId }),
 ]);
@@ -269,7 +309,7 @@ export function applyHuddleEvent(state: HuddleState, event: HuddleEvent, occurre
             members: event.members.map((member) => ({ ...member, joinedAt: occurredAt })),
             createdAt: occurredAt,
             updatedAt: occurredAt,
-            agentStreak: 0,
+            agentTurns: 0,
             nextNumber: 1,
           },
         ],
@@ -300,7 +340,7 @@ export function applyHuddleEvent(state: HuddleState, event: HuddleEvent, occurre
     case "huddle.member.left":
       return {
         huddles: updateHuddle(event.huddleId, (huddle) => ({
-          ...huddle,
+          ...(huddle.lead === event.agentId ? without(huddle, "lead") : huddle),
           members: huddle.members.filter((member) => member.agentId !== event.agentId),
           updatedAt: occurredAt,
         })),
@@ -324,16 +364,23 @@ export function applyHuddleEvent(state: HuddleState, event: HuddleEvent, occurre
                 },
           )
         : kept;
+      const replied = post.replyTo ? kept.find((candidate) => candidate.postId === post.replyTo) : undefined;
+      // Answering an ask, a task, or a blocker does not use up the member's one post per turn.
+      const answers = post.auto === true || (replied !== undefined && huddleKindWantsAnswer(replied.kind));
       return {
         huddles: updateHuddle(post.huddleId, (huddle) => {
-          const agentStreak = fromAgent ? huddle.agentStreak + 1 : 0;
-          const { paused: _paused, ...rest } = huddle;
+          const moved = { ...huddle, nextNumber: Math.max(huddle.nextNumber, post.number + 1), updatedAt: occurredAt };
+          if (!fromAgent) {
+            const { paused: _paused, ...rest } = moved;
+            return { ...rest, agentTurns: 0, members: rest.members.map((member) => without(member, "posted")) };
+          }
           return {
-            ...rest,
-            agentStreak,
-            nextNumber: Math.max(huddle.nextNumber, post.number + 1),
-            updatedAt: occurredAt,
-            ...(agentStreak > HUDDLE_AGENT_STREAK_LIMIT ? { paused: true as const } : {}),
+            ...moved,
+            members: moved.members.map((member) => {
+              if (member.agentId !== fromAgent) return member;
+              const rest = without(member, "typed");
+              return answers ? rest : { ...rest, posted: true as const };
+            }),
           };
         }),
         huddlePosts: trimHuddle([...answered, post], post.huddleId),
@@ -351,20 +398,83 @@ export function applyHuddleEvent(state: HuddleState, event: HuddleEvent, occurre
       return {
         huddles: updateHuddle(event.huddleId, (huddle) => {
           const { paused: _paused, ...rest } = huddle;
-          return { ...rest, agentStreak: 0, updatedAt: occurredAt };
+          return { ...rest, agentTurns: 0, updatedAt: occurredAt };
         }),
         huddlePosts: posts,
       };
-    case "huddle.delivery.changed":
+    case "huddle.lead.changed":
       return {
-        huddles: event.introduced
-          ? updateHuddle(event.huddleId, (huddle) => ({
-              ...huddle,
-              members: huddle.members.map((member) =>
-                member.agentId === event.agentId ? { ...member, introduced: true as const } : member,
-              ),
-            }))
-          : huddles,
+        huddles: updateHuddle(event.huddleId, (huddle) => {
+          const rest = without(huddle, "lead");
+          return { ...rest, ...(event.agentId ? { lead: event.agentId } : {}), updatedAt: occurredAt };
+        }),
+        huddlePosts: posts,
+      };
+    case "huddle.member.read":
+      return {
+        huddles: updateHuddle(event.huddleId, (huddle) => ({
+          ...huddle,
+          members: huddle.members.map((member) => {
+            if (member.agentId !== event.agentId) return member;
+            const from = member.readUpTo ?? 0;
+            // Reading what others wrote counts as getting a message; rereading one's own posts does not.
+            const fresh = posts.some(
+              (post) =>
+                post.huddleId === event.huddleId &&
+                post.number > from &&
+                post.number <= event.upTo &&
+                !(post.from.kind === "agent" && post.from.agentId === event.agentId),
+            );
+            const rest = without(without(member, "typed"), "posted");
+            return {
+              ...rest,
+              readUpTo: Math.max(from, event.upTo),
+              ...(member.posted && !fresh ? { posted: true as const } : {}),
+            };
+          }),
+        })),
+        huddlePosts: posts.map((post) =>
+          post.huddleId !== event.huddleId ||
+          post.number > event.upTo ||
+          !post.deliveries.some((delivery) => delivery.agentId === event.agentId && delivery.status === "inbox")
+            ? post
+            : {
+                ...post,
+                deliveries: post.deliveries.map((delivery) =>
+                  delivery.agentId === event.agentId && delivery.status === "inbox"
+                    ? { ...delivery, status: "delivered" as const }
+                    : delivery,
+                ),
+              },
+        ),
+      };
+    case "huddle.delivery.changed": {
+      const before = posts
+        .find((post) => post.postId === event.postId)
+        ?.deliveries.find((delivery) => delivery.agentId === event.agentId);
+      // Getting a message ends the member's turn limit of one post.
+      const arrived = event.status === "delivered" && before?.status !== "delivered";
+      return {
+        huddles:
+          event.introduced || event.typed || event.turn || arrived
+            ? updateHuddle(event.huddleId, (huddle) => {
+                const agentTurns = (huddle.agentTurns ?? 0) + (event.turn ? 1 : 0);
+                return {
+                  ...huddle,
+                  agentTurns,
+                  ...(agentTurns >= HUDDLE_AGENT_TURN_LIMIT ? { paused: true as const } : {}),
+                  members: huddle.members.map((member) => {
+                    if (member.agentId !== event.agentId) return member;
+                    const rest = arrived ? without(member, "posted") : member;
+                    return {
+                      ...rest,
+                      ...(event.introduced ? { introduced: true as const } : {}),
+                      ...(event.typed ? { typed: true as const } : {}),
+                    };
+                  }),
+                };
+              })
+            : huddles,
         huddlePosts: updatePost(event.postId, (post) => ({
           ...post,
           deliveries: post.deliveries.map((delivery) => {
@@ -381,9 +491,16 @@ export function applyHuddleEvent(state: HuddleState, event: HuddleEvent, occurre
           }),
         })),
       };
+    }
     case "huddle.release.requested":
       return { huddles, huddlePosts: posts };
   }
+}
+
+function without<T extends object, K extends keyof T>(value: T, key: K): Omit<T, K> {
+  if (!(key in value)) return value;
+  const { [key]: _dropped, ...rest } = value;
+  return rest;
 }
 
 function withoutAwaiting(delivery: HuddleDelivery): HuddleDelivery {
@@ -438,6 +555,27 @@ export function huddlesOf(state: HuddleState, agentId: string): HuddleProjection
 
 export function huddlePostsOf(state: HuddleState, huddleId: string): HuddlePost[] {
   return (state.huddlePosts ?? []).filter((post) => post.huddleId === huddleId);
+}
+
+/**
+ * Whether a post starts a turn for a recipient or waits in its inbox. The person's messages always
+ * start one. Between agents, only what the recipient has to act on does: an ask, task, blocker, or
+ * done report that names it, an answer to what it asked, and the lead's asks and tasks to everyone.
+ */
+export function huddleWakes(
+  huddle: Pick<HuddleProjection, "lead">,
+  posts: readonly HuddlePost[],
+  post: Pick<HuddlePost, "from" | "to" | "kind" | "replyTo">,
+  agentId: string,
+): boolean {
+  if (post.from.kind === "person") return true;
+  const replied = post.replyTo ? posts.find((candidate) => candidate.postId === post.replyTo) : undefined;
+  const answersAsk = replied !== undefined && huddleKindWantsAnswer(replied.kind);
+  if (answersAsk && replied.from.kind === "agent" && replied.from.agentId === agentId) return true;
+  const named = Array.isArray(post.to) && post.to.includes(agentId);
+  if (post.kind === "note") return named && answersAsk;
+  if (named) return true;
+  return post.to === "everyone" && post.from.agentId === huddle.lead && (post.kind === "ask" || post.kind === "assign");
 }
 
 /** Who a post is delivered to: everyone named, or every member but the sender. The person needs no delivery. */

@@ -21,7 +21,7 @@ import {
   useState,
 } from "react";
 
-import { Badge } from "../ui/Badge.js";
+import { Badge, type BadgeTone } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 import { EmptyState } from "../ui/Pane.js";
@@ -40,20 +40,32 @@ import {
   PAUSED_MESSAGE,
   recipientsText,
   shortText,
+  unreadCount,
 } from "./huddles.js";
 import { type HuddleCommands, useHuddleCommands } from "./useHuddleCommands.js";
 import "../chat/chat.css";
 import "./huddle.css";
 
-const kindHints: Record<HuddlePostKind, string> = {
+/** The kinds the person writes. Done and Blocked are for agents reporting back. */
+type PersonKind = Extract<HuddlePostKind, "ask" | "assign" | "note">;
+
+const kindHints: Record<PersonKind, string> = {
   ask: "Wants an answer. A chat agent's answer is posted here.",
   assign: "Hands over work. A chat agent's answer is posted here.",
   note: "Shares information. No reply expected.",
 };
 
-const kindIcons: Record<HuddlePostKind, IconName> = { ask: "help", assign: "handoff", note: "fileText" };
+const kindIcons: Record<PersonKind, IconName> = { ask: "help", assign: "handoff", note: "fileText" };
 
-const kindOptions: PickerOption<HuddlePostKind>[] = (["ask", "assign", "note"] as const).map((value) => ({
+const kindTones: Record<HuddlePostKind, BadgeTone> = {
+  ask: "neutral",
+  assign: "neutral",
+  done: "success",
+  blocked: "warning",
+  note: "quiet",
+};
+
+const kindOptions: PickerOption<PersonKind>[] = (["ask", "assign", "note"] as const).map((value) => ({
   value,
   label: huddleKindLabel[value],
   description: kindHints[value],
@@ -61,6 +73,9 @@ const kindOptions: PickerOption<HuddlePostKind>[] = (["ask", "assign", "note"] a
 }));
 
 const REPLY_LIMIT_TEXT = HUDDLE_REPLY_LIMIT.toLocaleString("en-US");
+
+/** The lead picker's value for a huddle without a lead. Agent ids are never empty. */
+const NO_LEAD = "";
 
 /**
  * The Huddle side pane: one tab per live huddle, its members, decisions, transcript, and a composer.
@@ -343,6 +358,15 @@ function HuddleView({
       setConfirmArchive(false);
     }
   };
+  const setLead = async (agentId: string) => {
+    setHeadError(undefined);
+    const error = await commands.run({
+      type: "huddle.lead",
+      huddleId: huddle.huddleId,
+      ...(agentId === NO_LEAD ? {} : { agentId }),
+    });
+    if (error) setHeadError(error);
+  };
   const leave = async (agentId: string) => {
     setMemberError(undefined);
     const error = await commands.run({ type: "huddle.leave", huddleId: huddle.huddleId, agentId });
@@ -372,6 +396,11 @@ function HuddleView({
   };
 
   const memberCount = huddle.members.length;
+  const leadOptions = [
+    { value: NO_LEAD, label: "No lead", description: "Agents write to everyone unless they name someone." },
+    ...huddle.members.map((member) => ({ value: member.agentId, label: name(member.agentId) })),
+  ];
+  const leadName = huddle.lead ? name(huddle.lead) : undefined;
   return (
     <div className="huddle-view" role="tabpanel" id={panelId} aria-labelledby={tabId}>
       <div className="huddle-head">
@@ -427,6 +456,18 @@ function HuddleView({
           </span>
         </span>
         <span className="huddle-spacer" />
+        {memberCount > 1 || huddle.lead ? (
+          <Picker
+            label="Lead"
+            className="huddle-lead-picker"
+            value={huddle.lead ?? NO_LEAD}
+            options={leadOptions}
+            onChange={(agentId) => void setLead(agentId)}
+            tooltip="Pick an agent the others report to. It reports to you."
+          >
+            <span className="picker-trigger-label">{leadName ? `Lead: ${leadName}` : "No lead"}</span>
+          </Picker>
+        ) : null}
         <Button
           ref={archiveButtonRef}
           variant="ghost"
@@ -466,6 +507,7 @@ function HuddleView({
             const view: MemberView | undefined = views.get(member.agentId);
             const label = view?.display ?? "A removed agent";
             const held = heldCount(posts, member.agentId);
+            const unread = unreadCount(posts, member.agentId);
             const dot = view
               ? member.kind === "terminal"
                 ? `status-terminal-${view.status}`
@@ -486,7 +528,20 @@ function HuddleView({
                   {member.kind === "terminal" ? "terminal" : "chat"}
                   {view ? `, ${agentStatusLabel(view.status).toLowerCase()}` : ""}
                 </span>
+                {member.agentId === huddle.lead ? (
+                  <Badge className="huddle-member-lead" tone="info">
+                    Lead
+                  </Badge>
+                ) : null}
                 {held > 0 ? <span className="huddle-member-held">{held} held</span> : null}
+                {unread > 0 ? (
+                  <span
+                    className="huddle-member-unread"
+                    title="Messages that started no turn. The agent sees them when it next reads the huddle."
+                  >
+                    {unread} unread
+                  </span>
+                ) : null}
                 <IconButton
                   label={`Remove ${label} from the huddle`}
                   icon="x"
@@ -506,6 +561,11 @@ function HuddleView({
       {memberError ? (
         <p className="inline-error huddle-inline-error" role="alert">
           {memberError}
+        </p>
+      ) : null}
+      {leadName ? (
+        <p className="huddle-note huddle-lead-note">
+          {leadName} leads. The other agents report to {leadName} unless they name someone.
         </p>
       ) : null}
       {huddle.paused ? (
@@ -617,7 +677,7 @@ function HuddlePostItem({
         <span className="huddle-post-number">#{post.number}</span>
         <span className="huddle-post-from">{sender}</span>
         <span className="huddle-post-to">{recipientsText(post.to, name)}</span>
-        <Badge className="huddle-kind" tone={post.kind === "note" ? "quiet" : "neutral"}>
+        <Badge className="huddle-kind" tone={kindTones[post.kind]}>
           {huddleKindLabel[post.kind]}
         </Badge>
         {post.auto ? <span className="huddle-post-marker">Answer from chat</span> : null}
@@ -680,7 +740,7 @@ function HuddleComposer({
   commands: HuddleCommands;
 }) {
   const [to, setTo] = useState("everyone");
-  const [kind, setKind] = useState<HuddlePostKind>("ask");
+  const [kind, setKind] = useState<PersonKind>("ask");
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
@@ -763,7 +823,7 @@ function HuddleComposer({
           <Icon name={target === "everyone" ? "users" : "user"} size={13} />
           <span className="picker-trigger-label">{recipient}</span>
         </Picker>
-        <Picker<HuddlePostKind>
+        <Picker<PersonKind>
           label="Message kind"
           value={kind}
           options={kindOptions}
