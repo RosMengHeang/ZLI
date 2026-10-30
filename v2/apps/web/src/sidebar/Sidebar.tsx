@@ -1062,38 +1062,66 @@ export function Sidebar({
           </>
         )}
       </div>
-      <div className="sidebar-bottom">
-        <SidebarPlanLimits
-          providers={projection?.providers}
-          accounts={accounts}
-          now={now}
-          currentKey={activeSession ? limitKey(activeSession.provider, sessionAccountId(activeSession)) : undefined}
-          onOpenSettings={() => onOpenSettings("usage")}
-        />
-        <div className="sidebar-footer">
-          <span
-            className={`connection-dot${projection ? " is-connected" : ""}`}
-            role="img"
-            aria-label={projection ? "Runtime connected" : "Waiting for runtime"}
-            data-tooltip={projection ? "Runtime connected" : "Waiting for runtime"}
-          />
-          <IconButton
-            className="sidebar-usage"
-            label="Usage"
-            tooltip="Usage and cost"
-            icon="gauge"
-            onClick={onOpenUsage}
-          />
-          <IconButton label="Settings" icon="settings" shortcut={settingsShortcut} onClick={() => onOpenSettings()} />
-          <IconButton
-            className="sidebar-help"
-            label="Help"
-            tooltip="Help and diagnostics"
-            icon="help"
-            onClick={onOpenHelp}
-          />
-        </div>
-      </div>
+      <SidebarPlanLimits
+        providers={projection?.providers}
+        accounts={accounts}
+        now={now}
+        currentKey={activeSession ? limitKey(activeSession.provider, sessionAccountId(activeSession)) : undefined}
+        onOpenSettings={() => onOpenSettings("usage")}
+      >
+        {({ line, panel }) => (
+          <div className="sidebar-bottom">
+            {panel}
+            <div className="sidebar-footer">
+              <span className="sr-only" role="status">
+                {projection ? "Runtime connected" : ""}
+              </span>
+              {!projection ? (
+                <span className="sidebar-waiting">
+                  <span className="connection-dot" aria-hidden="true" />
+                  Waiting for runtime
+                </span>
+              ) : (
+                (line ?? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="settings"
+                    className="sidebar-settings"
+                    tooltip="Settings"
+                    shortcut={settingsShortcut}
+                    onClick={() => onOpenSettings()}
+                  >
+                    Settings
+                  </Button>
+                ))
+              )}
+              <IconButton
+                className="sidebar-usage"
+                label="Usage"
+                tooltip="Usage and cost"
+                icon="gauge"
+                onClick={onOpenUsage}
+              />
+              {projection && !line ? null : (
+                <IconButton
+                  label="Settings"
+                  icon="settings"
+                  shortcut={settingsShortcut}
+                  onClick={() => onOpenSettings()}
+                />
+              )}
+              <IconButton
+                className="sidebar-help"
+                label="Help"
+                tooltip="Help and diagnostics"
+                icon="help"
+                onClick={onOpenHelp}
+              />
+            </div>
+          </div>
+        )}
+      </SidebarPlanLimits>
       {contextMenu ? <Menu request={contextMenu} onClose={() => setContextMenu(undefined)} /> : null}
       {renderProjectConfirm()}
       {huddleMenu ? <Menu request={huddleMenu} onClose={() => setHuddleMenu(undefined)} /> : null}

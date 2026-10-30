@@ -34,11 +34,13 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
     await settings.getByRole("switch", { name: /Show plan limits/u }).check();
     await page.keyboard.press("Escape");
     await expect(settings).toHaveCount(0);
-    // Folded, the card is one line for the selected agent's login: the Codex chat, at its fullest limit.
+    // Folded, the limits are one line in the footer for the selected agent's login: the Codex chat,
+    // at its fullest limit. Settings moves to an icon beside it.
     const card = page.locator(".sidebar-usage-strip");
     await expect(limits).toHaveAttribute("aria-expanded", "false");
-    await expect(card.locator(".usage-strip-summary")).toHaveText("Codex5h34%");
-    await expect(card.locator(".usage-strip-row")).toHaveCount(0);
+    await expect(page.locator(".sidebar-footer .usage-strip-summary")).toHaveText("Codex5h34%");
+    await expect(page.locator(".sidebar-footer").getByRole("button", { name: "Settings", exact: true })).toHaveText("");
+    await expect(card).toHaveCount(0);
     // Unfolded, every agent that reports limits gets a row.
     await limits.click();
     await expect(limits).toHaveAttribute("aria-expanded", "true");

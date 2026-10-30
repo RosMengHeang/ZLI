@@ -1,6 +1,6 @@
 import type { Account, PlanLimitReading, PlanLimitWindow, ProviderDiscovery } from "@zli-v2/contracts";
 import { USUAL_LOGIN_ACCOUNT_ID } from "@zli-v2/contracts";
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 
 import { accountLabel, USUAL_LOGIN_LABEL } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
@@ -20,7 +20,6 @@ import { Icon } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 
 const OPEN_KEY = "zli.sidebar.limitsOpen";
-const TOOLTIP = "Plan limits used. Tokens and cost are under Usage.";
 
 const stateText: Record<Exclude<PlanLimitReading["state"], "ok">, string> = {
   "signed-out": "Signed out",
@@ -44,7 +43,21 @@ type Props = {
   timeZone?: string;
   /** Opens Settings at Usage, where the card and its agents are chosen. */
   onOpenSettings(): void;
+  /**
+   * Places the two parts: the folded line, which fits in a row of its own, and the list it unfolds.
+   * Both are missing while there is nothing to show. Without it, the list sits above the line.
+   */
+  children?: ((slots: LimitSlots) => ReactNode) | undefined;
 };
+
+export type LimitSlots = { line?: ReactNode; panel?: ReactNode };
+
+const stacked = ({ line, panel }: LimitSlots) => (
+  <>
+    {panel}
+    {line}
+  </>
+);
 
 type Row = {
   key: string;
@@ -61,7 +74,7 @@ type Row = {
  */
 export function SidebarPlanLimits(props: Omit<Props, "readings" | "hidden">) {
   const { sidebarLimits } = useAppSettings();
-  if (!sidebarLimits.enabled) return null;
+  if (!sidebarLimits.enabled) return (props.children ?? stacked)({});
   return <LiveUsageStrip {...props} hidden={sidebarLimits.hidden} />;
 }
 
@@ -71,9 +84,9 @@ function LiveUsageStrip(props: Omit<Props, "readings">) {
 }
 
 /**
- * How much of each login's plan limits is used, above Settings. Folded, it is one line for the
- * selected agent's login, or the fullest limit when no agent with limits is selected, so it never
- * crowds the project list. Unfolded, it lists every login with a circle per limit and its reset.
+ * How much of each login's plan limits is used. The line is the selected agent's login at its
+ * fullest limit, or the fullest limit of any login when no agent with limits is selected, so it never
+ * crowds the project list. Clicking it unfolds every login with a circle per limit and its reset.
  */
 export function SidebarUsageStrip({
   readings,
@@ -84,12 +97,13 @@ export function SidebarUsageStrip({
   hidden,
   timeZone,
   onOpenSettings,
+  children = stacked,
 }: Props) {
   const descriptionId = useId();
   const listId = useId();
   const [open, setOpen] = useState(readOpen);
   const shown = readings?.filter((reading) => showsReading(reading) && !hidden?.includes(reading.provider)) ?? [];
-  if (shown.length === 0) return null;
+  if (shown.length === 0) return children({});
 
   const withAccounts = new Set(
     shown.filter((reading) => reading.accountId !== USUAL_LOGIN_ACCOUNT_ID).map((reading) => reading.provider),
@@ -114,53 +128,57 @@ export function SidebarUsageStrip({
   const description = rows
     .map((row) => `${[row.name, row.account].filter(Boolean).join(", ")}: ${rowDescription(row, now, timeZone)}`)
     .join(" ");
+  const summary = summaryOf(rows, now);
   const toggle = () =>
     setOpen((current) => {
       writeOpen(!current);
       return !current;
     });
 
-  return (
-    <div className={`sidebar-usage-strip${open ? " is-open" : ""}`}>
+  return children({
+    line: (
       <button
         type="button"
         className="usage-strip-toggle"
         aria-label="Plan limits"
         aria-expanded={open}
-        aria-controls={listId}
+        aria-controls={open ? listId : undefined}
         aria-describedby={descriptionId}
-        data-tooltip={TOOLTIP}
+        data-tooltip={open ? undefined : summaryTooltip(summary)}
         onClick={toggle}
       >
         <span id={descriptionId} className="sr-only">
           {description}
         </span>
-        {open ? (
-          <span className="usage-strip-head" aria-hidden="true">
-            Plan limits
-          </span>
-        ) : (
-          <Summary rows={rows} now={now} />
-        )}
+        <Summary summary={summary} />
         <Icon name="chevronUp" size={12} className="usage-strip-chevron" aria-hidden="true" />
       </button>
-      {open ? (
-        <div id={listId} className="usage-strip-list">
+    ),
+    panel: open ? (
+      <div id={listId} className="sidebar-usage-strip">
+        <span className="usage-strip-head" aria-hidden="true">
+          Plan limits
+        </span>
+        <div className="usage-strip-list">
           {rows.map((row) => (
             <LoginRow key={row.key} row={row} now={now} timeZone={timeZone} />
           ))}
-          <button type="button" className="usage-strip-settings" onClick={onOpenSettings}>
-            Choose agents
-          </button>
         </div>
-      ) : null}
-    </div>
-  );
+        <button type="button" className="usage-strip-settings" onClick={onOpenSettings}>
+          Choose agents
+        </button>
+      </div>
+    ) : undefined,
+  });
 }
 
-/** The folded line: one login's fullest limit, or why it has none. */
-function Summary({ rows, now }: { rows: readonly Row[]; now: number }) {
-  const { row, window } = summaryOf(rows, now);
+type SummaryPick = { row: Row; window: PlanLimitWindow | undefined };
+
+/**
+ * The folded line: one login's fullest limit, or why it has none. Where the footer is narrow, the
+ * agent's mark stands in for its name and the window label goes, so the share always fits.
+ */
+function Summary({ summary: { row, window } }: { summary: SummaryPick }) {
   const used = window ? Math.min(100, Math.max(0, window.usedPercent)) : 0;
   return (
     <span
@@ -168,6 +186,7 @@ function Summary({ rows, now }: { rows: readonly Row[]; now: number }) {
       aria-hidden="true"
     >
       <LimitRing percent={used} />
+      <ProviderMark provider={row.reading.provider} size={12} />
       <span className="usage-strip-provider">{row.name}</span>
       {row.account ? <span className="usage-strip-account">{row.account}</span> : null}
       {window ? (
@@ -186,7 +205,7 @@ function Summary({ rows, now }: { rows: readonly Row[]; now: number }) {
  * The selected agent's login when it has numbers, otherwise the login closest to its limit. Within a
  * login, the fullest window whose reset has not passed, since that is the one that stops the agent.
  */
-function summaryOf(rows: readonly Row[], now: number): { row: Row; window: PlanLimitWindow | undefined } {
+function summaryOf(rows: readonly Row[], now: number): SummaryPick {
   const fullest = (row: Row) =>
     row.windows
       .filter((window) => !resetText(window, now).passed)
@@ -196,12 +215,20 @@ function summaryOf(rows: readonly Row[], now: number): { row: Row; window: PlanL
       );
   const current = rows.find((row) => row.current && fullest(row));
   if (current) return { row: current, window: fullest(current) };
-  let best: { row: Row; window: PlanLimitWindow | undefined } | undefined;
+  let best: SummaryPick | undefined;
   for (const row of rows) {
     const window = fullest(row);
     if (window && (!best?.window || window.usedPercent > best.window.usedPercent)) best = { row, window };
   }
   return best ?? { row: rows[0] as Row, window: undefined };
+}
+
+/** The folded line in words, for when its name and label do not fit: "Codex, 5-hour limit: 34% used". */
+function summaryTooltip({ row, window }: SummaryPick): string {
+  const who = [row.name, row.account].filter(Boolean).join(", ");
+  if (!window) return row.reading.state === "ok" ? who : `${who}: ${stateText[row.reading.state]}`;
+  const limit = [windowName(window), "limit"].filter(Boolean).join(" ");
+  return `${who}, ${limit}: ${formatPercent(window.usedPercent)} used`;
 }
 
 function LoginRow({ row, now, timeZone }: { row: Row; now: number; timeZone: string | undefined }) {

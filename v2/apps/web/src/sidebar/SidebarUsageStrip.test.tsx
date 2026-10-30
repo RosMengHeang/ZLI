@@ -80,7 +80,7 @@ function description(target: HTMLButtonElement): string {
 const lines = (container: HTMLElement) =>
   [...container.querySelectorAll(".usage-strip-window")].map((line) => plain(line.textContent));
 const labels = (container: HTMLElement) =>
-  [...container.querySelectorAll(".usage-strip-window-label")].map((label) => label.textContent);
+  [...container.querySelectorAll(".usage-strip-list .usage-strip-window-label")].map((label) => label.textContent);
 const names = (container: HTMLElement) =>
   [...container.querySelectorAll(".usage-strip-name")].map((name) => name.textContent);
 const summary = (container: HTMLElement) => container.querySelector(".usage-strip-summary")?.textContent;
@@ -108,6 +108,8 @@ describe("SidebarUsageStrip", () => {
     expect(card.getAttribute("aria-label")).toBe("Plan limits");
     expect(card.getAttribute("aria-expanded")).toBe("false");
     expect(summary(container)).toBe("Codex5h86%");
+    expect(card.getAttribute("data-tooltip")).toBe("Codex, 5-hour limit: 86% used");
+    expect(container.querySelector(".usage-strip-summary .provider-mark")).not.toBeNull();
     expect(container.querySelector(".usage-strip-summary")?.classList.contains("is-warning")).toBe(true);
     expect(container.querySelectorAll(".usage-strip-row")).toHaveLength(0);
     expect(card.textContent).not.toMatch(/\$|tokens/iu);
@@ -131,14 +133,16 @@ describe("SidebarUsageStrip", () => {
   it("says why the summed-up login has no numbers", async () => {
     const container = await render([reading("claude-code", [], { accountId: "work", state: "expired" })]);
     expect(summary(container)).toBe("Claude CodeWorkSign in again");
+    expect(toggle(container).getAttribute("data-tooltip")).toBe("Claude Code, Work: Sign in again");
   });
 
   it("unfolds to a circle per limit with one reset format, and remembers it", async () => {
     const container = await render([reading("codex", [fiveHour(34), week(12)])], { open: true });
     const card = toggle(container);
     expect(card.getAttribute("aria-expanded")).toBe("true");
-    expect(container.querySelector(".usage-strip-summary")).toBeNull();
-    expect(container.querySelectorAll(".usage-strip-ring")).toHaveLength(2);
+    expect(card.getAttribute("aria-controls")).toBe(container.querySelector(".sidebar-usage-strip")?.id);
+    expect(summary(container)).toBe("Codex5h34%");
+    expect(container.querySelectorAll(".usage-strip-list .usage-strip-ring")).toHaveLength(2);
     expect(lines(container)).toEqual(["5h34%Resets in 47m", "Week12%Resets in 2d 21h"]);
     const resets = [...container.querySelectorAll(".usage-strip-window-reset")];
     expect(resets.map((reset) => plain(reset.getAttribute("data-tooltip")))).toEqual([
@@ -147,7 +151,9 @@ describe("SidebarUsageStrip", () => {
     ]);
     expect(labels(container).length).toBe(2);
     expect(
-      [...container.querySelectorAll(".usage-strip-window-label")].map((label) => label.getAttribute("data-tooltip")),
+      [...container.querySelectorAll(".usage-strip-list .usage-strip-window-label")].map((label) =>
+        label.getAttribute("data-tooltip"),
+      ),
     ).toEqual(["5-hour limit", "Weekly limit"]);
     expect(description(card)).toBe(
       "Codex: 34% of the 5-hour limit used, resets in 47m at 12:47 PM; 12% of the weekly limit used, resets in 2d 21h at Tue 9:00 AM.",
@@ -159,6 +165,38 @@ describe("SidebarUsageStrip", () => {
     await act(async () => toggle(again).click());
     expect(toggle(again).getAttribute("aria-expanded")).toBe("false");
     expect(window.localStorage.getItem("zli.sidebar.limitsOpen")).toBeNull();
+  });
+
+  it("hands the line and the list to the caller to place, and nothing when there is nothing to show", async () => {
+    const slots: { line: boolean; panel: boolean }[] = [];
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const draw = (readings: PlanLimitReading[]) =>
+      act(async () =>
+        root.render(
+          <SidebarUsageStrip
+            readings={readings}
+            providers={undefined}
+            accounts={[]}
+            now={now}
+            onOpenSettings={() => undefined}
+          >
+            {({ line, panel }) => {
+              slots.push({ line: Boolean(line), panel: Boolean(panel) });
+              return <footer>{line}</footer>;
+            }}
+          </SidebarUsageStrip>,
+        ),
+      );
+    await draw([]);
+    expect(slots.at(-1)).toEqual({ line: false, panel: false });
+    await draw([reading("codex", [fiveHour(34)])]);
+    expect(slots.at(-1)).toEqual({ line: true, panel: false });
+    await act(async () => toggle(container).click());
+    expect(slots.at(-1)).toEqual({ line: true, panel: true });
+    expect(container.querySelector("footer .usage-strip-toggle")).not.toBeNull();
+    act(() => root.unmount());
   });
 
   it("opens Settings from the unfolded card", async () => {

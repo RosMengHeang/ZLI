@@ -68,9 +68,10 @@ type MountOptions = {
   currentProjectId?: string;
   selectedProjectId?: string;
   projectAgentActions?: (projectId: string) => ProjectAgentActions;
+  onOpenSettings?: (section?: string) => void;
 };
 
-async function mount(current: RuntimeProjection, options: MountOptions = {}) {
+async function mount(current: RuntimeProjection | undefined, options: MountOptions = {}) {
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -99,7 +100,7 @@ async function mount(current: RuntimeProjection, options: MountOptions = {}) {
           onReviewSetup={noop}
           onShowSetupOutput={noop}
           onOpenHelp={noop}
-          onOpenSettings={noop}
+          onOpenSettings={options.onOpenSettings ?? noop}
           onOpenUsage={noop}
           onHideSidebar={noop}
           projectAgentActions={options.projectAgentActions}
@@ -637,5 +638,31 @@ describe("parseSidebarCollapsed", () => {
       idle: [],
       pinned: [],
     });
+  });
+});
+
+describe("Sidebar footer", () => {
+  it("names Settings beside the icons while plan limits are off", async () => {
+    const onOpenSettings = vi.fn();
+    const { container } = await mount(projection([]), { onOpenSettings });
+    const footer = container.querySelector(".sidebar-footer");
+    if (!footer) throw new Error("No footer");
+    const settings = [...footer.querySelectorAll("button")].filter(
+      (entry) => entry.textContent?.trim() === "Settings" || entry.getAttribute("aria-label") === "Settings",
+    );
+    expect(settings).toHaveLength(1);
+    expect(settings[0]?.textContent?.trim()).toBe("Settings");
+    await act(async () => settings[0]?.click());
+    expect(onOpenSettings).toHaveBeenCalledWith();
+    expect(footer.querySelector('[role="status"]')?.textContent).toBe("Runtime connected");
+    expect(footer.textContent).not.toContain("Local runtime");
+  });
+
+  it("says it is waiting until the runtime connects", async () => {
+    const { container } = await mount(undefined);
+    const footer = container.querySelector(".sidebar-footer");
+    expect(footer?.querySelector(".sidebar-waiting")?.textContent).toBe("Waiting for runtime");
+    expect(footer?.querySelector('[role="status"]')?.textContent).toBe("");
+    expect(has(footer as ParentNode, "Settings")).toBe(true);
   });
 });

@@ -174,7 +174,7 @@ export async function launchDesktop(
           dialog.getByRole("button", { name: "Let agents work" }).click(),
         );
       }
-      const runtime = page.getByRole("img", { name: "Runtime connected" });
+      const runtime = page.getByRole("status").filter({ hasText: "Runtime connected" });
       const showSidebar = page.getByRole("button", { name: "Show sidebar" });
       await runtime.or(showSidebar).first().waitFor({ state: "visible" });
       // A relaunch in the same test keeps the profile of the launch before it, which can leave the sidebar hidden.

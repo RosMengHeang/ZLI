@@ -145,26 +145,37 @@
 .worktree-status.is-attention { color: var(--zli-amber); }
 .worktree-status.is-danger { color: var(--zli-red); }
 
-.sidebar-footer { display: flex; align-items: center; gap: var(--zli-space-2); height: 44px; flex: 0 0 auto; padding: 0 var(--zli-space-2) 0 var(--zli-space-4); color: var(--zli-dim); font-size: var(--zli-text-sm); }
+.sidebar-footer { display: flex; align-items: center; gap: var(--zli-space-1); height: 44px; flex: 0 0 auto; padding: 0 var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-sm); }
+.sidebar-waiting { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); padding-left: var(--zli-space-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .connection-dot { width: 6px; height: 6px; flex-basis: 6px; }
+.sidebar-settings { color: var(--zli-muted); }
 .sidebar-bottom { display: flex; flex: 0 0 auto; flex-direction: column; }
+/* The unfolded list sits on the canvas by tone like the islands beside it, so the sidebar chrome keeps no box lines. */
 .sidebar-usage-strip {
-  display: flex; flex-direction: column; margin: 0 var(--zli-space-2); border-radius: var(--zli-radius-md);
-  background: var(--zli-surface); color: var(--zli-muted); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums;
+  display: flex; flex-direction: column; gap: var(--zli-space-2); margin: 0 var(--zli-space-2) var(--zli-space-1); padding: var(--zli-space-2) var(--zli-space-2-5);
+  border-radius: var(--zli-radius-md); background: var(--zli-surface); color: var(--zli-muted); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums;
 }
 .usage-strip-toggle {
-  display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); height: 30px; padding: 0 var(--zli-space-2) 0 var(--zli-space-2-5);
-  border: 0; border-radius: var(--zli-radius-md); background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left;
+  display: flex; min-width: 0; flex: 1 1 auto; align-items: center; gap: var(--zli-space-1-5); height: 30px; padding: 0 var(--zli-space-1-5);
+  container-type: inline-size;
+  border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: pointer;
+  font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; text-align: left;
   transition: background-color var(--zli-duration-fast) var(--zli-ease);
 }
-/* Told apart from the canvas by tone like the islands beside it, so the sidebar chrome keeps no box lines. */
-.usage-strip-toggle:hover { background: var(--zli-raised); }
+.usage-strip-toggle:hover { background: var(--zli-hover); }
+.usage-strip-toggle[aria-expanded="true"] { background: var(--zli-active); }
 .usage-strip-toggle:focus-visible { outline-offset: -1px; }
 .usage-strip-chevron { flex: 0 0 auto; margin-left: auto; color: var(--zli-dim); transition: transform var(--zli-duration-fast) var(--zli-ease); }
 .usage-strip-toggle[aria-expanded="true"] .usage-strip-chevron { transform: rotate(180deg); }
 .usage-strip-head { color: var(--zli-dim); font-size: var(--zli-text-2xs); }
 .usage-strip-summary { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-1-5); overflow: hidden; white-space: nowrap; }
-.usage-strip-summary > .usage-strip-ring { flex: 0 0 auto; }
+.usage-strip-summary > .usage-strip-ring, .usage-strip-summary > .provider-mark { flex: 0 0 auto; }
+.usage-strip-summary > .provider-mark { display: none; color: var(--zli-dim); }
+@container (max-width: 119px) {
+  .usage-strip-summary > .provider-mark { display: block; }
+  .usage-strip-summary > .usage-strip-provider, .usage-strip-summary > .usage-strip-account,
+  .usage-strip-summary .usage-strip-window-label { display: none; }
+}
 .usage-strip-summary-limit { display: inline-flex; flex: 0 0 auto; align-items: baseline; gap: var(--zli-space-1); margin-left: auto; }
 .usage-strip-summary .usage-strip-window-label { min-width: 0; }
 .usage-strip-summary.is-warning .usage-strip-ring-fill { stroke: var(--zli-amber); }
@@ -174,7 +185,7 @@
 .usage-strip-summary.is-stale .usage-strip-window-percent { color: var(--zli-dim); }
 .usage-strip-summary.is-stale .usage-strip-ring-fill { stroke: var(--zli-dim); }
 /* Capped so a long list of logins scrolls inside the card instead of pushing the projects away. */
-.usage-strip-list { display: flex; max-height: min(320px, 40vh); flex-direction: column; gap: var(--zli-space-2); overflow-y: auto; padding: var(--zli-space-0-5) var(--zli-space-2-5) var(--zli-space-2); }
+.usage-strip-list { display: flex; max-height: min(320px, 40vh); flex-direction: column; gap: var(--zli-space-2); overflow-y: auto; }
 .usage-strip-row { display: flex; flex-direction: column; gap: 3px; }
 .usage-strip-name { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); overflow: hidden; white-space: nowrap; }
 .usage-strip-name > .provider-mark { flex: 0 0 auto; color: var(--zli-dim); }
