@@ -109,6 +109,7 @@ export async function launchDesktop(
         ELECTRON_RUN_AS_NODE: undefined,
         ...(externalExecutable ? { ZLI_RUNTIME_NODE: process.execPath } : { ZLI_RUNTIME_NODE: undefined }),
         ZLI_DATABASE_PATH: databasePath,
+        ZLI_SESSION_DATA_PATH: join(root, "session"),
         ...(packagedExecutable
           ? {}
           : {
@@ -146,7 +147,7 @@ export async function launchDesktop(
       const runtime = page.getByText("Local runtime");
       const showSidebar = page.getByRole("button", { name: "Show sidebar" });
       await runtime.or(showSidebar).first().waitFor({ state: "visible" });
-      // The window shares its profile with local dev runs, which can leave the sidebar hidden.
+      // A relaunch in the same test keeps the profile of the launch before it, which can leave the sidebar hidden.
       if (await showSidebar.isVisible()) await showSidebar.click();
       await runtime.waitFor({ state: "visible" });
       return { app, page, root, repo };

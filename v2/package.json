@@ -15,6 +15,7 @@
     "desktop:pack": "pnpm --filter @zli-v2/desktop run pack",
     "desktop:pack:prebuilt": "pnpm --filter @zli-v2/desktop run pack:prebuilt",
     "desktop:dir": "pnpm --filter @zli-v2/desktop run pack:dir",
+    "desktop:dir:prebuilt": "pnpm --filter @zli-v2/desktop run pack:dir:prebuilt",
     "desktop:release": "pnpm --filter @zli-v2/desktop run release",
     "desktop:dev": "node scripts/build.mjs && node scripts/desktop-dev.mjs",
     "e2e": "playwright test",

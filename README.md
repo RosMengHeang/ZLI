@@ -103,11 +103,11 @@ On Linux without a display, run them under `xvfb-run -a`.
 
 Every merge to `main` publishes a new patch release through the [Release workflow](.github/workflows/release.yml):
 
-1. Runs the pull request checks from the [ZLI V2 desktop workflow](.github/workflows/v2-desktop.yml) on Windows, macOS, and Linux: `pnpm audit --audit-level high`, `pnpm run verify`, the installers build, and the Electron journey. It stops if any of them fail.
-2. Takes the next version from the highest `vX.Y.Z` tag, tags the merge commit, and creates a draft release with generated notes.
-3. Builds the installers and update files (`latest*.yml`, `.blockmap`) on each platform, including the Linux `.deb` and `.rpm`, uploads them to the draft, and publishes it once every file is there.
+1. Takes the next version from the highest `vX.Y.Z` tag.
+2. Runs the pull request checks from the [ZLI V2 desktop workflow](.github/workflows/v2-desktop.yml): `pnpm audit --audit-level high`, boundaries, format, lint, and typecheck once on Linux, and the unit tests and the Electron journey on Windows, macOS, and Linux. The same jobs build the installers and update files (`latest*.yml`, `.blockmap`) with the release version, including the Linux `.deb` and `.rpm`, and the journey runs against that build. It stops if any of them fail.
+3. Tags the merge commit, creates a draft release with generated notes and the installers from step 2, and publishes it once every file is there. Only this last job can write to the repository.
 
-The `package.json` files on `main` stay at `0.0.0`. The build jobs write the release version into them.
+The `package.json` files on `main` stay at `0.0.0`. The gate's build jobs write the release version into them.
 
 - A push is not released when every changed file is Markdown or under a `docs/` folder, or when the head commit message contains `[skip release]`.
 - For a minor or major release, run the **Release** workflow from the Actions tab and pick the bump.

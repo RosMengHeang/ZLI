@@ -8,6 +8,13 @@ on:
       - "package.json"
       - ".github/workflows/v2-desktop.yml"
   workflow_call:
+    inputs:
+      release_version:
+        description: >-
+          The version to build installers as. The release gate sets it so the Electron journey tests the files
+          that ship. Left empty, only the unpacked app the journey needs is built.
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -18,6 +25,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Boundaries, formatting, lint, types, and the audit give the same answer on every OS, so they run once here
+  # beside the matrix instead of in each of its jobs.
+  checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2
+    env:
+      # Nothing in this job starts Electron.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.9
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: v2/.nvmrc
+          cache: pnpm
+          cache-dependency-path: v2/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --audit-level high
+      - run: pnpm run boundaries
+      - run: pnpm run format:check
+      - run: pnpm run lint
+      - run: pnpm run typecheck
+
   verify:
     permissions:
       contents: read
@@ -30,6 +65,20 @@ jobs:
     defaults:
       run:
         working-directory: v2
+    env:
+      RELEASE_VERSION: ${{ inputs.release_version }}
+      # TODO(macOS signing): Squirrel.Mac only installs updates into a signed, notarized app, so macOS users
+      # download new versions from the release page for now. To make macOS updates install on their own, add
+      # the repository secrets CSC_LINK (base64 Developer ID Application .p12), CSC_KEY_PASSWORD, APPLE_ID,
+      # APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID, pass them to the gate in release.yml with
+      # `secrets: inherit`, uncomment the lines below, and turn on notarize in apps/desktop/electron-builder.yml.
+      # ZLI_MAC_SIGNED=1 tells the app it may install updates itself; the build step reads it.
+      # CSC_LINK: ${{ inputs.release_version != '' && runner.os == 'macOS' && secrets.CSC_LINK || '' }}
+      # CSC_KEY_PASSWORD: ${{ inputs.release_version != '' && runner.os == 'macOS' && secrets.CSC_KEY_PASSWORD || '' }}
+      # APPLE_ID: ${{ secrets.APPLE_ID }}
+      # APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      # ZLI_MAC_SIGNED: ${{ inputs.release_version != '' && runner.os == 'macOS' && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -54,12 +103,22 @@ jobs:
           key: electron-${{ runner.os }}-${{ hashFiles('v2/pnpm-lock.yaml') }}
           restore-keys: electron-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run verify
-      - run: pnpm audit --audit-level high
+      - run: pnpm run test
+      - name: Set the release version for this build
+        if: env.RELEASE_VERSION != ''
+        run: node scripts/release-version.mjs apply "$RELEASE_VERSION"
       - run: pnpm run build
-      # The installers build leaves the unpacked app (linux-unpacked, mac-<arch>/ZLI.app, win-unpacked)
-      # next to them, so the checks and the Electron journey below run against that same build.
-      - name: Build installers from the build above
+      # The journey below only needs the unpacked app (linux-unpacked, mac-<arch>/ZLI.app, win-unpacked). The
+      # release gate builds the installers too, and that build leaves the same unpacked app next to them.
+      - name: Build the unpacked app from the build above
+        if: env.RELEASE_VERSION == ''
+        run: pnpm run desktop:dir:prebuilt
+      # electron-builder calls rpmbuild for the .rpm. Ubuntu runners do not ship it.
+      - name: Install rpmbuild for the .rpm package
+        if: env.RELEASE_VERSION != '' && runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm
+      - name: Build the installers from the build above
+        if: env.RELEASE_VERSION != ''
         run: pnpm run desktop:pack:prebuilt
       - name: Inspect unpacked Linux application files
         if: runner.os == 'Linux'
@@ -90,6 +149,24 @@ jobs:
       - name: Inspect remaining Linux runtime processes
         if: always() && runner.os == 'Linux'
         run: ps -eo pid,ppid,stat,args | grep -Ei '[e]lectron|[c]hromium|dev-server\.mjs|[z]li|[d]aemon-entry|[s]erver-entry' || true
+      # The release job attaches these to the GitHub release. This job never gets a token that can write to
+      # the repository, so the build and the journey run without one.
+      - name: Upload the installers for the release
+        if: env.RELEASE_VERSION != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.os }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            v2/apps/desktop/release/*.exe
+            v2/apps/desktop/release/*.dmg
+            v2/apps/desktop/release/*.zip
+            v2/apps/desktop/release/*.AppImage
+            v2/apps/desktop/release/*.deb
+            v2/apps/desktop/release/*.rpm
+            v2/apps/desktop/release/*.blockmap
+            v2/apps/desktop/release/latest*.yml
       - name: Upload Electron diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4

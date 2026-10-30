@@ -102,6 +102,10 @@ if (process.platform === "win32") app.setAppUserModelId(windowsAppId(process.exe
 // Integration tests turn motion off so a click never lands on a dialog that is still animating in.
 if (process.env.ZLI_REDUCED_MOTION === "1") app.commandLine.appendSwitch("force-prefers-reduced-motion");
 
+// Integration tests give each launch its own Chromium profile (localStorage, cookies, browser tabs) so tests
+// running side by side never read each other's saved layout. userData stays shared for the large mobile SDKs.
+if (process.env.ZLI_SESSION_DATA_PATH) app.setPath("sessionData", process.env.ZLI_SESSION_DATA_PATH);
+
 let environment: EnvironmentProcess | undefined;
 let runtime: RuntimeClient | undefined;
 let browserManager: BrowserManager | undefined;
