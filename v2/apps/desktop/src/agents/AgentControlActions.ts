@@ -19,10 +19,11 @@ import {
   agentTerminalInput,
   catalogEntryServer,
   HUDDLE_AGENT_TURN_LIMIT,
-  HUDDLE_PAUSED_REASON,
+  HUDDLE_LEAD_ROUND_LIMIT,
   type HuddlePost,
   type HuddleProjection,
   huddleAgentInfo,
+  huddlePausedReason,
   huddlePostsOf,
   huddleSpansProjects,
   huddlesOf,
@@ -53,6 +54,12 @@ const STRICTEST_FIRST: readonly PermissionMode[] = ["read-only", "supervised", "
 const LIVE_THREAD = ["starting", "idle", "working", "waiting"];
 const DEFAULT_READ_LIMIT = 20;
 const DEFAULT_HUDDLE_WAIT_SECONDS = 120;
+
+function pauseCause(huddle: HuddleProjection): string {
+  return huddle.lead === undefined
+    ? `Agents started ${HUDDLE_AGENT_TURN_LIMIT} turns for each other`
+    : `Agents ran ${HUDDLE_LEAD_ROUND_LIMIT} rounds of reports to the lead`;
+}
 
 export type AgentControlHost = {
   projection(): RuntimeProjection | undefined;
@@ -788,13 +795,13 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
       ? {
           lead:
             huddle.lead === reader.id
-              ? "You lead this huddle: the others report to you, and you report to the person."
+              ? "You lead this huddle: the others report to you, and you report to the person. You can post several tasks in a row, and their reports reach you together once everyone you gave a task has reported."
               : `${memberLabel(state, huddle.lead, reader)} leads this huddle. Your posts go to the lead unless you name someone else.`,
         }
       : {}),
     ...(huddle.paused
       ? {
-          paused: `Agents started ${HUDDLE_AGENT_TURN_LIMIT} turns for each other since the person last wrote, so their messages are held until the person writes or resumes. Wait for the person instead of posting more.`,
+          paused: `${pauseCause(huddle)} since the person last wrote, so their messages are held until the person writes or resumes. Wait for the person instead of posting more.`,
         }
       : {}),
   });
@@ -1012,7 +1019,9 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     });
     const posted = huddlePostsOf(projection(), huddle.huddleId).find((post) => post.postId === postId);
     const deliveries = posted?.deliveries ?? [];
-    const held = deliveries.some((delivery) => delivery.status === "held" && delivery.reason === HUDDLE_PAUSED_REASON);
+    const held = deliveries.some(
+      (delivery) => delivery.status === "held" && delivery.reason === huddlePausedReason(huddle),
+    );
     const quiet = deliveries.length > 0 && deliveries.every((delivery) => delivery.status === "inbox");
     return {
       posted: true,
@@ -1027,7 +1036,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
       ...(started ? { started } : {}),
       ...(held
         ? {
-            held: `Agents started ${HUDDLE_AGENT_TURN_LIMIT} turns for each other since the person last wrote, so this waits until the person writes or resumes the huddle.`,
+            held: `${pauseCause(huddle)} since the person last wrote, so this waits until the person writes or resumes the huddle.`,
           }
         : {}),
       ...(quiet

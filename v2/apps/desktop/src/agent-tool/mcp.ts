@@ -1,4 +1,9 @@
-import { HUDDLE_AGENT_TURN_LIMIT, ListedProviderKind, READ_AGENT_CONTROL_ACTIONS } from "@zli-v2/contracts";
+import {
+  HUDDLE_AGENT_TURN_LIMIT,
+  HUDDLE_LEAD_ROUND_LIMIT,
+  ListedProviderKind,
+  READ_AGENT_CONTROL_ACTIONS,
+} from "@zli-v2/contracts";
 
 import type { ZliBrowserCall } from "../browser-tool/client.js";
 import { createToolServer, type McpServer, type McpTool } from "../browser-tool/mcp.js";
@@ -126,7 +131,7 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
     name: "huddle_post",
     title: "Post in huddle",
     action: "huddlepost",
-    description: `${HUDDLE} Write in the huddle. Post when you finish (kind done), are stuck (blocked), or need an answer (ask), and put everything in one post: a second post before anyone writes to you is refused unless it answers an ask, a task, or a blocker. Do not post to acknowledge or thank. A post starts a turn only for the members it names, when it asks, assigns, reports done, or is blocked; a busy chat agent gets them together after its turn. A note, or a post to everyone, starts no turn: members see it when they next read. A chat agent's answer to an ask or a task is posted back for it. After agents start ${HUDDLE_AGENT_TURN_LIMIT} turns for each other, the huddle holds their messages until the person writes.`,
+    description: `${HUDDLE} Write in the huddle. Post when you finish (kind done), are stuck (blocked), or need an answer (ask), and put everything in one post: a second post before anyone writes to you is refused unless it answers an ask, a task, or a blocker, or is the lead's next task. Do not post to acknowledge or thank. A post starts a turn only for the members it names, when it asks, assigns, reports done, or is blocked; a busy chat agent gets them together after its turn. A note, or a post to everyone, starts no turn: members see it when they next read. A chat agent's answer to an ask or a task is posted back for it. With a lead, reports reach the lead together once everyone it gave a task has reported. After agents start ${HUDDLE_AGENT_TURN_LIMIT} turns for each other, or with a lead run ${HUDDLE_LEAD_ROUND_LIMIT} rounds of reports, the huddle holds their messages until the person writes.`,
     properties: {
       huddle: HUDDLE_REF,
       text: { type: "string", description: "The message, up to 8000 characters." },

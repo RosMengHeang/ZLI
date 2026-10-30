@@ -156,7 +156,7 @@ describe("HuddlePane", () => {
     const members = byLabel<HTMLUListElement>("Members");
     expect(members.querySelector(".huddle-member-lead")?.closest("li")?.textContent).toContain("Helper");
     expect(document.body.textContent).toContain(
-      "Helper leads. The other agents report to Helper unless they name someone.",
+      "Helper leads. The other agents report to Helper unless they name someone, and Helper gets their reports together once everyone with a task has reported.",
     );
     const pick = async (label: string) => {
       await click(document.querySelector('[aria-label^="Lead"]'));

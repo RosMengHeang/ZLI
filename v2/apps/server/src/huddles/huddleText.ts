@@ -126,8 +126,12 @@ function introduction(state: HuddleAgentState, huddle: HuddleProjection, member:
     huddle.lead === undefined
       ? ""
       : huddle.lead === member.agentId
-        ? " You lead it: the others report to you. Hand out the work, combine their results, and report to the person."
-        : ` ${agentLabel(state, huddle.lead, member.agentId)} leads it: your posts go to the lead unless you name someone else.`;
+        ? ` You lead it: the others report to you. Give each member its task with kind assign; you can post several tasks in a row. Their reports reach you together, once everyone you gave a task has reported.${
+            member.kind === "chat"
+              ? " Your answer to them is posted to the person."
+              : ` Then report to the person: zli huddle post --huddle ${short} --to person --kind done "summary".`
+          }`
+        : ` ${agentLabel(state, huddle.lead, member.agentId)} leads it: your posts go to the lead unless you name someone else. When you finish a task from the lead, report with kind done, or blocked if you are stuck.`;
   const how =
     member.kind === "chat"
       ? "Your answer to an ask, a task, or a blocker is posted to the huddle for you. To write to the huddle yourself, use huddle_post; huddle_read shows what you missed and huddle_decisions what was agreed."

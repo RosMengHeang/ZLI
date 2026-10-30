@@ -4,9 +4,8 @@ import {
   type AgentToolScope,
   agentTerminalInput,
   CommandId,
-  HUDDLE_AGENT_TURN_LIMIT,
-  HUDDLE_PAUSED_REASON,
   HUDDLE_REPLY_LIMIT,
+  HUDDLE_REPORTS_REASON,
   HUDDLE_TYPING_REASON,
   type HuddleDelivery,
   type HuddleDeliveryStatus,
@@ -15,7 +14,12 @@ import {
   HuddlePostId,
   type HuddleProjection,
   huddleKindWantsAnswer,
+  huddleLeadWaitsFor,
+  huddlePausedReason,
+  huddlePostsOf,
+  huddleReportsBack,
   huddleSpansProjects,
+  huddleTurnLimit,
   type RuntimeCommand,
   type RuntimeEventEnvelope,
   type RuntimeProjection,
@@ -179,7 +183,7 @@ export class HuddleReactor {
           state,
           huddle.members.map((member) => member.agentId),
         );
-      const budget: Budget = { left: HUDDLE_AGENT_TURN_LIMIT - (huddle.agentTurns ?? 0) };
+      const budget: Budget = { left: huddleTurnLimit(huddle) - (huddle.agentTurns ?? 0) };
       for (const member of huddle.members) {
         const copies = huddlePosts.flatMap((post) => {
           const delivery = post.deliveries.find((candidate) => candidate.agentId === member.agentId);
@@ -228,6 +232,7 @@ export class HuddleReactor {
   ): Promise<void> {
     for (const copy of copies)
       if (copy.delivery.status === "queued") await this.confirmQueued(state, huddle, member, copy, outOfScope);
+    if (await this.releaseReports(huddle, member, copies, posts)) return;
     if (member.kind === "chat" && !outOfScope)
       await this.postAnswers(
         state,
@@ -244,7 +249,7 @@ export class HuddleReactor {
       open = open.filter(interrupted);
     }
     if (huddle.paused) {
-      for (const copy of open) if (copy.post.from.kind === "agent") await this.hold(copy, HUDDLE_PAUSED_REASON);
+      for (const copy of open) if (copy.post.from.kind === "agent") await this.hold(copy, huddlePausedReason(huddle));
       open = open.filter((copy) => copy.post.from.kind === "person");
     }
     if (open.length === 0) return;
@@ -276,7 +281,9 @@ export class HuddleReactor {
         await this.report(
           copy.post,
           member.agentId,
-          queued ? { status: "queued", ...intro } : { status: "delivered", ...awaiting(copy.post), ...intro },
+          queued
+            ? { status: "queued", ...intro }
+            : { status: "delivered", ...awaiting(huddle, posts, copy.post, member.agentId), ...intro },
         );
       fresh = fresh.filter((copy) => !batch.includes(copy));
     }
@@ -286,9 +293,9 @@ export class HuddleReactor {
       for (const copy of fresh) await this.hold(copy, HUDDLE_TURN_REASON);
       return;
     }
-    const caused = !fresh.some((copy) => copy.post.from.kind === "person");
+    const caused = countsTurn(huddle, member, fresh);
     if (caused && budget.left <= 0) {
-      for (const copy of fresh) await this.hold(copy, HUDDLE_PAUSED_REASON);
+      for (const copy of fresh) await this.hold(copy, huddlePausedReason(huddle));
       return;
     }
     const text = huddleBatchText(
@@ -319,7 +326,7 @@ export class HuddleReactor {
       await this.report(copy.post, member.agentId, {
         status: sentNow ? "delivered" : "queued",
         sentHash,
-        ...(sentNow ? awaiting(copy.post) : {}),
+        ...(sentNow ? awaiting(huddle, posts, copy.post, member.agentId) : {}),
         ...(index === 0 ? { ...intro, ...(caused ? { turn: true as const } : {}) } : {}),
       });
     for (const copy of inbox) await this.report(copy.post, member.agentId, { status: "delivered", sentHash });
@@ -368,9 +375,9 @@ export class HuddleReactor {
     const typing = open.filter((copy) => !quiet.includes(copy));
     const [first] = typing;
     if (!first) return;
-    const caused = !typing.some((copy) => copy.post.from.kind === "person");
+    const caused = countsTurn(huddle, member, typing);
     if (caused && budget.left <= 0) {
-      for (const copy of typing) await this.hold(copy, HUDDLE_PAUSED_REASON);
+      for (const copy of typing) await this.hold(copy, huddlePausedReason(huddle));
       return;
     }
     const single = typing.length === 1;
@@ -423,15 +430,43 @@ export class HuddleReactor {
     const sent = this.sentFromQueue.has(queueId) || sentMessageIndex(state, delivery.agentId, sentHash) >= 0;
     const left = this.leftQueue.has(queueId);
     if (sent) {
-      await this.report(post, delivery.agentId, { status: "delivered", sentHash, ...awaiting(post) });
+      await this.report(post, delivery.agentId, {
+        status: "delivered",
+        sentHash,
+        ...awaiting(huddle, huddlePostsOf(state, huddle.huddleId), post, delivery.agentId),
+      });
       return;
     }
     await this.report(post, delivery.agentId, { status: "failed", reason: left ? DEQUEUED_REASON : UNSENT_REASON });
   }
 
   /**
+   * Reports that wait in the lead's inbox for the other workers go out once nobody owes one, such as
+   * when the last worker left, or the member stopped leading. The newest starts the turn and carries
+   * the rest. Says whether it changed anything, which runs the pump again.
+   */
+  private async releaseReports(
+    huddle: HuddleProjection,
+    member: HuddleMember,
+    copies: readonly Copy[],
+    posts: readonly HuddlePost[],
+  ): Promise<boolean> {
+    const waiting = copies.filter(
+      (copy) => copy.delivery.status === "inbox" && copy.delivery.reason === HUDDLE_REPORTS_REASON,
+    );
+    if (waiting.length === 0) return false;
+    if (member.agentId === huddle.lead && huddleLeadWaitsFor(huddle, posts).length > 0) return false;
+    // A copy already on its way, such as the last report, carries the waiting ones with it.
+    const wakes = copies.some((copy) => isOpen(copy.delivery)) ? undefined : waiting.at(-1);
+    for (const copy of waiting)
+      await this.report(copy.post, member.agentId, { status: copy === wakes ? "pending" : "inbox" });
+    return true;
+  }
+
+  /**
    * Posts the chat's answer once the turn that read the messages is over: one answer per batch, to
-   * every agent in it that asked, or to the person.
+   * every agent in it that asked, or to the person. The lead's answer to its workers' reports goes to
+   * the person.
    */
   private async postAnswers(
     state: RuntimeProjection,
@@ -460,6 +495,7 @@ export class HuddleReactor {
       const askers = [
         ...new Set(
           batch.flatMap((copy) => {
+            if (!huddleKindWantsAnswer(copy.post.kind)) return [];
             const asker = senderOf(copy.post);
             return asker && huddle.members.some((candidate) => candidate.agentId === asker) ? [asker] : [];
           }),
@@ -544,8 +580,25 @@ function senderOf(post: HuddlePost): string | undefined {
   return post.from.kind === "agent" ? post.from.agentId : undefined;
 }
 
-function awaiting(post: HuddlePost): { awaitingReply?: true } {
-  return huddleKindWantsAnswer(post.kind) ? { awaitingReply: true } : {};
+/** The member owes an answer: to an ask, task, or blocker, or as the lead, to its workers' reports. */
+function awaiting(
+  huddle: HuddleProjection,
+  posts: readonly HuddlePost[],
+  post: HuddlePost,
+  agentId: string,
+): { awaitingReply?: true } {
+  const owed = huddleKindWantsAnswer(post.kind) || (agentId === huddle.lead && huddleReportsBack(huddle, posts, post));
+  return owed ? { awaitingReply: true } : {};
+}
+
+/**
+ * Whether a turn counts toward the pause: agents started it, and with a lead, it is not the lead
+ * handing out work. What comes back to the lead, or passes between workers, ends a round.
+ */
+function countsTurn(huddle: HuddleProjection, member: HuddleMember, waking: readonly Copy[]): boolean {
+  if (waking.some((copy) => copy.post.from.kind === "person")) return false;
+  if (huddle.lead === undefined || member.agentId === huddle.lead) return true;
+  return !waking.some((copy) => senderOf(copy.post) === huddle.lead);
 }
 
 function isOpen(delivery: HuddleDelivery): boolean {

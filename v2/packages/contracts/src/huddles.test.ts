@@ -4,6 +4,7 @@ import {
   applyHuddleEvent,
   dropHuddleMembers,
   HUDDLE_AGENT_TURN_LIMIT,
+  HUDDLE_LEAD_ROUND_LIMIT,
   type HuddleEvent,
   HuddleId,
   type HuddlePost,
@@ -93,6 +94,39 @@ describe("huddle fold", () => {
     state = fold(state, { type: "huddle.posted", post: post(2) });
     expect(state.huddles?.[0]?.paused).toBeUndefined();
     expect(state.huddles?.[0]?.agentTurns).toBe(0);
+  });
+
+  it("counts rounds instead of turns toward the pause when the huddle has a lead", () => {
+    const led = { ...huddle, lead: LEAD };
+    let state = applyHuddleEvent(
+      { huddles: [led], huddlePosts: [post(1, { deliveries: [{ agentId: LEAD, status: "pending" }] })] },
+      { type: "huddle.resumed", huddleId: HUDDLE },
+      AT,
+    );
+    const round = {
+      type: "huddle.delivery.changed",
+      huddleId: HUDDLE,
+      postId: post(1).postId,
+      agentId: LEAD,
+      status: "delivered",
+      turn: true,
+    } as const;
+    for (let index = 1; index < HUDDLE_LEAD_ROUND_LIMIT; index += 1) state = applyHuddleEvent(state, round, AT);
+    expect(state.huddles?.[0]?.paused).toBeUndefined();
+    state = applyHuddleEvent(state, round, AT);
+    expect(state.huddles?.[0]).toMatchObject({ paused: true, agentTurns: HUDDLE_LEAD_ROUND_LIMIT });
+  });
+
+  it("lets the lead post one task after another, but not other posts", () => {
+    const led = { ...huddle, lead: LEAD };
+    const leadOf = (state: ReturnType<typeof applyHuddleEvent>) =>
+      state.huddles?.[0]?.members.find((member) => member.agentId === LEAD);
+    const task = post(1, { from: { kind: "agent", agentId: LEAD }, to: [HELPER], kind: "assign" });
+    let state = applyHuddleEvent({ huddles: [led], huddlePosts: [] }, { type: "huddle.posted", post: task }, AT);
+    expect(leadOf(state)?.posted).toBeUndefined();
+    const note = post(2, { from: { kind: "agent", agentId: LEAD }, to: [HELPER], kind: "note" });
+    state = applyHuddleEvent(state, { type: "huddle.posted", post: note }, AT);
+    expect(leadOf(state)?.posted).toBe(true);
   });
 
   it("marks a member that posted until it gets a message or reads one from someone else", () => {

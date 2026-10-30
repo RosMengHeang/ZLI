@@ -6,6 +6,7 @@ import {
   EnvironmentId,
   HUDDLE_AGENT_TURN_LIMIT,
   HUDDLE_PAUSED_REASON,
+  HUDDLE_REPORTS_REASON,
   HuddleId,
   HuddlePostId,
   ProjectId,
@@ -618,6 +619,75 @@ describe("HuddleReactor", () => {
     await run({ type: "huddle.lead", huddleId, agentId: helper });
     await run({ type: "huddle.leave", huddleId, agentId: helper });
     expect((await engine.projection()).huddles?.[0]?.lead).toBeUndefined();
+  });
+
+  it("wakes the lead once for all its workers' reports, and posts its answer to the person", async () => {
+    const { engine, typed, run, post, settle, sends, answer } = harness();
+    await run({ type: "huddle.create", huddleId, name: "Migration", members: [lead, helper, coder] });
+    await run({ type: "huddle.lead", huddleId, agentId: lead });
+    await post({ from: lead, to: [helper], kind: "assign", text: "Write the migration." });
+    // A second post before anyone writes back is allowed for the lead's tasks only.
+    expect((await post({ from: lead, to: [coder], kind: "assign", text: "Run the tests." })).status).toBe("accepted");
+    await settle();
+    expect(typed[0]?.data).toContain("Run the tests.");
+
+    await post({ from: coder, to: [lead], kind: "done", text: "Tests pass." });
+    await settle();
+    const leadCopy = async (number: number) =>
+      (await engine.projection()).huddlePosts
+        ?.find((entry) => entry.number === number)
+        ?.deliveries.find((delivery) => delivery.agentId === lead);
+    expect(await leadCopy(3)).toEqual({ agentId: lead, status: "inbox", reason: HUDDLE_REPORTS_REASON });
+    expect(await sends(lead)).toEqual([]);
+
+    await answer(helper, (await sends(helper))[0] as string, "Migration written.");
+    await settle();
+    const toLead = await sends(lead);
+    expect(toLead).toHaveLength(1);
+    expect(toLead[0]).toContain('Huddle "Migration": 2 new messages.');
+    expect(toLead[0]).toContain("Tests pass.");
+    expect(toLead[0]).toContain("Migration written.");
+    expect((await leadCopy(3))?.status).toBe("delivered");
+    // Handing out the two tasks was free; the reports coming back are one round.
+    expect((await engine.projection()).huddles?.[0]?.agentTurns).toBe(1);
+
+    await answer(lead, toLead[0] as string, "Migration written and tests pass.");
+    await settle();
+    expect((await engine.projection()).huddlePosts?.at(-1)).toMatchObject({
+      from: { kind: "agent", agentId: lead },
+      to: "person",
+      auto: true,
+      text: "Migration written and tests pass.",
+    });
+  });
+
+  it("refuses a worker's second post, even with a lead", async () => {
+    const { run, post, settle } = harness();
+    await run({ type: "huddle.create", huddleId, name: "Migration", members: [lead, helper, coder] });
+    await run({ type: "huddle.lead", huddleId, agentId: lead });
+    await post({ from: coder, to: [lead], kind: "note", text: "Starting." });
+    await settle();
+    expect((await post({ from: coder, to: [helper], kind: "assign", text: "Review this." })).status).toBe("rejected");
+  });
+
+  it("sends waiting reports to the lead when the worker it waited for leaves", async () => {
+    const { engine, run, post, settle, sends } = harness();
+    await run({ type: "huddle.create", huddleId, name: "Migration", members: [lead, helper, coder] });
+    await run({ type: "huddle.lead", huddleId, agentId: lead });
+    await post({ from: lead, to: [helper], kind: "assign", text: "Write the migration." });
+    await post({ from: lead, to: [coder], kind: "assign", text: "Run the tests." });
+    await settle();
+    await post({ from: coder, to: [lead], kind: "done", text: "Tests pass." });
+    await settle();
+    expect(await sends(lead)).toEqual([]);
+
+    await run({ type: "huddle.leave", huddleId, agentId: helper });
+    await settle();
+    const toLead = await sends(lead);
+    expect(toLead).toHaveLength(1);
+    expect(toLead[0]).toContain("Tests pass.");
+    const report = (await engine.projection()).huddlePosts?.at(-1);
+    expect(report?.deliveries.find((delivery) => delivery.agentId === lead)?.status).toBe("delivered");
   });
 });
 

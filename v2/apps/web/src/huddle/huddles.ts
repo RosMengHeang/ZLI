@@ -1,5 +1,6 @@
 import {
   HUDDLE_AGENT_TURN_LIMIT,
+  HUDDLE_LEAD_ROUND_LIMIT,
   HUDDLE_TYPING_REASON,
   type HuddleAgentInfo,
   type HuddleDelivery,
@@ -16,7 +17,13 @@ import type { AgentSession } from "../sessions/sessions.js";
 /** The drag payload a tile header carries: the agent's thread or terminal id. */
 export const HUDDLE_AGENT_DRAG_TYPE = "application/x-zli-huddle-agent";
 
-export const PAUSED_MESSAGE = `Paused after agents started ${HUDDLE_AGENT_TURN_LIMIT} turns for each other. Their messages wait until you write or resume.`;
+export function pausedMessage(huddle: Pick<HuddleProjection, "lead">): string {
+  const cause =
+    huddle.lead === undefined
+      ? `agents started ${HUDDLE_AGENT_TURN_LIMIT} turns for each other`
+      : `${HUDDLE_LEAD_ROUND_LIMIT} rounds of reports to the lead`;
+  return `Paused after ${cause}. Their messages wait until you write or resume.`;
+}
 
 export const huddleKindLabel: Record<HuddlePostKind, string> = {
   ask: "Ask",
@@ -111,13 +118,13 @@ const deliveryWords: Partial<Record<HuddleDelivery["status"], string>> = {
  */
 export function deliveryNotes(post: HuddlePost, name: (agentId: string) => string): string[] {
   const unread = post.deliveries
-    .filter((delivery) => delivery.status === "inbox")
+    .filter((delivery) => delivery.status === "inbox" && !delivery.reason)
     .map((delivery) => name(delivery.agentId));
   const quiet =
     unread.length > 0 ? [`No turn started for ${unread.join(", ")}. They see it when they next read the huddle.`] : [];
   return post.deliveries
     .flatMap((delivery) => {
-      if (delivery.status === "inbox") return [];
+      if (delivery.status === "inbox") return delivery.reason ? [`${name(delivery.agentId)}: ${delivery.reason}`] : [];
       // A held copy's reason is a whole sentence that already says it is held.
       if (delivery.status === "held" && delivery.reason) return [`${name(delivery.agentId)}: ${delivery.reason}`];
       const word = deliveryWords[delivery.status];
