@@ -8,7 +8,7 @@ import "@xterm/xterm/css/xterm.css";
 import type { RpcResponse } from "@zli-v2/contracts";
 import { themeColors } from "@zli-v2/ui/colors";
 import type { FileLinks } from "../files/FileIndex.js";
-import type { ZliBridge } from "../runtime/bridge.js";
+import { getBridge, type ZliBridge } from "../runtime/bridge.js";
 import { extendScreenBackground } from "./screenBackground.js";
 import { registerTerminalModes } from "./terminalModes.js";
 
@@ -271,6 +271,18 @@ export function TerminalView({
       aria-label={label}
       ref={hostRef}
       onMouseDown={() => terminalRef.current?.focus()}
+      onDragOver={(event) => {
+        if ([...event.dataTransfer.types].includes("Files")) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        const pathForFile = getBridge()?.pathForFile;
+        const paths = [...event.dataTransfer.files].map((file) => pathForFile?.(file)).filter(Boolean);
+        if (paths.length === 0) return;
+        event.preventDefault();
+        // Typed like a terminal emulator does: shell-quoted, space-separated, as a paste.
+        terminalRef.current?.paste(`${paths.map((path) => `'${path?.replaceAll("'", "'\\''")}'`).join(" ")} `);
+        terminalRef.current?.focus();
+      }}
     />
   );
 }

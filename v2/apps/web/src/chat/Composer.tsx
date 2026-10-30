@@ -15,7 +15,7 @@ import { usePluginContributions } from "../plugins/plugins.js";
 import { PromptList, usePromptPicker } from "../prompts/PromptPicker.js";
 import { combinePrompts, requestPromptManager, slashQuery, usePersonalPrompts } from "../prompts/prompts.js";
 import { useSharedPrompts } from "../prompts/useSharedPrompts.js";
-import type { ZliBridge } from "../runtime/bridge.js";
+import { getBridge, type ZliBridge } from "../runtime/bridge.js";
 import type { RunAgent } from "../sessions/bestOf.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
@@ -216,9 +216,13 @@ export function Composer({
   const addFiles = (files: readonly File[]) => {
     setError(undefined);
     const accepted: Draft[] = [];
+    const paths: string[] = [];
     for (const file of files) {
       if (!isImageType(file.type)) {
-        setError("Only PNG, JPEG, GIF, and WebP images can be attached.");
+        // Agents read other files from disk, so the message carries the path instead of the bytes.
+        const path = getBridge()?.pathForFile?.(file);
+        if (path) paths.push(path);
+        else setError("Only PNG, JPEG, GIF, and WebP images can be attached.");
         continue;
       }
       if (file.size > MAX_IMAGE_BYTES) {
@@ -233,6 +237,7 @@ export function Composer({
         previewUrl: typeof URL.createObjectURL === "function" ? URL.createObjectURL(file) : "",
       });
     }
+    if (paths.length > 0) setDraft((current) => `${[current.trimEnd(), ...paths].filter(Boolean).join(" ")} `);
     setImages((current) => {
       const next = [...current, ...accepted];
       if (next.length > MAX_ATTACHMENTS) setError(`Attach up to ${MAX_ATTACHMENTS} files per message.`);
@@ -579,8 +584,8 @@ export function Composer({
       />
       <div className="composer-footer">
         <IconButton
-          label="Attach images"
-          tooltip="Attach images, or paste them"
+          label="Attach files"
+          tooltip="Attach files, or paste them"
           icon="paperclip"
           onClick={() => fileInputRef.current?.click()}
         />
@@ -588,7 +593,6 @@ export function Composer({
           ref={fileInputRef}
           className="sr-only"
           type="file"
-          accept={IMAGE_TYPES.join(",")}
           multiple
           tabIndex={-1}
           aria-hidden="true"

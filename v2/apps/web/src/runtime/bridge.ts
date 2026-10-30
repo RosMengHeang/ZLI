@@ -83,6 +83,8 @@ export type ZliBridge = {
     openLegacySnapshot(): Promise<string | undefined>;
   };
   scratch?: { folder(): Promise<string | undefined> };
+  /** Present in the desktop app. The path on disk of a dropped or picked file, or "" when it has none. */
+  pathForFile?(file: File): string;
   /** Present in the desktop app, which can start other apps on a worktree folder. */
   openIn?: { apps(): Promise<OpenInApp[]>; open(worktreeId: string, appId: string): Promise<void> };
   capture?: {
