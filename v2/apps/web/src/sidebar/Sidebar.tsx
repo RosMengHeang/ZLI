@@ -1,6 +1,6 @@
 import type { Account, ProjectProjection, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { huddlesOf, MAX_HUDDLE_MEMBERS, threadOccupiesWorktree } from "@zli-v2/contracts";
-import { useEffect, useState } from "react";
+import { type MouseEvent, useEffect, useState } from "react";
 
 import { accountLabel, sessionAccountId } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
@@ -178,7 +178,7 @@ export function Sidebar({
   const sidebarShortcut = useShortcut("toggleSidebar");
   const settingsShortcut = useShortcut("settings");
   const [confirmRemoveId, setConfirmRemoveId] = useState<string>();
-  const [projectMenu, setProjectMenu] = useState<MenuRequest>();
+  const [contextMenu, setContextMenu] = useState<MenuRequest>();
   const [confirmRemoveProjectId, setConfirmRemoveProjectId] = useState<string>();
   const [removingProjectId, setRemovingProjectId] = useState<string>();
   const [removeProjectProblem, setRemoveProjectProblem] = useState<{
@@ -599,6 +599,19 @@ export function Sidebar({
     void createHuddle(`${label} and sub-agents`, members);
   };
 
+  /** Opens a menu at the pointer. Shift+F10 or the Menu key fire this with no pointer position, so it opens under the row. */
+  const openContextMenu = (event: MouseEvent<HTMLElement>, label: string, items: () => MenuItem[]) => {
+    event.preventDefault();
+    const row = event.currentTarget.getBoundingClientRect();
+    const fromKeyboard = event.clientX === 0 && event.clientY === 0;
+    setContextMenu({
+      x: fromKeyboard ? row.left : event.clientX,
+      y: fromKeyboard ? row.bottom : event.clientY,
+      label,
+      items: items(),
+    });
+  };
+
   /** What the "..." menu on an agent row offers. */
   const sessionMenuItems = (
     session: AgentSession,
@@ -688,6 +701,11 @@ export function Sidebar({
           aria-label={`${name}, ${providerName}, ${status}${background ? ", in the background" : ""}`}
           aria-current={active ? "true" : undefined}
           onClick={() => onSelectSession(session)}
+          onContextMenu={(event) =>
+            openContextMenu(event, "Agent actions", () =>
+              sessionMenuItems(session, stoppable, runIndex === undefined ? worktree : undefined, subAgents),
+            )
+          }
           title={`${agentName ? `${agentName}\n` : ""}${worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}${account ? `\nAccount: ${account}` : ""}${parentName ? `\nStarted by ${parentName}` : ""}`}
         >
           <ProviderMark provider={session.provider} size={14} />
@@ -846,18 +864,9 @@ export function Sidebar({
                   <div
                     className="project-label"
                     title={project.path}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      // Shift+F10 or the Menu key fire this with no pointer position, so open under the row.
-                      const row = event.currentTarget.getBoundingClientRect();
-                      const fromKeyboard = event.clientX === 0 && event.clientY === 0;
-                      setProjectMenu({
-                        x: fromKeyboard ? row.left : event.clientX,
-                        y: fromKeyboard ? row.bottom : event.clientY,
-                        label: `${project.name} actions`,
-                        items: projectContextItems(project),
-                      });
-                    }}
+                    onContextMenu={(event) =>
+                      openContextMenu(event, `${project.name} actions`, () => projectContextItems(project))
+                    }
                   >
                     {renamingProjectId === project.projectId ? (
                       renderProjectRename(project)
@@ -998,7 +1007,7 @@ export function Sidebar({
           />
         </div>
       </div>
-      {projectMenu ? <Menu request={projectMenu} onClose={() => setProjectMenu(undefined)} /> : null}
+      {contextMenu ? <Menu request={contextMenu} onClose={() => setContextMenu(undefined)} /> : null}
       {renderProjectConfirm()}
       {huddleMenu ? <Menu request={huddleMenu} onClose={() => setHuddleMenu(undefined)} /> : null}
     </aside>
