@@ -650,6 +650,278 @@ describe("agents in other projects", () => {
       "other/x points at project other, but project is app. Give the project in one place.",
     );
   });
+
+  describe("every way a reach can go", () => {
+    const ANA = "00000000-0000-4000-8000-0000000000c6";
+    const TESS = "00000000-0000-4000-8000-0000000000d2";
+    type Outcome = "allowed" | "declined" | "unanswered";
+
+    /** A harness whose Settings keep agents to their own project until the person allows it. */
+    const asking = (answer: (h: ReturnType<typeof harness>) => Outcome, access = "full") => {
+      const settings = { scope: "project", access };
+      const asks: ReachAsk[] = [];
+      const h: ReturnType<typeof harness> = harness({
+        get scope() {
+          return settings.scope;
+        },
+        get access() {
+          return settings.access;
+        },
+        reach: async (request) => {
+          asks.push(request);
+          const outcome = answer(h);
+          if (outcome === "allowed") settings.scope = "all";
+          return outcome;
+        },
+      });
+      return { ...h, asks };
+    };
+    const patch = (h: ReturnType<typeof harness>, threadId: string, changes: Record<string, unknown>) =>
+      h.update({
+        ...h.state(),
+        threads: h.state().threads.map((entry) => (entry.threadId === threadId ? { ...entry, ...changes } : entry)),
+      } as RuntimeProjection);
+
+    it("prefers a name in the caller's project and never asks about it", async () => {
+      const h = asking(() => "allowed");
+      withNames(h, { [PEER]: "Kim", [FOREIGN]: "Kim" });
+      await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "kim" })).resolves.toMatchObject({
+        agent: { id: PEER },
+      });
+      await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "app/KIM" })).resolves.toMatchObject({
+        agent: { id: PEER },
+      });
+      expect(h.asks).toEqual([]);
+      await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "other/kim" })).resolves.toMatchObject({
+        agent: { id: FOREIGN },
+      });
+      expect(h.asks).toHaveLength(1);
+    });
+
+    it("matches a name in another project without regard to case or extra spaces", async () => {
+      const h = asking(() => "allowed");
+      withNames(h, { [FOREIGN]: "Kim Lee" });
+      await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "  KIM   lee " })).resolves.toMatchObject({
+        agent: { id: FOREIGN },
+      });
+      expect(h.asks).toEqual([{ agent: "Codex", project: "app", target: { agent: "Kim Lee", project: "other" } }]);
+    });
+
+    it("signs the question and the message with as when agents share a worktree", async () => {
+      const h = asking(() => "allowed");
+      h.update({
+        ...h.state(),
+        threads: [...h.state().threads, { ...thread(ANA, MAIN, "idle", "2026-01-01T00:00:06.000Z"), name: "Ana" }],
+      } as RuntimeProjection);
+      withNames(h, { [ME]: "Bob", [FOREIGN]: "Kim" });
+      await expect(
+        h.dispatch("agentsend", { cwd: "/work/app", agent: "Kim", text: "hi", as: "nobody" }),
+      ).rejects.toThrow("No agent in your worktree is called nobody.");
+      expect(h.asks).toEqual([]);
+      await h.dispatch("agentsend", { cwd: "/work/app", agent: "Kim", text: "hi", as: "ana" });
+      expect(h.asks).toEqual([{ agent: "Ana", project: "app", target: { agent: "Kim", project: "other" } }]);
+      expect(h.sent[0]?.text).toBe(
+        "Message to Kim from Ana, an agent in the ZLI project app, working on branch main (reply to app/Ana):\n\nhi",
+      );
+    });
+
+    it("asks for an agent it cannot name and sends the message unsigned", async () => {
+      const h = asking(() => "allowed");
+      h.update({
+        ...h.state(),
+        threads: [...h.state().threads, { ...thread(ANA, MAIN, "idle", "2026-01-01T00:00:06.000Z"), name: "Ana" }],
+      } as RuntimeProjection);
+      withNames(h, { [FOREIGN]: "Kim" });
+      await expect(h.dispatch("agentsend", { cwd: "/work/app", agent: "Kim", text: "hi" })).resolves.toMatchObject({
+        note: expect.stringContaining("Pass as with your own name or id"),
+      });
+      expect(h.asks[0]?.agent).toBe("An agent");
+      expect(h.sent[0]?.text).toBe(
+        "Message to Kim from an agent in the ZLI project app, working on branch main:\n\nhi",
+      );
+    });
+
+    it("stops when the agent stopped while the person answered", async () => {
+      const h = asking((current) => {
+        patch(current, FOREIGN, { status: "stopped" });
+        return "allowed";
+      });
+      withNames(h, { [FOREIGN]: "Kim" });
+      await expect(h.dispatch("agentsend", { cwd: "/work/app", agent: "Kim", text: "hi" })).rejects.toMatchObject({
+        status: 409,
+        message: "Kim stopped while ZLI waited for the person's answer. Call list_agents to see who is running.",
+      });
+      expect(h.sent).toEqual([]);
+    });
+
+    it("uses what the agent is doing and called once the person answered", async () => {
+      const h = asking((current) => {
+        patch(current, FOREIGN, { status: "working", name: "Kimberly" });
+        return "allowed";
+      });
+      withNames(h, { [FOREIGN]: "Kim" });
+      await expect(h.dispatch("agentsend", { cwd: "/work/app", agent: "Kim", text: "hi" })).resolves.toMatchObject({
+        delivered: false,
+        queued: true,
+        agent: { name: "Kimberly", status: "working" },
+      });
+      expect(h.sent[0]?.text).toMatch(/^Message to Kimberly from /u);
+    });
+
+    it("reads what the agent wrote while the person answered", async () => {
+      const h = asking((current) => {
+        current.update({
+          ...current.state(),
+          messages: [{ messageId: "m3", threadId: FOREIGN, role: "assistant", text: "Login returns a token." }],
+        } as RuntimeProjection);
+        return "allowed";
+      });
+      withNames(h, { [FOREIGN]: "Kim" });
+      await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "Kim" })).resolves.toMatchObject({
+        messages: [{ role: "assistant", text: "Login returns a token." }],
+      });
+    });
+
+    it("does not ask about a failed agent for a message, and still lets the person allow reading it", async () => {
+      const h = asking(() => "allowed");
+      withNames(h, { [FOREIGN]: "Kim" });
+      patch(h, FOREIGN, { status: "failed" });
+      await expect(h.dispatch("agentsend", { cwd: "/work/app", agent: "Kim", text: "hi" })).rejects.toMatchObject({
+        status: 409,
+        message: "That agent failed and cannot take messages.",
+      });
+      await expect(h.dispatch("agentsend", { cwd: "/work/app", agent: "other/Kim", text: "hi" })).rejects.toThrow(
+        "That agent failed",
+      );
+      expect(h.asks).toEqual([]);
+      await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "Kim" })).resolves.toMatchObject({
+        agent: { id: FOREIGN, status: "failed" },
+      });
+      expect(h.asks).toHaveLength(1);
+    });
+
+    it("reads and messages a terminal agent in another project, once it finished starting", async () => {
+      const h = asking((current) => {
+        current.update({
+          ...current.state(),
+          terminals: current
+            .state()
+            .terminals.map((entry) => (entry.terminalId === TESS ? { ...entry, status: "running" } : entry)),
+        } as RuntimeProjection);
+        return "allowed";
+      });
+      h.update({
+        ...h.state(),
+        terminals: [
+          ...h.state().terminals,
+          {
+            terminalId: TESS,
+            worktreeId: ELSEWHERE,
+            title: "Claude Code",
+            status: "starting",
+            lastSequence: 0,
+            kind: "agent",
+            agent: { provider: "claude-code" },
+            name: "Tess",
+            createdAt: "2026-01-01T00:00:07.000Z",
+          },
+        ],
+      } as RuntimeProjection);
+      await expect(h.dispatch("agentsend", { cwd: "/work/app", agent: "tess", text: "hi" })).resolves.toMatchObject({
+        delivered: true,
+        agent: { id: TESS, kind: "terminal", project: "other" },
+      });
+      expect(
+        h.sent.filter((command) => command.type === "terminal.write").map((command) => command.terminalId),
+      ).toEqual([TESS, TESS]);
+      await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "Tess" })).resolves.toMatchObject({
+        output: "> fixing tests",
+      });
+    });
+
+    it("never asks while agent tools are off, or for a message while agents may only read", async () => {
+      const off = asking(() => "allowed", "off");
+      withNames(off, { [FOREIGN]: "Kim" });
+      await expect(off.dispatch("agentread", { cwd: "/work/app", agent: "Kim" })).rejects.toThrow(
+        "Agent tools are turned off in ZLI Settings, under Agent messages.",
+      );
+      expect(off.asks).toEqual([]);
+
+      const reading = asking(() => "allowed", "read");
+      withNames(reading, { [FOREIGN]: "Kim" });
+      await expect(reading.dispatch("agentsend", { cwd: "/work/app", agent: "Kim", text: "hi" })).rejects.toThrow(
+        "not start or message them",
+      );
+      expect(reading.asks).toEqual([]);
+      await expect(reading.dispatch("agentread", { cwd: "/work/app", agent: "Kim" })).resolves.toMatchObject({
+        agent: { id: FOREIGN },
+      });
+      expect(reading.asks).toHaveLength(1);
+    });
+
+    it("says no for a shared name or the list of every project when the person declines", async () => {
+      const h = asking(() => "declined");
+      const third = "00000000-0000-4000-8000-0000000000a3";
+      const thirdWorktree = "00000000-0000-4000-8000-0000000000b4";
+      const twin = "00000000-0000-4000-8000-0000000000c5";
+      h.update({
+        ...h.state(),
+        projects: [...h.state().projects, { projectId: third, path: "/work/third", name: "third" }],
+        worktrees: [
+          ...h.state().worktrees,
+          { worktreeId: thirdWorktree, projectId: third, path: "/work/third", branch: "main", status: "ready" },
+        ],
+        threads: [
+          ...h.state().threads,
+          { ...thread(twin, thirdWorktree, "idle", "2026-01-01T00:00:05.000Z"), name: "Kim" },
+        ],
+      } as RuntimeProjection);
+      withNames(h, { [FOREIGN]: "Kim" });
+      const declined =
+        "That needs another ZLI project, and the person chose to keep agents to their own project. Tell them what you needed. They can change this in ZLI Settings, under Agent messages.";
+      await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "Kim" })).rejects.toThrow(declined);
+      await expect(h.dispatch("agentlist", { cwd: "/work/app", allProjects: true })).rejects.toMatchObject({
+        status: 403,
+        message: declined,
+      });
+    });
+
+    it("lets the other agent reply by name once every project is allowed", async () => {
+      const h = harness({ scope: "all" });
+      withNames(h, { [ME]: "Bob", [FOREIGN]: "Kim" });
+      await h.dispatch("agentsend", { cwd: "/work/other", agent: "Bob", text: "On it." });
+      await h.dispatch("agentsend", { cwd: "/work/other", agent: "app/bob", text: "Done." });
+      expect(h.sent.map((command) => [command.threadId, command.text])).toEqual([
+        [
+          ME,
+          "Message to Bob from Kim, an agent in the ZLI project other, working on branch main (reply to other/Kim):\n\nOn it.",
+        ],
+        [
+          ME,
+          "Message to Bob from Kim, an agent in the ZLI project other, working on branch main (reply to other/Kim):\n\nDone.",
+        ],
+      ]);
+    });
+
+    it("names the project when an agent there is missing and every project is allowed", async () => {
+      const h = harness({ scope: "all" });
+      await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "other/nobody" })).rejects.toMatchObject({
+        status: 404,
+        message: "Project other has no running agent nobody. Call list_agents for the names and ids.",
+      });
+      await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "nobody" })).rejects.toMatchObject({
+        status: 404,
+        message: "No ZLI project has a running agent called nobody. Call list_agents for the names and ids.",
+      });
+    });
+
+    it("lists every project without asking again once the person allowed it", async () => {
+      const h = asking(() => "allowed");
+      await h.dispatch("agentlist", { cwd: "/work/app", allProjects: true });
+      await h.dispatch("agentlist", { cwd: "/work/app", allProjects: true });
+      expect(h.asks).toHaveLength(1);
+    });
+  });
 });
 
 describe("sub-agents", () => {

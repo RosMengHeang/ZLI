@@ -294,10 +294,12 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     state: RuntimeProjection,
     from: { worktree: WorktreeProjection; project: ProjectProjection },
     wanted?: { agent: string; project: string },
+    as?: string,
   ) => {
     if (settings.scope === "all") return;
     if (!host.askToReach) throw keptToProject();
-    const self = callerAgent(state, from.project, from.worktree.worktreeId).agent;
+    // A wrong `as` fails here, before the person is asked anything.
+    const self = callerAgent(state, from.project, from.worktree.worktreeId, as).agent;
     const outcome = await host.askToReach({
       agent: self ? (self.name ?? self.providerName) : "An agent",
       project: from.project.name,
@@ -367,15 +369,31 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
 
   const isNotFound = (cause: unknown) => cause instanceof BrowserControlError && cause.status === 404;
 
+  /** Asking the person can take a while, so the agent is looked up again in what ZLI knows now. */
+  const stillRunning = (agent: Agent, callerWorktreeId: string) => {
+    const now = projection();
+    const fresh = agentsIn(now, new Set([agent.projectId]), callerWorktreeId).find(
+      (candidate) => candidate.id === agent.id,
+    );
+    if (!fresh)
+      throw new BrowserControlError(
+        `${agent.name ?? "That agent"} stopped while ZLI waited for the person's answer. Call list_agents to see who is running.`,
+        409,
+      );
+    return { state: now, agent: fresh };
+  };
+
   /**
    * Finds the agent a read or send is about. `project/agent` and the project field point at another
    * project. A plain name that no agent in the caller's project has is looked up in the others, so
-   * agents can be reached by name alone. Reaching another project needs the person's say.
+   * agents can be reached by name alone. Reaching another project needs the person's say, and
+   * `refuse` rules out an agent before the person is asked about it.
    */
   const target = async (
     state: RuntimeProjection,
     input: AgentControlReadInput | AgentControlSendInput,
     settings: AgentSettings,
+    options: { as?: string | undefined; refuse?: (agent: Agent) => void } = {},
   ) => {
     const from = caller(input, state);
     let agentRef = input.agent;
@@ -402,13 +420,22 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         if (crossProject && settings.scope !== "all" && isNotFound(cause)) throw keptToProject();
         throw cause;
       }
-      if (crossProject)
-        await reachOtherProjects(settings, state, from, { agent: agent.name ?? agentRef, project: project.name });
-      return { ...from, agent, crossProject };
+      options.refuse?.(agent);
+      if (!crossProject) return { ...from, state, agent, crossProject };
+      await reachOtherProjects(
+        settings,
+        state,
+        from,
+        { agent: agent.name ?? agentRef, project: project.name },
+        options.as,
+      );
+      return { ...from, ...stillRunning(agent, from.worktree.worktreeId), crossProject };
     }
     const local = projectAgents(state, from.project.projectId, from.worktree.worktreeId);
     try {
-      return { ...from, agent: findAgent(local, agentRef, from.project.name), crossProject: false };
+      const agent = findAgent(local, agentRef, from.project.name);
+      options.refuse?.(agent);
+      return { ...from, state, agent, crossProject: false };
     } catch (cause) {
       if (!isNotFound(cause)) throw cause;
     }
@@ -420,13 +447,20 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         404,
       );
     if (found.length > 1) {
-      await reachOtherProjects(settings, state, from);
+      await reachOtherProjects(settings, state, from, undefined, options.as);
       throw new BrowserControlError(
         `More than one agent in other projects is called ${agentRef}: ${found.map((agent) => `${agent.project}/${agent.name ?? agent.id}`).join(", ")}. Write the one you mean as project/agent.`,
       );
     }
-    await reachOtherProjects(settings, state, from, { agent: only.name ?? agentRef, project: only.project });
-    return { ...from, agent: only, crossProject: true };
+    options.refuse?.(only);
+    await reachOtherProjects(
+      settings,
+      state,
+      from,
+      { agent: only.name ?? agentRef, project: only.project },
+      options.as,
+    );
+    return { ...from, ...stillRunning(only, from.worktree.worktreeId), crossProject: true };
   };
 
   /** Resolves once `pick` returns a value, rejects when it throws or time runs out. */
@@ -505,8 +539,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
 
   const read = async (raw: unknown, settings: AgentSettings) => {
     const input = AgentControlReadInput.parse(raw);
-    const state = projection();
-    const { agent } = await target(state, input, settings);
+    const { agent, state } = await target(projection(), input, settings);
     if (agent.kind === "terminal") {
       const output = TerminalReadResult.parse(await run({ type: "terminal.read", terminalId: agent.id }));
       return { agent: summary(agent), output: output.text, truncated: output.truncated };
@@ -523,13 +556,17 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     };
   };
 
+  const failedAgent = () => new BrowserControlError("That agent failed and cannot take messages.", 409);
+
   const send = async (raw: unknown, settings: AgentSettings) => {
     const input = AgentControlSendInput.parse(raw);
-    const state = projection();
-    const { worktree, project, agent, crossProject } = await target(state, input, settings);
-    // Asking the person can take a while, so the sender is looked up in what ZLI knows now.
-    const now = projection();
-    const { agent: sender, shared } = callerAgent(now, project, worktree.worktreeId, input.as);
+    const { worktree, project, agent, crossProject, state } = await target(projection(), input, settings, {
+      as: input.as,
+      refuse: (found) => {
+        if (found.status === "failed") throw failedAgent();
+      },
+    });
+    const { agent: sender, shared } = callerAgent(state, project, worktree.worktreeId, input.as);
     if (sender && agent.id === sender.id)
       throw new BrowserControlError("That agent is you. Pick another agent from list_agents.");
     const note =
@@ -560,7 +597,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
       await typeIntoTerminal(agent.id, text);
       return { delivered: true, agent: summary(agent), ...(note ? { note } : {}) };
     }
-    if (agent.status === "failed") throw new BrowserControlError("That agent failed and cannot take messages.", 409);
+    if (agent.status === "failed") throw failedAgent();
     if (agent.status === "starting")
       await waitFor((next) => {
         const thread = next.threads.find((candidate) => candidate.threadId === agent.id);

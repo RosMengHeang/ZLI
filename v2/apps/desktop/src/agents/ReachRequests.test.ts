@@ -102,4 +102,36 @@ describe("ReachRequests", () => {
     await h.requests.answer({ requestId: ID, allow: true });
     await expect(waiting).resolves.toBe("allowed");
   });
+
+  it("asks again after an Allow, once Settings keep agents to their own project again", async () => {
+    const h = setup();
+    void h.requests.ask(ask);
+    await h.requests.answer({ requestId: ID, allow: true });
+    const again = h.requests.ask(ask);
+    expect(h.requests.current()).toEqual({ requestId: ID, ...ask });
+    expect(h.notified).toHaveLength(2);
+    await h.requests.answer({ requestId: ID, allow: false });
+    await expect(again).resolves.toBe("declined");
+  });
+
+  it("holds a no given after the agent stopped waiting", async () => {
+    const h = setup();
+    const waiting = h.requests.ask(ask);
+    vi.advanceTimersByTime(1_000);
+    await expect(waiting).resolves.toBe("unanswered");
+    await h.requests.answer({ requestId: ID, allow: false });
+    expect(h.requests.current()).toBeUndefined();
+    await expect(h.requests.ask(ask)).resolves.toBe("declined");
+  });
+
+  it("does nothing for an answer to a question that is already closed", async () => {
+    const h = setup();
+    const waiting = h.requests.ask(ask);
+    await h.requests.answer({ requestId: ID, allow: true });
+    await h.requests.answer({ requestId: ID, allow: false });
+    await expect(waiting).resolves.toBe("allowed");
+    expect(h.allowed()).toBe(1);
+    void h.requests.ask(ask);
+    expect(h.requests.current()).toBeDefined();
+  });
 });

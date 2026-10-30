@@ -383,6 +383,10 @@ async function startBrowserControl(databasePath: string): Promise<BrowserToolPat
       });
       if (!response.accepted) throw new Error(response.error.message);
     },
+    // End-to-end tests check what an agent hears when nobody answers without waiting the full time.
+    ...(process.env.ZLI_TEST_PROVIDER === "mock" && process.env.ZLI_TEST_REACH_WAIT_MS
+      ? { waitMs: Number(process.env.ZLI_TEST_REACH_WAIT_MS) }
+      : {}),
   });
   reachRequests = reach;
   const agentActions = createAgentControlActions({
