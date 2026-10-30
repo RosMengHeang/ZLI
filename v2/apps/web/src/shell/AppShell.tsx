@@ -71,7 +71,17 @@ import {
   sessionTitle,
 } from "../sessions/sessions.js";
 import { groupFinished, useRunStates } from "../sessions/useRunStates.js";
-import { forgetSession, keepPendingLaunch, useWorkbenchState } from "../sessions/workbench.js";
+import {
+  closeProjectAgents,
+  focusProject,
+  forgetSession,
+  forgetStaleBoards,
+  keepPendingLaunch,
+  openProjectAgents,
+  sessionProjects,
+  useWorkbenchState,
+  type WorkbenchState,
+} from "../sessions/workbench.js";
 import { resolveLaunchDefaults, updateAppSettings, useAppSettings } from "../settings/appSettings.js";
 import { ExpiredSignInNotice } from "../settings/ExpiredSignInNotice.js";
 import type { IntegrationsView } from "../settings/IntegrationsSection.js";
@@ -83,7 +93,7 @@ import { useAgentReach } from "../setup/agentReach.js";
 import { AGENTS_NOT_TRUSTED, useAgentTrust } from "../setup/agentTrust.js";
 import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
 import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
-import { Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
+import { type ProjectAgentActions, Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
@@ -223,6 +233,10 @@ function WorkspaceApp() {
   const tiles = useMemo(
     () => sessions.filter((session) => !workbench.closed.includes(session.sessionId)),
     [sessions, workbench.closed],
+  );
+  const projectOf = useMemo(
+    () => sessionProjects(sessions, projection?.worktrees ?? []),
+    [sessions, projection?.worktrees],
   );
   const backgroundSessionIds = useMemo(
     () =>
@@ -510,6 +524,9 @@ function WorkspaceApp() {
     },
     toggleChanges: () => toggleSidePane("review"),
     toggleHuddle: () => toggleSidePane("huddle"),
+    focusProject: () => {
+      if (contextProject) showOnlyProject(contextProject.projectId);
+    },
     settings: () => openSettings(),
     escape: () => {
       setPaletteOpen(false);
@@ -693,6 +710,17 @@ function WorkspaceApp() {
     }));
   }, [projection, sessions, updateWorkbench, workbench.groups]);
 
+  // Remembered boards let go of agents that were deleted or lost their worktree, and of removed projects.
+  const projectIds = useMemo(
+    () => new Set(projection?.projects.map((project) => project.projectId)),
+    [projection?.projects],
+  );
+  useEffect(() => {
+    if (!projection) return;
+    const stale = (state: WorkbenchState) => forgetStaleBoards(state, projectOf, projectIds);
+    if (stale(workbench) === workbench) return;
+    updateWorkbench(stale);
+  }, [projection, projectOf, projectIds, updateWorkbench, workbench]);
   useEffect(() => {
     const finished = workbench.groups.filter((group) => !group.notified && groupFinished(group, runStates));
     if (finished.length === 0) return;
@@ -1460,6 +1488,31 @@ function WorkspaceApp() {
     }
   };
 
+  /**
+   * Shows only the project's agents, as they were when it last left the board. The panels follow the
+   * agent it focuses.
+   */
+  const showOnlyProject = (projectId: string) => {
+    const next = focusProject(workbench, projectOf, projectId);
+    if (next === workbench) return;
+    updateWorkbench((state) => focusProject(state, projectOf, projectId));
+    const focused = sessions.find((session) => session.sessionId === next.activeSessionId);
+    if (focused) setSelectedWorktreeId(focused.worktreeId);
+  };
+  /** Bulk tile changes for one project. None of them stops an agent, so none asks first. */
+  const projectAgentActions = (projectId: string): ProjectAgentActions => {
+    const changes = (change: typeof focusProject) => change(workbench, projectOf, projectId) !== workbench;
+    return {
+      focus: changes(focusProject) ? () => showOnlyProject(projectId) : undefined,
+      open: changes(openProjectAgents)
+        ? () => updateWorkbench((state) => openProjectAgents(state, projectOf, projectId))
+        : undefined,
+      close: changes(closeProjectAgents)
+        ? () => updateWorkbench((state) => closeProjectAgents(state, projectOf, projectId))
+        : undefined,
+    };
+  };
+
   const deferSetup = (setup: WorktreeSetupProjection) =>
     setDeferredSetups((current) => [...current, setupDeferKey(setup)]);
   const reviewSetup = (worktreeId: string) =>
@@ -1619,6 +1672,17 @@ function WorkspaceApp() {
       group: "Go to",
       action: () => setPromptManager({ projectId: contextProject?.projectId }),
     },
+    ...(contextProject && focusProject(workbench, projectOf, contextProject.projectId) !== workbench
+      ? [
+          {
+            label: "Show only this project",
+            icon: "eye" as const,
+            group: "View" as const,
+            shortcut: shortcuts.focusProject,
+            action: () => showOnlyProject(contextProject.projectId),
+          },
+        ]
+      : []),
     {
       label: "Toggle terminal",
       icon: "terminal",
@@ -1854,6 +1918,7 @@ function WorkspaceApp() {
             onCompareRuns={(group) => setCompareGroupId(group.groupId)}
             onOpenHuddle={openHuddle}
             onHuddleError={showError}
+            projectAgentActions={projectAgentActions}
           />
         ) : null}
         <main className="main-workspace">

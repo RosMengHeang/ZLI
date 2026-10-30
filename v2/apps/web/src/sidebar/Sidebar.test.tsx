@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
 import type { AgentSession } from "../sessions/sessions.js";
-import { Sidebar, type WorktreeAction } from "./Sidebar.js";
+import { type ProjectAgentActions, Sidebar, type WorktreeAction } from "./Sidebar.js";
 import { parseSidebarCollapsed } from "./sidebarLayout.js";
 
 const bridge = {
@@ -64,6 +64,7 @@ type MountOptions = {
   onCreateWorktree?: (project?: { projectId: string }) => void;
   onRemoveProject?: (projectId: string) => Promise<string | undefined>;
   onRenameProject?: (projectId: string, name: string) => void;
+  projectAgentActions?: (projectId: string) => ProjectAgentActions;
 };
 
 async function mount(current: RuntimeProjection, options: MountOptions = {}) {
@@ -96,6 +97,7 @@ async function mount(current: RuntimeProjection, options: MountOptions = {}) {
           onOpenSettings={noop}
           onOpenUsage={noop}
           onHideSidebar={noop}
+          projectAgentActions={options.projectAgentActions}
         />
       </RuntimeProvider>,
     );
@@ -496,6 +498,53 @@ describe("Sidebar projects", () => {
       again.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
     expect(onRenameProject).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers board actions for the project's agents, and says why one would do nothing", async () => {
+    const focus = vi.fn();
+    const close = vi.fn();
+    const projectAgentActions = vi.fn(() => ({ focus, close }));
+    const { container } = await mount(
+      projection([{ worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat", status: "ready" }]),
+      { sessions: [agent(featureId)], projectAgentActions },
+    );
+    expect(await openMenu(container, "repo actions")).toEqual([
+      "New agent",
+      "New worktree",
+      "Show only this project",
+      "Open all agents",
+      "Close all agents",
+      "Remove project",
+    ]);
+    expect(projectAgentActions).toHaveBeenCalledWith(projectId);
+    const item = (label: string) =>
+      [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find(
+        (entry) => entry.textContent === label,
+      );
+    expect(item("Open all agents")?.getAttribute("aria-disabled")).toBe("true");
+    expect(item("Open all agents")?.title).toBe("All agents here are open.");
+    expect(item("Close all agents")?.getAttribute("aria-disabled")).toBeNull();
+    expect(item("Close all agents")?.title).toBe("Hide their tiles. The agents keep running.");
+    await act(async () => item("Close all agents")?.click());
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+
+    expect(await rightClick(container)).toContain("Show only this project");
+    await act(async () => item("Show only this project")?.click());
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("turns the board actions off for a project with no agents", async () => {
+    const { container } = await mount(projection([]), { projectAgentActions: () => ({}) });
+    await openMenu(container, "repo actions");
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].filter((entry) =>
+      ["Show only this project", "Open all agents", "Close all agents"].includes(entry.textContent ?? ""),
+    );
+    expect(items).toHaveLength(3);
+    for (const entry of items) {
+      expect(entry.getAttribute("aria-disabled")).toBe("true");
+      expect(entry.title).toBe("This project has no agents yet.");
+    }
   });
 
   it("removes a project only after the confirm under its row", async () => {
