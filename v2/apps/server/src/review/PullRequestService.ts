@@ -31,9 +31,9 @@ import { assertRef } from "./ReviewService.js";
 
 export type ProcessResult = { code: number; stdout: string; stderr: string };
 
-/** Runs `git` or `gh` without a shell. Resolves for any exit code; rejects when the program cannot start. */
+/** Runs `git`, `gh`, or `glab` without a shell. Resolves for any exit code; rejects when the program cannot start. */
 export type ProcessRunner = (
-  command: "git" | "gh",
+  command: "git" | "gh" | "glab",
   args: readonly string[],
   options: { cwd: string; timeoutMs: number; maxOutputBytes?: number; input?: string },
 ) => Promise<ProcessResult>;
@@ -821,10 +821,11 @@ export function formatBody(subjects: readonly string[]): string {
   return [...shown, ...(hidden > 0 ? [`- and ${hidden} more commit${hidden === 1 ? "" : "s"}`] : [])].join("\n");
 }
 
-/** Removes tokens and URL credentials from Git and GitHub CLI output before it is shown. */
+/** Removes tokens and URL credentials from Git, GitHub CLI, and GitLab CLI output before it is shown. */
 export function redactSecrets(value: string): string {
   return value
     .replace(/\b(?:gh[pousr]_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{8,})/gu, "[redacted]")
+    .replace(/\bgl(?:pat|oas|dt|rt|ptt|soat|ft|imt|agent|cbt|ffct)-[A-Za-z0-9_-]{8,}/gu, "[redacted]")
     .replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/giu, "$1[redacted]@")
     .replace(/\b(authorization\s*[:=]\s*)(?:(?:bearer|basic|token)\s+)?\S+/giu, "$1[redacted]")
     .replace(/\b(bearer\s+)(?!\[redacted\])\S+/giu, "$1[redacted]")
@@ -842,8 +843,13 @@ function lastLines(value: string): string {
 }
 
 export function ghFailure(action: string, result: ProcessResult): string {
+  return cliFailure("GitHub CLI", action, result);
+}
+
+/** A failed CLI call with the last lines of its output, secrets removed. */
+export function cliFailure(program: string, action: string, result: ProcessResult): string {
   const detail = lastLines(result.stderr || result.stdout);
-  return `GitHub CLI ${action}.${detail ? ` ${detail}` : ""}`;
+  return `${program} ${action}.${detail ? ` ${detail}` : ""}`;
 }
 
 function gitFailure(action: string, result: ProcessResult): string {
@@ -1344,6 +1350,8 @@ const PROMPTLESS_ENV = {
   GIT_TERMINAL_PROMPT: "0",
   GH_PROMPT_DISABLED: "1",
   GH_NO_UPDATE_NOTIFIER: "1",
+  NO_PROMPT: "true",
+  GLAB_CHECK_UPDATE: "false",
   NO_COLOR: "1",
 };
 

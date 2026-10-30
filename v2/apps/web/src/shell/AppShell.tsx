@@ -2258,6 +2258,10 @@ function WorkspaceApp() {
                 });
                 setNewAgentProject(project);
               }}
+              onStartWithoutIssue={(project) => {
+                setIssuesProject(undefined);
+                setNewAgentProject(project);
+              }}
             />
           </Suspense>
         ) : null}

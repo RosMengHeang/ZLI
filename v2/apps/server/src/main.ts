@@ -37,6 +37,7 @@ import { HuddleReactor } from "./huddles/HuddleReactor.js";
 import { TerminalInputTracker } from "./huddles/TerminalInputTracker.js";
 import { LegacyImportReactor } from "./import/LegacyImportReactor.js";
 import { GitHubIssues } from "./issues/GitHubIssues.js";
+import { GitLabIssues } from "./issues/GitLabIssues.js";
 import { LinearIssues } from "./issues/LinearIssues.js";
 import { type LimitTarget, mockLimitRead, PlanLimits } from "./limits/PlanLimits.js";
 import { planLimitReader } from "./limits/readers.js";
@@ -281,7 +282,7 @@ export async function startRuntime(options: {
     attachmentsDir: join(dirname(databasePath), "attachments"),
     checkpoints,
     mcpServers,
-    issues: { github: new GitHubIssues(), linear: linearIssues },
+    issues: { github: new GitHubIssues(), gitlab: new GitLabIssues(), linear: linearIssues },
     skills,
     plugins,
     accounts,
