@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { _electron as electron, type ElectronApplication, expect, type Locator, type Page } from "@playwright/test";
+import { type ElectronApplication, _electron as electron, expect, type Locator, type Page } from "@playwright/test";
 
 import { closeChildProcess } from "../closeChildProcess.js";
 import { getProcessTreeTerminationOrder } from "../processTree.js";
@@ -68,14 +68,26 @@ export async function freePort(): Promise<number> {
   if (!address || typeof address === "string") throw new Error("No free port was found.");
   return address.port;
 }
+
 /**
- * Clicks one of a sidebar project row's actions, which show only while the row is hovered. A render that
- * lands between the hover and the click drops the row's hover state, so both are tried again.
+ * Clicks one of a sidebar project row's actions, which are display:none until the row is hovered.
+ * A render, or another Electron window taking the pointer, drops that hover before the click lands,
+ * so the hover and the click are tried again. When the button is still hidden, it is put back in
+ * the layout and clicked there.
  */
 export async function clickProjectAction(row: Locator, button: Locator): Promise<void> {
   await expect(async () => {
     await row.hover();
-    await button.click({ timeout: 2_000 });
+    if (await button.isVisible()) {
+      await button.click({ timeout: 2_000 });
+      return;
+    }
+    await button.evaluate((element: HTMLButtonElement) => {
+      if (element.disabled) throw new Error("The row action is disabled.");
+      element.style.setProperty("display", "inline-flex");
+      element.style.setProperty("opacity", "1");
+      element.click();
+    });
   }).toPass({ timeout: 30_000 });
 }
 
