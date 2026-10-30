@@ -95,16 +95,22 @@ not cover, add it to the primitives instead of styling it locally.
   right edge so the window controls never cover the search trigger.
 - The left sidebar is the home for projects, agents, and worktrees.
   Collapsing it removes it completely so the workbench gets the full width.
-  It is 256px wide, 236px under 1240px, and 216px under 1080px. Add project
-  (folder with a plus) and New agent (pen on a square) are plain rows at the
-  top, in that order; the New agent shortcut appears
-  when the row is hovered or focused. The footer
-  holds the runtime status, Usage, Settings, and Help.
+  It is 256px wide, 236px under 1240px, and 216px under 1080px. The top holds
+  Add project (folder with a plus) as a plain row, then New agent as the one
+  raised button, the window's main action; the New agent shortcut appears
+  when it is hovered or focused. Its icon is an agent tile
+  with a shell prompt and a plus breaking out of the corner, used wherever
+  New agent appears (sidebar, project row and menu, top bar, empty board,
+  command palette), so it never shares the pen on a square that New chat
+  uses. With no projects the Projects heading is gone, New agent is disabled,
+  and the sidebar says what to add. Plan limits sit above the footer on a surface-tone card
+  with no border. The footer holds the runtime status, Usage, Settings, and
+  Help.
 - A project's name folds its agents and worktrees away, with a chevron that
   shows on hover or while folded. A folded project shows its agent count,
   in blue or amber when an agent there is working or waiting. The project
-  row also holds Create worktree (a branch icon) and New agent here (a
-  plus), both shown on hover.
+  row also holds Create worktree (a branch icon) and New agent here (the
+  New agent icon), both shown on hover.
 - Worktrees have no section of their own. An agent in a worktree shows the
   branch on a second line under its title, with commits to push or pull,
   the pull request and its checks, the setup or worktree status when it is
@@ -129,7 +135,8 @@ not cover, add it to the primitives instead of styling it locally.
   tile, or how recently the agent was active. The branch and worktree path
   are also in the row's tooltip and the tile header.
 - The top bar has the breadcrumb (project, then branch in mono) on the left,
-  then icon-only panel toggles with Terminal split from Files, Browser, and
+  then icon-only panel toggles with Terminal (a shell prompt, the same icon
+  as the terminal drawer's header) split from Files, Browser, and
   Changes, then the command palette trigger. Each toggle's name is its
   accessible label and its tooltip says what it will do and shows its
   shortcut.

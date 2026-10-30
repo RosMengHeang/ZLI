@@ -399,7 +399,7 @@ export function Sidebar({
 
   /** What a project's "..." menu, and a right-click on its row, offers. */
   const projectMenuItems = (project: ProjectProjection): MenuItem[] => [
-    { label: "New agent", icon: "plus", run: () => onNewAgent(project) },
+    { label: "New agent", icon: "agentNew", run: () => onNewAgent(project) },
     {
       label: "New worktree",
       icon: "branch",
@@ -778,23 +778,22 @@ export function Sidebar({
       </div>
       <div className="sidebar-primary">
         <button className="btn btn-ghost sidebar-add-project" type="button" onClick={onOpenProject}>
-          <Icon name="folderPlus" size={15} />
+          <Icon name="folderPlus" size={16} />
           <span>Add project</span>
         </button>
         <button
-          className="btn btn-ghost sidebar-new-agent"
+          className="btn btn-secondary sidebar-new-agent"
           type="button"
           onClick={() => onNewAgent()}
           disabled={projects.length === 0}
           aria-keyshortcuts={ariaShortcut(newAgentShortcut)}
         >
-          <Icon name="squarePen" size={15} />
+          <Icon name="agentNew" size={16} />
           <span>New agent</span>
           <Kbd shortcut={newAgentShortcut} />
         </button>
       </div>
       <div className="sidebar-scroll">
-        {projects.length > 0 ? <h2 className="sidebar-heading">Projects</h2> : null}
         {projects.length === 0 ? (
           <div className="sidebar-empty">
             <p>
@@ -802,168 +801,173 @@ export function Sidebar({
             </p>
           </div>
         ) : (
-          orderedProjects.map((project) => {
-            const projectWorktrees = worktrees.filter((worktree) => worktree.projectId === project.projectId);
-            const worktreeIds = new Set<string>(projectWorktrees.map((worktree) => worktree.worktreeId));
-            const projectSessions = sessions
-              .filter((session) => worktreeIds.has(session.worktreeId))
-              .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
-            const open = layout.projectOpen(project.projectId);
-            const pinned = layout.pinned(project.projectId);
-            const idleOpen = layout.idleOpen(project.projectId);
-            const agentCount = projectSessions.filter((session) => !runIds.has(session.sessionId)).length;
-            const busy = projectSessions.some(
-              (session) => session.status === "working" || session.status === "starting",
-            );
-            const waiting = projectSessions.some((session) => session.status === "waiting");
-            const idle = projectWorktrees.filter(
-              (worktree) => !projectSessions.some((session) => session.worktreeId === worktree.worktreeId),
-            );
-            // A folded row still shows the worktree the person is in, and any that is busy or needs them.
-            const idleShown = idleOpen
-              ? idle
-              : idle.filter(
-                  (worktree) =>
-                    worktree.worktreeId === activeWorktreeId ||
-                    worktree.worktreeId === confirmRemoveId ||
-                    worktree.status !== "ready" ||
-                    worktreeInfo(worktree).needsAttention,
-                );
-            const alerted = new Set<string>();
-            const firstForWorktree = (session: AgentSession) => {
-              if (alerted.has(session.worktreeId)) return false;
-              alerted.add(session.worktreeId);
-              return true;
-            };
-            return (
-              <section
-                className={`sidebar-project${open ? "" : " is-collapsed"}`}
-                key={project.projectId}
-                aria-label={project.name}
-              >
-                {/* biome-ignore lint/a11y/noStaticElementInteractions: Shift+F10 or the Menu key on the focused toggle opens this menu too. */}
-                <div
-                  className="project-label"
-                  title={project.path}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    // Shift+F10 or the Menu key fire this with no pointer position, so open under the row.
-                    const row = event.currentTarget.getBoundingClientRect();
-                    const fromKeyboard = event.clientX === 0 && event.clientY === 0;
-                    setProjectMenu({
-                      x: fromKeyboard ? row.left : event.clientX,
-                      y: fromKeyboard ? row.bottom : event.clientY,
-                      label: `${project.name} actions`,
-                      items: projectContextItems(project),
-                    });
-                  }}
+          <>
+            <h2 className="sidebar-heading">Projects</h2>
+            {orderedProjects.map((project) => {
+              const projectWorktrees = worktrees.filter((worktree) => worktree.projectId === project.projectId);
+              const worktreeIds = new Set<string>(projectWorktrees.map((worktree) => worktree.worktreeId));
+              const projectSessions = sessions
+                .filter((session) => worktreeIds.has(session.worktreeId))
+                .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
+              const open = layout.projectOpen(project.projectId);
+              const pinned = layout.pinned(project.projectId);
+              const idleOpen = layout.idleOpen(project.projectId);
+              const agentCount = projectSessions.filter((session) => !runIds.has(session.sessionId)).length;
+              const busy = projectSessions.some(
+                (session) => session.status === "working" || session.status === "starting",
+              );
+              const waiting = projectSessions.some((session) => session.status === "waiting");
+              const idle = projectWorktrees.filter(
+                (worktree) => !projectSessions.some((session) => session.worktreeId === worktree.worktreeId),
+              );
+              // A folded row still shows the worktree the person is in, and any that is busy or needs them.
+              const idleShown = idleOpen
+                ? idle
+                : idle.filter(
+                    (worktree) =>
+                      worktree.worktreeId === activeWorktreeId ||
+                      worktree.worktreeId === confirmRemoveId ||
+                      worktree.status !== "ready" ||
+                      worktreeInfo(worktree).needsAttention,
+                  );
+              const alerted = new Set<string>();
+              const firstForWorktree = (session: AgentSession) => {
+                if (alerted.has(session.worktreeId)) return false;
+                alerted.add(session.worktreeId);
+                return true;
+              };
+              return (
+                <section
+                  className={`sidebar-project${open ? "" : " is-collapsed"}`}
+                  key={project.projectId}
+                  aria-label={project.name}
                 >
-                  {renamingProjectId === project.projectId ? (
-                    renderProjectRename(project)
-                  ) : (
-                    <button
-                      className="project-toggle"
-                      type="button"
-                      aria-expanded={open}
-                      aria-label={`${project.name}${pinned ? ", pinned" : ""}, ${open ? "collapse" : "expand"}`}
-                      onClick={() => layout.toggleProject(project.projectId)}
-                    >
-                      <Icon name={open ? "folderOpen" : "folder"} size={14} />
-                      <span className="project-name">{project.name}</span>
-                      {pinned ? <Icon name="pin" size={11} className="project-pin" aria-hidden="true" /> : null}
-                      <Icon name="chevronRight" size={11} className="project-chevron" />
-                    </button>
-                  )}
-                  {open || agentCount === 0 ? null : (
-                    <span
-                      className={`project-summary${waiting ? " is-waiting" : busy ? " is-working" : ""}`}
-                      title={`${agentCount === 1 ? "1 agent" : `${agentCount} agents`}, ${projectWorktrees.length === 1 ? "1 worktree" : `${projectWorktrees.length} worktrees`}`}
-                    >
-                      {waiting || busy ? <span className="dot" aria-hidden="true" /> : null}
-                      {agentCount}
-                    </span>
-                  )}
-                  <IconButton
-                    className="project-action"
-                    label="Create worktree"
-                    tooltip={
-                      project.git === false
-                        ? "Worktrees need Git. This folder is not a Git repository."
-                        : "New worktree"
-                    }
-                    icon="branch"
-                    size="xs"
-                    iconSize={13}
-                    disabled={project.git === false}
-                    onClick={() => onCreateWorktree(project)}
-                  />
-                  <IconButton
-                    className="project-action"
-                    label={`New agent in ${project.name}`}
-                    tooltip="New agent here"
-                    icon="plus"
-                    size="xs"
-                    iconSize={13}
-                    onClick={() => onNewAgent(project)}
-                  />
-                  <MenuButton
-                    className="project-action"
-                    label={`${project.name} actions`}
-                    tooltip="More"
-                    size="xs"
-                    items={() => projectMenuItems(project)}
-                  />
-                </div>
-                {!open ? null : (
-                  <>
-                    {projectSessions.length === 0 ? (
-                      <p className="sidebar-note">No agents yet.</p>
+                  {/* biome-ignore lint/a11y/noStaticElementInteractions: Shift+F10 or the Menu key on the focused toggle opens this menu too. */}
+                  <div
+                    className="project-label"
+                    title={project.path}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      // Shift+F10 or the Menu key fire this with no pointer position, so open under the row.
+                      const row = event.currentTarget.getBoundingClientRect();
+                      const fromKeyboard = event.clientX === 0 && event.clientY === 0;
+                      setProjectMenu({
+                        x: fromKeyboard ? row.left : event.clientX,
+                        y: fromKeyboard ? row.bottom : event.clientY,
+                        label: `${project.name} actions`,
+                        items: projectContextItems(project),
+                      });
+                    }}
+                  >
+                    {renamingProjectId === project.projectId ? (
+                      renderProjectRename(project)
                     ) : (
-                      <ul className="session-list">
-                        {projectSessions.map((session) => {
-                          if (runIds.has(session.sessionId)) return null;
-                          // A sub-agent lists under the agent that started it, which is in this project too.
-                          if (parents.has(session.sessionId)) return null;
-                          return renderSession(
-                            session,
-                            projectWorktrees,
-                            groupsBySource.get(session.sessionId),
-                            undefined,
-                            firstForWorktree(session),
-                          );
-                        })}
-                        {runGroups
-                          .filter(
-                            (group) =>
-                              !projectSessions.some((session) => session.sessionId === group.sourceSessionId) &&
-                              projectSessions.some((session) => group.sessionIds.includes(session.sessionId)),
-                          )
-                          .map((group) => (
-                            <li className="session-entry is-orphan-group" key={group.groupId}>
-                              {renderGroup(group, projectWorktrees)}
-                            </li>
-                          ))}
-                      </ul>
+                      <button
+                        className="project-toggle"
+                        type="button"
+                        aria-expanded={open}
+                        aria-label={`${project.name}${pinned ? ", pinned" : ""}, ${open ? "collapse" : "expand"}`}
+                        onClick={() => layout.toggleProject(project.projectId)}
+                      >
+                        <Icon name={open ? "folderOpen" : "folder"} size={14} />
+                        <span className="project-name">{project.name}</span>
+                        {pinned ? <Icon name="pin" size={11} className="project-pin" aria-hidden="true" /> : null}
+                        <Icon name="chevronRight" size={11} className="project-chevron" />
+                      </button>
                     )}
-                    {idle.length > 0 ? (
-                      <div className="worktree-heading">
-                        <button
-                          className="worktree-toggle"
-                          type="button"
-                          aria-expanded={idleOpen}
-                          onClick={() => layout.toggleIdle(project.projectId)}
-                        >
-                          <Icon name="chevronRight" size={11} className="worktree-toggle-chevron" />
-                          {idle.length === 1 ? "1 worktree without agents" : `${idle.length} worktrees without agents`}
-                        </button>
-                      </div>
-                    ) : null}
-                    {idleShown.length > 0 ? <ul className="worktree-list">{idleShown.map(renderWorktree)}</ul> : null}
-                  </>
-                )}
-              </section>
-            );
-          })
+                    {open || agentCount === 0 ? null : (
+                      <span
+                        className={`project-summary${waiting ? " is-waiting" : busy ? " is-working" : ""}`}
+                        title={`${agentCount === 1 ? "1 agent" : `${agentCount} agents`}, ${projectWorktrees.length === 1 ? "1 worktree" : `${projectWorktrees.length} worktrees`}`}
+                      >
+                        {waiting || busy ? <span className="dot" aria-hidden="true" /> : null}
+                        {agentCount}
+                      </span>
+                    )}
+                    <IconButton
+                      className="project-action"
+                      label="Create worktree"
+                      tooltip={
+                        project.git === false
+                          ? "Worktrees need Git. This folder is not a Git repository."
+                          : "New worktree"
+                      }
+                      icon="branch"
+                      size="xs"
+                      iconSize={13}
+                      disabled={project.git === false}
+                      onClick={() => onCreateWorktree(project)}
+                    />
+                    <IconButton
+                      className="project-action"
+                      label={`New agent in ${project.name}`}
+                      tooltip="New agent here"
+                      icon="agentNew"
+                      size="xs"
+                      iconSize={13}
+                      onClick={() => onNewAgent(project)}
+                    />
+                    <MenuButton
+                      className="project-action"
+                      label={`${project.name} actions`}
+                      tooltip="More"
+                      size="xs"
+                      items={() => projectMenuItems(project)}
+                    />
+                  </div>
+                  {!open ? null : (
+                    <>
+                      {projectSessions.length === 0 ? (
+                        <p className="sidebar-note">No agents yet.</p>
+                      ) : (
+                        <ul className="session-list">
+                          {projectSessions.map((session) => {
+                            if (runIds.has(session.sessionId)) return null;
+                            // A sub-agent lists under the agent that started it, which is in this project too.
+                            if (parents.has(session.sessionId)) return null;
+                            return renderSession(
+                              session,
+                              projectWorktrees,
+                              groupsBySource.get(session.sessionId),
+                              undefined,
+                              firstForWorktree(session),
+                            );
+                          })}
+                          {runGroups
+                            .filter(
+                              (group) =>
+                                !projectSessions.some((session) => session.sessionId === group.sourceSessionId) &&
+                                projectSessions.some((session) => group.sessionIds.includes(session.sessionId)),
+                            )
+                            .map((group) => (
+                              <li className="session-entry is-orphan-group" key={group.groupId}>
+                                {renderGroup(group, projectWorktrees)}
+                              </li>
+                            ))}
+                        </ul>
+                      )}
+                      {idle.length > 0 ? (
+                        <div className="worktree-heading">
+                          <button
+                            className="worktree-toggle"
+                            type="button"
+                            aria-expanded={idleOpen}
+                            onClick={() => layout.toggleIdle(project.projectId)}
+                          >
+                            <Icon name="chevronRight" size={11} className="worktree-toggle-chevron" />
+                            {idle.length === 1
+                              ? "1 worktree without agents"
+                              : `${idle.length} worktrees without agents`}
+                          </button>
+                        </div>
+                      ) : null}
+                      {idleShown.length > 0 ? <ul className="worktree-list">{idleShown.map(renderWorktree)}</ul> : null}
+                    </>
+                  )}
+                </section>
+              );
+            })}
+          </>
         )}
       </div>
       <div className="sidebar-bottom">
