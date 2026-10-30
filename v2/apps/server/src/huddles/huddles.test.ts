@@ -4,7 +4,7 @@ import {
   type AgentToolScope,
   CommandId,
   EnvironmentId,
-  HUDDLE_AGENT_STREAK_LIMIT,
+  HUDDLE_AGENT_TURN_LIMIT,
   HUDDLE_PAUSED_REASON,
   HuddleId,
   HuddlePostId,
@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Database } from "../db/Database.js";
 import { DomainError, decide } from "../orchestration/decider.js";
 import { Engine } from "../orchestration/Engine.js";
-import { HUDDLE_SCOPE_REASON, HuddleReactor } from "./HuddleReactor.js";
+import { HUDDLE_SCOPE_REASON, HUDDLE_TURN_REASON, HuddleReactor } from "./HuddleReactor.js";
 import { huddleScopeError } from "./huddleScope.js";
 import { TerminalInputTracker } from "./TerminalInputTracker.js";
 
@@ -184,7 +184,7 @@ function withHuddle(members: string[]): RuntimeProjection {
         })),
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
-        agentStreak: 0,
+        agentTurns: 0,
         nextNumber: 1,
       },
     ],
@@ -209,11 +209,82 @@ describe("huddle decisions", () => {
       "Only members of the huddle can post there.",
     );
     expect(() => decide(state, postCommand({ to: [remote] }))).toThrowError("Not in this huddle: Remote.");
-    const [posted] = decide(state, postCommand({ from: lead }));
+    const [posted] = decide(state, postCommand({ from: lead, to: [helper] }));
     expect(posted).toMatchObject({
       type: "huddle.posted",
       post: { number: 1, from: { kind: "agent", agentId: lead }, deliveries: [{ agentId: helper, status: "pending" }] },
     });
+  });
+
+  it("starts a turn only for what a member has to act on, and puts the rest in its inbox", () => {
+    const state = withHuddle([lead, helper, coder]);
+    const statuses = (fields: Record<string, unknown>, from = state) => {
+      const [posted] = decide(from, postCommand(fields));
+      return posted?.type === "huddle.posted" ? posted.post.deliveries.map((delivery) => delivery.status) : [];
+    };
+    expect(statuses({ from: lead, kind: "note", to: [helper] })).toEqual(["inbox"]);
+    expect(statuses({ from: lead, kind: "ask" })).toEqual(["inbox", "inbox"]);
+    expect(statuses({ from: lead, kind: "done", to: [helper] })).toEqual(["pending"]);
+    expect(statuses({ kind: "note" })).toEqual(["pending", "pending", "pending"]);
+    // An answer to an ask wakes the asker, even when it goes to everyone.
+    const asked = {
+      ...state,
+      huddlePosts: [
+        {
+          postId: HuddlePostId.parse(randomUUID()),
+          huddleId,
+          number: 1,
+          from: { kind: "agent" as const, agentId: helper },
+          to: [lead],
+          kind: "ask" as const,
+          text: "Which table first?",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          deliveries: [],
+        },
+      ],
+      huddles: state.huddles?.map((huddle) => ({ ...huddle, nextNumber: 2 })),
+    };
+    expect(statuses({ from: lead, kind: "note", replyTo: asked.huddlePosts[0]?.postId }, asked)).toEqual([
+      "pending",
+      "inbox",
+    ]);
+    // The lead's asks to everyone start a turn for each member.
+    const led = { ...state, huddles: state.huddles?.map((huddle) => ({ ...huddle, lead })) };
+    expect(statuses({ from: lead, kind: "assign" }, led)).toEqual(["pending", "pending"]);
+    expect(statuses({ from: helper, kind: "assign" }, led)).toEqual(["inbox", "inbox"]);
+  });
+
+  it("refuses a second post before the member gets a message, unless it answers an ask", () => {
+    const state = withHuddle([lead, helper]);
+    const askId = HuddlePostId.parse(randomUUID());
+    const posted = {
+      ...state,
+      huddles: state.huddles?.map((huddle) => ({
+        ...huddle,
+        nextNumber: 2,
+        members: huddle.members.map((member) =>
+          member.agentId === lead ? { ...member, posted: true as const } : member,
+        ),
+      })),
+      huddlePosts: [
+        {
+          postId: askId,
+          huddleId,
+          number: 1,
+          from: { kind: "agent" as const, agentId: helper },
+          to: [lead],
+          kind: "ask" as const,
+          text: "Which table first?",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          deliveries: [],
+        },
+      ],
+    };
+    expect(() => decide(posted, postCommand({ from: lead, to: [helper], kind: "note" }))).toThrowError(
+      /You already posted since your last huddle message/u,
+    );
+    expect(decide(posted, postCommand({ from: lead, to: [helper], kind: "note", replyTo: askId }))).toHaveLength(1);
+    expect(decide(posted, postCommand({}))).toHaveLength(1);
   });
 
   it("refuses posts to an archived huddle", () => {
@@ -222,13 +293,17 @@ describe("huddle decisions", () => {
     expect(() => decide(archived, postCommand({}))).toThrow(DomainError);
   });
 
-  it("holds agent messages past the streak limit until the person writes", () => {
+  it("holds agent messages while the huddle is paused, but not the person's", () => {
     const state = withHuddle([lead, helper]);
     const streaked = {
       ...state,
-      huddles: state.huddles?.map((huddle) => ({ ...huddle, agentStreak: HUDDLE_AGENT_STREAK_LIMIT })),
+      huddles: state.huddles?.map((huddle) => ({
+        ...huddle,
+        agentTurns: HUDDLE_AGENT_TURN_LIMIT,
+        paused: true as const,
+      })),
     };
-    const [held] = decide(streaked, postCommand({ from: lead, kind: "note" }));
+    const [held] = decide(streaked, postCommand({ from: lead, to: [helper] }));
     expect(held).toMatchObject({
       post: { deliveries: [{ agentId: helper, status: "held", reason: HUDDLE_PAUSED_REASON }] },
     });
@@ -282,22 +357,41 @@ describe("HuddleReactor", () => {
     expect(later[1]).not.toContain("Members:");
   });
 
-  it("queues for a busy chat and confirms delivery once the chat sends it", async () => {
+  it("holds messages for a busy chat and sends them as one after its turn, with one answer to the askers", async () => {
     const state = seed();
     state.threads = state.threads.map((thread) =>
       thread.threadId === helper ? { ...thread, status: "working" } : thread,
     );
-    const { engine, run, post, settle } = harness(state);
-    await run({ type: "huddle.create", huddleId, name: "Migration", members: [lead, helper] });
+    const { engine, run, post, settle, sends, answer } = harness(state);
+    await run({ type: "huddle.create", huddleId, name: "Migration", members: [lead, helper, coder] });
     await post({ from: lead, to: [helper], text: "Check the indexes." });
+    await post({ from: coder, to: [helper], kind: "note", text: "The orders table is the big one." });
+    await post({ to: [helper], text: "And the foreign keys?" });
     await settle();
-    const status = async () => (await engine.projection()).huddlePosts?.[0]?.deliveries[0]?.status;
-    expect(await status()).toBe("queued");
+    const deliveries = async () => ((await engine.projection()).huddlePosts ?? []).map((entry) => entry.deliveries[0]);
+    expect((await deliveries()).map((delivery) => [delivery?.status, delivery?.reason])).toEqual([
+      ["held", HUDDLE_TURN_REASON],
+      ["inbox", undefined],
+      ["held", HUDDLE_TURN_REASON],
+    ]);
+    expect(await sends(helper)).toEqual([]);
 
     await run({ type: "thread.status", threadId: helper, status: "idle" });
-    await run({ type: "thread.queue.flush", threadId: helper });
     await settle();
-    expect(await status()).toBe("delivered");
+    const [batch] = await sends(helper);
+    expect(await sends(helper)).toHaveLength(1);
+    expect(batch).toContain('Huddle "Migration": 3 new messages.');
+    expect(batch).toContain("Message 1: Lead asks you:\nCheck the indexes.");
+    expect(batch).toContain("Message 2: Coder writes to you:\nThe orders table is the big one.");
+    expect(batch).toContain("Message 3: The person running ZLI asks you:\nAnd the foreign keys?");
+    expect((await deliveries()).map((delivery) => delivery?.status)).toEqual(["delivered", "delivered", "delivered"]);
+
+    await answer(helper, batch as string, "Indexes are fine; keys need a migration.");
+    await settle();
+    const posts = (await engine.projection()).huddlePosts ?? [];
+    expect(posts).toHaveLength(4);
+    expect(posts[3]).toMatchObject({ to: [lead], kind: "note", auto: true, replyTo: posts[2]?.postId });
+    expect(posts.slice(0, 3).some((entry) => entry.deliveries[0]?.awaitingReply)).toBe(false);
   });
 
   it("does not post an answer when the agent already posted in the huddle that turn", async () => {
@@ -337,7 +431,7 @@ describe("HuddleReactor", () => {
     const { engine, input, typed, run, post, settle } = harness();
     await run({ type: "huddle.create", huddleId, name: "Migration", members: [lead, coder] });
     input.record(coder, "draft");
-    await post({ from: lead, to: [coder], kind: "note", text: "FYI the schema changed." });
+    await post({ from: lead, to: [coder], kind: "ask", text: "Did the schema change?" });
     await settle();
     await run({ type: "huddle.release", agentId: coder });
     await settle();
@@ -345,14 +439,23 @@ describe("HuddleReactor", () => {
     expect(typed).toHaveLength(2);
   });
 
-  it("pauses after the agent streak limit and resumes on request", async () => {
-    const { engine, run, post, settle } = harness();
-    await run({ type: "huddle.create", huddleId, name: "Migration", members: [lead, coder] });
-    for (let index = 0; index <= HUDDLE_AGENT_STREAK_LIMIT; index += 1)
-      await post({ from: lead, to: [coder], kind: "note", text: `Update ${index + 1}` });
-    await settle();
+  it("pauses after agents start the turn limit for each other, and resumes on request", async () => {
+    const { engine, run, post, settle, sends, answer } = harness();
+    await run({ type: "huddle.create", huddleId, name: "Migration", members: [lead, helper] });
+    // Each round is two turns: Helper answers the ask, then Lead reads the answer.
+    for (let round = 1; round <= HUDDLE_AGENT_TURN_LIMIT / 2; round += 1) {
+      await post({ from: lead, to: [helper], text: `Question ${round}?` });
+      await settle();
+      await answer(helper, (await sends(helper)).at(-1) as string, `Answer ${round}.`);
+      await settle();
+      await answer(lead, (await sends(lead)).at(-1) as string, "Noted.");
+      await settle();
+    }
     let state = await engine.projection();
-    expect(state.huddles?.[0]?.paused).toBe(true);
+    expect(state.huddles?.[0]).toMatchObject({ paused: true, agentTurns: HUDDLE_AGENT_TURN_LIMIT });
+    await post({ from: lead, to: [helper], text: "One more?" });
+    await settle();
+    state = await engine.projection();
     expect(state.huddlePosts?.at(-1)?.deliveries[0]).toMatchObject({ status: "held", reason: HUDDLE_PAUSED_REASON });
 
     await run({ type: "huddle.resume", huddleId });
@@ -438,7 +541,7 @@ describe("HuddleReactor", () => {
     await post({ text: "Which tables move first?" });
     await settle();
     const deliveries = async () => (await engine.projection()).huddlePosts?.[0]?.deliveries ?? [];
-    expect((await deliveries()).map((delivery) => delivery.status)).toEqual(["delivered", "queued", "delivered"]);
+    expect((await deliveries()).map((delivery) => delivery.status)).toEqual(["delivered", "held", "delivered"]);
 
     setScope("project");
     await post({ text: "And the indexes?" });
@@ -449,21 +552,72 @@ describe("HuddleReactor", () => {
       HUDDLE_SCOPE_REASON,
       HUDDLE_SCOPE_REASON,
     ]);
-    // The queued message had not gone out, so it comes back out of the chat's queue.
-    expect(projection.queuedMessages ?? []).toEqual([]);
     expect((await deliveries())[1]).toMatchObject({ status: "held", reason: HUDDLE_SCOPE_REASON });
     expect(await sends(remote)).toHaveLength(1);
 
     setScope("all");
     await settle();
-    // Each chat is still busy with the first message, so the second waits in its queue.
+    // Each chat is still busy with the first message, so the rest wait for its turn to end.
     const resumed = await engine.projection();
-    expect(resumed.huddlePosts?.[1]?.deliveries.map((delivery) => delivery.status)).toEqual([
-      "queued",
-      "queued",
-      "queued",
+    expect(resumed.huddlePosts?.[1]?.deliveries.map((delivery) => delivery.reason)).toEqual([
+      HUDDLE_TURN_REASON,
+      HUDDLE_TURN_REASON,
+      HUDDLE_TURN_REASON,
     ]);
-    expect(resumed.queuedMessages ?? []).toHaveLength(4);
+    await run({ type: "thread.status", threadId: helper, status: "idle" });
+    await settle();
+    const toHelper = await sends(helper);
+    expect(toHelper).toHaveLength(1);
+    expect(toHelper[0]).toContain('Huddle "Migration": 2 new messages.');
+  });
+
+  it("types one message into a terminal agent, and keeps others in its inbox until it reads", async () => {
+    const { engine, typed, run, post, settle } = harness();
+    await run({ type: "huddle.create", huddleId, name: "Migration", members: [lead, helper, coder] });
+    await post({ from: lead, to: [coder], kind: "assign", text: "Run the migration tests." });
+    await post({ from: helper, to: [coder], text: "Are the users tests green?" });
+    await settle();
+    let state = await engine.projection();
+    expect(state.huddlePosts?.map((entry) => entry.deliveries[0]?.status)).toEqual(["delivered", "inbox"]);
+    expect(typed).toHaveLength(2);
+    expect(state.huddles?.[0]?.members.find((member) => member.agentId === coder)?.typed).toBe(true);
+
+    await run({ type: "huddle.read", huddleId, agentId: coder, upTo: 2 });
+    state = await engine.projection();
+    expect(state.huddlePosts?.[1]?.deliveries[0]?.status).toBe("delivered");
+    expect(state.huddles?.[0]?.members.find((member) => member.agentId === coder)).toMatchObject({ readUpTo: 2 });
+    expect(state.huddles?.[0]?.members.find((member) => member.agentId === coder)?.typed).toBeUndefined();
+  });
+
+  it("types one short line for several terminal messages at once", async () => {
+    const { engine, input, typed, run, post, settle } = harness();
+    await run({ type: "huddle.create", huddleId, name: "Migration", members: [lead, helper, coder] });
+    input.record(coder, "draft");
+    await post({ from: lead, to: [coder], kind: "assign", text: "Run the migration tests." });
+    await post({ from: helper, to: [coder], text: "Are the users tests green?" });
+    await settle();
+    expect(typed).toEqual([]);
+    await run({ type: "huddle.release", agentId: coder });
+    await settle();
+    expect(typed).toHaveLength(2);
+    expect(typed[0]?.data).toContain(
+      'Huddle "Migration": 2 new messages for you, from Lead, Helper. When you reach a stopping point, run: zli huddle read --huddle 00000000',
+    );
+    const state = await engine.projection();
+    expect(state.huddlePosts?.map((entry) => entry.deliveries[0]?.status)).toEqual(["inbox", "inbox"]);
+  });
+
+  it("sets and ends the lead, and drops it when the lead leaves", async () => {
+    const { engine, run } = harness();
+    await run({ type: "huddle.create", huddleId, name: "Migration", members: [lead, helper] });
+    expect((await run({ type: "huddle.lead", huddleId, agentId: remote })).status).toBe("rejected");
+    await run({ type: "huddle.lead", huddleId, agentId: lead });
+    expect((await engine.projection()).huddles?.[0]?.lead).toBe(lead);
+    await run({ type: "huddle.lead", huddleId });
+    expect((await engine.projection()).huddles?.[0]?.lead).toBeUndefined();
+    await run({ type: "huddle.lead", huddleId, agentId: helper });
+    await run({ type: "huddle.leave", huddleId, agentId: helper });
+    expect((await engine.projection()).huddles?.[0]?.lead).toBeUndefined();
   });
 });
 

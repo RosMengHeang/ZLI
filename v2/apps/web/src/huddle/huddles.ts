@@ -1,5 +1,5 @@
 import {
-  HUDDLE_AGENT_STREAK_LIMIT,
+  HUDDLE_AGENT_TURN_LIMIT,
   HUDDLE_TYPING_REASON,
   type HuddleAgentInfo,
   type HuddleDelivery,
@@ -16,9 +16,15 @@ import type { AgentSession } from "../sessions/sessions.js";
 /** The drag payload a tile header carries: the agent's thread or terminal id. */
 export const HUDDLE_AGENT_DRAG_TYPE = "application/x-zli-huddle-agent";
 
-export const PAUSED_MESSAGE = `Paused after ${HUDDLE_AGENT_STREAK_LIMIT} agent messages in a row. Agent messages wait until you write or resume.`;
+export const PAUSED_MESSAGE = `Paused after agents started ${HUDDLE_AGENT_TURN_LIMIT} turns for each other. Their messages wait until you write or resume.`;
 
-export const huddleKindLabel: Record<HuddlePostKind, string> = { ask: "Ask", assign: "Task", note: "Note" };
+export const huddleKindLabel: Record<HuddlePostKind, string> = {
+  ask: "Ask",
+  assign: "Task",
+  done: "Done",
+  blocked: "Blocked",
+  note: "Note",
+};
 
 const statusLabels: Record<string, string> = {
   starting: "Starting",
@@ -99,16 +105,34 @@ const deliveryWords: Partial<Record<HuddleDelivery["status"], string>> = {
   failed: "not delivered",
 };
 
-/** One line per recipient whose copy has not simply arrived, such as "Coder: Held while ...". */
+/**
+ * One line per recipient whose copy has not simply arrived, such as "Coder: Held while ...", and one
+ * line for every recipient it started no turn for.
+ */
 export function deliveryNotes(post: HuddlePost, name: (agentId: string) => string): string[] {
-  return post.deliveries.flatMap((delivery) => {
-    // A held copy's reason is a whole sentence that already says it is held.
-    if (delivery.status === "held" && delivery.reason) return [`${name(delivery.agentId)}: ${delivery.reason}`];
-    const word = deliveryWords[delivery.status];
-    if (word) return [`${name(delivery.agentId)}: ${word}${delivery.reason ? `. ${delivery.reason}` : "."}`];
-    if (delivery.awaitingReply) return [`${name(delivery.agentId)}: has it, answer not posted yet.`];
-    return [];
-  });
+  const unread = post.deliveries
+    .filter((delivery) => delivery.status === "inbox")
+    .map((delivery) => name(delivery.agentId));
+  const quiet =
+    unread.length > 0 ? [`No turn started for ${unread.join(", ")}. They see it when they next read the huddle.`] : [];
+  return post.deliveries
+    .flatMap((delivery) => {
+      if (delivery.status === "inbox") return [];
+      // A held copy's reason is a whole sentence that already says it is held.
+      if (delivery.status === "held" && delivery.reason) return [`${name(delivery.agentId)}: ${delivery.reason}`];
+      const word = deliveryWords[delivery.status];
+      if (word) return [`${name(delivery.agentId)}: ${word}${delivery.reason ? `. ${delivery.reason}` : "."}`];
+      if (delivery.awaitingReply) return [`${name(delivery.agentId)}: has it, answer not posted yet.`];
+      return [];
+    })
+    .concat(quiet);
+}
+
+/** Messages in an agent's inbox in one huddle: they started no turn, and it has not read them yet. */
+export function unreadCount(posts: readonly HuddlePost[], agentId: string): number {
+  return posts.filter((post) =>
+    post.deliveries.some((delivery) => delivery.agentId === agentId && delivery.status === "inbox"),
+  ).length;
 }
 
 /** Messages held for an agent in one huddle. */

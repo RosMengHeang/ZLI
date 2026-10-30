@@ -18,7 +18,8 @@ import {
   agentNameTaken,
   agentTerminalInput,
   catalogEntryServer,
-  HUDDLE_AGENT_STREAK_LIMIT,
+  HUDDLE_AGENT_TURN_LIMIT,
+  HUDDLE_PAUSED_REASON,
   type HuddlePost,
   type HuddleProjection,
   huddleAgentInfo,
@@ -662,12 +663,6 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         };
   };
 
-  /**
-   * What each agent last read in each huddle, by huddle and agent id. Kept in memory, since a restart
-   * only means an agent reads a few messages again.
-   */
-  const huddleCursors = new Map<string, number>();
-
   /** The calling agent. Huddle tools act for one member, so the caller has to be known. */
   const huddleCaller = (state: RuntimeProjection, input: AgentControlTarget & { as?: string | undefined }) => {
     const { worktree, project } = caller(input, state);
@@ -787,21 +782,34 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
       kind: member.kind,
       status: huddleAgentInfo(state, member.agentId)?.status ?? "gone",
       ...(member.agentId === reader.id ? { you: true } : {}),
+      ...(member.agentId === huddle.lead ? { lead: true } : {}),
     })),
+    ...(huddle.lead
+      ? {
+          lead:
+            huddle.lead === reader.id
+              ? "You lead this huddle: the others report to you, and you report to the person."
+              : `${memberLabel(state, huddle.lead, reader)} leads this huddle. Your posts go to the lead unless you name someone else.`,
+        }
+      : {}),
     ...(huddle.paused
       ? {
-          paused:
-            "Agents wrote 12 messages in a row, so their messages are held until the person writes or resumes. Wait for the person instead of posting more.",
+          paused: `Agents started ${HUDDLE_AGENT_TURN_LIMIT} turns for each other since the person last wrote, so their messages are held until the person writes or resumes. Wait for the person instead of posting more.`,
         }
       : {}),
   });
+
+  /** The newest message number the agent read in the huddle, kept by the runtime. */
+  const readPlace = (huddle: HuddleProjection, agent: Agent) =>
+    huddle.members.find((member) => member.agentId === agent.id)?.readUpTo;
 
   /**
    * Huddle messages, newest last. Unread ones (`after` the reader's place) come oldest first, a page at
    * a time, and the place moves only past what was returned, so a long backlog is never skipped. Without
    * `after`, the newest messages below `before` (or the newest of all), with a pointer to earlier ones.
+   * Moving the place also clears the reader's inbox up to it.
    */
-  const readFrom = (
+  const readFrom = async (
     state: RuntimeProjection,
     huddle: HuddleProjection,
     reader: Agent,
@@ -809,16 +817,16 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     limit: number = MAX_HUDDLE_READ,
   ) => {
     const posts = huddlePostsOf(state, huddle.huddleId);
-    const cursorKey = `${huddle.huddleId}:${reader.id}`;
     const page = (shown: readonly HuddlePost[]) => ({
       ...describeHuddle(state, huddle, reader),
       messages: shown.map((post) => describePost(state, post, posts, reader)),
     });
+    const markRead = (upTo: number) =>
+      run({ type: "huddle.read", huddleId: huddle.huddleId, agentId: reader.id, upTo });
     if ("after" in range) {
       const unread = posts.filter((post) => post.number > range.after);
       const shown = unread.slice(0, limit);
-      const last = shown.at(-1);
-      if (last) huddleCursors.set(cursorKey, last.number);
+      await markRead(shown.at(-1)?.number ?? range.after);
       const more = unread.length - shown.length;
       return {
         ...page(shown),
@@ -828,10 +836,8 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     const { before } = range;
     const chosen = before === undefined ? posts : posts.filter((post) => post.number < before);
     const shown = chosen.slice(-limit);
-    const newest = shown.at(-1);
     // Reading back through history leaves the place alone; reading the latest catches the reader up.
-    if (before === undefined && newest && newest.number > (huddleCursors.get(cursorKey) ?? 0))
-      huddleCursors.set(cursorKey, newest.number);
+    if (before === undefined) await markRead(shown.at(-1)?.number ?? 0);
     const earlier = chosen.length - shown.length;
     const oldest = shown[0];
     return {
@@ -847,7 +853,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     const state = projection();
     const { agent } = huddleCaller(state, input);
     const huddle = pickHuddle(state, agent, input.huddle, settings);
-    const cursor = huddleCursors.get(`${huddle.huddleId}:${agent.id}`);
+    const cursor = readPlace(huddle, agent);
     const range =
       input.before !== undefined || input.all || cursor === undefined ? { before: input.before } : { after: cursor };
     return readFrom(state, huddle, agent, range, input.limit);
@@ -858,7 +864,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     const state = projection();
     const { agent } = huddleCaller(state, input);
     const huddle = pickHuddle(state, agent, input.huddle, settings);
-    const cursor = huddleCursors.get(`${huddle.huddleId}:${agent.id}`);
+    const cursor = readPlace(huddle, agent);
     const after = cursor ?? 0;
     const timeoutMs = (input.timeoutSeconds ?? DEFAULT_HUDDLE_WAIT_SECONDS) * 1_000;
     const arrived = await new Promise<RuntimeProjection | undefined>((resolve, reject) => {
@@ -955,9 +961,11 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
       );
       return findAgent(named ? local : members, ref, project.name, missing);
     };
+    // In lead mode the others report to the lead unless they name someone.
+    const reportsTo = huddle.lead !== undefined && huddle.lead !== agent.id ? [huddle.lead] : "everyone";
     let to: "everyone" | "person" | string[] =
       asked === undefined || asked === "everyone" || asked === "person"
-        ? (asked ?? "everyone")
+        ? (asked ?? reportsTo)
         : asked.map((ref) => {
             const found = member(ref);
             if (found.id === agent.id) throw new BrowserControlError("That is you. Name another member of the huddle.");
@@ -980,7 +988,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
       } = input;
       const launched = await launch({ ...target, ...start, as: agent.id });
       await run({ type: "huddle.join", huddleId: huddle.huddleId, agentId: launched.agentId });
-      to = Array.isArray(to) ? [...to, launched.agentId] : asked === undefined ? [launched.agentId] : to;
+      to = asked === undefined ? [launched.agentId] : Array.isArray(to) ? [...to, launched.agentId] : to;
       const found = agentsIn(projection(), new Set([project.projectId]), worktree.worktreeId).find(
         (candidate) => candidate.id === launched.agentId,
       );
@@ -1003,6 +1011,9 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
       ...(replyTo ? { replyTo } : {}),
     });
     const posted = huddlePostsOf(projection(), huddle.huddleId).find((post) => post.postId === postId);
+    const deliveries = posted?.deliveries ?? [];
+    const held = deliveries.some((delivery) => delivery.status === "held" && delivery.reason === HUDDLE_PAUSED_REASON);
+    const quiet = deliveries.length > 0 && deliveries.every((delivery) => delivery.status === "inbox");
     return {
       posted: true,
       huddle: huddle.name,
@@ -1014,9 +1025,15 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
             ? "the person"
             : to.map((id) => memberLabel(projection(), id, agent)),
       ...(started ? { started } : {}),
-      ...(huddle.paused || huddle.agentStreak + 1 > HUDDLE_AGENT_STREAK_LIMIT
+      ...(held
         ? {
-            held: `Agents wrote ${HUDDLE_AGENT_STREAK_LIMIT} messages in a row, so this waits until the person writes or resumes the huddle.`,
+            held: `Agents started ${HUDDLE_AGENT_TURN_LIMIT} turns for each other since the person last wrote, so this waits until the person writes or resumes the huddle.`,
+          }
+        : {}),
+      ...(quiet
+        ? {
+            inbox:
+              "This starts no turn for anyone; members see it when they next read the huddle. To get an answer, name who should answer in to, with kind ask.",
           }
         : {}),
     };

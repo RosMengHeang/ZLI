@@ -50,7 +50,7 @@ export function huddle(overrides: Partial<HuddleProjection> = {}): HuddleProject
     ],
     createdAt: "2026-01-01T10:00:00.000Z",
     updatedAt: "2026-01-01T10:00:00.000Z",
-    agentStreak: 0,
+    agentTurns: 0,
     nextNumber: 4,
     ...overrides,
   } as HuddleProjection;
