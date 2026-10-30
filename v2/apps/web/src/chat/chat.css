@@ -311,7 +311,7 @@ button.step-row:hover .step-file { background: var(--zli-active); }
 .chat-image-gallery .chat-image > img { max-height: 240px; }
 .chat-image-gallery .chat-image-missing { display: none; }
 
-.image-lightbox { position: fixed; z-index: var(--zli-z-dialog); inset: 0; display: flex; flex-direction: column; animation: image-lightbox-in var(--zli-duration-base) var(--zli-ease); }
+.image-lightbox { position: fixed; z-index: var(--zli-z-dialog); inset: 0; display: flex; flex-direction: column; -webkit-app-region: no-drag; animation: image-lightbox-in var(--zli-duration-base) var(--zli-ease); }
 .image-lightbox-scrim { position: absolute; inset: 0; padding: 0; border: 0; background: rgb(0 0 0 / .84); cursor: zoom-out; }
 .image-lightbox-bar { position: relative; display: flex; align-items: center; gap: var(--zli-space-2); height: 48px; flex: 0 0 auto; padding: 0 var(--zli-space-3) 0 var(--zli-space-4); color: var(--zli-text); pointer-events: none; }
 .image-lightbox-bar > * { pointer-events: auto; }
