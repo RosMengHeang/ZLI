@@ -24,9 +24,14 @@ export const permissionHint: Record<PermissionMode, string> = {
   "full-access": "Edits files and runs commands without asking.",
 };
 
+/** The level's icon. Full access tints its shield amber because the agent then acts without asking. */
+export function PermissionIcon({ mode, size = 14 }: { mode: PermissionMode; size?: number }) {
+  return <Icon name={permissionIcon[mode]} size={size} className={`permission-icon is-${mode}`} />;
+}
+
 export const permissionOptions: readonly PickerOption<PermissionMode>[] = permissionModes.map((mode) => ({
   value: mode,
   label: permissionLabel[mode],
   description: permissionHint[mode],
-  icon: <Icon name={permissionIcon[mode]} size={15} />,
+  icon: <PermissionIcon mode={mode} size={15} />,
 }));

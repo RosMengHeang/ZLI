@@ -101,7 +101,8 @@ kbd {
 }
 .picker-menu[data-side="bottom"] { transform-origin: top left; }
 @keyframes picker-in { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
-.picker-list { display: flex; min-height: 0; flex-direction: column; gap: 1px; overflow-y: auto; overscroll-behavior: contain; }
+/* Separators reach past the list's edges, which would otherwise give the list a horizontal scrollbar. */
+.picker-list { display: flex; min-height: 0; flex-direction: column; gap: 1px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .picker-group { display: flex; flex: 0 0 auto; flex-direction: column; gap: 1px; }
 .picker-group + .picker-group { margin-top: var(--zli-space-1); padding-top: var(--zli-space-1); border-top: 1px solid var(--zli-border); }
 .picker-group-label { padding: var(--zli-space-1) var(--zli-space-2) 2px; color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; line-height: var(--zli-leading-normal); }
@@ -123,6 +124,8 @@ kbd {
 /* ---------- Menu: a short list of actions behind an icon button, on the picker's surface ---------- */
 .menu { min-width: 200px; transform-origin: bottom right; }
 .menu[data-side="bottom"] { transform-origin: top right; }
+.menu[data-align="start"] { transform-origin: bottom left; }
+.menu[data-align="start"][data-side="bottom"] { transform-origin: top left; }
 .menu-item { display: flex; width: 100%; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2-5); height: var(--zli-control-md); padding: 0 var(--zli-space-2); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-text); cursor: pointer; font-size: var(--zli-text-sm); text-align: left; }
 .menu-item > svg { flex: 0 0 auto; color: var(--zli-muted); }
 .menu-item > .menu-item-check { color: var(--zli-text); }

@@ -81,6 +81,35 @@ describe("MenuButton", () => {
     expect(menu?.style.bottom).toBe("");
     expect(menu?.style.top).toBe("80px");
   });
+  it("lines the menu up with the button's left edge when asked to start there", async () => {
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("picker-menu") ? 200 : 0;
+    });
+    vi.stubGlobal("innerWidth", 1000);
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(
+        <MenuButton
+          label="Add"
+          icon="plus"
+          align="start"
+          className="extra"
+          items={[{ id: "a", label: "First", run: vi.fn() }]}
+        />,
+      );
+    });
+    const trigger = container.querySelector("button");
+    if (!trigger) throw new Error("No trigger");
+    expect(trigger.classList.contains("extra")).toBe(true);
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue(new DOMRect(40, 500, 28, 28));
+    await act(async () => trigger.click());
+    const menu = document.querySelector<HTMLElement>(".picker-menu");
+    expect(menu?.style.left).toBe("40px");
+    expect(menu?.dataset.align).toBe("start");
+  });
+
   it("opens a labelled menu, moves with the arrow keys past disabled items, and runs the picked item", async () => {
     const first = vi.fn();
     const third = vi.fn();

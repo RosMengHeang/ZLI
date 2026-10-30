@@ -42,7 +42,8 @@ test("inserts shared and personal prompts with / in the composer", async () => {
     await expect(page.getByText("Mock response: inspect workspace")).toBeVisible({ timeout: 30_000 });
 
     await composer.fill("review the diff for typos");
-    await page.getByRole("button", { name: "Saved prompts", exact: true }).click();
+    await page.getByRole("button", { name: "Add files and more", exact: true }).click();
+    await page.getByRole("menuitem", { name: /^Saved prompts/u }).click();
     await page.getByRole("button", { name: "Save draft" }).click();
     const manager = page.getByRole("dialog", { name: "Saved prompts" });
     await expect(manager.getByRole("textbox", { name: "Prompt", exact: true })).toHaveValue(

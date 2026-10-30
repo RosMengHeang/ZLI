@@ -53,6 +53,7 @@ async function render(
   onOpenDiff = vi.fn(),
   results: (command: Record<string, unknown>) => unknown = () => undefined,
   active = false,
+  bridgeExtras: Partial<ZliBridge> = {},
 ) {
   const dispatched: Array<{ command: Record<string, unknown> }> = [];
   const bridge = {
@@ -70,6 +71,7 @@ async function render(
       attachTerminal: async () => ({ accepted: true }),
       onTerminal: () => () => undefined,
     },
+    ...bridgeExtras,
   } as unknown as ZliBridge;
   const container = document.createElement("div");
   document.body.append(container);
@@ -362,6 +364,56 @@ describe("ChatView", () => {
       threadId,
       text: "run the tests",
     });
+  });
+
+  it("gathers attach files, window capture, and saved prompts behind one Add button", async () => {
+    const sources = vi.fn(async () => []);
+    const { container } = await render(
+      projectionWith({ threads: [{ ...thread, status: "idle" }] }),
+      vi.fn(),
+      () => undefined,
+      false,
+      { capture: { sources, take: vi.fn() } },
+    );
+    const add = button(container, "Add files and more");
+    expect(add?.getAttribute("aria-haspopup")).toBe("menu");
+    expect(button(container, "Attach files")).toBeUndefined();
+    const items = () => [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitem"]')];
+    await act(async () => add?.click());
+    expect(items().map((item) => item.querySelector(".menu-item-label")?.textContent)).toEqual([
+      "Attach files",
+      "Attach a window",
+      "Saved prompts",
+    ]);
+
+    const pickFiles = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => undefined);
+    await act(async () => items()[0]?.click());
+    expect(pickFiles).toHaveBeenCalledTimes(1);
+    pickFiles.mockRestore();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+
+    await act(async () => add?.click());
+    await act(async () => items()[1]?.click());
+    // The window picker loads on first use.
+    for (let tick = 0; tick < 50 && !container.querySelector('section[aria-label="Attach a window"]'); tick += 1)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(container.querySelector('section[aria-label="Attach a window"]')).not.toBeNull();
+    expect(sources).toHaveBeenCalledTimes(1);
+
+    await act(async () => add?.click());
+    await act(async () => items()[2]?.click());
+    expect(document.querySelector('[role="listbox"][aria-label="Saved prompts"]')).not.toBeNull();
+    expect(document.activeElement).toBe(container.querySelector('textarea[aria-label="Message Droid"]'));
+  });
+
+  it("dims an unset model and tints only the Full access shield", async () => {
+    const { container } = await render(
+      projectionWith({ threads: [{ ...thread, status: "idle", permissionMode: "full-access" }] }),
+    );
+    expect(button(container, "Model: Default model")?.classList.contains("is-default")).toBe(true);
+    const badge = container.querySelector(".composer-badge");
+    expect(badge?.querySelector(".permission-icon")?.getAttribute("class")).toContain("is-full-access");
+    expect(badge?.getAttribute("data-tooltip")).toContain("without asking");
   });
 
   it("sends file references from the Files panel ahead of the message, then clears them", async () => {

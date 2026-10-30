@@ -295,6 +295,13 @@ const paths = {
       <path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2" />
     </>
   ),
+  /** A chip with pins on two sides: a model with no maker's logo. Pins on all four sides read as a gear when small. */
+  chip: (
+    <>
+      <rect width="12" height="16" x="6" y="4" rx="2" />
+      <path d="M10.5 4a1.5 1.5 0 0 0 3 0M3 9h3M3 15h3M18 9h3M18 15h3" />
+    </>
+  ),
   loader: (
     <path d="M12 2v4M16.2 7.8l2.9-2.9M18 12h4M16.2 16.2l2.9 2.9M12 18v4M4.9 19.1l2.9-2.9M2 12h4M4.9 4.9l2.9 2.9" />
   ),

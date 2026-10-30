@@ -47,7 +47,7 @@ export function ModelMark({
   return maker ? (
     <ProviderMark provider={maker} size={size} />
   ) : (
-    <Icon name="cpu" size={size} className="model-mark-generic" />
+    <Icon name="chip" size={size} className="model-mark-generic" />
   );
 }
 
