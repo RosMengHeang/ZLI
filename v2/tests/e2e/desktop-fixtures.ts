@@ -70,34 +70,28 @@ export async function freePort(): Promise<number> {
 }
 
 /**
- * Clicks one of a sidebar project row's actions, which are display:none until the row is hovered.
- * A render, or another Electron window taking the pointer, drops that hover before the click lands,
- * so the hover and the click are tried again. When the button is still hidden, it is put back in
- * the layout and clicked there.
+ * Clicks one of a sidebar project row's actions. They are display:none until the row is hovered, and a
+ * role query skips display:none, so a hover that does not stick makes the lookup wait until it times out.
+ * Put every action on the row back in the layout, then click.
  */
 export async function clickProjectAction(row: Locator, button: Locator): Promise<void> {
   await expect(async () => {
-    await row.hover();
-    if (await button.isVisible()) {
-      await button.click({ timeout: 2_000 });
-      return;
-    }
-    await button.evaluate((element: HTMLButtonElement) => {
-      if (element.disabled) throw new Error("The row action is disabled.");
-      element.style.setProperty("display", "inline-flex");
-      element.style.setProperty("opacity", "1");
-      element.click();
+    await row.evaluate((label) => {
+      for (const element of label.querySelectorAll<HTMLElement>(".project-action")) {
+        element.style.setProperty("display", "inline-flex");
+        element.style.setProperty("opacity", "1");
+      }
     });
+    await button.click({ timeout: 2_000 });
   }).toPass({ timeout: 30_000 });
 }
 
 /** Opens the Create worktree dialog from the first project's row. */
 export async function openCreateWorktree(page: Page): Promise<void> {
-  // The hidden button is display:none, so it can't anchor the row locator.
-  await clickProjectAction(
-    page.locator(".project-label").first(),
-    page.getByRole("button", { name: "Create worktree", exact: true }),
-  );
+  const row = page.locator(".project-label").first();
+  // Scope to the row. The dialog has another Create worktree button, and a page-wide role query
+  // cannot see this one while it is display:none.
+  await clickProjectAction(row, row.getByRole("button", { name: "Create worktree", exact: true }));
 }
 
 export async function createGitFixture(): Promise<{ root: string; repo: string }> {
