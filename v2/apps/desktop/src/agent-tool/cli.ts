@@ -23,8 +23,11 @@ Usage:
       --before <n>                 Show the messages numbered below n instead, to read further back.
       --limit <n>                  How many messages to show, up to 50.
   zli huddle post <message>        Write in your huddle. Members get it as their next prompt.
-      --to <names>                 Comma-separated member names, or person. Default: everyone.
-      --kind <kind>                ask wants an answer, assign hands over a task, note (default) informs.
+      --to <names>                 Comma-separated member names, or person. Default: everyone,
+                                   or the lead when the huddle has one.
+      --kind <kind>                ask wants an answer, assign hands over a task, done reports
+                                   finished work, blocked needs a decision, note (default)
+                                   informs and starts no turn.
       --reply-to <n>               The number of the message this answers.
       --new-agent <name>           Start a sub-agent with this name, add it, and give it the task.
       --provider <provider>        Which agent --new-agent starts. Takes --terminal, --same-worktree,
@@ -45,7 +48,8 @@ folder without Git, sign messages and sub-agents only when they pass --as.
 
 A huddle is a conversation between agents that the person follows and steers. The person
 adds agents to it. Nothing a terminal agent prints reaches the huddle: answer with
-zli huddle post.
+zli huddle post. Post when you are done, blocked, or need an answer, all in one post. A
+second post before anyone writes to you is refused unless it answers with --reply-to.
 
 Options for every command:
   --cwd <dir>        Directory used to pick the ZLI worktree (default: current directory).

@@ -4,6 +4,8 @@ import {
   type AgentToolScope,
   agentTerminalInput,
   CommandId,
+  HUDDLE_AGENT_TURN_LIMIT,
+  HUDDLE_PAUSED_REASON,
   HUDDLE_REPLY_LIMIT,
   HUDDLE_TYPING_REASON,
   type HuddleDelivery,
@@ -12,6 +14,7 @@ import {
   type HuddlePost,
   HuddlePostId,
   type HuddleProjection,
+  huddleKindWantsAnswer,
   huddleSpansProjects,
   type RuntimeCommand,
   type RuntimeEventEnvelope,
@@ -19,10 +22,12 @@ import {
 } from "@zli-v2/contracts";
 
 import type { CommandReceipt, Engine } from "../orchestration/Engine.js";
-import { huddleDeliveryText, huddleQueueId } from "./huddleText.js";
+import { huddleBatchText, huddleDeliveryText, huddleNudgeText, huddleQueueId } from "./huddleText.js";
 import type { TerminalInputTracker } from "./TerminalInputTracker.js";
 
 const STARTING_REASON = "Held until the agent finishes starting.";
+export const HUDDLE_TURN_REASON =
+  "Waits for the agent's current turn to end, then goes with any other new messages in one.";
 const ENDED_REASON = "The terminal agent exited before this went out.";
 const DEQUEUED_REASON = "Taken out of the chat's queue before it was sent.";
 const UNSENT_REASON = "Left the chat's queue while ZLI was closed, and the chat has no record of getting it.";
@@ -49,17 +54,27 @@ type DeliveryChange = {
   awaitingReply?: boolean;
   introduced?: true;
   sentHash?: string;
+  typed?: true;
+  turn?: true;
 };
+
+/** One member's copy of one post. */
+type Copy = { post: HuddlePost; delivery: HuddleDelivery };
+
+/** Turns agents can still start for each other in a huddle during this run. */
+type Budget = { left: number };
 
 /**
  * Carries huddle messages to their members and chat agents' answers back.
  *
- * Chats get messages through their queue, so a busy chat reads them after its turn. The answer to an
- * ask or a task is the chat's next turn, posted back as a note. Terminal agents get messages typed
- * in, held while the person has unsent typing there, and answer with the huddle tool themselves.
+ * Only messages a member has to act on start a turn for it; the rest wait in its inbox. A chat gets
+ * what waits for it as one message once its turn ends, and its answer to an ask or a task is that
+ * next turn, posted back as a note. A terminal agent gets one message typed in; anything more while
+ * it has not read or posted goes to its inbox, and several at once get one short line saying how
+ * many and how to read them. Typing is held while the person has unsent input there.
  *
- * Every run reads the projection and moves each open delivery one step. What a step needs to know
- * after a restart lives on the delivery record: the fingerprint of the text handed over, recorded
+ * Every run reads the projection and moves each member's open copies one step. What a step needs to
+ * know after a restart lives on the delivery record: the fingerprint of the text handed over, recorded
  * before a terminal is typed into, so a restart neither types a message twice nor loses a chat's answer.
  */
 export class HuddleReactor {
@@ -72,7 +87,7 @@ export class HuddleReactor {
    * Huddle entries a chat took out of its queue and sent, by queue id. The chat records the message a
    * moment after the send, so this bridges that gap; after a restart the recorded message stands in.
    */
-  private readonly sentFromQueue = new Set<string>();
+  private readonly sentFromQueue = new Map<string, number>();
   /** When a huddle entry left a chat's queue, sent or not, by queue id. */
   private readonly leftQueue = new Map<string, number>();
   /** Terminals whose held messages the person asked to type now. */
@@ -115,7 +130,7 @@ export class HuddleReactor {
         // A queued message is sent as its removal followed at once by the send, in one commit.
         for (const [queueId, sequence] of this.leftQueue)
           if (sequence === envelope.sequence - 1 && queueId.endsWith(`:${event.threadId}`))
-            this.sentFromQueue.add(queueId);
+            this.sentFromQueue.set(queueId, envelope.sequence);
         return;
       case "thread.status.changed":
         if (event.status !== "idle" && event.status !== "stopped" && event.status !== "failed") return;
@@ -151,58 +166,49 @@ export class HuddleReactor {
 
   private async pump(): Promise<void> {
     const state = await this.engine.projection();
-    const huddles = new Map(
-      (state.huddles ?? []).filter((huddle) => !huddle.archived).map((huddle) => [huddle.huddleId, huddle]),
+    const huddles = (state.huddles ?? []).filter((huddle) => !huddle.archived);
+    const posts = (state.huddlePosts ?? []).filter((post) =>
+      huddles.some((huddle) => huddle.huddleId === post.huddleId),
     );
-    const posts = (state.huddlePosts ?? []).filter((post) => huddles.has(post.huddleId));
     const narrowed = this.options.agentScope() !== "all";
-    const blocked = new Set(
-      [...huddles.values()]
-        .filter(
-          (huddle) =>
-            narrowed &&
-            huddleSpansProjects(
-              state,
-              huddle.members.map((member) => member.agentId),
-            ),
-        )
-        .map((huddle) => huddle.huddleId),
-    );
-    // Introductions made during this run, which the snapshot does not show yet.
-    const introduced = new Set<string>();
-    for (const post of posts) {
-      const huddle = huddles.get(post.huddleId) as HuddleProjection;
-      const huddlePosts = posts.filter((candidate) => candidate.huddleId === huddle.huddleId);
-      const outOfScope = blocked.has(huddle.huddleId);
-      for (const delivery of post.deliveries) {
-        const found = huddle.members.find((member) => member.agentId === delivery.agentId);
-        if (!found) continue;
-        const introKey = `${huddle.huddleId}:${found.agentId}`;
-        const member: HuddleMember = introduced.has(introKey) ? { ...found, introduced: true } : found;
+    for (const huddle of huddles) {
+      const huddlePosts = posts.filter((post) => post.huddleId === huddle.huddleId);
+      const outOfScope =
+        narrowed &&
+        huddleSpansProjects(
+          state,
+          huddle.members.map((member) => member.agentId),
+        );
+      const budget: Budget = { left: HUDDLE_AGENT_TURN_LIMIT - (huddle.agentTurns ?? 0) };
+      for (const member of huddle.members) {
+        const copies = huddlePosts.flatMap((post) => {
+          const delivery = post.deliveries.find((candidate) => candidate.agentId === member.agentId);
+          return delivery ? [{ post, delivery }] : [];
+        });
+        if (copies.length === 0) continue;
         try {
-          if (delivery.status === "pending" || delivery.status === "held") {
-            if (post.from.kind === "agent" && huddle.paused) continue;
-            if (outOfScope && !(member.kind === "terminal" && delivery.sentHash)) {
-              await this.hold(post, delivery, HUDDLE_SCOPE_REASON);
-              continue;
-            }
-            const didIntroduce =
-              member.kind === "chat"
-                ? await this.deliverToChat(state, huddle, post, member, delivery, huddlePosts)
-                : await this.deliverToTerminal(state, huddle, post, member, delivery, huddlePosts);
-            if (didIntroduce) introduced.add(introKey);
-          } else if (delivery.status === "queued")
-            await this.confirmQueued(state, huddle, post, member, delivery, huddlePosts, outOfScope);
-          else if (delivery.status === "delivered" && delivery.awaitingReply && !outOfScope)
-            await this.postAnswer(state, huddle, post, delivery);
+          await this.serve(state, huddle, member, copies, huddlePosts, outOfScope, budget);
         } catch (error) {
-          await this.report(post, delivery.agentId, {
-            status: "failed",
-            reason: clip(error instanceof Error ? error.message : String(error)),
-          });
+          const reason = clip(error instanceof Error ? error.message : String(error));
+          for (const copy of copies.filter((candidate) => isOpen(candidate.delivery)))
+            await this.report(copy.post, member.agentId, { status: "failed", reason });
         }
       }
     }
+    const waiting = new Set(
+      posts.flatMap((post) =>
+        post.deliveries.flatMap((delivery) =>
+          delivery.status === "queued" && delivery.sentHash
+            ? [huddleQueueId(post.huddleId, delivery.sentHash, delivery.agentId)]
+            : [],
+        ),
+      ),
+    );
+    // Copies in one batch share a queue id, so a mark stays until no copy waits on it. A mark newer
+    // than this run's snapshot may belong to a batch the snapshot does not show as queued yet.
+    for (const marks of [this.sentFromQueue, this.leftQueue])
+      for (const [queueId, sequence] of marks)
+        if (!waiting.has(queueId) && sequence <= state.lastSequence) marks.delete(queueId);
     for (const terminalId of [...this.released])
       if (
         !posts.some((post) => post.deliveries.some((delivery) => delivery.agentId === terminalId && isOpen(delivery)))
@@ -210,113 +216,212 @@ export class HuddleReactor {
         this.released.delete(terminalId);
   }
 
-  /** Returns whether the text introduced the huddle to the member. */
+  /** Moves one member's copies in one huddle a step. */
+  private async serve(
+    state: RuntimeProjection,
+    huddle: HuddleProjection,
+    member: HuddleMember,
+    copies: readonly Copy[],
+    posts: readonly HuddlePost[],
+    outOfScope: boolean,
+    budget: Budget,
+  ): Promise<void> {
+    for (const copy of copies)
+      if (copy.delivery.status === "queued") await this.confirmQueued(state, huddle, member, copy, outOfScope);
+    if (member.kind === "chat" && !outOfScope)
+      await this.postAnswers(
+        state,
+        huddle,
+        member,
+        copies.filter((copy) => copy.delivery.status === "delivered" && copy.delivery.awaitingReply),
+        posts,
+      );
+    let open = copies.filter((copy) => isOpen(copy.delivery));
+    if (outOfScope) {
+      // A terminal copy with a fingerprint was being typed when ZLI stopped; it only needs closing.
+      const interrupted = (copy: Copy) => member.kind === "terminal" && copy.delivery.sentHash !== undefined;
+      for (const copy of open) if (!interrupted(copy)) await this.hold(copy, HUDDLE_SCOPE_REASON);
+      open = open.filter(interrupted);
+    }
+    if (huddle.paused) {
+      for (const copy of open) if (copy.post.from.kind === "agent") await this.hold(copy, HUDDLE_PAUSED_REASON);
+      open = open.filter((copy) => copy.post.from.kind === "person");
+    }
+    if (open.length === 0) return;
+    const inbox = copies.filter((copy) => copy.delivery.status === "inbox");
+    if (member.kind === "chat") await this.deliverToChat(state, huddle, member, open, inbox, posts, budget);
+    else await this.deliverToTerminal(state, huddle, member, open, inbox, posts, budget);
+  }
+
   private async deliverToChat(
     state: RuntimeProjection,
     huddle: HuddleProjection,
-    post: HuddlePost,
     member: HuddleMember,
-    delivery: HuddleDelivery,
+    open: readonly Copy[],
+    inbox: readonly Copy[],
     posts: readonly HuddlePost[],
-  ): Promise<boolean> {
-    if (!state.threads.some((thread) => thread.threadId === member.agentId)) return false;
-    const queueId = huddleQueueId(post.postId, member.agentId);
+    budget: Budget,
+  ): Promise<void> {
+    const thread = state.threads.find((candidate) => candidate.threadId === member.agentId);
+    if (!thread) return;
     const intro = member.introduced ? {} : { introduced: true as const };
-    // A recorded fingerprint means ZLI handed this over before it stopped, so look before sending again.
-    // Without one the chat has not seen it, even if an identical message went out for another post.
-    if (delivery.sentHash) {
-      const sentHash = delivery.sentHash;
-      if ((state.queuedMessages ?? []).some((queued) => queued.queueId === queueId)) {
-        await this.report(post, member.agentId, { status: "queued", ...intro });
-        return !member.introduced;
-      }
-      if (sentMessageIndex(state, member.agentId, sentHash) >= 0) {
-        await this.report(post, member.agentId, { status: "delivered", ...awaiting(post), ...intro });
-        return !member.introduced;
-      }
+    // A recorded fingerprint means ZLI handed these over before it stopped, so look before sending again.
+    // Without one the chat has not seen them, even if an identical message went out for other posts.
+    let fresh = [...open];
+    for (const sentHash of new Set(open.flatMap((copy) => copy.delivery.sentHash ?? []))) {
+      const batch = open.filter((copy) => copy.delivery.sentHash === sentHash);
+      const queued = inQueue(state, member.agentId, sentHash);
+      if (!queued && sentMessageIndex(state, member.agentId, sentHash) < 0) continue;
+      for (const copy of batch)
+        await this.report(
+          copy.post,
+          member.agentId,
+          queued ? { status: "queued", ...intro } : { status: "delivered", ...awaiting(copy.post), ...intro },
+        );
+      fresh = fresh.filter((copy) => !batch.includes(copy));
     }
-    const text = huddleDeliveryText(state, huddle, post, member, posts);
+    if (fresh.length === 0) return;
+    // Everything that arrives during a turn goes out together once it ends, as one more turn.
+    if (BUSY.has(thread.status) || huddleEntryQueued(state, member.agentId)) {
+      for (const copy of fresh) await this.hold(copy, HUDDLE_TURN_REASON);
+      return;
+    }
+    const caused = !fresh.some((copy) => copy.post.from.kind === "person");
+    if (caused && budget.left <= 0) {
+      for (const copy of fresh) await this.hold(copy, HUDDLE_PAUSED_REASON);
+      return;
+    }
+    const text = huddleBatchText(
+      state,
+      huddle,
+      member,
+      fresh.map((copy) => copy.post),
+      inbox.map((copy) => copy.post),
+      posts,
+    );
     const sentHash = fingerprint(text);
-    await this.report(post, member.agentId, { status: "pending", sentHash });
+    for (const copy of fresh) await this.report(copy.post, member.agentId, { status: "pending", sentHash });
     const receipt = await this.dispatch({
       type: "thread.queue",
-      queueId,
+      queueId: huddleQueueId(huddle.huddleId, sentHash, member.agentId),
       threadId: member.agentId,
       text,
     } as RuntimeCommand);
     if (receipt.status === "rejected") {
-      await this.report(post, member.agentId, {
-        status: "failed",
-        reason: clip(receipt.error?.message ?? "The chat did not take the message."),
-      });
-      return false;
+      const reason = clip(receipt.error?.message ?? "The chat did not take the message.");
+      for (const copy of fresh) await this.report(copy.post, member.agentId, { status: "failed", reason });
+      return;
     }
+    if (caused) budget.left -= 1;
     const sentNow =
       receipt.eventTypes.includes("thread.send.requested") && !receipt.eventTypes.includes("thread.queued");
-    await this.report(post, member.agentId, {
-      status: sentNow ? "delivered" : "queued",
-      sentHash,
-      ...(sentNow ? awaiting(post) : {}),
-      ...intro,
-    });
-    return !member.introduced;
+    for (const [index, copy] of fresh.entries())
+      await this.report(copy.post, member.agentId, {
+        status: sentNow ? "delivered" : "queued",
+        sentHash,
+        ...(sentNow ? awaiting(copy.post) : {}),
+        ...(index === 0 ? { ...intro, ...(caused ? { turn: true as const } : {}) } : {}),
+      });
+    for (const copy of inbox) await this.report(copy.post, member.agentId, { status: "delivered", sentHash });
   }
 
   private async deliverToTerminal(
     state: RuntimeProjection,
     huddle: HuddleProjection,
-    post: HuddlePost,
     member: HuddleMember,
-    delivery: HuddleDelivery,
+    open: readonly Copy[],
+    inbox: readonly Copy[],
     posts: readonly HuddlePost[],
-  ): Promise<boolean> {
+    budget: Budget,
+  ): Promise<void> {
     const intro = member.introduced ? {} : { introduced: true as const };
-    if (delivery.sentHash) {
+    const interrupted = open.filter((copy) => copy.delivery.sentHash);
+    if (interrupted.length > 0) {
       // Typing started before ZLI stopped. Typing it again could run the message twice.
-      await this.report(post, member.agentId, { status: "delivered", reason: INTERRUPTED_REASON, ...intro });
-      return !member.introduced;
+      for (const copy of interrupted)
+        await this.report(copy.post, member.agentId, {
+          status: "delivered",
+          reason: INTERRUPTED_REASON,
+          typed: true,
+          ...intro,
+        });
+      return;
     }
     const terminal = state.terminals.find((candidate) => candidate.terminalId === member.agentId);
-    if (!terminal) return false;
+    if (!terminal) return;
     if (terminal.status === "exited" || terminal.status === "failed") {
-      await this.report(post, member.agentId, { status: "failed", reason: ENDED_REASON });
-      return false;
+      for (const copy of open) await this.report(copy.post, member.agentId, { status: "failed", reason: ENDED_REASON });
+      return;
     }
-    if (terminal.status !== "running") return this.hold(post, delivery, STARTING_REASON);
-    if (this.options.input.hasUnsent(member.agentId) && !this.released.has(member.agentId))
-      return this.hold(post, delivery, HUDDLE_TYPING_REASON);
-    const text = huddleDeliveryText(state, huddle, post, member, posts);
-    await this.report(post, member.agentId, { status: "pending", sentHash: fingerprint(text) });
+    if (terminal.status !== "running") {
+      for (const copy of open) await this.hold(copy, STARTING_REASON);
+      return;
+    }
+    if (this.options.input.hasUnsent(member.agentId) && !this.released.has(member.agentId)) {
+      for (const copy of open) await this.hold(copy, HUDDLE_TYPING_REASON);
+      return;
+    }
+    // Until the agent reads or posts, what other agents write waits in its inbox. The person's
+    // messages are still typed in.
+    const quiet = member.typed ? open.filter((copy) => copy.post.from.kind === "agent") : [];
+    for (const copy of quiet) await this.report(copy.post, member.agentId, { status: "inbox" });
+    const typing = open.filter((copy) => !quiet.includes(copy));
+    const [first] = typing;
+    if (!first) return;
+    const caused = !typing.some((copy) => copy.post.from.kind === "person");
+    if (caused && budget.left <= 0) {
+      for (const copy of typing) await this.hold(copy, HUDDLE_PAUSED_REASON);
+      return;
+    }
+    const single = typing.length === 1;
+    const text = single
+      ? huddleDeliveryText(state, huddle, first.post, member, posts, inbox.length + quiet.length)
+      : huddleNudgeText(
+          state,
+          huddle,
+          member,
+          [...typing, ...inbox, ...quiet].map((copy) => copy.post),
+        );
+    const sentHash = fingerprint(text);
+    for (const copy of typing) await this.report(copy.post, member.agentId, { status: "pending", sentHash });
     this.options.writeTerminal(member.agentId, agentTerminalInput(text));
     await this.sleep(this.enterDelayMs);
     this.options.writeTerminal(member.agentId, "\r");
-    await this.report(post, member.agentId, { status: "delivered", ...intro });
-    return !member.introduced;
+    if (caused) budget.left -= 1;
+    for (const [index, copy] of typing.entries())
+      await this.report(copy.post, member.agentId, {
+        // A nudge only names the messages, so they stay unread until the agent reads the huddle.
+        status: single ? "delivered" : "inbox",
+        ...(index === 0 ? { typed: true as const, ...intro, ...(caused ? { turn: true as const } : {}) } : {}),
+      });
   }
 
   private async confirmQueued(
     state: RuntimeProjection,
     huddle: HuddleProjection,
-    post: HuddlePost,
     member: HuddleMember,
-    delivery: HuddleDelivery,
-    posts: readonly HuddlePost[],
+    { post, delivery }: Copy,
     outOfScope: boolean,
   ): Promise<void> {
-    const queueId = huddleQueueId(post.postId, delivery.agentId);
-    if ((state.queuedMessages ?? []).some((queued) => queued.queueId === queueId)) {
+    const sentHash = delivery.sentHash ?? fingerprint(huddleDeliveryText(state, huddle, post, member, []));
+    const queueId = huddleQueueId(huddle.huddleId, sentHash, delivery.agentId);
+    const queued = (state.queuedMessages ?? []).find(
+      (entry) => entry.threadId === delivery.agentId && fingerprint(entry.text) === sentHash,
+    );
+    if (queued) {
       if (!outOfScope) return;
       // Still unsent, so it can wait until Settings let the huddle span projects again.
-      await this.dispatch({ type: "thread.queue.remove", threadId: delivery.agentId, queueId } as RuntimeCommand);
-      this.leftQueue.delete(queueId);
+      await this.dispatch({
+        type: "thread.queue.remove",
+        threadId: delivery.agentId,
+        queueId: queued.queueId,
+      } as RuntimeCommand);
+      this.leftQueue.delete(queued.queueId);
       await this.report(post, delivery.agentId, { status: "held", reason: HUDDLE_SCOPE_REASON });
       return;
     }
-    const sentHash = delivery.sentHash ?? fingerprint(huddleDeliveryText(state, huddle, post, member, posts));
     const sent = this.sentFromQueue.has(queueId) || sentMessageIndex(state, delivery.agentId, sentHash) >= 0;
     const left = this.leftQueue.has(queueId);
-    this.sentFromQueue.delete(queueId);
-    this.leftQueue.delete(queueId);
     if (sent) {
       await this.report(post, delivery.agentId, { status: "delivered", sentHash, ...awaiting(post) });
       return;
@@ -324,43 +429,64 @@ export class HuddleReactor {
     await this.report(post, delivery.agentId, { status: "failed", reason: left ? DEQUEUED_REASON : UNSENT_REASON });
   }
 
-  /** Posts the chat's answer once the turn that read the message is over. */
-  private async postAnswer(
+  /**
+   * Posts the chat's answer once the turn that read the messages is over: one answer per batch, to
+   * every agent in it that asked, or to the person.
+   */
+  private async postAnswers(
     state: RuntimeProjection,
     huddle: HuddleProjection,
-    post: HuddlePost,
-    delivery: HuddleDelivery,
+    member: HuddleMember,
+    expecting: readonly Copy[],
+    posts: readonly HuddlePost[],
   ): Promise<void> {
-    const thread = state.threads.find((candidate) => candidate.threadId === delivery.agentId);
+    if (expecting.length === 0) return;
+    const thread = state.threads.find((candidate) => candidate.threadId === member.agentId);
     if (thread && BUSY.has(thread.status)) return;
     const done = { status: "delivered" as const, awaitingReply: false };
-    const answer = delivery.sentHash ? turnAnswer(state, delivery.agentId, delivery.sentHash) : "";
-    if (!answer) {
-      await this.report(post, delivery.agentId, done);
-      return;
+    for (const sentHash of new Set(expecting.map((copy) => copy.delivery.sentHash ?? ""))) {
+      const batch = expecting.filter((copy) => (copy.delivery.sentHash ?? "") === sentHash);
+      const answer = sentHash ? turnAnswer(state, member.agentId, sentHash) : "";
+      const ids = new Set(batch.map((copy) => copy.post.postId));
+      // After a restart between posting the answer and closing the rest of the batch.
+      const answered = posts.some(
+        (post) => post.auto && senderOf(post) === member.agentId && post.replyTo !== undefined && ids.has(post.replyTo),
+      );
+      const last = batch.at(-1);
+      if (!answer || answered || !last) {
+        for (const copy of batch) await this.report(copy.post, member.agentId, done);
+        continue;
+      }
+      const askers = [
+        ...new Set(
+          batch.flatMap((copy) => {
+            const asker = senderOf(copy.post);
+            return asker && huddle.members.some((candidate) => candidate.agentId === asker) ? [asker] : [];
+          }),
+        ),
+      ];
+      const cut = answer.length > HUDDLE_REPLY_LIMIT;
+      // Posting with replyTo clears the expected answer in the same commit, so it goes out once.
+      const receipt = await this.dispatch({
+        type: "huddle.post",
+        huddleId: huddle.huddleId,
+        postId: HuddlePostId.parse(randomUUID()),
+        from: member.agentId,
+        to: askers.length > 0 ? askers : "person",
+        kind: "note",
+        text: cut ? answer.slice(0, HUDDLE_REPLY_LIMIT) : answer,
+        replyTo: last.post.postId,
+        auto: true,
+        ...(cut ? { cut: true } : {}),
+      });
+      for (const copy of batch)
+        if (copy !== last || receipt.status === "rejected") await this.report(copy.post, member.agentId, done);
     }
-    const cut = answer.length > HUDDLE_REPLY_LIMIT;
-    const asker = post.from.kind === "agent" ? post.from.agentId : undefined;
-    // Posting with replyTo clears the expected answer in the same commit, so it goes out once.
-    const receipt = await this.dispatch({
-      type: "huddle.post",
-      huddleId: huddle.huddleId,
-      postId: HuddlePostId.parse(randomUUID()),
-      from: delivery.agentId,
-      to: asker && huddle.members.some((member) => member.agentId === asker) ? [asker] : "person",
-      kind: "note",
-      text: cut ? answer.slice(0, HUDDLE_REPLY_LIMIT) : answer,
-      replyTo: post.postId,
-      auto: true,
-      ...(cut ? { cut: true } : {}),
-    });
-    if (receipt.status === "rejected") await this.report(post, delivery.agentId, done);
   }
 
-  private async hold(post: HuddlePost, delivery: HuddleDelivery, reason: string): Promise<false> {
+  private async hold({ post, delivery }: Copy, reason: string): Promise<void> {
     if (delivery.status !== "held" || delivery.reason !== reason)
       await this.report(post, delivery.agentId, { status: "held", reason });
-    return false;
   }
 
   private async report(post: HuddlePost, agentId: string, change: DeliveryChange): Promise<void> {
@@ -375,6 +501,19 @@ export class HuddleReactor {
 /** A short fingerprint of the exact text a member got, kept on the delivery instead of the text. */
 export function fingerprint(text: string): string {
   return createHash("sha256").update(text).digest("hex").slice(0, 16);
+}
+
+function inQueue(state: RuntimeProjection, threadId: string, sentHash: string): boolean {
+  return (state.queuedMessages ?? []).some(
+    (entry) => entry.threadId === threadId && fingerprint(entry.text) === sentHash,
+  );
+}
+
+/** A huddle batch waits in the chat's queue, so the next one waits for it to go out. */
+function huddleEntryQueued(state: RuntimeProjection, threadId: string): boolean {
+  return (state.queuedMessages ?? []).some(
+    (entry) => entry.threadId === threadId && entry.queueId.startsWith("huddle:"),
+  );
 }
 
 /** Where the chat recorded the message with this fingerprint, or -1. */
@@ -401,8 +540,12 @@ function turnAnswer(state: RuntimeProjection, threadId: string, sentHash: string
   return parts.join("\n\n");
 }
 
+function senderOf(post: HuddlePost): string | undefined {
+  return post.from.kind === "agent" ? post.from.agentId : undefined;
+}
+
 function awaiting(post: HuddlePost): { awaitingReply?: true } {
-  return post.kind !== "note" ? { awaitingReply: true } : {};
+  return huddleKindWantsAnswer(post.kind) ? { awaitingReply: true } : {};
 }
 
 function isOpen(delivery: HuddleDelivery): boolean {

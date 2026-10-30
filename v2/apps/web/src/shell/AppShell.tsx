@@ -1503,7 +1503,7 @@ function WorkspaceApp() {
       ? [
           {
             label: "New agent",
-            icon: "plus" as const,
+            icon: "agentNew" as const,
             group: "Create" as const,
             shortcut: shortcuts.newAgent,
             action: () => openNewAgent(),
