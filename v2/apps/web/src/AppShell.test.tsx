@@ -578,6 +578,113 @@ describe("AppShell", () => {
   });
 });
 
+describe("Project boards", () => {
+  const shopId = ProjectId.parse("00000000-0000-4000-8000-000000000020");
+  const shopWorktreeId = WorktreeId.parse("00000000-0000-4000-8000-000000000021");
+  const ids = {
+    a1: "00000000-0000-4000-8000-000000000211",
+    a2: "00000000-0000-4000-8000-000000000212",
+    b1: "00000000-0000-4000-8000-000000000213",
+  };
+  // Every agent is called Bob, so only the session id tells them apart.
+  const bob = (sessionId: string, worktree: string) =>
+    ({
+      terminalId: sessionId.replace(/2(\d\d)$/u, "3$1"),
+      worktreeId: worktree,
+      title: "Claude Code",
+      status: "running",
+      kind: "agent",
+      name: "Bob",
+      agent: { provider: "claude-code", permissionMode: "full-access" },
+      sessionId,
+    }) as RuntimeProjection["terminals"][number];
+  const twoProjects: RuntimeProjection = {
+    ...discovered,
+    projects: [...discovered.projects, { projectId: shopId, path: "C:/shop", name: "shop" }],
+    worktrees: [
+      ...discovered.worktrees,
+      { worktreeId: shopWorktreeId, projectId: shopId, path: "C:/shop", branch: "trunk", status: "ready" },
+    ],
+    terminals: [bob(ids.a1, worktreeId), bob(ids.a2, worktreeId), bob(ids.b1, shopWorktreeId)],
+  };
+  const shown = (container: HTMLElement) =>
+    [...container.querySelectorAll(".agent-tile")].map((tile) => tile.getAttribute("data-session-id"));
+  const menuItem = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]')].find(
+      (item) => item.querySelector(".menu-item-label")?.textContent === label,
+    );
+  const fromProjectMenu = async (container: HTMLElement, project: string, label: string) => {
+    await act(async () => button(container, `${project} actions`)?.click());
+    const item = menuItem(label);
+    if (!item) throw new Error(`The ${project} menu has no ${label}.`);
+    await act(async () => item.click());
+  };
+
+  it("swaps one project's agents for another's and back, without stopping any agent", async () => {
+    const dispatched: unknown[] = [];
+    const container = await render(makeBridge(twoProjects, dispatched));
+    expect(shown(container)).toEqual([ids.a1, ids.a2, ids.b1]);
+    await act(async () => button(container, "repo actions")?.click());
+    expect(menuItem("Open all agents")?.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => document.body.dispatchEvent(new Event("pointerdown")));
+
+    await fromProjectMenu(container, "shop", "Show only this project");
+    expect(shown(container)).toEqual([ids.b1]);
+    expect(container.querySelector(".topbar-project")?.textContent).toBe("shop");
+    expect(container.querySelector(".topbar-branch")?.textContent).toBe("trunk");
+    const repoRows = container.querySelectorAll('section[aria-label="repo"] .session-row');
+    expect([...repoRows].map((row) => row.getAttribute("aria-label")?.endsWith(", in the background"))).toEqual([
+      true,
+      true,
+    ]);
+
+    await fromProjectMenu(container, "repo", "Show only this project");
+    expect(shown(container)).toEqual([ids.a1, ids.a2]);
+    expect(container.querySelector(".topbar-project")?.textContent).toBe("repo");
+
+    await fromProjectMenu(container, "repo", "Close all agents");
+    expect(shown(container)).toEqual([]);
+    expect(container.querySelector('[role="dialog"][aria-label="Close agent"]')).toBeNull();
+    await fromProjectMenu(container, "shop", "Show only this project");
+    expect(shown(container)).toEqual([ids.b1]);
+    await fromProjectMenu(container, "repo", "Open all agents");
+    expect(shown(container)).toEqual([ids.a1, ids.a2, ids.b1]);
+    await fromProjectMenu(container, "shop", "Show only this project");
+    expect(shown(container)).toEqual([ids.b1]);
+    expect(commands(dispatched).filter((command) => String(command.type).endsWith(".stop"))).toEqual([]);
+
+    // The boards survive a reload.
+    document.body.replaceChildren();
+    const again = await render(makeBridge(twoProjects));
+    expect(shown(again)).toEqual([ids.b1]);
+    await fromProjectMenu(again, "repo", "Show only this project");
+    expect(shown(again)).toEqual([ids.a1, ids.a2]);
+  });
+
+  it("shows only the focused agent's project from the keyboard and the palette", async () => {
+    const container = await render(makeBridge(twoProjects));
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('section[aria-label="shop"] .session-row')?.click(),
+    );
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "P", code: "KeyP", ctrlKey: true, shiftKey: true, cancelable: true }),
+      );
+    });
+    expect(shown(container)).toEqual([ids.b1]);
+
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('section[aria-label="repo"] .session-row')?.click(),
+    );
+    expect(shown(container)).toEqual([ids.a1, ids.b1]);
+    await act(async () => container.querySelector<HTMLButtonElement>(".command-trigger")?.click());
+    const command = button(container, "Show only this project");
+    expect(command?.textContent).toContain("CtrlShiftP");
+    await act(async () => command?.click());
+    expect(shown(container)).toEqual([ids.a1, ids.a2]);
+  });
+});
+
 describe("Settings", () => {
   const setValue = async (element: HTMLInputElement, value: string) => {
     await act(async () => {

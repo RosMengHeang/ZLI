@@ -36,6 +36,7 @@ export type ShortcutId =
   | "toggleMobile"
   | "toggleChanges"
   | "toggleHuddle"
+  | "focusProject"
   | "settings";
 
 /** Which side of the Files panel the folder tree sits on when there is room for both. */
@@ -79,6 +80,7 @@ const shortcutIds: readonly ShortcutId[] = [
   "toggleMobile",
   "toggleChanges",
   "toggleHuddle",
+  "focusProject",
   "settings",
 ];
 

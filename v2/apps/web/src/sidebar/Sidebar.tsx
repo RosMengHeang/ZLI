@@ -29,7 +29,7 @@ import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
-import { Menu, MenuButton, type MenuItem, type MenuRequest } from "../ui/Menu.js";
+import { type MenuAction, Menu, MenuButton, type MenuItem, type MenuRequest } from "../ui/Menu.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ariaShortcut } from "../ui/shortcuts.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
@@ -38,6 +38,13 @@ import { useSidebarCollapsed } from "./sidebarLayout.js";
 import "./sidebar.css";
 
 export type WorktreeAction = "retry" | "cancel" | "remove";
+
+/** Board actions for one project's agents. An action is missing when it would change nothing. */
+export type ProjectAgentActions = {
+  focus?: (() => void) | undefined;
+  open?: (() => void) | undefined;
+  close?: (() => void) | undefined;
+};
 
 const inProgress = new Set<WorktreeProjection["status"]>(["queued", "fetching", "creating", "bootstrapping"]);
 
@@ -138,6 +145,8 @@ type Props = {
   onOpenHuddle?: ((huddleId: string) => void) | undefined;
   /** Shows why a huddle action from an agent row was refused. */
   onHuddleError?: ((message: string) => void) | undefined;
+  /** Shows, opens, or closes all of a project's tiles at once. Without it project rows offer none of these. */
+  projectAgentActions?: ((projectId: string) => ProjectAgentActions) | undefined;
 };
 
 const noGroups: readonly RunGroup[] = [];
@@ -173,6 +182,7 @@ export function Sidebar({
   accounts,
   onOpenHuddle,
   onHuddleError = () => undefined,
+  projectAgentActions,
 }: Props) {
   const newAgentShortcut = useShortcut("newAgent");
   const sidebarShortcut = useShortcut("toggleSidebar");
@@ -397,6 +407,48 @@ export function Sidebar({
       </p>
     ) : null;
 
+  /** Board actions for the project's agents. Each is off when it would change nothing. */
+  const projectAgentItems = (project: ProjectProjection): MenuItem[] => {
+    if (!projectAgentActions) return [];
+    const actions = projectAgentActions(project.projectId);
+    const hasAgents = sessions.some((session) =>
+      worktrees.some(
+        (worktree) => worktree.worktreeId === session.worktreeId && worktree.projectId === project.projectId,
+      ),
+    );
+    const item = (
+      label: string,
+      icon: MenuAction["icon"],
+      run: (() => void) | undefined,
+      title: string,
+      unchanged: string,
+    ): MenuItem => ({
+      label,
+      icon,
+      disabled: !run,
+      title: !hasAgents ? "This project has no agents yet." : run ? title : unchanged,
+      run: run ?? (() => undefined),
+    });
+    return [
+      { separator: true },
+      item(
+        "Show only this project",
+        "eye",
+        actions.focus,
+        "Hide other projects' agents and bring back this project's tiles.",
+        "Only this project's agents are on the board.",
+      ),
+      item("Open all agents", "grid", actions.open, "Open a tile for every agent here.", "All agents here are open."),
+      item(
+        "Close all agents",
+        "minimize",
+        actions.close,
+        "Hide their tiles. The agents keep running.",
+        "No agents here are open.",
+      ),
+    ];
+  };
+
   /** What a project's "..." menu, and a right-click on its row, offers. */
   const projectMenuItems = (project: ProjectProjection): MenuItem[] => [
     { label: "New agent", icon: "agentNew", run: () => onNewAgent(project) },
@@ -407,6 +459,7 @@ export function Sidebar({
       title: project.git === false ? "Worktrees need Git. This folder is not a Git repository." : "New worktree here",
       run: () => onCreateWorktree(project),
     },
+    ...projectAgentItems(project),
     { separator: true },
     {
       label: "Remove project",
