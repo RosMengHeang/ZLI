@@ -685,6 +685,183 @@ describe("Project boards", () => {
   });
 });
 
+describe("Add project", () => {
+  const addedId = ProjectId.parse("00000000-0000-4000-8000-000000000020");
+  const added = { projectId: addedId, path: "C:/guider-crm", name: "guider-crm" };
+  const accepted = (result?: unknown) => ({
+    commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"),
+    accepted: true as const,
+    ...(result ? { result } : {}),
+  });
+
+  /** A runtime whose projection learns about a registered folder only after the command is answered. */
+  function addingBridge(
+    start: RuntimeProjection,
+    options: { picked?: string | undefined; arrives?: boolean; reject?: string } = {},
+  ) {
+    const { arrives = true, reject } = options;
+    const picked = "picked" in options ? options.picked : "C:/guider-crm";
+    const dispatched: unknown[] = [];
+    let current = start;
+    let emit: (next: RuntimeProjection) => void = () => undefined;
+    const bridge = makeBridge(start, dispatched);
+    bridge.runtime.getProjection = async () => current;
+    bridge.runtime.onProjection = (listener) => {
+      emit = listener;
+      return () => {
+        emit = () => undefined;
+      };
+    };
+    bridge.dialog.openProject = async () => picked;
+    bridge.runtime.dispatch = async (request: unknown) => {
+      dispatched.push(request);
+      const command = (request as { command: { type: string } }).command;
+      if (command.type !== "project.register") return accepted();
+      if (reject) {
+        return {
+          commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"),
+          accepted: false as const,
+          error: { code: "invalid_request" as const, message: reject, retryable: false },
+        };
+      }
+      if (arrives) {
+        setTimeout(() => {
+          current = { ...current, projects: [...current.projects, added], lastSequence: current.lastSequence + 1 };
+          emit(current);
+        }, 150);
+      }
+      return accepted({ projectId: addedId });
+    };
+    const addElsewhere = () => {
+      current = { ...current, projects: [...current.projects, added], lastSequence: current.lastSequence + 1 };
+      emit(current);
+    };
+    return { bridge, dispatched, addElsewhere };
+  }
+
+  const newAgentDialog = () => document.querySelector<HTMLElement>('[role="dialog"][aria-label="New agent"]');
+  const clickAddProject = async (container: HTMLElement) => {
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".sidebar-add-project")?.click();
+    });
+  };
+  const registered = (dispatched: unknown[]) =>
+    commands(dispatched).filter((command) => command.type === "project.register");
+
+  it("opens New agent for the added project, and keeps pointing at it after Cancel", async () => {
+    const { bridge } = addingBridge(withAgent);
+    const container = await render(bridge);
+    expect(container.querySelectorAll(".agent-tile")).toHaveLength(1);
+    await clickAddProject(container);
+    await vi.waitFor(() => expect(newAgentDialog()).not.toBeNull());
+    expect(newAgentDialog()?.querySelector('[aria-label="Project: guider-crm"]')).not.toBeNull();
+
+    await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
+    expect(newAgentDialog()).toBeNull();
+    expect(container.querySelectorAll(".agent-tile")).toHaveLength(1);
+    expect(container.querySelector(".board-project-notice")?.textContent).toContain("No agents in guider-crm yet.");
+    const section = container.querySelector<HTMLElement>('.sidebar-project[aria-label="guider-crm"]');
+    expect(section?.textContent).toContain("No agents yet.");
+    expect(section?.querySelector('[aria-label="New agent in guider-crm"]')?.classList.contains("is-shown")).toBe(true);
+
+    const startOne = section ? button(section, "Start an agent in guider-crm") : undefined;
+    expect(startOne?.textContent).toBe("Start one");
+    await act(async () => startOne?.click());
+    expect(newAgentDialog()?.querySelector('[aria-label="Project: guider-crm"]')).not.toBeNull();
+    await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
+
+    // The board notice opens New agent for the added project, not the one whose tile is focused.
+    await act(async () => button(container.querySelector(".board-project-notice") ?? container, "New agent")?.click());
+    expect(newAgentDialog()?.querySelector('[aria-label="Project: guider-crm"]')).not.toBeNull();
+    await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
+
+    // Picking an agent in another project moves on from the added one.
+    await act(async () => container.querySelector<HTMLButtonElement>(".session-row")?.click());
+    expect(container.querySelector(".board-project-notice")).toBeNull();
+    expect(
+      container
+        .querySelector('.sidebar-project[aria-label="guider-crm"] [aria-label="New agent in guider-crm"]')
+        ?.classList.contains("is-shown"),
+    ).toBe(true);
+  });
+
+  it("names the added project on an empty board", async () => {
+    const { bridge } = addingBridge(discovered);
+    const container = await render(bridge);
+    expect(container.textContent).toContain("No agents on the board");
+    await clickAddProject(container);
+    await vi.waitFor(() => expect(newAgentDialog()).not.toBeNull());
+    await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
+    expect(container.querySelector(".empty-state-title")?.textContent).toBe("No agents in guider-crm yet");
+    expect(container.textContent).not.toContain("No agents on the board");
+  });
+
+  it("does nothing when the folder picker is cancelled", async () => {
+    const { bridge, dispatched } = addingBridge(withAgent, { picked: undefined });
+    const container = await render(bridge);
+    await clickAddProject(container);
+    expect(registered(dispatched)).toHaveLength(0);
+    expect(newAgentDialog()).toBeNull();
+    expect(container.querySelector(".board-project-notice")).toBeNull();
+  });
+
+  it("shows why a folder could not be added, without opening New agent", async () => {
+    const { bridge, dispatched } = addingBridge(withAgent, { reject: "Choose a folder, not a file." });
+    const container = await render(bridge);
+    await clickAddProject(container);
+    expect(registered(dispatched)).toHaveLength(1);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Choose a folder, not a file.");
+    expect(newAgentDialog()).toBeNull();
+  });
+
+  it("selects a folder that is already a project instead of adding it again", async () => {
+    const empty = addingBridge(discovered, { picked: "c:\\repo\\" });
+    const container = await render(empty.bridge);
+    await clickAddProject(container);
+    expect(registered(empty.dispatched)).toHaveLength(0);
+    expect(container.textContent).toContain("repo is already in ZLI.");
+    expect(newAgentDialog()?.textContent).toContain("Start agent");
+    await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
+    document.body.replaceChildren();
+
+    // A project that already has agents is only selected.
+    const busy = addingBridge(withAgent, { picked: "C:/repo" });
+    const again = await render(busy.bridge);
+    await clickAddProject(again);
+    expect(registered(busy.dispatched)).toHaveLength(0);
+    expect(again.textContent).toContain("repo is already in ZLI.");
+    expect(newAgentDialog()).toBeNull();
+    expect(again.querySelector(".board-project-notice")).toBeNull();
+  });
+
+  it("opens nothing for a project added from somewhere else", async () => {
+    const { bridge, addElsewhere } = addingBridge(withAgent);
+    const container = await render(bridge);
+    await act(async () => addElsewhere());
+    expect(container.querySelector('.sidebar-project[aria-label="guider-crm"]')).not.toBeNull();
+    expect(newAgentDialog()).toBeNull();
+    expect(container.querySelector(".board-project-notice")).toBeNull();
+  });
+
+  it("gives up quietly when the added project never shows up", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { bridge, dispatched } = addingBridge(withAgent, { arrives: false });
+      const container = await render(bridge);
+      await clickAddProject(container);
+      expect(registered(dispatched)).toHaveLength(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(9000);
+      });
+      expect(newAgentDialog()).toBeNull();
+      expect(container.querySelector(".board-project-notice")).toBeNull();
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("Settings", () => {
   const setValue = async (element: HTMLInputElement, value: string) => {
     await act(async () => {

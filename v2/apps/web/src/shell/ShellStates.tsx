@@ -1,17 +1,21 @@
-import type { RuntimeProjection } from "@zli-v2/contracts";
+import type { ProjectProjection, RuntimeProjection } from "@zli-v2/contracts";
 
-import { Button } from "../ui/Button.js";
+import { Button, IconButton } from "../ui/Button.js";
+import { Icon } from "../ui/Icon.js";
 import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
 import { useShortcut } from "./keybindings.js";
 
 export function GridEmptyState({
   projection,
+  project,
   closedCount,
   onOpenProject,
   onNewAgent,
   onScratchChat,
 }: {
   projection: RuntimeProjection;
+  /** A project the person just added that has no agents yet. */
+  project?: ProjectProjection | undefined;
   closedCount: number;
   onOpenProject(): void;
   onNewAgent(): void;
@@ -39,6 +43,25 @@ export function GridEmptyState({
       </EmptyState>
     );
   }
+  if (project) {
+    return (
+      <EmptyState
+        size="large"
+        icon="folderOpen"
+        title={`No agents in ${project.name} yet`}
+        detail={
+          closedCount > 0
+            ? "Start one here, or pick an agent in the sidebar to bring it back."
+            : "Start an agent in a terminal or a chat. Run several at once, each in its own worktree or in the current checkout."
+        }
+      >
+        <Button variant="primary" size="lg" icon="agentNew" shortcut={newAgentShortcut} onClick={onNewAgent}>
+          New agent
+        </Button>
+        {scratch}
+      </EmptyState>
+    );
+  }
   return (
     <EmptyState
       size="large"
@@ -55,6 +78,28 @@ export function GridEmptyState({
       </Button>
       {scratch}
     </EmptyState>
+  );
+}
+
+/** Says a project the person just added has no agents, above the tiles from other projects so none of them move. */
+export function ProjectEmptyNotice({
+  project,
+  onNewAgent,
+  onDismiss,
+}: {
+  project: ProjectProjection;
+  onNewAgent(): void;
+  onDismiss(): void;
+}) {
+  return (
+    <div className="banner banner-info board-project-notice" role="status">
+      <Icon name="folderOpen" size={14} />
+      <span className="banner-message">No agents in {project.name} yet.</span>
+      <Button variant="primary" size="sm" icon="agentNew" onClick={onNewAgent}>
+        New agent
+      </Button>
+      <IconButton label="Dismiss" icon="x" size="sm" onClick={onDismiss} />
+    </div>
   );
 }
 
