@@ -8,7 +8,10 @@ import {
   issueLinkFor,
   issuePrompt,
   issueSlug,
+  lastIssueSource,
   rememberIssueLink,
+  rememberIssueSource,
+  unavailableText,
   updatedLabel,
   withIssueReference,
 } from "./issueStart.js";
@@ -135,6 +138,37 @@ describe("issue links", () => {
     expect(issueLinkFor("w1")).toBeUndefined();
     window.localStorage.setItem("zli.issueLinks.v1", "{");
     expect(issueLinkFor("w1")).toBeUndefined();
+  });
+});
+
+describe("issue sources", () => {
+  afterEach(() => window.localStorage.clear());
+
+  it("remembers the last source per project", () => {
+    rememberIssueSource("p1", "linear");
+    rememberIssueSource("p2", "github");
+    rememberIssueSource("p1", "github");
+    expect(lastIssueSource("p1")).toBe("github");
+    expect(lastIssueSource("p2")).toBe("github");
+    expect(lastIssueSource("p3")).toBeUndefined();
+  });
+
+  it("ignores damaged storage", () => {
+    window.localStorage.setItem("zli.issueSources.v1", JSON.stringify({ p1: "jira", p2: "linear" }));
+    expect(lastIssueSource("p1")).toBeUndefined();
+    expect(lastIssueSource("p2")).toBe("linear");
+    window.localStorage.setItem("zli.issueSources.v1", "[");
+    expect(lastIssueSource("p2")).toBeUndefined();
+  });
+});
+
+describe("unavailableText", () => {
+  it("names the host when there is one", () => {
+    expect(unavailableText({ code: "not_github", host: "gitlab.company.com" }).title).toBe(
+      "This project's remote is on gitlab.company.com.",
+    );
+    expect(unavailableText({ code: "not_github" }).title).toBe("This project's remotes are not on GitHub.");
+    expect(unavailableText({ code: "not_repo" }).title).toBe("This project is not a Git repository.");
   });
 });
 

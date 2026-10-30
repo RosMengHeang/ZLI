@@ -1,9 +1,17 @@
-import type { IssueDetail, IssueSource, IssueSummary, ListedProviderKind } from "@zli-v2/contracts";
+import type {
+  IssueDetail,
+  IssueListUnavailable,
+  IssueSource,
+  IssueSummary,
+  ListedProviderKind,
+} from "@zli-v2/contracts";
 
 import { branchFromTemplate } from "../settings/appSettings.js";
 
 const LINKS_KEY = "zli.issueLinks.v1";
+const SOURCES_KEY = "zli.issueSources.v1";
 const MAX_LINKS = 200;
+const MAX_SOURCES = 200;
 const MAX_SLUG = 40;
 const MAX_PROMPT_BODY = 12_000;
 const MAX_PROMPT_COMMENTS = 5;
@@ -143,6 +151,57 @@ export function rememberIssueLink(worktreeId: string, link: IssueLink): void {
 
 export function issueLinkFor(worktreeId: string): IssueLink | undefined {
   return readLinks()[worktreeId];
+}
+
+function readSources(): Record<string, IssueSource> {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(SOURCES_KEY) ?? "{}") as unknown;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).filter(
+        (entry): entry is [string, IssueSource] => entry[1] === "github" || entry[1] === "linear",
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+/** The issue source last used in a project, if one was picked there. */
+export function lastIssueSource(projectId: string): IssueSource | undefined {
+  return readSources()[projectId];
+}
+
+export function rememberIssueSource(projectId: string, source: IssueSource): void {
+  const { [projectId]: _previous, ...rest } = readSources();
+  // Newest last, so the oldest projects are the ones dropped.
+  const kept = Object.entries({ ...rest, [projectId]: source }).slice(-MAX_SOURCES);
+  try {
+    window.localStorage.setItem(SOURCES_KEY, JSON.stringify(Object.fromEntries(kept)));
+  } catch {
+    // Only the starting source depends on it.
+  }
+}
+
+/** What the issues dialog says when a project has no GitHub issues to list. */
+export function unavailableText(unavailable: IssueListUnavailable): { title: string; detail: string } {
+  const detail = "ZLI can read issues from GitHub and Linear today.";
+  switch (unavailable.code) {
+    case "not_github":
+      return {
+        title: unavailable.host
+          ? `This project's remote is on ${unavailable.host}.`
+          : "This project's remotes are not on GitHub.",
+        detail,
+      };
+    case "no_remote":
+      return {
+        title: "This project has no Git remote.",
+        detail: "Add a GitHub remote to see its issues here. ZLI can also read issues from Linear.",
+      };
+    case "not_repo":
+      return { title: "This project is not a Git repository.", detail };
+  }
 }
 
 /** Short relative time for list rows, such as 3h or 2d; older dates show as the day. */

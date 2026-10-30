@@ -120,3 +120,34 @@ test("lists GitHub issues and starts an agent from one", async () => {
     if (fixture) await closeDesktop(fixture);
   }
 });
+
+test("explains a project hosted outside GitHub and starts an agent without an issue", async () => {
+  test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
+  const { root, repo } = await createGitFixture();
+  await git(repo, ["remote", "add", "origin", "git@gitlab.company.com:acme/app.git"]);
+  const ghConfig = join(root, "gh-config");
+  await mkdir(ghConfig, { recursive: true });
+
+  let fixture: DesktopFixture | undefined;
+  try {
+    fixture = await launchDesktop(repo, root, { env: { GH_CONFIG_DIR: ghConfig } });
+    const page = fixture.page;
+    await expect(page.locator(".project-label")).toContainText("repo");
+
+    await page.getByRole("button", { name: "Issues", exact: true }).click();
+    const issues = page.getByRole("dialog", { name: "Issues" });
+    await expect(issues.getByText("This project's remote is on gitlab.company.com.")).toBeVisible({ timeout: 30_000 });
+    await expect(issues.getByText("ZLI can read issues from GitHub and Linear today.")).toBeVisible();
+    await expect(issues.getByRole("alert")).toHaveCount(0);
+    await expect(issues.getByRole("button", { name: "Try again" })).toHaveCount(0);
+    await expect(issues.getByRole("button", { name: "Connect Linear" })).toHaveCount(2);
+
+    await issues.getByRole("button", { name: "Start without an issue" }).click();
+    await expect(issues).toHaveCount(0);
+    const newAgent = page.getByRole("dialog", { name: "New agent" });
+    await expect(newAgent).toBeVisible();
+    await expect(newAgent.getByLabel("First message")).toHaveCount(0);
+  } finally {
+    if (fixture) await closeDesktop(fixture);
+  }
+});

@@ -87,7 +87,18 @@ export const IssueDetail = IssueSummary.extend({
 });
 export type IssueDetail = z.infer<typeof IssueDetail>;
 
-export const IssueListResult = z.object({ issues: z.array(IssueSummary).max(100) });
+/** Why a project has no GitHub issues to list, so the list is empty rather than failed. */
+export const IssueListUnavailable = z.object({
+  code: z.enum(["not_github", "no_remote", "not_repo"]),
+  /** The host the project's remote points to, such as gitlab.example.com, when it has one. */
+  host: z.string().min(1).max(253).optional(),
+});
+export type IssueListUnavailable = z.infer<typeof IssueListUnavailable>;
+
+export const IssueListResult = z.object({
+  issues: z.array(IssueSummary).max(100),
+  unavailable: IssueListUnavailable.optional(),
+});
 export type IssueListResult = z.infer<typeof IssueListResult>;
 
 export const IssueGetResult = z.object({ issue: IssueDetail });

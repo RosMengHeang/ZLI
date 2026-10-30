@@ -1,13 +1,20 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import type { ProcessResult, ProcessRunner } from "../review/PullRequestService.js";
-import { GitHubIssues, parseGitHubIssue, parseGitHubIssueList } from "./GitHubIssues.js";
+import { GitHubIssues, parseGitHubIssue, parseGitHubIssueList, readGhHosts, remoteHost } from "./GitHubIssues.js";
 import { IssueError } from "./issueText.js";
 
 type Call = { command: "git" | "gh"; args: string[]; cwd: string };
 
 const ok = (stdout = ""): ProcessResult => ({ code: 0, stdout, stderr: "" });
 const fail = (stderr: string, code = 1): ProcessResult => ({ code, stdout: "", stderr });
+const remotes = (...lines: [string, string][]) =>
+  ok(lines.map(([name, url]) => `${name}\t${url} (fetch)\n${name}\t${url} (push)\n`).join(""));
+const noHosts = async () => [];
 
 const RAW_ISSUE = {
   number: 42,
@@ -34,7 +41,7 @@ function fakeRunner(overrides: (call: Call) => ProcessResult | Error | undefined
     if (override instanceof Error) throw override;
     if (override) return override;
     const line = `${command} ${args.join(" ")}`;
-    if (line === "git remote") return ok("origin\n");
+    if (line === "git remote -v") return remotes(["origin", "https://github.com/acme/app.git"]);
     if (line === "gh --version") return ok("gh version 2.60.0\n");
     if (line === "gh auth status") return ok();
     if (line.startsWith("gh issue list")) return ok(JSON.stringify([RAW_ISSUE]));
@@ -161,19 +168,74 @@ describe("GitHubIssues", () => {
     await expect(new GitHubIssues(runner).list("/repo", {})).rejects.toThrow(/gh auth login/u);
   });
 
-  it("explains a folder without a remote", async () => {
+  it("lists nothing for a folder without a remote, without running gh", async () => {
     const { runner, calls } = fakeRunner((call) => (call.command === "git" ? ok("") : undefined));
-    await expect(new GitHubIssues(runner).list("/repo", {})).rejects.toThrow(/no Git remote/u);
+    const issues = new GitHubIssues(runner, noHosts);
+    expect(await issues.list("/repo", {})).toEqual({ issues: [], unavailable: { code: "no_remote" } });
+    await expect(issues.get("/repo", "42")).rejects.toThrow(/no Git remote/u);
     expect(calls.some((call) => call.command === "gh")).toBe(false);
   });
 
-  it("explains remotes that are not on GitHub", async () => {
+  it("lists nothing for a folder that is not a repository", async () => {
     const { runner } = fakeRunner((call) =>
-      call.args[1] === "list"
-        ? fail("none of the git remotes configured for this repository point to a known GitHub host.")
+      call.command === "git"
+        ? fail("fatal: not a git repository (or any of the parent directories): .git", 128)
         : undefined,
     );
-    await expect(new GitHubIssues(runner).list("/repo", {})).rejects.toThrow(/point to a GitHub repository/u);
+    expect(await new GitHubIssues(runner, noHosts).list("/repo", {})).toEqual({
+      issues: [],
+      unavailable: { code: "not_repo" },
+    });
+  });
+
+  it("names the host of remotes that are not on GitHub, without running gh", async () => {
+    const { runner, calls } = fakeRunner((call) =>
+      call.command === "git"
+        ? remotes(["backup", "https://bitbucket.org/acme/app.git"], ["origin", "git@gitlab.company.com:acme/app.git"])
+        : undefined,
+    );
+    const issues = new GitHubIssues(runner, noHosts);
+    expect(await issues.list("/repo", {})).toEqual({
+      issues: [],
+      unavailable: { code: "not_github", host: "gitlab.company.com" },
+    });
+    await expect(issues.get("/repo", "42")).rejects.toThrow(/remote is on gitlab\.company\.com/u);
+    expect(calls.some((call) => call.command === "gh")).toBe(false);
+  });
+
+  it("reads issues when any remote is on GitHub", async () => {
+    const { runner } = fakeRunner((call) =>
+      call.command === "git"
+        ? remotes(["origin", "https://gitlab.com/acme/app.git"], ["upstream", "git@github.com:acme/app.git"])
+        : undefined,
+    );
+    const result = await new GitHubIssues(runner, noHosts).list("/repo", {});
+    expect(result.issues).toHaveLength(1);
+    expect(result.unavailable).toBeUndefined();
+  });
+
+  it("reads issues from a GitHub Enterprise host gh is signed in to", async () => {
+    const { runner, calls } = fakeRunner((call) =>
+      call.command === "git" ? remotes(["origin", "https://git.corp.example/acme/app.git"]) : undefined,
+    );
+    const result = await new GitHubIssues(runner, async () => ["Git.Corp.Example"]).list("/repo", {});
+    expect(result.issues).toHaveLength(1);
+    expect(calls.some((call) => call.args[1] === "list")).toBe(true);
+  });
+
+  it("lets gh judge local and SSH alias remotes", async () => {
+    const { runner, calls } = fakeRunner((call) => {
+      if (call.command === "git") return remotes(["origin", "/srv/git/app.git"]);
+      if (call.args[1] === "list") {
+        return fail("none of the git remotes configured for this repository point to a known GitHub host.");
+      }
+      return undefined;
+    });
+    expect(await new GitHubIssues(runner, noHosts).list("/repo", {})).toEqual({
+      issues: [],
+      unavailable: { code: "not_github" },
+    });
+    expect(calls.some((call) => call.args[1] === "list")).toBe(true);
   });
 
   it("redacts tokens from other gh failures", async () => {
@@ -191,5 +253,43 @@ describe("GitHubIssues", () => {
     await issues.list("/repo", {});
     await issues.list("/repo", {});
     expect(calls.filter((call) => call.args[0] === "auth")).toHaveLength(1);
+  });
+});
+
+describe("remoteHost", () => {
+  it("reads the host of URL and SSH remotes", () => {
+    expect(remoteHost("https://user:secret@GitLab.Company.com:8443/acme/app.git")).toBe("gitlab.company.com");
+    expect(remoteHost("ssh://git@github.com:22/acme/app.git")).toBe("github.com");
+    expect(remoteHost("git@gitlab.com:acme/app.git")).toBe("gitlab.com");
+    expect(remoteHost("github-work:acme/app.git")).toBe("github-work");
+  });
+
+  it("has no host for local paths", () => {
+    expect(remoteHost("/srv/git/app.git")).toBeUndefined();
+    expect(remoteHost("../app.git")).toBeUndefined();
+    expect(remoteHost("file:///srv/git/app.git")).toBeUndefined();
+    expect(remoteHost("C:\\repos\\app.git")).toBeUndefined();
+    expect(remoteHost("C:/repos/app.git")).toBeUndefined();
+  });
+});
+
+describe("readGhHosts", () => {
+  it("reads the hosts gh is signed in to and GH_HOST", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "zli-gh-hosts-"));
+    try {
+      await writeFile(
+        join(dir, "hosts.yml"),
+        "github.com:\n    user: octo\n    git_protocol: https\ngit.corp.example:\n    users:\n        octo:\n",
+        "utf8",
+      );
+      expect(await readGhHosts({ GH_CONFIG_DIR: dir, GH_HOST: "ghe.other.example" })).toEqual([
+        "ghe.other.example",
+        "github.com",
+        "git.corp.example",
+      ]);
+      expect(await readGhHosts({ GH_CONFIG_DIR: join(dir, "missing") })).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
