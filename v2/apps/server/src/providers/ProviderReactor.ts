@@ -73,6 +73,13 @@ export class ProviderReactor {
    * reject a stale conversation id on the first turn, so that turn's message is kept to send again.
    */
   private readonly resuming = new Map<string, { retry?: SendIntent }>();
+  /** The send still waiting for the provider's turn id, per thread. */
+  private readonly sending = new Map<string, object>();
+  /**
+   * Sends that were stopped before the provider returned a turn id. Stop has nothing to interrupt yet,
+   * so the turn is interrupted as soon as its id arrives instead of being left running.
+   */
+  private readonly stoppedSends = new Set<object>();
   private readonly unsubscribe: () => void;
   private readonly unsubscribeProvider: () => void;
 
@@ -278,11 +285,27 @@ export class ProviderReactor {
   }
 
   private async send(intent: SendIntent, options: { record?: boolean } = {}): Promise<void> {
-    const { threadId, text, model, reasoningEffort, permissionMode } = intent;
+    const { threadId, text } = intent;
     const attachments = intent.attachments ?? [];
     if (options.record !== false) await this.message(threadId, "user", text, undefined, attachments);
     const resuming = this.resuming.get(threadId);
     if (resuming && !resuming.retry) resuming.retry = intent;
+    const sendToken = {};
+    this.sending.set(threadId, sendToken);
+    try {
+      await this.sendTurn(intent, attachments, sendToken);
+    } finally {
+      if (this.sending.get(threadId) === sendToken) this.sending.delete(threadId);
+      this.stoppedSends.delete(sendToken);
+    }
+  }
+
+  private async sendTurn(
+    intent: SendIntent,
+    attachments: readonly ThreadAttachment[],
+    sendToken: object,
+  ): Promise<void> {
+    const { threadId, text, model, reasoningEffort, permissionMode } = intent;
     // Taken before the provider sees the message, so none of the turn's edits can land first.
     const start = await this.checkpoints?.capture(threadId);
     try {
@@ -297,6 +320,8 @@ export class ProviderReactor {
       if (start) this.turnStarts.set(turnKey(threadId, result.turnId), start);
       if (this.turnEnded(threadId, result.turnId)) {
         this.recordCheckpoint(threadId, result.turnId);
+      } else if (this.stoppedSends.has(sendToken)) {
+        await this.interruptStarted(threadId, result.turnId);
       } else {
         this.activeTurns.set(threadId, result.turnId);
         await this.status(threadId, "working", { turnId: result.turnId });
@@ -321,6 +346,8 @@ export class ProviderReactor {
   private async interrupt(threadId: string, projectedTurnId?: string): Promise<void> {
     // The projection keeps a sanitized turn id, so the provider's own id is preferred when known.
     const active = this.activeTurns.get(threadId);
+    const pendingSend = this.sending.get(threadId);
+    if (!active && pendingSend) this.stoppedSends.add(pendingSend);
     const turnId = active ?? projectedTurnId;
     try {
       await this.service.interruptTurn({ threadId: ThreadId.parse(threadId), ...(turnId ? { turnId } : {}) });
@@ -329,6 +356,19 @@ export class ProviderReactor {
         this.endTurn(threadId, active);
         this.recordCheckpoint(threadId, active);
       }
+      await this.status(threadId, "idle");
+    } catch (error) {
+      await this.fail(threadId, error, "Provider interruption failed.");
+    }
+  }
+
+  /** Interrupts a turn whose Stop arrived while the provider was still accepting the message. */
+  private async interruptStarted(threadId: string, turnId: string): Promise<void> {
+    try {
+      await this.service.interruptTurn({ threadId: ThreadId.parse(threadId), turnId });
+      this.flushThreadDeltas(threadId);
+      this.endTurn(threadId, turnId);
+      this.recordCheckpoint(threadId, turnId);
       await this.status(threadId, "idle");
     } catch (error) {
       await this.fail(threadId, error, "Provider interruption failed.");

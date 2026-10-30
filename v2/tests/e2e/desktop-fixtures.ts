@@ -1,11 +1,12 @@
 import { type ChildProcess, execFile } from "node:child_process";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { _electron as electron, type ElectronApplication, expect, type Page } from "@playwright/test";
+import { _electron as electron, type ElectronApplication, expect, type Locator, type Page } from "@playwright/test";
 
 import { closeChildProcess } from "../closeChildProcess.js";
 import { getProcessTreeTerminationOrder } from "../processTree.js";
@@ -51,11 +52,40 @@ export async function sendChatMessage(page: Page, message: string): Promise<void
   await composer.press("Enter");
 }
 
-/** Opens the Create worktree dialog. The sidebar shows a project's actions only while its row is hovered. */
+/**
+ * A port nothing is listening on, for a dev server the test starts in an agent's terminal. A random pick
+ * from a fixed range can land on a port another process already holds, since that range sits inside the
+ * one the OS hands out for outgoing connections.
+ */
+export async function freePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolveListen, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolveListen());
+  });
+  const address = server.address();
+  await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+  if (!address || typeof address === "string") throw new Error("No free port was found.");
+  return address.port;
+}
+/**
+ * Clicks one of a sidebar project row's actions, which show only while the row is hovered. A render that
+ * lands between the hover and the click drops the row's hover state, so both are tried again.
+ */
+export async function clickProjectAction(row: Locator, button: Locator): Promise<void> {
+  await expect(async () => {
+    await row.hover();
+    await button.click({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+}
+
+/** Opens the Create worktree dialog from the first project's row. */
 export async function openCreateWorktree(page: Page): Promise<void> {
-  // The hidden button is display:none, so it can't anchor the row locator; hover the row first.
-  await page.locator(".project-label").first().hover();
-  await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+  // The hidden button is display:none, so it can't anchor the row locator.
+  await clickProjectAction(
+    page.locator(".project-label").first(),
+    page.getByRole("button", { name: "Create worktree", exact: true }),
+  );
 }
 
 export async function createGitFixture(): Promise<{ root: string; repo: string }> {

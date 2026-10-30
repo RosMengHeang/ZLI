@@ -6,7 +6,7 @@ import {
   type ThreadId as ThreadIdValue,
   WorktreeId,
 } from "@zli-v2/contracts";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
@@ -163,6 +163,70 @@ describe("ProviderReactor", () => {
     adapter.emit({ type: "turn.completed", threadId, turnId: "turn-3", status: "completed" });
     await reactor.waitForIdle();
     expect((await state()).status).toBe("idle");
+
+    reactor.stop();
+    await service.stopAll();
+    service.dispose();
+  });
+
+  it("interrupts a turn that was stopped while the provider was still accepting it", async () => {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    let accept: (() => void) | undefined;
+    const adapter = new (class extends FakeAdapter {
+      interrupted: (string | undefined)[] = [];
+      override async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
+        this.turnInputs.push(input);
+        await new Promise<void>((resolve) => {
+          accept = resolve;
+        });
+        return { turnId: "turn-1" };
+      }
+      override async interruptTurn(input?: { turnId?: string }): Promise<void> {
+        this.interrupted.push(input?.turnId);
+      }
+    })();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service);
+    let sequence = 0;
+    const dispatch = (command: Parameters<Engine["dispatchPromise"]>[0]["command"]) => {
+      sequence += 1;
+      return engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`10000000-0000-4000-8000-0000000019${String(sequence).padStart(2, "0")}`),
+        command,
+      });
+    };
+    const status = async () => (await engine.projection()).threads[0]?.status;
+
+    await dispatch({ type: "project.register", path: "C:\\workspace\\stop" });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    await dispatch({
+      type: "worktree.create",
+      worktreeId,
+      projectId: ProjectId.parse(project.projectId),
+      path: "C:\\workspace\\stop-tree",
+      workspaceRoot: "C:\\workspace",
+      branch: "feature/stop",
+    });
+    await dispatch({ type: "thread.start", threadId, worktreeId, provider: "codex", cwd: "C:\\workspace\\stop-tree" });
+    await reactor.waitForIdle();
+
+    await dispatch({ type: "thread.queue", queueId: "s1", threadId, text: "keep working" });
+    await vi.waitFor(() => expect(accept).toBeDefined());
+    await dispatch({ type: "thread.interrupt", threadId });
+    await vi.waitFor(async () => expect(await status()).toBe("idle"));
+    accept?.();
+    await reactor.waitForIdle();
+    expect(adapter.interrupted.at(-1)).toBe("turn-1");
+    expect(await status()).toBe("idle");
+
+    // The provider's own start report for the stopped turn arrives late and must not revive it.
+    adapter.emit({ type: "turn.started", threadId, turnId: "turn-1" });
+    await reactor.waitForIdle();
+    expect(await status()).toBe("idle");
 
     reactor.stop();
     await service.stopAll();
