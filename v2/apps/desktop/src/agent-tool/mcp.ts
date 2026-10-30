@@ -8,7 +8,7 @@ import {
 import type { ZliBrowserCall } from "../browser-tool/client.js";
 import { createToolServer, type McpServer, type McpTool } from "../browser-tool/mcp.js";
 
-export const ZLI_AGENT_TOOL_VERSION = "1.3.0";
+export const ZLI_AGENT_TOOL_VERSION = "1.4.0";
 
 const ROOM =
   "ZLI is the app you are running in. The person sees every agent in it as a tile and can watch and steer each one.";
@@ -16,7 +16,7 @@ const ROOM =
 const AGENT_REF = {
   type: "string",
   description:
-    "The agent's name or id from list_agents. A unique id prefix of at least 4 characters also works. For an agent in another project, write project/agent, such as api/bob.",
+    "The agent's name or id from list_agents. A unique id prefix of at least 4 characters also works. An agent in another project can be named alone when no agent in your project has that name, or written project/agent, such as api/bob.",
 };
 
 const AS_CALLER = {
@@ -39,12 +39,12 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
     name: "list_agents",
     title: "List ZLI agents",
     action: "agentlist",
-    description: `${ROOM} List the agents working in your project: the name and id the other tools take, provider, project, branch, and status. sameWorktree marks agents that share your worktree, which includes you. startedBy names the agent that started a sub-agent.`,
+    description: `${ROOM} List the agents working in your project: the name and id the other tools take, provider, project, branch, and status. you gives your own name and id, and marks you in the list. sameWorktree marks agents that share your worktree. startedBy names the agent that started a sub-agent.`,
     properties: {
       allProjects: {
         type: "boolean",
         description:
-          "Also list agents in the person's other ZLI projects. Works only when ZLI Settings let agents reach every project.",
+          "Also list agents in the person's other ZLI projects. When ZLI Settings keep agents to their own project, ZLI asks the person first.",
       },
     },
     readOnly: true,
@@ -226,7 +226,7 @@ export function createAgentMcpServer(call: ZliBrowserCall): McpServer {
   return createToolServer(call, {
     tools: AGENT_MCP_TOOLS,
     serverInfo: { name: "zli", title: "ZLI agents", version: ZLI_AGENT_TOOL_VERSION },
-    instructions: `${ROOM} Use list_agents to see who else is working in this project, read_agent to check on them, message_agent to coordinate, and start_agent to hand off a separate task. When you are in a huddle, talk there with huddle_read, huddle_post, and huddle_wait, post only when you are done, blocked, or need an answer, and follow the decisions from huddle_decisions. Refer to agents by name when they have one. Agents in other projects are written project/agent and need ZLI Settings to allow every project. Use connect_service when you need a service such as GitHub or Linear that you have no tools for, or that needs a sign-in.`,
+    instructions: `${ROOM} Use list_agents to see who else is working in this project, read_agent to check on them, message_agent to coordinate, and start_agent to hand off a separate task. When you are in a huddle, talk there with huddle_read, huddle_post, and huddle_wait, post only when you are done, blocked, or need an answer, and follow the decisions from huddle_decisions. Refer to agents by name when they have one. An agent in another project can be named alone or as project/agent. When ZLI Settings keep agents to their own project, ZLI asks the person to allow it and the call waits for the answer. Use connect_service when you need a service such as GitHub or Linear that you have no tools for, or that needs a sign-in.`,
     targetProperties: {
       cwd: {
         type: "string",

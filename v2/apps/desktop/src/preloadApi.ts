@@ -1,5 +1,7 @@
 import { ProjectionStore } from "@zli-v2/client-runtime";
 import {
+  AgentReachAnswer,
+  AgentReachRequest,
   BrowserBounds,
   BrowserDesignCaptureInput,
   BrowserDesignMarkInput,
@@ -409,6 +411,26 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
           const connectorId = (value as { connectorId?: unknown } | null)?.connectorId;
           if (typeof connectorId === "string" && connectorId.length > 0 && connectorId.length <= 100)
             listener({ connectorId });
+        }),
+    },
+    agentReach: {
+      /** The open question whether agents may reach other projects, if an agent is waiting on one. */
+      current: async () => {
+        const parsed = AgentReachRequest.safeParse(await ipc.invoke("zli:agents:reach-current"));
+        return parsed.success ? parsed.data : undefined;
+      },
+      answer: async (answer: AgentReachAnswer) => {
+        await ipc.invoke("zli:agents:reach-answer", AgentReachAnswer.parse(answer));
+      },
+      /** Fires with a new question, and with undefined once it is answered. */
+      onRequest: (listener: (request: AgentReachRequest | undefined) => void) =>
+        ipc.on("zli:agents:reach-request", (_event, value) => {
+          if (value === null) {
+            listener(undefined);
+            return;
+          }
+          const parsed = AgentReachRequest.safeParse(value);
+          if (parsed.success) listener(parsed.data);
         }),
     },
     updates: {

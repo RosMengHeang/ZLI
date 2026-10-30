@@ -153,19 +153,16 @@ function button(container: HTMLElement, text: string): HTMLButtonElement {
 describe("McpServersSection", () => {
   it("adds, turns off, and removes servers through the runtime", async () => {
     let servers: McpServerConfig[] = [];
-    let agentAccess = "full";
+    const agentAccess = "full";
     const saves: McpServerConfig[][] = [];
+    let openedAgentMessages = false;
     const bridge = {
       runtime: {
-        dispatch: async (request: {
-          commandId: string;
-          command: { type: string; servers?: McpServerConfig[]; access?: string };
-        }) => {
+        dispatch: async (request: { commandId: string; command: { type: string; servers?: McpServerConfig[] } }) => {
           if (request.command.type === "mcp.save") {
             servers = request.command.servers ?? [];
             saves.push(servers);
           }
-          if (request.command.type === "mcp.agentAccess") agentAccess = request.command.access ?? agentAccess;
           return {
             commandId: CommandId.parse(request.commandId),
             accepted: true as const,
@@ -183,22 +180,17 @@ describe("McpServersSection", () => {
       act(async () => {
         root.render(
           <RuntimeProvider bridge={bridge}>
-            <McpServersSection view={view} />
+            <McpServersSection view={view} onAgentMessages={() => (openedAgentMessages = true)} />
           </RuntimeProvider>,
         );
       });
     await show("installed");
     expect(container.textContent).toContain("No servers yet.");
-    const access = container.querySelector<HTMLButtonElement>(
-      'button[aria-label^="What agents may do with other agents"]',
-    ) as HTMLButtonElement;
-    expect(access.getAttribute("aria-label")).toBe("What agents may do with other agents: Start and message agents");
-    await act(async () => access.click());
-    await act(async () =>
-      document.querySelector<HTMLButtonElement>('[role="option"][data-label="List and read agents"]')?.click(),
-    );
-    expect(agentAccess).toBe("read");
-    expect(access.getAttribute("aria-label")).toBe("What agents may do with other agents: List and read agents");
+    // The zli tool's settings live in Agent messages; Integrations only says how they are set.
+    expect(container.querySelector('button[aria-label^="What agents may do with other agents"]')).toBeNull();
+    expect(container.textContent).toContain("Start and message agents, in their own project.");
+    await act(async () => button(container, "Agent messages").click());
+    expect(openedAgentMessages).toBe(true);
 
     await show("custom");
     await act(async () => button(container, "Add server").click());

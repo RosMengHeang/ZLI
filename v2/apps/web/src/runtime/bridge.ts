@@ -1,4 +1,6 @@
 import type {
+  AgentReachAnswer,
+  AgentReachRequest,
   BrowserTabProjection,
   BrowserViewport,
   MobileAvdCreateInput,
@@ -111,6 +113,13 @@ export type ZliBridge = {
     onActivate(listener: (event: { sessionId: string }) => void): () => void;
     /** Fires when the person clicks an agent's request to connect a service. */
     onOpenConnector?(listener: (event: { connectorId: string }) => void): () => void;
+  };
+  /** Present in the desktop app. Questions from agents that want to reach other projects. */
+  agentReach?: {
+    current(): Promise<AgentReachRequest | undefined>;
+    answer(answer: AgentReachAnswer): Promise<void>;
+    /** Fires with a new question, and with undefined once it is answered. */
+    onRequest(listener: (request: AgentReachRequest | undefined) => void): () => void;
   };
   updates?: {
     getStatus(): Promise<UpdateStatus>;

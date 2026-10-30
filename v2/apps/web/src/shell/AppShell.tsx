@@ -77,7 +77,9 @@ import { ExpiredSignInNotice } from "../settings/ExpiredSignInNotice.js";
 import type { IntegrationsView } from "../settings/IntegrationsSection.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
 import { SettingsDialog, type SettingsSection } from "../settings/SettingsDialog.js";
+import { AgentReachDialog } from "../setup/AgentReachDialog.js";
 import { AgentTrustDialog } from "../setup/AgentTrustDialog.js";
+import { useAgentReach } from "../setup/agentReach.js";
 import { AGENTS_NOT_TRUSTED, useAgentTrust } from "../setup/agentTrust.js";
 import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
 import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
@@ -198,6 +200,8 @@ function WorkspaceApp() {
   projectionRef.current = projection;
   const { asking: trustAsking, ensureTrusted, answer: answerTrust } = useAgentTrust(projectionRef);
   const agentTrustRef = useRef<string>(undefined);
+  const { request: reachAsking, answer: answerReach } = useAgentReach(bridge);
+  const reachRef = useRef(false);
 
   const sessions = useMemo(
     () => (projection ? deriveSessions(projection, workbench.pending, workbench.chats) : []),
@@ -530,6 +534,7 @@ function WorkspaceApp() {
       const approval = setupApprovalRef.current;
       if (approval) deferSetup(approval);
       if (agentTrustRef.current) answerTrust(agentTrustRef.current, false);
+      if (reachRef.current) void answerReach(false);
     },
   });
   useEffect(
@@ -1783,11 +1788,19 @@ function WorkspaceApp() {
   // Agents wait for this answer, and their worktree's setup comes first.
   const agentTrustProjectId = otherOverlayOpen || setupApproval ? undefined : trustAsking;
   agentTrustRef.current = agentTrustProjectId;
+  // An agent waits on this too, behind the questions that block an agent from starting.
+  const reachRequest = otherOverlayOpen || setupApproval || agentTrustProjectId ? undefined : reachAsking;
+  reachRef.current = reachRequest !== undefined;
   // What's new waits behind everything else, setup approvals included.
-  const whatsNew = otherOverlayOpen || setupApproval || agentTrustProjectId ? undefined : updates.whatsNew;
+  const whatsNew =
+    otherOverlayOpen || setupApproval || agentTrustProjectId || reachRequest ? undefined : updates.whatsNew;
   whatsNewRef.current = whatsNew !== undefined;
   const overlayOpen =
-    otherOverlayOpen || setupApproval !== undefined || agentTrustProjectId !== undefined || whatsNew !== undefined;
+    otherOverlayOpen ||
+    setupApproval !== undefined ||
+    agentTrustProjectId !== undefined ||
+    reachRequest !== undefined ||
+    whatsNew !== undefined;
   const { columns, rows, tall } = gridLayout(visibleTiles.length, gridWidth);
   const handoffSession = handoffRequest
     ? sessions.find((session) => session.sessionId === handoffRequest.sessionId)
@@ -2291,6 +2304,9 @@ function WorkspaceApp() {
             onTrust={() => trustAgents(agentTrustProjectId)}
             onDecline={() => answerTrust(agentTrustProjectId, false)}
           />
+        ) : null}
+        {reachRequest ? (
+          <AgentReachDialog key={reachRequest.requestId} request={reachRequest} onAnswer={answerReach} />
         ) : null}
         {restartConfirm && readyUpdate ? (
           <RestartToUpdateDialog

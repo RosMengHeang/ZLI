@@ -23,5 +23,5 @@ export function huddleScopeError(
     members = [...huddle.members.map((member) => member.agentId), command.agentId];
   } else return undefined;
   if (!huddleSpansProjects(projection, members)) return undefined;
-  return "This would put agents from more than one project in the huddle. In Settings, under Integrations, set Which agents they can reach to In every project first.";
+  return "This would put agents from more than one project in the huddle. In Settings, under Agent messages, let agents reach every project first.";
 }

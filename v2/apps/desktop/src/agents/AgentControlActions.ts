@@ -54,6 +54,7 @@ const STRICTEST_FIRST: readonly PermissionMode[] = ["read-only", "supervised", "
 const LIVE_THREAD = ["starting", "idle", "working", "waiting"];
 const DEFAULT_READ_LIMIT = 20;
 const DEFAULT_HUDDLE_WAIT_SECONDS = 120;
+const SETTINGS_PLACE = "ZLI Settings, under Agent messages";
 
 function pauseCause(huddle: HuddleProjection): string {
   return huddle.lead === undefined
@@ -76,6 +77,15 @@ export type AgentControlHost = {
   readonly terminalPromptDelayMs?: number;
   /** Tells the person an agent wants a service connected. connectorId is a catalog id or a server name. */
   askToConnect?(request: { title: string; body: string; connectorId: string }): void;
+  /**
+   * Asks the person whether agents may reach every project, for an agent that tried to reach another
+   * one while Settings keep agents to their own. Allowing it changes the setting for every agent.
+   */
+  askToReach?(request: {
+    agent: string;
+    project: string;
+    target?: { agent: string; project: string };
+  }): Promise<"allowed" | "declined" | "unanswered">;
 };
 
 export type AgentSummary = {
@@ -96,6 +106,8 @@ export type AgentSummary = {
   model?: string;
   /** The agent that started this one with start_agent, which makes this one its sub-agent. */
   startedBy?: { id: string; name?: string };
+  /** This is the agent making the call. */
+  you?: true;
 };
 
 type Agent = AgentSummary & { createdAt: string };
@@ -267,12 +279,42 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     };
   };
 
-  const requireAllProjects = (settings: AgentSettings) => {
-    if (settings.scope !== "all")
-      throw new BrowserControlError(
-        "ZLI Settings keep agents to their own project. The person can let agents reach every project in Settings, under Integrations.",
-        403,
-      );
+  const keptToProject = () =>
+    new BrowserControlError(
+      "ZLI Settings keep agents to their own project. The person can let agents reach every project in Settings, under Agent messages.",
+      403,
+    );
+
+  /**
+   * Lets the call go on to another project. While Settings keep agents to their own, ZLI asks the
+   * person, and their Allow lets every agent reach every project from then on.
+   */
+  const reachOtherProjects = async (
+    settings: AgentSettings,
+    state: RuntimeProjection,
+    from: { worktree: WorktreeProjection; project: ProjectProjection },
+    wanted?: { agent: string; project: string },
+    as?: string,
+  ) => {
+    if (settings.scope === "all") return;
+    if (!host.askToReach) throw keptToProject();
+    // A wrong `as` fails here, before the person is asked anything.
+    const self = callerAgent(state, from.project, from.worktree.worktreeId, as).agent;
+    const outcome = await host.askToReach({
+      agent: self ? (self.name ?? self.providerName) : "An agent",
+      project: from.project.name,
+      ...(wanted ? { target: wanted } : {}),
+    });
+    if (outcome === "allowed") return;
+    // The person may have changed the setting in Settings instead of answering.
+    if ((await currentSettings()).scope === "all") return;
+    const what = wanted ? `${wanted.agent} works in another ZLI project` : "That needs another ZLI project";
+    throw new BrowserControlError(
+      outcome === "declined"
+        ? `${what}, and the person chose to keep agents to their own project. Tell them what you needed. They can change this in ${SETTINGS_PLACE}.`
+        : `${what}. ZLI asked the person to let agents reach other projects, and they have not answered yet. Tell them what you need, and try again once they allow it.`,
+      403,
+    );
   };
 
   /** A project by id, or by name without regard to case. */
@@ -313,14 +355,45 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     );
   };
 
+  /** Agents outside the caller's project with this exact id or name. */
+  const elsewhere = (state: RuntimeProjection, from: ProjectProjection, worktreeId: string, ref: string) => {
+    const others = new Set(
+      state.projects.flatMap((entry) => (entry.projectId === from.projectId ? [] : entry.projectId)),
+    );
+    const agents = agentsIn(state, others, worktreeId);
+    const exact = agents.find((agent) => agent.id === ref);
+    if (exact) return [exact];
+    const key = agentNameKey(ref);
+    return agents.filter((agent) => agent.name !== undefined && agentNameKey(agent.name) === key);
+  };
+
+  const isNotFound = (cause: unknown) => cause instanceof BrowserControlError && cause.status === 404;
+
+  /** Asking the person can take a while, so the agent is looked up again in what ZLI knows now. */
+  const stillRunning = (agent: Agent, callerWorktreeId: string) => {
+    const now = projection();
+    const fresh = agentsIn(now, new Set([agent.projectId]), callerWorktreeId).find(
+      (candidate) => candidate.id === agent.id,
+    );
+    if (!fresh)
+      throw new BrowserControlError(
+        `${agent.name ?? "That agent"} stopped while ZLI waited for the person's answer. Call list_agents to see who is running.`,
+        409,
+      );
+    return { state: now, agent: fresh };
+  };
+
   /**
-   * Finds the agent a read or send is about. `project/agent` and the project field both point at
-   * another project, which Settings have to allow.
+   * Finds the agent a read or send is about. `project/agent` and the project field point at another
+   * project. A plain name that no agent in the caller's project has is looked up in the others, so
+   * agents can be reached by name alone. Reaching another project needs the person's say, and
+   * `refuse` rules out an agent before the person is asked about it.
    */
-  const target = (
+  const target = async (
     state: RuntimeProjection,
     input: AgentControlReadInput | AgentControlSendInput,
     settings: AgentSettings,
+    options: { as?: string | undefined; refuse?: (agent: Agent) => void } = {},
   ) => {
     const from = caller(input, state);
     let agentRef = input.agent;
@@ -335,11 +408,59 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         );
       [projectRef, agentRef] = parts as [string, string];
     }
-    const project = projectRef === undefined ? from.project : findProject(state, projectRef);
-    const crossProject = project.projectId !== from.project.projectId;
-    if (crossProject) requireAllProjects(settings);
-    const agents = projectAgents(state, project.projectId, from.worktree.worktreeId);
-    return { ...from, agent: findAgent(agents, agentRef, project.name), crossProject };
+    if (projectRef !== undefined) {
+      const project = findProject(state, projectRef);
+      const crossProject = project.projectId !== from.project.projectId;
+      const agents = projectAgents(state, project.projectId, from.worktree.worktreeId);
+      let agent: Agent;
+      try {
+        agent = findAgent(agents, agentRef, project.name);
+      } catch (cause) {
+        // Who works in another project stays hidden until the person lets agents reach it.
+        if (crossProject && settings.scope !== "all" && isNotFound(cause)) throw keptToProject();
+        throw cause;
+      }
+      options.refuse?.(agent);
+      if (!crossProject) return { ...from, state, agent, crossProject };
+      await reachOtherProjects(
+        settings,
+        state,
+        from,
+        { agent: agent.name ?? agentRef, project: project.name },
+        options.as,
+      );
+      return { ...from, ...stillRunning(agent, from.worktree.worktreeId), crossProject };
+    }
+    const local = projectAgents(state, from.project.projectId, from.worktree.worktreeId);
+    try {
+      const agent = findAgent(local, agentRef, from.project.name);
+      options.refuse?.(agent);
+      return { ...from, state, agent, crossProject: false };
+    } catch (cause) {
+      if (!isNotFound(cause)) throw cause;
+    }
+    const found = elsewhere(state, from.project, from.worktree.worktreeId, agentRef);
+    const [only] = found;
+    if (!only)
+      throw new BrowserControlError(
+        `No ZLI project has a running agent called ${agentRef}. Call list_agents for the names and ids.`,
+        404,
+      );
+    if (found.length > 1) {
+      await reachOtherProjects(settings, state, from, undefined, options.as);
+      throw new BrowserControlError(
+        `More than one agent in other projects is called ${agentRef}: ${found.map((agent) => `${agent.project}/${agent.name ?? agent.id}`).join(", ")}. Write the one you mean as project/agent.`,
+      );
+    }
+    options.refuse?.(only);
+    await reachOtherProjects(
+      settings,
+      state,
+      from,
+      { agent: only.name ?? agentRef, project: only.project },
+      options.as,
+    );
+    return { ...from, ...stillRunning(only, from.worktree.worktreeId), crossProject: true };
   };
 
   /** Resolves once `pick` returns a value, rejects when it throws or time runs out. */
@@ -385,27 +506,40 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     const input = AgentControlListInput.parse(raw);
     const state = projection();
     const { worktree, project } = caller(input, state);
+    const self = callerAgent(state, project, worktree.worktreeId).agent;
+    const shown = (agent: Agent): AgentSummary =>
+      agent.id === self?.id ? { ...summary(agent), you: true } : summary(agent);
+    const heading = {
+      project: project.name,
+      yourBranch: worktree.branch,
+      ...(self ? { you: { ...(self.name ? { name: self.name } : {}), id: self.id } } : {}),
+    };
     if (!input.allProjects)
       return {
-        project: project.name,
-        yourBranch: worktree.branch,
-        agents: projectAgents(state, project.projectId, worktree.worktreeId).map(summary),
+        ...heading,
+        agents: projectAgents(state, project.projectId, worktree.worktreeId).map(shown),
+        ...(state.projects.length > 1
+          ? {
+              otherProjects:
+                settings.scope === "all"
+                  ? "Agents in other projects are not listed here. Pass allProjects to list them, or message one by name."
+                  : "Agents in other projects are not listed here. Message one by name, and ZLI asks the person to let agents reach other projects first.",
+            }
+          : {}),
       };
-    requireAllProjects(settings);
+    await reachOtherProjects(settings, state, { worktree, project });
     const order = (agent: Agent) => (agent.projectId === project.projectId ? "" : agent.project.toLocaleLowerCase());
     const agents = agentsIn(state, new Set(state.projects.map((entry) => entry.projectId)), worktree.worktreeId);
     return {
-      project: project.name,
-      yourBranch: worktree.branch,
+      ...heading,
       // Stable sort: the caller's project first, then the others by name, each oldest agent first.
-      agents: agents.sort((left, right) => order(left).localeCompare(order(right))).map(summary),
+      agents: agents.sort((left, right) => order(left).localeCompare(order(right))).map(shown),
     };
   };
 
   const read = async (raw: unknown, settings: AgentSettings) => {
     const input = AgentControlReadInput.parse(raw);
-    const state = projection();
-    const { agent } = target(state, input, settings);
+    const { agent, state } = await target(projection(), input, settings);
     if (agent.kind === "terminal") {
       const output = TerminalReadResult.parse(await run({ type: "terminal.read", terminalId: agent.id }));
       return { agent: summary(agent), output: output.text, truncated: output.truncated };
@@ -422,10 +556,16 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     };
   };
 
+  const failedAgent = () => new BrowserControlError("That agent failed and cannot take messages.", 409);
+
   const send = async (raw: unknown, settings: AgentSettings) => {
     const input = AgentControlSendInput.parse(raw);
-    const state = projection();
-    const { worktree, project, agent, crossProject } = target(state, input, settings);
+    const { worktree, project, agent, crossProject, state } = await target(projection(), input, settings, {
+      as: input.as,
+      refuse: (found) => {
+        if (found.status === "failed") throw failedAgent();
+      },
+    });
     const { agent: sender, shared } = callerAgent(state, project, worktree.worktreeId, input.as);
     if (sender && agent.id === sender.id)
       throw new BrowserControlError("That agent is you. Pick another agent from list_agents.");
@@ -440,7 +580,14 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
           ? "sub-agent"
           : undefined;
     const text = [
-      messageHeading({ sender, project: project.name, where: workPlace(project, worktree), crossProject, relation }),
+      messageHeading({
+        sender,
+        receiver: agent.name,
+        project: project.name,
+        where: workPlace(project, worktree),
+        crossProject,
+        relation,
+      }),
       "",
       input.text,
     ].join("\n");
@@ -450,7 +597,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
       await typeIntoTerminal(agent.id, text);
       return { delivered: true, agent: summary(agent), ...(note ? { note } : {}) };
     }
-    if (agent.status === "failed") throw new BrowserControlError("That agent failed and cannot take messages.", 409);
+    if (agent.status === "failed") throw failedAgent();
     if (agent.status === "starting")
       await waitFor((next) => {
         const thread = next.threads.find((candidate) => candidate.threadId === agent.id);
@@ -702,7 +849,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
       )
     )
       throw new BrowserControlError(
-        `The huddle ${huddle.name} has agents from more than one project, and ZLI Settings keep agents to their own project. The person can let agents reach every project in Settings, under Integrations.`,
+        `The huddle ${huddle.name} has agents from more than one project, and ZLI Settings keep agents to their own project. The person can let agents reach every project in Settings, under Agent messages.`,
         403,
       );
     return huddle;
@@ -1066,7 +1213,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     const settings = await currentSettings();
     if (parsed.data !== "agentaccess") {
       if (settings.access === "off")
-        throw new BrowserControlError("Agent tools are turned off in ZLI Settings, under Integrations.", 403);
+        throw new BrowserControlError(`Agent tools are turned off in ${SETTINGS_PLACE}.`, 403);
       if (settings.access === "read" && !READ_AGENT_CONTROL_ACTIONS.includes(parsed.data))
         throw new BrowserControlError(
           "ZLI Settings let agents list and read other agents, but not start or message them.",
@@ -1084,13 +1231,15 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
  */
 function messageHeading(options: {
   sender: Agent | undefined;
+  /** The receiver's name, so it knows it is the one meant. */
+  receiver: string | undefined;
   project: string;
   where: string;
   crossProject: boolean;
   /** What the sender is to the receiver. */
   relation?: "parent" | "sub-agent" | undefined;
 }): string {
-  const { sender, project, where, crossProject, relation } = options;
+  const { sender, receiver, project, where, crossProject, relation } = options;
   const role = crossProject
     ? `an agent in the ZLI project ${project}`
     : relation === "parent"
@@ -1106,7 +1255,7 @@ function messageHeading(options: {
       : sender.name
         ? ` (reply to ${sender.name})`
         : ` (agent id ${sender.id})`;
-  return `Message from ${who}, ${where}${reply}:`;
+  return `Message ${receiver ? `to ${receiver} ` : ""}from ${who}, ${where}${reply}:`;
 }
 
 /** Where the sender works, for a heading. A folder without Git has no real branch to name. */

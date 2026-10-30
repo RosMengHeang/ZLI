@@ -221,6 +221,42 @@ describe("preload API", () => {
     expect(connectors).toEqual([{ connectorId: "github" }]);
   });
 
+  it("passes only valid reach questions and answers", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const listeners = new Map<string, (event: unknown, value: unknown) => void>();
+    const request = {
+      requestId: "00000000-0000-4000-8000-000000000001",
+      agent: "Bob",
+      project: "collect",
+      target: { agent: "Kim", project: "web" },
+    };
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        return channel === "zli:agents:reach-current" ? request : undefined;
+      },
+      on: (channel, listener) => {
+        listeners.set(channel, listener);
+        return () => listeners.delete(channel);
+      },
+    });
+
+    expect(await api.agentReach.current()).toEqual(request);
+    await api.agentReach.answer({ requestId: request.requestId, allow: true, extra: 1 } as never);
+    await expect(api.agentReach.answer({ requestId: "nope", allow: true })).rejects.toThrow();
+    expect(calls.at(-1)).toEqual({
+      channel: "zli:agents:reach-answer",
+      payload: { requestId: request.requestId, allow: true },
+    });
+
+    const seen: unknown[] = [];
+    api.agentReach.onRequest((value) => seen.push(value));
+    listeners.get("zli:agents:reach-request")?.({}, request);
+    listeners.get("zli:agents:reach-request")?.({}, { requestId: "bad" });
+    listeners.get("zli:agents:reach-request")?.({}, null);
+    expect(seen).toEqual([request, undefined]);
+  });
+
   it("validates update status from main and sends only a boolean auto-install setting", async () => {
     const calls: Array<{ channel: string; payload: unknown }> = [];
     const listeners = new Map<string, (event: unknown, value: unknown) => void>();

@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { RuntimeClient, type RuntimeTransport } from "@zli-v2/client-runtime";
 import {
+  AgentReachAnswer,
   BrowserDesignCaptureInput,
   BrowserDesignMarkInput,
   BrowserFillInput,
@@ -41,6 +42,7 @@ import {
   createAgentControlActions,
   isAgentControlAction,
 } from "./agents/AgentControlActions.js";
+import { ReachRequests } from "./agents/ReachRequests.js";
 import { busyAgentCount, QuitController, quitWarning } from "./app/QuitController.js";
 import { BrowserAutomation } from "./browser/BrowserAutomation.js";
 import { createBrowserControlActions } from "./browser/BrowserControlActions.js";
@@ -115,6 +117,7 @@ let mobileSettings: MobileSettingsStore | undefined;
 let popOuts: PopOutWindows | undefined;
 let mainWindow: BrowserWindow | undefined;
 let notifier: AgentNotifier | undefined;
+let reachRequests: ReachRequests | undefined;
 let approvedSupportBundleRoot: string | undefined;
 let scratchFolderPath: string | undefined;
 let daemonEndpointPath: string | undefined;
@@ -367,11 +370,35 @@ async function startBrowserControl(databasePath: string): Promise<BrowserToolPat
     status: () => (mobile ? mobile.status() : Promise.reject(new Error("ZLI's mobile service is not running."))),
     reveal: (event) => sendToWindow("zli:mobile:reveal", event),
   });
+  const reach = new ReachRequests({
+    show: (request) => sendToWindow("zli:agents:reach-request", request ?? null),
+    notify: (request) =>
+      notifier?.reachRequest({
+        title: request.project,
+        body: request.target
+          ? `${request.agent} wants to message ${request.target.agent} in ${request.target.project}. Open ZLI to allow it.`
+          : `${request.agent} wants to reach agents in your other projects. Open ZLI to allow it.`,
+      }),
+    allow: async () => {
+      const response = await runtimeCommand({
+        protocolVersion: 1,
+        commandId: randomUUID(),
+        command: { type: "mcp.agentScope", scope: "all" },
+      });
+      if (!response.accepted) throw new Error(response.error.message);
+    },
+    // End-to-end tests check what an agent hears when nobody answers without waiting the full time.
+    ...(process.env.ZLI_TEST_PROVIDER === "mock" && process.env.ZLI_TEST_REACH_WAIT_MS
+      ? { waitMs: Number(process.env.ZLI_TEST_REACH_WAIT_MS) }
+      : {}),
+  });
+  reachRequests = reach;
   const agentActions = createAgentControlActions({
     projection: () => runtime?.projection(),
     subscribe: (listener) => runtime?.subscribe(() => listener()) ?? (() => undefined),
     command: runtimeCommand,
     askToConnect: (request) => notifier?.connectorRequest(request),
+    askToReach: (request) => reach.ask(request),
   });
   // The zli agent tool shares this service and endpoint file with zli-browser, so agents need one variable.
   browserControl = new BrowserControlServer({
@@ -446,6 +473,10 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
     runtime.attachTerminal(terminalId, afterSequence);
     return { accepted: true };
   });
+  ipcMain.handle("zli:agents:reach-current", () => reachRequests?.current() ?? null);
+  ipcMain.handle("zli:agents:reach-answer", (_event, input: unknown) =>
+    reachRequests?.answer(AgentReachAnswer.parse(input)),
+  );
   ipcMain.handle("zli:app:version", () => app.getVersion());
   ipcMain.handle("zli:app:quit", () => {
     app.quit();

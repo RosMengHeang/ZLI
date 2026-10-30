@@ -20,6 +20,21 @@ export const AgentToolScope = z.enum(["project", "all"]);
 export type AgentToolScope = z.infer<typeof AgentToolScope>;
 export const DEFAULT_AGENT_TOOL_SCOPE: AgentToolScope = "project";
 
+/**
+ * An agent tried to reach another project while Settings keep agents to their own. ZLI asks the person
+ * whether agents may reach every project. target is the agent it was after, when it named one.
+ */
+export const AgentReachRequest = z.object({
+  requestId: z.string().uuid(),
+  agent: z.string().min(1).max(200),
+  project: z.string().min(1).max(200),
+  target: z.object({ agent: z.string().min(1).max(200), project: z.string().min(1).max(200) }).optional(),
+});
+export type AgentReachRequest = z.infer<typeof AgentReachRequest>;
+
+export const AgentReachAnswer = z.object({ requestId: z.string().uuid(), allow: z.boolean() });
+export type AgentReachAnswer = z.infer<typeof AgentReachAnswer>;
+
 /** Served by the same control service as the browser tool, under their own action names. */
 export const AGENT_CONTROL_ACTIONS = [
   "agentaccess",

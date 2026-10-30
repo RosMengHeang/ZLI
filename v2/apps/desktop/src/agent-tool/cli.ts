@@ -7,7 +7,8 @@ export const ZLI_CLI_HELP = `zli: work with the other agents in ZLI.
 Usage:
   zli mcp                          Run as an MCP server over stdio.
   zli agents                       List the agents in this project with their names and ids.
-      --all-projects               Also list agents in other projects, when Settings allow it.
+                                   "you" is your own name and id.
+      --all-projects               Also list agents in other projects.
   zli read <agent> [--limit <n>]   Show an agent's recent messages or terminal output.
   zli send <agent> <message>       Send a message to another agent.
       --as <you>                   Your own name or id, when agents share your worktree.
@@ -37,8 +38,10 @@ Usage:
       --huddle <name or id>        Which huddle, when you are in more than one.
       --as <you>                   Your own name or id, when agents share your worktree.
 
-<agent> is a name or id from zli agents. For an agent in another project, write
-project/agent or add --project <name>. Settings have to let agents reach every project.
+<agent> is a name or id from zli agents. An agent in another project can be named
+alone when no agent in this project has the name, or written project/agent, or with
+--project <name>. When Settings keep agents to their own project, ZLI asks the person
+to allow it and the command waits for the answer.
 
 An agent started with zli start is the caller's sub-agent. Its task says who started it
 and how to reply. In a folder without Git, it works in the same folder.
