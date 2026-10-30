@@ -47,12 +47,16 @@
 .project-label:hover .project-summary { display: none; }
 .sidebar-project.is-collapsed + .sidebar-project { margin-top: var(--zli-space-1); }
 .project-action { opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
-.project-label:hover .project-action, .project-action:focus-visible { opacity: 1; }
+/* New agent stays in view on an empty or current project, so starting one there needs no hover. */
+.project-label:hover .project-action, .project-action:focus-visible, .project-action.is-shown { opacity: 1; }
 /* Hidden actions would still hold their width and push the agent count off the end of the row. */
-@media (hover: hover) { .project-label:not(:hover):not(:has(:focus-visible)) .project-action { display: none; } }
+@media (hover: hover) { .project-label:not(:hover):not(:has(:focus-visible)) .project-action:not(.is-shown) { display: none; } }
 /* Without hover there is no way to reveal the row's actions, so they stay in view. */
 @media (hover: none) { .project-action { opacity: 1; } }
 .sidebar-note { margin: var(--zli-space-0-5) var(--zli-space-2) var(--zli-space-1-5) 32px; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.sidebar-note-action { padding: 0; border: 0; border-radius: var(--zli-radius-xs); background: none; color: var(--zli-accent); cursor: pointer; font: inherit; }
+.sidebar-note-action:hover { text-decoration: underline; }
+.sidebar-note-action:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
 .sidebar-note.is-error { margin-left: 24px; color: var(--zli-red); overflow-wrap: anywhere; }
 
 .session-list, .worktree-list { margin: 0; padding: 0; list-style: none; }

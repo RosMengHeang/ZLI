@@ -8,6 +8,7 @@ import {
   openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
+  freePort,
   launchDesktop,
 } from "./desktop-fixtures.js";
 
@@ -26,7 +27,7 @@ test("finds a dev server in terminal output and opens it in the browser panel", 
     await expect(worktree).toContainText("Ready", { timeout: 30_000 });
     await worktree.click();
 
-    const port = 44100 + Math.floor(Math.random() * 500);
+    const port = await freePort();
     await writeFile(
       join(`${repo}-worktrees`, "preview", "serve.mjs"),
       [

@@ -3,7 +3,14 @@ import { join } from "node:path";
 
 import { expect, type Page, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, type DesktopFixture, git, launchDesktop } from "./desktop-fixtures.js";
+import {
+  clickProjectAction,
+  closeDesktop,
+  createGitFixture,
+  type DesktopFixture,
+  git,
+  launchDesktop,
+} from "./desktop-fixtures.js";
 
 test("swaps project boards and brings each back as it was, without stopping agents", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
@@ -87,9 +94,10 @@ const project = (page: Page, name: string) => page.getByRole("region", { name, e
 const tile = (page: Page, name: string) => page.getByRole("region", { name: new RegExp(`^${name},`, "u") });
 
 async function startAgent(page: Page, projectName: string, name: string): Promise<void> {
-  // A project's row actions show only while the row is hovered.
-  await project(page, projectName).locator(".project-label").hover();
-  await page.getByRole("button", { name: `New agent in ${projectName}` }).click();
+  await clickProjectAction(
+    project(page, projectName).locator(".project-label"),
+    page.getByRole("button", { name: `New agent in ${projectName}` }),
+  );
   const dialog = page.getByRole("dialog", { name: "New agent" });
   await dialog.getByText("Codex", { exact: true }).click();
   await dialog.getByText("Chat", { exact: true }).click();
@@ -99,7 +107,9 @@ async function startAgent(page: Page, projectName: string, name: string): Promis
 }
 
 async function fromProjectMenu(page: Page, projectName: string, item: string): Promise<void> {
-  await project(page, projectName).locator(".project-label").hover();
-  await page.getByRole("button", { name: `${projectName} actions` }).click();
+  await clickProjectAction(
+    project(page, projectName).locator(".project-label"),
+    page.getByRole("button", { name: `${projectName} actions` }),
+  );
   await page.getByRole("menuitem", { name: item }).click();
 }

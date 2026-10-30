@@ -10,6 +10,7 @@ import {
   openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
+  freePort,
   git,
   launchDesktop,
 } from "./desktop-fixtures.js";
@@ -39,7 +40,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     });
     if (!worktreeId) throw new Error("The created worktree was not present in the runtime projection.");
 
-    const terminalPort = 43100 + Math.floor(Math.random() * 500);
+    const terminalPort = await freePort();
     const worktreePath = join(`${repo}-worktrees`, "e2e");
     browserServer = createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html" });

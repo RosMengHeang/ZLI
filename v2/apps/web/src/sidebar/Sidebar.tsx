@@ -1,6 +1,6 @@
 import type { Account, ProjectProjection, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { huddlesOf, MAX_HUDDLE_MEMBERS, threadOccupiesWorktree } from "@zli-v2/contracts";
-import { type MouseEvent, useEffect, useState } from "react";
+import { type MouseEvent, useEffect, useRef, useState } from "react";
 
 import { accountLabel, sessionAccountId } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
@@ -116,6 +116,10 @@ type Props = {
   /** Running sessions without a tile on the board. */
   backgroundSessionIds: ReadonlySet<string>;
   activeWorktreeId: string | undefined;
+  /** The project the person is working in. Its New agent button stays in view. */
+  currentProjectId?: string | undefined;
+  /** A project the person just added. The sidebar opens its folder and scrolls it into view. */
+  selectedProjectId?: string | undefined;
   onSelectSession(session: AgentSession): void;
   onStopSession(session: AgentSession): void;
   onDeleteSession(session: AgentSession): void;
@@ -159,6 +163,8 @@ export function Sidebar({
   activeSessionId,
   backgroundSessionIds,
   activeWorktreeId,
+  currentProjectId,
+  selectedProjectId,
   onSelectSession,
   onStopSession,
   onDeleteSession,
@@ -223,6 +229,16 @@ export function Sidebar({
     if (!parent || runIds.has(session.sessionId)) continue;
     subAgentsOf.set(parent.sessionId, [...(subAgentsOf.get(parent.sessionId) ?? []), session]);
   }
+
+  const asideRef = useRef<HTMLElement>(null);
+  const { expandProject } = layout;
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    expandProject(selectedProjectId);
+    [...(asideRef.current?.querySelectorAll<HTMLElement>(".sidebar-project") ?? [])]
+      .find((section) => section.dataset.projectId === selectedProjectId)
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedProjectId, expandProject]);
 
   // Relative times only need minute precision.
   useEffect(() => {
@@ -837,7 +853,7 @@ export function Sidebar({
   };
 
   return (
-    <aside className="sidebar" aria-label="Projects and agents">
+    <aside className="sidebar" aria-label="Projects and agents" ref={asideRef}>
       <div className="sidebar-top">
         <span className="brand">
           <ZliLogo className="brand-mark" />
@@ -901,6 +917,7 @@ export function Sidebar({
                       worktree.status !== "ready" ||
                       worktreeInfo(worktree).needsAttention,
                   );
+              const empty = projectSessions.length === 0;
               const alerted = new Set<string>();
               const firstForWorktree = (session: AgentSession) => {
                 if (alerted.has(session.worktreeId)) return false;
@@ -912,6 +929,7 @@ export function Sidebar({
                   className={`sidebar-project${open ? "" : " is-collapsed"}`}
                   key={project.projectId}
                   aria-label={project.name}
+                  data-project-id={project.projectId}
                 >
                   {/* biome-ignore lint/a11y/noStaticElementInteractions: Shift+F10 or the Menu key on the focused toggle opens this menu too. */}
                   <div
@@ -961,7 +979,7 @@ export function Sidebar({
                       onClick={() => onCreateWorktree(project)}
                     />
                     <IconButton
-                      className="project-action"
+                      className={`project-action${empty || project.projectId === currentProjectId ? " is-shown" : ""}`}
                       label={`New agent in ${project.name}`}
                       tooltip="New agent here"
                       icon="agentNew"
@@ -979,8 +997,18 @@ export function Sidebar({
                   </div>
                   {!open ? null : (
                     <>
-                      {projectSessions.length === 0 ? (
-                        <p className="sidebar-note">No agents yet.</p>
+                      {empty ? (
+                        <p className="sidebar-note">
+                          No agents yet.{" "}
+                          <button
+                            className="sidebar-note-action"
+                            type="button"
+                            aria-label={`Start an agent in ${project.name}`}
+                            onClick={() => onNewAgent(project)}
+                          >
+                            Start one
+                          </button>
+                        </p>
                       ) : (
                         <ul className="session-list">
                           {projectSessions.map((session) => {
