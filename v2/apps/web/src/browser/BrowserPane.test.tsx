@@ -8,6 +8,7 @@ import {
   EnvironmentId,
   ProjectId,
   type RuntimeProjection,
+  type ThreadProjection,
   WorktreeId,
 } from "@zli-v2/contracts";
 import { act } from "react";
@@ -46,7 +47,21 @@ const otherTab: BrowserTabProjection = {
   active: false,
 };
 
-function projectionWith(tab: BrowserTabProjection, extra: BrowserTabProjection[] = []): RuntimeProjection {
+const threadId = "00000000-0000-4000-8000-000000000401";
+const chatAgent = {
+  threadId,
+  worktreeId: worktree.worktreeId,
+  provider: "codex",
+  status: "idle",
+  capabilities: {},
+  updatedAt: "2026-01-01T00:00:00.000Z",
+} as ThreadProjection;
+
+function projectionWith(
+  tab: BrowserTabProjection,
+  extra: BrowserTabProjection[] = [],
+  threads: ThreadProjection[] = [],
+): RuntimeProjection {
   return {
     environment: {
       environmentId: EnvironmentId.parse("00000000-0000-4000-8000-000000000001"),
@@ -56,7 +71,7 @@ function projectionWith(tab: BrowserTabProjection, extra: BrowserTabProjection[]
     },
     projects: [{ projectId: worktree.projectId, path: "C:/repo", name: "repo" }],
     worktrees: [worktree],
-    threads: [],
+    threads,
     terminals: [],
     browserTabs: [tab, ...extra],
     attention: [],
@@ -64,14 +79,22 @@ function projectionWith(tab: BrowserTabProjection, extra: BrowserTabProjection[]
   };
 }
 
-function createBridge(initial: BrowserTabProjection, extra: BrowserTabProjection[] = []) {
+function createBridge(
+  initial: BrowserTabProjection,
+  extra: BrowserTabProjection[] = [],
+  threads: ThreadProjection[] = [],
+) {
   let current = initial;
   let projectionListener: ((projection: RuntimeProjection) => void) | undefined;
   const calls: string[] = [];
+  const dispatched: Array<{ command: Record<string, unknown> }> = [];
   const bridge: ZliBridge = {
     runtime: {
-      dispatch: async () => ({ commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"), accepted: true }),
-      getProjection: async () => projectionWith(current, extra),
+      dispatch: async (request) => {
+        dispatched.push(request as { command: Record<string, unknown> });
+        return { commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"), accepted: true };
+      },
+      getProjection: async () => projectionWith(current, extra, threads),
       onProjection: (listener) => {
         projectionListener = listener;
         return () => undefined;
@@ -125,9 +148,10 @@ function createBridge(initial: BrowserTabProjection, extra: BrowserTabProjection
   return {
     bridge,
     calls,
+    dispatched,
     publish(next: BrowserTabProjection) {
       current = next;
-      projectionListener?.(projectionWith(next, extra));
+      projectionListener?.(projectionWith(next, extra, threads));
     },
   };
 }
@@ -138,16 +162,22 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   document.body.replaceChildren();
+  window.localStorage.clear();
 });
 
-async function renderPane(bridge: ZliBridge, obscured: boolean, reveal?: BrowserReveal) {
+async function renderPane(
+  bridge: ZliBridge,
+  obscured: boolean,
+  reveal?: BrowserReveal,
+  callbacks: Pick<Parameters<typeof BrowserPane>[0], "onNotice" | "onShowAgent"> = {},
+) {
   const container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
   await act(async () => {
     root?.render(
       <RuntimeProvider bridge={bridge}>
-        <BrowserPane worktree={worktree} obscured={obscured} reveal={reveal} />
+        <BrowserPane worktree={worktree} obscured={obscured} reveal={reveal} {...callbacks} />
       </RuntimeProvider>,
     );
   });
@@ -322,6 +352,86 @@ describe("BrowserPane", () => {
     expect(preview).toContain('### Annotation 1: <button> "Save"\nSelector: `#save`\nInstruction: Make it green.');
     expect(preview).toContain("### Annotation 2: <h1>");
     expect(preview).toContain("Instruction: Bigger, tighter.");
+  });
+
+  it("sends the annotations to the only agent in one click, clears them, and confirms it", async () => {
+    const fake = createBridge(baseTab, [], [chatAgent]);
+    const design = withAnnotate(fake.bridge);
+    const onNotice = vi.fn();
+    const onShowAgent = vi.fn();
+    const { container } = await renderPane(fake.bridge, false, undefined, { onNotice, onShowAgent });
+    const annotate = buttonNamed(container, "Annotate");
+    await act(async () => {
+      annotate?.click();
+    });
+    await design.answer({ kind: "element", id: "a-1", selector: "#save" });
+    await design.answer({ kind: "note", id: "a-1", instruction: "Make it green." });
+    const send = () => buttonNamed(container, "Send 1 annotation");
+    await vi.waitFor(() =>
+      expect(send()?.getAttribute("data-tooltip")).toBe("Send to Codex. Shift+click to edit it first."),
+    );
+
+    // Shift+click opens the dialog to read the message first, with the native view out of its way.
+    fake.calls.length = 0;
+    await act(async () => {
+      send()?.dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
+    });
+    const dialog = document.querySelector('[role="dialog"][aria-label="Send annotations"]');
+    expect(dialog?.querySelector(".choice-detail")?.textContent).toBe("Codex chat · Ready");
+    expect(dialog?.querySelector(".send-preview")?.textContent).toContain("Instruction: Make it green.");
+    expect(fake.calls).toContain("hide");
+    await act(async () => {
+      dialog && buttonNamed(dialog, "Cancel")?.click();
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(fake.dispatched).toHaveLength(0);
+
+    await act(async () => {
+      send()?.click();
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(fake.dispatched.at(-1)?.command).toMatchObject({
+      type: "thread.queue",
+      threadId,
+      attachments: [expect.objectContaining({ name: "element-1.png" })],
+    });
+    expect(String(fake.dispatched.at(-1)?.command.text)).toContain("Instruction: Make it green.");
+    expect(container.querySelector('[aria-label="Annotations"]')).toBeNull();
+    expect(send()).toBeUndefined();
+    expect(annotate?.getAttribute("aria-pressed")).toBe("false");
+    expect(onNotice).toHaveBeenCalledWith({
+      message: "Sent to Codex.",
+      action: { label: "Show", run: expect.any(Function) },
+    });
+    expect(onShowAgent).not.toHaveBeenCalled();
+    onNotice.mock.calls[0]?.[0].action.run();
+    expect(onShowAgent).toHaveBeenCalledWith(threadId, "chat");
+  });
+
+  it("hides the native view while the send menu is open and edits the message from it", async () => {
+    const fake = createBridge(baseTab, [], [chatAgent]);
+    const design = withAnnotate(fake.bridge);
+    const { container } = await renderPane(fake.bridge, false);
+    await act(async () => {
+      buttonNamed(container, "Annotate")?.click();
+    });
+    await design.answer({ kind: "element", id: "a-1", selector: "#save" });
+    await design.answer({ kind: "note", id: "a-1", instruction: "Make it green." });
+    await vi.waitFor(() => expect(buttonNamed(container, "Send 1 annotation")?.dataset.tooltip).toContain("Codex"));
+    fake.calls.length = 0;
+    await act(async () => {
+      buttonNamed(container, "Choose agent")?.click();
+    });
+    expect(fake.calls).toContain("hide");
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role^="menuitem"]')];
+    expect(items.map((item) => item.textContent)).toEqual(["Codex", "Edit message before sending…"]);
+    expect(items[0]?.getAttribute("aria-checked")).toBe("true");
+    await act(async () => {
+      items[1]?.click();
+    });
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"][aria-label="Send annotations"]')).not.toBeNull();
+    expect(fake.dispatched).toHaveLength(0);
   });
 
   it("adds a drawn region with its sketch and note to the message", async () => {

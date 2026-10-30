@@ -1,67 +1,28 @@
-import type { AttachmentMimeType, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
+import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { type KeyboardEvent, type ReactNode, useMemo, useState } from "react";
 
-import { providerDisplayName } from "../agent/providers.js";
-import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
-import { deriveSessions, type SessionMode, sessionStatusLabel, sessionTitle } from "../sessions/sessions.js";
-import { readBracketedPaste } from "../terminal/terminalModes.js";
+import type { SessionMode } from "../sessions/sessions.js";
 import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Icon } from "../ui/Icon.js";
-import { terminalPaste } from "./reviewComments.js";
+import {
+  deliverToAgent,
+  lastSendTarget,
+  rememberSendTarget,
+  type SendAttachment,
+  type SendTarget,
+  sendTargets,
+} from "./sendToAgent.js";
 import "./review.css";
 
-/** A file sent along with the message; only chat agents receive these. */
-export type SendAttachment = { name: string; mimeType: AttachmentMimeType; dataBase64: string };
-
-export type SendTarget = {
-  key: string;
-  sessionId: string;
-  mode: SessionMode;
-  title: string;
-  detail: string;
-  updatedAt: string;
-} & ({ mode: "chat"; threadId: string } | { mode: "terminal"; terminalId: string });
-
-/** Agents in the worktree that can take a message now, the most recently active first. */
-export function sendTargets(projection: RuntimeProjection, worktreeId: string): SendTarget[] {
-  const targets: SendTarget[] = [];
-  for (const session of deriveSessions(projection)) {
-    if (session.worktreeId !== worktreeId) continue;
-    const title = sessionTitle(session, projection.messages, projection.providers);
-    const name = providerDisplayName(session.provider, projection.providers);
-    const status = sessionStatusLabel[session.status];
-    const { thread, terminal } = session;
-    if (thread && (thread.status === "idle" || thread.status === "working" || thread.status === "waiting")) {
-      targets.push({
-        key: `${session.sessionId}:chat`,
-        sessionId: session.sessionId,
-        mode: "chat",
-        threadId: thread.threadId,
-        title,
-        detail: `${name} chat · ${status}`,
-        updatedAt: thread.updatedAt ?? thread.createdAt ?? "",
-      });
-    }
-    if (terminal?.status === "running") {
-      targets.push({
-        key: `${session.sessionId}:terminal`,
-        sessionId: session.sessionId,
-        mode: "terminal",
-        terminalId: terminal.terminalId,
-        title,
-        detail: `${name} terminal · ${status}`,
-        updatedAt: terminal.updatedAt ?? terminal.createdAt ?? "",
-      });
-    }
-  }
-  return targets.sort((left, right) =>
-    left.updatedAt < right.updatedAt ? 1 : left.updatedAt > right.updatedAt ? -1 : 0,
-  );
-}
-
 const selectProjection = (projection: RuntimeProjection | undefined) => projection;
+
+/** The agents in the worktree that can take a message now, kept current with the runtime. */
+export function useSendTargets(worktreeId: string): SendTarget[] {
+  const projection = useRuntimeSelector(selectProjection);
+  return useMemo(() => (projection ? sendTargets(projection, worktreeId) : []), [projection, worktreeId]);
+}
 
 /** Picks an agent working in the worktree and sends it a message, as chat input or a terminal paste. */
 export function SendToAgentDialog({
@@ -73,6 +34,8 @@ export function SendToAgentDialog({
   preparing,
   notice,
   noAgentMessage,
+  initialTarget,
+  initialError,
   onSent,
   onClose,
   onShowAgent,
@@ -87,19 +50,19 @@ export function SendToAgentDialog({
   /** Something the person should know about the message before sending it. */
   notice?: ReactNode;
   noAgentMessage: string;
-  onSent?(): void;
+  /** The agent picked when the dialog opens; without it, the one the worktree's last message went to. */
+  initialTarget?: string | undefined;
+  /** Why a send started outside the dialog failed. */
+  initialError?: string | undefined;
+  onSent?: ((target: SendTarget) => void) | undefined;
   onClose(): void;
   onShowAgent?: ((sessionId: string, mode: SessionMode) => void) | undefined;
 }) {
   const { dispatch } = useRuntime();
-  const projection = useRuntimeSelector(selectProjection);
-  const targets = useMemo(
-    () => (projection ? sendTargets(projection, worktree.worktreeId) : []),
-    [projection, worktree.worktreeId],
-  );
-  const [choice, setChoice] = useState<string>();
+  const targets = useSendTargets(worktree.worktreeId);
+  const [choice, setChoice] = useState(() => initialTarget ?? lastSendTarget(worktree.worktreeId));
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState(initialError);
   const selected = targets.find((target) => target.key === choice) ?? targets[0];
   const ready = !!selected && !preparing;
 
@@ -108,31 +71,9 @@ export function SendToAgentDialog({
     setSending(true);
     setError(undefined);
     try {
-      let command: Record<string, unknown>;
-      if (selected.mode === "chat") {
-        command = {
-          type: "thread.queue",
-          queueId: makeCommandId(),
-          threadId: selected.threadId,
-          text: message,
-          ...(attachments.length > 0 ? { attachments } : {}),
-        };
-      } else {
-        // Showing the terminal mounts its view, which knows whether the program reads bracketed paste.
-        onShowAgent?.(selected.sessionId, "terminal");
-        const bracketed = await readBracketedPaste(selected.terminalId);
-        command = {
-          type: "terminal.write",
-          terminalId: selected.terminalId,
-          data: terminalPaste(message, !!bracketed),
-        };
-      }
-      const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
-      if (response?.accepted === false) {
-        setError(response.error.message);
-        return;
-      }
-      onSent?.();
+      await deliverToAgent({ dispatch, target: selected, message, attachments, onShowAgent });
+      rememberSendTarget(worktree.worktreeId, selected.key);
+      onSent?.(selected);
       onClose();
       onShowAgent?.(selected.sessionId, selected.mode);
     } catch (cause) {

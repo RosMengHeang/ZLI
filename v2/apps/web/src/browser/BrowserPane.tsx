@@ -9,7 +9,7 @@ import {
 } from "@zli-v2/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DevServerBar, devServerLabel, originOf } from "../devservers/DevServers.js";
-import { SendToAgentDialog } from "../review/SendToAgentDialog.js";
+import { type SentNotice, SendToAgentButton } from "../review/SendToAgentButton.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import type { SessionMode } from "../sessions/sessions.js";
 import { Button, cx, IconButton } from "../ui/Button.js";
@@ -50,6 +50,8 @@ type Props = {
   reveal?: BrowserReveal | undefined;
   openRequest?: BrowserOpenRequest | undefined;
   onShowAgent?: ((sessionId: string, mode: SessionMode) => void) | undefined;
+  /** Confirms annotations that went to an agent without the send dialog. */
+  onNotice?: ((notice: SentNotice) => void) | undefined;
   /** Projects offered when there is no worktree, such as a folder without Git that was just added. */
   projects?: readonly ProjectProjection[] | undefined;
   /** Opens the project's own folder as its checkout so the browser has somewhere to keep tabs. */
@@ -65,6 +67,7 @@ export function BrowserPane({
   reveal,
   openRequest,
   onShowAgent,
+  onNotice,
   projects = [],
   onOpenProject,
 }: Props) {
@@ -90,7 +93,7 @@ export function BrowserPane({
   annotationsRef.current = annotations;
   const tabUrlRef = useRef<string | undefined>(undefined);
   const canDesign = typeof bridge?.browser.designPick === "function";
-  // The native view draws over the DOM, so it is hidden while the send dialog is open.
+  // The native view draws over the DOM, so it is hidden while the send menu or dialog is open.
   const obscured = obscuredByApp || sendingDesign;
   const worktreeId = worktree?.worktreeId;
   const showUrl = useCallback((value: string) => {
@@ -531,9 +534,11 @@ export function BrowserPane({
   }, [annotating, bridge, marksKey, pickTabId]);
 
   const designReady = annotations.some(designAnnotationReady);
-  const openDesignSend = () => {
-    if (designReady) setSendingDesign(true);
-  };
+  const designMessage = useMemo(
+    () => (worktree && annotations.length > 0 ? formatDesignMessage(annotations, worktree.branch) : ""),
+    [annotations, worktree],
+  );
+  const designFiles = useMemo(() => designAttachments(annotations), [annotations]);
   const annotationCount = `${annotations.length} annotation${annotations.length === 1 ? "" : "s"}`;
 
   return (
@@ -644,19 +649,29 @@ export function BrowserPane({
             </Button>
           </form>
         )}
-        {annotations.length > 0 ? (
-          <Button
-            size="sm"
-            variant="primary"
+        {worktree && annotations.length > 0 ? (
+          <SendToAgentButton
             className="browser-annotate-send"
-            aria-label={`Send ${annotationCount}`}
-            tooltip={designReady ? `Send ${annotationCount} in one message` : "Add a note to send"}
+            worktree={worktree}
+            label={`Send ${annotationCount}`}
+            dialogLabel="Send annotations"
+            dialogTitle={`Send ${annotationCount}`}
+            message={designMessage}
+            attachments={designFiles}
+            noAgentMessage={`No agent is running in ${worktree.branch}. Start one with New agent, then send the annotations. They stay here until then.`}
             disabled={!designReady}
-            onClick={openDesignSend}
+            disabledTooltip="Add a note to send"
+            onSent={() => {
+              setAnnotations([]);
+              stopAnnotating();
+            }}
+            onNotice={onNotice}
+            onOpenChange={setSendingDesign}
+            onShowAgent={onShowAgent}
           >
             <span className="browser-annotate-count">{annotations.length}</span>
             Send
-          </Button>
+          </SendToAgentButton>
         ) : null}
         {canDesign ? (
           <Button
@@ -816,22 +831,6 @@ export function BrowserPane({
           annotating={annotating}
           onRemove={(id) => setAnnotations((current) => current.filter((annotation) => annotation.id !== id))}
           onClear={() => setAnnotations([])}
-        />
-      ) : null}
-      {sendingDesign && worktree && annotations.length > 0 ? (
-        <SendToAgentDialog
-          label="Send annotations"
-          title={`Send ${annotationCount}`}
-          worktree={worktree}
-          message={formatDesignMessage(annotations, worktree.branch)}
-          attachments={designAttachments(annotations)}
-          noAgentMessage={`No agent is running in ${worktree.branch}. Start one with New agent, then send the annotations. They stay here until then.`}
-          onSent={() => {
-            setAnnotations([]);
-            stopAnnotating();
-          }}
-          onClose={() => setSendingDesign(false)}
-          onShowAgent={onShowAgent}
         />
       ) : null}
     </div>

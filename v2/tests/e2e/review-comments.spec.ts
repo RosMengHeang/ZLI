@@ -69,13 +69,20 @@ test("comments on diff lines and sends them to a chat agent", async () => {
     await changesToggle.click();
     await expect(list).toContainText("Turn these into a numbered list.");
 
-    await list.getByRole("button", { name: "Send to agent" }).click();
+    // Shift+click opens the message to read first; a plain click sends to the only agent.
+    const sendToAgent = list.getByRole("button", { name: "Send to agent" });
+    await sendToAgent.click({ modifiers: ["Shift"] });
     const send = page.getByRole("dialog", { name: "Send comments" });
     await expect(send.getByRole("radio", { checked: true })).toHaveCount(1);
     await expect(send.locator(".choice-detail")).toHaveText(/Codex chat/u);
     await expect(send.getByLabel("Message preview")).toContainText("README.md:3-4");
-    await send.getByRole("button", { name: "Send", exact: true }).click();
+    await send.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(send).toHaveCount(0);
+    await expect(list).toContainText("1 comment");
+    await sendToAgent.click();
+    await expect(send).toHaveCount(0);
+    const sent = page.getByRole("status").filter({ hasText: "Sent to Codex." });
+    await expect(sent).toBeVisible();
 
     await expect(
       page.getByText(/Mock response: Please address this review comment on the changes in comments/u),
@@ -84,6 +91,8 @@ test("comments on diff lines and sends them to a chat agent", async () => {
     });
     await expect(page.getByText(/Turn these into a numbered list\./u).first()).toBeVisible();
     await expect(list).toHaveCount(0);
+    await sent.getByRole("button", { name: "Show", exact: true }).click();
+    await expect(sent).toHaveCount(0);
     await expect(composer).toBeFocused();
   } finally {
     if (fixture) await closeDesktop(fixture);

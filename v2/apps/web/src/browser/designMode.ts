@@ -1,4 +1,4 @@
-import type { SendAttachment } from "../review/SendToAgentDialog.js";
+import type { SendAttachment } from "../review/sendToAgent.js";
 
 export type DesignRect = { x: number; y: number; width: number; height: number };
 export type DesignStroke = { tool: "pen" | "rect" | "ellipse" | "arrow"; points: number[] };

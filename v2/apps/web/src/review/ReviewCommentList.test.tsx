@@ -73,13 +73,15 @@ function projectionFor(
   } as RuntimeProjection;
 }
 
-async function render(node: React.ReactNode, projection?: RuntimeProjection) {
+async function render(node: React.ReactNode, projection?: RuntimeProjection, rejection?: string) {
   const dispatched: Array<{ command: Record<string, unknown> }> = [];
+  const commandId = CommandId.parse("00000000-0000-4000-8000-000000000099");
   const bridge = {
     runtime: {
       dispatch: async (request: { command: Record<string, unknown> }) => {
+        if (rejection) return { commandId, accepted: false as const, error: { code: "rejected", message: rejection } };
         dispatched.push(request);
-        return { commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"), accepted: true as const };
+        return { commandId, accepted: true as const };
       },
       getProjection: async () => projection,
       onProjection: () => () => undefined,
@@ -207,29 +209,79 @@ describe("ReviewCommentList", () => {
     expect(container.querySelector(".review-comment-body")?.textContent).toBe("Second");
   });
 
-  it("sends the comments to the chosen chat agent, clears them, and shows the agent", async () => {
+  const chat = (worktree: WorktreeProjection) =>
+    ({
+      threadId,
+      worktreeId: worktree.worktreeId,
+      provider: "droid",
+      status: "idle",
+      capabilities: {},
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }) as ThreadProjection;
+  const agentTerminal = (worktree: WorktreeProjection) =>
+    ({
+      terminalId,
+      worktreeId: worktree.worktreeId,
+      title: "Droid",
+      status: "running",
+      kind: "agent",
+      agent: { provider: "droid" },
+      lastSequence: 0,
+    }) as TerminalProjection;
+  const withBracketedPaste = () =>
+    registerTerminalModes(terminalId, {
+      synced: () => true,
+      bracketedPaste: () => true,
+      flush: async () => undefined,
+    });
+  const sendButton = (container: HTMLElement) => button(container, "Send to agent");
+  /** Waits for the runtime's agents to load, which the button names in its tooltip once it can send. */
+  const waitForTarget = (container: HTMLElement, text: string) =>
+    vi.waitFor(() => expect(sendButton(container)?.getAttribute("data-tooltip")).toContain(text));
+
+  it("sends the comments to the only agent in one click and confirms with a way to show it", async () => {
     const worktree = newWorktree();
     comment(worktree.worktreeId, "Rename this.");
-    const projection = projectionFor(worktree, {
-      threads: [
-        {
-          threadId,
-          worktreeId: worktree.worktreeId,
-          provider: "droid",
-          status: "idle",
-          capabilities: {},
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        } as ThreadProjection,
-      ],
+    const onShowAgent = vi.fn();
+    const onNotice = vi.fn();
+    const { container, dispatched } = await render(
+      <ReviewCommentList
+        worktree={worktree}
+        onOpenFile={() => undefined}
+        onShowAgent={onShowAgent}
+        onNotice={onNotice}
+      />,
+      projectionFor(worktree, { threads: [chat(worktree)] }),
+    );
+    await waitForTarget(container, "Send to Droid.");
+    await act(async () => sendButton(container)?.click());
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(dispatched.at(-1)?.command).toMatchObject({ type: "thread.queue", threadId });
+    expect(String(dispatched.at(-1)?.command.text)).toContain("Rename this.");
+    expect(container.querySelector('[aria-label="Review comments"]')).toBeNull();
+    expect(onShowAgent).not.toHaveBeenCalled();
+    expect(onNotice).toHaveBeenCalledWith({
+      message: "Sent to Droid.",
+      action: { label: "Show", run: expect.any(Function) },
     });
+    onNotice.mock.calls[0]?.[0].action.run();
+    expect(onShowAgent).toHaveBeenCalledWith(threadId, "chat");
+  });
+
+  it("opens the dialog on Shift+click, sends from it, clears the comments, and shows the agent", async () => {
+    const worktree = newWorktree();
+    comment(worktree.worktreeId, "Rename this.");
     const onShowAgent = vi.fn();
     const { container, dispatched } = await render(
       <ReviewCommentList worktree={worktree} onOpenFile={() => undefined} onShowAgent={onShowAgent} />,
-      projection,
+      projectionFor(worktree, { threads: [chat(worktree)] }),
     );
-    await act(async () => button(container, "Send to agent")?.click());
+    await waitForTarget(container, "Send to Droid.");
+    await act(async () => {
+      sendButton(container)?.dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
+    });
     const dialog = document.querySelector('[role="dialog"][aria-label="Send comments"]');
-    await vi.waitFor(() => expect(dialog?.querySelector('input[type="radio"]')).not.toBeNull());
+    expect(dispatched).toHaveLength(0);
     expect(dialog?.querySelector(".choice-detail")?.textContent).toBe("Droid chat · Ready");
     expect(dialog?.querySelector(".send-preview")?.textContent).toContain("src/app.ts:2\n```diff");
     await act(async () => dialog && button(dialog, "Send")?.click());
@@ -242,31 +294,17 @@ describe("ReviewCommentList", () => {
   it("pastes into an agent terminal with bracketed paste and without pressing Enter", async () => {
     const worktree = newWorktree();
     comment(worktree.worktreeId, "Check this.");
-    const projection = projectionFor(worktree, {
-      terminals: [
-        {
-          terminalId,
-          worktreeId: worktree.worktreeId,
-          title: "Droid",
-          status: "running",
-          kind: "agent",
-          agent: { provider: "droid" },
-          lastSequence: 0,
-        } as TerminalProjection,
-      ],
-    });
-    const unregister = registerTerminalModes(terminalId, {
-      synced: () => true,
-      bracketedPaste: () => true,
-      flush: async () => undefined,
-    });
+    const unregister = withBracketedPaste();
     const onShowAgent = vi.fn();
     try {
       const { container, dispatched } = await render(
         <ReviewCommentList worktree={worktree} onOpenFile={() => undefined} onShowAgent={onShowAgent} />,
-        projection,
+        projectionFor(worktree, { terminals: [agentTerminal(worktree)] }),
       );
-      await act(async () => button(container, "Send to agent")?.click());
+      await waitForTarget(container, "Send to Droid.");
+      await act(async () => {
+        sendButton(container)?.dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
+      });
       const dialog = document.querySelector('[role="dialog"][aria-label="Send comments"]');
       await vi.waitFor(() => expect(dialog && button(dialog, "Paste in terminal")).toBeTruthy());
       await act(async () => dialog && button(dialog, "Paste in terminal")?.click());
@@ -280,5 +318,115 @@ describe("ReviewCommentList", () => {
     } finally {
       unregister();
     }
+  });
+
+  it("pastes into the only agent terminal in one click and says to press Enter there", async () => {
+    const worktree = newWorktree();
+    comment(worktree.worktreeId, "Check this.");
+    const unregister = withBracketedPaste();
+    const onShowAgent = vi.fn();
+    const onNotice = vi.fn();
+    try {
+      const { container, dispatched } = await render(
+        <ReviewCommentList
+          worktree={worktree}
+          onOpenFile={() => undefined}
+          onShowAgent={onShowAgent}
+          onNotice={onNotice}
+        />,
+        projectionFor(worktree, { terminals: [agentTerminal(worktree)] }),
+      );
+      await waitForTarget(container, "Send to Droid.");
+      await act(async () => sendButton(container)?.click());
+      const data = String(dispatched.find((request) => request.command.type === "terminal.write")?.command.data);
+      expect(data.startsWith("\x1b[200~Please address this review comment")).toBe(true);
+      expect(data.endsWith("Check this.\x1b[201~")).toBe(true);
+      // The terminal's view is already mounted, so nothing pulls focus away from the review.
+      expect(onShowAgent).not.toHaveBeenCalled();
+      expect(onNotice.mock.calls[0]?.[0].message).toBe("Pasted in Droid. Press Enter there to send it.");
+      expect(container.querySelector('[aria-label="Review comments"]')).toBeNull();
+    } finally {
+      unregister();
+    }
+  });
+
+  it("asks which agent to use when there are several, then sends to the same one in one click", async () => {
+    const worktree = newWorktree();
+    comment(worktree.worktreeId, "First.");
+    const unregister = withBracketedPaste();
+    try {
+      const { container, dispatched } = await render(
+        <ReviewCommentList worktree={worktree} onOpenFile={() => undefined} />,
+        projectionFor(worktree, { threads: [chat(worktree)], terminals: [agentTerminal(worktree)] }),
+      );
+      await waitForTarget(container, "Pick an agent");
+      await act(async () => sendButton(container)?.click());
+      const dialog = document.querySelector('[role="dialog"][aria-label="Send comments"]');
+      expect(dialog?.querySelectorAll('input[type="radio"]')).toHaveLength(2);
+      const terminalChoice = [...(dialog?.querySelectorAll<HTMLInputElement>('input[type="radio"]') ?? [])].find(
+        (radio) => radio.closest("label")?.textContent?.includes("terminal"),
+      );
+      await act(async () => terminalChoice?.click());
+      await act(async () => dialog && button(dialog, "Paste in terminal")?.click());
+      expect(dispatched.at(-1)?.command).toMatchObject({ type: "terminal.write", terminalId });
+      expect(container.querySelector('[aria-label="Review comments"]')).toBeNull();
+
+      await act(async () => {
+        comment(worktree.worktreeId, "Second.");
+      });
+      await waitForTarget(container, "Send to Droid.");
+      await act(async () => sendButton(container)?.click());
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(dispatched.at(-1)?.command).toMatchObject({ type: "terminal.write", terminalId });
+      expect(String(dispatched.at(-1)?.command.data)).toContain("Second.");
+
+      // The arrow sends to another agent, which the next click then uses too.
+      await act(async () => {
+        comment(worktree.worktreeId, "Third.");
+      });
+      await act(async () => button(container, "Choose agent")?.click());
+      const items = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role^="menuitem"]')];
+      expect(items.map((item) => item.textContent)).toEqual(["Droid", "Droid", "Edit message before sending…"]);
+      expect(items.find((item) => item.getAttribute("aria-checked") === "true")?.title).toContain("terminal");
+      await act(async () => items.find((item) => item.title.includes("chat"))?.click());
+      expect(dispatched.at(-1)?.command).toMatchObject({ type: "thread.queue", threadId });
+      expect(String(dispatched.at(-1)?.command.text)).toContain("Third.");
+      await act(async () => {
+        comment(worktree.worktreeId, "Fourth.");
+      });
+      await act(async () => sendButton(container)?.click());
+      expect(dispatched.at(-1)?.command).toMatchObject({ type: "thread.queue", threadId });
+
+      // Editing first opens the dialog on the agent used last.
+      await act(async () => {
+        comment(worktree.worktreeId, "Fifth.");
+      });
+      await act(async () => button(container, "Choose agent")?.click());
+      const edit = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+        (item) => item.textContent === "Edit message before sending…",
+      );
+      await act(async () => edit?.click());
+      const checked = document.querySelector<HTMLInputElement>(
+        '[aria-label="Send comments"] input[type="radio"]:checked',
+      );
+      expect(checked?.closest("label")?.textContent).toContain("Droid chat");
+    } finally {
+      unregister();
+    }
+  });
+
+  it("keeps the comments and shows why in the dialog when a one-click send fails", async () => {
+    const worktree = newWorktree();
+    comment(worktree.worktreeId, "Rename this.");
+    const { container } = await render(
+      <ReviewCommentList worktree={worktree} onOpenFile={() => undefined} />,
+      projectionFor(worktree, { threads: [chat(worktree)] }),
+      "The agent is not accepting messages.",
+    );
+    await waitForTarget(container, "Send to Droid.");
+    await act(async () => sendButton(container)?.click());
+    const dialog = document.querySelector('[role="dialog"][aria-label="Send comments"]');
+    expect(dialog?.querySelector('[role="alert"]')?.textContent).toBe("The agent is not accepting messages.");
+    expect(container.querySelector('[aria-label="Review comments"]')?.textContent).toContain("1 comment");
   });
 });
