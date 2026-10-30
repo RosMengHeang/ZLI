@@ -1,10 +1,9 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 import { createPreloadApi } from "./preloadApi.js";
 
-contextBridge.exposeInMainWorld(
-  "zli",
-  createPreloadApi(
+contextBridge.exposeInMainWorld("zli", {
+  ...createPreloadApi(
     {
       invoke: (channel, payload) => ipcRenderer.invoke(channel, payload),
       on: (channel, listener) => {
@@ -15,4 +14,5 @@ contextBridge.exposeInMainWorld(
     },
     { testMode: process.env.ZLI_TEST_PROVIDER === "mock" },
   ),
-);
+  pathForFile: (file: File) => webUtils.getPathForFile(file),
+});
