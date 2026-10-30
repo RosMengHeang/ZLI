@@ -123,6 +123,7 @@ export function Composer({
   onSubmit,
   onStop,
   bestOf,
+  active = false,
 }: {
   displayName: string;
   branch: string;
@@ -157,6 +158,8 @@ export function Composer({
   /** Stops the turn that is running. Absent while the agent is not working. */
   onStop?: (() => void) | undefined;
   bestOf?: ComposerBestOf | undefined;
+  /** The tile is the active one, so typing should land here. */
+  active?: boolean | undefined;
 }) {
   const [draft, setDraft] = useState("");
   const [images, setImages] = useState<Draft[]>([]);
@@ -170,6 +173,22 @@ export function Composer({
   const sendSplitRef = useRef<HTMLSpanElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // A tile goes active on mousedown, and the browser then moves focus to whatever was clicked.
+  // Waiting a frame lets the message box have the last word, unless the click went into another
+  // field in the same tile, such as a search box.
+  useEffect(() => {
+    if (!active) return;
+    const frame = requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      const focused = document.activeElement;
+      const tile = textarea.closest(".agent-tile") ?? document.body;
+      if (focused instanceof HTMLElement && focused !== textarea && tile.contains(focused) && takesInput(focused))
+        return;
+      textarea.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [active]);
   const personalPrompts = usePersonalPrompts();
   const sharedPrompts = useSharedPrompts(projectId);
   const pluginPrompts = usePluginContributions(slashQuery(draft) !== undefined).prompts;
@@ -724,4 +743,13 @@ export function Composer({
       ) : null}
     </form>
   );
+}
+
+const NOT_TYPED_INTO = new Set(["button", "checkbox", "color", "file", "image", "radio", "range", "reset", "submit"]);
+
+/** A field the person types or picks into, which keeps focus when its tile goes active. */
+function takesInput(element: HTMLElement): boolean {
+  if (element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) return true;
+  if (element instanceof HTMLInputElement) return !NOT_TYPED_INTO.has(element.type);
+  return element.isContentEditable;
 }

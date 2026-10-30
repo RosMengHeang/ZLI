@@ -52,6 +52,7 @@ async function render(
   projection: RuntimeProjection,
   onOpenDiff = vi.fn(),
   results: (command: Record<string, unknown>) => unknown = () => undefined,
+  active = false,
 ) {
   const dispatched: Array<{ command: Record<string, unknown> }> = [];
   const bridge = {
@@ -81,6 +82,7 @@ async function render(
           worktree={projection.worktrees[0]}
           onOpenDiff={onOpenDiff}
           onRestart={() => undefined}
+          active={active}
         />
       </RuntimeProvider>,
     );
@@ -593,6 +595,29 @@ describe("ChatView", () => {
       requestId: "r4",
       answers: { db: "Postgres", name: "atlas" },
     });
+  });
+});
+
+describe("ChatView focus", () => {
+  const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+
+  it("puts the cursor in the message box when its tile becomes active", async () => {
+    const { container } = await render(projectionWith(), vi.fn(), () => undefined, true);
+    await nextFrame();
+    expect(document.activeElement).toBe(container.querySelector('textarea[aria-label="Message Droid"]'));
+  });
+
+  it("leaves the cursor in another field of the tile that the click focused", async () => {
+    const tile = document.createElement("section");
+    tile.className = "agent-tile";
+    const search = document.createElement("input");
+    tile.append(search);
+    document.body.append(tile);
+    search.focus();
+    const { container } = await render(projectionWith(), vi.fn(), () => undefined, true);
+    tile.append(container);
+    await nextFrame();
+    expect(document.activeElement).toBe(search);
   });
 });
 
