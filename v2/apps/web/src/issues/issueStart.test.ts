@@ -9,6 +9,7 @@ import {
   issuePrompt,
   issueSlug,
   lastIssueSource,
+  pickIssueSource,
   rememberIssueLink,
   rememberIssueSource,
   unavailableText,
@@ -38,6 +39,7 @@ describe("issueSlug", () => {
   it("names the issue and the first words of its title", () => {
     expect(issueSlug(ISSUE)).toBe("issue-123-fix-the-login-button-on-safari-again");
     expect(issueSlug(LINEAR)).toBe("eng-7-crash-on-save");
+    expect(issueSlug({ ...ISSUE, source: "gitlab", key: "12" })).toBe("issue-12-fix-the-login-button-on-safari-again");
   });
 
   it("keeps the slug short and plain", () => {
@@ -103,6 +105,12 @@ describe("issuePrompt", () => {
     expect(prompt).toContain("Someone:\ncomment 7");
     expect(prompt.endsWith("mention Fixes ENG-7 in the PR.")).toBe(true);
   });
+
+  it("names GitLab and its merge request", () => {
+    const prompt = issuePrompt({ ...ISSUE, source: "gitlab", url: "https://gitlab.com/acme/app/-/issues/123" });
+    expect(prompt.startsWith("Work on GitLab issue #123: Fix the login button")).toBe(true);
+    expect(prompt.endsWith("When you finish, mention Fixes #123 in the merge request.")).toBe(true);
+  });
 });
 
 describe("withIssueReference", () => {
@@ -131,6 +139,15 @@ describe("issue links", () => {
     });
     expect(issueLinkFor("w1")).toMatchObject({ reference: "#123", sessionId: "s1" });
     expect(issueLinkFor("w2")).toBeUndefined();
+    rememberIssueLink("w2", {
+      source: "gitlab",
+      key: "123",
+      reference: "#123",
+      title: "t",
+      url: "https://gitlab.com/acme/app/-/issues/123",
+      linkedAt: "2026-01-02T00:00:00Z",
+    });
+    expect(issueLinkFor("w2")).toMatchObject({ source: "gitlab", reference: "#123" });
   });
 
   it("ignores damaged storage", () => {
@@ -147,8 +164,8 @@ describe("issue sources", () => {
   it("remembers the last source per project", () => {
     rememberIssueSource("p1", "linear");
     rememberIssueSource("p2", "github");
-    rememberIssueSource("p1", "github");
-    expect(lastIssueSource("p1")).toBe("github");
+    rememberIssueSource("p1", "gitlab");
+    expect(lastIssueSource("p1")).toBe("gitlab");
     expect(lastIssueSource("p2")).toBe("github");
     expect(lastIssueSource("p3")).toBeUndefined();
   });
@@ -164,11 +181,35 @@ describe("issue sources", () => {
 
 describe("unavailableText", () => {
   it("names the host when there is one", () => {
-    expect(unavailableText({ code: "not_github", host: "gitlab.company.com" }).title).toBe(
-      "This project's remote is on gitlab.company.com.",
-    );
-    expect(unavailableText({ code: "not_github" }).title).toBe("This project's remotes are not on GitHub.");
+    expect(unavailableText({ code: "other_host", host: "bitbucket.org" })).toEqual({
+      title: "This project's remote is on bitbucket.org.",
+      detail: "ZLI can read issues from GitHub, GitLab, and Linear today.",
+    });
+    expect(unavailableText({ code: "other_host" }).title).toBe("This project's remotes are not on GitHub or GitLab.");
     expect(unavailableText({ code: "not_repo" }).title).toBe("This project is not a Git repository.");
+  });
+});
+
+describe("pickIssueSource", () => {
+  const connected = { connected: true };
+  const disconnected = { connected: false };
+  it("keeps the picked source while it applies", () => {
+    expect(pickIssueSource("github", ["gitlab", "github"], undefined)).toBe("github");
+    expect(pickIssueSource("linear", ["github"], connected)).toBe("linear");
+  });
+
+  it("falls back to the remote's forge, then Linear", () => {
+    expect(pickIssueSource(undefined, ["gitlab"], undefined)).toBe("gitlab");
+    expect(pickIssueSource("github", ["gitlab"], disconnected)).toBe("gitlab");
+    expect(pickIssueSource("linear", ["github"], disconnected)).toBe("github");
+    expect(pickIssueSource(undefined, [], connected)).toBe("linear");
+    expect(pickIssueSource("gitlab", [], connected)).toBe("linear");
+  });
+
+  it("waits for Linear when the choice depends on it, and is null when nothing applies", () => {
+    expect(pickIssueSource("linear", ["github"], undefined)).toBeUndefined();
+    expect(pickIssueSource(undefined, [], undefined)).toBeUndefined();
+    expect(pickIssueSource(undefined, [], disconnected)).toBeNull();
   });
 });
 

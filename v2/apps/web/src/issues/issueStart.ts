@@ -17,7 +17,12 @@ const MAX_PROMPT_BODY = 12_000;
 const MAX_PROMPT_COMMENTS = 5;
 const MAX_PROMPT_COMMENT = 2_000;
 
-export const ISSUE_SOURCE_NAMES: Record<IssueSource, string> = { github: "GitHub", linear: "Linear" };
+export const ISSUE_SOURCE_NAMES: Record<IssueSource, string> = { github: "GitHub", gitlab: "GitLab", linear: "Linear" };
+const ISSUE_SOURCES: readonly IssueSource[] = ["github", "gitlab", "linear"];
+
+function isIssueSource(value: unknown): value is IssueSource {
+  return ISSUE_SOURCES.includes(value as IssueSource);
+}
 
 /** What a worktree or session remembers about the issue it was started from. */
 export type IssueLink = {
@@ -32,9 +37,9 @@ export type IssueLink = {
 
 export type IssueRef = Pick<IssueSummary, "source" | "key" | "reference" | "title">;
 
-/** `issue-123-fix-the-login` for GitHub, `eng-123-fix-the-login` for Linear. */
+/** `issue-123-fix-the-login` for GitHub and GitLab, `eng-123-fix-the-login` for Linear. */
 export function issueSlug(issue: IssueRef): string {
-  const stem = issue.source === "github" ? `issue-${issue.key}` : issue.key.toLowerCase();
+  const stem = issue.source === "linear" ? issue.key.toLowerCase() : `issue-${issue.key}`;
   const words = issue.title
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/gu, "")
@@ -90,7 +95,8 @@ export function issuePrompt(issue: IssueDetail): string {
       lines.push("", `${comment.author ?? "Someone"}${when}:`, clip(comment.body, MAX_PROMPT_COMMENT));
     }
   }
-  lines.push("", `When you finish, mention Fixes ${issue.reference} in the PR.`);
+  const request = issue.source === "gitlab" ? "merge request" : "PR";
+  lines.push("", `When you finish, mention Fixes ${issue.reference} in the ${request}.`);
   return lines.join("\n");
 }
 
@@ -123,7 +129,7 @@ function parseLink(value: unknown): IssueLink | undefined {
   if (!value || typeof value !== "object") return undefined;
   const entry = value as Record<string, unknown>;
   const strings = ["key", "reference", "title", "url", "linkedAt"] as const;
-  if (entry.source !== "github" && entry.source !== "linear") return undefined;
+  if (!isIssueSource(entry.source)) return undefined;
   if (!strings.every((field) => typeof entry[field] === "string" && entry[field])) return undefined;
   return {
     source: entry.source,
@@ -158,8 +164,8 @@ function readSources(): Record<string, IssueSource> {
     const value = JSON.parse(window.localStorage.getItem(SOURCES_KEY) ?? "{}") as unknown;
     if (!value || typeof value !== "object" || Array.isArray(value)) return {};
     return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).filter(
-        (entry): entry is [string, IssueSource] => entry[1] === "github" || entry[1] === "linear",
+      Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, IssueSource] =>
+        isIssueSource(entry[1]),
       ),
     );
   } catch {
@@ -183,21 +189,42 @@ export function rememberIssueSource(projectId: string, source: IssueSource): voi
   }
 }
 
-/** What the issues dialog says when a project has no GitHub issues to list. */
+/**
+ * The source the issues dialog shows: the one picked last when it still applies, then the forge the
+ * project's remote is on, then Linear. Undefined while that depends on a Linear status not known yet;
+ * null when no source applies.
+ */
+export function pickIssueSource(
+  picked: IssueSource | undefined,
+  forges: readonly IssueSource[],
+  linear: { connected: boolean } | undefined,
+): IssueSource | null | undefined {
+  if (picked === "linear") {
+    if (!linear) return undefined;
+    if (linear.connected) return "linear";
+  } else if (picked && forges.includes(picked)) {
+    return picked;
+  }
+  if (forges[0]) return forges[0];
+  if (!linear) return undefined;
+  return linear.connected ? "linear" : null;
+}
+
+/** What the issues dialog says when a project has no GitHub or GitLab issues to list. */
 export function unavailableText(unavailable: IssueListUnavailable): { title: string; detail: string } {
-  const detail = "ZLI can read issues from GitHub and Linear today.";
+  const detail = "ZLI can read issues from GitHub, GitLab, and Linear today.";
   switch (unavailable.code) {
-    case "not_github":
+    case "other_host":
       return {
         title: unavailable.host
           ? `This project's remote is on ${unavailable.host}.`
-          : "This project's remotes are not on GitHub.",
+          : "This project's remotes are not on GitHub or GitLab.",
         detail,
       };
     case "no_remote":
       return {
         title: "This project has no Git remote.",
-        detail: "Add a GitHub remote to see its issues here. ZLI can also read issues from Linear.",
+        detail: "Add a GitHub or GitLab remote to see its issues here. ZLI can also read issues from Linear.",
       };
     case "not_repo":
       return { title: "This project is not a Git repository.", detail };

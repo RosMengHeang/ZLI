@@ -3,6 +3,7 @@ import type {
   IssueListResult,
   IssueListUnavailable,
   IssueSource,
+  IssueSourcesResult,
   LinearStatusResult,
   ProjectProjection,
   RuntimeProjection,
@@ -21,11 +22,12 @@ import { Segmented } from "../ui/Segmented.js";
 import {
   ISSUE_SOURCE_NAMES,
   lastIssueSource,
+  pickIssueSource,
   rememberIssueSource,
   unavailableText,
   updatedLabel,
 } from "./issueStart.js";
-import { getIssue, linearStatus, listIssues } from "./issuesClient.js";
+import { getIssue, issueSources, linearStatus, listIssues } from "./issuesClient.js";
 import "./issues.css";
 
 const SEARCH_DELAY_MS = 300;
@@ -53,7 +55,7 @@ export function IssuesDialog({
   const [projectId, setProjectId] = useState(initialProject?.projectId ?? projection.projects[0]?.projectId);
   const project = projection.projects.find((candidate) => candidate.projectId === projectId);
   const [picked, setPicked] = useState(() => (projectId ? lastIssueSource(projectId) : undefined));
-  const [noGitHub, setNoGitHub] = useState<string>();
+  const [forges, setForges] = useState<{ projectId: string; value: IssueSourcesResult }>();
   const [linear, setLinear] = useState<LinearStatusResult>();
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
@@ -85,18 +87,35 @@ export function IssuesDialog({
     return () => clearTimeout(timer);
   }, [query]);
 
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    issueSources(dispatch, projectId)
+      .then((value) => {
+        if (!cancelled) setForges({ projectId, value });
+      })
+      .catch(() => {
+        // Without an answer the dialog reads GitHub, whose own errors say what is wrong.
+        if (!cancelled) setForges({ projectId, value: { sources: ["github"] } });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, projectId]);
+
   const linearConnected = linear?.connected === true && !linear.problem;
-  // Without a picked source, a project that is not on GitHub opens on Linear when Linear is connected.
-  const wanted = picked ?? (noGitHub !== undefined && noGitHub === projectId && linearConnected ? "linear" : "github");
-  const source: IssueSource = wanted === "linear" && linear && !linearConnected ? "github" : wanted;
-  const waitingForLinear = source === "linear" && !linear;
+  const projectForges = forges && forges.projectId === projectId ? forges.value : undefined;
+  const source = projectForges
+    ? pickIssueSource(picked, projectForges.sources, linear ? { connected: linearConnected } : undefined)
+    : undefined;
+  const available: IssueSource[] = [...(projectForges?.sources ?? []), ...(linearConnected ? ["linear" as const] : [])];
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt is the retry trigger.
   useEffect(() => {
     if (!projectId) return;
     let cancelled = false;
     setList({ status: "loading" });
-    if (waitingForLinear) return;
+    if (!source) return;
     listIssues(dispatch, projectId, source, {
       ...(search ? { query: search } : {}),
       state: openOnly ? "open" : "all",
@@ -104,7 +123,6 @@ export function IssuesDialog({
     })
       .then((result) => {
         if (cancelled) return;
-        if (source === "github") setNoGitHub(result.unavailable ? projectId : undefined);
         setList({ status: "ready", value: { ...result, source } });
         setSelected((current) =>
           current && result.issues.some((issue) => issue.key === current) ? current : result.issues[0]?.key,
@@ -116,10 +134,10 @@ export function IssuesDialog({
     return () => {
       cancelled = true;
     };
-  }, [dispatch, projectId, source, waitingForLinear, search, openOnly, mine, attempt]);
+  }, [dispatch, projectId, source, search, openOnly, mine, attempt]);
 
   useEffect(() => {
-    if (!projectId || !selected) {
+    if (!projectId || !selected || !source) {
       setDetail(undefined);
       return;
     }
@@ -146,9 +164,14 @@ export function IssuesDialog({
   // A list from the source shown before a switch is not this source's list yet.
   const shown: Loaded<Listed> = list.status === "ready" && list.value.source !== source ? { status: "loading" } : list;
   const issues = shown.status === "ready" ? shown.value.issues : [];
-  const unavailable = shown.status === "ready" ? shown.value.unavailable : undefined;
+  const unavailable =
+    source === null
+      ? (projectForges?.unavailable ?? { code: "other_host" as const })
+      : shown.status === "ready"
+        ? shown.value.unavailable
+        : undefined;
   const ready = detail?.status === "ready" ? detail.value : undefined;
-  const sourceName = ISSUE_SOURCE_NAMES[source];
+  const sourceName = source ? ISSUE_SOURCE_NAMES[source] : undefined;
 
   return (
     <Dialog
@@ -180,14 +203,11 @@ export function IssuesDialog({
             }}
           />
         ) : null}
-        {linearConnected ? (
+        {source && available.length > 1 ? (
           <Segmented<IssueSource>
             label="Source"
             value={source}
-            options={[
-              { value: "github", label: "GitHub" },
-              { value: "linear", label: "Linear" },
-            ]}
+            options={available.map((value) => ({ value, label: ISSUE_SOURCE_NAMES[value] }))}
             onChange={chooseSource}
           />
         ) : null}
@@ -198,7 +218,7 @@ export function IssuesDialog({
             type="search"
             value={query}
             aria-label="Search issues"
-            placeholder={source === "github" ? "Search, or #123" : "Search, or ENG-123"}
+            placeholder={source === "linear" ? "Search, or ENG-123" : "Search, or #123"}
             spellCheck={false}
             onChange={(event) => setQuery(event.target.value)}
           />
@@ -214,10 +234,18 @@ export function IssuesDialog({
       </div>
       <div className={`issues-layout${unavailable ? " is-unavailable" : ""}`}>
         <div className="issues-list-region">
-          {shown.status === "loading" ? (
+          {unavailable && project ? (
+            <NoIssueSource
+              unavailable={unavailable}
+              linearConnected={linearConnected}
+              onShowLinear={() => chooseSource("linear")}
+              onConnectLinear={onConnectLinear}
+              onStartWithoutIssue={() => onStartWithoutIssue(project)}
+            />
+          ) : shown.status === "loading" ? (
             <p className="loading-line issues-state" role="status">
               <span className="spinner" aria-hidden="true" />
-              Loading {sourceName} issues
+              {sourceName ? `Loading ${sourceName} issues` : "Loading issues"}
             </p>
           ) : shown.status === "error" ? (
             <div className="issues-state">
@@ -229,14 +257,6 @@ export function IssuesDialog({
                 Try again
               </Button>
             </div>
-          ) : unavailable && project ? (
-            <NotOnGitHub
-              unavailable={unavailable}
-              linearConnected={linearConnected}
-              onShowLinear={() => chooseSource("linear")}
-              onConnectLinear={onConnectLinear}
-              onStartWithoutIssue={() => onStartWithoutIssue(project)}
-            />
           ) : issues.length === 0 ? (
             <p className="issues-state issues-empty">
               {search
@@ -334,7 +354,8 @@ export function IssuesDialog({
   );
 }
 
-function NotOnGitHub({
+/** No GitHub or GitLab remote: says where the remote is and offers what still works. */
+function NoIssueSource({
   unavailable,
   linearConnected,
   onShowLinear,

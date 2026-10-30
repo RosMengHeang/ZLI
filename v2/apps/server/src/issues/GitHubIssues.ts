@@ -1,7 +1,3 @@
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
-
 import {
   type IssueComment,
   IssueDetail,
@@ -22,6 +18,7 @@ import {
   runProcess,
 } from "../review/PullRequestService.js";
 import { IssueError, truncate } from "./issueText.js";
+import { CLI_HOSTS, type KnownHosts, readProjectRemotes } from "./remotes.js";
 
 const GH_TIMEOUT_MS = 60_000;
 const GH_READY_MS = 5 * 60_000;
@@ -34,9 +31,6 @@ const NO_REMOTE =
   "This folder has no Git remote. Issues come from the GitHub repository a remote points to. Add one with git remote add origin <url>, then try again.";
 const NOT_GITHUB = "None of this folder's Git remotes point to a GitHub repository, so it has no GitHub issues.";
 const NOT_REPO = "This folder is not a Git repository, so it has no GitHub issues.";
-
-/** github.com answers on these names too; any other host is GitHub only when gh is signed in to it. */
-const GITHUB_HOSTS = new Set(["github.com", "www.github.com", "ssh.github.com"]);
 
 type Readiness = { unavailable: IssueListUnavailable } | { unavailable?: undefined; host?: string };
 
@@ -53,7 +47,7 @@ export class GitHubIssues {
 
   constructor(
     private readonly runner: ProcessRunner = runProcess,
-    private readonly knownHosts: () => Promise<readonly string[]> = readGhHosts,
+    private readonly knownHosts: KnownHosts = CLI_HOSTS,
   ) {}
 
   async list(cwd: string, filter: GitHubIssueFilter): Promise<IssueListResult> {
@@ -61,7 +55,7 @@ export class GitHubIssues {
     if (ready.unavailable) return { issues: [], unavailable: ready.unavailable };
     const notGitHub: IssueListResult = {
       issues: [],
-      unavailable: { code: "not_github", ...(ready.host ? { host: ready.host } : {}) },
+      unavailable: { code: "other_host", ...(ready.host ? { host: ready.host } : {}) },
     };
     const query = filter.query?.trim() ?? "";
     const number = /^#?(\d{1,10})$/u.exec(query)?.[1];
@@ -99,22 +93,11 @@ export class GitHubIssues {
     return issue;
   }
 
-  /** Reads the remotes before gh runs, so a project hosted somewhere else never shows a GitHub CLI problem. */
   private async ready(cwd: string): Promise<Readiness> {
-    const result = await this.runner("git", ["remote", "-v"], { cwd, timeoutMs: GH_TIMEOUT_MS });
-    if (result.code !== 0) {
-      return { unavailable: { code: /not a git repository/iu.test(result.stderr) ? "not_repo" : "no_remote" } };
-    }
-    const remotes = parseRemotes(result.stdout);
-    if (remotes.length === 0) return { unavailable: { code: "no_remote" } };
-    const host = (remotes.find((remote) => remote.name === "origin") ?? remotes[0])?.host;
-    if (!remotes.some((remote) => mayBeGitHub(remote.host))) {
-      const known = new Set((await this.knownHosts()).map((entry) => entry.toLowerCase()));
-      if (!remotes.some((remote) => remote.host && known.has(remote.host))) {
-        return { unavailable: { code: "not_github", ...(host ? { host } : {}) } };
-      }
-    }
-    const ready: Readiness = host ? { host } : {};
+    const remotes = await readProjectRemotes(this.runner, cwd, this.knownHosts);
+    if (remotes.unavailable) return remotes;
+    if (!remotes.sources.includes("github")) throw new IssueError(notGitHubMessage(remotes.host));
+    const ready: Readiness = remotes.host ? { host: remotes.host } : {};
     if (Date.now() < this.ghReadyUntil) return ready;
     const version = await this.gh(["--version"], cwd);
     if (version.code !== 0) throw new IssueError(GH_MISSING);
@@ -150,69 +133,11 @@ function isNotGitHub(result: ProcessResult): boolean {
 function unavailableMessage(unavailable: IssueListUnavailable): string {
   if (unavailable.code === "not_repo") return NOT_REPO;
   if (unavailable.code === "no_remote") return NO_REMOTE;
-  return unavailable.host
-    ? `This folder's remote is on ${unavailable.host}, not GitHub, so it has no GitHub issues.`
-    : NOT_GITHUB;
+  return notGitHubMessage(unavailable.host);
 }
 
-/**
- * Local paths and SSH aliases, which gh resolves through the SSH config, have no host ZLI can judge,
- * so gh decides for them.
- */
-function mayBeGitHub(host: string | undefined): boolean {
-  if (!host?.includes(".")) return true;
-  return GITHUB_HOSTS.has(host) || host.endsWith(".ghe.com");
-}
-
-type GitRemote = { name: string; host?: string };
-
-/** Reads `git remote -v`, one entry per fetch and push URL. */
-function parseRemotes(stdout: string): GitRemote[] {
-  return stdout.split(/\r?\n/u).flatMap((line) => {
-    const match = /^(\S+)\s+(.+?)(?:\s+\((?:fetch|push)\))?$/u.exec(line.trim());
-    if (!match?.[1] || !match[2]) return [];
-    const host = remoteHost(match[2]);
-    return [{ name: match[1], ...(host ? { host } : {}) }];
-  });
-}
-
-/** The host of a Git remote URL, or undefined for a local path. */
-export function remoteHost(url: string): string | undefined {
-  const value = url.trim();
-  const scheme = /^([a-z][a-z0-9+.-]*):\/\//iu.exec(value)?.[1];
-  if (scheme) {
-    if (scheme.toLowerCase() === "file") return undefined;
-    try {
-      return new URL(value).hostname.toLowerCase() || undefined;
-    } catch {
-      return undefined;
-    }
-  }
-  // Git reads user@host:path as SSH when the colon comes before any slash; one letter is a Windows drive.
-  const host = /^(?:[^@/\\]+@)?([^:/\\]+):/u.exec(value)?.[1];
-  return host && host.length > 1 ? host.toLowerCase() : undefined;
-}
-
-/** Hosts the GitHub CLI is signed in to, from GH_HOST and its hosts.yml. */
-export async function readGhHosts(env: NodeJS.ProcessEnv = process.env): Promise<string[]> {
-  const hosts = env.GH_HOST ? [env.GH_HOST] : [];
-  try {
-    const text = await readFile(join(ghConfigDir(env), "hosts.yml"), "utf8");
-    for (const line of text.split(/\r?\n/u)) {
-      const key = /^["']?([^\s"'#:][^"':]*)["']?:\s*$/u.exec(line)?.[1];
-      if (key) hosts.push(key);
-    }
-  } catch {
-    // Without a hosts file gh knows only github.com.
-  }
-  return hosts;
-}
-
-function ghConfigDir(env: NodeJS.ProcessEnv): string {
-  if (env.GH_CONFIG_DIR) return env.GH_CONFIG_DIR;
-  if (env.XDG_CONFIG_HOME) return join(env.XDG_CONFIG_HOME, "gh");
-  if (process.platform === "win32" && env.APPDATA) return join(env.APPDATA, "GitHub CLI");
-  return join(homedir(), ".config", "gh");
+function notGitHubMessage(host: string | undefined): string {
+  return host ? `This folder's remote is on ${host}, not GitHub, so it has no GitHub issues.` : NOT_GITHUB;
 }
 
 function listFailure(result: ProcessResult): string {

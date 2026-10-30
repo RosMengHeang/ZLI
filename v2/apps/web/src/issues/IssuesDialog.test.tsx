@@ -35,7 +35,15 @@ const GITHUB_ISSUE = {
   reference: "#42",
   url: "https://github.com/a/b/issues/42",
 };
-const NOT_GITHUB = { issues: [], unavailable: { code: "not_github", host: "gitlab.company.com" } };
+const GITLAB_ISSUE = {
+  ...GITHUB_ISSUE,
+  source: "gitlab",
+  key: "12",
+  reference: "#12",
+  url: "https://gitlab.com/a/b/-/issues/12",
+};
+const ISSUES = { github: GITHUB_ISSUE, gitlab: GITLAB_ISSUE, linear: LINEAR_ISSUE } as const;
+const ELSEWHERE = { sources: [], unavailable: { code: "other_host", host: "bitbucket.org" } };
 
 const roots: Root[] = [];
 
@@ -51,17 +59,18 @@ async function settle() {
   for (let index = 0; index < 5; index += 1) await act(async () => undefined);
 }
 
-async function render(options: { linear?: boolean; github?: unknown } = {}) {
+async function render(options: { linear?: boolean; sources?: unknown; github?: unknown } = {}) {
   const commands: Record<string, unknown>[] = [];
   const answer = (command: Record<string, unknown>): unknown => {
+    const source = command.source as keyof typeof ISSUES;
     if (command.type === "issues.linear.status") {
       return options.linear ? { connected: true, viewer: { name: "Ada" } } : { connected: false };
     }
+    if (command.type === "issues.sources") return options.sources ?? { sources: ["github"] };
     if (command.type === "issues.list") {
-      return command.source === "linear" ? { issues: [LINEAR_ISSUE] } : (options.github ?? { issues: [GITHUB_ISSUE] });
+      return source === "github" && options.github ? options.github : { issues: [ISSUES[source]] };
     }
-    const issue = command.source === "linear" ? LINEAR_ISSUE : GITHUB_ISSUE;
-    return { issue: { ...issue, body: "", comments: [] } };
+    return { issue: { ...ISSUES[source], body: "", comments: [] } };
   };
   const bridge = {
     runtime: {
@@ -77,6 +86,7 @@ async function render(options: { linear?: boolean; github?: unknown } = {}) {
       onProjection: () => () => undefined,
     },
   } as unknown as ZliBridge;
+  const onStart = vi.fn();
   const onStartWithoutIssue = vi.fn();
   const onConnectLinear = vi.fn();
   const container = document.createElement("div");
@@ -90,7 +100,7 @@ async function render(options: { linear?: boolean; github?: unknown } = {}) {
           projection={projection}
           initialProject={project}
           onClose={() => undefined}
-          onStart={() => undefined}
+          onStart={onStart}
           onStartWithoutIssue={onStartWithoutIssue}
           onConnectLinear={onConnectLinear}
         />
@@ -99,26 +109,48 @@ async function render(options: { linear?: boolean; github?: unknown } = {}) {
   });
   await settle();
   const lists = () => commands.filter((command) => command.type === "issues.list").map((command) => command.source);
-  return { lists, onStartWithoutIssue, onConnectLinear };
+  return { lists, onStart, onStartWithoutIssue, onConnectLinear };
 }
 
 const buttons = (text: string) => [...document.querySelectorAll("button")].filter((item) => item.textContent === text);
+const sourceSwitch = () =>
+  [...document.querySelectorAll('[aria-label="Source"] button')].map((button) => button.textContent);
 
 describe("IssuesDialog", () => {
   it("lists GitHub issues for a GitHub project", async () => {
     const { lists } = await render();
     expect(document.querySelector('[aria-label="GitHub issues"]')?.textContent).toContain("#42");
     expect(lists()).toEqual(["github"]);
+    expect(sourceSwitch()).toEqual([]);
+  });
+
+  it("lists GitLab issues for a GitLab project and starts from one", async () => {
+    const { lists, onStart } = await render({ sources: { sources: ["gitlab"] } });
+    expect(document.querySelector('[aria-label="GitLab issues"]')?.textContent).toContain("#12");
+    expect(lists()).toEqual(["gitlab"]);
+    await act(async () => buttons("Start agent")[0]?.click());
+    expect(onStart).toHaveBeenCalledWith(project, expect.objectContaining({ source: "gitlab", key: "12" }));
+    expect(lastIssueSource(project.projectId)).toBe("gitlab");
+  });
+
+  it("offers every source that applies", async () => {
+    const { lists } = await render({ linear: true, sources: { sources: ["gitlab", "github"] } });
+    expect(sourceSwitch()).toEqual(["GitLab", "GitHub", "Linear"]);
+    await act(async () => buttons("GitHub")[0]?.click());
+    await settle();
+    expect(lists()).toEqual(["gitlab", "github"]);
+    expect(lastIssueSource(project.projectId)).toBe("github");
   });
 
   it("explains a project on another host calmly and offers the next steps", async () => {
-    const { onStartWithoutIssue, onConnectLinear } = await render({ github: NOT_GITHUB });
+    const { lists, onStartWithoutIssue, onConnectLinear } = await render({ sources: ELSEWHERE });
     const state = document.querySelector(".empty-state");
-    expect(state?.textContent).toContain("This project's remote is on gitlab.company.com.");
-    expect(state?.textContent).toContain("ZLI can read issues from GitHub and Linear today.");
+    expect(state?.textContent).toContain("This project's remote is on bitbucket.org.");
+    expect(state?.textContent).toContain("ZLI can read issues from GitHub, GitLab, and Linear today.");
     expect(document.querySelector('[role="alert"]')).toBeNull();
     expect(buttons("Try again")).toHaveLength(0);
     expect(document.querySelector<HTMLElement>('[aria-label="Issue details"]')?.hidden).toBe(true);
+    expect(lists()).toEqual([]);
 
     await act(async () => state?.querySelector<HTMLButtonElement>("button")?.click());
     expect(onConnectLinear).toHaveBeenCalled();
@@ -127,26 +159,27 @@ describe("IssuesDialog", () => {
   });
 
   it("says when a project has no remote", async () => {
-    await render({ github: { issues: [], unavailable: { code: "no_remote" } } });
+    await render({ sources: { sources: [], unavailable: { code: "no_remote" } } });
     expect(document.querySelector(".empty-state-title")?.textContent).toBe("This project has no Git remote.");
   });
 
-  it("opens on Linear when the project is not on GitHub and Linear is connected", async () => {
-    const { lists } = await render({ linear: true, github: NOT_GITHUB });
-    expect(document.querySelector('[aria-label="Linear issues"]')?.textContent).toContain("ENG-1");
-    expect(lists()).toEqual(["github", "linear"]);
-    expect(lastIssueSource(project.projectId)).toBeUndefined();
-
-    await act(async () => buttons("GitHub")[0]?.click());
-    await settle();
+  it("shows the calm state when gh finds no GitHub repository", async () => {
+    await render({ linear: true, github: { issues: [], unavailable: { code: "other_host" } } });
     expect(document.querySelector(".empty-state-title")?.textContent).toBe(
-      "This project's remote is on gitlab.company.com.",
+      "This project's remotes are not on GitHub or GitLab.",
     );
-    expect(lastIssueSource(project.projectId)).toBe("github");
     await act(async () => buttons("Show Linear issues")[0]?.click());
     await settle();
     expect(document.querySelector('[aria-label="Linear issues"]')).not.toBeNull();
     expect(lastIssueSource(project.projectId)).toBe("linear");
+  });
+
+  it("opens on Linear when no remote is on GitHub or GitLab and Linear is connected", async () => {
+    const { lists } = await render({ linear: true, sources: ELSEWHERE });
+    expect(document.querySelector('[aria-label="Linear issues"]')?.textContent).toContain("ENG-1");
+    expect(lists()).toEqual(["linear"]);
+    expect(sourceSwitch()).toEqual([]);
+    expect(lastIssueSource(project.projectId)).toBeUndefined();
   });
 
   it("starts on the source last used in the project", async () => {
@@ -155,10 +188,18 @@ describe("IssuesDialog", () => {
     expect(lists()).toEqual(["linear"]);
   });
 
-  it("falls back to GitHub when the remembered Linear is not connected", async () => {
+  it("falls back to the remote's forge when the remembered source no longer applies", async () => {
     rememberIssueSource(project.projectId, "linear");
-    const { lists } = await render();
+    expect((await render()).lists()).toEqual(["github"]);
+    await act(async () => {
+      for (const root of roots.splice(0)) root.unmount();
+    });
+    rememberIssueSource(project.projectId, "github");
+    expect((await render({ sources: { sources: ["gitlab"] } })).lists()).toEqual(["gitlab"]);
+  });
+
+  it("reads GitHub when the runtime cannot say where the remote is", async () => {
+    const { lists } = await render({ sources: "not a result" });
     expect(lists()).toEqual(["github"]);
-    expect(document.querySelector('[aria-label="GitHub issues"]')).not.toBeNull();
   });
 });
