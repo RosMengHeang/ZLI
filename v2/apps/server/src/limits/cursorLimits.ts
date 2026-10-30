@@ -62,8 +62,8 @@ export function cursorLimitRead(body: unknown): LimitRead {
   const windows: PlanLimitWindow[] = [];
   for (const [key, scope] of [
     ["totalPercentUsed", undefined],
-    ["autoPercentUsed", "Auto"],
-    ["apiPercentUsed", "API"],
+    ["autoPercentUsed", "Auto models"],
+    ["apiPercentUsed", "API models"],
   ] as const) {
     const used = number(usage?.[key]);
     if (used === undefined) continue;

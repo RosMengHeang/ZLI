@@ -46,7 +46,7 @@ test("reconnects the Electron client after the local runtime process is restarte
       .toBe(`Project is already registered: ${repo}`);
     expect(result).toBeUndefined();
     await fixture.page.reload();
-    await expect(fixture.page.getByText("Local runtime")).toBeVisible();
+    await expect(fixture.page.getByRole("img", { name: "Runtime connected" })).toBeVisible();
     await expect(fixture.page.locator(".project-label")).toContainText("repo");
   } finally {
     if (fixture) await closeDesktop(fixture);

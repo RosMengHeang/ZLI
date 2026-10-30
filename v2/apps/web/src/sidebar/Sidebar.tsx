@@ -24,6 +24,7 @@ import {
   sessionTitle,
 } from "../sessions/sessions.js";
 import { groupFinished } from "../sessions/useRunStates.js";
+import type { SettingsSection } from "../settings/SettingsDialog.js";
 import { setupBadge, worktreeSetup } from "../setup/setup.js";
 import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
@@ -136,7 +137,8 @@ type Props = {
   onReviewSetup(worktree: WorktreeProjection): void;
   onShowSetupOutput(worktree: WorktreeProjection): void;
   onOpenHelp(): void;
-  onOpenSettings(): void;
+  /** Opens Settings, at `section` when given. */
+  onOpenSettings(section?: SettingsSection): void;
   onOpenUsage(): void;
   onHideSidebar(): void;
   /** Best-of runs still being compared; their sessions list under the chat they came from. */
@@ -1066,11 +1068,15 @@ export function Sidebar({
           accounts={accounts}
           now={now}
           currentKey={activeSession ? limitKey(activeSession.provider, sessionAccountId(activeSession)) : undefined}
-          onOpen={onOpenUsage}
+          onOpenSettings={() => onOpenSettings("usage")}
         />
         <div className="sidebar-footer">
-          <span className={`connection-dot${projection ? " is-connected" : ""}`} aria-hidden="true" />
-          <span className="sidebar-runtime">{projection ? "Local runtime" : "Waiting for runtime"}</span>
+          <span
+            className={`connection-dot${projection ? " is-connected" : ""}`}
+            role="img"
+            aria-label={projection ? "Runtime connected" : "Waiting for runtime"}
+            data-tooltip={projection ? "Runtime connected" : "Waiting for runtime"}
+          />
           <IconButton
             className="sidebar-usage"
             label="Usage"
@@ -1078,7 +1084,7 @@ export function Sidebar({
             icon="gauge"
             onClick={onOpenUsage}
           />
-          <IconButton label="Settings" icon="settings" shortcut={settingsShortcut} onClick={onOpenSettings} />
+          <IconButton label="Settings" icon="settings" shortcut={settingsShortcut} onClick={() => onOpenSettings()} />
           <IconButton
             className="sidebar-help"
             label="Help"

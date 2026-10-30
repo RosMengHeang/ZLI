@@ -31,7 +31,7 @@ test("swaps project boards and brings each back as it was, without stopping agen
     // Tiles from earlier runs live in localStorage and would crowd the grid.
     await page.evaluate(() => localStorage.removeItem("zli.workbench.v1"));
     await page.reload();
-    await expect(page.getByText("Local runtime")).toBeVisible();
+    await expect(page.getByRole("img", { name: "Runtime connected" })).toBeVisible();
     await page.evaluate(async (path) => {
       await window.zli?.runtime.dispatch({
         protocolVersion: 1,
@@ -63,7 +63,7 @@ test("swaps project boards and brings each back as it was, without stopping agen
     await expect(page.getByRole("dialog", { name: "Close agent" })).toHaveCount(0);
 
     await page.reload();
-    await expect(page.getByText("Local runtime")).toBeVisible();
+    await expect(page.getByRole("img", { name: "Runtime connected" })).toBeVisible();
     await expect(project(page, "shop")).toBeVisible();
     await expect(tiles).toHaveCount(0);
     await fromProjectMenu(page, "repo", "Show only this project");

@@ -66,8 +66,12 @@ describe("visibleWindows", () => {
   });
 
   it("shows a Cursor pool next to the month when the pool is fuller", () => {
-    const windows = [usage(43_200, 44), usage(43_200, 71, { scope: "API" }), usage(43_200, 20, { scope: "Auto" })];
-    expect(visibleWindows({ windows }).map(windowLabel)).toEqual(["Month", "API"]);
+    const windows = [
+      usage(43_200, 44),
+      usage(43_200, 71, { scope: "API models" }),
+      usage(43_200, 20, { scope: "Auto models" }),
+    ];
+    expect(visibleWindows({ windows }).map(windowLabel)).toEqual(["Month", "API models"]);
   });
 
   it("caps a row at three circles", () => {
@@ -134,7 +138,9 @@ describe("showsReading", () => {
 
 describe("resetText", () => {
   it("always says something about the reset, without making one up", () => {
-    expect(plain(resetText(usage(300, 34, { resetsAt: at(130) }), now, "UTC").text)).toBe("2h 10m · 2:10 PM");
+    const timed = resetText(usage(300, 34, { resetsAt: at(130) }), now, "UTC");
+    expect(timed.text).toBe("Resets in 2h 10m");
+    expect(plain(timed.clock)).toBe("2:10 PM");
     expect(resetText(usage(300, 0), now).text).toBe("Starts when used");
     expect(resetText(usage(300, 20), now).text).toBe("Reset time unknown");
     expect(resetText(usage(43_200, 20, { kind: "spend" }), now).text).toBe("Resets monthly");
