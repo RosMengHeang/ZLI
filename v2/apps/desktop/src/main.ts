@@ -44,6 +44,7 @@ import {
 } from "./agents/AgentControlActions.js";
 import { ReachRequests } from "./agents/ReachRequests.js";
 import { busyAgentCount, QuitController, quitWarning } from "./app/QuitController.js";
+import { claimSingleInstance } from "./app/SingleInstance.js";
 import { BrowserAutomation } from "./browser/BrowserAutomation.js";
 import { createBrowserControlActions } from "./browser/BrowserControlActions.js";
 import { BrowserControlServer } from "./browser/BrowserControlServer.js";
@@ -105,8 +106,14 @@ if (process.platform === "win32") app.setAppUserModelId(windowsAppId(process.exe
 if (process.env.ZLI_REDUCED_MOTION === "1") app.commandLine.appendSwitch("force-prefers-reduced-motion");
 
 // Integration tests give each launch its own Chromium profile (localStorage, cookies, browser tabs) so tests
-// running side by side never read each other's saved layout. userData stays shared for the large mobile SDKs.
+// running side by side never read each other's saved layout.
 if (process.env.ZLI_SESSION_DATA_PATH) app.setPath("sessionData", process.env.ZLI_SESSION_DATA_PATH);
+
+const defaultUserData = app.getPath("userData");
+// Electron keys the single-instance lock by userData, but the terminal daemon and the agents' control file
+// belong to the database. A launch with its own database gets its own userData, so it neither blocks nor
+// is blocked by a copy on other data, such as an installed ZLI or another test. This must run before the lock.
+if (process.env.ZLI_DATABASE_PATH) app.setPath("userData", `${resolve(process.env.ZLI_DATABASE_PATH)}.user-data`);
 
 let environment: EnvironmentProcess | undefined;
 let runtime: RuntimeClient | undefined;
@@ -129,6 +136,10 @@ let openInApps: { at: number; apps: Promise<ResolvedApp[]> } | undefined;
 const openInIcons = new Map<string, Promise<string | undefined>>();
 /** Apps are installed and removed while ZLI runs, so the list is looked up again after a minute. */
 const OPEN_IN_TTL_MS = 60_000;
+
+// app.exit skips before-quit and will-quit, whose shutdown would stop the daemon the first copy still uses.
+const firstInstance = claimSingleInstance(app, () => mainWindow);
+if (!firstInstance) app.exit(0);
 
 /** An icon from apps/desktop/build, which packaged builds carry next to dist. */
 function appIcon(name: string): string | undefined {
@@ -355,7 +366,7 @@ async function startBrowserControl(databasePath: string): Promise<BrowserToolPat
     home: app.getPath("home"),
     // The Android SDK and Java ZLI installs are large, so test launches share the real folder instead of
     // downloading their own; only settings stay beside the throwaway database.
-    mobileDir: join(userData, "mobile"),
+    mobileDir: join(defaultUserData, "mobile"),
     events: {
       devices: (devices) => sendToMobileWindows("zli:mobile:devices", devices),
       stream: (message) => sendToMobileWindows("zli:mobile:stream", message),
@@ -787,10 +798,12 @@ function connectWebSocket(url: string): Promise<RuntimeTransport> {
   });
 }
 
-void main().catch((error) => {
-  console.error(error);
-  app.quit();
-});
+if (firstInstance) {
+  void main().catch((error) => {
+    console.error(error);
+    app.quit();
+  });
+}
 
 app.on("will-quit", () => {
   browserControl?.stop();
