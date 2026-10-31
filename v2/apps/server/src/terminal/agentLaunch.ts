@@ -175,6 +175,28 @@ export type WorktreeFileWriter = (
   contents: string | undefined,
 ) => Promise<boolean>;
 
+/**
+ * Gives a CLI that reads a project MCP file its servers through ZLI's file in the worktree. Resolves true
+ * when that file is ZLI's and holds `specs`; false for CLIs without such a file, for a file that is not
+ * ZLI's, and on any failure. With no servers, ZLI's file from an earlier launch is removed rather than
+ * left stale.
+ */
+export async function writeProjectMcpFile(
+  provider: ListedProviderKind,
+  specs: readonly McpServerSpec[],
+  worktreePath: string,
+  write: WorktreeFileWriter,
+): Promise<boolean> {
+  const projectFile = projectMcpFile(provider);
+  if (!projectFile) return false;
+  const contents = specs.length > 0 ? projectMcpFileContents(provider as SettingsFileProvider, specs) : undefined;
+  try {
+    return await write(worktreePath, projectFile, contents);
+  } catch {
+    return false;
+  }
+}
+
 export type AgentMcpLaunchOptions = {
   /** Where the config file goes for CLIs that take one on the command line. */
   configDir?: string;
@@ -207,17 +229,10 @@ export async function agentMcpLaunch(
       configFile = undefined;
     }
   }
-  const projectFile = projectMcpFile(provider);
-  let worktreeFile = false;
-  if (projectFile && options.worktreePath && options.writeWorktreeFile) {
-    // With no servers, ZLI's file from an earlier launch is removed rather than left stale.
-    const contents = specs.length > 0 ? projectMcpFileContents(provider as SettingsFileProvider, specs) : undefined;
-    try {
-      worktreeFile = await options.writeWorktreeFile(options.worktreePath, projectFile, contents);
-    } catch {
-      worktreeFile = false;
-    }
-  }
+  const worktreeFile =
+    options.worktreePath && options.writeWorktreeFile
+      ? await writeProjectMcpFile(provider, specs, options.worktreePath, options.writeWorktreeFile)
+      : false;
   const env: Record<string, string> = {};
   if (provider === "opencode" && specs.length > 0) {
     const content = opencodeConfigContent(specs, (options.env ?? process.env).OPENCODE_CONFIG_CONTENT);

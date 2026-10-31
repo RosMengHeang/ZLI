@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { isConfined } from "./confinedPath.js";
 import {
   EXCLUDE_END,
   EXCLUDE_START,
@@ -122,6 +123,7 @@ describe("WorktreeAgentFiles", () => {
     expect(JSON.parse(await readFile(join(root, "data", "worktree-files.json"), "utf8"))).toEqual({
       version: 1,
       files: {},
+      roots: {},
       dirs: [],
       excludes: [],
     });
@@ -145,6 +147,64 @@ describe("WorktreeAgentFiles", () => {
     expect(await readFile(join(folder, ".factory", "mcp.json"), "utf8")).toBe(contents);
     await files.removeAll();
     expect(await readdir(folder)).toEqual([]);
+  });
+});
+
+describe.skipIf(process.platform === "win32")("links in a worktree", () => {
+  it("does not write through a linked folder inside the worktree", async () => {
+    const { worktree, exclude, files } = await repository();
+    const before = await readFile(exclude, "utf8").catch(() => "");
+    await mkdir(join(worktree, "public", "config"), { recursive: true });
+    await symlink(join(worktree, "public", "config"), join(worktree, ".factory"), "dir");
+    expect(await files.writeFile(worktree, ".factory/mcp.json", contents)).toBe(false);
+    expect(await readdir(join(worktree, "public", "config"))).toEqual([]);
+    expect(await readFile(exclude, "utf8").catch(() => "")).toBe(before);
+  });
+
+  it("does not write through a link that leaves the worktree, or to a linked file", async () => {
+    const { root, worktree, files } = await repository();
+    const outside = join(root, "outside");
+    await mkdir(outside);
+    await symlink(outside, join(worktree, ".cursor"), "dir");
+    expect(await files.writeFile(worktree, ".cursor/mcp.json", contents)).toBe(false);
+    await expect(files.makeDir(worktree, ".cursor/skills")).rejects.toThrow("is a link");
+    expect(await readdir(outside)).toEqual([]);
+
+    await mkdir(join(worktree, ".gemini"));
+    await writeFile(join(outside, "settings.json"), contents);
+    await symlink(join(outside, "settings.json"), join(worktree, ".gemini", "settings.json"));
+    expect(await files.writeFile(worktree, ".gemini/settings.json", contents)).toBe(false);
+    expect(await files.writeFile(worktree, ".gemini/settings.json", undefined)).toBe(false);
+    expect(await readFile(join(outside, "settings.json"), "utf8")).toBe(contents);
+  });
+
+  it("does not remove a file once a link replaces a folder above it", async () => {
+    const { root, worktree, files } = await repository();
+    expect(await files.writeFile(worktree, ".factory/mcp.json", contents)).toBe(true);
+    const outside = join(root, "outside");
+    await mkdir(outside);
+    await writeFile(join(outside, "mcp.json"), contents);
+    await rm(join(worktree, ".factory"), { recursive: true });
+    await symlink(outside, join(worktree, ".factory"), "dir");
+    await files.removeAll();
+    expect(await readFile(join(outside, "mcp.json"), "utf8")).toBe(contents);
+  });
+
+  it("tells apart paths that stay inside the worktree", async () => {
+    const { root, worktree } = await repository();
+    await mkdir(join(worktree, "real"));
+    await symlink(join(worktree, "real"), join(worktree, "linked"), "dir");
+    await writeFile(join(worktree, "file"), "");
+    expect(await isConfined(worktree, ".factory/mcp.json")).toBe(true);
+    expect(await isConfined(worktree, "real/mcp.json")).toBe(true);
+    expect(await isConfined(worktree, "linked/mcp.json")).toBe(false);
+    expect(await isConfined(worktree, "linked")).toBe(false);
+    expect(await isConfined(worktree, "file/mcp.json")).toBe(false);
+    expect(await isConfined(worktree, "../outside")).toBe(false);
+    expect(await isConfined(worktree, "")).toBe(false);
+    // The worktree folder itself may sit behind a link.
+    await symlink(worktree, join(root, "via-link"), "dir");
+    expect(await isConfined(join(root, "via-link"), "real/mcp.json")).toBe(true);
   });
 });
 

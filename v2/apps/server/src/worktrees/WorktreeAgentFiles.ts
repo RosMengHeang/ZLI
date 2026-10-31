@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, realpath, rm, rmdir, stat } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, rm, rmdir, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { isPlainObject, writeFileAtomic } from "../browser-tool/browserTool.js";
 import { GitProcess } from "../git/GitProcess.js";
+import { isConfined } from "./confinedPath.js";
 
 export const EXCLUDE_START =
   "# zli:start Files ZLI adds for the agents it starts. ZLI removes this block when it quits.";
@@ -11,7 +12,14 @@ export const EXCLUDE_END = "# zli:end";
 
 export type WorktreeFilesLog = (level: "info" | "warn", message: string, context: Record<string, unknown>) => void;
 
-type StoredFile = { version: 1; files: Record<string, string>; dirs: string[]; excludes: string[] };
+type StoredFile = {
+  version: 1;
+  files: Record<string, string>;
+  /** The worktree each file is in. Older state files lack it. */
+  roots: Record<string, string>;
+  dirs: string[];
+  excludes: string[];
+};
 
 type Repo = { top: string; exclude: string };
 
@@ -25,6 +33,8 @@ type Repo = { top: string; exclude: string };
 export class WorktreeAgentFiles {
   /** File path to a digest of what ZLI last wrote there. */
   private files: Record<string, string> = {};
+  /** File path to the worktree it is in. */
+  private roots: Record<string, string> = {};
   /** Folders ZLI created, removed again once empty. */
   private dirs = new Set<string>();
   /** info/exclude files that hold a ZLI block. */
@@ -50,6 +60,11 @@ export class WorktreeAgentFiles {
         Object.entries(parsed.files).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
       );
     }
+    if (isPlainObject(parsed.roots)) {
+      this.roots = Object.fromEntries(
+        Object.entries(parsed.roots).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+      );
+    }
     this.dirs = new Set(strings(parsed.dirs));
     this.excludes = new Set(strings(parsed.excludes));
   }
@@ -62,6 +77,14 @@ export class WorktreeAgentFiles {
   writeFile(worktreePath: string, relPath: string, contents: string | undefined): Promise<boolean> {
     return this.serialize(async () => {
       const path = join(worktreePath, ...relPath.split("/"));
+      if (!(await isConfined(worktreePath, relPath))) {
+        if (this.files[path] !== undefined) {
+          this.forget(path);
+          await this.save();
+        }
+        this.log("warn", "Left an agent file in a worktree alone because a folder on its path is a link.", { path });
+        return false;
+      }
       let current: string | undefined;
       try {
         current = await readOptional(path);
@@ -73,7 +96,7 @@ export class WorktreeAgentFiles {
       const ours = current !== undefined && recorded !== undefined && digest(current) === recorded;
       if (current !== undefined && !ours) {
         if (recorded !== undefined) {
-          delete this.files[path];
+          this.forget(path);
           await this.save();
         }
         this.log("info", "Left a file in a worktree alone because ZLI did not write it.", { path });
@@ -82,7 +105,7 @@ export class WorktreeAgentFiles {
       if (contents === undefined) {
         if (current !== undefined) {
           await rm(path, { force: true });
-          delete this.files[path];
+          this.forget(path);
           await this.save();
         }
         return false;
@@ -91,6 +114,7 @@ export class WorktreeAgentFiles {
       if (current === undefined) await this.makeDirNow(worktreePath, dirname(relPath));
       // Recorded before the write, so a crash between the two still leaves a record to clean up.
       this.files[path] = digest(contents);
+      this.roots[path] = worktreePath;
       await this.save();
       // Server env values and headers are often tokens. The mode does nothing on Windows.
       if (current !== contents) await writeFileAtomic(path, contents, { mode: 0o600 });
@@ -115,8 +139,15 @@ export class WorktreeAgentFiles {
   removeAll(): Promise<void> {
     return this.serialize(async () => {
       const files: Record<string, string> = {};
+      const roots: Record<string, string> = {};
       for (const [path, recorded] of Object.entries(this.files)) {
         try {
+          if (!(await this.removable(path))) {
+            this.log("info", "Kept a file ZLI wrote in a worktree because a folder on its path is now a link.", {
+              path,
+            });
+            continue;
+          }
           const current = await readOptional(path);
           if (current === undefined) continue;
           if (digest(current) !== recorded) {
@@ -126,6 +157,8 @@ export class WorktreeAgentFiles {
           await rm(path, { force: true });
         } catch (error) {
           files[path] = recorded;
+          const root = this.roots[path];
+          if (root !== undefined) roots[path] = root;
           this.log("warn", "Could not remove a file ZLI wrote in a worktree.", { path, message: messageOf(error) });
         }
       }
@@ -146,6 +179,7 @@ export class WorktreeAgentFiles {
         }
       }
       this.files = files;
+      this.roots = roots;
       this.dirs = new Set();
       this.excludes = excludes;
       this.repos.clear();
@@ -159,6 +193,10 @@ export class WorktreeAgentFiles {
 
   private async makeDirNow(worktreePath: string, relDir: string): Promise<void> {
     const parts = relDir.split("/").filter((part) => part.length > 0 && part !== ".");
+    if (parts.length === 0) return;
+    if (!(await isConfined(worktreePath, relDir))) {
+      throw new Error(`${relDir} in ${worktreePath} or a folder above it is a link.`);
+    }
     const missing: string[] = [];
     for (let index = parts.length; index > 0; index -= 1) {
       const dir = join(worktreePath, ...parts.slice(0, index));
@@ -213,10 +251,27 @@ export class WorktreeAgentFiles {
     const file: StoredFile = {
       version: 1,
       files: this.files,
+      roots: this.roots,
       dirs: [...this.dirs],
       excludes: [...this.excludes],
     };
     await writeFileAtomic(this.options.statePath, `${JSON.stringify(file, null, 2)}\n`);
+  }
+
+  private forget(path: string): void {
+    delete this.files[path];
+    delete this.roots[path];
+  }
+
+  /** Whether removing `path` stays inside its worktree. Without a recorded worktree, only the file itself is checked. */
+  private async removable(path: string): Promise<boolean> {
+    const root = this.roots[path];
+    if (root !== undefined) return isConfined(root, relative(root, path).split(sep).join("/"));
+    try {
+      return !(await lstat(path)).isSymbolicLink();
+    } catch {
+      return true;
+    }
   }
 
   private log(level: "info" | "warn", message: string, context: Record<string, unknown>): void {

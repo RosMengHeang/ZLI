@@ -1,15 +1,18 @@
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 import type { ProjectId } from "@zli-v2/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { runSkillCommand } from "./runSkillCommand.js";
 import { SkillStore } from "./SkillStore.js";
-import { syncSkillCopies, worktreeSkillDirs } from "./skillCopies.js";
+import { type SkillOwnership, syncSkillCopies, worktreeRootOf, worktreeSkillDirs } from "./skillCopies.js";
 import { fakeFetch, githubTarball } from "./testTarball.js";
 
+const execFileAsync = promisify(execFile);
 const temps: string[] = [];
 afterEach(async () => {
   for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true });
@@ -32,7 +35,7 @@ async function setup(fetchImpl?: typeof fetch) {
     statePath: join(data, "skills.json"),
     home,
     env: {},
-    sync: (skills: ReadonlyArray<{ name: string; path: string }>, owned: Record<string, readonly string[]>) =>
+    sync: (skills: ReadonlyArray<{ name: string; path: string }>, owned: SkillOwnership) =>
       syncSkillCopies(
         skills,
         owned,
@@ -40,11 +43,13 @@ async function setup(fetchImpl?: typeof fetch) {
           worktreeSkillDirs().map(({ dir, agents }) => ({
             path: join(folder, ...dir.split("/")),
             agents,
+            root: folder,
             prepare: async (names: readonly string[]) => {
               prepared.push(...names.map((name) => `${dir}/${name}`));
             },
           })),
         ),
+        { rootOf: worktreeRootOf },
       ),
     ...(fetchImpl ? { fetch: fetchImpl } : {}),
   };
@@ -54,6 +59,21 @@ async function setup(fetchImpl?: typeof fetch) {
 }
 
 const review = { name: "review", description: "Review a diff for bugs.", instructions: "# Review\n\nRead the diff." };
+const reviewFile = "---\nname: review\ndescription: Review a diff for bugs.\n---\n\n# Review\n\nRead the diff.\n";
+
+async function git(cwd: string, ...args: string[]): Promise<string> {
+  return (await execFileAsync("git", args, { cwd })).stdout;
+}
+
+/** Makes the worktree a repository with one commit on main. */
+async function initRepository(worktree: string): Promise<void> {
+  await git(worktree, "init", "-b", "main");
+  await git(worktree, "config", "user.email", "zli-tests@example.invalid");
+  await git(worktree, "config", "user.name", "ZLI Tests");
+  await writeFile(join(worktree, "README.md"), "initial\n");
+  await git(worktree, "add", "README.md");
+  await git(worktree, "commit", "-m", "initial");
+}
 const projectRef = (path: string) => ({ projectId: "11111111-1111-4111-8111-111111111111" as ProjectId, path });
 
 describe("skill copy targets", () => {
@@ -198,6 +218,114 @@ describe("SkillStore", () => {
     await store.cleanUpUserFolders(async (owned) => (await syncSkillCopies([], owned, [])).owned);
     expect(await readdir(agents)).toEqual(["mine"]);
     expect(JSON.parse(await readFile(options.statePath, "utf8")).owned).toEqual({});
+  });
+
+  it("stops owning a copy the person edited, and neither updates nor removes it", async () => {
+    const { worktree, store } = await setup();
+    const shared = join(worktree, ".agents", "skills", "review", "SKILL.md");
+    const claude = join(worktree, ".claude", "skills", "review", "SKILL.md");
+    await store.save({ kind: "user" }, undefined, review);
+    await writeFile(shared, "---\nname: review\ndescription: My edit.\n---\n");
+
+    await store.save({ kind: "user" }, "review", { ...review, description: "Updated." });
+    expect(await readFile(shared, "utf8")).toContain("My edit.");
+    expect(await readFile(claude, "utf8")).toContain("Updated.");
+    expect((await store.list()).sync.outcomes).toEqual([
+      {
+        path: join(worktree, ".agents", "skills"),
+        agents: expect.any(Array),
+        status: "unchanged",
+        conflicts: ["review"],
+      },
+    ]);
+
+    await store.removeCopies();
+    expect(await readFile(shared, "utf8")).toContain("My edit.");
+    expect(await readdir(join(worktree, ".claude", "skills"))).toEqual([]);
+  });
+
+  it("leaves the repository's version alone after a branch switch replaces ZLI's copy", async () => {
+    const { worktree, store } = await setup();
+    await initRepository(worktree);
+    await git(worktree, "checkout", "-b", "with-skill");
+    await mkdir(join(worktree, ".agents", "skills", "review"), { recursive: true });
+    const theirs = "---\nname: review\ndescription: The team's review.\n---\n";
+    await writeFile(join(worktree, ".agents", "skills", "review", "SKILL.md"), theirs);
+    await git(worktree, "add", ".agents");
+    await git(worktree, "commit", "-m", "add review skill");
+    await git(worktree, "checkout", "main");
+    // Hidden the way ZLI hides its copies; git then replaces an ignored copy on checkout.
+    await writeFile(join(worktree, ".git", "info", "exclude"), "/.agents/skills/review/\n/.claude/\n");
+    await store.save({ kind: "user" }, undefined, review);
+    expect(await readFile(join(worktree, ".agents", "skills", "review", "SKILL.md"), "utf8")).toBe(reviewFile);
+
+    await git(worktree, "checkout", "with-skill");
+    await store.save({ kind: "user" }, "review", { ...review, description: "Updated." });
+    expect(await readFile(join(worktree, ".agents", "skills", "review", "SKILL.md"), "utf8")).toBe(theirs);
+    await store.removeCopies();
+    expect(await readFile(join(worktree, ".agents", "skills", "review", "SKILL.md"), "utf8")).toBe(theirs);
+    expect(await git(worktree, "status", "--porcelain")).toBe("");
+  });
+
+  it("keeps a copy git tracks even when it still matches ZLI's copy", async () => {
+    const { worktree, store } = await setup();
+    await initRepository(worktree);
+    await store.save({ kind: "user" }, undefined, review);
+    await git(worktree, "add", "-f", ".agents/skills/review");
+    await git(worktree, "commit", "-m", "keep the review skill");
+    await store.removeCopies();
+    expect(await readFile(join(worktree, ".agents", "skills", "review", "SKILL.md"), "utf8")).toBe(reviewFile);
+    expect(await readdir(join(worktree, ".claude", "skills"))).toEqual([]);
+  });
+
+  it("loads copies recorded by name only, and records a digest from then on", async () => {
+    const { data, worktree, options } = await setup();
+    const shared = join(worktree, ".agents", "skills");
+    await mkdir(join(shared, "old"), { recursive: true });
+    await writeFile(join(shared, "old", "SKILL.md"), "---\nname: old\ndescription: Old.\n---\n");
+    await mkdir(data, { recursive: true });
+    await writeFile(
+      options.statePath,
+      JSON.stringify({ version: 1, disabled: [], sources: {}, owned: {}, copies: { [shared]: ["old"] } }),
+    );
+    const store = new SkillStore(options);
+    await store.load();
+    await store.save({ kind: "user" }, undefined, review);
+    expect(await readdir(shared)).toEqual(["review"]);
+    const copies = JSON.parse(await readFile(options.statePath, "utf8")).copies;
+    expect(copies[shared]).toEqual({ review: expect.stringMatching(/^[0-9a-f]{64}$/u) });
+  });
+
+  it.skipIf(process.platform === "win32")("does not copy into a skills folder behind a link", async () => {
+    const { root, worktree, store } = await setup();
+    const elsewhere = join(root, "elsewhere");
+    await mkdir(elsewhere);
+    await symlink(elsewhere, join(worktree, ".claude"), "dir");
+    await store.save({ kind: "user" }, undefined, review);
+    expect(await readdir(elsewhere)).toEqual([]);
+    expect(await readdir(join(worktree, ".agents", "skills"))).toEqual(["review"]);
+    expect((await store.list()).sync.outcomes).toEqual([
+      {
+        path: join(worktree, ".claude", "skills"),
+        agents: ["claude-code"],
+        status: "failed",
+        conflicts: [],
+        message: "it or a folder above it is a link, so ZLI left it alone",
+      },
+    ]);
+  });
+
+  it.skipIf(process.platform === "win32")("stops owning a copy once a link replaces a folder above it", async () => {
+    const { root, worktree, store } = await setup();
+    await store.save({ kind: "user" }, undefined, review);
+    const elsewhere = join(root, "elsewhere");
+    await mkdir(join(elsewhere, "skills", "review"), { recursive: true });
+    await writeFile(join(elsewhere, "skills", "review", "SKILL.md"), reviewFile);
+    await rm(join(worktree, ".claude"), { recursive: true });
+    await symlink(elsewhere, join(worktree, ".claude"), "dir");
+    await store.removeCopies();
+    expect(await readFile(join(elsewhere, "skills", "review", "SKILL.md"), "utf8")).toBe(reviewFile);
+    expect(await readdir(join(worktree, ".agents", "skills"))).toEqual([]);
   });
 
   it("keeps disabled skills across restarts and reports a damaged settings file", async () => {

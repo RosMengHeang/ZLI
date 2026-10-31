@@ -49,7 +49,7 @@ import { ReviewReactor } from "./review/ReviewReactor.js";
 import { ReviewService } from "./review/ReviewService.js";
 import { RpcServer } from "./rpc/Server.js";
 import { SkillStore } from "./skills/SkillStore.js";
-import { type SkillCopyTarget, syncSkillCopies, worktreeSkillDirs } from "./skills/skillCopies.js";
+import { type SkillCopyTarget, syncSkillCopies, worktreeRootOf, worktreeSkillDirs } from "./skills/skillCopies.js";
 import { RemotePtyFactory } from "./terminal/RemotePtyFactory.js";
 import { TerminalReactor } from "./terminal/TerminalReactor.js";
 import { TerminalService } from "./terminal/TerminalService.js";
@@ -186,6 +186,7 @@ export async function startRuntime(options: {
       worktreeSkillDirs().map(({ dir, agents }) => ({
         path: join(root, ...dir.split("/")),
         agents,
+        root,
         prepare: async (names: readonly string[]) => {
           await agentFiles.hide(
             root,
@@ -202,7 +203,7 @@ export async function startRuntime(options: {
     home: userHome,
     githubToken,
     extraSkills: () => plugins.skills(),
-    sync: async (list, owned) => syncSkillCopies(list, owned, await skillTargets(), { log }),
+    sync: async (list, owned) => syncSkillCopies(list, owned, await skillTargets(), { log, rootOf: worktreeRootOf }),
   });
   await skills.load();
   const accounts = new AccountStore({
@@ -234,8 +235,14 @@ export async function startRuntime(options: {
     },
     mcpConfigDir,
   };
+  const writeWorktreeFile = (worktreePath: string, relPath: string, contents: string | undefined) =>
+    agentFiles.writeFile(worktreePath, relPath, contents);
   const providerService = new ProviderService(
-    createProviderRegistry(process.env, { ...(browserTool ? { browserTool } : {}), ...mcpOptions }),
+    createProviderRegistry(process.env, {
+      ...(browserTool ? { browserTool } : {}),
+      ...mcpOptions,
+      writeWorktreeFile,
+    }),
   );
   // Started now so it overlaps server start and terminal restore; the first projection shares this run.
   void providerService.discoverProviders().catch(() => undefined);
@@ -246,7 +253,7 @@ export async function startRuntime(options: {
   const terminalReactor = new TerminalReactor(engine, terminalService, {
     resolveAgentCli,
     resolveAccount,
-    writeWorktreeFile: (worktreePath, relPath, contents) => agentFiles.writeFile(worktreePath, relPath, contents),
+    writeWorktreeFile,
     ...(browserTool ? { browserTool } : {}),
     ...mcpOptions,
   });
@@ -367,7 +374,7 @@ export async function startRuntime(options: {
       await diagnosticsReactor.waitForIdle();
       await legacyImportReactor.waitForIdle();
       await huddleReactor.waitForIdle();
-      // After the terminals settle, so no launch writes a file once these are gone.
+      // After the terminals and chats settle, so no launch writes a file once these are gone.
       await skills.removeCopies().catch(() => undefined);
       await agentFiles.removeAll().catch(() => undefined);
       huddleReactor.stop();

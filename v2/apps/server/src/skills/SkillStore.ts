@@ -42,7 +42,7 @@ import { formatSkillMarkdown, parseSkillMarkdown } from "./skillMarkdown.js";
 export type SkillCopySync = (
   skills: ReadonlyArray<{ name: string; path: string }>,
   owned: SkillOwnership,
-) => Promise<{ outcomes: SkillSyncOutcome[]; owned: Record<string, string[]> }>;
+) => Promise<{ outcomes: SkillSyncOutcome[]; owned: Record<string, Record<string, string>> }>;
 
 export type ProjectRef = { projectId: ProjectId; path: string };
 export type ResolvedSkillScope = { kind: "user" } | { kind: "project"; project: ProjectRef };
@@ -52,9 +52,9 @@ type StoredFile = {
   disabled: string[];
   sources: Record<string, string>;
   /** Copies older versions made in the person's own agent folders, until they are cleaned up. */
-  owned: Record<string, string[]>;
-  /** Copies in worktrees. */
-  copies: Record<string, string[]>;
+  owned: Record<string, Record<string, string>>;
+  /** Copies in worktrees, with a digest of each copy as ZLI left it. */
+  copies: Record<string, Record<string, string>>;
 };
 
 const PREVIEW_TTL_MS = 10 * 60 * 1000;
@@ -68,8 +68,8 @@ const MAX_CACHED_PREVIEWS = 3;
 export class SkillStore {
   private disabled = new Set<string>();
   private sources: Record<string, string> = {};
-  private owned: Record<string, string[]> = {};
-  private copies: Record<string, string[]> = {};
+  private owned: Record<string, Record<string, string>> = {};
+  private copies: Record<string, Record<string, string>> = {};
   private pendingSync: Promise<void> | undefined;
   private outcomes: SkillSyncOutcome[] = [];
   private problem: string | undefined;
@@ -153,7 +153,7 @@ export class SkillStore {
     });
     const projectSkillsPath = project ? projectSkillsDir(project.path) : undefined;
     // The project folder can be an agent's worktree, which then holds ZLI's copies of the person's skills.
-    const copied = new Set(projectSkillsPath ? (this.copies[projectSkillsPath] ?? []) : []);
+    const copied = new Set(projectSkillsPath ? Object.keys(this.copies[projectSkillsPath] ?? {}) : []);
     const shared = projectSkillsPath
       ? (await listSkillFolders(projectSkillsPath))
           .filter((folder) => !copied.has(folder.name))
@@ -312,7 +312,9 @@ export class SkillStore {
    * Hands the copies older versions made in the person's own agent folders to `remove`, and keeps
    * whatever it reports could not be removed.
    */
-  cleanUpUserFolders(remove: (owned: SkillOwnership) => Promise<Record<string, string[]>>): Promise<void> {
+  cleanUpUserFolders(
+    remove: (owned: SkillOwnership) => Promise<Record<string, Record<string, string>>>,
+  ): Promise<void> {
     return this.serialize(async () => {
       if (Object.keys(this.owned).length === 0) return;
       const remaining = await remove(this.owned);
@@ -345,7 +347,10 @@ export class SkillStore {
     ];
     const results = await Promise.all(
       scans.map(async (scan) => {
-        const ours = new Set([...(this.owned[scan.path] ?? []), ...(this.copies[scan.path] ?? [])]);
+        const ours = new Set([
+          ...Object.keys(this.owned[scan.path] ?? {}),
+          ...Object.keys(this.copies[scan.path] ?? {}),
+        ]);
         const agents = agentsReading(scan.scope, scan.dir);
         return (await listSkillFolders(scan.path))
           .filter((folder) => !ours.has(folder.name))
@@ -458,12 +463,24 @@ function sourceUrl(source: GithubSkillSource, path: string): string {
   return `https://github.com/${source.owner}/${source.repo}${source.ref || folder ? `/tree/${source.ref ?? "HEAD"}${folder}` : ""}`;
 }
 
-function ownershipFrom(value: unknown): Record<string, string[]> {
+/** Older versions kept a list of names per folder; those load with an empty digest. */
+function ownershipFrom(value: unknown): Record<string, Record<string, string>> {
   if (!isPlainObject(value)) return {};
   return Object.fromEntries(
     Object.entries(value)
-      .map(([path, names]) => [path, stringArray(names)] as const)
-      .filter(([, names]) => names.length > 0),
+      .map(([path, names]): [string, Record<string, string>] => [
+        path,
+        Array.isArray(names)
+          ? Object.fromEntries(stringArray(names).map((name) => [name, ""]))
+          : isPlainObject(names)
+            ? Object.fromEntries(
+                Object.entries(names).filter(
+                  (entry): entry is [string, string] => entry[0].length > 0 && typeof entry[1] === "string",
+                ),
+              )
+            : {},
+      ])
+      .filter(([, names]) => Object.keys(names).length > 0),
   );
 }
 
