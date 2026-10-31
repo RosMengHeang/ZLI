@@ -2,11 +2,12 @@ import type { MobileAccessStatus, PairedPhone } from "@zli-v2/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useCopyFeedback } from "../review/links.js";
+import { Badge } from "../ui/Badge.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Switch } from "../ui/Switch.js";
 import { countdown, deviceDetail, newlyPaired, qrPath } from "./mobileAccessView.js";
-import { SectionHeader, SettingRow } from "./SectionHeader.js";
+import { SectionHeader, SettingGroup, SettingRow } from "./SectionHeader.js";
 import { useMobileAccess } from "./useMobileAccess.js";
 
 const QUIET_ZONE = 4;
@@ -82,7 +83,7 @@ export function MobileAccessSection() {
 
   const header = (
     <SectionHeader title="Phone access">
-      Follow agents, answer their requests, and send messages from the ZLI phone app. The phone has to be on the same
+      Follow agents, answer their requests, and start new work from the ZLI Remote app. The phone has to be on the same
       network as this computer.
     </SectionHeader>
   );
@@ -125,12 +126,30 @@ export function MobileAccessSection() {
 
   const value = access.state.value;
   const listening = value.state === "listening";
-  const address = value.port ? value.hosts.map((host) => `${host}:${value.port}`).join(", ") : "";
+  const addresses = value.port ? value.hosts.map((host) => `${host}:${value.port}`) : [];
+  const devices = [...value.devices].reverse();
+  const connected = value.devices.filter((device) => device.connected).length;
 
   return (
     <>
       {header}
-      <div className="setting-list">
+
+      <SettingGroup
+        title="Connection"
+        actions={
+          value.state === "starting" ? (
+            <Badge tone="neutral" spinner>
+              Starting
+            </Badge>
+          ) : listening ? (
+            <Badge tone="success" dot>
+              Listening
+            </Badge>
+          ) : (
+            <Badge tone="quiet">Off</Badge>
+          )
+        }
+      >
         <Switch
           label="Allow phones on this network"
           hint={
@@ -147,151 +166,179 @@ export function MobileAccessSection() {
         />
         {listening ? (
           <SettingRow label="Address" description="Paired phones reach this computer here.">
-            <span className="settings-value is-mono" title={address}>
-              {address || "No network connection"}
-            </span>
+            {addresses.length > 0 ? (
+              <span className="settings-value is-mono mobile-addresses">
+                {addresses.map((address) => (
+                  <span key={address}>{address}</span>
+                ))}
+              </span>
+            ) : (
+              <span className="settings-value">No network connection</span>
+            )}
           </SettingRow>
         ) : null}
-      </div>
-      {value.state === "starting" ? (
-        <p className="loading-line">
-          <span className="spinner" aria-hidden="true" />
-          Starting phone access
-        </p>
-      ) : null}
-      {value.errorMessage ? (
-        <p className="inline-error" role="alert">
-          <Icon name="alert" size={13} />
-          {value.errorMessage}
-        </p>
-      ) : null}
-      {access.actionError ? (
-        <p className="inline-error" role="alert">
-          <Icon name="alert" size={13} />
-          {access.actionError}
-        </p>
-      ) : null}
+        {value.errorMessage ? (
+          <p className="setting-placeholder is-problem" role="alert">
+            {value.errorMessage}
+          </p>
+        ) : null}
+        {access.actionError ? (
+          <p className="setting-placeholder is-problem" role="alert">
+            {access.actionError}
+          </p>
+        ) : null}
+      </SettingGroup>
 
-      {listening && value.pairing ? (
-        <section className="mobile-pairing" aria-label="Pair a new phone">
-          <PairingCode code={value.pairing.code} />
-          <div className="mobile-pairing-copy">
-            <h4 className="mobile-pairing-title">Scan with the ZLI app</h4>
-            <p className="settings-footnote">
-              On the phone, open ZLI and choose Scan pairing code. If the camera is not available, copy the code and
-              paste it there instead.
-            </p>
-            <p className="settings-footnote" aria-live="polite">
-              Works for one phone. Expires in{" "}
-              <span className="mobile-countdown">{countdown(value.pairing.expiresAt, now)}</span>.
-            </p>
-            <div className="mobile-pairing-actions">
-              <Button size="sm" icon="copy" onClick={() => copy(value.pairing?.code ?? "")}>
-                {copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed" : "Copy code"}
-              </Button>
+      <SettingGroup title="Pair a phone">
+        {!listening ? (
+          <p className="setting-placeholder">Turn on Allow phones on this network to pair a phone.</p>
+        ) : value.pairing ? (
+          <section className="mobile-pairing" aria-label="Pair a new phone">
+            <PairingCode code={value.pairing.code} />
+            <div className="mobile-pairing-copy">
+              <h5 className="mobile-pairing-title">Scan with ZLI Remote</h5>
+              <ol className="mobile-steps">
+                <li>Open ZLI Remote on the phone.</li>
+                <li>Choose Scan pairing code and point the camera here.</li>
+                <li>Check the desktop name on the phone, then choose Pair.</li>
+              </ol>
+              <p className="settings-footnote" aria-live="polite">
+                Works for one phone. Expires in{" "}
+                <span className="mobile-countdown">{countdown(value.pairing.expiresAt, now)}</span>.
+              </p>
+              <div className="mobile-pairing-actions">
+                <Button size="sm" icon="copy" onClick={() => copy(value.pairing?.code ?? "")}>
+                  {copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed" : "Copy code"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={access.busy}
+                  onClick={() => {
+                    pairing.markCancelled();
+                    void access.cancelPairing();
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+              <p className="settings-footnote">No camera? Copy the code and paste it into the app.</p>
+            </div>
+          </section>
+        ) : (
+          <>
+            {pairing.outcome?.kind === "paired" ? (
+              <p className="settings-done" role="status">
+                <Icon name="check" size={13} />
+                Paired with {pairing.outcome.name}.
+              </p>
+            ) : null}
+            {pairing.outcome?.kind === "ended" ? (
+              <p className="setting-placeholder" role="status">
+                The pairing code expired or was already used. Make a new one to pair a phone.
+              </p>
+            ) : null}
+            <SettingRow
+              label="New phone"
+              description={
+                value.hosts.length === 0
+                  ? "This computer has no network connection, so a phone cannot reach it."
+                  : "Shows a one-time code for the ZLI Remote app. It works for 5 minutes."
+              }
+            >
               <Button
                 size="sm"
-                variant="ghost"
-                disabled={access.busy}
+                variant="primary"
+                icon="smartphone"
+                loading={access.busy}
+                disabled={value.hosts.length === 0}
                 onClick={() => {
-                  pairing.markCancelled();
-                  void access.cancelPairing();
+                  pairing.clear();
+                  void access.startPairing();
                 }}
               >
-                Cancel
+                Pair a new phone
               </Button>
-            </div>
-          </div>
-        </section>
-      ) : null}
+            </SettingRow>
+          </>
+        )}
+      </SettingGroup>
 
-      {listening && !value.pairing ? (
-        <>
-          {pairing.outcome?.kind === "paired" ? (
-            <p className="settings-done" role="status">
-              <Icon name="check" size={13} />
-              Paired with {pairing.outcome.name}.
-            </p>
-          ) : null}
-          {pairing.outcome?.kind === "ended" ? (
-            <p className="settings-empty" role="status">
-              The pairing code expired or was already used. Make a new one to pair a phone.
-            </p>
-          ) : null}
-          <div className="settings-actions">
-            <Button
-              size="sm"
-              variant="primary"
-              icon="smartphone"
-              loading={access.busy}
-              disabled={value.hosts.length === 0}
-              onClick={() => {
-                pairing.clear();
-                void access.startPairing();
-              }}
-            >
-              Pair a new phone
-            </Button>
-          </div>
-        </>
-      ) : null}
+      <SettingGroup
+        title="Paired phones"
+        actions={
+          value.devices.length > 0 ? (
+            <span className="mobile-paired-count">
+              {connected > 0 ? `${connected} of ${value.devices.length} connected` : `${value.devices.length} paired`}
+            </span>
+          ) : null
+        }
+      >
+        {devices.length === 0 ? (
+          <p className="setting-placeholder">
+            {value.enabled ? "No phones are paired yet." : "No phones are paired. Turn on phone access to pair one."}
+          </p>
+        ) : (
+          <ul className="mobile-device-rows" aria-label="Paired phones">
+            {devices.map((device) => (
+              <li className="mobile-device-row" key={device.deviceId}>
+                <span className="mobile-device-tile" aria-hidden="true">
+                  <Icon name="smartphone" size={15} />
+                </span>
+                <span className="mobile-device-copy">
+                  <span className="mobile-device-name">{device.name}</span>
+                  <span className="mobile-device-meta">{deviceDetail(device, now)}</span>
+                </span>
+                {device.connected ? (
+                  <Badge tone="success" dot>
+                    Connected
+                  </Badge>
+                ) : null}
+                <span className="mobile-device-action">
+                  {confirmRemove === device.deviceId ? (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        className="is-danger"
+                        disabled={access.busy}
+                        aria-label={`Remove ${device.name} for good`}
+                        onClick={() => {
+                          setConfirmRemove(undefined);
+                          void access.revoke(device.deviceId);
+                        }}
+                      >
+                        Remove
+                      </Button>
+                      <Button variant="ghost" size="xs" onClick={() => setConfirmRemove(undefined)}>
+                        Keep
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      disabled={access.busy}
+                      aria-label={`Revoke ${device.name}`}
+                      onClick={() => setConfirmRemove(device.deviceId)}
+                    >
+                      Revoke
+                    </Button>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </SettingGroup>
 
-      <h3 className="mcp-subhead">Paired phones</h3>
-      {value.devices.length === 0 ? (
-        <p className="settings-empty">
-          {value.enabled ? "No phones are paired yet." : "No phones are paired. Turn on phone access to pair one."}
-        </p>
-      ) : (
-        <ul className="mcp-rows" aria-label="Paired phones">
-          {[...value.devices].reverse().map((device) => (
-            <li className="mcp-row" key={device.deviceId}>
-              <span
-                className={`mcp-status-dot${device.connected ? " is-ok" : ""}`}
-                role="img"
-                aria-label={device.connected ? "Connected" : "Not connected"}
-              />
-              <span className="mcp-row-copy">
-                <strong>{device.name}</strong>
-                <span className="mcp-row-detail">{deviceDetail(device, now)}</span>
-              </span>
-              {confirmRemove === device.deviceId ? (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    className="is-danger"
-                    disabled={access.busy}
-                    aria-label={`Remove ${device.name} for good`}
-                    onClick={() => {
-                      setConfirmRemove(undefined);
-                      void access.revoke(device.deviceId);
-                    }}
-                  >
-                    Remove
-                  </Button>
-                  <Button variant="ghost" size="xs" onClick={() => setConfirmRemove(undefined)}>
-                    Keep
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  disabled={access.busy}
-                  aria-label={`Revoke ${device.name}`}
-                  onClick={() => setConfirmRemove(device.deviceId)}
-                >
-                  Revoke
-                </Button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="settings-footnote">
-        Messages between a paired phone and this computer are encrypted with keys made when they paired. A paired phone
-        can start agents and type into terminals in your projects, so revoke any phone you no longer use. Revoking
-        disconnects it right away.
+      <p className="settings-footnote mobile-security">
+        <Icon name="lock" size={13} />
+        <span>
+          Messages between a paired phone and this computer are encrypted with keys made when they paired. A paired
+          phone can start agents and type into terminals in your projects, so revoke any phone you no longer use.
+          Revoking disconnects it right away.
+        </span>
       </p>
     </>
   );
