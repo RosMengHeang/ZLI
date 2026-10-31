@@ -199,6 +199,7 @@ async function render(
       worktree={projection.worktrees[0]}
       sessionId={sessionId}
       height={280}
+      maxHeight={600}
       onHeightChange={() => undefined}
       onClose={() => undefined}
     />

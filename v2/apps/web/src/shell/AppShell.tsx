@@ -79,7 +79,11 @@ import {
   forgetSession,
   forgetStaleBoards,
   keepPendingLaunch,
+  MIN_DRAWER_HEIGHT,
+  MIN_GRID_HEIGHT,
+  MIN_GRID_WIDTH,
   openProjectAgents,
+  roomBesideGrid,
   sessionProjects,
   useWorkbenchState,
   type WorkbenchState,
@@ -105,7 +109,7 @@ import { RestartToUpdateDialog } from "../updates/RestartToUpdateDialog.js";
 import { UpdatePill } from "../updates/UpdatePill.js";
 import { busyAgentCount } from "../updates/updateCopy.js";
 import { useUpdates } from "../updates/useUpdates.js";
-import { PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
+import { MIN_PANEL_WIDTH, PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
 import {
   CloseAgentDialog,
   DeleteAgentDialog,
@@ -170,6 +174,16 @@ function WorkspaceApp() {
   const [huddleId, setHuddleId] = useState<string>();
   const [panelWidth, setPanelWidth] = usePanelWidth(sidePane ?? "files");
   const [gridRegionRef, gridWidth] = useElementWidth<HTMLElement>();
+  const [workspaceBodyRef, workspaceSpace] = useWorkspaceSpace();
+  // The remembered sizes stay as chosen; a smaller window only shrinks what is shown, so they return when it grows.
+  const panelMax = workspaceSpace
+    ? roomBesideGrid(workspaceSpace.width - workspaceSpace.gutter, MIN_PANEL_WIDTH, MIN_GRID_WIDTH)
+    : Number.POSITIVE_INFINITY;
+  const drawerMax = workspaceSpace
+    ? roomBesideGrid(workspaceSpace.height - workspaceSpace.gutter, MIN_DRAWER_HEIGHT, MIN_GRID_HEIGHT)
+    : Number.POSITIVE_INFINITY;
+  const shownPanelWidth = Math.min(panelWidth, panelMax);
+  const shownDrawerHeight = Math.min(workbench.drawerHeight, drawerMax);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [worktreeDialogProject, setWorktreeDialogProject] = useState<ProjectProjection>();
   const [newAgentProject, setNewAgentProject] = useState<ProjectProjection | "default">();
@@ -2055,7 +2069,7 @@ function WorkspaceApp() {
           ) : !projection ? (
             <RuntimeLoadingState />
           ) : (
-            <div className="workspace-body">
+            <div className="workspace-body" ref={workspaceBodyRef}>
               <div className="workbench-column">
                 <section className="agent-grid-region" aria-label="Agents" ref={gridRegionRef}>
                   {visibleTiles.length === 0 ? (
@@ -2150,7 +2164,8 @@ function WorkspaceApp() {
                     projection={projection}
                     worktree={contextWorktree}
                     sessionId={activeSession?.sessionId}
-                    height={workbench.drawerHeight}
+                    height={shownDrawerHeight}
+                    maxHeight={drawerMax}
                     onHeightChange={(drawerHeight) => updateWorkbench((state) => ({ ...state, drawerHeight }))}
                     onClose={() => updateWorkbench((state) => ({ ...state, drawerOpen: false }))}
                   />
@@ -2158,11 +2173,11 @@ function WorkspaceApp() {
               </div>
               {sidePane ? (
                 <>
-                  <PanelResizer width={panelWidth} onChange={setPanelWidth} />
+                  <PanelResizer width={shownPanelWidth} max={panelMax} onChange={setPanelWidth} />
                   <aside
                     className="tool-panel"
                     aria-label={`${sidePaneLabel[sidePane]} panel`}
-                    style={{ width: panelWidth }}
+                    style={{ width: shownPanelWidth }}
                   >
                     {sidePane === "files" ? (
                       <Suspense fallback={<LoadingFilesPane />}>
@@ -2541,6 +2556,42 @@ function useElementWidth<T extends HTMLElement>(): [(element: T | null) => void,
     return () => observer.disconnect();
   }, []);
   return [ref, width];
+}
+
+type WorkspaceSpace = { width: number; height: number; gutter: number };
+
+/** The content box the agent grid shares with the terminal drawer and the side panel, and the gutter between them. */
+function useWorkspaceSpace(): [(element: HTMLElement | null) => void, WorkspaceSpace | undefined] {
+  const [space, setSpace] = useState<WorkspaceSpace>();
+  const ref = useCallback((element: HTMLElement | null) => {
+    if (!element) return;
+    const measure = () => {
+      // An element that is not laid out (as in jsdom) has no size to fit panels into.
+      if (element.clientWidth === 0 && element.clientHeight === 0) return;
+      const style = getComputedStyle(element);
+      const next = {
+        width: Math.floor(
+          element.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight),
+        ),
+        height: Math.floor(
+          element.clientHeight - Number.parseFloat(style.paddingTop) - Number.parseFloat(style.paddingBottom),
+        ),
+        gutter: Number.parseFloat(style.getPropertyValue("--zli-gutter")) || 0,
+      };
+      setSpace((current) =>
+        current?.width === next.width && current.height === next.height && current.gutter === next.gutter
+          ? current
+          : next,
+      );
+    };
+    // Measuring on attach, during the commit, means a remembered size that no longer fits is never painted.
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, space];
 }
 
 const NARROW_WINDOW = "(max-width: 720px)";

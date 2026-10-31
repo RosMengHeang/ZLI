@@ -5,8 +5,12 @@ import {
   focusProject,
   forgetSession,
   forgetStaleBoards,
+  MIN_DRAWER_HEIGHT,
+  MIN_GRID_HEIGHT,
+  MIN_GRID_WIDTH,
   openProjectAgents,
   parseWorkbenchState,
+  roomBesideGrid,
   sessionProjects,
   type WorkbenchState,
 } from "./workbench.js";
@@ -156,5 +160,27 @@ describe("sessionProjects", () => {
       ["sub", "A"],
       ["other", "B"],
     ]);
+  });
+});
+
+describe("fitting the side panel and drawer to the window", () => {
+  const PANEL = 320;
+
+  it("leaves the agent grid its minimum beside the side panel and above the drawer", () => {
+    // A 1000 by 560 window with the sidebar open: 772px across beside the panel's gutter, 504px down above the drawer's.
+    expect(roomBesideGrid(772, PANEL, MIN_GRID_WIDTH)).toBe(452);
+    expect(roomBesideGrid(504, MIN_DRAWER_HEIGHT, MIN_GRID_HEIGHT)).toBe(344);
+    expect(roomBesideGrid(1171.6, PANEL, MIN_GRID_WIDTH)).toBe(851);
+  });
+
+  it("splits a space too small for both minimums in proportion to them", () => {
+    expect(roomBesideGrid(PANEL + MIN_GRID_WIDTH, PANEL, MIN_GRID_WIDTH)).toBe(PANEL);
+    expect(roomBesideGrid(600, PANEL, MIN_GRID_WIDTH)).toBe(300);
+    expect(roomBesideGrid(150, MIN_DRAWER_HEIGHT, MIN_GRID_HEIGHT)).toBe(70);
+    expect(roomBesideGrid(-4, MIN_DRAWER_HEIGHT, MIN_GRID_HEIGHT)).toBe(0);
+  });
+
+  it("keeps a remembered drawer height that only a larger window has room for", () => {
+    expect(parseWorkbenchState(JSON.stringify({ drawerHeight: 900 })).drawerHeight).toBe(900);
   });
 });

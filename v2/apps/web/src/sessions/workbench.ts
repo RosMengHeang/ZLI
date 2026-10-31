@@ -37,6 +37,18 @@ export type WorkbenchState = {
 
 export const DEFAULT_DRAWER_HEIGHT = 280;
 export const MIN_DRAWER_HEIGHT = 140;
+/** The agent grid keeps at least this much room beside the side panel and above the terminal drawer. */
+export const MIN_GRID_WIDTH = 320;
+export const MIN_GRID_HEIGHT = 160;
+
+/**
+ * The most a side panel or the drawer can take of the space it shares with the agent grid: all but the
+ * grid's minimum. When the space cannot hold both minimums, they split it in proportion to them.
+ */
+export function roomBesideGrid(space: number, minimum: number, gridMinimum: number): number {
+  const room = Math.max(0, Math.floor(space));
+  return room >= minimum + gridMinimum ? room - gridMinimum : Math.floor((room * minimum) / (minimum + gridMinimum));
+}
 
 const initialState: WorkbenchState = {
   closed: [],
