@@ -51,7 +51,9 @@ test("a second launch on the same data quits and leaves the first one running", 
       .toBe(false);
 
     const command = await desktopCommand(repo, root);
-    const second = spawn(command.executablePath ?? app.process().spawnfile, command.args, {
+    // Playwright passes --no-sandbox to the first launch on Linux, where Electron's sandbox needs setup CI lacks.
+    const args = process.platform === "linux" ? ["--no-sandbox", ...command.args] : command.args;
+    const second = spawn(command.executablePath ?? app.process().spawnfile, args, {
       env: command.env,
       stdio: ["ignore", "ignore", "pipe"],
     });
