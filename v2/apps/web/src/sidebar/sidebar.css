@@ -169,15 +169,11 @@
 .usage-strip-toggle[aria-expanded="true"] .usage-strip-chevron { transform: rotate(180deg); }
 .usage-strip-head { color: var(--zli-dim); font-size: var(--zli-text-2xs); }
 .usage-strip-summary { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-1-5); overflow: hidden; white-space: nowrap; }
-.usage-strip-summary > .usage-strip-ring, .usage-strip-summary > .provider-mark { flex: 0 0 auto; }
-.usage-strip-summary > .provider-mark { display: none; color: var(--zli-dim); }
-@container (max-width: 119px) {
-  .usage-strip-summary > .provider-mark { display: block; }
-  .usage-strip-summary > .usage-strip-provider, .usage-strip-summary > .usage-strip-account,
-  .usage-strip-summary .usage-strip-window-label { display: none; }
-}
-.usage-strip-summary-limit { display: inline-flex; flex: 0 0 auto; align-items: baseline; gap: var(--zli-space-1); margin-left: auto; }
-.usage-strip-summary .usage-strip-window-label { min-width: 0; }
+.usage-strip-summary > .provider-mark { flex: 0 0 auto; color: var(--zli-muted); }
+/* The share never shrinks; a long model label gives way first. */
+.usage-strip-summary .usage-strip-window-label { min-width: 0; max-width: none; flex: 0 1 auto; color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.usage-strip-summary .usage-strip-window-percent { flex: 0 0 auto; }
+.usage-strip-summary .usage-strip-state { margin-left: 0; }
 .usage-strip-summary.is-warning .usage-strip-ring-fill { stroke: var(--zli-amber); }
 .usage-strip-summary.is-warning .usage-strip-window-percent { color: var(--zli-amber); }
 .usage-strip-summary.is-full .usage-strip-ring-fill { stroke: var(--zli-red); }

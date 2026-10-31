@@ -175,6 +175,33 @@ describe("Usage settings", () => {
     expect(readAppSettings().sidebarLimits).toEqual({ enabled: true, hidden: ["codex"] });
   });
 
+  it("pins one agent to the footer line, and Automatic lets it follow the selected agent again", async () => {
+    const container = await openUsage([ok("claude-code"), ok("codex")]);
+    const picker = () => container.querySelector<HTMLButtonElement>('[aria-label^="Agent in the footer"]');
+    const choose = async (label: string) => {
+      await act(async () => picker()?.click());
+      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+        (entry) => entry.textContent === label,
+      );
+      await act(async () => option?.click());
+    };
+    expect(picker()?.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => switches(container)[0]?.input.click());
+    expect(picker()?.getAttribute("aria-label")).toBe("Agent in the footer: Automatic");
+
+    await choose("Codex");
+    expect(readAppSettings().sidebarLimits).toEqual({ enabled: true, hidden: [], pinned: "codex" });
+    // Switching the pinned agent off shows Automatic, and switching it back on brings the pin back.
+    const codex = () => switches(container).find((entry) => entry.label === "Codex")?.input;
+    await act(async () => codex()?.click());
+    expect(picker()?.getAttribute("aria-label")).toBe("Agent in the footer: Automatic");
+    await act(async () => codex()?.click());
+    expect(picker()?.getAttribute("aria-label")).toBe("Agent in the footer: Codex");
+
+    await choose("Automatic");
+    expect(readAppSettings().sidebarLimits).toEqual({ enabled: true, hidden: [] });
+  });
+
   it("says so when no agent reports plan limits", async () => {
     const container = await openUsage([{ provider: "codex", accountId: "usual", state: "signed-out", windows: [] }]);
     expect(container.querySelector(".settings-panel")?.textContent).toContain("None of your agents report plan limits");
