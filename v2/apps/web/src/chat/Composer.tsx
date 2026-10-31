@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 
+import { formatFileSize } from "../files/ImagePreview.js";
 import { usePluginContributions } from "../plugins/plugins.js";
 import { PromptList, usePromptPicker } from "../prompts/PromptPicker.js";
 import { combinePrompts, requestPromptManager, slashQuery, usePersonalPrompts } from "../prompts/prompts.js";
@@ -26,8 +27,11 @@ import { Picker } from "../ui/Picker.js";
 import { ariaShortcut } from "../ui/shortcuts.js";
 import { StopButton } from "../ui/StopButton.js";
 import { formatTokens } from "../usage/usage.js";
+import { fileName, parentName, withAttachedFiles } from "./attachedFiles.js";
 import { type BestOfAgentOption, BestOfPopover } from "./BestOfPopover.js";
+import { ImageViewer } from "./ChatImage.js";
 import { type CodeReference, referenceLabel, withReferences } from "./codeReferences.js";
+import { FileBadge } from "./FileBadge.js";
 import {
   attachmentOnlyMessage,
   isLongPaste,
@@ -61,10 +65,17 @@ export type ComposerBestOf = {
 
 type Draft =
   | { kind: "image"; id: string; file: File; mimeType: ImageMimeType; previewUrl: string }
-  | { kind: "text"; id: string; name: string; text: string; lines: number };
+  | { kind: "text"; id: string; name: string; text: string; lines: number }
+  | { kind: "file"; id: string; name: string; path: string; size: number };
+
+type Upload = Exclude<Draft, { kind: "file" }>;
+
+const isUpload = (entry: Draft): entry is Upload => entry.kind !== "file";
 
 const IMAGE_TYPES: readonly ImageMimeType[] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 const MAX_ATTACHMENTS = 8;
+/** Files from disk go out as paths, so they do not count toward the upload limit. */
+const MAX_FILES = 20;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 function ContextMeter({ tokens, window }: { tokens: number; window?: number | undefined }) {
@@ -171,6 +182,9 @@ export function Composer({
   const [error, setError] = useState<string>();
   const [sending, setSending] = useState(false);
   const [capturing, setCapturing] = useState(false);
+  const [preview, setPreview] = useState<{ url: string; name: string }>();
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
   const [sendMenuOpen, setSendMenuOpen] = useState(false);
   const [bestOfOpen, setBestOfOpen] = useState(false);
   const [bestOfStarting, setBestOfStarting] = useState(false);
@@ -224,34 +238,48 @@ export function Composer({
 
   const addFiles = (files: readonly File[]) => {
     setError(undefined);
-    const accepted: Draft[] = [];
-    const paths: string[] = [];
+    const current = imagesRef.current;
+    const known = new Set(current.flatMap((entry) => (entry.kind === "file" ? [entry.path] : [])));
+    let uploads = current.filter(isUpload).length;
+    let picked = current.length - uploads;
+    const added: Draft[] = [];
+    let problem: string | undefined;
     for (const file of files) {
-      if (!isImageType(file.type)) {
-        // Agents read other files from disk, so the message carries the path instead of the bytes.
-        const path = getBridge()?.pathForFile?.(file);
-        if (path) paths.push(path);
-        else setError("Only PNG, JPEG, GIF, and WebP images can be attached.");
+      const id = `${file.name}-${file.size}-${Math.random().toString(36).slice(2)}`;
+      if (isImageType(file.type) && file.size <= MAX_IMAGE_BYTES) {
+        if (uploads >= MAX_ATTACHMENTS) {
+          problem = `Attach up to ${MAX_ATTACHMENTS} images per message.`;
+          continue;
+        }
+        uploads += 1;
+        added.push({
+          kind: "image",
+          id,
+          file,
+          mimeType: file.type,
+          previewUrl: typeof URL.createObjectURL === "function" ? URL.createObjectURL(file) : "",
+        });
         continue;
       }
-      if (file.size > MAX_IMAGE_BYTES) {
-        setError(`${file.name} is larger than 10 MB.`);
+      // Agents read other files from disk, so the message carries the path instead of the bytes.
+      const path = getBridge()?.pathForFile?.(file);
+      if (!path) {
+        problem = isImageType(file.type)
+          ? `${file.name} is larger than 10 MB.`
+          : "Only PNG, JPEG, GIF, and WebP images can be attached.";
         continue;
       }
-      accepted.push({
-        kind: "image",
-        id: `${file.name}-${file.size}-${Math.random().toString(36).slice(2)}`,
-        file,
-        mimeType: file.type,
-        previewUrl: typeof URL.createObjectURL === "function" ? URL.createObjectURL(file) : "",
-      });
+      if (known.has(path)) continue;
+      if (picked >= MAX_FILES) {
+        problem = `Attach up to ${MAX_FILES} files per message.`;
+        continue;
+      }
+      known.add(path);
+      picked += 1;
+      added.push({ kind: "file", id, name: file.name || fileName(path), path, size: file.size });
     }
-    if (paths.length > 0) setDraft((current) => `${[current.trimEnd(), ...paths].filter(Boolean).join(" ")} `);
-    setImages((current) => {
-      const next = [...current, ...accepted];
-      if (next.length > MAX_ATTACHMENTS) setError(`Attach up to ${MAX_ATTACHMENTS} files per message.`);
-      return next.slice(0, MAX_ATTACHMENTS);
-    });
+    if (problem) setError(problem);
+    if (added.length > 0) setImages((existing) => [...existing, ...added]);
   };
 
   const addPastedText = (text: string) => {
@@ -261,7 +289,7 @@ export function Composer({
       return;
     }
     setImages((current) => {
-      if (current.length >= MAX_ATTACHMENTS) {
+      if (current.filter(isUpload).length >= MAX_ATTACHMENTS) {
         setError(`Attach up to ${MAX_ATTACHMENTS} files per message.`);
         return current;
       }
@@ -302,8 +330,10 @@ export function Composer({
     setSending(true);
     setError(undefined);
     try {
+      const uploads = images.filter(isUpload);
+      const paths = images.flatMap((image) => (image.kind === "file" ? [image.path] : []));
       const attachments = await Promise.all(
-        images.map(
+        uploads.map(
           async (image): Promise<ComposerAttachment> =>
             image.kind === "text"
               ? { name: image.name, mimeType: "text/plain", dataBase64: textBase64(image.text) }
@@ -315,9 +345,10 @@ export function Composer({
         ),
       );
       setDraft("");
-      const texts = images.filter((image) => image.kind === "text").length;
-      const message = text || (images.length > 0 ? attachmentOnlyMessage(images.length - texts, texts) : "");
-      const sent = await onSubmit(withReferences(references, message), attachments);
+      const texts = uploads.filter((image) => image.kind === "text").length;
+      const message =
+        text || (images.length > 0 ? attachmentOnlyMessage(uploads.length - texts, texts, paths.length) : "");
+      const sent = await onSubmit(withReferences(references, withAttachedFiles(paths, message)), attachments);
       if (sent) {
         if (references.length > 0) onReferencesSent?.();
         for (const image of images)
@@ -368,12 +399,13 @@ export function Composer({
         return;
       }
       const pasted = images.flatMap((image) => (image.kind === "text" ? [image.text] : []));
+      const paths = images.flatMap((image) => (image.kind === "file" ? [image.path] : []));
       const message = [draft.trim(), ...pasted].filter(Boolean).join("\n\n");
-      if (!message && references.length === 0) {
+      if (!message && references.length === 0 && paths.length === 0) {
         setBestOfError("Type the message every run starts with.");
         return;
       }
-      text = withReferences(references, message);
+      text = withReferences(references, withAttachedFiles(paths, message));
     }
     setBestOfStarting(true);
     setBestOfError(undefined);
@@ -443,7 +475,11 @@ export function Composer({
     addPastedText(pasted);
   };
 
+  const carriesFiles = (event: DragEvent) => [...event.dataTransfer.types].includes("Files");
+
   const onDrop = (event: DragEvent<HTMLFormElement>) => {
+    dragDepth.current = 0;
+    setDragging(false);
     const files = [...event.dataTransfer.files];
     if (files.length === 0) return;
     event.preventDefault();
@@ -452,13 +488,31 @@ export function Composer({
 
   return (
     <form
-      className="composer prompt-anchor"
+      className={`composer prompt-anchor${dragging ? " is-dragging" : ""}`}
       onSubmit={(event) => void submit(event)}
+      onDragEnter={(event) => {
+        if (!carriesFiles(event)) return;
+        // Enter and leave fire for every child the pointer crosses, so only the outermost pair counts.
+        dragDepth.current += 1;
+        setDragging(true);
+      }}
+      onDragLeave={(event) => {
+        if (!carriesFiles(event)) return;
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDragging(false);
+      }}
       onDragOver={(event) => {
-        if ([...event.dataTransfer.types].includes("Files")) event.preventDefault();
+        if (carriesFiles(event)) event.preventDefault();
       }}
       onDrop={onDrop}
     >
+      {dragging ? (
+        <div className="composer-drop" aria-hidden="true">
+          <Icon name="paperclip" size={16} />
+          Drop files to attach them
+        </div>
+      ) : null}
+      {preview ? <ImageViewer source={preview} onClose={() => setPreview(undefined)} /> : null}
       {bestOfVisible && bestOf ? (
         <BestOfPopover
           key={bestOf.retry?.key ?? "draft"}
@@ -494,72 +548,82 @@ export function Composer({
             const folder = reference.path.slice(0, Math.max(0, reference.path.lastIndexOf("/")));
             return (
               <li
-                className="composer-attachment is-text"
+                className="composer-attachment is-card"
                 key={reference.id}
                 title={reference.snippet ? reference.snippet.slice(0, 400) : reference.path}
               >
-                <span className="composer-attachment-icon" aria-hidden="true">
+                <span className="file-badge is-code" aria-hidden="true">
                   <Icon name="code" size={14} />
                 </span>
                 <span className="composer-attachment-label">
                   <span className="is-mono">{label}</span>
                   <span className="composer-attachment-meta">{folder || "Worktree root"}</span>
                 </span>
-                <IconButton
-                  label={`Remove ${label}`}
-                  tooltip="Remove"
-                  icon="x"
-                  size="xs"
-                  iconSize={11}
-                  onClick={() => onRemoveReference?.(reference.id)}
-                />
+                <RemoveAttachment name={label} onRemove={() => onRemoveReference?.(reference.id)} />
               </li>
             );
           })}
-          {images.map((image) =>
-            image.kind === "text" ? (
-              <li className="composer-attachment is-text" key={image.id} title={image.text.slice(0, 400)}>
-                <span className="composer-attachment-icon" aria-hidden="true">
-                  <Icon name="fileText" size={14} />
-                </span>
-                <span className="composer-attachment-label">
-                  <span>Pasted text</span>
-                  <span className="composer-attachment-meta">
-                    {image.lines === 1 ? "1 line" : `${image.lines.toLocaleString()} lines`}
+          {images.map((image) => {
+            if (image.kind === "text") {
+              return (
+                <li className="composer-attachment is-card" key={image.id} title={image.text.slice(0, 400)}>
+                  <span className="file-badge is-doc" aria-hidden="true">
+                    <Icon name="fileText" size={14} />
                   </span>
-                </span>
-                <IconButton
-                  label={`Put ${image.name} back in the message`}
-                  tooltip="Put it back in the message"
-                  icon="pencil"
-                  size="xs"
-                  iconSize={11}
-                  onClick={() => inlinePastedText(image.id)}
-                />
-                <IconButton
-                  label={`Remove ${image.name}`}
-                  tooltip="Remove"
-                  icon="x"
-                  size="xs"
-                  iconSize={11}
-                  onClick={() => removeImage(image.id)}
-                />
+                  <span className="composer-attachment-label">
+                    <span>Pasted text</span>
+                    <span className="composer-attachment-meta">
+                      {image.lines === 1 ? "1 line" : `${image.lines.toLocaleString()} lines`}
+                    </span>
+                  </span>
+                  <IconButton
+                    label={`Put ${image.name} back in the message`}
+                    tooltip="Put it back in the message"
+                    icon="pencil"
+                    size="xs"
+                    iconSize={11}
+                    onClick={() => inlinePastedText(image.id)}
+                  />
+                  <RemoveAttachment name={image.name} onRemove={() => removeImage(image.id)} />
+                </li>
+              );
+            }
+            if (image.kind === "file") {
+              const folder = parentName(image.path);
+              return (
+                <li className="composer-attachment is-card" key={image.id} title={image.path}>
+                  <FileBadge path={image.path} />
+                  <span className="composer-attachment-label">
+                    <span>{image.name}</span>
+                    <span className="composer-attachment-meta">
+                      {[folder, image.size > 0 ? formatFileSize(image.size) : undefined].filter(Boolean).join(" · ")}
+                    </span>
+                  </span>
+                  <RemoveAttachment name={image.name} onRemove={() => removeImage(image.id)} />
+                </li>
+              );
+            }
+            const name = image.file.name || "image";
+            return (
+              <li className="composer-attachment is-image" key={image.id} title={name}>
+                {image.previewUrl ? (
+                  <button
+                    type="button"
+                    className="composer-attachment-thumb"
+                    aria-label={`Preview ${name}`}
+                    onClick={() => setPreview({ url: image.previewUrl, name })}
+                  >
+                    <img src={image.previewUrl} alt="" draggable={false} />
+                  </button>
+                ) : (
+                  <span className="composer-attachment-thumb">
+                    <Icon name="image" size={16} />
+                  </span>
+                )}
+                <RemoveAttachment name={name} onRemove={() => removeImage(image.id)} />
               </li>
-            ) : (
-              <li className="composer-attachment" key={image.id}>
-                {image.previewUrl ? <img src={image.previewUrl} alt="" /> : <Icon name="image" size={14} />}
-                <span>{image.file.name || "image"}</span>
-                <IconButton
-                  className="composer-attachment-remove"
-                  label={`Remove ${image.file.name || "image"}`}
-                  icon="x"
-                  size="xs"
-                  iconSize={11}
-                  onClick={() => removeImage(image.id)}
-                />
-              </li>
-            ),
-          )}
+            );
+          })}
         </ul>
       ) : null}
       <PromptList
@@ -784,6 +848,21 @@ export function Composer({
         </p>
       ) : null}
     </form>
+  );
+}
+
+/** Sits on the attachment's top-right corner, and shows while the attachment is hovered or focused. */
+function RemoveAttachment({ name, onRemove }: { name: string; onRemove(): void }) {
+  return (
+    <IconButton
+      className="composer-attachment-remove"
+      label={`Remove ${name}`}
+      tooltip="Remove"
+      icon="x"
+      size="xs"
+      iconSize={10}
+      onClick={onRemove}
+    />
   );
 }
 

@@ -7,8 +7,10 @@
 .chat-message p { margin: 0; color: var(--zli-text); font-size: var(--zli-text-md); line-height: var(--zli-leading-relaxed); white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-message-user { align-self: flex-end; max-width: min(85%, 36rem); padding: var(--zli-space-2) 14px; border-radius: var(--zli-radius-lg) var(--zli-radius-lg) var(--zli-radius-xs) var(--zli-radius-lg); background: var(--zli-raised); box-shadow: inset 0 0 0 1px var(--zli-border); }
 .chat-message-user + .chat-message-assistant, .chat-message-user + .chat-work { margin-top: var(--zli-space-1); }
-.chat-attachments { display: flex; flex-wrap: wrap; gap: var(--zli-space-1-5); margin: 0 0 var(--zli-space-1-5); padding: 0; list-style: none; }
-.chat-attachments li { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 var(--zli-space-2); border-radius: var(--zli-radius-sm); background: var(--zli-overlay); color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.chat-attachments { display: flex; flex-wrap: wrap; gap: var(--zli-space-1-5); margin: var(--zli-space-0-5) 0 var(--zli-space-2); padding: 0; list-style: none; }
+.chat-attachments:last-child { margin-bottom: var(--zli-space-0-5); }
+.chat-attachments li { display: inline-flex; min-width: 0; max-width: 100%; align-items: center; gap: var(--zli-space-1-5); height: 28px; padding: 0 var(--zli-space-2-5) 0 var(--zli-space-1); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-surface); color: var(--zli-text); font-size: var(--zli-text-xs); }
+.chat-attachment-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-message-peer { padding: var(--zli-space-2-5) var(--zli-space-3); border-left: 2px solid var(--zli-amber-line); border-radius: 0 var(--zli-radius-md) var(--zli-radius-md) 0; background: var(--zli-amber-soft); }
 .chat-message-label { display: inline-flex; align-items: center; gap: var(--zli-space-1-5); margin-bottom: var(--zli-space-1); color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 600; }
 .chat-system { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-sm); text-align: center; }
@@ -196,17 +198,37 @@ button.step-row:hover .step-file { background: var(--zli-active); }
 .composer:focus-within { border-color: var(--zli-border-hover); background: var(--zli-overlay); box-shadow: var(--zli-highlight), 0 14px 32px -18px rgba(0, 0, 0, .8), 0 0 0 3px rgba(255, 255, 255, .04); }
 .composer textarea { display: block; width: 100%; min-height: 40px; max-height: 220px; resize: none; padding: 2px var(--zli-space-1) 0 0; border: 0; outline: none; background: transparent; color: var(--zli-text); font-size: var(--zli-text-md); line-height: var(--zli-leading-normal); field-sizing: content; }
 .composer textarea:focus-visible { outline: none; }
-.composer-attachments { display: flex; flex-wrap: wrap; gap: var(--zli-space-1-5); margin: 0 0 var(--zli-space-2); padding: 0; list-style: none; }
-.composer-attachment { position: relative; display: inline-flex; align-items: center; gap: var(--zli-space-1-5); max-width: 200px; height: 36px; padding: 0 26px 0 var(--zli-space-1); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: var(--zli-surface); color: var(--zli-muted); font-size: var(--zli-text-xs); }
-.composer-attachment img { width: 28px; height: 28px; border-radius: var(--zli-radius-xs); object-fit: cover; }
-.composer-attachment span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-attachment-remove { position: absolute; top: 50%; right: var(--zli-space-1); transform: translateY(-50%); }
-.composer-attachment.is-text { gap: var(--zli-space-1); max-width: 260px; padding-right: var(--zli-space-1); }
-.composer-attachment-icon { display: inline-grid; flex: 0 0 auto; place-items: center; width: 28px; height: 28px; border-radius: var(--zli-radius-xs); background: var(--zli-overlay); color: var(--zli-muted); }
-.composer-attachment-label { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; margin-right: var(--zli-space-1); line-height: 1.25; }
-.composer-attachment-label > span:first-child { color: var(--zli-text); }
+/* The top padding leaves room for the remove buttons that sit on each attachment's corner. */
+.composer-attachments { display: flex; flex-wrap: wrap; gap: var(--zli-space-2); margin: calc(var(--zli-space-1) * -1) 0 var(--zli-space-2-5); padding: 6px 6px 0 0; list-style: none; }
+.composer-attachment { position: relative; display: flex; flex: 0 1 auto; min-width: 0; align-items: center; height: 56px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-surface); color: var(--zli-muted); font-size: var(--zli-text-xs); animation: zli-fade-in var(--zli-duration-base) var(--zli-ease) both; transition: border-color var(--zli-duration-fast) var(--zli-ease); }
+.composer-attachment:hover, .composer-attachment:focus-within { border-color: var(--zli-border-hover); }
+.composer-attachment.is-card { gap: 10px; max-width: 248px; padding: 0 var(--zli-space-3) 0 10px; }
+.composer-attachment.is-image { flex: 0 0 auto; width: 76px; }
+.composer-attachment-thumb { display: grid; width: 100%; height: 100%; place-items: center; padding: 0; overflow: hidden; border: 0; border-radius: calc(var(--zli-radius-lg) - 1px); background: var(--zli-well); color: var(--zli-dim); cursor: zoom-in; }
+.composer-attachment-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.composer-attachment-thumb:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+.composer-attachment-label { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; line-height: 1.25; }
+.composer-attachment-label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-attachment-label > span:first-child { color: var(--zli-text); font-weight: 500; }
 .composer-attachment-label > .is-mono { font-family: var(--zli-mono); }
 .composer-attachment-meta { color: var(--zli-dim); font-variant-numeric: tabular-nums; }
+.composer-attachment .composer-attachment-remove.btn-icon { position: absolute; top: -7px; right: -7px; z-index: 1; width: 18px; height: 18px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-pill); background: var(--zli-raised); color: var(--zli-muted); opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.composer-attachment .composer-attachment-remove.btn-icon:hover:not(:disabled) { border-color: var(--zli-border-hover); background: var(--zli-overlay); color: var(--zli-text); }
+.composer-attachment:hover .composer-attachment-remove, .composer-attachment:focus-within .composer-attachment-remove { opacity: 1; }
+@media (hover: none) { .composer-attachment .composer-attachment-remove { opacity: 1; } }
+/* Tinted by file type so a PDF, a sheet, and a deck read apart at a glance. */
+.file-badge { display: inline-grid; flex: 0 0 auto; place-items: center; width: 32px; height: 32px; border-radius: var(--zli-radius-sm); background: var(--zli-overlay); color: var(--zli-muted); }
+.file-badge.is-sm { width: 20px; height: 20px; border-radius: var(--zli-radius-xs); }
+.file-badge-text { font-size: 9px; font-weight: 700; letter-spacing: .04em; line-height: 1; text-transform: uppercase; }
+.file-badge.is-pdf { background: var(--zli-red-soft); color: var(--zli-red); }
+.file-badge.is-doc { background: var(--zli-blue-soft); color: var(--zli-blue); }
+.file-badge.is-sheet { background: var(--zli-green-soft); color: var(--zli-green); }
+.file-badge.is-slides { background: var(--zli-amber-soft); color: var(--zli-amber); }
+.file-badge.is-code { background: var(--zli-overlay); color: var(--zli-text); }
+.file-badge.is-media { background: var(--zli-accent-soft); color: var(--zli-accent-hover); }
+.composer.is-dragging { border-color: var(--zli-accent-line); }
+.composer-drop { position: absolute; inset: 4px; z-index: 3; display: flex; align-items: center; justify-content: center; gap: var(--zli-space-2); border: 1.5px dashed var(--zli-accent-line); border-radius: calc(var(--zli-radius-xl) - 4px); background: linear-gradient(var(--zli-accent-soft), var(--zli-accent-soft)), var(--zli-raised); color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; pointer-events: none; animation: zli-fade-in var(--zli-duration-fast) var(--zli-ease) both; }
+.composer-drop > svg { color: var(--zli-accent-hover); }
 .capture-picker { margin: 0 0 var(--zli-space-2); padding: var(--zli-space-2); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-surface); }
 .capture-picker-header { display: flex; align-items: center; gap: var(--zli-space-1); margin-bottom: var(--zli-space-2); }
 .capture-picker-title { flex: 1; color: var(--zli-muted); font-size: var(--zli-text-sm); font-weight: 500; }

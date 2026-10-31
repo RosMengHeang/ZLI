@@ -3,7 +3,7 @@
 import { CommandId, EnvironmentId, ProjectId, type RuntimeProjection, type ThreadProjection } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
@@ -446,6 +446,87 @@ describe("ChatView", () => {
       text: "`src/app.ts` lines 3-4:\n```ts\nconst a = 1;\nconst b = 2;\n```\n\nWhy two constants?",
     });
     expect(chips()).toEqual([]);
+  });
+
+  it("attaches picked and dropped files as cards and sends their paths after the message", async () => {
+    const pdf = "C:\\Users\\USER\\Downloads\\Ros MengHeang (1).pdf";
+    const sheet = "C:\\Users\\USER\\Desktop\\budget.xlsx";
+    const paths = new Map<File, string>();
+    // The composer asks the desktop app for a dropped file's path, which only it can see.
+    vi.stubGlobal("zli", { pathForFile: (file: File) => paths.get(file) ?? "" });
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
+    const { container, dispatched } = await render(projectionWith({ threads: [{ ...thread, status: "idle" }] }));
+    const textarea = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Droid"]');
+    const picked = new File(["%PDF-1.7"], "Ros MengHeang (1).pdf", { type: "application/pdf" });
+    paths.set(picked, pdf);
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    await act(async () => {
+      Object.defineProperty(input, "files", { configurable: true, value: [picked] });
+      input?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(textarea?.value).toBe("");
+    const cards = () =>
+      [...container.querySelectorAll(".composer-attachments li")].map((item) => [
+        item.querySelector(".file-badge")?.textContent,
+        item.querySelector(".composer-attachment-label")?.textContent,
+      ]);
+    expect(cards()).toEqual([["pdf", "Ros MengHeang (1).pdfDownloads · 8 bytes"]]);
+
+    const dropped = new File(["xlsx"], "budget.xlsx", { type: "" });
+    paths.set(dropped, sheet);
+    const form = container.querySelector<HTMLFormElement>("form.composer");
+    const drag = (type: string, files: File[] = []) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", { value: { types: ["Files"], files } });
+      form?.dispatchEvent(event);
+    };
+    await act(async () => drag("dragenter"));
+    expect(container.querySelector(".composer-drop")?.textContent).toBe("Drop files to attach them");
+    await act(async () => drag("drop", [dropped, picked]));
+    expect(container.querySelector(".composer-drop")).toBeNull();
+    expect(textarea?.value).toBe("");
+    expect(cards().map(([badge]) => badge)).toEqual(["pdf", "xlsx"]);
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(textarea, "Compare these");
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => button(container, "Send")?.click());
+    expect(dispatched.at(-1)?.command).toMatchObject({
+      type: "thread.queue",
+      text: `Compare these\n\nAttached files:\n- \`${pdf}\`\n- \`${sheet}\``,
+    });
+    expect(dispatched.at(-1)?.command).not.toHaveProperty("attachments");
+    expect(cards()).toEqual([]);
+  });
+
+  it("shows a sent message's files as cards above what the person typed", async () => {
+    const { container } = await render(
+      projectionWith({
+        threads: [{ ...thread, status: "idle" }],
+        messages: [
+          {
+            messageId: "m1",
+            threadId,
+            role: "user",
+            text: "Read this\n\nAttached files:\n- `C:\\Users\\USER\\Downloads\\report.pdf`",
+            attachments: [{ name: "shot.png", mimeType: "image/png", path: "/data/a.png" }],
+          },
+        ] as RuntimeProjection["messages"],
+      }),
+    );
+    const message = container.querySelector(".chat-message-user");
+    expect([...(message?.querySelectorAll(".chat-attachments li") ?? [])].map((item) => item.textContent)).toEqual([
+      "shot.png",
+      "report.pdf",
+    ]);
+    expect(message?.querySelector(".chat-attachments li:last-child")?.getAttribute("title")).toBe(
+      "C:\\Users\\USER\\Downloads\\report.pdf",
+    );
+    expect(message?.querySelector("p")?.textContent).toBe("Read this");
   });
 
   it("queues messages while the agent works and can send one now or remove it", async () => {
