@@ -441,14 +441,45 @@ describe("TerminalDrawer", () => {
     });
   });
 
-  it("stops a running shell when its pane closes", async () => {
+  it("stops a running shell when its pane closes and hides the pane once the shell has exited", async () => {
     const { bridge, dispatched } = makeBridge();
-    const container = await render(bridge, [
-      { terminalId: firstId, worktreeId, title: "Terminal 1", status: "running", lastSequence: 0 },
-    ]);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const show = async (status: TerminalProjection["status"]) => {
+      const projection = projectionWith([
+        { terminalId: firstId, worktreeId, title: "Terminal 1", status, lastSequence: 0 },
+      ]);
+      await act(async () => {
+        root.render(
+          <RuntimeProvider bridge={bridge}>
+            <TerminalDrawer
+              projection={projection}
+              worktree={projection.worktrees[0]}
+              sessionId={undefined}
+              height={280}
+              maxHeight={600}
+              onHeightChange={() => undefined}
+              onClose={() => undefined}
+            />
+          </RuntimeProvider>,
+        );
+      });
+    };
+    await show("running");
     await act(async () => button(container, "Stop Terminal 1")?.click());
     expect(dispatched.at(-1)?.command).toEqual({ type: "terminal.stop", terminalId: firstId });
+    expect(container.querySelectorAll(".drawer-pane")).toHaveLength(1);
+    expect(container.querySelector(".drawer-pane-state")?.textContent).toBe("Stopping");
+
+    await act(async () => button(container, "Stop Terminal 1")?.click());
+    expect(dispatched.filter((request) => request.command.type === "terminal.stop")).toHaveLength(2);
+
+    await show("exited");
     expect(container.querySelectorAll(".drawer-pane")).toHaveLength(0);
+    expect(container.textContent).toContain("No shell in");
+    await act(async () => root.unmount());
+    container.remove();
   });
 
   it("offers to start a shell when the worktree has none", async () => {

@@ -22,6 +22,7 @@ type NodePtyModule = {
 type NodePtyFactoryOptions = {
   load?: () => Promise<NodePtyModule>;
   platform?: NodeJS.Platform;
+  signal?: (pid: number, signal: NodeJS.Signals) => void;
 };
 
 const requireForNodePty = createRequire(import.meta.url);
@@ -43,10 +44,12 @@ function childPtyEnv(
 export class NodePtyFactory implements PtyFactory {
   private readonly load: () => Promise<NodePtyModule>;
   private readonly platform: NodeJS.Platform;
+  private readonly signal: (pid: number, signal: NodeJS.Signals) => void;
 
   constructor(options: NodePtyFactoryOptions = {}) {
     this.load = options.load ?? (() => Promise.resolve(requireForNodePty("node-pty") as NodePtyModule));
     this.platform = options.platform ?? process.platform;
+    this.signal = options.signal ?? ((pid, signal) => process.kill(pid, signal));
   }
 
   async spawn(input: PtySpawnInput): Promise<PtyProcess> {
@@ -68,7 +71,7 @@ export class NodePtyFactory implements PtyFactory {
       pid: ptyProcess.pid,
       write: (data) => ptyProcess.write(data),
       resize: (cols, rows) => ptyProcess.resize(cols, rows),
-      kill: () => ptyProcess.kill(this.platform === "win32" ? undefined : "SIGTERM"),
+      kill: (force) => this.kill(ptyProcess, force === true),
       onData: (listener) => {
         const subscription = ptyProcess.onData(listener);
         return () => subscription.dispose();
@@ -80,5 +83,27 @@ export class NodePtyFactory implements PtyFactory {
         return () => subscription.dispose();
       },
     };
+  }
+
+  /**
+   * On Windows node-pty ends the whole console process tree. Elsewhere the shell leads its own
+   * process group, and an interactive shell ignores SIGTERM, so the group gets SIGHUP, as when a
+   * terminal window closes: the shell exits and hangs up its jobs. SIGKILL is the fallback.
+   */
+  private kill(ptyProcess: NodePtyProcess, force: boolean): void {
+    if (this.platform === "win32") {
+      ptyProcess.kill();
+      return;
+    }
+    const signal = force ? "SIGKILL" : "SIGHUP";
+    try {
+      this.signal(-ptyProcess.pid, signal);
+    } catch {
+      try {
+        ptyProcess.kill(signal);
+      } catch {
+        // Already gone.
+      }
+    }
   }
 }

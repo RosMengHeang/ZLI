@@ -2,6 +2,7 @@ import type { TerminalService } from "../terminal/TerminalService.js";
 
 export const DAEMON_IDLE_EXIT_MS = 60_000;
 const STOP_TIMEOUT_MS = 3_000;
+const FORCE_STOP_AFTER_MS = 1_500;
 const STOP_POLL_MS = 50;
 
 type Timers = {
@@ -27,6 +28,7 @@ export class DaemonLifecycle {
   private readonly timers: Timers;
   private readonly idleMs: number;
   private readonly stopTimeoutMs: number;
+  private readonly forceStopAfterMs: number;
 
   constructor(
     private readonly options: {
@@ -34,12 +36,15 @@ export class DaemonLifecycle {
       exit(): void;
       idleMs?: number;
       stopTimeoutMs?: number;
+      /** When terminals still running get a second stop, which kills them. */
+      forceStopAfterMs?: number;
       timers?: Timers;
     },
   ) {
     this.timers = options.timers ?? globalTimers;
     this.idleMs = options.idleMs ?? DAEMON_IDLE_EXIT_MS;
     this.stopTimeoutMs = options.stopTimeoutMs ?? STOP_TIMEOUT_MS;
+    this.forceStopAfterMs = Math.min(options.forceStopAfterMs ?? FORCE_STOP_AFTER_MS, this.stopTimeoutMs);
     options.terminals.subscribeExit(() => this.checkIdle());
     this.checkIdle();
   }
@@ -54,15 +59,16 @@ export class DaemonLifecycle {
     this.checkIdle();
   }
 
-  /** Stops every terminal and waits, up to a few seconds, for them to exit. */
+  /** Stops every terminal, kills the ones that ignore it, and waits up to a few seconds for them to exit. */
   async stopTerminals(): Promise<void> {
     this.exiting = true;
     this.clearIdle();
+    const started = Date.now();
     this.options.terminals.stopAll();
-    const deadline = Date.now() + this.stopTimeoutMs;
-    while (this.running() && Date.now() < deadline) {
-      await new Promise<void>((resolve) => this.timers.setTimeout(resolve, STOP_POLL_MS));
-    }
+    await this.waitForExit(started + this.forceStopAfterMs);
+    if (!this.running()) return;
+    this.options.terminals.stopAll();
+    await this.waitForExit(started + this.stopTimeoutMs);
   }
 
   exit(): void {
@@ -71,6 +77,12 @@ export class DaemonLifecycle {
     this.exiting = true;
     this.clearIdle();
     this.options.exit();
+  }
+
+  private async waitForExit(deadline: number): Promise<void> {
+    while (this.running() && Date.now() < deadline) {
+      await new Promise<void>((resolve) => this.timers.setTimeout(resolve, STOP_POLL_MS));
+    }
   }
 
   private running(): boolean {

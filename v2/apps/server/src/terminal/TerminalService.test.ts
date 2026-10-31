@@ -1,6 +1,11 @@
-import { TerminalId, WorktreeId } from "@zli-v2/contracts";
-import { describe, expect, it } from "vitest";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
+import { TerminalId, WorktreeId } from "@zli-v2/contracts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { NodePtyFactory } from "./NodePtyFactory.js";
 import {
   type PtyFactory,
   type PtyProcess,
@@ -16,7 +21,7 @@ class FakePty implements PtyProcess {
   readonly pid = 4242;
   readonly writes: string[] = [];
   readonly resizes: Array<{ cols: number; rows: number }> = [];
-  killed = 0;
+  readonly kills: boolean[] = [];
   private readonly dataListeners = new Set<(data: string) => void>();
   private readonly exitListeners = new Set<(event: { code: number; signal: number | null }) => void>();
 
@@ -28,8 +33,8 @@ class FakePty implements PtyProcess {
     this.resizes.push({ cols, rows });
   }
 
-  kill(): void {
-    this.killed += 1;
+  kill(force?: boolean): void {
+    this.kills.push(force === true);
   }
 
   onData(listener: (data: string) => void): () => void {
@@ -186,7 +191,7 @@ describe("TerminalService", () => {
     second.subscription.close();
   });
 
-  it("caps writes, validates resize, and makes stop idempotent", async () => {
+  it("caps writes, validates resize, and kills a terminal stopped twice", async () => {
     const pty = new FakePty();
     const service = await createService(pty);
     service.write(terminalId, "dir\r\n");
@@ -201,7 +206,74 @@ describe("TerminalService", () => {
     service.stop(terminalId);
     expect(pty.writes).toEqual(["dir\r\n"]);
     expect(pty.resizes).toEqual([{ cols: 140, rows: 40 }]);
-    expect(pty.killed).toBe(1);
+    expect(pty.kills).toEqual([false, true]);
+    pty.exit(0, 1);
+    service.stop(terminalId);
+    expect(pty.kills).toEqual([false, true]);
+  });
+
+  it("kills a stopped terminal that is still running after the grace period", async () => {
+    vi.useFakeTimers();
+    try {
+      const pty = new FakePty();
+      const service = await createService(pty, { stopGraceMs: 1_000 });
+      service.stop(terminalId);
+      vi.advanceTimersByTime(999);
+      expect(pty.kills).toEqual([false]);
+      vi.advanceTimersByTime(1);
+      expect(pty.kills).toEqual([false, true]);
+
+      const quick = new FakePty();
+      const quickService = await createService(quick, { stopGraceMs: 1_000 });
+      quickService.stopAll();
+      quick.exit(0, 1);
+      vi.advanceTimersByTime(5_000);
+      expect(quick.kills).toEqual([false]);
+      expect(quickService.get(terminalId).status).toBe("exited");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("forgets a released terminal once it has exited, so its id can be used again", async () => {
+    const first = new FakePty();
+    const second = new FakePty();
+    const ptys = [first, second];
+    const service = new TerminalService({
+      spawn: async () => {
+        const next = ptys.shift();
+        if (!next) throw new Error("No more fake terminals.");
+        return next;
+      },
+    });
+    const request = {
+      terminalId,
+      worktreeId,
+      worktreePath: "C:\\workspace\\tree",
+      cwd: "C:\\workspace\\tree",
+      shell: "powershell.exe",
+      cols: 80,
+      rows: 24,
+      title: "shell",
+    };
+    const exits: string[] = [];
+    service.subscribeExit((id) => exits.push(id));
+    await service.create(request);
+    await expect(service.create(request)).rejects.toMatchObject({ code: "already_exists" });
+
+    service.release(terminalId);
+    expect(first.kills).toEqual([false]);
+    expect(service.get(terminalId).status).toBe("running");
+    first.exit(0, 1);
+    expect(exits).toEqual([terminalId]);
+    expect(service.list()).toEqual([]);
+
+    await service.create(request);
+    expect(service.get(terminalId).status).toBe("running");
+    second.exit(0, null);
+    service.release(terminalId);
+    expect(second.kills).toEqual([]);
+    expect(service.list()).toEqual([]);
   });
 
   it("surfaces PTY spawn failures without leaving a phantom session", async () => {
@@ -302,3 +374,123 @@ describe("TerminalService recent output", () => {
     expect(service.recentOutput(terminalId, 8)).toEqual({ data: "d line\r\n", truncated: true });
   });
 });
+
+const isPosix = process.platform !== "win32";
+
+describe.skipIf(!isPosix)("TerminalService with a real shell", () => {
+  const pids: number[] = [];
+  const directories: string[] = [];
+
+  afterEach(async () => {
+    for (const pid of pids.splice(0)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
+    for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true });
+  });
+
+  async function startBash(service: TerminalService, id: TerminalId, setup: string) {
+    const directory = await mkdtemp(join(tmpdir(), "zli-terminal-stop-"));
+    directories.push(directory);
+    let output = "";
+    const unsubscribe = service.subscribeOutput((outputId, data) => {
+      if (outputId === id) output += data;
+    });
+    const exited = new Promise<{ code: number; signal: number | null }>((resolve) => {
+      service.subscribeExit((exitId, event) => {
+        if (exitId === id) resolve(event);
+      });
+    });
+    await service.create({
+      terminalId: id,
+      worktreeId,
+      worktreePath: directory,
+      cwd: directory,
+      shell: "/bin/bash",
+      args: ["--norc", "--noprofile", "-i"],
+      env: { ...process.env, PS1: "$ " },
+      cols: 120,
+      rows: 24,
+      title: "bash",
+    });
+    service.write(id, `${setup} echo "ready:$$:$!"\r`);
+    await vi.waitFor(() => expect(output).toMatch(/ready:\d+:\d+/u), { timeout: 5_000 });
+    unsubscribe();
+    const [, shell, job] = /ready:(\d+):(\d+)/u.exec(output) ?? [];
+    const shellPid = Number(shell);
+    const jobPid = Number(job);
+    pids.push(shellPid, jobPid);
+    expect(await isAlive(shellPid)).toBe(true);
+    expect(await isAlive(jobPid)).toBe(true);
+    return { shellPid, jobPid, exited };
+  }
+
+  it("ends an interactive bash and the job it started, then lets the id be used again", async () => {
+    const service = new TerminalService(new NodePtyFactory(), { stopGraceMs: 60_000 });
+    const id = TerminalId.parse("00000000-0000-4000-8000-000000000301");
+    const { shellPid, jobPid, exited } = await startBash(service, id, "sleep 300 &");
+
+    service.stop(id);
+    await expect(withTimeout(exited, 5_000)).resolves.toMatchObject({ signal: 1 });
+    expect(service.get(id).status).toBe("exited");
+    await vi.waitFor(async () => expect(await isAlive(shellPid)).toBe(false), { timeout: 3_000 });
+    await vi.waitFor(async () => expect(await isAlive(jobPid)).toBe(false), { timeout: 3_000 });
+
+    service.release(id);
+    expect(service.list()).toEqual([]);
+    const again = await startBash(service, id, "sleep 300 &");
+    service.release(id);
+    await withTimeout(again.exited, 5_000);
+    expect(service.list()).toEqual([]);
+  }, 20_000);
+
+  it("kills a shell that ignores the hangup once the grace period ends", async () => {
+    const service = new TerminalService(new NodePtyFactory(), { stopGraceMs: 300 });
+    const id = TerminalId.parse("00000000-0000-4000-8000-000000000302");
+    const { shellPid, exited } = await startBash(service, id, "trap '' HUP TERM; sleep 300 &");
+
+    service.stop(id);
+    await expect(withTimeout(exited, 5_000)).resolves.toMatchObject({ signal: 9 });
+    expect(service.get(id).status).toBe("exited");
+    await vi.waitFor(async () => expect(await isAlive(shellPid)).toBe(false), { timeout: 3_000 });
+  }, 20_000);
+
+  it("kills a shell that ignores the hangup when it is stopped again", async () => {
+    const service = new TerminalService(new NodePtyFactory(), { stopGraceMs: 60_000 });
+    const id = TerminalId.parse("00000000-0000-4000-8000-000000000303");
+    const { shellPid, exited } = await startBash(service, id, "trap '' HUP TERM; sleep 300 &");
+
+    service.stop(id);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(service.get(id).status).toBe("running");
+    service.stop(id);
+    await expect(withTimeout(exited, 5_000)).resolves.toMatchObject({ signal: 9 });
+    await vi.waitFor(async () => expect(await isAlive(shellPid)).toBe(false), { timeout: 3_000 });
+  }, 20_000);
+});
+
+/** A zombie still answers signal 0, but it has stopped running. */
+async function isAlive(pid: number): Promise<boolean> {
+  try {
+    process.kill(pid, 0);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+  if (process.platform !== "linux") return true;
+  try {
+    const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+    return stat.slice(stat.lastIndexOf(")") + 2, stat.lastIndexOf(")") + 3) !== "Z";
+  } catch {
+    return false;
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_resolve, reject) => setTimeout(() => reject(new Error(`Timed out after ${ms} ms`)), ms)),
+  ]);
+}

@@ -7,7 +7,7 @@ import { TERMINAL_DAEMON_VERSION, TerminalId, WorktreeId } from "@zli-v2/contrac
 
 import { DaemonLifecycle } from "./daemon/DaemonLifecycle.js";
 import { NodePtyFactory } from "./terminal/NodePtyFactory.js";
-import { TerminalService } from "./terminal/TerminalService.js";
+import { TerminalService, type TerminalStreamMessage } from "./terminal/TerminalService.js";
 import { TerminalCwdError } from "./terminal/terminalCwd.js";
 
 const daemonEndpointFileMode = 0o600;
@@ -169,10 +169,12 @@ async function handle(
         send(client.socket, { type: "result", accepted: true });
         return;
       case "terminal.attach": {
-        const attachment = terminals.attach(TerminalId.parse(request.terminalId), Number(request.afterSequence ?? 0));
+        const terminalId = TerminalId.parse(request.terminalId);
+        const attachment = terminals.attach(terminalId, Number(request.afterSequence ?? 0));
         client.subscriptions.push(attachment.subscription);
         send(client.socket, { type: "snapshot", snapshot: attachment.snapshot });
-        void streamSubscription(client.socket, attachment.subscription);
+        // The app keeps its own copy of the output, so once it hears of the exit the daemon's copy can go.
+        void streamSubscription(client.socket, attachment.subscription, () => terminals.release(terminalId));
         return;
       }
       default:
@@ -188,12 +190,17 @@ async function handle(
 
 async function streamSubscription(
   socket: Socket,
-  subscription: { next(): Promise<unknown | undefined> },
+  subscription: { next(): Promise<TerminalStreamMessage | undefined> },
+  onExitSent: () => void,
 ): Promise<void> {
   while (!socket.destroyed) {
     const message = await subscription.next();
     if (!message) return;
     send(socket, { type: "terminal", message });
+    if (message.kind === "exit") {
+      if (!socket.destroyed) onExitSent();
+      return;
+    }
   }
 }
 
