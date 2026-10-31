@@ -125,7 +125,7 @@ export function projectSkillGaps(): Array<{ agent: ListedProviderKind; dirs: rea
     .map((agent) => ({ agent, dirs: AGENT_SKILL_DIRS[agent].project }));
 }
 
-/** Agent folders ZLI could not update, phrased for the person who owns them. */
+/** Worktree skill folders ZLI could not update, phrased for the person who owns them. */
 export function skillSyncProblems(outcomes: readonly SkillSyncOutcome[]): string[] {
   return outcomes.flatMap((outcome) => {
     const lines: string[] = [];
@@ -133,7 +133,7 @@ export function skillSyncProblems(outcomes: readonly SkillSyncOutcome[]): string
       lines.push(`${outcome.path} could not be updated${outcome.message ? ` (${outcome.message})` : ""}.`);
     }
     for (const name of outcome.conflicts) {
-      lines.push(`${outcome.path} already has your own ${name}, so ZLI left it alone.`);
+      lines.push(`${outcome.path} already has a skill named ${name}, so ZLI did not copy yours there.`);
     }
     return lines;
   });

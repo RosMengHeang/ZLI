@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { codexMcpArgs, gooseExtension, mcpServerSpec, opencodeConfigContent } from "../browser-tool/browserTool.js";
+import { PROJECT_MCP_FILES, projectMcpFileContents } from "../browser-tool/mcpSettingsFiles.js";
 import {
   AgentLaunchError,
   agentCliMissingMessage,
@@ -154,7 +155,7 @@ describe("mcpLaunchArgs", () => {
       "--additional-mcp-config",
       "@C:\\ZLI\\data\\mcp\\copilot-wt.json",
     ]);
-    expect(mcpLaunchArgs("cursor-agent", { specs })).toEqual(["--approve-mcps"]);
+    expect(mcpLaunchArgs("cursor-agent", { specs, worktreeFile: true })).toEqual(["--approve-mcps"]);
     expect(mcpLaunchArgs("goose", { specs }, "win32")).toEqual(["--with-extension", gooseExtension(spec, "win32")]);
   });
 
@@ -183,13 +184,66 @@ describe("mcpLaunchArgs", () => {
     expect(mcpLaunchArgs("codex", { specs: [linear] })).toEqual(codexMcpArgs(linear));
   });
 
-  it("adds nothing for CLIs that read user settings or the environment, or when the config file is missing", () => {
+  it("adds nothing for CLIs that read a project file or the environment, or when the config file is missing", () => {
     for (const provider of ["droid", "opencode", "gemini", "kimi", "qwen"] as const) {
-      expect(mcpLaunchArgs(provider, { specs })).toEqual([]);
+      expect(mcpLaunchArgs(provider, { specs, worktreeFile: true })).toEqual([]);
     }
     expect(mcpLaunchArgs("claude-code", { specs })).toEqual([]);
     expect(mcpLaunchArgs("copilot", { specs })).toEqual([]);
-    expect(mcpLaunchArgs("cursor-agent", { specs: [] })).toEqual([]);
+    expect(mcpLaunchArgs("cursor-agent", { specs })).toEqual([]);
+    expect(mcpLaunchArgs("cursor-agent", { specs: [], worktreeFile: true })).toEqual([]);
+  });
+
+  it.each(["cursor-agent", "droid", "kimi", "gemini", "qwen"] as const)(
+    "writes %s's servers into its project MCP file in the worktree",
+    async (provider) => {
+      const written: unknown[] = [];
+      const launch = await agentMcpLaunch(provider, specs, {
+        worktreeId: "wt-1",
+        worktreePath: "/repo-worktrees/feature",
+        writeWorktreeFile: async (worktreePath, relPath, contents) => {
+          written.push({ worktreePath, relPath, contents });
+          return true;
+        },
+      });
+      expect(written).toEqual([
+        {
+          worktreePath: "/repo-worktrees/feature",
+          relPath: PROJECT_MCP_FILES[provider],
+          contents: projectMcpFileContents(provider, specs),
+        },
+      ]);
+      expect(launch).toEqual({ args: provider === "cursor-agent" ? ["--approve-mcps"] : [], env: {} });
+    },
+  );
+
+  it("never approves Cursor servers from a project file that is not ZLI's", async () => {
+    const leftAlone = await agentMcpLaunch("cursor-agent", specs, {
+      worktreeId: "wt-1",
+      worktreePath: "/repo",
+      writeWorktreeFile: async () => false,
+    });
+    expect(leftAlone).toEqual({ args: [], env: {} });
+    const failed = await agentMcpLaunch("cursor-agent", specs, {
+      worktreeId: "wt-1",
+      worktreePath: "/repo",
+      writeWorktreeFile: async () => {
+        throw new Error("read-only file system");
+      },
+    });
+    expect(failed).toEqual({ args: [], env: {} });
+  });
+
+  it("removes ZLI's project file when there are no servers, and writes nothing for other CLIs", async () => {
+    const written: unknown[] = [];
+    const writeWorktreeFile = async (_worktreePath: string, relPath: string, contents: string | undefined) => {
+      written.push({ relPath, contents });
+      return contents !== undefined;
+    };
+    await agentMcpLaunch("droid", [], { worktreeId: "wt-1", worktreePath: "/repo", writeWorktreeFile });
+    await agentMcpLaunch("codex", specs, { worktreeId: "wt-1", worktreePath: "/repo", writeWorktreeFile });
+    await agentMcpLaunch("opencode", specs, { worktreeId: "wt-1", worktreePath: "/repo", writeWorktreeFile, env: {} });
+    expect(written).toEqual([{ relPath: ".factory/mcp.json", contents: undefined }]);
   });
 
   it("writes the config file and passes it to Claude Code", async () => {

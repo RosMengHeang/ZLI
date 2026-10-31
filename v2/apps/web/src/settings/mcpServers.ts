@@ -9,7 +9,6 @@ import {
   type McpServerConfig,
   type McpServerHealth,
   McpServerList,
-  type McpSettingsOutcome,
   McpSignInStart,
   type McpSignInState,
   McpTestResult,
@@ -417,28 +416,6 @@ export function serverSummary(server: McpServerConfig): string {
 export function isWindows(): boolean {
   if (typeof navigator === "undefined") return false;
   return /^win/iu.test(navigator.platform || "") || /windows/iu.test(navigator.userAgent || "");
-}
-
-const SETTINGS_NAMES: Record<string, string> = {
-  "cursor-agent": "Cursor",
-  droid: "Droid",
-  kimi: "Kimi Code",
-  gemini: "Gemini",
-  qwen: "Qwen Code",
-};
-
-/** Settings files ZLI could not update, phrased for the person who owns them. */
-export function settingsProblems(outcomes: readonly McpSettingsOutcome[]): string[] {
-  return outcomes
-    .filter((outcome) => outcome.status === "skipped-invalid" || outcome.status === "failed")
-    .map((outcome) => {
-      const name = SETTINGS_NAMES[outcome.provider] ?? outcome.provider;
-      const reason =
-        outcome.status === "skipped-invalid"
-          ? `${outcome.message ?? "It could not be read."} ZLI left it unchanged.`
-          : `It could not be written${outcome.message ? ` (${outcome.message})` : ""}.`;
-      return `${name}: ${outcome.path}. ${reason}`;
-    });
 }
 
 export type McpServersState =

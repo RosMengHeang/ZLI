@@ -88,7 +88,7 @@ export type PluginStoreOptions = {
   userSkillNames?: () => Promise<readonly string[]>;
   /** Agent skills folders where a same-named skill the person already had kept a plugin skill out. */
   skillConflicts?: (name: string) => readonly string[];
-  /** Runs after a change so agent settings and skill folders pick it up. */
+  /** Runs after a change so the agents ZLI starts pick it up. */
   onChange?: () => Promise<void>;
   /** The person's skills and MCP servers, for exporting them as a plugin. */
   exportSources?: PluginExportSources;

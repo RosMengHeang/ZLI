@@ -173,8 +173,7 @@ async function main(): Promise<void> {
     databasePath,
     extraEnv: {
       ...browserToolEnvironment(browserToolPaths),
-      // Test and development launches use a throwaway control file, which must never be written
-      // into the user's real agent settings where it would go stale.
+      // Test and development launches must leave the user's real agent settings alone.
       ...(process.env.ZLI_DATABASE_PATH ? { ZLI_BROWSER_USER_SETTINGS: "0" } : {}),
     },
   });

@@ -26,6 +26,7 @@ import {
   agentMcpLaunch,
   agentModeEnv,
   buildAgentArgs,
+  type WorktreeFileWriter,
 } from "./agentLaunch.js";
 import { type AgentFolderTrustLaunch, agentFolderTrust, trustedProject } from "./agentTrust.js";
 import type { TerminalService } from "./TerminalService.js";
@@ -44,6 +45,8 @@ export type TerminalReactorOptions = {
   /** Where per-launch MCP config files go when there is no browser tool. */
   mcpConfigDir?: string;
   writeMcpConfig?: typeof writeAgentMcpConfig;
+  /** Writes the project MCP file in the worktree for CLIs that read one. Without it they get no servers. */
+  writeWorktreeFile?: WorktreeFileWriter;
   /** The environment agent settings such as OPENCODE_CONFIG_CONTENT are merged with. */
   env?: NodeJS.ProcessEnv;
   /** The environment for an agent's account; without it every agent uses the usual login. */
@@ -141,7 +144,7 @@ export class TerminalReactor {
       if (launch?.login && !account) throw new AgentLaunchError("Choose an account to sign in to.");
       const [agent, trust] = launch
         ? await Promise.all([
-            this.agentCommand(launch, worktreeId),
+            this.agentCommand(launch, worktreeId, worktreePath),
             launch.login ? undefined : this.folderTrust(launch.provider, worktreeId, worktreePath, account?.env),
           ])
         : [];
@@ -227,7 +230,11 @@ export class TerminalReactor {
     }
   }
 
-  private async agentCommand(agent: TerminalAgentLaunch, worktreeId: string): Promise<AgentCommand> {
+  private async agentCommand(
+    agent: TerminalAgentLaunch,
+    worktreeId: string,
+    worktreePath: string,
+  ): Promise<AgentCommand> {
     const login = agent.login ? accountLoginArgs(agent.provider) : undefined;
     if (agent.login && !login) throw new AgentLaunchError("This agent has no sign-in that ZLI can start.");
     const args = login ?? buildAgentArgs(agent);
@@ -238,12 +245,10 @@ export class TerminalReactor {
       file = undefined;
     }
     if (!file) throw new AgentLaunchError(agentCliMissingMessage(agent.provider));
-    const modeEnv = login ? {} : agentModeEnv(agent);
-    const specs = login
-      ? []
-      : this.mcpSpecs(worktreeId, this.options.mcpServers ? await this.addedMcpServers(worktreeId) : []);
-    if (specs.length === 0) return { file, args, env: modeEnv };
-    const mcp = await this.mcpLaunch(specs, agent, worktreeId);
+    if (login) return { file, args, env: {} };
+    const modeEnv = agentModeEnv(agent);
+    const specs = this.mcpSpecs(worktreeId, this.options.mcpServers ? await this.addedMcpServers(worktreeId) : []);
+    const mcp = await this.mcpLaunch(specs, agent, worktreeId, worktreePath);
     return { file, args: [...args, ...mcp.args], env: { ...modeEnv, ...mcp.env } };
   }
 
@@ -265,11 +270,14 @@ export class TerminalReactor {
     specs: readonly McpServerSpec[],
     agent: TerminalAgentLaunch,
     worktreeId: string,
+    worktreePath: string,
   ): Promise<{ args: string[]; env: Record<string, string> }> {
     const configDir = this.options.browserTool?.mcpConfigDir ?? this.options.mcpConfigDir;
     return agentMcpLaunch(agent.provider, specs, {
       worktreeId,
+      worktreePath,
       ...(configDir ? { configDir } : {}),
+      ...(this.options.writeWorktreeFile ? { writeWorktreeFile: this.options.writeWorktreeFile } : {}),
       ...(this.options.env ? { env: this.options.env } : {}),
       ...(this.options.writeMcpConfig ? { writeMcpConfig: this.options.writeMcpConfig } : {}),
     });

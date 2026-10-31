@@ -178,7 +178,6 @@ describe("ChatView", () => {
           ? {
               servers: [linear],
               agentAccess: "full",
-              userSettings: { enabled: true, outcomes: [] },
               signIns: [{ name: "linear", url: linear.url, signedIn: false }],
             }
           : undefined,

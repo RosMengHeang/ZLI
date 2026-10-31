@@ -25,6 +25,7 @@ import {
   type RemoteSkill,
   sourceKey,
 } from "./githubSource.js";
+import { type SkillOwnership, userSkillsPath } from "./skillCopies.js";
 import {
   isNotFound,
   listSkillFolders,
@@ -36,10 +37,9 @@ import {
   writeSkillFiles,
 } from "./skillFolders.js";
 import { formatSkillMarkdown, parseSkillMarkdown } from "./skillMarkdown.js";
-import { type SkillOwnership, userSkillsPath } from "./userSkillSync.js";
 
-/** Copies the enabled skills into agent folders; see syncUserSkills. */
-export type UserSkillSync = (
+/** Copies the enabled skills into the worktrees of ZLI's agents; see syncSkillCopies. */
+export type SkillCopySync = (
   skills: ReadonlyArray<{ name: string; path: string }>,
   owned: SkillOwnership,
 ) => Promise<{ outcomes: SkillSyncOutcome[]; owned: Record<string, string[]> }>;
@@ -51,21 +51,26 @@ type StoredFile = {
   version: 1;
   disabled: string[];
   sources: Record<string, string>;
+  /** Copies older versions made in the person's own agent folders, until they are cleaned up. */
   owned: Record<string, string[]>;
+  /** Copies in worktrees. */
+  copies: Record<string, string[]>;
 };
 
 const PREVIEW_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHED_PREVIEWS = 3;
 
 /**
- * The person's skills, kept as folders in ZLI's data folder and copied into each agent's user skills
- * folder. Project skills are read and written in the repository's `.agents/skills`, where most agents
- * read them directly; ZLI never copies them into worktrees.
+ * The person's skills, kept as folders in ZLI's data folder and copied into the worktrees of the agents
+ * ZLI starts, so agents started elsewhere do not get them. Project skills are read and written in the
+ * repository's `.agents/skills`, where most agents read them directly.
  */
 export class SkillStore {
   private disabled = new Set<string>();
   private sources: Record<string, string> = {};
   private owned: Record<string, string[]> = {};
+  private copies: Record<string, string[]> = {};
+  private pendingSync: Promise<void> | undefined;
   private outcomes: SkillSyncOutcome[] = [];
   private problem: string | undefined;
   private queue: Promise<unknown> = Promise.resolve();
@@ -77,7 +82,7 @@ export class SkillStore {
       statePath: string;
       home: string;
       env?: NodeJS.ProcessEnv;
-      sync?: UserSkillSync;
+      sync?: SkillCopySync;
       /** Skills from other sources, such as plugins. Library skills win a shared name. */
       extraSkills?: () => ReadonlyArray<{ name: string; path: string }>;
       fetch?: typeof fetch;
@@ -111,13 +116,8 @@ export class SkillStore {
           Object.entries(parsed.sources).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
         )
       : {};
-    this.owned = isPlainObject(parsed.owned)
-      ? Object.fromEntries(
-          Object.entries(parsed.owned)
-            .map(([path, names]) => [path, stringArray(names)] as const)
-            .filter(([, names]) => names.length > 0),
-        )
-      : {};
+    this.owned = ownershipFrom(parsed.owned);
+    this.copies = ownershipFrom(parsed.copies);
   }
 
   libraryPath(): string {
@@ -129,7 +129,7 @@ export class SkillStore {
     return (await listSkillFolders(this.options.libraryDir)).map((folder) => folder.name);
   }
 
-  /** Agent skills folders where a skill the person already had kept this one from being copied. */
+  /** Skills folders where a skill already there kept this one from being copied. */
   conflictPaths(name: string): string[] {
     return this.outcomes.filter((outcome) => outcome.conflicts.includes(name)).map((outcome) => outcome.path);
   }
@@ -152,17 +152,21 @@ export class SkillStore {
       };
     });
     const projectSkillsPath = project ? projectSkillsDir(project.path) : undefined;
+    // The project folder can be an agent's worktree, which then holds ZLI's copies of the person's skills.
+    const copied = new Set(projectSkillsPath ? (this.copies[projectSkillsPath] ?? []) : []);
     const shared = projectSkillsPath
-      ? (await listSkillFolders(projectSkillsPath)).map(
-          (folder): SkillSummary => ({
-            name: folder.name,
-            description: folder.description,
-            scope: "project",
-            enabled: true,
-            path: folder.path,
-            ...(folder.problem ? { problem: folder.problem } : {}),
-          }),
-        )
+      ? (await listSkillFolders(projectSkillsPath))
+          .filter((folder) => !copied.has(folder.name))
+          .map(
+            (folder): SkillSummary => ({
+              name: folder.name,
+              description: folder.description,
+              scope: "project",
+              enabled: true,
+              path: folder.path,
+              ...(folder.problem ? { problem: folder.problem } : {}),
+            }),
+          )
       : [];
     return {
       skills: [...user, ...shared],
@@ -288,9 +292,34 @@ export class SkillStore {
     });
   }
 
-  /** Brings agent folders in line with the library, for example after an agent CLI was installed. */
-  syncUserSettings(): Promise<void> {
-    return this.serialize(() => this.sync());
+  /** Brings the copies in worktrees in line with the library, for example after a worktree was added. */
+  syncCopies(): Promise<void> {
+    if (this.pendingSync) return this.pendingSync;
+    const run = this.serialize(async () => {
+      this.pendingSync = undefined;
+      await this.sync();
+    });
+    this.pendingSync = run;
+    return run;
+  }
+
+  /** Removes every copy ZLI made in worktrees, for example when ZLI quits. */
+  removeCopies(): Promise<void> {
+    return this.serialize(() => this.sync({ remove: true }));
+  }
+
+  /**
+   * Hands the copies older versions made in the person's own agent folders to `remove`, and keeps
+   * whatever it reports could not be removed.
+   */
+  cleanUpUserFolders(remove: (owned: SkillOwnership) => Promise<Record<string, string[]>>): Promise<void> {
+    return this.serialize(async () => {
+      if (Object.keys(this.owned).length === 0) return;
+      const remaining = await remove(this.owned);
+      if (JSON.stringify(remaining) === JSON.stringify(this.owned)) return;
+      this.owned = remaining;
+      if (!this.problem) await this.write().catch(() => undefined);
+    });
   }
 
   async waitForIdle(): Promise<void> {
@@ -316,7 +345,7 @@ export class SkillStore {
     ];
     const results = await Promise.all(
       scans.map(async (scan) => {
-        const ours = new Set(this.owned[scan.path] ?? []);
+        const ours = new Set([...(this.owned[scan.path] ?? []), ...(this.copies[scan.path] ?? [])]);
         const agents = agentsReading(scan.scope, scan.dir);
         return (await listSkillFolders(scan.path))
           .filter((folder) => !ours.has(folder.name))
@@ -369,26 +398,30 @@ export class SkillStore {
     await this.sync();
   }
 
-  private async sync(): Promise<void> {
+  private async sync(options: { remove?: boolean } = {}): Promise<void> {
     const sync = this.options.sync;
     if (!sync) return;
-    const library = await listSkillFolders(this.options.libraryDir);
-    const names = new Set(library.map((folder) => folder.name));
-    const enabled = library
-      .filter((folder) => !folder.problem && !this.disabled.has(folder.name))
-      .map((folder) => ({ name: folder.name, path: folder.path }));
-    const extra = (this.options.extraSkills?.() ?? []).filter((skill) => !names.has(skill.name));
-    let result: Awaited<ReturnType<UserSkillSync>>;
+    let skills: Array<{ name: string; path: string }> = [];
+    if (!options.remove) {
+      const library = await listSkillFolders(this.options.libraryDir);
+      const names = new Set(library.map((folder) => folder.name));
+      const enabled = library
+        .filter((folder) => !folder.problem && !this.disabled.has(folder.name))
+        .map((folder) => ({ name: folder.name, path: folder.path }));
+      const extra = (this.options.extraSkills?.() ?? []).filter((skill) => !names.has(skill.name));
+      skills = [...enabled, ...extra];
+    }
+    let result: Awaited<ReturnType<SkillCopySync>>;
     try {
-      result = await sync([...enabled, ...extra], this.owned);
+      result = await sync(skills, this.copies);
     } catch {
       return;
     }
     this.outcomes = result.outcomes;
-    if (JSON.stringify(result.owned) !== JSON.stringify(this.owned)) {
-      this.owned = result.owned;
-      // The skills themselves are saved; a lost ownership record only means a later delete leaves a copy.
-      await this.write().catch(() => undefined);
+    if (JSON.stringify(result.owned) !== JSON.stringify(this.copies)) {
+      this.copies = result.owned;
+      // The skills themselves are saved; a lost ownership record only means a later sync leaves a copy.
+      if (!this.problem) await this.write().catch(() => undefined);
     }
   }
 
@@ -398,6 +431,7 @@ export class SkillStore {
       disabled: [...this.disabled].sort(),
       sources: this.sources,
       owned: this.owned,
+      copies: this.copies,
     };
     await writeFileAtomic(this.options.statePath, `${JSON.stringify(file, null, 2)}\n`);
   }
@@ -422,6 +456,15 @@ function parseSource(text: string): GithubSkillSource {
 function sourceUrl(source: GithubSkillSource, path: string): string {
   const folder = path === "." ? "" : `/${path}`;
   return `https://github.com/${source.owner}/${source.repo}${source.ref || folder ? `/tree/${source.ref ?? "HEAD"}${folder}` : ""}`;
+}
+
+function ownershipFrom(value: unknown): Record<string, string[]> {
+  if (!isPlainObject(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([path, names]) => [path, stringArray(names)] as const)
+      .filter(([, names]) => names.length > 0),
+  );
 }
 
 function stringArray(value: unknown): string[] {

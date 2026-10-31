@@ -30,7 +30,7 @@ describe("AgentMessagesSection", () => {
           return {
             commandId: CommandId.parse(request.commandId),
             accepted: true as const,
-            result: { servers: [], agentAccess, agentScope, userSettings: { enabled: true, outcomes: [] } },
+            result: { servers: [], agentAccess, agentScope },
           };
         },
         getProjection: async () => undefined,

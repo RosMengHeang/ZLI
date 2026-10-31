@@ -19,7 +19,6 @@ import {
   pluginSignIns,
   serverStatus,
   serverSummary,
-  settingsProblems,
   withDisabledTools,
   withProjects,
 } from "./mcpServers.js";
@@ -118,21 +117,10 @@ describe("MCP server drafts", () => {
     expect(summary).not.toContain("secret-token");
     expect(serverSummary(github)).toBe("npx -y gh-mcp");
   });
-  it("summarizes the command and the settings files ZLI could not change", () => {
+  it("summarizes the command", () => {
     expect(commandLine({ command: "C:\\Program Files\\node.exe", args: ["server.js"] })).toBe(
       '"C:\\Program Files\\node.exe" server.js',
     );
-    expect(
-      settingsProblems([
-        {
-          provider: "gemini",
-          path: "C:\\home\\.gemini\\settings.json",
-          status: "skipped-invalid",
-          message: "The file is not plain JSON.",
-        },
-        { provider: "droid", path: "C:\\home\\.factory\\mcp.json", status: "updated" },
-      ]),
-    ).toEqual(["Gemini: C:\\home\\.gemini\\settings.json. The file is not plain JSON. ZLI left it unchanged."]);
   });
 });
 
@@ -166,7 +154,7 @@ describe("McpServersSection", () => {
           return {
             commandId: CommandId.parse(request.commandId),
             accepted: true as const,
-            result: { servers, agentAccess, userSettings: { enabled: true, outcomes: [] } },
+            result: { servers, agentAccess },
           };
         },
         getProjection: async () => undefined,
@@ -229,7 +217,6 @@ describe("McpServersSection", () => {
     const list = () => ({
       servers,
       agentAccess: "full",
-      userSettings: { enabled: true, outcomes: [] },
       signIns: servers
         .filter((server) => server.transport === "http" && server.oauth)
         .map((server) => ({
@@ -350,7 +337,7 @@ describe("McpServersSection", () => {
             : {
                 commandId: CommandId.parse(request.commandId),
                 accepted: true as const,
-                result: { servers: [github], agentAccess: "full", userSettings: { enabled: false, outcomes: [] } },
+                result: { servers: [github], agentAccess: "full" },
               };
         },
         getProjection: async () => undefined,
@@ -373,7 +360,7 @@ describe("McpServersSection", () => {
       "zli-browser",
       "github",
     ]);
-    expect(container.textContent).toContain("ZLI is set to leave those files alone");
+    expect(container.textContent).toContain("ZLI gives these servers only to agents it starts.");
   });
 });
 
@@ -399,7 +386,6 @@ describe("MCP status, tools, and projects helpers", () => {
     McpListResult.parse({
       servers: [github, linear],
       agentAccess: "full",
-      userSettings: { enabled: true, outcomes: [] },
       ...patch,
     });
 
@@ -523,7 +509,6 @@ describe("McpServersSection tests, tools, projects, and import", () => {
       McpListResult.parse({
         servers,
         agentAccess: "full",
-        userSettings: { enabled: true, outcomes: [] },
         health,
         signIns: [{ name: "plugin-docs", url: "https://docs.example.com/mcp", signedIn: true, account: "ada" }],
       });
@@ -577,7 +562,7 @@ describe("McpServersSection tests, tools, projects, and import", () => {
       fakeBridge(
         (command) => {
           if (command.type === "mcp.save") servers = command.servers ?? [];
-          return McpListResult.parse({ servers, agentAccess: "full", userSettings: { enabled: true, outcomes: [] } });
+          return McpListResult.parse({ servers, agentAccess: "full" });
         },
         [
           { projectId: "00000000-0000-4000-8000-000000000001", path: "/work/repo", name: "repo" },
@@ -643,7 +628,7 @@ describe("McpServersSection tests, tools, projects, and import", () => {
           };
         }
         if (command.type === "mcp.save") servers = command.servers ?? [];
-        return McpListResult.parse({ servers, agentAccess: "full", userSettings: { enabled: true, outcomes: [] } });
+        return McpListResult.parse({ servers, agentAccess: "full" });
       }),
       "custom",
     );
@@ -670,7 +655,7 @@ describe("McpServersSection tests, tools, projects, and import", () => {
       fakeBridge((command) =>
         command.type === "mcp.import.scan"
           ? { found: [], problems: [] }
-          : McpListResult.parse({ servers: [], agentAccess: "full", userSettings: { enabled: true, outcomes: [] } }),
+          : McpListResult.parse({ servers: [], agentAccess: "full" }),
       ),
       "custom",
     );
@@ -691,7 +676,6 @@ describe("McpServersSection tests, tools, projects, and import", () => {
         const result = McpListResult.parse({
           servers: [],
           agentAccess: "full",
-          userSettings: { enabled: true, outcomes: [] },
           signIns: [
             signedIn
               ? { name: "team-linear", url: "https://mcp.linear.app/mcp", signedIn: true, account: "ada" }
@@ -735,7 +719,6 @@ describe("McpServersSection tests, tools, projects, and import", () => {
       McpListResult.parse({
         servers: [linear, context7],
         agentAccess: "full",
-        userSettings: { enabled: true, outcomes: [] },
         signIns: [
           signedIn
             ? { name: "linear", url: linear.url, signedIn: true, via: "browser", account: "ada" }

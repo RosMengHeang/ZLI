@@ -99,7 +99,6 @@ function harness(
             servers: options.servers ?? [],
             agentAccess: options.access ?? "full",
             agentScope: options.scope ?? "project",
-            userSettings: { enabled: false, outcomes: [] },
             signIns: options.signIns ?? [],
           },
         } as RpcResponse;

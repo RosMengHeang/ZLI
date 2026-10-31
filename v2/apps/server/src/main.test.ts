@@ -13,7 +13,7 @@ describe("takeLaunchOptions", () => {
     expect(takeLaunchOptions(env)).toEqual({
       databasePath: "/tmp/zli/runtime.sqlite",
       token: "runtime-token",
-      registerInUserSettings: false,
+      cleanUpUserSettings: false,
     });
     expect(env).not.toHaveProperty("ZLI_RUNTIME_TOKEN");
     expect(env.ZLI_DATABASE_PATH).toBe("/tmp/zli/runtime.sqlite");

@@ -34,7 +34,6 @@ const listOf = (servers: McpServerConfig[], signedIn: string[] = []): McpListRes
   servers,
   agentAccess: "full",
   agentScope: "project",
-  userSettings: { enabled: true, outcomes: [] },
   health: [],
   signIns: servers
     .filter((server) => server.transport === "http" && server.oauth)
