@@ -1,10 +1,16 @@
 import type { PlanLimitProvider, RuntimeProjection } from "@zli-v2/contracts";
 
+import { useId } from "react";
+
 import { providerDisplayName } from "../agent/providers.js";
 import { limitProviders, usePlanLimits } from "../limits/limits.js";
+import { Select } from "../ui/Field.js";
+import { ProviderMark } from "../ui/ProviderMark.js";
 import { Switch } from "../ui/Switch.js";
 import { type SidebarLimits, updateAppSettings, useAppSettings } from "./appSettings.js";
-import { SectionHeader, SettingGroup } from "./SectionHeader.js";
+import { SectionHeader, SettingGroup, SettingRow } from "./SectionHeader.js";
+
+const AUTOMATIC = "automatic";
 
 const NONE_FOUND =
   "None of your agents report plan limits yet. Sign in to Claude Code, Codex, Gemini CLI, Cursor Agent, Droid, Kimi Code, or OpenCode Go with a subscription, and it shows up here.";
@@ -21,6 +27,12 @@ export function UsageSection({ projection }: { projection: RuntimeProjection | u
       ...current,
       hidden: shown ? current.hidden.filter((entry) => entry !== provider) : [...current.hidden, provider],
     }));
+  const pinId = useId();
+  const pinnable = providers.filter((provider) => !sidebarLimits.hidden.includes(provider));
+  // A pin on an agent that is switched off or has no limits now reads as Automatic, and stays saved.
+  const pinned = sidebarLimits.pinned && pinnable.includes(sidebarLimits.pinned) ? sidebarLimits.pinned : AUTOMATIC;
+  const pin = (value: PlanLimitProvider | typeof AUTOMATIC) =>
+    change(({ pinned: _previous, ...current }) => (value === AUTOMATIC ? current : { ...current, pinned: value }));
 
   return (
     <>
@@ -31,10 +43,31 @@ export function UsageSection({ projection }: { projection: RuntimeProjection | u
       <SettingGroup title="Sidebar">
         <Switch
           label="Show plan limits"
-          hint="A card above Settings with a circle per limit and when it resets."
+          hint="A line beside Settings with the fullest limit. Click it to see every limit and when it resets."
           checked={sidebarLimits.enabled}
           onChange={(enabled) => change((current) => ({ ...current, enabled }))}
         />
+        <SettingRow
+          label="Agent in the footer"
+          description="Automatic follows the selected agent. Pick one to always show its limit."
+          htmlFor={pinId}
+        >
+          <Select<PlanLimitProvider | typeof AUTOMATIC>
+            id={pinId}
+            label="Agent in the footer"
+            value={pinned}
+            disabled={!sidebarLimits.enabled || pinnable.length === 0}
+            options={[
+              { value: AUTOMATIC, label: "Automatic" },
+              ...pinnable.map((provider) => ({
+                value: provider,
+                label: providerDisplayName(provider, projection?.providers),
+                icon: <ProviderMark provider={provider} size={15} />,
+              })),
+            ]}
+            onChange={pin}
+          />
+        </SettingRow>
       </SettingGroup>
       <SettingGroup title="Agents" description="Choose which agents the card shows.">
         {limits.status === "loading" ? (

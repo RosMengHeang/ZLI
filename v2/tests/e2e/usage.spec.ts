@@ -38,7 +38,9 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
     // at its fullest limit. Settings moves to an icon beside it.
     const card = page.locator(".sidebar-usage-strip");
     await expect(limits).toHaveAttribute("aria-expanded", "false");
-    await expect(page.locator(".sidebar-footer .usage-strip-summary")).toHaveText("Codex5h34%");
+    const line = page.locator(".sidebar-footer .usage-strip-summary");
+    await expect(line).toHaveText("5h34%");
+    await expect(line.locator(".provider-mark-codex")).toBeVisible();
     await expect(page.locator(".sidebar-footer").getByRole("button", { name: "Settings", exact: true })).toHaveText("");
     await expect(card).toHaveCount(0);
     // Unfolded, every agent that reports limits gets a row.
@@ -52,8 +54,12 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
     await expect(card.locator(".usage-strip-window-reset").first()).toHaveText(/^Resets in \d+m$/u);
     await card.getByRole("button", { name: "Choose agents" }).click();
     await expect(settings.getByRole("tab", { name: "Usage" })).toHaveAttribute("aria-selected", "true");
+    // Pinned in Settings, the line shows that agent's limit instead of the selected chat's.
+    await settings.getByRole("button", { name: /^Agent in the footer/u }).click();
+    await page.getByRole("option", { name: /^Cursor/u }).click();
     await page.keyboard.press("Escape");
     await expect(settings).toHaveCount(0);
+    await expect(line.locator(".provider-mark-cursor-agent")).toBeVisible();
 
     await page.getByRole("button", { name: "Usage", exact: true }).click();
     const usage = page.getByRole("dialog", { name: "Usage" });
