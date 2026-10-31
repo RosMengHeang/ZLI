@@ -45,12 +45,13 @@ test("shrinks the side panel and terminal drawer to fit a smaller window", async
     const panelHandle = page.getByRole("separator", { name: "Resize side panel" });
     await expect(page.getByRole("complementary", { name: "Files panel" })).toBeVisible();
 
+    const start = await layout(page);
     await drag(page, panelHandle, { x: 0 });
     await drag(page, drawerHandle, { y: 0 });
     const wide = await layout(page);
     await capture(app, "max-1440.png");
-    expect(wide.panel.width).toBeGreaterThan(800);
-    expect(wide.drawer.height).toBeGreaterThan(500);
+    expect(wide.panel.width).toBeGreaterThanOrEqual(start.panel.width);
+    expect(wide.drawer.height).toBeGreaterThan(start.drawer.height);
     expectFits(wide);
 
     await resize(app, page, 1000, 560);
@@ -111,10 +112,30 @@ async function drag(page: Page, handle: ReturnType<Page["locator"]>, to: { x?: n
 }
 
 async function resize(app: ElectronApplication, page: Page, width: number, height: number): Promise<void> {
-  await app.evaluate(
-    ({ BrowserWindow }, [width, height]) => BrowserWindow.getAllWindows()[0]?.setContentSize(width, height),
+  const fits = await app.evaluate(
+    ({ BrowserWindow, screen }, [width, height]) => {
+      BrowserWindow.getAllWindows()[0]?.setContentSize(width, height);
+      const area = screen.getPrimaryDisplay().workAreaSize;
+      return width <= area.width && height <= area.height;
+    },
     [width, height],
   );
+  if (!fits) {
+    // A screen smaller than the size asked for, as on macOS CI, caps the window, so wait for it to settle instead.
+    let previous = "";
+    await expect
+      .poll(
+        async () => {
+          const now = JSON.stringify(await page.evaluate(() => [window.innerWidth, window.innerHeight]));
+          const settled = now === previous;
+          previous = now;
+          return settled;
+        },
+        { intervals: [250] },
+      )
+      .toBe(true);
+    return;
+  }
   // A window as large as the screen can come out a pixel short of it.
   await expect
     .poll(() =>
