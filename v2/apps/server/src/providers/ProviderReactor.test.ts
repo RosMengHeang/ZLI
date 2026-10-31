@@ -730,6 +730,176 @@ describe("ProviderReactor resume", () => {
   });
 });
 
+describe("ProviderReactor open requests", () => {
+  async function setup(adapter: FakeAdapter) {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service);
+    let sequence = 0;
+    const dispatch = (command: Parameters<Engine["dispatchPromise"]>[0]["command"]) => {
+      sequence += 1;
+      return engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`50000000-0000-4000-8000-0000000009${String(sequence).padStart(2, "0")}`),
+        command,
+      });
+    };
+    await dispatch({ type: "project.register", path: "C:\\workspace\\requests" });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    await dispatch({
+      type: "worktree.create",
+      worktreeId,
+      projectId: ProjectId.parse(project.projectId),
+      path: "C:\\workspace\\requests-tree",
+      workspaceRoot: "C:\\workspace",
+      branch: "feature/requests",
+    });
+    await dispatch({
+      type: "thread.start",
+      threadId,
+      worktreeId,
+      provider: "codex",
+      cwd: "C:\\workspace\\requests-tree",
+    });
+    await reactor.waitForIdle();
+    await dispatch({ type: "thread.send", threadId, text: "clean the build folder" });
+    await reactor.waitForIdle();
+    adapter.emit({
+      type: "approval.requested",
+      threadId,
+      requestId: "approval-1",
+      payload: { command: "rm -rf build" },
+    });
+    await reactor.waitForIdle();
+    const state = async () => {
+      const projection = await engine.projection();
+      return {
+        status: projection.threads[0]?.status,
+        requests: (projection.requests ?? []).map((request) => request.requestId),
+        attention: projection.attention.map((item) => item.id),
+      };
+    };
+    expect(await state()).toEqual({
+      status: "waiting",
+      requests: ["approval-1"],
+      attention: ["thread-request:approval-1"],
+    });
+    const cleanup = async () => {
+      reactor.stop();
+      await service.stopAll();
+      service.dispose();
+    };
+    return { engine, service, reactor, dispatch, state, cleanup };
+  }
+
+  const closed = { status: "idle", requests: [], attention: [] };
+
+  it("closes the request when the turn is stopped, so the next message is sent", async () => {
+    const adapter = new FakeAdapter();
+    const { reactor, dispatch, state, cleanup } = await setup(adapter);
+
+    await dispatch({ type: "thread.interrupt", threadId });
+    await reactor.waitForIdle();
+    expect(await state()).toEqual(closed);
+
+    await dispatch({ type: "thread.queue", queueId: "after-stop", threadId, text: "hello after stop" });
+    await reactor.waitForIdle();
+    expect(adapter.turnInputs.map((input) => input.text)).toEqual(["clean the build folder", "hello after stop"]);
+    expect((await state()).status).toBe("working");
+    await cleanup();
+  });
+
+  it("closes the request when the session is stopped", async () => {
+    const { reactor, dispatch, state, cleanup } = await setup(new FakeAdapter());
+    await dispatch({ type: "thread.stop", threadId });
+    await reactor.waitForIdle();
+    expect(await state()).toEqual({ ...closed, status: "stopped" });
+    await cleanup();
+  });
+
+  it("closes the request when the session ends or fails on its own", async () => {
+    const endings: [ProviderEvent, string][] = [
+      [{ type: "session.closed", threadId, reason: "provider process exited" }, "stopped"],
+      [{ type: "provider.error", threadId, message: "Codex crashed" }, "failed"],
+    ];
+    for (const [event, status] of endings) {
+      const adapter = new FakeAdapter();
+      const { reactor, state, cleanup } = await setup(adapter);
+      adapter.emit(event);
+      await reactor.waitForIdle();
+      expect(await state()).toEqual({ ...closed, status });
+      await cleanup();
+    }
+  });
+
+  it("closes requests left open by a restart, and an answer to one is refused without failing the chat", async () => {
+    const { engine, reactor, service, dispatch, state } = await setup(new FakeAdapter());
+    reactor.stop();
+    service.dispose();
+
+    const restartedService = new ProviderService(new ProviderRegistry([new FakeAdapter()]));
+    const restartedReactor = new ProviderReactor(engine, restartedService);
+    await restartedReactor.reconcileOrphanedThreads();
+    await restartedReactor.waitForIdle();
+    expect(await state()).toEqual({ ...closed, status: "stopped" });
+
+    const answer = await dispatch({
+      type: "thread.respond",
+      threadId,
+      requestId: "approval-1",
+      decision: { approved: true },
+    });
+    expect(answer).toMatchObject({ status: "rejected", error: { message: expect.stringContaining("does not exist") } });
+    await restartedReactor.waitForIdle();
+    expect((await state()).status).toBe("stopped");
+
+    // A chat that an older build stopped with its request still open is cleaned up on the next start.
+    await dispatch({
+      type: "thread.request",
+      request: { requestId: "approval-2", threadId, kind: "approval", payload: {} },
+    });
+    restartedReactor.stop();
+    restartedService.dispose();
+    const laterService = new ProviderService(new ProviderRegistry([new FakeAdapter()]));
+    const laterReactor = new ProviderReactor(engine, laterService);
+    await laterReactor.reconcileOrphanedThreads();
+    await laterReactor.waitForIdle();
+    expect(await state()).toEqual({ ...closed, status: "stopped" });
+    laterReactor.stop();
+    laterService.dispose();
+  });
+
+  it("does not fail the chat when an answer loses a race with the session ending", async () => {
+    const adapter = new (class extends FakeAdapter {
+      override async respondToRequest(): Promise<void> {
+        this.emit({ type: "session.closed", threadId, reason: "provider process exited" });
+        throw new Error("Provider session does not exist");
+      }
+    })();
+    const { reactor, dispatch, state, cleanup } = await setup(adapter);
+    await dispatch({ type: "thread.respond", threadId, requestId: "approval-1", decision: { approved: true } });
+    await reactor.waitForIdle();
+    expect(await state()).toEqual({ ...closed, status: "stopped" });
+    await cleanup();
+  });
+
+  it("leaves the chat idle when the answered turn finishes before the answer is recorded", async () => {
+    const adapter = new (class extends FakeAdapter {
+      override async respondToRequest(): Promise<void> {
+        this.emit({ type: "turn.completed", threadId, turnId: "provider-turn", status: "completed" });
+      }
+    })();
+    const { reactor, dispatch, state, cleanup } = await setup(adapter);
+    await dispatch({ type: "thread.respond", threadId, requestId: "approval-1", decision: { approved: true } });
+    await reactor.waitForIdle();
+    expect(await state()).toEqual(closed);
+    await cleanup();
+  });
+});
+
 describe("promptWithAttachments", () => {
   it("leaves text alone without attachments and lists stored paths otherwise", () => {
     expect(promptWithAttachments("hello", [])).toBe("hello");
