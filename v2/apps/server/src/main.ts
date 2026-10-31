@@ -369,14 +369,25 @@ export async function startRuntime(options: {
   };
 }
 
-async function main(): Promise<void> {
-  const browserTool = browserToolConfigFromEnv(process.env);
-  const runtime = await startRuntime({
-    databasePath: process.env.ZLI_DATABASE_PATH ?? "./.zli/runtime.sqlite",
-    ...(process.env.ZLI_RUNTIME_TOKEN ? { token: process.env.ZLI_RUNTIME_TOKEN } : {}),
+/**
+ * Reads the server's launch settings from `env` and deletes the runtime token from it. Agents, git
+ * hooks, terminals, and MCP servers inherit this environment, and with the token any of them could
+ * connect to the runtime and run its commands.
+ */
+export function takeLaunchOptions(env: NodeJS.ProcessEnv): Parameters<typeof startRuntime>[0] {
+  const token = env.ZLI_RUNTIME_TOKEN;
+  delete env.ZLI_RUNTIME_TOKEN;
+  const browserTool = browserToolConfigFromEnv(env);
+  return {
+    databasePath: env.ZLI_DATABASE_PATH ?? "./.zli/runtime.sqlite",
+    ...(token ? { token } : {}),
     ...(browserTool ? { browserTool } : {}),
-    registerInUserSettings: process.env.ZLI_BROWSER_USER_SETTINGS !== "0",
-  });
+    registerInUserSettings: env.ZLI_BROWSER_USER_SETTINGS !== "0",
+  };
+}
+
+async function main(): Promise<void> {
+  const runtime = await startRuntime(takeLaunchOptions(process.env));
   process.stdout.write(`${JSON.stringify({ url: runtime.server.url(), token: runtime.token })}\n`);
   let closing = false;
   const shutdown = () => {
