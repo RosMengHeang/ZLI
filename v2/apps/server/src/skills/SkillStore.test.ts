@@ -70,6 +70,8 @@ async function initRepository(worktree: string): Promise<void> {
   await git(worktree, "init", "-b", "main");
   await git(worktree, "config", "user.email", "zli-tests@example.invalid");
   await git(worktree, "config", "user.name", "ZLI Tests");
+  // Windows runners default to autocrlf, which rewrites checked-out skill files.
+  await git(worktree, "config", "core.autocrlf", "false");
   await writeFile(join(worktree, "README.md"), "initial\n");
   await git(worktree, "add", "README.md");
   await git(worktree, "commit", "-m", "initial");
