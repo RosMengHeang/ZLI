@@ -375,9 +375,9 @@ describe("TerminalService recent output", () => {
   });
 });
 
-const isPosix = process.platform !== "win32";
-
-describe.skipIf(!isPosix)("TerminalService with a real shell", () => {
+// node-pty's macOS spawn-helper is only made executable when the app is packaged, so outside the packaged app
+// it fails with posix_spawnp. tests/e2e/terminal-stop.spec.ts covers macOS against the packaged app.
+describe.skipIf(process.platform !== "linux")("TerminalService with a real shell", () => {
   const pids: number[] = [];
   const directories: string[] = [];
 
