@@ -34,13 +34,17 @@ export function TerminalDrawer({
   worktree,
   sessionId,
   height,
+  maxHeight,
   onHeightChange,
   onClose,
 }: {
   projection: RuntimeProjection;
   worktree: WorktreeProjection | undefined;
   sessionId: string | undefined;
+  /** The height the drawer has now, which can be less than the remembered one in a small window. */
   height: number;
+  /** The most the window leaves the drawer above the agent grid. */
+  maxHeight: number;
   onHeightChange(height: number): void;
   onClose(): void;
 }) {
@@ -177,7 +181,8 @@ export function TerminalDrawer({
         role="separator"
         aria-orientation="horizontal"
         aria-label="Resize terminal drawer"
-        aria-valuemin={MIN_DRAWER_HEIGHT}
+        aria-valuemin={Math.min(MIN_DRAWER_HEIGHT, maxHeight)}
+        aria-valuemax={Math.min(maxHeight, drawerCap())}
         aria-valuenow={height}
         tabIndex={0}
         onPointerDown={onPointerDown}
@@ -243,7 +248,10 @@ export function TerminalDrawer({
   );
 }
 
+function drawerCap(): number {
+  return typeof window === "undefined" ? 800 : Math.max(MIN_DRAWER_HEIGHT, Math.round(window.innerHeight * 0.7));
+}
+
 function clampDrawer(height: number): number {
-  const max = typeof window === "undefined" ? 800 : Math.max(MIN_DRAWER_HEIGHT, Math.round(window.innerHeight * 0.7));
-  return Math.min(max, Math.max(MIN_DRAWER_HEIGHT, Math.round(height)));
+  return Math.min(drawerCap(), Math.max(MIN_DRAWER_HEIGHT, Math.round(height)));
 }

@@ -7,8 +7,12 @@
 .main-workspace { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
 .workspace-body { display: flex; min-height: 0; flex: 1; padding: 0 var(--zli-gutter) var(--zli-gutter) 0; }
 .app-shell.is-sidebar-hidden .workspace-body { padding-left: var(--zli-gutter); }
-.workbench-column { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
-.tool-panel { display: flex; min-width: 320px; min-height: 0; flex: 0 0 auto; flex-direction: column; overflow: hidden; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-surface); }
+/*
+ * AppShell sizes the side panel and the drawer so the agent grid keeps MIN_GRID_WIDTH by MIN_GRID_HEIGHT
+ * (workbench.ts). These floors and the shrinkable panel and drawer hold the grid open if a size is ever stale.
+ */
+.workbench-column { display: flex; min-width: min(320px, 50%); min-height: 0; flex: 1; flex-direction: column; }
+.tool-panel { display: flex; min-width: 0; min-height: 0; flex: 0 1 auto; flex-direction: column; overflow: hidden; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-surface); }
 .tool-pane { display: flex; height: 100%; min-height: 0; flex-direction: column; }
 
 /* The resizer is the gutter itself; its line only appears while it is in use. */

@@ -226,6 +226,9 @@ not cover, add it to the primitives instead of styling it locally.
 - The terminal drawer is its own island under the grid. It starts closed.
   Opened without a shell, it is a single row with Start terminal; once a
   shell runs it takes its remembered height.
+- The agent grid always keeps at least 320 by 160 pixels. When the window
+  is too small for a panel's or the drawer's remembered size, the panel or
+  drawer shrinks to fit, and grows back to that size when the window does.
 - Notices and the attention bar take the island shape above the workbench
   instead of running edge to edge across the window.
 - Dialog forms stack labelled sections: the label sits above its control and

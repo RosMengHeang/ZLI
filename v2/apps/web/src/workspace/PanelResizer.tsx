@@ -4,18 +4,18 @@ import { useState } from "react";
 export type PanelId = "files" | "review" | "browser" | "mobile" | "huddle";
 
 const STORAGE_PREFIX = "zli.toolPanelWidth.";
-const MIN_WIDTH = 320;
+export const MIN_PANEL_WIDTH = 320;
 const STEP = 24;
 /** Files needs room for the tree beside the editor; the others read fine narrower. */
 const DEFAULT_WIDTHS: Record<PanelId, number> = { files: 640, browser: 560, mobile: 440, review: 520, huddle: 440 };
 const DEFAULT_SHARE = 0.45;
 
 function maxWidth(): number {
-  return typeof window === "undefined" ? 1200 : Math.max(MIN_WIDTH, Math.round(window.innerWidth * 0.65));
+  return typeof window === "undefined" ? 1200 : Math.max(MIN_PANEL_WIDTH, Math.round(window.innerWidth * 0.65));
 }
 
 export function clampPanelWidth(width: number): number {
-  return Math.min(maxWidth(), Math.max(MIN_WIDTH, Math.round(width)));
+  return Math.min(maxWidth(), Math.max(MIN_PANEL_WIDTH, Math.round(width)));
 }
 
 /** The width a panel opens at before anyone resizes it, leaving most of a small window to the agents. */
@@ -48,7 +48,8 @@ export function usePanelWidth(panel: PanelId): [number, (width: number) => void]
   };
   return [width, update];
 }
-export function PanelResizer({ width, onChange }: { width: number; onChange(width: number): void }) {
+/** `width` is the width the panel has now; `max` is the most the window leaves it beside the agent grid. */
+export function PanelResizer({ width, max, onChange }: { width: number; max: number; onChange(width: number): void }) {
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const handle = event.currentTarget;
@@ -80,8 +81,8 @@ export function PanelResizer({ width, onChange }: { width: number; onChange(widt
       role="separator"
       aria-orientation="vertical"
       aria-label="Resize side panel"
-      aria-valuemin={MIN_WIDTH}
-      aria-valuemax={maxWidth()}
+      aria-valuemin={Math.min(MIN_PANEL_WIDTH, max)}
+      aria-valuemax={Math.min(max, maxWidth())}
       aria-valuenow={width}
       tabIndex={0}
       onPointerDown={onPointerDown}

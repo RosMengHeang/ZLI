@@ -3,7 +3,7 @@
 .terminal-output .xterm, .agent-terminal-output .xterm { height: 100%; padding: var(--zli-space-2) var(--zli-space-2-5); }
 .terminal-output .xterm-viewport, .agent-terminal-output .xterm-viewport { background: transparent !important; }
 /* The drawer is its own island below the grid; the gutter above it is the resize handle. */
-.terminal-drawer { position: relative; display: flex; min-height: 0; flex: 0 0 auto; flex-direction: column; margin-top: var(--zli-gutter); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-terminal); }
+.terminal-drawer { position: relative; display: flex; min-height: 0; flex: 0 1 auto; flex-direction: column; margin-top: var(--zli-gutter); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-terminal); }
 .drawer-resizer { position: absolute; z-index: 2; top: calc(-1px - var(--zli-gutter)); right: 0; left: 0; height: var(--zli-gutter); cursor: row-resize; touch-action: none; }
 .drawer-resizer::after { position: absolute; top: calc(50% - 1px); right: var(--zli-space-3); left: var(--zli-space-3); height: 2px; border-radius: 1px; background: transparent; content: ""; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
 .drawer-resizer:hover::after { background: var(--zli-border-hover); }
