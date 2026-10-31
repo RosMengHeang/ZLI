@@ -50,7 +50,11 @@ class FakeAdapter implements ProviderAdapter {
   }
   async stopSession(input: { threadId: ThreadId }): Promise<void> {
     this.calls.push("stop");
-    this.sessions.delete(input.threadId);
+    if (!this.sessions.delete(input.threadId)) throw new Error(`Fake session does not exist: ${input.threadId}`);
+  }
+  /** Stands in for a session the adapter dropped without saying so, such as a process that died mid-call. */
+  forget(threadId: ThreadId): void {
+    this.sessions.delete(threadId);
   }
   listSessions(): ProviderSession[] {
     return [...this.sessions.values()];
@@ -74,7 +78,13 @@ class FakeAdapter implements ProviderAdapter {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
+  /** Like the real adapters, a closed session is forgotten before anyone hears about it. */
   emit(event: ProviderEvent): void {
+    if (event.type === "session.closed") this.sessions.delete(event.threadId);
+    this.notify(event);
+  }
+  /** Reports an event without touching the adapter's sessions. */
+  notify(event: ProviderEvent): void {
     for (const listener of this.listeners) listener(event);
   }
 }
@@ -182,6 +192,50 @@ describe("ProviderService", () => {
       },
     );
     expect(service.listSessions()).toEqual([]);
+  });
+
+  it("starts a thread again after its agent process closed on its own", async () => {
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const seen: boolean[] = [];
+    service.subscribe((event) => {
+      if (event.type === "session.closed") seen.push(service.hasSession(event.threadId));
+    });
+    await service.startSession({ provider: "codex", threadId, cwd: "C:/workspace/tree" });
+
+    adapter.emit({ type: "session.closed", threadId, reason: "Codex exited (1)." });
+    expect(seen).toEqual([false]);
+    expect(service.hasSession(threadId)).toBe(false);
+    await expect(service.sendTurn({ threadId, text: "hello" })).rejects.toMatchObject({ code: "session_missing" });
+
+    await service.startSession({ provider: "codex", threadId, cwd: "C:/workspace/tree" });
+    await expect(service.sendTurn({ threadId, text: "hello" })).resolves.toEqual({ turnId: "turn-1" });
+    expect(adapter.calls).toEqual(["start:C:/workspace/tree", "start:C:/workspace/tree", "turn:hello"]);
+  });
+
+  it("keeps a newer session when the old process reports closing late", async () => {
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    await service.startSession({ provider: "codex", threadId, cwd: "C:/workspace/tree" });
+
+    adapter.notify({ type: "session.closed", threadId, reason: "old exit" });
+    expect(service.hasSession(threadId)).toBe(true);
+    await expect(service.startSession({ provider: "codex", threadId, cwd: "C:/workspace/tree" })).rejects.toMatchObject(
+      { code: "session_exists" },
+    );
+  });
+
+  it("forgets a session on stop even when the adapter already lost it", async () => {
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    await service.startSession({ provider: "codex", threadId, cwd: "C:/workspace/tree" });
+    adapter.forget(threadId);
+
+    await expect(service.stopSession({ threadId })).rejects.toThrow("does not exist");
+    expect(service.hasSession(threadId)).toBe(false);
+    await expect(
+      service.startSession({ provider: "codex", threadId, cwd: "C:/workspace/tree" }),
+    ).resolves.toMatchObject({ threadId });
   });
 
   it("fails closed for unknown providers and sessions", async () => {
