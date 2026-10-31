@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { NodePtyFactory } from "./NodePtyFactory.js";
 
@@ -121,20 +121,70 @@ describe("NodePtyFactory", () => {
         if (groupSignalFails) throw Object.assign(new Error("no such process"), { code: "ESRCH" });
         signals.push([pid, signal]);
       },
+      listProcesses: async () => [{ pid: 31, ppid: 1, pgid: 31 }],
     });
     const pty = await factory.spawn({ cwd: "/workspace", shell: "/bin/bash", cols: 80, rows: 24 });
 
     pty.kill();
     pty.kill(true);
-    expect(signals).toEqual([
-      [-31, "SIGHUP"],
-      [-31, "SIGKILL"],
-    ]);
+    await vi.waitFor(() =>
+      expect(signals).toEqual([
+        [-31, "SIGHUP"],
+        [-31, "SIGKILL"],
+      ]),
+    );
     expect(ptyKills).toEqual([]);
 
     groupSignalFails = true;
     pty.kill();
     expect(ptyKills).toEqual(["SIGHUP"]);
+  });
+
+  it("kills the shell's jobs and their process groups before the shell when forced", async () => {
+    const signals: Array<[number, string]> = [];
+    const factory = new NodePtyFactory({
+      platform: "darwin",
+      load: async () => killRecordingModule([]),
+      signal: (pid, signal) => signals.push([pid, signal]),
+      listProcesses: async () => [
+        { pid: 1, ppid: 0, pgid: 1 },
+        { pid: 31, ppid: 1, pgid: 31 },
+        { pid: 40, ppid: 31, pgid: 40 },
+        { pid: 41, ppid: 40, pgid: 40 },
+        { pid: 42, ppid: 41, pgid: 42 },
+        { pid: 50, ppid: 31, pgid: 31 },
+        { pid: 60, ppid: 1, pgid: 60 },
+      ],
+    });
+    const pty = await factory.spawn({ cwd: "/workspace", shell: "/bin/zsh", cols: 80, rows: 24 });
+
+    pty.kill(true);
+    await vi.waitFor(() => expect(signals.at(-1)).toEqual([-31, "SIGKILL"]));
+    expect(signals).toEqual([
+      [-40, "SIGKILL"],
+      [40, "SIGKILL"],
+      [50, "SIGKILL"],
+      [41, "SIGKILL"],
+      [-42, "SIGKILL"],
+      [42, "SIGKILL"],
+      [-31, "SIGKILL"],
+    ]);
+  });
+
+  it("still kills the shell's group when the process list cannot be read", async () => {
+    const signals: Array<[number, string]> = [];
+    const factory = new NodePtyFactory({
+      platform: "linux",
+      load: async () => killRecordingModule([]),
+      signal: (pid, signal) => signals.push([pid, signal]),
+      listProcesses: async () => {
+        throw new Error("spawn ps ENOENT");
+      },
+    });
+    const pty = await factory.spawn({ cwd: "/workspace", shell: "/bin/bash", cols: 80, rows: 24 });
+
+    pty.kill(true);
+    await vi.waitFor(() => expect(signals).toEqual([[-31, "SIGKILL"]]));
   });
 
   it("leaves stopping a Windows terminal to node-pty", async () => {

@@ -450,18 +450,19 @@ describe.skipIf(process.platform !== "linux")("TerminalService with a real shell
   it("kills a shell that ignores the hangup once the grace period ends", async () => {
     const service = new TerminalService(new NodePtyFactory(), { stopGraceMs: 300 });
     const id = TerminalId.parse("00000000-0000-4000-8000-000000000302");
-    const { shellPid, exited } = await startBash(service, id, "trap '' HUP TERM; sleep 300 &");
+    const { shellPid, jobPid, exited } = await startBash(service, id, "trap '' HUP TERM; sleep 300 &");
 
     service.stop(id);
     await expect(withTimeout(exited, 5_000)).resolves.toMatchObject({ signal: 9 });
     expect(service.get(id).status).toBe("exited");
     await vi.waitFor(async () => expect(await isAlive(shellPid)).toBe(false), { timeout: 3_000 });
+    await vi.waitFor(async () => expect(await isAlive(jobPid)).toBe(false), { timeout: 3_000 });
   }, 20_000);
 
   it("kills a shell that ignores the hangup when it is stopped again", async () => {
     const service = new TerminalService(new NodePtyFactory(), { stopGraceMs: 60_000 });
     const id = TerminalId.parse("00000000-0000-4000-8000-000000000303");
-    const { shellPid, exited } = await startBash(service, id, "trap '' HUP TERM; sleep 300 &");
+    const { shellPid, jobPid, exited } = await startBash(service, id, "trap '' HUP TERM; sleep 300 &");
 
     service.stop(id);
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -469,6 +470,7 @@ describe.skipIf(process.platform !== "linux")("TerminalService with a real shell
     service.stop(id);
     await expect(withTimeout(exited, 5_000)).resolves.toMatchObject({ signal: 9 });
     await vi.waitFor(async () => expect(await isAlive(shellPid)).toBe(false), { timeout: 3_000 });
+    await vi.waitFor(async () => expect(await isAlive(jobPid)).toBe(false), { timeout: 3_000 });
   }, 20_000);
 });
 

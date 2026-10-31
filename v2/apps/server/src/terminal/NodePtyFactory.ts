@@ -1,4 +1,6 @@
+import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
+import { promisify } from "node:util";
 
 import { planSpawn } from "@zli-v2/shared";
 
@@ -19,13 +21,53 @@ type NodePtyModule = {
   spawn(shell: string, args: string[] | string, options: Record<string, unknown>): NodePtyProcess;
 };
 
+type ProcessEntry = { pid: number; ppid: number; pgid: number };
+
 type NodePtyFactoryOptions = {
   load?: () => Promise<NodePtyModule>;
   platform?: NodeJS.Platform;
   signal?: (pid: number, signal: NodeJS.Signals) => void;
+  /** Every process on the machine. Not used on Windows. */
+  listProcesses?: () => Promise<ProcessEntry[]>;
 };
 
 const requireForNodePty = createRequire(import.meta.url);
+const execFileAsync = promisify(execFile);
+
+async function listProcesses(): Promise<ProcessEntry[]> {
+  const { stdout } = await execFileAsync("ps", ["-A", "-o", "pid=", "-o", "ppid=", "-o", "pgid="], {
+    timeout: 2_000,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  return stdout.split("\n").flatMap((line) => {
+    const [pid = 0, ppid = 0, pgid = 0] = line.trim().split(/\s+/u).map(Number);
+    return pid > 0 && Number.isInteger(pid) && Number.isInteger(ppid) && Number.isInteger(pgid)
+      ? [{ pid, ppid, pgid }]
+      : [];
+  });
+}
+
+/** Every process below `rootPid`, parents before children. */
+function descendants(processes: ProcessEntry[], rootPid: number): ProcessEntry[] {
+  const children = new Map<number, ProcessEntry[]>();
+  for (const entry of processes) {
+    const siblings = children.get(entry.ppid);
+    if (siblings) siblings.push(entry);
+    else children.set(entry.ppid, [entry]);
+  }
+  const found: ProcessEntry[] = [];
+  const seen = new Set<number>([rootPid]);
+  const queue = [rootPid];
+  for (let parent = queue.shift(); parent !== undefined; parent = queue.shift()) {
+    for (const child of children.get(parent) ?? []) {
+      if (seen.has(child.pid)) continue;
+      seen.add(child.pid);
+      found.push(child);
+      queue.push(child.pid);
+    }
+  }
+  return found;
+}
 
 function childPtyEnv(
   source: NodeJS.ProcessEnv | undefined,
@@ -45,11 +87,13 @@ export class NodePtyFactory implements PtyFactory {
   private readonly load: () => Promise<NodePtyModule>;
   private readonly platform: NodeJS.Platform;
   private readonly signal: (pid: number, signal: NodeJS.Signals) => void;
+  private readonly listProcesses: () => Promise<ProcessEntry[]>;
 
   constructor(options: NodePtyFactoryOptions = {}) {
     this.load = options.load ?? (() => Promise.resolve(requireForNodePty("node-pty") as NodePtyModule));
     this.platform = options.platform ?? process.platform;
     this.signal = options.signal ?? ((pid, signal) => process.kill(pid, signal));
+    this.listProcesses = options.listProcesses ?? listProcesses;
   }
 
   async spawn(input: PtySpawnInput): Promise<PtyProcess> {
@@ -95,15 +139,50 @@ export class NodePtyFactory implements PtyFactory {
       ptyProcess.kill();
       return;
     }
-    const signal = force ? "SIGKILL" : "SIGHUP";
+    if (force) void this.killTree(ptyProcess);
+    else this.signalShell(ptyProcess, "SIGHUP");
+  }
+
+  /**
+   * Background jobs run in process groups of their own, and they keep a SIGHUP the shell ignored,
+   * so killing only the shell's group would leave them running. They are found while they are still
+   * the shell's children, because once the shell dies they are handed to init.
+   */
+  private async killTree(ptyProcess: NodePtyProcess): Promise<void> {
+    const shellPid = ptyProcess.pid;
+    let processes: ProcessEntry[] = [];
     try {
-      this.signal(-ptyProcess.pid, signal);
+      processes = await this.listProcesses();
     } catch {
-      try {
-        ptyProcess.kill(signal);
-      } catch {
-        // Already gone.
+      // Without a process list the shell's own group is still killed.
+    }
+    // The shell's group is killed last, and the daemon's own group never.
+    const groups = new Set<number>([shellPid, process.pid]);
+    for (const entry of descendants(processes, shellPid)) {
+      if (entry.pgid > 1 && !groups.has(entry.pgid)) {
+        groups.add(entry.pgid);
+        this.trySignal(-entry.pgid, "SIGKILL");
       }
+      this.trySignal(entry.pid, "SIGKILL");
+    }
+    this.signalShell(ptyProcess, "SIGKILL");
+  }
+
+  private signalShell(ptyProcess: NodePtyProcess, signal: NodeJS.Signals): void {
+    if (this.trySignal(-ptyProcess.pid, signal)) return;
+    try {
+      ptyProcess.kill(signal);
+    } catch {
+      // Already gone.
+    }
+  }
+
+  private trySignal(pid: number, signal: NodeJS.Signals): boolean {
+    try {
+      this.signal(pid, signal);
+      return true;
+    } catch {
+      return false;
     }
   }
 }
