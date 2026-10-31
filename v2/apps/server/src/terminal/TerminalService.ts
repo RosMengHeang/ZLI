@@ -307,10 +307,12 @@ export class TerminalService {
 
   /**
    * Asks the terminal to end, and kills it if it is still running after a short grace period.
-   * Stopping a terminal that is already stopping kills it at once.
+   * Stopping a terminal that is already stopping, or with `force`, kills it at once.
    */
-  stop(terminalId: TerminalId): void {
-    this.requestStop(this.session(terminalId));
+  stop(terminalId: TerminalId, options: { force?: boolean } = {}): void {
+    const session = this.session(terminalId);
+    if (options.force) this.forceStop(session);
+    else this.requestStop(session);
   }
 
   stopAll(): void {
@@ -397,6 +399,7 @@ export class TerminalService {
   private forceStop(session: TerminalSession): void {
     this.clearForceTimer(session);
     if (session.projection.status !== "running") return;
+    session.stopRequested = true;
     session.pty.kill(true);
   }
 

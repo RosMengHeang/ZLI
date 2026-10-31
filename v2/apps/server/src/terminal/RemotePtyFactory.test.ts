@@ -120,6 +120,26 @@ describe("RemotePtyFactory", () => {
     ]);
   });
 
+  it("tells the daemon when a stop is forced", async () => {
+    const connection = new FakeConnection();
+    const factory = new RemotePtyFactory({ connect: async () => connection });
+    const pty = await factory.spawn({
+      terminalId,
+      worktreeId,
+      title: "shell",
+      cwd: "/work/tree",
+      shell: "/bin/bash",
+      cols: 120,
+      rows: 32,
+    });
+    pty.kill();
+    pty.kill(true);
+    expect(connection.requests.slice(-2)).toEqual([
+      { type: "terminal.stop", terminalId },
+      { type: "terminal.stop", terminalId, force: true },
+    ]);
+  });
+
   it("ignores writes, resizes, and stops that fail because the terminal already exited", async () => {
     const connection = new FakeConnection();
     const factory = new RemotePtyFactory({ connect: async () => connection });

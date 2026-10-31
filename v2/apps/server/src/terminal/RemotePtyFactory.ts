@@ -89,8 +89,8 @@ class RemotePtyProcess implements PtyProcess {
     this.send({ type: "terminal.resize", terminalId: this.terminalId, cols, rows });
   }
 
-  kill(): void {
-    this.send({ type: "terminal.stop", terminalId: this.terminalId });
+  kill(force?: boolean): void {
+    this.send({ type: "terminal.stop", terminalId: this.terminalId, ...(force ? { force: true } : {}) });
   }
 
   /**

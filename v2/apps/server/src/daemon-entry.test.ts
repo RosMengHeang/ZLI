@@ -291,6 +291,42 @@ it("isolates a reset runtime socket without crashing the terminal daemon", () =>
   expect(socket.destroy).toHaveBeenCalledOnce();
 });
 
+it("passes a forced stop on to the terminal", async () => {
+  const previous = { token: process.env.ZLI_DAEMON_TOKEN, endpointPath: process.env.ZLI_DAEMON_ENDPOINT_PATH };
+  process.env.ZLI_DAEMON_TOKEN = "stop-token";
+  process.env.ZLI_DAEMON_ENDPOINT_PATH = "/tmp/zli-daemon-endpoint.json";
+  vi.resetModules();
+  try {
+    const { accept: acceptFresh } = await import("./daemon-entry.js");
+    const stops: Array<[string, { force?: boolean }]> = [];
+    const terminals = { stop: (id: string, options: { force?: boolean }) => stops.push([id, options]) };
+    const writes: string[] = [];
+    const socket = Object.assign(new EventEmitter(), {
+      setEncoding: vi.fn(),
+      destroy: vi.fn(),
+      end: vi.fn(),
+      destroyed: false,
+      write: (data: string) => {
+        writes.push(data);
+        return true;
+      },
+    });
+    acceptFresh(socket as unknown as Socket, terminals as unknown as TerminalService);
+    const id = "00000000-0000-4000-8000-000000000131";
+    socket.emit("data", `${JSON.stringify({ type: "hello", token: "stop-token", protocolVersion: 1 })}\n`);
+    socket.emit("data", `${JSON.stringify({ type: "terminal.stop", terminalId: id })}\n`);
+    socket.emit("data", `${JSON.stringify({ type: "terminal.stop", terminalId: id, force: true })}\n`);
+    await vi.waitFor(() => expect(stops).toHaveLength(2));
+    expect(stops).toEqual([
+      [id, { force: false }],
+      [id, { force: true }],
+    ]);
+  } finally {
+    restoreEnv("ZLI_DAEMON_TOKEN", previous.token);
+    restoreEnv("ZLI_DAEMON_ENDPOINT_PATH", previous.endpointPath);
+  }
+});
+
 it("stops its terminals and exits when an authenticated client asks it to shut down", async () => {
   const previous = { token: process.env.ZLI_DAEMON_TOKEN, endpointPath: process.env.ZLI_DAEMON_ENDPOINT_PATH };
   process.env.ZLI_DAEMON_TOKEN = "shutdown-token";

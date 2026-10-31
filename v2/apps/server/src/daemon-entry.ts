@@ -165,7 +165,7 @@ async function handle(
         send(client.socket, { type: "result", accepted: true });
         return;
       case "terminal.stop":
-        terminals.stop(TerminalId.parse(request.terminalId));
+        terminals.stop(TerminalId.parse(request.terminalId), { force: request.force === true });
         send(client.socket, { type: "result", accepted: true });
         return;
       case "terminal.attach": {

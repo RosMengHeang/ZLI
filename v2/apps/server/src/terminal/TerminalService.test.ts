@@ -212,6 +212,15 @@ describe("TerminalService", () => {
     expect(pty.kills).toEqual([false, true]);
   });
 
+  it("kills a terminal at once when the stop is forced", async () => {
+    const pty = new FakePty();
+    const service = await createService(pty);
+    service.stop(terminalId, { force: true });
+    expect(pty.kills).toEqual([true]);
+    service.stop(terminalId);
+    expect(pty.kills).toEqual([true, true]);
+  });
+
   it("kills a stopped terminal that is still running after the grace period", async () => {
     vi.useFakeTimers();
     try {
