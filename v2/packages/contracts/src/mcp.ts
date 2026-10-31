@@ -210,26 +210,12 @@ export const McpServerHealth = z.object({
 });
 export type McpServerHealth = z.infer<typeof McpServerHealth>;
 
-/** What happened to one agent's user settings file when ZLI copied the servers into it. */
-export const McpSettingsOutcome = z.object({
-  provider: z.string(),
-  path: z.string(),
-  status: z.enum(["created", "updated", "unchanged", "skipped-absent", "skipped-invalid", "failed"]),
-  message: z.string().optional(),
-});
-export type McpSettingsOutcome = z.infer<typeof McpSettingsOutcome>;
-
 export const McpListResult = z.object({
   servers: z.array(McpServerConfig),
   /** What the built-in `zli` server lets agents do with other agents. */
   agentAccess: AgentToolAccess,
   /** Which projects' agents the `zli` server can see. Older runtimes leave it out, which means the caller's project. */
   agentScope: AgentToolScope.default("project"),
-  /** Cursor, Droid, Gemini, Kimi, and Qwen read MCP servers only from their own settings files. */
-  userSettings: z.object({
-    enabled: z.boolean(),
-    outcomes: z.array(McpSettingsOutcome),
-  }),
   signIns: z.array(McpSignInState).default([]),
   /** Results of mcp.test since ZLI started. */
   health: z.array(McpServerHealth).default([]),

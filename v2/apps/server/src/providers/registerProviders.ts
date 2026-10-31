@@ -15,6 +15,7 @@ import {
   zliMcpServerSpecs,
   writeAgentMcpConfig,
 } from "../browser-tool/browserTool.js";
+import { type WorktreeFileWriter, writeProjectMcpFile } from "../terminal/agentLaunch.js";
 import { agentFolderTrust } from "../terminal/agentTrust.js";
 import { type AcpProviderConfig, AcpProviderAdapter, type AcpProviderKind } from "./AcpProviderAdapter.js";
 import { ClaudeCodeProviderAdapter } from "./ClaudeCodeProviderAdapter.js";
@@ -131,6 +132,8 @@ export type ProviderRegistryOptions = {
   /** Where per-chat MCP config files go when there is no browser tool. */
   mcpConfigDir?: string;
   writeMcpConfig?: typeof writeAgentMcpConfig;
+  /** Writes ZLI's project MCP file in a worktree for Cursor and Droid, which have no per-session option for servers. */
+  writeWorktreeFile?: WorktreeFileWriter;
 };
 
 export function createProviderRegistry(
@@ -177,6 +180,11 @@ export function createProviderRegistry(
       return {};
     }
   };
+  // Resolves true when the worktree's project MCP file is ZLI's and holds this chat's servers.
+  const worktreeMcpFile = async (provider: "cursor-agent" | "droid", cwd: string, worktreeId: string | undefined) =>
+    options.writeWorktreeFile
+      ? writeProjectMcpFile(provider, await allServers(worktreeId), cwd, options.writeWorktreeFile)
+      : false;
   // One app server serves every Codex thread, so servers from Settings join per thread and edits
   // reach the next thread without restarting it.
   const codexThreadOverrides = async (worktreeId: string | undefined) => {
@@ -213,17 +221,21 @@ export function createProviderRegistry(
       },
     }),
     new CursorAgentProviderAdapter({
-      createClient: async ({ worktreeId, account, ...input }) =>
-        CursorAgentClient.start({
+      createClient: async ({ worktreeId, account, ...input }) => {
+        // Approval only for ZLI's own file, so servers a repository brings in .cursor/mcp.json are never approved for the person.
+        const approveMcps = await worktreeMcpFile("cursor-agent", input.cwd, worktreeId);
+        return CursorAgentClient.start({
           ...input,
           command: await resolveCursorCommand(),
           ...browserEnv(worktreeId, account),
-          ...((await allServers(worktreeId)).length > 0 ? { approveMcps: true } : {}),
-        }),
+          ...(approveMcps ? { approveMcps } : {}),
+        });
+      },
     }),
     new DroidProviderAdapter({
       createClient: async ({ worktreeId, account, trustedProjectPath, ...input }) => {
         await trustFolder("droid", { cwd: input.cwd, account, trustedProjectPath });
+        await worktreeMcpFile("droid", input.cwd, worktreeId);
         return DroidClient.start({
           ...input,
           command: await resolveDroidCommand(),

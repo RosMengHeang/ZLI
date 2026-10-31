@@ -145,7 +145,7 @@ export const SkillSummary = z.object({
   source: z.string().optional(),
   /** Why agents may not load it, for example a missing description. */
   problem: z.string().optional(),
-  /** Agent folders where the person's own skill of the same name kept ZLI's copy out. */
+  /** Skills folders in worktrees where a skill of the same name kept ZLI's copy out. */
   conflicts: z.array(z.string()).optional(),
 });
 export type SkillSummary = z.infer<typeof SkillSummary>;
@@ -163,12 +163,12 @@ export const FoundSkill = z.object({
 });
 export type FoundSkill = z.infer<typeof FoundSkill>;
 
-/** What happened to one agent skills folder when ZLI copied the enabled skills into it. */
+/** A worktree skills folder where ZLI could not copy every enabled skill. */
 export const SkillSyncOutcome = z.object({
   path: z.string(),
   agents: z.array(ProviderKind),
-  status: z.enum(["updated", "unchanged", "skipped-absent", "failed"]),
-  /** Skills ZLI did not copy because the folder already has the person's own skill with that name. */
+  status: z.enum(["unchanged", "failed"]),
+  /** Skills ZLI did not copy because the folder already has a skill with that name. */
   conflicts: z.array(z.string()),
   message: z.string().optional(),
 });
@@ -177,7 +177,7 @@ export type SkillSyncOutcome = z.infer<typeof SkillSyncOutcome>;
 export const SkillListResult = z.object({
   skills: z.array(SkillSummary),
   found: z.array(FoundSkill),
-  /** Where ZLI keeps the person's skills before copying them into agent folders. */
+  /** Where ZLI keeps the person's skills before copying them into worktrees. */
   libraryPath: z.string(),
   sync: z.object({ enabled: z.boolean(), outcomes: z.array(SkillSyncOutcome) }),
   project: z.object({ projectId: ProjectId, path: z.string(), skillsPath: z.string() }).optional(),

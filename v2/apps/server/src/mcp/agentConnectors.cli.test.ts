@@ -17,10 +17,11 @@ import { build } from "esbuild";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { isHttpSpec, type McpServerSpec } from "../browser-tool/browserTool.js";
-import { syncUserMcpServers, userSettingsFiles } from "../browser-tool/userSettings.js";
+import { projectMcpFile } from "../browser-tool/mcpSettingsFiles.js";
 import { createDefaultCliProbe, discoverCliProviders } from "../providers/discoverCliProviders.js";
 import { agentMcpLaunch } from "../terminal/agentLaunch.js";
 import { readableTerminalText } from "../terminal/terminalText.js";
+import { WorktreeAgentFiles } from "../worktrees/WorktreeAgentFiles.js";
 import { type McpProbeOutcome, probeMcpServer } from "./McpProbe.js";
 import { McpServerStore } from "./McpServerStore.js";
 import type { McpSignIns } from "./signIn/McpSignIns.js";
@@ -67,7 +68,7 @@ type CliStatus = "connected" | "not connected" | "still starting" | "disabled" |
 
 type AgentResult = {
   installed: boolean;
-  /** Each server as the agent receives it, read back from its flags, config file, environment, or settings. */
+  /** Each server as the agent receives it, read back from its flags, config file, environment, or project MCP file. */
   entries: Map<string, Entry>;
   /** Each server as the agent's own `mcp list` reports it. Undefined when the CLI has no such command. */
   listed?: Map<string, CliStatus>;
@@ -157,8 +158,6 @@ describe.skipIf(!RUN)("agent CLIs find the connectors ZLI hands them", () => {
       path: join(root, "zli", "mcp-servers.json"),
       connectTool: { command: process.execPath, script: connectScript },
       signIns,
-      syncUserSettings: (given, owned) =>
-        syncUserMcpServers(given, owned, { home, env: {}, isInstalled: async () => true }),
     });
     await store.load();
     await store.save([...fixtures, ...catalog]);
@@ -171,6 +170,8 @@ describe.skipIf(!RUN)("agent CLIs find the connectors ZLI hands them", () => {
         entry.status === "found" ? [[entry.provider, entry.path] as const] : [],
       ),
     );
+
+    const agentFiles = new WorktreeAgentFiles({ statePath: join(root, "zli", "worktree-files.json") });
 
     // Warms the npx cache too, so the agents' own connection checks do not each download the packages.
     await inPool(specs, 6, async (spec) => {
@@ -191,11 +192,13 @@ describe.skipIf(!RUN)("agent CLIs find the connectors ZLI hands them", () => {
         const launch = await agentMcpLaunch(provider, specs, {
           configDir: join(root, "zli", "mcp"),
           worktreeId: "zli-check",
+          worktreePath: project,
+          writeWorktreeFile: (worktreePath, relPath, contents) => agentFiles.writeFile(worktreePath, relPath, contents),
           env: {},
         });
         const env = cliEnv(home, launch.env);
         try {
-          result.entries = await readBack(provider, { command, args: launch.args, env, home, project }, expected);
+          result.entries = await readBack(provider, { command, args: launch.args, env, project }, expected);
         } catch (error) {
           result.problems.push(`Could not read what ${provider} received: ${String(error)}`);
         }
@@ -304,7 +307,7 @@ type CliContext = { command: string; args: string[]; env: NodeJS.ProcessEnv; pro
 
 async function readBack(
   provider: ListedProviderKind,
-  context: CliContext & { home: string },
+  context: CliContext,
   expected: ReadonlyMap<string, Entry>,
 ): Promise<Map<string, Entry>> {
   switch (provider) {
@@ -331,9 +334,9 @@ async function readBack(
     case "gemini":
     case "kimi":
     case "qwen": {
-      const file = userSettingsFiles(context.home, {}).find((candidate) => candidate.provider === provider);
-      if (!file) throw new Error("No settings file.");
-      return settingsEntries(JSON.parse(await readFile(file.path, "utf8")));
+      const file = projectMcpFile(provider);
+      if (!file) throw new Error("No project MCP file.");
+      return settingsEntries(JSON.parse(await readFile(join(context.project, ...file.split("/")), "utf8")));
     }
   }
 }

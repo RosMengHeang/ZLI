@@ -527,7 +527,6 @@ describe("MCP commands", () => {
       servers: [],
       agentAccess: "full" as const,
       agentScope: "project" as const,
-      userSettings: { enabled: false, outcomes: [] },
       signIns: [],
       health: [],
     };

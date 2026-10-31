@@ -6,14 +6,7 @@ import { McpServerList } from "@zli-v2/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { McpProbe } from "./McpProbe.js";
-import {
-  McpRequestError,
-  McpServerStore,
-  type McpUserSettingsSync,
-  mcpLaunchSpec,
-  projectPathKey,
-  serverInProject,
-} from "./McpServerStore.js";
+import { McpRequestError, McpServerStore, mcpLaunchSpec, projectPathKey, serverInProject } from "./McpServerStore.js";
 import { McpSignIns } from "./signIn/McpSignIns.js";
 
 const temps: string[] = [];
@@ -39,7 +32,6 @@ describe("McpServerStore", () => {
       servers: [],
       agentAccess: "full",
       agentScope: "project",
-      userSettings: { enabled: false, outcomes: [] },
       signIns: [],
       health: [],
     });
@@ -77,34 +69,35 @@ describe("McpServerStore", () => {
     expect(store.list().agentScope).toBe("all");
   });
 
-  it("passes what ZLI owns to each sync and stores the new ownership", async () => {
+  it("hands the servers older versions copied into agent settings to the cleanup and keeps what is left", async () => {
     const path = await storePath();
-    const calls: Array<{ names: string[]; owned: unknown }> = [];
-    const sync: McpUserSettingsSync = async (specs, owned) => {
-      calls.push({ names: specs.map((spec) => spec.name), owned });
-      return {
-        outcomes: [{ provider: "droid", path: "C:\\home\\.factory\\mcp.json", status: "updated" }],
-        owned: specs.length > 0 ? { "C:\\home\\.factory\\mcp.json": specs.map((spec) => spec.name) } : {},
-      };
-    };
-    const store = new McpServerStore({ path, syncUserSettings: sync });
+    const legacy = { "C:\\home\\.factory\\mcp.json": ["github"], "C:\\home\\.qwen\\settings.json": ["linear"] };
+    await writeFile(path, JSON.stringify({ version: 1, servers: [github], owned: legacy }), "utf8");
+    const store = new McpServerStore({ path });
     await store.load();
-    const saved = await store.save([github]);
-    expect(saved.userSettings).toEqual({
-      enabled: true,
-      outcomes: [{ provider: "droid", path: "C:\\home\\.factory\\mcp.json", status: "updated" }],
+    const seen: unknown[] = [];
+    await store.cleanUpUserSettings(async (owned) => {
+      seen.push(owned);
+      return { "C:\\home\\.qwen\\settings.json": ["linear"] };
     });
-    expect(JSON.parse(await readFile(path, "utf8")).owned).toEqual({ "C:\\home\\.factory\\mcp.json": ["github"] });
+    expect(seen).toEqual([legacy]);
+    const saved = JSON.parse(await readFile(path, "utf8"));
+    expect(saved.owned).toEqual({ "C:\\home\\.qwen\\settings.json": ["linear"] });
+    expect(saved.servers).toEqual([github]);
 
-    const restarted = new McpServerStore({ path, syncUserSettings: sync });
-    await restarted.load();
-    await restarted.save([]);
-    expect(calls).toEqual([
-      { names: ["github"], owned: {} },
-      { names: [], owned: { "C:\\home\\.factory\\mcp.json": ["github"] } },
-    ]);
+    // Saving the list leaves the cleanup record as it is.
+    await store.save([github, linear]);
+    expect(JSON.parse(await readFile(path, "utf8")).owned).toEqual({ "C:\\home\\.qwen\\settings.json": ["linear"] });
   });
 
+  it("does not replace a list it could not read while cleaning up", async () => {
+    const path = await storePath();
+    await writeFile(path, "{ nope", "utf8");
+    const store = new McpServerStore({ path });
+    await store.load();
+    await store.cleanUpUserSettings(async () => ({}));
+    expect(await readFile(path, "utf8")).toBe("{ nope");
+  });
   it("reports a damaged file instead of throwing, and saving replaces it", async () => {
     const path = await storePath();
     await writeFile(path, "{ nope", "utf8");
@@ -353,15 +346,10 @@ describe("McpServerStore launch rules", () => {
     });
   });
 
-  it("gives servers limited to projects only to agents in those projects, and never to user settings", async () => {
+  it("gives servers limited to projects only to agents in those projects", async () => {
     const path = await storePath();
-    const synced: string[][] = [];
     const store = new McpServerStore({
       path,
-      syncUserSettings: async (specs) => {
-        synced.push(specs.map((spec) => spec.name));
-        return { outcomes: [], owned: {} };
-      },
       extraServers: () => [{ ...linear, name: "plugin", enabled: true, projects: ["/elsewhere"] }],
     });
     await store.load();
@@ -371,7 +359,6 @@ describe("McpServerStore launch rules", () => {
     expect(names()).toEqual(["plugin"]);
     expect(names("/work/app/")).toEqual(["github", "plugin"]);
     expect(names("/work/other")).toEqual(["plugin"]);
-    expect(synced).toEqual([["plugin"]]);
   });
 
   it("matches project paths the way the system does", () => {

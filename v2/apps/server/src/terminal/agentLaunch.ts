@@ -8,6 +8,7 @@ import {
   opencodeConfigContent,
   writeAgentMcpConfig,
 } from "../browser-tool/browserTool.js";
+import { projectMcpFile, projectMcpFileContents, type SettingsFileProvider } from "../browser-tool/mcpSettingsFiles.js";
 
 /**
  * Model ids reach cmd.exe when the CLI is an npm .cmd shim, so only characters that real
@@ -132,12 +133,12 @@ export function mcpConfigFileKind(provider: ListedProviderKind): McpConfigFileKi
 
 /**
  * Per-launch flags that add MCP servers without editing the CLI's own config.
- * Droid, Gemini, Kimi, and Qwen have no such flag and read them from their user settings;
- * OpenCode reads them from OPENCODE_CONFIG_CONTENT.
+ * Cursor, Droid, Gemini, Kimi, and Qwen have no such flag and read them from a project MCP file that ZLI
+ * writes in the worktree (`worktreeFile`); OpenCode reads them from OPENCODE_CONFIG_CONTENT.
  */
 export function mcpLaunchArgs(
   provider: ListedProviderKind,
-  tool: { specs: readonly McpServerSpec[]; configFile?: string },
+  tool: { specs: readonly McpServerSpec[]; configFile?: string; worktreeFile?: boolean },
   platform: NodeJS.Platform = process.platform,
 ): string[] {
   if (tool.specs.length === 0) return [];
@@ -150,8 +151,9 @@ export function mcpLaunchArgs(
     case "copilot":
       return tool.configFile ? ["--additional-mcp-config", `@${tool.configFile}`] : [];
     case "cursor-agent":
-      // The servers come from ~/.cursor/mcp.json; without this Cursor asks before starting them.
-      return ["--approve-mcps"];
+      // Without this Cursor asks before starting the servers. Only given when the project file is ZLI's,
+      // so servers a repository brings in its own .cursor/mcp.json are never approved for the person.
+      return tool.worktreeFile ? ["--approve-mcps"] : [];
     case "goose":
       return tool.specs.flatMap((spec) => gooseMcpArgs(spec, platform));
     case "droid":
@@ -163,10 +165,45 @@ export function mcpLaunchArgs(
   }
 }
 
+/**
+ * Writes a file inside a worktree, or removes ZLI's file there when `contents` is undefined. Resolves
+ * true when the file holds `contents`, false when the file is not ZLI's and was left alone.
+ */
+export type WorktreeFileWriter = (
+  worktreePath: string,
+  relPath: string,
+  contents: string | undefined,
+) => Promise<boolean>;
+
+/**
+ * Gives a CLI that reads a project MCP file its servers through ZLI's file in the worktree. Resolves true
+ * when that file is ZLI's and holds `specs`; false for CLIs without such a file, for a file that is not
+ * ZLI's, and on any failure. With no servers, ZLI's file from an earlier launch is removed rather than
+ * left stale.
+ */
+export async function writeProjectMcpFile(
+  provider: ListedProviderKind,
+  specs: readonly McpServerSpec[],
+  worktreePath: string,
+  write: WorktreeFileWriter,
+): Promise<boolean> {
+  const projectFile = projectMcpFile(provider);
+  if (!projectFile) return false;
+  const contents = specs.length > 0 ? projectMcpFileContents(provider as SettingsFileProvider, specs) : undefined;
+  try {
+    return await write(worktreePath, projectFile, contents);
+  } catch {
+    return false;
+  }
+}
+
 export type AgentMcpLaunchOptions = {
   /** Where the config file goes for CLIs that take one on the command line. */
   configDir?: string;
   worktreeId: string;
+  /** Where the agent starts, which gets the project MCP file for CLIs that read one. */
+  worktreePath?: string;
+  writeWorktreeFile?: WorktreeFileWriter;
   /** The environment OPENCODE_CONFIG_CONTENT is merged with. */
   env?: NodeJS.ProcessEnv;
   writeMcpConfig?: typeof writeAgentMcpConfig;
@@ -180,7 +217,7 @@ export async function agentMcpLaunch(
 ): Promise<{ args: string[]; env: Record<string, string> }> {
   const kind = mcpConfigFileKind(provider);
   let configFile: string | undefined;
-  if (kind && options.configDir) {
+  if (kind && options.configDir && specs.length > 0) {
     try {
       configFile = await (options.writeMcpConfig ?? writeAgentMcpConfig)(
         options.configDir,
@@ -192,12 +229,23 @@ export async function agentMcpLaunch(
       configFile = undefined;
     }
   }
+  const worktreeFile =
+    options.worktreePath && options.writeWorktreeFile
+      ? await writeProjectMcpFile(provider, specs, options.worktreePath, options.writeWorktreeFile)
+      : false;
   const env: Record<string, string> = {};
-  if (provider === "opencode") {
+  if (provider === "opencode" && specs.length > 0) {
     const content = opencodeConfigContent(specs, (options.env ?? process.env).OPENCODE_CONFIG_CONTENT);
     if (content) env.OPENCODE_CONFIG_CONTENT = content;
   }
-  return { args: mcpLaunchArgs(provider, { specs, ...(configFile ? { configFile } : {}) }), env };
+  return {
+    args: mcpLaunchArgs(provider, {
+      specs,
+      ...(configFile ? { configFile } : {}),
+      ...(worktreeFile ? { worktreeFile } : {}),
+    }),
+    env,
+  };
 }
 
 function validModel(model: string): string {

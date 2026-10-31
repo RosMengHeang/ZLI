@@ -28,7 +28,6 @@ import {
   SIGN_IN_CANCELED,
   serverStatus,
   serverSummary,
-  settingsProblems,
   signedInText,
   signInFor,
   TRANSPORT_LABELS,
@@ -39,7 +38,7 @@ import { TextLink } from "./SectionHeader.js";
 
 type Editing = { index?: number; draft: McpDraft };
 
-const SETTINGS_AGENTS = "Cursor, Droid, Gemini, Kimi Code, and Qwen Code";
+const PROJECT_FILE_AGENTS = "Cursor, Droid, Gemini, Kimi Code, and Qwen Code";
 
 /** The catalog entry a saved server came from, by name or address, for its logo and title. */
 export function serverLogoId(server: McpServerConfig): string {
@@ -104,12 +103,11 @@ export function McpServersSection({
     );
   }
 
-  const { servers, userSettings, agentAccess, agentScope, problem: storeProblem } = state.result;
+  const { servers, agentAccess, agentScope, problem: storeProblem } = state.result;
   const zliStatus =
     agentAccess === "off"
       ? "Off."
       : `${AGENT_ACCESS_LABELS[agentAccess]}, ${AGENT_SCOPE_LABELS[agentScope].toLowerCase()}.`;
-  const problems = settingsProblems(userSettings.outcomes);
   const pluginSignIns = pluginSignInsOf(state.result);
   const result = state.result;
 
@@ -627,17 +625,10 @@ export function McpServersSection({
       ) : null}
       {editorForm}
       <p className="settings-footnote">
-        {userSettings.enabled
-          ? `${SETTINGS_AGENTS} only read servers from their own settings files, so ZLI writes enabled servers there and removes the ones it added.`
-          : `${SETTINGS_AGENTS} only read servers from their own settings files, and ZLI is set to leave those files alone.`}
+        ZLI gives these servers only to agents it starts. {PROJECT_FILE_AGENTS} read them from a project MCP file that
+        ZLI writes in the agent's worktree, hides from git, and deletes when ZLI quits. If the worktree already has that
+        file, ZLI leaves it alone and those agents start without these servers.
       </p>
-      {problems.length > 0 ? (
-        <ul className="mcp-settings-problems">
-          {problems.map((line) => (
-            <li key={line}>{line}</li>
-          ))}
-        </ul>
-      ) : null}
     </>
   );
 }

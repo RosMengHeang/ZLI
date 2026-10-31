@@ -38,12 +38,12 @@ describe("skill helpers", () => {
     expect(projectSkillGaps()).toEqual([{ agent: "claude-code", dirs: [".claude/skills"] }]);
     expect(
       skillSyncProblems([
-        { path: "/h/.claude/skills", agents: ["claude-code"], status: "unchanged", conflicts: ["review"] },
-        { path: "/h/.agents/skills", agents: ["codex"], status: "failed", conflicts: [], message: "EACCES" },
+        { path: "/w/.claude/skills", agents: ["claude-code"], status: "unchanged", conflicts: ["review"] },
+        { path: "/w/.agents/skills", agents: ["codex"], status: "failed", conflicts: [], message: "EACCES" },
       ]),
     ).toEqual([
-      "/h/.claude/skills already has your own review, so ZLI left it alone.",
-      "/h/.agents/skills could not be updated (EACCES).",
+      "/w/.claude/skills already has a skill named review, so ZLI did not copy yours there.",
+      "/w/.agents/skills could not be updated (EACCES).",
     ]);
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(4096)).toBe("4 KB");
@@ -130,7 +130,7 @@ describe("SkillsSection", () => {
     });
     expect(container.textContent).toContain("No skills yet.");
     expect(container.textContent).toContain("Found in Claude Code");
-    expect(container.textContent).toContain("ZLI copies your enabled skills into ~/.agents/skills");
+    expect(container.textContent).toContain("ZLI gives your enabled skills only to agents it starts.");
 
     await act(async () => button(container, "New skill").click());
     const form = container.querySelector('form[aria-label="New skill"]') as HTMLFormElement;
