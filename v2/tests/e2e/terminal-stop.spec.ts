@@ -90,7 +90,8 @@ async function startDrawerShell(page: Page, branch: string) {
   const output = page.getByRole("log", { name: "Terminal output" });
   await expect(output).toHaveText(/[$>#%]\s*$/u, { timeout: 20_000 });
   await page.locator(".terminal-output .xterm-helper-textarea").focus();
-  await page.keyboard.type('sleep 300 & echo "pids:$$:$!"');
+  // Unquoted, so bash 3.2 (the macOS default) does not read the ! as a history expansion.
+  await page.keyboard.type("sleep 300 & echo pids:$$:$!");
   await page.keyboard.press("Enter");
   await expect(output).toHaveText(/pids:\d+:\d+/u, { timeout: 20_000 });
   const match = /pids:(\d+):(\d+)/u.exec((await output.textContent()) ?? "");
