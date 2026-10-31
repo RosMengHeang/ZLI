@@ -1,16 +1,6 @@
 import type { ThreadMessageProjection } from "@zli-v2/contracts";
-import { useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  KeyboardAvoidingView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Alert, FlatList, KeyboardAvoidingView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLink, useLinkSnapshot } from "../LinkContext.js";
@@ -26,7 +16,16 @@ import {
 import { useNavigation } from "../navigation.js";
 import { newId } from "../platform.js";
 import { mono, radius, space, TAP, type, usePalette } from "../theme.js";
-import { Button, EmptyState, Header, IconButton, Notice, StatusText, StopButton } from "../ui/components.js";
+import {
+  Button,
+  EmptyState,
+  Header,
+  IconButton,
+  Notice,
+  ShimmerText,
+  StatusText,
+  StopButton,
+} from "../ui/components.js";
 import { Icon } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ConnectionBanner } from "./ConnectionBanner.js";
@@ -121,15 +120,12 @@ export function AgentScreen({ threadId }: { threadId: string }) {
     ]);
   };
 
-  const waitingLine = activity
-    ? activity.title
-    : running
-      ? `${name} is working`
-      : queued.length === 1
-        ? "1 message waits for this turn to end"
-        : queued.length > 1
-          ? `${queued.length} messages wait for this turn to end`
-          : undefined;
+  const queuedLine =
+    queued.length === 1
+      ? "1 message waits for this turn to end"
+      : queued.length > 1
+        ? `${queued.length} messages wait for this turn to end`
+        : undefined;
 
   const tail = (
     <View style={local.tail}>
@@ -139,13 +135,11 @@ export function AgentScreen({ threadId }: { threadId: string }) {
       {thread.errorMessage ? (
         <Notice tone="error" title="The agent reported an error" message={thread.errorMessage} />
       ) : null}
-      {waitingLine ? (
-        <View style={local.activity} accessibilityLiveRegion="polite">
-          {running ? <ActivityIndicator size="small" color={palette.tones.blue.ink} /> : null}
-          <Text style={[local.activityText, { color: palette.muted }]} numberOfLines={2}>
-            {waitingLine}
-          </Text>
-        </View>
+      {running ? <WorkingStatus key={thread.activeTurnId ?? "turn"} label={activity?.title ?? "Thinking"} /> : null}
+      {queuedLine ? (
+        <Text style={[local.queued, { color: palette.muted }]} accessibilityLiveRegion="polite">
+          {queuedLine}
+        </Text>
       ) : null}
     </View>
   );
@@ -268,6 +262,33 @@ export function AgentScreen({ threadId }: { threadId: string }) {
   );
 }
 
+/** Mounted for one turn, so the time counts from when the phone saw the turn start, as on the desktop. */
+function WorkingStatus({ label }: { label: string }) {
+  const palette = usePalette();
+  const [startedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(startedAt);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <View style={local.working} accessibilityLiveRegion="polite">
+      <ShimmerText text={label} style={local.workingLabel} />
+      <Text style={[local.workingTime, { color: palette.dim }]} accessibilityElementsHidden>
+        {`· ${elapsedLabel(now - startedAt)}`}
+      </Text>
+    </View>
+  );
+}
+
+function elapsedLabel(milliseconds: number): string {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1_000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
 function Message({ message }: { message: ThreadMessageProjection }) {
   const palette = usePalette();
   const attachments = message.attachments?.length ?? 0;
@@ -324,8 +345,10 @@ const local = StyleSheet.create({
   branch: { flexShrink: 1, fontFamily: mono, ...type.caption },
   transcript: { paddingHorizontal: space.lg, paddingVertical: space.md, gap: space.lg, flexGrow: 1 },
   tail: { gap: space.md },
-  activity: { flexDirection: "row", alignItems: "center", gap: space.sm, minHeight: 24 },
-  activityText: { ...type.footnote, flex: 1 },
+  working: { flexDirection: "row", alignItems: "center", gap: space.sm, minHeight: 24 },
+  workingLabel: { ...type.footnote },
+  workingTime: { ...type.footnote, fontVariant: ["tabular-nums"] },
+  queued: { ...type.footnote },
   dock: { paddingHorizontal: space.md, paddingTop: space.xs, gap: space.sm },
   composer: {
     flexDirection: "row",

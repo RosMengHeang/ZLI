@@ -25,6 +25,11 @@ function fakeLink() {
       snapshot = { ...snapshot, generation: snapshot.generation + 1 };
       for (const listener of linkListeners) listener();
     },
+    setTerminalStatus(status: string | undefined) {
+      const terminals = status ? [{ terminalId: ids.shell, status, lastSequence: 0 }] : [];
+      snapshot = { ...snapshot, projection: { terminals } } as unknown as LinkSnapshot;
+      for (const listener of linkListeners) listener();
+    },
     emit(message: TerminalClientMessage) {
       for (const listener of terminalListeners) listener(message);
     },
@@ -77,6 +82,24 @@ describe("TerminalFeed", () => {
     } as TerminalClientMessage);
     await settle();
     expect(feed.getSnapshot().exited).toBe(true);
+    feed.stop();
+  });
+
+  it("waits for a new shell to start before attaching", async () => {
+    const fake = fakeLink();
+    fake.setTerminalStatus(undefined);
+    const feed = new TerminalFeed(fake.link, ids.shell, 1);
+    feed.start();
+    await settle();
+    fake.setTerminalStatus("starting");
+    await settle();
+    expect(fake.attached).toEqual([]);
+    expect(fake.commands).toEqual([]);
+
+    fake.setTerminalStatus("running");
+    await settle();
+    expect(fake.attached).toEqual([ids.shell]);
+    expect(feed.getSnapshot()).toMatchObject({ text: "$ ls\nREADME.md", loaded: true, error: undefined });
     feed.stop();
   });
 

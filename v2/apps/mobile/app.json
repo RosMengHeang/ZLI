@@ -2,6 +2,7 @@
   "expo": {
     "name": "ZLI Remote",
     "slug": "zli-remote",
+    "scheme": "zli-remote",
     "version": "0.1.0",
     "orientation": "default",
     "userInterfaceStyle": "automatic",

@@ -219,16 +219,18 @@ export function StartAgentScreen({ projectId }: { projectId?: string }) {
           <Text accessibilityRole="header" style={[local.title, { color: palette.muted }]}>
             Where it works
           </Text>
-          <Segmented
-            label="Where it works"
-            value={placement}
-            onChange={setPlacement}
-            options={[
-              { value: "new", label: "New worktree" },
-              { value: "existing", label: "Existing", disabled: worktrees.length === 0 },
-            ]}
-          />
-          {placement === "new" ? (
+          {worktrees.length > 0 ? (
+            <Segmented
+              label="Where it works"
+              value={placement}
+              onChange={setPlacement}
+              options={[
+                { value: "new", label: "New worktree" },
+                { value: "existing", label: "Existing" },
+              ]}
+            />
+          ) : null}
+          {placement === "new" || worktrees.length === 0 ? (
             <Field
               accessibilityLabel="Branch name"
               hint={

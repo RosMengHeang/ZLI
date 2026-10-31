@@ -12,6 +12,7 @@ import {
   Text,
   TextInput,
   type TextInputProps,
+  type TextStyle,
   View,
   type ViewStyle,
 } from "react-native";
@@ -346,11 +347,11 @@ export function Field({
         ]}
       />
       {error ? (
-        <Text accessibilityLiveRegion="polite" style={[styles.meta, { color: palette.tones.red.ink }]}>
+        <Text accessibilityLiveRegion="polite" style={[styles.fieldNote, { color: palette.tones.red.ink }]}>
           {error}
         </Text>
       ) : hint ? (
-        <Text style={[styles.meta, { color: palette.muted }]}>{hint}</Text>
+        <Text style={[styles.fieldNote, { color: palette.muted }]}>{hint}</Text>
       ) : null}
     </View>
   );
@@ -646,6 +647,60 @@ function useReducedMotion(): boolean {
   return reduced;
 }
 
+/** Characters past this many end in an ellipsis, since each one is laid out on its own. */
+const SHIMMER_MAX = 44;
+const SHIMMER_BAND = 0.18;
+
+/**
+ * The desktop's shimmer-text: muted text with a lighter band sweeping across it while work runs. Each
+ * character fades on the native thread, because React Native cannot clip a gradient to text without a
+ * mask. With reduced motion it is plain muted text.
+ */
+export function ShimmerText({ text, style }: { text: string; style?: StyleProp<TextStyle> }) {
+  const palette = usePalette();
+  const reduced = useReducedMotion();
+  const sweep = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (reduced) return;
+    sweep.setValue(0);
+    const loop = Animated.loop(
+      Animated.timing(sweep, { toValue: 1, duration: 2200, easing: Easing.linear, useNativeDriver: true }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [reduced, sweep]);
+
+  const shown = text.length > SHIMMER_MAX ? `${text.slice(0, SHIMMER_MAX - 1).trimEnd()}…` : text;
+  if (reduced) {
+    return (
+      <Text style={[style, { color: palette.muted }]} numberOfLines={1}>
+        {shown}
+      </Text>
+    );
+  }
+  const chars = Array.from(shown);
+  const span = 1 - 2 * SHIMMER_BAND;
+  return (
+    <View style={styles.shimmer} accessible accessibilityRole="text" accessibilityLabel={text}>
+      {chars.map((char, index) => {
+        const at = SHIMMER_BAND + (index / Math.max(1, chars.length - 1)) * span;
+        const opacity = sweep.interpolate({
+          inputRange: [at - SHIMMER_BAND, at, at + SHIMMER_BAND],
+          outputRange: [0.62, 1, 0.62],
+          extrapolate: "clamp",
+        });
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: characters repeat, and their order never changes.
+          <Animated.Text key={index} style={[style, { color: palette.text, opacity }]}>
+            {char}
+          </Animated.Text>
+        );
+      })}
+    </View>
+  );
+}
+
 /**
  * The desktop's stop control: a small square inside a ring. The ring turns in the Working blue while
  * the agent works, speeds up after a press until the work has ended, and stays still for an idle
@@ -748,6 +803,7 @@ export const styles = StyleSheet.create({
   },
   buttonLarge: { minHeight: 52, paddingHorizontal: space.xl },
   buttonLabel: { ...type.body, fontWeight: "600" },
+  shimmer: { flexDirection: "row", flexShrink: 1, minWidth: 0, overflow: "hidden" },
   iconButton: {
     width: TAP,
     height: TAP,
@@ -790,6 +846,7 @@ export const styles = StyleSheet.create({
   noticeAction: { flexDirection: "row", marginTop: space.sm },
   field: { gap: space.xs + 2 },
   fieldLabel: { ...type.meta, fontWeight: "600", paddingHorizontal: space.xs },
+  fieldNote: { ...type.meta, paddingHorizontal: space.xs },
   input: {
     minHeight: 48,
     paddingHorizontal: space.md + 2,

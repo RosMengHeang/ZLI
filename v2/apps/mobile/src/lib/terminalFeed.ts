@@ -85,8 +85,10 @@ export class TerminalFeed {
   #onLink(): void {
     const snapshot = this.#link.getSnapshot();
     if (snapshot.state.kind !== "online" || snapshot.generation === this.#generation) return;
-    this.#generation = snapshot.generation;
     const known = snapshot.projection?.terminals.find((terminal) => terminal.terminalId === this.#terminalId);
+    // The desktop accepts terminal.create before its process exists; reading earlier fails with "does not exist".
+    if (snapshot.projection && (!known || known.status === "starting")) return;
+    this.#generation = snapshot.generation;
     try {
       this.#link.attachTerminal(this.#terminalId, this.#sequence ?? known?.lastSequence ?? 0);
     } catch {
