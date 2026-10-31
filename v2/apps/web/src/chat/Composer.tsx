@@ -614,10 +614,12 @@ export function Composer({
                     onClick={() => setPreview({ url: image.previewUrl, name })}
                   >
                     <img src={image.previewUrl} alt="" draggable={false} />
+                    <span className="sr-only">{name}</span>
                   </button>
                 ) : (
                   <span className="composer-attachment-thumb">
                     <Icon name="image" size={16} />
+                    <span className="sr-only">{name}</span>
                   </span>
                 )}
                 <RemoveAttachment name={name} onRemove={() => removeImage(image.id)} />

@@ -489,6 +489,13 @@ describe("ChatView", () => {
     expect(textarea?.value).toBe("");
     expect(cards().map(([badge]) => badge)).toEqual(["pdf", "xlsx"]);
 
+    // An image tile shows only its picture, but its name stays in the list for screen readers.
+    const image = new File(["png"], "window.png", { type: "image/png" });
+    await act(async () => drag("drop", [image]));
+    expect(container.querySelector(".composer-attachment.is-image")?.textContent).toBe("window.png");
+    await act(async () => button(container, "Remove window.png")?.click());
+    expect(container.querySelector(".composer-attachment.is-image")).toBeNull();
+
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
       setter?.call(textarea, "Compare these");
