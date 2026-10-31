@@ -140,7 +140,7 @@ export class ProviderService {
     private readonly cliProbe: CliProbe = createDefaultCliProbe(),
   ) {
     for (const adapter of registry.list()) {
-      this.unsubscribers.push(adapter.subscribe((event) => this.emit(event)));
+      this.unsubscribers.push(adapter.subscribe((event) => this.onAdapterEvent(adapter, event)));
     }
   }
 
@@ -159,8 +159,10 @@ export class ProviderService {
   }
 
   async startSession(input: ProviderSessionStart & { provider: ProviderKind }): Promise<ProviderSession> {
-    if (this.sessions.has(input.threadId))
+    const current = this.sessions.get(input.threadId);
+    if (current?.hasSession({ threadId: input.threadId }))
       throw new ProviderServiceError("session_exists", `Session already exists: ${input.threadId}`);
+    this.sessions.delete(input.threadId);
     const adapter = this.registry.get(input.provider);
     if (!adapter) throw new ProviderServiceError("provider_missing", `Provider is not available: ${input.provider}`);
     try {
@@ -197,8 +199,11 @@ export class ProviderService {
 
   async stopSession(input: { threadId: ThreadId }): Promise<void> {
     const adapter = this.adapterFor(input.threadId);
-    await adapter.stopSession(input);
-    this.sessions.delete(input.threadId);
+    try {
+      await adapter.stopSession(input);
+    } finally {
+      this.sessions.delete(input.threadId);
+    }
   }
 
   listSessions(): ReadonlyArray<ProviderSession> {
@@ -253,6 +258,19 @@ export class ProviderService {
       this.sessions.get(threadId) ?? this.registry.list().find((candidate) => candidate.hasSession({ threadId }));
     if (!adapter) throw new ProviderServiceError("session_missing", `Provider session does not exist: ${threadId}`);
     return adapter;
+  }
+
+  private onAdapterEvent(adapter: ProviderAdapter, event: ProviderEvent): void {
+    // Adapters forget a session whose process ended before they report it. A close that arrives after a
+    // new session already started for the thread belongs to the old process and leaves the new one alone.
+    if (
+      event.type === "session.closed" &&
+      this.sessions.get(event.threadId) === adapter &&
+      !adapter.hasSession({ threadId: event.threadId })
+    ) {
+      this.sessions.delete(event.threadId);
+    }
+    this.emit(event);
   }
 
   private emit(event: ProviderEvent): void {

@@ -468,6 +468,9 @@ export class ProviderReactor {
     }
     if (event.type === "session.closed") {
       this.flushThreadDeltas(event.threadId);
+      // The turn died with the process. Left active, it would be the one a Stop after the next send interrupts.
+      const active = this.activeTurns.get(event.threadId);
+      if (active) this.endTurn(event.threadId, active);
       this.track(this.status(event.threadId, "stopped", { errorMessage: event.reason }));
       return;
     }

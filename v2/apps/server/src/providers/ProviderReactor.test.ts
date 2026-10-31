@@ -54,6 +54,7 @@ class FakeAdapter implements ProviderAdapter {
   }
   async respondToUserInput(): Promise<void> {}
   async stopSession(): Promise<void> {
+    if (!this.started) throw new Error("Fake session does not exist");
     this.started = false;
   }
   listSessions(): ReadonlyArray<ProviderSession> {
@@ -79,7 +80,9 @@ class FakeAdapter implements ProviderAdapter {
     this.events.add(listener);
     return () => this.events.delete(listener);
   }
+  /** Like the real adapters, a closed session is forgotten before anyone hears about it. */
   emit(event: ProviderEvent): void {
+    if (event.type === "session.closed") this.started = false;
     for (const listener of this.events) listener(event);
   }
 }
@@ -714,6 +717,68 @@ describe("ProviderReactor resume", () => {
     const log = await messages();
     expect(log.filter(([role]) => role === "user")).toEqual([["user", "pick it up"]]);
     expect(log.filter(([role]) => role === "system")).toHaveLength(1);
+    await cleanup();
+  });
+
+  it("starts the agent again on its conversation when a message follows a crash", async () => {
+    const adapter = new (class extends IdentifiedAdapter {
+      override async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
+        this.turnInputs.push(input);
+        return { turnId: `turn-${this.turnInputs.length}` };
+      }
+    })();
+    const { reactor, dispatch, thread, cleanup } = await setup(adapter);
+    await dispatch({ type: "thread.queue", queueId: "c1", threadId, text: "before the crash" });
+    await reactor.waitForIdle();
+    expect((await thread())?.status).toBe("working");
+
+    adapter.emit({ type: "session.closed", threadId, reason: "Codex exited (1)." });
+    await reactor.waitForIdle();
+    expect(await thread()).toMatchObject({ status: "stopped", errorMessage: "Codex exited (1)." });
+
+    await dispatch({ type: "thread.queue", queueId: "c2", threadId, text: "after the crash" });
+    await reactor.waitForIdle();
+    expect(adapter.startInputs.map((input) => input.resumeSessionId)).toEqual([undefined, "conv-1"]);
+    expect(adapter.turnInputs.map((input) => input.text)).toEqual(["before the crash", "after the crash"]);
+    expect(await thread()).toMatchObject({ status: "working", providerSessionId: "conv-1" });
+
+    adapter.emit({ type: "turn.completed", threadId, turnId: "turn-2", status: "completed" });
+    await reactor.waitForIdle();
+    adapter.emit({ type: "session.closed", threadId, reason: "Codex exited (1)." });
+    await reactor.waitForIdle();
+    await dispatch({ type: "thread.queue", queueId: "c3", threadId, text: "and again" });
+    await reactor.waitForIdle();
+    expect(adapter.turnInputs.map((input) => input.text)).toEqual(["before the crash", "after the crash", "and again"]);
+    expect((await thread())?.status).toBe("working");
+    await cleanup();
+  });
+
+  it("interrupts the new turn, not the one that died, when Stop follows a send after a crash", async () => {
+    let releaseTurn: (() => void) | undefined;
+    const adapter = new (class extends IdentifiedAdapter {
+      readonly interrupted: (string | undefined)[] = [];
+      override async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
+        this.turnInputs.push(input);
+        if (this.turnInputs.length > 1) await new Promise<void>((resolve) => (releaseTurn = resolve));
+        return { turnId: `turn-${this.turnInputs.length}` };
+      }
+      override async interruptTurn(input?: { turnId?: string }): Promise<void> {
+        this.interrupted.push(input?.turnId);
+      }
+    })();
+    const { reactor, dispatch, thread, cleanup } = await setup(adapter);
+    await dispatch({ type: "thread.queue", queueId: "c1", threadId, text: "first" });
+    await reactor.waitForIdle();
+    adapter.emit({ type: "session.closed", threadId, reason: "Codex exited (1)." });
+    await reactor.waitForIdle();
+
+    await dispatch({ type: "thread.queue", queueId: "c2", threadId, text: "second" });
+    await vi.waitFor(() => expect(releaseTurn).toBeDefined());
+    await dispatch({ type: "thread.interrupt", threadId });
+    releaseTurn?.();
+    await reactor.waitForIdle();
+    expect(adapter.interrupted.at(-1)).toBe("turn-2");
+    expect((await thread())?.status).toBe("idle");
     await cleanup();
   });
 
