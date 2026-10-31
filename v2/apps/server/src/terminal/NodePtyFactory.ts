@@ -36,6 +36,7 @@ function childPtyEnv(
   const env = pathPrepend ? prependPath(inherited, pathPrepend, platform) : inherited;
   delete env.ZLI_DAEMON_TOKEN;
   delete env.ZLI_DAEMON_ENDPOINT_PATH;
+  delete env.ZLI_RUNTIME_TOKEN;
   return env;
 }
 

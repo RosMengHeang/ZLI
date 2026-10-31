@@ -110,7 +110,7 @@ describe("NodePtyFactory", () => {
     expect(spawned[0]).toMatchObject({ shell: "/usr/local/bin/droid", args: ["--auto", "high"] });
   });
 
-  it("omits daemon credentials from the child environment when the parent has them", async () => {
+  it("omits daemon credentials and the runtime token from the child environment", async () => {
     const previous = {
       token: process.env.ZLI_DAEMON_TOKEN,
       endpointPath: process.env.ZLI_DAEMON_ENDPOINT_PATH,
@@ -141,6 +141,7 @@ describe("NodePtyFactory", () => {
       ZLI_DAEMON_TOKEN: "explicit-token",
       ZLI_DAEMON_ENDPOINT_PATH: "/tmp/explicit-endpoint.json",
       ZLI_DAEMON_VERSION: "kept-version",
+      ZLI_RUNTIME_TOKEN: "runtime-token",
       TERM: "xterm-256color",
     };
 
@@ -156,6 +157,7 @@ describe("NodePtyFactory", () => {
       expect(spawned[1]?.env?.ZLI_DAEMON_TOKEN).toBeUndefined();
       expect(spawned[1]?.env?.ZLI_DAEMON_ENDPOINT_PATH).toBeUndefined();
       expect(spawned[1]?.env?.ZLI_DAEMON_VERSION).toBe("kept-version");
+      expect(spawned[1]?.env?.ZLI_RUNTIME_TOKEN).toBeUndefined();
       expect(spawned[1]?.env?.TERM).toBe("xterm-256color");
       expect(explicitEnv.ZLI_DAEMON_TOKEN).toBe("explicit-token");
       expect(explicitEnv.ZLI_DAEMON_ENDPOINT_PATH).toBe("/tmp/explicit-endpoint.json");
