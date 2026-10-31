@@ -13,6 +13,7 @@ import {
   type ProjectSection,
   pendingRequests,
   projectSections,
+  providerName,
   type Tone,
   terminalStatus,
   type WorktreeSection,
@@ -20,10 +21,21 @@ import {
 import { useNavigation } from "../navigation.js";
 import { newId } from "../platform.js";
 import { mono, space, TAP, type, usePalette } from "../theme.js";
-import { EmptyState, Header, IconButton, Notice, Row, Section, StatusText, Tappable } from "../ui/components.js";
+import {
+  EmptyState,
+  Header,
+  IconButton,
+  Notice,
+  Row,
+  Section,
+  StatusText,
+  SwipeRow,
+  Tappable,
+} from "../ui/components.js";
 import { Icon } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ConnectionBanner } from "./ConnectionBanner.js";
+import { useListActions } from "./ListActions.js";
 
 function connectionTone(state: LinkSnapshot["state"]): Tone {
   switch (state.kind) {
@@ -52,6 +64,7 @@ export function HomeScreen() {
   const online = state.kind === "online";
   const [openingShell, setOpeningShell] = useState<string>();
   const [error, setError] = useState<string>();
+  const actions = useListActions(setError);
 
   const openShell = async (worktree: WorktreeProjection) => {
     setOpeningShell(worktree.worktreeId);
@@ -137,14 +150,18 @@ export function HomeScreen() {
                 online={online}
                 openingShell={openingShell}
                 onOpenShell={(worktree) => void openShell(worktree)}
+                actions={actions}
               />
             ))
           )}
         </ScrollView>
       )}
+      {actions.sheets}
     </View>
   );
 }
+
+type ListActions = ReturnType<typeof useListActions>;
 
 function branchOf(projection: RuntimeProjection, worktreeId: string): string | undefined {
   return projection.worktrees.find((worktree) => worktree.worktreeId === worktreeId)?.branch;
@@ -155,11 +172,13 @@ function ProjectBlock({
   online,
   openingShell,
   onOpenShell,
+  actions,
 }: {
   section: ProjectSection;
   online: boolean;
   openingShell: string | undefined;
   onOpenShell: (worktree: WorktreeProjection) => void;
+  actions: ListActions;
 }) {
   const navigation = useNavigation();
   const palette = usePalette();
@@ -215,6 +234,7 @@ function ProjectBlock({
               online={online}
               opening={openingShell === entry.worktree.worktreeId}
               onOpenShell={onOpenShell}
+              actions={actions}
             />
           ))}
           {stopped ? <Text style={[local.note, { color: palette.muted }]}>{stopped}</Text> : null}
@@ -229,12 +249,15 @@ function WorktreeIsland({
   online,
   opening,
   onOpenShell,
+  actions,
 }: {
   entry: WorktreeSection;
   online: boolean;
   opening: boolean;
   onOpenShell: (worktree: WorktreeProjection) => void;
+  actions: ListActions;
 }) {
+  const snapshot = useLinkSnapshot();
   const navigation = useNavigation();
   const palette = usePalette();
   const { worktree, agents, shells } = entry;
@@ -255,29 +278,42 @@ function WorktreeIsland({
           onPress={() => onOpenShell(worktree)}
         />
       </View>
-      {agents.map((agent) => (
-        <AgentItem key={agent.thread.threadId} agent={agent} />
-      ))}
+      {agents.map((agent) => {
+        const provider = providerName(agent.thread.provider, snapshot.projection?.providers);
+        return (
+          <SwipeRow
+            key={agent.thread.threadId}
+            actions={online ? actions.agentActions(agent.thread, agent.name, provider) : []}
+          >
+            <AgentItem
+              agent={agent}
+              {...(online ? { onLongPress: () => actions.openAgentMenu(agent.thread, agent.name, provider) } : {})}
+            />
+          </SwipeRow>
+        );
+      })}
       {shells.map((shell) => {
         const status = terminalStatus(shell);
         return (
-          <Row
-            key={shell.terminalId}
-            leading={<Icon name="terminal" size={20} color={palette.text} />}
-            title={shell.title || "Shell"}
-            subtitle="Shell"
-            trailing={<StatusText label={status.label} tone={status.tone} />}
-            accessibilityLabel={`${shell.title || "Shell"}, shell, ${status.label}`}
-            accessibilityHint="Opens the terminal"
-            onPress={() => navigation.push({ name: "terminal", terminalId: shell.terminalId })}
-          />
+          <SwipeRow key={shell.terminalId} actions={online ? actions.shellActions(shell) : []}>
+            <Row
+              leading={<Icon name="terminal" size={20} color={palette.text} />}
+              title={shell.title || "Shell"}
+              subtitle="Shell"
+              trailing={<StatusText label={status.label} tone={status.tone} />}
+              accessibilityLabel={`${shell.title || "Shell"}, shell, ${status.label}`}
+              accessibilityHint="Opens the terminal. Hold for more."
+              onPress={() => navigation.push({ name: "terminal", terminalId: shell.terminalId })}
+              {...(online ? { onLongPress: () => actions.openShellMenu(shell) } : {})}
+            />
+          </SwipeRow>
         );
       })}
     </Section>
   );
 }
 
-function AgentItem({ agent }: { agent: AgentRow }) {
+function AgentItem({ agent, onLongPress }: { agent: AgentRow; onLongPress?: () => void }) {
   const navigation = useNavigation();
   const palette = usePalette();
   const detail = agent.thread.errorMessage ?? agent.preview ?? "No messages yet";
@@ -288,8 +324,9 @@ function AgentItem({ agent }: { agent: AgentRow }) {
       detail={detail}
       trailing={<StatusText label={agent.status.label} tone={agent.status.tone} />}
       accessibilityLabel={`${agent.name}, ${agent.status.label}, ${detail}`}
-      accessibilityHint="Opens the conversation"
+      accessibilityHint="Opens the conversation. Hold for more."
       onPress={() => navigation.push({ name: "agent", threadId: agent.thread.threadId })}
+      onLongPress={onLongPress}
     />
   );
 }

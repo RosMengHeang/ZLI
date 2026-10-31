@@ -140,6 +140,52 @@ describe("launchAgent", () => {
     expect(failing.sent).toEqual([]);
   });
 
+  it("adds the project's own folder when the agent works in the checkout", async () => {
+    const projection = sampleProjection();
+    const project = projection.projects[0];
+    if (!project) throw new Error("fixture has a project");
+    const input = { project, provider: "codex", model: undefined, permissionMode: "full-access" } as const;
+
+    const listed = fakeLink(projection, () => accepted);
+    await expect(
+      launchAgent(
+        listed.link,
+        { ...input, placement: { kind: "checkout" } },
+        () => "t",
+        () => {},
+      ),
+    ).resolves.toEqual({ threadId: "t" });
+    expect(listed.sent.map((command) => command.type)).toEqual(["thread.start"]);
+    expect(listed.sent[0]).toMatchObject({ worktreeId: ids.main, cwd: "/home/dev/app" });
+
+    const bare = { ...projection, worktrees: projection.worktrees.filter((worktree) => worktree.kind !== "checkout") };
+    const fresh = fakeLink(bare, () => accepted);
+    let counter = 0;
+    const launched = launchAgent(
+      fresh.link,
+      { ...input, placement: { kind: "checkout" } },
+      () => `id-${++counter}`,
+      () => {},
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fresh.sent[0]).toMatchObject({ type: "worktree.import", worktreeId: "id-1", kind: "checkout" });
+    fresh.publish({
+      ...bare,
+      worktrees: [
+        ...bare.worktrees,
+        {
+          worktreeId: "id-1" as RuntimeProjection["worktrees"][number]["worktreeId"],
+          projectId: project.projectId,
+          path: project.path,
+          branch: "main",
+          status: "ready",
+          kind: "checkout",
+        },
+      ],
+    });
+    await expect(launched).resolves.toEqual({ threadId: "id-2" });
+  });
+
   it("asks for a branch name before creating anything", async () => {
     const projection = sampleProjection();
     const project = projection.projects[0];

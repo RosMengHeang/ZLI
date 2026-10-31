@@ -46,7 +46,10 @@ export interface MobileGatewayOptions {
 export const DEFAULT_MOBILE_PORT = 47_321;
 const HANDSHAKE_TIMEOUT_MS = 10_000;
 const HEARTBEAT_MS = 30_000;
-const MAX_PHONE_FRAME_BYTES = 1024 * 1024;
+/** Room for a message with a few photos; the phone shrinks each one before it sends. */
+const MAX_PHONE_FRAME_BYTES = 8 * 1024 * 1024;
+/** Handshake and pairing messages are small, so only a paired, open connection gets the large frame limit. */
+const MAX_HANDSHAKE_FRAME_BYTES = 64 * 1024;
 const MAX_BUFFERED_BYTES = 32 * 1024 * 1024;
 const MAX_UNAUTHENTICATED = 16;
 const MAX_CONNECTIONS_PER_DEVICE = 4;
@@ -366,6 +369,7 @@ export class MobileGateway {
 
     socket.on("message", (data, isBinary) => {
       if (phase === "closed") return;
+      if (phase !== "open" && frameBytes(data) > MAX_HANDSHAKE_FRAME_BYTES) return close(RemoteCloseCode.protocol);
       if (phase === "hello") {
         phase = "handshake";
         void onHello(data, isBinary).catch(() => close(RemoteCloseCode.handshake));
@@ -418,6 +422,11 @@ function rawBytes(data: RawData): Uint8Array {
   if (Array.isArray(data)) return new Uint8Array(Buffer.concat(data));
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
   return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+}
+
+function frameBytes(data: RawData): number {
+  if (Array.isArray(data)) return data.reduce((total, chunk) => total + chunk.byteLength, 0);
+  return data.byteLength;
 }
 
 function rawText(data: RawData): string {

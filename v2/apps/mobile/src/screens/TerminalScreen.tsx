@@ -15,9 +15,10 @@ import { TerminalFeed } from "../lib/terminalFeed.js";
 import { terminalStatus } from "../lib/views.js";
 import { useNavigation } from "../navigation.js";
 import { mono, radius, space, TAP, type, usePalette } from "../theme.js";
-import { EmptyState, Header, IconButton, Notice, StatusText, Tappable } from "../ui/components.js";
+import { Button, EmptyState, Header, IconButton, Notice, StatusText, Tappable } from "../ui/components.js";
 import { Icon } from "../ui/Icon.js";
 import { ConnectionBanner } from "./ConnectionBanner.js";
+import { useListActions } from "./ListActions.js";
 
 /** Keys a phone keyboard cannot type, as the bytes a terminal expects. */
 const KEYS: { label: string; spoken: string; data: string }[] = [
@@ -41,6 +42,7 @@ export function TerminalScreen({ terminalId }: { terminalId: string }) {
   const [error, setError] = useState<string>();
   const [focused, setFocused] = useState(false);
   const scroll = useRef<ScrollViewInstance>(null);
+  const { stopShell } = useListActions(setError);
 
   useEffect(() => {
     feed.start();
@@ -95,6 +97,18 @@ export function TerminalScreen({ terminalId }: { terminalId: string }) {
           </View>
         }
         onBack={navigation.back}
+        actions={
+          terminal && !exited ? (
+            <Button
+              label="Stop"
+              accessibilityLabel={`Stop ${terminal.title || "this shell"}`}
+              accessibilityHint="Ends the shell on the desktop"
+              variant="quiet"
+              disabled={!online}
+              onPress={() => stopShell(terminal)}
+            />
+          ) : undefined
+        }
       />
       <ConnectionBanner />
       <ScrollView

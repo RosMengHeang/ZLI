@@ -1,33 +1,24 @@
 import type { ThreadMessageProjection } from "@zli-v2/contracts";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, FlatList, KeyboardAvoidingView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, FlatList, KeyboardAvoidingView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLink, useLinkSnapshot } from "../LinkContext.js";
 import { sendCommand } from "../lib/launch.js";
 import {
+  agentTitle,
   currentActivity,
   pendingRequests,
-  providerName,
   queuedMessages,
   threadMessages,
   threadStatus,
 } from "../lib/views.js";
 import { useNavigation } from "../navigation.js";
-import { newId } from "../platform.js";
-import { mono, radius, space, TAP, type, usePalette } from "../theme.js";
-import {
-  Button,
-  EmptyState,
-  Header,
-  IconButton,
-  Notice,
-  ShimmerText,
-  StatusText,
-  StopButton,
-} from "../ui/components.js";
+import { mono, radius, space, type, usePalette } from "../theme.js";
+import { Button, EmptyState, Header, Notice, ShimmerText, StatusText } from "../ui/components.js";
 import { Icon } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
+import { Composer } from "./Composer.js";
 import { ConnectionBanner } from "./ConnectionBanner.js";
 import { RequestCard } from "./RequestCard.js";
 
@@ -39,11 +30,8 @@ export function AgentScreen({ threadId }: { threadId: string }) {
   const insets = useSafeAreaInsets();
   const projection = snapshot.projection;
   const thread = projection?.threads.find((candidate) => candidate.threadId === threadId);
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState<"interrupt" | "stop">();
   const [error, setError] = useState<string>();
-  const [focused, setFocused] = useState(false);
 
   const messages = useMemo(
     () => (projection ? [...threadMessages(projection, threadId)].reverse() : []),
@@ -66,7 +54,7 @@ export function AgentScreen({ threadId }: { threadId: string }) {
     );
   }
 
-  const name = providerName(thread.provider, projection.providers);
+  const name = agentTitle(thread, projection.providers);
   const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread.worktreeId);
   const status = threadStatus(thread, requests.length);
   const activity = currentActivity(projection, thread);
@@ -74,22 +62,6 @@ export function AgentScreen({ threadId }: { threadId: string }) {
   const online = snapshot.state.kind === "online";
   const ended = thread.status === "stopped" || thread.status === "failed";
   const running = thread.status === "working";
-  const canSend = online && draft.trim().length > 0 && !sending;
-
-  const send = async () => {
-    const text = draft.trim();
-    if (!text) return;
-    setSending(true);
-    setError(undefined);
-    const outcome = await sendCommand(
-      link,
-      { type: "thread.queue", threadId, queueId: newId(), text },
-      "The message did not reach the desktop.",
-    );
-    setSending(false);
-    if (outcome.ok) setDraft("");
-    else setError(outcome.error);
-  };
 
   const interrupt = async () => {
     setBusy("interrupt");
@@ -214,48 +186,17 @@ export function AgentScreen({ threadId }: { threadId: string }) {
             />
           </View>
         ) : (
-          <View
-            style={[
-              local.composer,
-              {
-                backgroundColor: focused ? palette.overlay : palette.raised,
-                borderColor: focused ? palette.accent : palette.border,
-              },
-            ]}
-          >
-            <TextInput
-              accessibilityLabel={`Message to ${name}`}
-              value={draft}
-              onChangeText={setDraft}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              placeholder={running ? "Sends when this turn ends" : `Message ${name}`}
-              placeholderTextColor={palette.dim}
-              selectionColor={palette.accent}
-              cursorColor={palette.accent}
-              multiline
-              style={[local.input, { color: palette.text }]}
-            />
-            <View style={local.composerActions}>
-              {running ? (
-                <StopButton
-                  label="Interrupt this turn"
-                  running={running}
-                  stopping={busy === "interrupt"}
-                  disabled={!online}
-                  onPress={() => void interrupt()}
-                />
-              ) : null}
-              <IconButton
-                icon="arrowUp"
-                label={running ? "Queue message" : "Send"}
-                variant="primary"
-                busy={sending}
-                disabled={!canSend}
-                onPress={() => void send()}
-              />
-            </View>
-          </View>
+          <Composer
+            thread={thread}
+            name={name}
+            provider={projection.providers?.find((entry) => entry.provider === thread.provider)}
+            hasMessages={messages.length > 0}
+            online={online}
+            running={running}
+            interrupting={busy === "interrupt"}
+            onInterrupt={() => void interrupt()}
+            onError={setError}
+          />
         )}
       </View>
     </KeyboardAvoidingView>
@@ -291,13 +232,24 @@ function elapsedLabel(milliseconds: number): string {
 
 function Message({ message }: { message: ThreadMessageProjection }) {
   const palette = usePalette();
-  const attachments = message.attachments?.length ?? 0;
+  const attachments = message.attachments ?? [];
   const note =
-    attachments === 0
-      ? undefined
-      : attachments === 1
-        ? "Includes 1 attachment. See it on the desktop."
-        : `Includes ${attachments} attachments. See them on the desktop.`;
+    attachments.length === 0 ? undefined : (
+      <View style={local.attachments}>
+        {attachments.map((attachment, index) => (
+          <View
+            // biome-ignore lint/suspicious/noArrayIndexKey: two attachments can share a name, and the list never reorders.
+            key={index}
+            style={[local.attachment, { backgroundColor: palette.overlay }]}
+          >
+            <Icon name={attachment.mimeType.startsWith("image/") ? "image" : "copy"} size={14} color={palette.muted} />
+            <Text style={[local.attachmentName, { color: palette.muted }]} numberOfLines={1}>
+              {attachment.name}
+            </Text>
+          </View>
+        ))}
+      </View>
+    );
   const text = message.text.trim() ? message.text : undefined;
 
   if (message.role === "user") {
@@ -308,7 +260,7 @@ function Message({ message }: { message: ThreadMessageProjection }) {
             {text}
           </Text>
         ) : null}
-        {note ? <Text style={[local.meta, { color: palette.muted }]}>{note}</Text> : null}
+        {note}
       </View>
     );
   }
@@ -318,7 +270,7 @@ function Message({ message }: { message: ThreadMessageProjection }) {
       <View style={local.system}>
         <Icon name="alert" size={14} color={palette.muted} />
         <Text selectable style={[local.meta, local.systemText, { color: palette.muted }]}>
-          {text ?? note}
+          {text ?? "Attached files."}
         </Text>
       </View>
     );
@@ -334,7 +286,7 @@ function Message({ message }: { message: ThreadMessageProjection }) {
           {text}
         </Text>
       ) : null}
-      {note ? <Text style={[local.meta, { color: palette.muted }]}>{note}</Text> : null}
+      {note}
     </View>
   );
 }
@@ -350,30 +302,6 @@ const local = StyleSheet.create({
   workingTime: { ...type.footnote, fontVariant: ["tabular-nums"] },
   queued: { ...type.footnote },
   dock: { paddingHorizontal: space.md, paddingTop: space.xs, gap: space.sm },
-  composer: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: space.xs,
-    paddingLeft: space.lg,
-    paddingRight: space.xs + 2,
-    paddingVertical: space.xs + 2,
-    borderRadius: radius.composer + 4,
-    borderWidth: StyleSheet.hairlineWidth,
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
-  },
-  input: {
-    flex: 1,
-    minHeight: TAP,
-    maxHeight: 160,
-    paddingTop: 11,
-    paddingBottom: 11,
-    ...type.body,
-  },
-  composerActions: { flexDirection: "row", alignItems: "center", gap: space.xs },
   ended: { borderRadius: radius.island, padding: space.lg, gap: space.md },
   endedText: { ...type.footnote },
   bubble: {
@@ -391,4 +319,15 @@ const local = StyleSheet.create({
   systemText: { flex: 1 },
   body: { ...type.body },
   meta: { ...type.meta },
+  attachments: { flexDirection: "row", flexWrap: "wrap", gap: space.xs + 2 },
+  attachment: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.xs + 2,
+    maxWidth: "100%",
+    paddingHorizontal: space.sm + 2,
+    paddingVertical: space.xs + 2,
+    borderRadius: radius.sm,
+  },
+  attachmentName: { ...type.caption, flexShrink: 1 },
 });

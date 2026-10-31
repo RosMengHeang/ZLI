@@ -4,6 +4,9 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
+  KeyboardAvoidingView,
+  Modal,
+  PanResponder,
   Pressable,
   type PressableProps,
   type PressableStateCallbackType,
@@ -416,6 +419,7 @@ export function Row({
   trailing,
   chevron = false,
   onPress,
+  onLongPress,
   disabled = false,
   tone = "default",
   accessibilityLabel,
@@ -430,6 +434,8 @@ export function Row({
   trailing?: ReactNode;
   chevron?: boolean;
   onPress?: (() => void) | undefined;
+  /** Opens the row's actions, the same ones a swipe shows. */
+  onLongPress?: (() => void) | undefined;
   disabled?: boolean;
   tone?: "default" | "danger" | "muted";
   accessibilityLabel?: string;
@@ -474,6 +480,7 @@ export function Row({
       {...(accessibilityHint ? { accessibilityHint } : {})}
       disabled={disabled}
       onPress={onPress}
+      {...(onLongPress ? { onLongPress, delayLongPress: 400 } : {})}
       focusRadius={0}
       style={({ pressed }) => [
         styles.row,
@@ -637,7 +644,7 @@ export function Card({
   );
 }
 
-function useReducedMotion(): boolean {
+export function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
   useEffect(() => {
     void AccessibilityInfo.isReduceMotionEnabled().then(setReduced);
@@ -785,6 +792,324 @@ export function StopButton({
   );
 }
 
+/**
+ * A panel that rises from the bottom over a dim scrim, for a short list of choices or a small form.
+ * It closes on a tap outside, Back, or a pick.
+ */
+export function Sheet({
+  visible,
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  visible: boolean;
+  title?: string | undefined;
+  subtitle?: string | undefined;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const palette = usePalette();
+  const insets = useSafeAreaInsets();
+  const reduced = useReducedMotion();
+  const rise = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!visible) return;
+    if (reduced) {
+      rise.setValue(1);
+      return;
+    }
+    rise.setValue(0);
+    Animated.timing(rise, {
+      toValue: 1,
+      duration: 160,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [visible, reduced, rise]);
+
+  const translateY = rise.interpolate({ inputRange: [0, 1], outputRange: [24, 0] });
+  return (
+    <Modal visible={visible} transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior="padding" style={styles.sheetRoot}>
+        <Animated.View style={[styles.scrim, { opacity: rise }]}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            onPress={onClose}
+          />
+        </Animated.View>
+        <Animated.View
+          accessibilityViewIsModal
+          style={[
+            styles.sheet,
+            {
+              backgroundColor: palette.raised,
+              borderColor: palette.border,
+              paddingBottom: insets.bottom + space.md,
+              opacity: rise,
+              transform: [{ translateY }],
+            },
+          ]}
+        >
+          <View style={[styles.sheetHandle, { backgroundColor: palette.borderStrong }]} />
+          {title ? (
+            <View style={styles.sheetHead}>
+              <Text accessibilityRole="header" style={[styles.sheetTitle, { color: palette.text }]} numberOfLines={1}>
+                {title}
+              </Text>
+              {subtitle ? (
+                <Text style={[styles.meta, { color: palette.muted }]} numberOfLines={2}>
+                  {subtitle}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+          <View style={styles.sheetBody}>{children}</View>
+        </Animated.View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+/** One choice or action in a Sheet. `checked` makes it part of a single choice. */
+export function SheetOption({
+  label,
+  description,
+  leading,
+  icon,
+  checked,
+  tone = "default",
+  disabled = false,
+  labelMono = false,
+  onPress,
+}: {
+  label: string;
+  description?: string | undefined;
+  leading?: ReactNode;
+  icon?: IconName;
+  checked?: boolean;
+  tone?: "default" | "danger";
+  disabled?: boolean;
+  labelMono?: boolean;
+  onPress: () => void;
+}) {
+  const palette = usePalette();
+  const ink = tone === "danger" ? palette.tones.red.ink : palette.text;
+  return (
+    <Tappable
+      accessibilityRole={checked === undefined ? "button" : "radio"}
+      accessibilityState={{ disabled, ...(checked === undefined ? {} : { checked }) }}
+      accessibilityLabel={description ? `${label}, ${description}` : label}
+      disabled={disabled}
+      onPress={onPress}
+      focusRadius={radius.md}
+      style={({ pressed }) => [
+        styles.sheetOption,
+        { backgroundColor: pressed ? palette.overlay : "transparent", opacity: disabled ? 0.45 : 1 },
+      ]}
+    >
+      {leading || icon ? (
+        <View style={styles.rowLeading}>{leading ?? (icon ? <Icon name={icon} size={20} color={ink} /> : null)}</View>
+      ) : null}
+      <View style={styles.rowText}>
+        <Text style={[styles.rowTitle, { color: ink }, labelMono ? styles.mono : null]} numberOfLines={1}>
+          {label}
+        </Text>
+        {description ? (
+          <Text style={[styles.footnote, { color: palette.muted }]} numberOfLines={2}>
+            {description}
+          </Text>
+        ) : null}
+      </View>
+      {checked !== undefined ? (
+        <View style={styles.check}>
+          {checked ? <Icon name="check" size={20} color={palette.accent} strokeWidth={2.25} /> : null}
+        </View>
+      ) : null}
+    </Tappable>
+  );
+}
+
+export type SwipeAction = {
+  label: string;
+  icon: IconName;
+  tone?: "default" | "danger";
+  onPress: () => void;
+};
+
+const SWIPE_ACTION_WIDTH = 76;
+
+/** Only one row shows its actions at a time, the way phone lists behave. */
+let closeOpenSwipe: (() => void) | undefined;
+
+/**
+ * A list row that slides left to show its actions, as in a phone's mail app. Rows should also open
+ * the same actions on a long press, since a swipe is hard to find and to do with a screen reader.
+ */
+export function SwipeRow({ actions, children }: { actions: readonly SwipeAction[]; children: ReactNode }) {
+  const palette = usePalette();
+  const reduced = useReducedMotion();
+  const x = useRef(new Animated.Value(0)).current;
+  const offset = useRef(0);
+  const width = useRef(0);
+  width.current = actions.length * SWIPE_ACTION_WIDTH;
+  const [open, setOpen] = useState(false);
+  const motion = useRef({ reduced });
+  motion.current.reduced = reduced;
+
+  const settle = useRef((to: number) => {
+    offset.current = to;
+    setOpen(to !== 0);
+    if (to !== 0) {
+      if (closeOpenSwipe !== close.current) closeOpenSwipe?.();
+      closeOpenSwipe = close.current;
+    } else if (closeOpenSwipe === close.current) {
+      closeOpenSwipe = undefined;
+    }
+    if (motion.current.reduced) x.setValue(to);
+    else Animated.spring(x, { toValue: to, useNativeDriver: true, speed: 22, bounciness: 0 }).start();
+  }).current;
+  const close = useRef(() => settle(0));
+
+  useEffect(
+    () => () => {
+      if (closeOpenSwipe === close.current) closeOpenSwipe = undefined;
+    },
+    [],
+  );
+
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponderCapture: (_event, gesture) =>
+        Math.abs(gesture.dx) > 10 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderMove: (_event, gesture) => {
+        const next = Math.min(0, Math.max(-width.current - 24, offset.current + gesture.dx));
+        x.setValue(next);
+      },
+      onPanResponderRelease: (_event, gesture) => {
+        const end = offset.current + gesture.dx;
+        const reveal = gesture.vx < -0.3 || (gesture.vx <= 0.3 && end < -width.current / 2);
+        settle(reveal ? -width.current : 0);
+      },
+      onPanResponderTerminate: () => settle(offset.current),
+    }),
+  ).current;
+
+  return (
+    <View style={styles.swipe}>
+      <View
+        style={styles.swipeActions}
+        importantForAccessibility={open ? "auto" : "no-hide-descendants"}
+        accessibilityElementsHidden={!open}
+      >
+        {actions.map((action) => {
+          const danger = action.tone === "danger";
+          const ink = danger ? palette.dangerInk : palette.text;
+          return (
+            <Tappable
+              key={action.label}
+              accessibilityRole="button"
+              accessibilityLabel={action.label}
+              focusRadius={0}
+              onPress={() => {
+                settle(0);
+                action.onPress();
+              }}
+              style={({ pressed }) => [
+                styles.swipeAction,
+                {
+                  backgroundColor: danger
+                    ? pressed
+                      ? palette.dangerPressed
+                      : palette.danger
+                    : pressed
+                      ? palette.borderStrong
+                      : palette.overlay,
+                },
+              ]}
+            >
+              <Icon name={action.icon} size={20} color={ink} />
+              <Text style={[styles.swipeLabel, { color: ink }]} numberOfLines={1}>
+                {action.label}
+              </Text>
+            </Tappable>
+          );
+        })}
+      </View>
+      <Animated.View {...pan.panHandlers} style={{ backgroundColor: palette.surface, transform: [{ translateX: x }] }}>
+        {children}
+        {open ? (
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            accessibilityRole="button"
+            accessibilityLabel="Hide actions"
+            onPress={close.current}
+          />
+        ) : null}
+      </Animated.View>
+    </View>
+  );
+}
+
+/**
+ * A quiet composer control: icon, label, and a small chevron when it opens a list, as on the desktop.
+ * Without `onPress` it is a static chip for a setting the agent keeps for the whole chat.
+ */
+export function Chip({
+  label,
+  leading,
+  accessibilityLabel,
+  dimLabel = false,
+  onPress,
+  disabled = false,
+}: {
+  label: string;
+  leading?: ReactNode;
+  accessibilityLabel: string;
+  /** An unset choice reads dim, so a choice the person made stands out. */
+  dimLabel?: boolean;
+  onPress?: (() => void) | undefined;
+  disabled?: boolean;
+}) {
+  const palette = usePalette();
+  const content = (
+    <>
+      {leading}
+      <Text style={[styles.chipLabel, { color: dimLabel ? palette.dim : palette.text }]} numberOfLines={1}>
+        {label}
+      </Text>
+      {onPress ? <Icon name="chevronDown" size={14} color={palette.dim} /> : null}
+    </>
+  );
+  if (!onPress) {
+    return (
+      <View style={styles.chip} accessible accessibilityLabel={accessibilityLabel}>
+        {content}
+      </View>
+    );
+  }
+  return (
+    <Tappable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      focusRadius={radius.sm}
+      style={({ pressed }) => [
+        styles.chip,
+        { backgroundColor: pressed ? palette.overlay : "transparent", opacity: disabled ? 0.45 : 1 },
+      ]}
+    >
+      {content}
+    </Tappable>
+  );
+}
+
 export const styles = StyleSheet.create({
   focusRing: { position: "absolute", top: -3, left: -3, right: -3, bottom: -3, borderWidth: 2, pointerEvents: "none" },
   grow: { flexGrow: 1, flexBasis: 0 },
@@ -897,4 +1222,41 @@ export const styles = StyleSheet.create({
   emptyAction: { marginTop: space.md },
   card: { borderRadius: radius.island, padding: space.lg, gap: space.md },
   stopSquare: { position: "absolute", alignItems: "center", justifyContent: "center" },
+  sheetRoot: { flex: 1, justifyContent: "flex-end" },
+  scrim: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0, 0, 0, 0.55)" },
+  sheet: {
+    borderTopLeftRadius: radius.island + 4,
+    borderTopRightRadius: radius.island + 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: space.sm,
+    gap: space.xs,
+  },
+  sheetHandle: { alignSelf: "center", width: 36, height: 4, borderRadius: 2, marginBottom: space.xs },
+  sheetHead: { paddingHorizontal: space.xl, paddingTop: space.xs, paddingBottom: space.sm, gap: 2 },
+  sheetTitle: { ...type.headline, fontWeight: "600" },
+  sheetBody: { paddingHorizontal: space.sm },
+  sheetOption: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.md,
+    paddingHorizontal: space.md + 2,
+    paddingVertical: space.sm + 2,
+    borderRadius: radius.md,
+  },
+  swipe: { overflow: "hidden" },
+  swipeActions: { ...StyleSheet.absoluteFill, flexDirection: "row", justifyContent: "flex-end" },
+  swipeAction: { width: SWIPE_ACTION_WIDTH, alignItems: "center", justifyContent: "center", gap: space.xs },
+  swipeLabel: { ...type.caption, fontWeight: "600" },
+  chip: {
+    minHeight: TAP,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: space.sm + 2,
+    borderRadius: radius.sm,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  chipLabel: { ...type.meta, fontWeight: "500", flexShrink: 1 },
 });

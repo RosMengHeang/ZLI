@@ -2,15 +2,20 @@ import { describe, expect, it } from "vitest";
 
 import { ids, sampleProjection } from "./fixtures.js";
 import {
+  agentTitle,
+  checkoutWorktree,
   currentActivity,
+  importCheckoutCommand,
   installedProviders,
   newShellCommand,
   newWorktreeCommand,
   pendingRequests,
   projectSections,
+  readyWorktrees,
   safeBranchName,
   shellForPath,
   startAgentCommand,
+  suggestedBranch,
   threadMessages,
 } from "./views.js";
 
@@ -93,6 +98,35 @@ describe("commands", () => {
       permissionMode: "supervised",
       shareWorktree: true,
     });
+  });
+
+  it("names a new branch the way the desktop does", () => {
+    expect(suggestedBranch("claude-code", () => "k3x9")).toBe("claude-k3x9");
+    expect(suggestedBranch("codex", () => "a1b2")).toBe("codex-a1b2");
+    expect(suggestedBranch(undefined, () => "zzzz")).toBe("agent-zzzz");
+  });
+
+  it("keeps the project's checkout apart from its worktrees", () => {
+    const projection = sampleProjection();
+    const project = projection.projects[0];
+    if (!project) throw new Error("fixture has a project");
+    expect(readyWorktrees(projection, project).map((worktree) => worktree.worktreeId)).toEqual([ids.feature]);
+    expect(checkoutWorktree(projection, project)?.worktreeId).toBe(ids.main);
+    expect(checkoutWorktree({ worktrees: [] }, project)).toBeUndefined();
+    expect(importCheckoutCommand(project, "wt")).toEqual({
+      type: "worktree.import",
+      worktreeId: "wt",
+      projectId: ids.project,
+      path: "/home/dev/app",
+      branch: "HEAD",
+      kind: "checkout",
+    });
+  });
+
+  it("calls an agent by the name the person gave it", () => {
+    const providers = sampleProjection().providers;
+    expect(agentTitle({ provider: "codex", name: "Bob" }, providers)).toBe("Bob");
+    expect(agentTitle({ provider: "codex" }, providers)).toBe("Codex");
   });
 
   it("opens a shell that suits the desktop's system", () => {

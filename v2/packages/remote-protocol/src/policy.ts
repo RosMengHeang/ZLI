@@ -14,14 +14,18 @@ export const PHONE_COMMANDS = [
   "thread.steer",
   "thread.interrupt",
   "thread.stop",
+  "thread.rename",
   "thread.respond",
   "thread.user-input",
+  "session.delete",
   "worktree.create",
+  "worktree.import",
   "terminal.create",
   "terminal.write",
   "terminal.resize",
   "terminal.read",
   "terminal.attach",
+  "terminal.stop",
 ] as const satisfies readonly RuntimeCommand["type"][];
 
 export type PhoneCommandType = (typeof PHONE_COMMANDS)[number];
@@ -71,8 +75,10 @@ function commandRejection(request: RpcRequest, projection: PolicyProjection): st
   switch (command.type) {
     case "thread.send":
     case "thread.queue":
-      // Attachments can name any file on the desktop by path, so phones send text only.
-      return command.attachments?.length ? "Phones cannot send attachments." : undefined;
+      // A path attachment can name any file on the desktop, so phones send the file's bytes instead.
+      return command.attachments?.some((attachment) => attachment.path !== undefined)
+        ? "Phones send attachments as file contents, not desktop paths."
+        : undefined;
     case "thread.start": {
       const worktree = projection?.worktrees.find((candidate) => candidate.worktreeId === command.worktreeId);
       if (!worktree) return "That worktree does not exist.";
@@ -84,6 +90,15 @@ function commandRejection(request: RpcRequest, projection: PolicyProjection): st
       if (!worktree) return "That worktree does not exist.";
       if (!samePath(worktree.path, command.cwd)) return "A terminal opened from a phone starts in its worktree folder.";
       if (command.agent || command.args?.length) return "Phones open interactive shells only.";
+      return undefined;
+    }
+    case "worktree.import": {
+      // Only the project's own folder, so an agent can work in the current checkout as on the desktop.
+      const project = projection?.projects.find((candidate) => candidate.projectId === command.projectId);
+      if (!project) return "That project does not exist.";
+      if (command.kind !== "checkout" || !samePath(command.path, project.path)) {
+        return "Phones can only add the project's own checkout.";
+      }
       return undefined;
     }
     case "worktree.create": {

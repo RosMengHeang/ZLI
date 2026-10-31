@@ -21,6 +21,14 @@ export function providerName(provider: string, providers: readonly ProviderDisco
   return providers?.find((entry) => entry.provider === provider)?.displayName ?? provider;
 }
 
+/** The name the person gave the agent, or its provider's name, as the desktop shows it. */
+export function agentTitle(
+  thread: Pick<ThreadProjection, "name" | "provider">,
+  providers: readonly ProviderDiscovery[] | undefined,
+): string {
+  return thread.name?.trim() || providerName(thread.provider, providers);
+}
+
 export function threadStatus(thread: Pick<ThreadProjection, "status">, openRequests: number): StatusView {
   if (openRequests > 0 || thread.status === "waiting") return { label: "Needs you", tone: "amber" };
   switch (thread.status) {
@@ -89,7 +97,7 @@ export function agentRow(projection: RuntimeProjection, thread: ThreadProjection
   }
   return {
     thread,
-    name: providerName(thread.provider, projection.providers),
+    name: agentTitle(thread, projection.providers),
     status: threadStatus(thread, openRequests),
     openRequests,
     preview,
@@ -134,7 +142,7 @@ export function pendingRequests(projection: RuntimeProjection | undefined, threa
   return (projection.requests ?? []).flatMap((request) => {
     if (threadId !== undefined && request.threadId !== threadId) return [];
     const thread = projection.threads.find((candidate) => candidate.threadId === request.threadId);
-    return thread ? [{ request, thread, name: providerName(thread.provider, projection.providers) }] : [];
+    return thread ? [{ request, thread, name: agentTitle(thread, projection.providers) }] : [];
   });
 }
 
@@ -164,8 +172,44 @@ export function currentActivity(
   return undefined;
 }
 
-export function readyWorktrees(projection: RuntimeProjection, projectId: string): WorktreeProjection[] {
-  return projection.worktrees.filter((worktree) => worktree.projectId === projectId && worktree.status === "ready");
+export function samePath(left: string, right: string): boolean {
+  const normalize = (value: string) => value.replaceAll("\\", "/").replace(/\/+$/u, "").toLowerCase();
+  return normalize(left) === normalize(right);
+}
+
+function isCheckout(worktree: WorktreeProjection, project: ProjectProjection): boolean {
+  return worktree.kind === "checkout" || samePath(worktree.path, project.path);
+}
+
+/** The project's own working copy, if the desktop already lists it. */
+export function checkoutWorktree(
+  projection: Pick<RuntimeProjection, "worktrees">,
+  project: ProjectProjection,
+): WorktreeProjection | undefined {
+  return projection.worktrees.find(
+    (worktree) =>
+      worktree.projectId === project.projectId && worktree.status !== "cancelled" && isCheckout(worktree, project),
+  );
+}
+
+/** Worktrees an agent can join, not counting the project's own checkout. */
+export function readyWorktrees(projection: RuntimeProjection, project: ProjectProjection): WorktreeProjection[] {
+  return projection.worktrees.filter(
+    (worktree) =>
+      worktree.projectId === project.projectId && worktree.status === "ready" && !isCheckout(worktree, project),
+  );
+}
+
+const branchStems: Record<string, string> = { "claude-code": "claude", "cursor-agent": "cursor" };
+
+export function branchSuffix(): string {
+  return Math.random().toString(36).slice(2, 6).padEnd(4, "0");
+}
+
+/** The desktop's default branch template, `{agent}-{random}`. */
+export function suggestedBranch(provider: string | undefined, random: () => string = branchSuffix): string {
+  const stem = provider ? (branchStems[provider] ?? provider) : "agent";
+  return `${safeBranchName(stem) || "agent"}-${random()}`;
 }
 
 export function installedProviders(
@@ -196,6 +240,18 @@ export function newWorktreeCommand(project: ProjectProjection, branch: string, w
     path: newWorktreePath(project.path, branch),
     workspaceRoot: worktreeRoot(project.path),
     branch: safeBranchName(branch),
+  } as const;
+}
+
+export function importCheckoutCommand(project: ProjectProjection, worktreeId: string) {
+  return {
+    type: "worktree.import",
+    worktreeId,
+    projectId: project.projectId,
+    path: project.path,
+    // The runtime replaces this with the checked-out branch once it reads the repository.
+    branch: "HEAD",
+    kind: "checkout",
   } as const;
 }
 

@@ -1,36 +1,28 @@
 import type { PermissionMode } from "@zli-v2/contracts";
 import { worktreeHasLiveThread } from "@zli-v2/contracts";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { KeyboardAvoidingView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLink, useLinkSnapshot } from "../LinkContext.js";
-import { type LaunchStep, launchAgent } from "../lib/launch.js";
-import { installedProviders, newWorktreePath, readyWorktrees, safeBranchName } from "../lib/views.js";
+import { type LaunchStep, launchAgent, type Placement } from "../lib/launch.js";
+import { PERMISSIONS, permissionColor } from "../lib/permissions.js";
+import {
+  branchSuffix,
+  checkoutWorktree,
+  installedProviders,
+  newWorktreePath,
+  readyWorktrees,
+  safeBranchName,
+  suggestedBranch,
+} from "../lib/views.js";
 import { useNavigation } from "../navigation.js";
 import { newId } from "../platform.js";
 import { mono, space, type, usePalette } from "../theme.js";
 import { Button, ChoiceRow, EmptyState, Field, Header, Notice, Row, Section, Segmented } from "../ui/components.js";
-import { Icon, type IconName } from "../ui/Icon.js";
+import { Icon } from "../ui/Icon.js";
 import { ModelMark, ProviderMark } from "../ui/ProviderMark.js";
 import { ConnectionBanner } from "./ConnectionBanner.js";
-
-/** The desktop's names and hints, ordered from the least to the most an agent may do alone. */
-const PERMISSIONS: { mode: PermissionMode; label: string; description: string; icon: IconName }[] = [
-  { mode: "read-only", label: "Read only", description: "Reads and plans, never changes files.", icon: "eye" },
-  {
-    mode: "supervised",
-    label: "Auto",
-    description: "Edits files without asking, asks before commands.",
-    icon: "shieldCheck",
-  },
-  {
-    mode: "full-access",
-    label: "Full access",
-    description: "Edits files and runs commands without asking.",
-    icon: "shieldAlert",
-  },
-];
 
 const MODELS_SHOWN = 6;
 
@@ -52,12 +44,14 @@ export function StartAgentScreen({ projectId }: { projectId?: string }) {
   const [chosenProject, setChosenProject] = useState(
     projectId ?? (projects.length === 1 ? projects[0]?.projectId : undefined),
   );
-  const [provider, setProvider] = useState(providers[0]?.provider);
+  const [pickedProvider, setProvider] = useState<string>();
   const [model, setModel] = useState<string>();
   const [allModels, setAllModels] = useState(false);
-  const [placement, setPlacement] = useState<"new" | "existing">("new");
-  const [branch, setBranch] = useState("");
-  const [existing, setExisting] = useState<string>();
+  const [chosenPlacement, setPlacement] = useState<Placement["kind"]>("new");
+  // Until the person edits it, the branch follows the agent, the way the desktop names it.
+  const [typedBranch, setBranch] = useState<string>();
+  const suffix = useMemo(branchSuffix, []);
+  const [pickedExisting, setExisting] = useState<string>();
   const [permissionMode, setPermissionMode] = useState<PermissionMode>("full-access");
   const [step, setStep] = useState<LaunchStep>();
   const [error, setError] = useState<string>();
@@ -75,24 +69,43 @@ export function StartAgentScreen({ projectId }: { projectId?: string }) {
   }
 
   const project = projects.find((candidate) => candidate.projectId === chosenProject);
-  const providerEntry = providers.find((candidate) => candidate.provider === provider);
+  // The agent list can arrive after the screen opens, so an unpicked agent follows the first one.
+  const providerEntry = providers.find((candidate) => candidate.provider === pickedProvider) ?? providers[0];
+  const provider = providerEntry?.provider;
   const models = providerEntry?.models ?? [];
-  const pickedIndex = models.findIndex((candidate) => candidate.id === model);
-  const shownModels = allModels || pickedIndex >= MODELS_SHOWN ? models : models.slice(0, MODELS_SHOWN);
-  const worktrees = project ? readyWorktrees(projection, project.projectId) : [];
+  const pickedModel = models.find((candidate) => candidate.id === model);
+  const shownModels = allModels
+    ? models
+    : [
+        ...models.slice(0, MODELS_SHOWN),
+        ...(pickedModel && models.indexOf(pickedModel) >= MODELS_SHOWN ? [pickedModel] : []),
+      ];
+  const worktrees = project ? readyWorktrees(projection, project) : [];
+  const checkout = project ? checkoutWorktree(projection, project) : undefined;
+  const noGit = project?.git === false;
+  const existing = worktrees.some((worktree) => worktree.worktreeId === pickedExisting)
+    ? pickedExisting
+    : worktrees[0]?.worktreeId;
+  // Worktrees need Git, so a folder without it only has its own checkout.
+  const placement: Placement["kind"] = noGit
+    ? "checkout"
+    : chosenPlacement === "existing" && existing === undefined
+      ? "new"
+      : chosenPlacement;
+  const branch = typedBranch ?? suggestedBranch(provider, () => suffix);
   const online = snapshot.state.kind === "online";
   const safeBranch = safeBranchName(branch);
-  const placed =
-    placement === "new" ? safeBranch.length > 0 : worktrees.some((worktree) => worktree.worktreeId === existing);
+  const placed = placement !== "new" || safeBranch.length > 0;
+  const sharedWorktree =
+    placement === "checkout" ? checkout?.worktreeId : placement === "existing" ? existing : undefined;
+  const sharing = sharedWorktree !== undefined && worktreeHasLiveThread(projection.threads, sharedWorktree);
   const ready = online && project !== undefined && providerEntry !== undefined && placed;
   const missing = !project
     ? "Pick a project"
     : !providerEntry
       ? "Pick an agent"
       : !placed
-        ? placement === "new"
-          ? "Name the branch"
-          : "Pick a worktree"
+        ? "Name the branch"
         : !online
           ? "Waiting for the desktop"
           : undefined;
@@ -106,7 +119,12 @@ export function StartAgentScreen({ projectId }: { projectId?: string }) {
       link,
       {
         project,
-        placement: placement === "new" ? { kind: "new", branch } : { kind: "existing", worktreeId: existing ?? "" },
+        placement:
+          placement === "new"
+            ? { kind: "new", branch }
+            : placement === "checkout"
+              ? { kind: "checkout" }
+              : { kind: "existing", worktreeId: existing ?? "" },
         provider: providerEntry.provider,
         model,
         permissionMode,
@@ -154,7 +172,6 @@ export function StartAgentScreen({ projectId }: { projectId?: string }) {
                 checked={candidate.projectId === chosenProject}
                 onPress={() => {
                   setChosenProject(candidate.projectId);
-                  setExisting(undefined);
                 }}
               />
             ))}
@@ -204,12 +221,12 @@ export function StartAgentScreen({ projectId }: { projectId?: string }) {
                 onPress={() => setModel(candidate.id)}
               />
             ))}
-            {shownModels.length < models.length ? (
+            {models.length > MODELS_SHOWN ? (
               <Row
-                leading={<Icon name="chevronDown" size={20} color={palette.muted} />}
-                title={`Show all ${models.length} models`}
+                leading={<Icon name={allModels ? "chevronUp" : "chevronDown"} size={20} color={palette.muted} />}
+                title={allModels ? "Show fewer" : `Show all ${models.length} models`}
                 tone="muted"
-                onPress={() => setAllModels(true)}
+                onPress={() => setAllModels(!allModels)}
               />
             ) : null}
           </Section>
@@ -219,24 +236,25 @@ export function StartAgentScreen({ projectId }: { projectId?: string }) {
           <Text accessibilityRole="header" style={[local.title, { color: palette.muted }]}>
             Where it works
           </Text>
-          {worktrees.length > 0 ? (
-            <Segmented
+          {noGit ? null : (
+            <Segmented<Placement["kind"]>
               label="Where it works"
               value={placement}
               onChange={setPlacement}
               options={[
                 { value: "new", label: "New worktree" },
-                { value: "existing", label: "Existing" },
+                { value: "checkout", label: "Checkout" },
+                ...(worktrees.length > 0 ? [{ value: "existing" as const, label: "Existing" }] : []),
               ]}
             />
-          ) : null}
-          {placement === "new" || worktrees.length === 0 ? (
+          )}
+          {placement === "new" ? (
             <Field
               accessibilityLabel="Branch name"
               hint={
                 project && safeBranch
                   ? `Creates ${newWorktreePath(project.path, branch)} on the desktop.`
-                  : "A fresh branch keeps its changes apart from yours."
+                  : "Its own folder and branch, so agents never collide."
               }
               value={branch}
               onChangeText={setBranch}
@@ -246,6 +264,22 @@ export function StartAgentScreen({ projectId }: { projectId?: string }) {
               spellCheck={false}
               monospace
             />
+          ) : placement === "checkout" ? (
+            <Section
+              footer={
+                noGit
+                  ? "This folder is not a Git repository, so the agent works in the folder itself."
+                  : "The agent edits the project folder itself, on the branch checked out there."
+              }
+            >
+              <Row
+                leading={<Icon name="folder" size={20} color={palette.text} />}
+                title={project?.path ?? "The project folder"}
+                titleMono
+                subtitle={checkout && checkout.branch !== "HEAD" ? checkout.branch : undefined}
+                subtitleMono
+              />
+            </Section>
           ) : (
             <Section>
               {worktrees.map((worktree) => (
@@ -254,20 +288,15 @@ export function StartAgentScreen({ projectId }: { projectId?: string }) {
                   leading={<Icon name="branch" size={20} color={palette.text} />}
                   label={worktree.branch}
                   labelMono
-                  description={
-                    worktreeHasLiveThread(projection.threads, worktree.worktreeId)
-                      ? "An agent already works here. They will share the files."
-                      : undefined
-                  }
                   checked={worktree.worktreeId === existing}
                   onPress={() => setExisting(worktree.worktreeId)}
                 />
               ))}
             </Section>
           )}
-          {worktrees.length === 0 ? (
-            <Text style={[local.note, { color: palette.muted }]}>
-              No worktree in this project is ready, so the agent gets a new one.
+          {sharing ? (
+            <Text style={[local.warning, { color: palette.tones.amber.ink }]}>
+              Another agent already works here, so both will edit the same files.
             </Text>
           ) : null}
         </View>
@@ -276,7 +305,7 @@ export function StartAgentScreen({ projectId }: { projectId?: string }) {
           {PERMISSIONS.map((option) => (
             <ChoiceRow
               key={option.mode}
-              leading={<Icon name={option.icon} size={20} color={palette.text} />}
+              leading={<Icon name={option.icon} size={20} color={permissionColor(option.mode, palette)} />}
               label={option.label}
               description={option.description}
               checked={option.mode === permissionMode}
@@ -320,6 +349,7 @@ const local = StyleSheet.create({
   title: { ...type.footnote, fontWeight: "600", paddingHorizontal: space.xs },
   note: { ...type.meta, paddingHorizontal: space.xs },
   mono: { fontFamily: mono },
+  warning: { ...type.meta, paddingHorizontal: space.xs },
   footer: {
     paddingHorizontal: space.lg,
     paddingTop: space.md,

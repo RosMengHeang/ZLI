@@ -50,6 +50,9 @@ describe("phone message policy", () => {
     expect(decide({ type: "terminal.write", terminalId, data: "ls\r" })).toBe("forward");
     expect(decide({ type: "terminal.resize", terminalId, cols: 80, rows: 24 })).toBe("forward");
     expect(decide({ type: "terminal.read", terminalId })).toBe("forward");
+    expect(decide({ type: "terminal.stop", terminalId })).toBe("forward");
+    expect(decide({ type: "thread.rename", threadId, name: "Login fix" })).toBe("forward");
+    expect(decide({ type: "session.delete", sessionId: threadId })).toBe("forward");
   });
 
   it("blocks runtime-internal reports, destructive commands, and everything not listed", () => {
@@ -61,12 +64,9 @@ describe("phone message policy", () => {
       { type: "worktree.status", worktreeId, status: "ready" },
       { type: "worktree.removed", worktreeId },
       { type: "worktree.remove", worktreeId, force: true },
-      { type: "worktree.import", worktreeId, projectId, path: "/", branch: "main", kind: "checkout" },
-      { type: "session.delete", sessionId: threadId },
       { type: "project.register", path: "/etc" },
       { type: "project.archive", projectId },
       { type: "browser.closed", browserTabId: "b1" },
-      { type: "terminal.stop", terminalId },
       { type: "terminal.list" },
       { type: "review.merge", worktreeId, targetRef: "main" },
       { type: "diagnostics.createSupportBundle", destinationPath: "/tmp/x" },
@@ -89,10 +89,23 @@ describe("phone message policy", () => {
     expect(isPhoneCommand("thread.status")).toBe(false);
   });
 
-  it("refuses attachments, which can name any desktop file", () => {
+  it("refuses attachments that name a desktop file, and forwards ones that carry their bytes", () => {
     const attachments = [{ name: "id_rsa", mimeType: "text/plain", path: "/home/sam/.ssh/id_rsa" }];
     expect(decide({ type: "thread.send", threadId, text: "read this", attachments })).toBe("reject");
     expect(decide({ type: "thread.queue", threadId, queueId: "q", text: "read this", attachments })).toBe("reject");
+    const photo = [{ name: "screen.jpg", mimeType: "image/jpeg", dataBase64: "/9j/4AAQ" }];
+    expect(decide({ type: "thread.queue", threadId, queueId: "q", text: "see this", attachments: photo })).toBe(
+      "forward",
+    );
+  });
+
+  it("adds only the project's own folder as a checkout", () => {
+    const base = { type: "worktree.import", worktreeId, projectId, branch: "HEAD" };
+    expect(decide({ ...base, path: "/home/sam/app", kind: "checkout" })).toBe("forward");
+    expect(decide({ ...base, path: "/home/sam/app/", kind: "checkout" })).toBe("forward");
+    expect(decide({ ...base, path: "/", kind: "checkout" })).toBe("reject");
+    expect(decide({ ...base, path: "/home/sam/app", kind: "worktree" })).toBe("reject");
+    expect(decide({ ...base, projectId: worktreeId, path: "/home/sam/app", kind: "checkout" })).toBe("reject");
   });
 
   it("starts agents only in their own worktree folder", () => {

@@ -1,7 +1,13 @@
 import type { PermissionMode, ProjectProjection, WorktreeProjection } from "@zli-v2/contracts";
 
 import type { LinkSnapshot, RemoteLink } from "./link.js";
-import { newWorktreeCommand, safeBranchName, startAgentCommand } from "./views.js";
+import {
+  checkoutWorktree,
+  importCheckoutCommand,
+  newWorktreeCommand,
+  safeBranchName,
+  startAgentCommand,
+} from "./views.js";
 
 type CommandLink = Pick<RemoteLink, "command" | "getSnapshot" | "subscribe">;
 
@@ -21,7 +27,10 @@ export async function sendCommand(
   }
 }
 
-export type Placement = { kind: "new"; branch: string } | { kind: "existing"; worktreeId: string };
+export type Placement =
+  | { kind: "new"; branch: string }
+  | { kind: "checkout" }
+  | { kind: "existing"; worktreeId: string };
 
 export type LaunchInput = {
   project: ProjectProjection;
@@ -62,7 +71,7 @@ export function waitForWorktree(
   });
 }
 
-/** Creates a worktree when asked, waits for it, then starts a chat agent in it. */
+/** Creates a worktree or adds the project's checkout when needed, waits for it, then starts a chat agent in it. */
 export async function launchAgent(
   link: CommandLink,
   input: LaunchInput,
@@ -81,6 +90,19 @@ export async function launchAgent(
       "The worktree could not be created.",
     );
     if (!created.ok) return { error: created.error };
+  } else if (input.placement.kind === "checkout") {
+    const listed = checkoutWorktree(link.getSnapshot().projection ?? { worktrees: [] }, input.project);
+    if (listed) {
+      worktreeId = listed.worktreeId;
+    } else {
+      worktreeId = newId();
+      const imported = await sendCommand(
+        link,
+        importCheckoutCommand(input.project, worktreeId),
+        "The project folder could not be opened.",
+      );
+      if (!imported.ok) return { error: imported.error };
+    }
   } else {
     worktreeId = input.placement.worktreeId;
   }

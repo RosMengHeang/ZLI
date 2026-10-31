@@ -31,6 +31,14 @@
         }
       ],
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "ZLI Remote opens your photos so you can attach one to a message for an agent.",
+          "cameraPermission": "ZLI Remote uses the camera to take a photo you attach to a message for an agent.",
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "android": {
