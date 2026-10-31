@@ -108,11 +108,19 @@ export async function createGitFixture(): Promise<{ root: string; repo: string }
   return { root, repo };
 }
 
-export async function launchDesktop(
+export type DesktopCommand = {
+  /** Unset when Playwright starts the Electron binary from node_modules. */
+  executablePath?: string;
+  args: string[];
+  env: NodeJS.ProcessEnv;
+};
+
+/** The command launchDesktop starts the app with, for a test that starts another copy on the same data. */
+export async function desktopCommand(
   repo: string,
   root: string,
   options: DesktopLaunchOptions = {},
-): Promise<DesktopFixture> {
+): Promise<DesktopCommand> {
   const databasePath = join(root, "runtime.sqlite");
   const externalExecutable = process.env.ZLI_ELECTRON_EXECUTABLE;
   const packagedExecutable = externalExecutable
@@ -121,6 +129,38 @@ export async function launchDesktop(
       ? await findPackagedExecutable()
       : undefined;
   const executablePath = externalExecutable ?? packagedExecutable;
+  return {
+    ...(executablePath ? { executablePath } : {}),
+    args: packagedExecutable ? [] : [join(V2_ROOT, "apps/desktop/dist/main.js")],
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: undefined,
+      ...(externalExecutable ? { ZLI_RUNTIME_NODE: process.execPath } : { ZLI_RUNTIME_NODE: undefined }),
+      ZLI_DATABASE_PATH: databasePath,
+      ZLI_SESSION_DATA_PATH: join(root, "session"),
+      ...(packagedExecutable
+        ? {}
+        : {
+            ZLI_RENDERER_ROOT: join(V2_ROOT, "apps/desktop/renderer"),
+            ZLI_SERVER_ENTRY: join(V2_ROOT, "apps/desktop/dist/server-entry.js"),
+          }),
+      ZLI_TEST_PROJECT_PATH: repo,
+      ZLI_TEST_PROVIDER: "mock",
+      ZLI_REDUCED_MOTION: "1",
+      // The packaged app under test must never ask GitHub for a newer release or replace itself.
+      ZLI_DISABLE_UPDATES: "1",
+      ZLI_TEST_LEGACY_SNAPSHOT_PATH: options.legacySnapshotPath,
+      ...options.env,
+    },
+  };
+}
+
+export async function launchDesktop(
+  repo: string,
+  root: string,
+  options: DesktopLaunchOptions = {},
+): Promise<DesktopFixture> {
+  const command = await desktopCommand(repo, root, options);
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await launchOnce();
@@ -134,32 +174,9 @@ export async function launchDesktop(
 
   async function launchOnce(): Promise<DesktopFixture> {
     const app = await electron.launch({
-      args: executablePath
-        ? packagedExecutable
-          ? []
-          : [join(V2_ROOT, "apps/desktop/dist/main.js")]
-        : [join(V2_ROOT, "apps/desktop/dist/main.js")],
-      ...(executablePath ? { executablePath } : {}),
-      env: {
-        ...process.env,
-        ELECTRON_RUN_AS_NODE: undefined,
-        ...(externalExecutable ? { ZLI_RUNTIME_NODE: process.execPath } : { ZLI_RUNTIME_NODE: undefined }),
-        ZLI_DATABASE_PATH: databasePath,
-        ZLI_SESSION_DATA_PATH: join(root, "session"),
-        ...(packagedExecutable
-          ? {}
-          : {
-              ZLI_RENDERER_ROOT: join(V2_ROOT, "apps/desktop/renderer"),
-              ZLI_SERVER_ENTRY: join(V2_ROOT, "apps/desktop/dist/server-entry.js"),
-            }),
-        ZLI_TEST_PROJECT_PATH: repo,
-        ZLI_TEST_PROVIDER: "mock",
-        ZLI_REDUCED_MOTION: "1",
-        // The packaged app under test must never ask GitHub for a newer release or replace itself.
-        ZLI_DISABLE_UPDATES: "1",
-        ZLI_TEST_LEGACY_SNAPSHOT_PATH: options.legacySnapshotPath,
-        ...options.env,
-      },
+      args: command.args,
+      ...(command.executablePath ? { executablePath: command.executablePath } : {}),
+      env: command.env,
       timeout: 30_000,
     });
     try {
