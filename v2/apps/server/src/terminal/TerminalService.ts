@@ -25,7 +25,8 @@ export type PtyProcess = {
   readonly reused?: boolean;
   write(data: string): void;
   resize(cols: number, rows: number): void;
-  kill(): void;
+  /** Asks the process to end. `force` is set when an earlier request went unanswered. */
+  kill(force?: boolean): void;
   onData(listener: (data: string) => void): () => void;
   onExit(listener: (event: { code: number; signal: number | null }) => void): () => void;
 };
@@ -56,6 +57,8 @@ export type TerminalServiceOptions = {
   maxPendingChunks?: number;
   maxPendingBytes?: number;
   maxWriteBytes?: number;
+  /** How long a stopped terminal gets to exit before it is killed outright. */
+  stopGraceMs?: number;
 };
 
 export type TerminalStreamMessage =
@@ -95,6 +98,8 @@ type TerminalSession = {
   historyLines: number;
   subscribers: Set<Subscriber>;
   stopRequested: boolean;
+  forceTimer: ReturnType<typeof setTimeout> | undefined;
+  releaseOnExit: boolean;
   exitDelivered: boolean;
 };
 
@@ -191,6 +196,7 @@ export class TerminalService {
   private readonly maxPendingChunks: number;
   private readonly maxPendingBytes: number;
   private readonly maxWriteBytes: number;
+  private readonly stopGraceMs: number;
 
   constructor(
     private readonly ptyFactory: PtyFactory,
@@ -202,6 +208,7 @@ export class TerminalService {
     this.maxPendingChunks = options.maxPendingChunks ?? 8;
     this.maxPendingBytes = options.maxPendingBytes ?? 64 * 1024;
     this.maxWriteBytes = options.maxWriteBytes ?? 512 * 1024;
+    this.stopGraceMs = options.stopGraceMs ?? 2_000;
   }
 
   async create(request: TerminalCreateRequest): Promise<TerminalProjection> {
@@ -241,6 +248,8 @@ export class TerminalService {
         historyLines: 0,
         subscribers: new Set(),
         stopRequested: false,
+        forceTimer: undefined,
+        releaseOnExit: false,
         exitDelivered: false,
       };
       this.sessions.set(key, session);
@@ -296,20 +305,33 @@ export class TerminalService {
     session.pty.resize(cols, rows);
   }
 
-  stop(terminalId: TerminalId): void {
+  /**
+   * Asks the terminal to end, and kills it if it is still running after a short grace period.
+   * Stopping a terminal that is already stopping, or with `force`, kills it at once.
+   */
+  stop(terminalId: TerminalId, options: { force?: boolean } = {}): void {
     const session = this.session(terminalId);
-    if (session.projection.status !== "running" || session.stopRequested) return;
-    session.stopRequested = true;
-    session.pty.kill();
+    if (options.force) this.forceStop(session);
+    else this.requestStop(session);
   }
 
   stopAll(): void {
-    for (const session of this.sessions.values()) {
-      if (session.projection.status === "running" && !session.stopRequested) {
-        session.stopRequested = true;
-        session.pty.kill();
-      }
+    for (const session of this.sessions.values()) this.requestStop(session);
+  }
+
+  /**
+   * Forgets a terminal and its output. A running terminal is stopped first and forgotten once it
+   * exits, so its id can be used again.
+   */
+  release(terminalId: TerminalId): void {
+    const session = this.sessions.get(terminalId as string);
+    if (!session) return;
+    if (session.projection.status === "running") {
+      session.releaseOnExit = true;
+      this.requestStop(session);
+      return;
     }
+    this.forget(session);
   }
 
   /** The newest output still in memory, decoded, up to about `maxBytes` characters. */
@@ -362,6 +384,37 @@ export class TerminalService {
     };
   }
 
+  private requestStop(session: TerminalSession): void {
+    if (session.projection.status !== "running") return;
+    if (session.stopRequested) {
+      this.forceStop(session);
+      return;
+    }
+    session.stopRequested = true;
+    session.pty.kill();
+    session.forceTimer = setTimeout(() => this.forceStop(session), this.stopGraceMs);
+    session.forceTimer.unref?.();
+  }
+
+  private forceStop(session: TerminalSession): void {
+    this.clearForceTimer(session);
+    if (session.projection.status !== "running") return;
+    session.stopRequested = true;
+    session.pty.kill(true);
+  }
+
+  private clearForceTimer(session: TerminalSession): void {
+    if (session.forceTimer === undefined) return;
+    clearTimeout(session.forceTimer);
+    session.forceTimer = undefined;
+  }
+
+  private forget(session: TerminalSession): void {
+    this.clearForceTimer(session);
+    const key = session.projection.terminalId as string;
+    if (this.sessions.get(key) === session) this.sessions.delete(key);
+  }
+
   private session(terminalId: TerminalId): TerminalSession {
     const session = this.sessions.get(terminalId as string);
     if (!session) throw new TerminalError("not_found", `Terminal does not exist: ${terminalId}`);
@@ -399,6 +452,7 @@ export class TerminalService {
   private onExit(session: TerminalSession, event: { code: number; signal: number | null }): void {
     if (session.exitDelivered) return;
     session.exitDelivered = true;
+    this.clearForceTimer(session);
     session.projection = { ...session.projection, status: "exited" };
     const message: TerminalStreamMessage = {
       kind: "exit",
@@ -408,6 +462,7 @@ export class TerminalService {
     };
     for (const subscriber of session.subscribers) subscriber.push(message);
     for (const listener of this.exitListeners) listener(session.projection.terminalId, event);
+    if (session.releaseOnExit) this.forget(session);
   }
 }
 

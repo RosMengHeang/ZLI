@@ -51,11 +51,17 @@ export function TerminalDrawer({
   const { bridge, dispatch } = useRuntime();
   const drawerShortcut = useShortcut("toggleDrawer");
   const [dismissed, setDismissed] = useState<string[]>([]);
+  // A stopped pane stays until the runtime reports its shell gone, so a shell that ignores the stop is not hidden.
+  const [stopping, setStopping] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const fileLinks = useFileLinks(worktree?.worktreeId);
   const panes = drawerTerminals(projection.terminals, worktree?.worktreeId, sessionId)
-    .filter((terminal) => !dismissed.includes(terminal.terminalId))
+    .filter(
+      (terminal) =>
+        !dismissed.includes(terminal.terminalId) &&
+        !(stopping.includes(terminal.terminalId) && terminal.status !== "running"),
+    )
     .slice(-MAX_SPLITS);
 
   const send = useCallback(
@@ -91,8 +97,14 @@ export function TerminalDrawer({
   };
 
   const closePane = async (terminal: TerminalProjection) => {
-    if (terminal.status === "running") await send({ type: "terminal.stop", terminalId: terminal.terminalId });
-    setDismissed((current) => [...current, terminal.terminalId]);
+    const terminalId = terminal.terminalId;
+    if (terminal.status !== "running") {
+      setDismissed((current) => [...current, terminalId]);
+      return;
+    }
+    setStopping((current) => (current.includes(terminalId) ? current : [...current, terminalId]));
+    const response = await send({ type: "terminal.stop", terminalId });
+    if (response?.accepted !== true) setStopping((current) => current.filter((id) => id !== terminalId));
   };
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
@@ -210,38 +222,43 @@ export function TerminalDrawer({
         {closeButton}
       </header>
       <div className="drawer-splits" style={{ gridTemplateColumns: `repeat(${panes.length}, minmax(0, 1fr))` }}>
-        {panes.map((terminal) => (
-          <div className="drawer-pane" key={terminal.terminalId}>
-            <div className="drawer-pane-bar">
-              <span className={`status-dot status-terminal-${terminal.status}`} aria-hidden="true" />
-              <span className="drawer-pane-title">{terminal.title}</span>
-              {terminal.status !== "running" ? (
-                <span className="drawer-pane-state">{terminal.status === "failed" ? "Failed" : "Exited"}</span>
+        {panes.map((terminal) => {
+          const isStopping = stopping.includes(terminal.terminalId);
+          return (
+            <div className="drawer-pane" key={terminal.terminalId}>
+              <div className="drawer-pane-bar">
+                <span className={`status-dot status-terminal-${terminal.status}`} aria-hidden="true" />
+                <span className="drawer-pane-title">{terminal.title}</span>
+                {terminal.status !== "running" ? (
+                  <span className="drawer-pane-state">{terminal.status === "failed" ? "Failed" : "Exited"}</span>
+                ) : isStopping ? (
+                  <span className="drawer-pane-state">Stopping</span>
+                ) : null}
+                <IconButton
+                  icon="x"
+                  size="xs"
+                  label={terminal.status === "running" ? `Stop ${terminal.title}` : `Close ${terminal.title}`}
+                  tooltip={terminal.status !== "running" ? "Close" : isStopping ? "Stop it now" : "Stop and close"}
+                  onClick={() => void closePane(terminal)}
+                />
+              </div>
+              {bridge ? (
+                <LazyTerminalView
+                  bridge={bridge}
+                  terminalId={terminal.terminalId}
+                  running={terminal.status === "running"}
+                  send={send}
+                  fileLinks={fileLinks}
+                />
               ) : null}
-              <IconButton
-                icon="x"
-                size="xs"
-                label={terminal.status === "running" ? `Stop ${terminal.title}` : `Close ${terminal.title}`}
-                tooltip={terminal.status === "running" ? "Stop and close" : "Close"}
-                onClick={() => void closePane(terminal)}
-              />
+              {terminal.errorMessage ? (
+                <p className="inline-error" role="alert">
+                  {terminal.errorMessage}
+                </p>
+              ) : null}
             </div>
-            {bridge ? (
-              <LazyTerminalView
-                bridge={bridge}
-                terminalId={terminal.terminalId}
-                running={terminal.status === "running"}
-                send={send}
-                fileLinks={fileLinks}
-              />
-            ) : null}
-            {terminal.errorMessage ? (
-              <p className="inline-error" role="alert">
-                {terminal.errorMessage}
-              </p>
-            ) : null}
-          </div>
-        ))}
+          );
+        })}
       </div>
       {errorLine}
     </section>

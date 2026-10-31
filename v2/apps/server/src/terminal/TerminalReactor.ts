@@ -170,7 +170,7 @@ export class TerminalReactor {
         title: intent.terminal.title,
       });
       if (this.deleted.has(intent.terminal.terminalId)) {
-        this.stopQuietly(intent.terminal.terminalId);
+        this.release(intent.terminal.terminalId);
         return;
       }
       await this.dispatchStatus(intent.terminal.terminalId, "running");
@@ -219,15 +219,12 @@ export class TerminalReactor {
   private forget(terminalId: string): void {
     this.deleted.add(terminalId);
     this.intents.delete(terminalId);
-    this.stopQuietly(terminalId);
+    this.release(terminalId);
   }
 
-  private stopQuietly(terminalId: string): void {
-    try {
-      this.service.stop(TerminalId.parse(terminalId));
-    } catch {
-      // Not started yet, or already gone.
-    }
+  /** Stops the terminal if it runs and drops its output; a terminal not started yet is skipped. */
+  private release(terminalId: string): void {
+    this.service.release(TerminalId.parse(terminalId));
   }
 
   private async agentCommand(
