@@ -42,8 +42,12 @@ export type ShortcutId =
 /** Which side of the Files panel the folder tree sits on when there is room for both. */
 export type FileTreePosition = "right" | "left";
 
-/** The plan limits card above Settings. Off until the person turns it on; agents show unless switched off. */
-export type SidebarLimits = { enabled: boolean; hidden: PlanLimitProvider[] };
+/**
+ * The plan limits line in the sidebar footer. Off until the person turns it on; agents show unless
+ * switched off. `pinned` is the agent the folded line always shows; without it, the line follows the
+ * selected agent.
+ */
+export type SidebarLimits = { enabled: boolean; hidden: PlanLimitProvider[]; pinned?: PlanLimitProvider };
 
 export type AppSettings = {
   defaults: LaunchDefaults;
@@ -108,7 +112,8 @@ function parseSidebarLimits(value: unknown): SidebarLimits {
   const hidden = Array.isArray(value.hidden)
     ? PLAN_LIMIT_PROVIDERS.filter((provider) => (value.hidden as unknown[]).includes(provider))
     : [];
-  return { enabled: value.enabled === true, hidden };
+  const pinned = PLAN_LIMIT_PROVIDERS.find((provider) => provider === value.pinned);
+  return { enabled: value.enabled === true, hidden, ...(pinned ? { pinned } : {}) };
 }
 
 export function parseAppSettings(raw: string | null): AppSettings {

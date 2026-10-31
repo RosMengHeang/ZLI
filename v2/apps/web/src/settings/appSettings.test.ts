@@ -22,7 +22,7 @@ describe("app settings", () => {
           branchTemplate: "   ",
           shortcuts: { newAgent: "Mod+Shift+N", unknown: "Mod+U", palette: 3 },
           fileTreePosition: "top",
-          sidebarLimits: { enabled: "yes", hidden: ["codex", "goose", 4] },
+          sidebarLimits: { enabled: "yes", hidden: ["codex", "goose", 4], pinned: "goose" },
         }),
       ),
     ).toEqual({
@@ -41,6 +41,9 @@ describe("app settings", () => {
       enabled: true,
       hidden: [],
     });
+    expect(
+      parseAppSettings(JSON.stringify({ sidebarLimits: { enabled: true, pinned: "cursor-agent" } })).sidebarLimits,
+    ).toEqual({ enabled: true, hidden: [], pinned: "cursor-agent" });
   });
 
   it("keeps the file tree on the right unless left was chosen", () => {

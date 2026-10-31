@@ -41,7 +41,13 @@ function reading(
 
 async function render(
   readings: readonly PlanLimitReading[] | undefined,
-  options: { currentKey?: string; hidden?: string[]; onOpenSettings?: () => void; open?: boolean } = {},
+  options: {
+    currentKey?: string;
+    hidden?: string[];
+    pinned?: string;
+    onOpenSettings?: () => void;
+    open?: boolean;
+  } = {},
 ) {
   const container = document.createElement("div");
   document.body.append(container);
@@ -54,6 +60,7 @@ async function render(
         now={now}
         currentKey={options.currentKey}
         hidden={options.hidden}
+        pinned={options.pinned}
         timeZone="UTC"
         onOpenSettings={options.onOpenSettings ?? (() => undefined)}
       />,
@@ -83,7 +90,14 @@ const labels = (container: HTMLElement) =>
   [...container.querySelectorAll(".usage-strip-list .usage-strip-window-label")].map((label) => label.textContent);
 const names = (container: HTMLElement) =>
   [...container.querySelectorAll(".usage-strip-name")].map((name) => name.textContent);
-const summary = (container: HTMLElement) => container.querySelector(".usage-strip-summary")?.textContent;
+/** The folded line as "<agent of its mark> <text>", since the mark alone says whose limit it is. */
+function summary(container: HTMLElement): string {
+  const line = container.querySelector(".usage-strip-summary");
+  const mark = [...(line?.querySelector(".provider-mark")?.classList ?? [])]
+    .find((name) => name.startsWith("provider-mark-"))
+    ?.slice("provider-mark-".length);
+  return `${mark} ${line?.textContent}`;
+}
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -107,9 +121,8 @@ describe("SidebarUsageStrip", () => {
     const card = toggle(container);
     expect(card.getAttribute("aria-label")).toBe("Plan limits");
     expect(card.getAttribute("aria-expanded")).toBe("false");
-    expect(summary(container)).toBe("Codex5h86%");
+    expect(summary(container)).toBe("codex 5h86%");
     expect(card.getAttribute("data-tooltip")).toBe("Codex, 5-hour limit: 86% used");
-    expect(container.querySelector(".usage-strip-summary .provider-mark")).not.toBeNull();
     expect(container.querySelector(".usage-strip-summary")?.classList.contains("is-warning")).toBe(true);
     expect(container.querySelectorAll(".usage-strip-row")).toHaveLength(0);
     expect(card.textContent).not.toMatch(/\$|tokens/iu);
@@ -122,17 +135,31 @@ describe("SidebarUsageStrip", () => {
       [reading("claude-code", [fiveHour(10), week(41)]), reading("codex", [fiveHour(86)])],
       { currentKey: "claude-code:usual" },
     );
-    expect(summary(container)).toBe("Claude CodeWeek41%");
+    expect(summary(container)).toBe("claude-code Week41%");
+  });
+
+  it("sums up the pinned agent over the selected and the fullest one, until it has no login here", async () => {
+    const readings = [reading("claude-code", [fiveHour(10), week(41)]), reading("codex", [fiveHour(86)])];
+    const pinned = await render(readings, { currentKey: "codex:usual", pinned: "claude-code" });
+    expect(summary(pinned)).toBe("claude-code Week41%");
+    document.body.replaceChildren();
+    const gone = await render(readings, { currentKey: "codex:usual", pinned: "gemini" });
+    expect(summary(gone)).toBe("codex 5h86%");
+  });
+
+  it("keeps the agent's mark on the line when the model label is long", async () => {
+    const container = await render([reading("cursor-agent", [week(47, { scope: "Auto models" })])]);
+    expect(summary(container)).toBe("cursor-agent Auto models47%");
   });
 
   it("skips a window that just reset when summing up", async () => {
     const container = await render([reading("codex", [fiveHour(95, { resetsAt: at(-2) }), week(12)])]);
-    expect(summary(container)).toBe("CodexWeek12%");
+    expect(summary(container)).toBe("codex Week12%");
   });
 
   it("says why the summed-up login has no numbers", async () => {
     const container = await render([reading("claude-code", [], { accountId: "work", state: "expired" })]);
-    expect(summary(container)).toBe("Claude CodeWorkSign in again");
+    expect(summary(container)).toBe("claude-code Sign in again");
     expect(toggle(container).getAttribute("data-tooltip")).toBe("Claude Code, Work: Sign in again");
   });
 
@@ -141,7 +168,7 @@ describe("SidebarUsageStrip", () => {
     const card = toggle(container);
     expect(card.getAttribute("aria-expanded")).toBe("true");
     expect(card.getAttribute("aria-controls")).toBe(container.querySelector(".sidebar-usage-strip")?.id);
-    expect(summary(container)).toBe("Codex5h34%");
+    expect(summary(container)).toBe("codex 5h34%");
     expect(container.querySelectorAll(".usage-strip-list .usage-strip-ring")).toHaveLength(2);
     expect(lines(container)).toEqual(["5h34%Resets in 47m", "Week12%Resets in 2d 21h"]);
     const resets = [...container.querySelectorAll(".usage-strip-window-reset")];
@@ -353,6 +380,16 @@ describe("SidebarPlanLimits", () => {
     const { container, dispatch, root } = await mount();
     expect(dispatch).toHaveBeenCalled();
     expect(names(container)).toEqual(["Claude Code"]);
+    act(() => root.unmount());
+  });
+
+  it("sums up the agent pinned in Settings", async () => {
+    updateAppSettings((current) => ({
+      ...current,
+      sidebarLimits: { enabled: true, hidden: [], pinned: "claude-code" },
+    }));
+    const { container, root } = await mount();
+    expect(summary(container)).toBe("claude-code 5h10%");
     act(() => root.unmount());
   });
 });
