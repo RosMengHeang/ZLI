@@ -3,7 +3,14 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, type DesktopFixture, launchDesktop } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  openCreateWorktree,
+  createGitFixture,
+  type DesktopFixture,
+  freePort,
+  launchDesktop,
+} from "./desktop-fixtures.js";
 
 test("finds a dev server in terminal output and opens it in the browser panel", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
@@ -12,7 +19,7 @@ test("finds a dev server in terminal output and opens it in the browser panel", 
   try {
     fixture = await launchDesktop(repo, root);
     const page = fixture.page;
-    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    await openCreateWorktree(page);
     const dialog = page.getByRole("dialog", { name: "Create worktree" });
     await dialog.getByLabel("Branch").fill("preview");
     await dialog.getByRole("button", { name: "Create worktree" }).click();
@@ -20,7 +27,7 @@ test("finds a dev server in terminal output and opens it in the browser panel", 
     await expect(worktree).toContainText("Ready", { timeout: 30_000 });
     await worktree.click();
 
-    const port = 44100 + Math.floor(Math.random() * 500);
+    const port = await freePort();
     await writeFile(
       join(`${repo}-worktrees`, "preview", "serve.mjs"),
       [

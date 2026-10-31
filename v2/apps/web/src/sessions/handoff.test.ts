@@ -1,7 +1,16 @@
 import type { ThreadMessageProjection } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
-import { canHandOff, HANDOFF_FILE_NAME, handoffMessage, handoffTranscript, inlineFirstMessage } from "./handoff.js";
+import {
+  canHandOff,
+  HANDOFF_FILE_NAME,
+  handoffMessage,
+  handoffTranscript,
+  inlineFirstMessage,
+  RECENT_CONTEXT_CHAR_BUDGET,
+  RECENT_CONTEXT_FILE_NAME,
+  recentContextMessage,
+} from "./handoff.js";
 import { parseWorkbenchState } from "./workbench.js";
 
 const threadId = "00000000-0000-4000-8000-000000000101" as ThreadMessageProjection["threadId"];
@@ -70,6 +79,19 @@ describe("handoff", () => {
     ]);
     expect(result.transcript.name).toBe(HANDOFF_FILE_NAME);
     expect(result.transcript.text).toContain("# Conversation with Codex");
+    expect(result.text).not.toContain("\u2014");
+  });
+
+  it("starts a new chat with only the end of the earlier one", () => {
+    const messages = Array.from({ length: 20 }, (_, index) => message(index, "user", `${index}`.repeat(2_000)));
+    const result = recentContextMessage({ title: "Fix the login form", name: "Codex", branch: "main", messages });
+    expect(result.transcript.name).toBe(RECENT_CONTEXT_FILE_NAME);
+    expect(result.transcript.text.startsWith("# Earlier chat with Codex")).toBe(true);
+    expect(result.transcript.text.length).toBeLessThan(RECENT_CONTEXT_CHAR_BUDGET + 500);
+    expect(result.omitted).toBeGreaterThan(0);
+    expect(result.transcript.text).toContain("19".repeat(1_000));
+    expect(result.text.split("\n\n")[0]).toBe("Continue: Fix the login form");
+    expect(result.text).toContain(RECENT_CONTEXT_FILE_NAME);
     expect(result.text).not.toContain("\u2014");
   });
 

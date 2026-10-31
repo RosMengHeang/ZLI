@@ -116,9 +116,12 @@ export class MobileGateway {
     if (this.#heartbeat) clearInterval(this.#heartbeat);
     this.#heartbeat = undefined;
     for (const close of [...this.#everyone]) close(1001);
-    if (!server) return;
-    for (const socket of server.clients) socket.terminate();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (server) {
+      for (const socket of server.clients) socket.terminate();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+    // Closing a phone's connection records when it was last seen; quitting must not cut that write short.
+    await this.#options.store.settled();
   }
 
   /** Closes a phone's live connections. Removing it from the store is the caller's job. */

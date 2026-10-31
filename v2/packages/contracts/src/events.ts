@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { AgentName } from "./agentName.js";
 import { BrowserTabProjection } from "./browser.js";
 import { ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
 import { DesktopAppInfo, DiagnosticLog } from "./diagnostics.js";
+import { HuddleEvent } from "./huddles.js";
 import {
   BrowserTabId,
   EventId,
@@ -20,6 +22,7 @@ import { ProjectProjection, SupportBundleProjection, WorktreeProjection } from "
 import {
   PermissionMode,
   ProviderCapabilities,
+  ReasoningEffort,
   ThreadActivityProjection,
   ThreadAttachment,
   ThreadMessageProjection,
@@ -36,6 +39,9 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("project.registered"), project: ProjectProjection }),
   z.object({ type: z.literal("project.archive.requested"), projectId: ProjectId }),
   z.object({ type: z.literal("project.archived"), projectId: ProjectId }),
+  z.object({ type: z.literal("project.git.changed"), projectId: ProjectId, git: z.boolean() }),
+  z.object({ type: z.literal("project.agents.changed"), projectId: ProjectId, trusted: z.boolean() }),
+  z.object({ type: z.literal("project.renamed"), projectId: ProjectId, name: z.string().min(1) }),
   z.object({
     type: z.literal("runtime.reactor.failed"),
     reactor: z.string().min(1),
@@ -56,6 +62,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     errorMessage: z.string().min(1).optional(),
     branch: z.string().min(1).optional(),
   }),
+  z.object({ type: z.literal("worktree.branch.changed"), worktreeId: WorktreeId, branch: z.string().min(1) }),
   z.object({ type: z.literal("worktree.removed"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("worktree.archived"), worktreeId: WorktreeId }),
   z.object({
@@ -83,6 +90,8 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     rows: z.number().int().positive(),
   }),
   z.object({ type: z.literal("terminal.stop.requested"), terminalId: TerminalId }),
+  /** No name means the name was cleared. */
+  z.object({ type: z.literal("terminal.renamed"), terminalId: TerminalId, name: AgentName.optional() }),
   z.object({
     type: z.literal("thread.start.requested"),
     thread: ThreadProjection,
@@ -95,6 +104,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     threadId: ThreadId,
     text: z.string(),
     model: z.string().min(1).optional(),
+    reasoningEffort: ReasoningEffort.optional(),
     permissionMode: PermissionMode.optional(),
     attachments: z.array(ThreadAttachment).max(8).optional(),
   }),
@@ -110,6 +120,10 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("thread.interrupt.requested"), threadId: ThreadId, turnId: TurnId.optional() }),
   z.object({ type: z.literal("thread.stop.requested"), threadId: ThreadId }),
+  /** No name means the name was cleared. */
+  z.object({ type: z.literal("thread.renamed"), threadId: ThreadId, name: AgentName.optional() }),
+  /** A message reached an ended chat that knows its agent's conversation id, so the agent is started again on it. */
+  z.object({ type: z.literal("thread.resume.requested"), threadId: ThreadId, cwd: z.string().min(1) }),
   z.object({
     type: z.literal("session.deleted"),
     sessionId: SessionId,
@@ -125,6 +139,11 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     errorMessage: z.string().min(1).optional(),
   }),
   z.object({ type: z.literal("thread.message.appended"), message: ThreadMessageProjection }),
+  z.object({
+    type: z.literal("thread.provider-session.recorded"),
+    threadId: ThreadId,
+    providerSessionId: ThreadProjection.shape.providerSessionId.unwrap(),
+  }),
   z.object({ type: z.literal("thread.request.requested"), request: ThreadRequestProjection }),
   z.object({ type: z.literal("thread.activity.updated"), activity: ThreadActivityProjection }),
   z.object({ type: z.literal("thread.request.resolved"), threadId: ThreadId, requestId: z.string().min(1) }),
@@ -199,6 +218,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     decision: SetupDecision,
   }),
   z.object({ type: z.literal("project.setup.trusted"), projectId: ProjectId, commandsHash: z.string().min(1) }),
+  ...HuddleEvent.options,
 ]);
 export type RuntimeEvent = z.infer<typeof RuntimeEvent>;
 

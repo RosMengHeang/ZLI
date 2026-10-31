@@ -5,8 +5,9 @@ import { issueLinkFor, withIssueReference } from "../issues/issueStart.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
-import { Field } from "../ui/Field.js";
+import { Field, Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
+import { baseBranchOptions, useBranches } from "./branches.js";
 import { openExternalLink, useCopyFeedback } from "./links.js";
 import { createPullRequest, pullRequestStatus, pushBranch } from "./pullRequestClient.js";
 
@@ -45,6 +46,8 @@ export function PullRequestDialog({
   const openRef = useRef<HTMLButtonElement>(null);
   const worktreeId = worktree.worktreeId;
   const [issueLink] = useState(() => issueLinkFor(worktreeId));
+  const { branches } = useBranches(dispatch, worktreeId);
+  const baseChoices = baseBranchOptions(branches, base.trim() || undefined);
 
   const load = async () => {
     setPhase({ kind: "loading" });
@@ -303,13 +306,24 @@ export function PullRequestDialog({
                 />
               </Field>
               <Field label="Base branch">
-                <input
-                  className="input is-mono"
-                  value={base}
-                  onChange={(event) => setBase(event.target.value)}
-                  spellCheck={false}
-                  required
-                />
+                {baseChoices.length > 0 ? (
+                  <Select
+                    label="Base branch"
+                    className="is-mono"
+                    value={base}
+                    options={baseChoices}
+                    onChange={setBase}
+                  />
+                ) : (
+                  // Without a list from origin (not fetched yet, or reading it failed), the name can be typed.
+                  <input
+                    className="input is-mono"
+                    value={base}
+                    onChange={(event) => setBase(event.target.value)}
+                    spellCheck={false}
+                    required
+                  />
+                )}
               </Field>
               <label className="check-field pr-draft">
                 <input type="checkbox" checked={draft} onChange={(event) => setDraft(event.target.checked)} />

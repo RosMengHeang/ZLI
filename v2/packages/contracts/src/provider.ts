@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { AgentName, StartedBy } from "./agentName.js";
 import { AccountId, ProjectId, SessionId, ThreadId, TurnId, WorktreeId } from "./ids.js";
 
 export const ProviderKind = z.enum([
@@ -25,9 +26,21 @@ export type ListedProviderKind = z.infer<typeof ListedProviderKind>;
 export const PermissionMode = z.enum(["read-only", "supervised", "full-access"]);
 export type PermissionMode = z.infer<typeof PermissionMode>;
 
+/**
+ * A reasoning level an agent accepts, such as "low", "xhigh", or "max". Each agent and model has
+ * its own set, and Droid passes it on the command line, so it cannot start with a dash.
+ */
+export const ReasoningEffort = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/u);
+export type ReasoningEffort = z.infer<typeof ReasoningEffort>;
+
+const ReasoningEfforts = z.array(ReasoningEffort).max(20);
+
 export const ProviderModelOption = z.object({
   id: z.string().min(1).max(200),
   label: z.string().min(1).max(200),
+  /** Empty means the model has no reasoning levels. Missing means the agent did not say. */
+  reasoningEfforts: ReasoningEfforts.optional(),
+  defaultReasoningEffort: ReasoningEffort.optional(),
 });
 export type ProviderModelOption = z.infer<typeof ProviderModelOption>;
 
@@ -39,6 +52,8 @@ export const ProviderDiscovery = z.discriminatedUnion("status", [
     path: z.string().min(1),
     version: z.string().min(1).max(80).optional(),
     models: z.array(ProviderModelOption).max(400).optional(),
+    /** Levels for models that list none of their own, including the agent's default model. */
+    reasoningEfforts: ReasoningEfforts.optional(),
   }),
   z.object({
     provider: ListedProviderKind,
@@ -57,6 +72,8 @@ export const ProviderCapabilities = z.object({
   modelSwitch: z.enum(["in-session", "unsupported"]).optional(),
   /** in-session means a turn can run under a different permission mode than the last one. */
   permissionSwitch: z.enum(["in-session", "unsupported"]).optional(),
+  /** Levels this session's agent reported when it started, for agents that report them per session. */
+  reasoningEfforts: ReasoningEfforts.optional(),
 });
 export type ProviderCapabilities = z.infer<typeof ProviderCapabilities>;
 
@@ -70,7 +87,15 @@ export const ThreadProjection = z.object({
   errorMessage: z.string().min(1).optional(),
   permissionMode: PermissionMode.optional(),
   model: z.string().min(1).max(200).optional(),
+  /** The name the person gave this agent. */
+  name: AgentName.optional(),
+  startedBy: StartedBy.optional(),
   sessionId: SessionId.optional(),
+  /**
+   * The agent CLI's own id for this conversation, such as a Claude session or a Codex thread. A new process
+   * resumes the chat from it after the old one ended, for example when ZLI restarted.
+   */
+  providerSessionId: z.string().min(1).max(500).optional(),
   /** The account the agent runs under. Threads from before accounts existed have none. */
   accountId: AccountId.optional(),
   createdAt: z.string().datetime({ offset: true }).optional(),
@@ -136,6 +161,7 @@ export const ThreadQueuedMessage = z.object({
   threadId: ThreadId,
   text: z.string().min(1),
   model: z.string().min(1).max(200).optional(),
+  reasoningEffort: ReasoningEffort.optional(),
   permissionMode: PermissionMode.optional(),
   attachments: z.array(ThreadAttachment).max(8).optional(),
   queuedAt: z.string().datetime({ offset: true }).optional(),

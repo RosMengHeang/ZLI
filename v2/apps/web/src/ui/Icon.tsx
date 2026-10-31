@@ -3,6 +3,12 @@ import type { SVGProps } from "react";
 const paths = {
   plus: <path d="M12 5v14M5 12h14" />,
   x: <path d="M18 6 6 18M6 6l12 12" />,
+  undo: (
+    <>
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+    </>
+  ),
   folder: (
     <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
   ),
@@ -63,6 +69,18 @@ const paths = {
       <path d="m20 20-3.5-3.5" />
     </>
   ),
+  zoomIn: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5M11 8v6M8 11h6" />
+    </>
+  ),
+  zoomOut: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5M8 11h6" />
+    </>
+  ),
   settings: (
     <>
       <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
@@ -82,6 +100,8 @@ const paths = {
     </>
   ),
   arrowLeft: <path d="m12 19-7-7 7-7M19 12H5" />,
+  /** Android's Back key: a triangle pointing left. */
+  navBack: <path d="M17 5.5v13a.5.5 0 0 1-.76.43L5.7 12.43a.5.5 0 0 1 0-.86l10.54-6.5a.5.5 0 0 1 .76.43Z" />,
   arrowRight: <path d="M5 12h14M12 5l7 7-7 7" />,
   arrowUp: <path d="m5 12 7-7 7 7M12 19V5" />,
   reload: (
@@ -91,6 +111,12 @@ const paths = {
     </>
   ),
   code: <path d="m16 18 6-6-6-6M8 6l-6 6 6 6" />,
+  annotate: (
+    <>
+      <path d="M20 10V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2v3l3.5-3" />
+      <path d="m13.5 12.5 7.5 2.6-3.2 1.4-1.4 3.2Z" />
+    </>
+  ),
   crosshair: (
     <>
       <circle cx="12" cy="12" r="8" />
@@ -103,6 +129,12 @@ const paths = {
       <path d="M12 18h.01" />
     </>
   ),
+  keyboard: (
+    <>
+      <rect width="20" height="16" x="2" y="4" rx="2" />
+      <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10" />
+    </>
+  ),
   rotate: (
     <>
       <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
@@ -110,6 +142,12 @@ const paths = {
     </>
   ),
   square: <rect x="6" y="6" width="12" height="12" rx="2" />,
+  stop: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" />
+    </>
+  ),
   pause: <path d="M14 4h4v16h-4zM6 4h4v16H6z" />,
   trash: <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />,
   check: <path d="M20 6 9 17l-5-5" />,
@@ -204,6 +242,24 @@ const paths = {
     </>
   ),
   play: <path d="M6 4v16l14-8Z" />,
+  power: (
+    <>
+      <path d="M12 2v10" />
+      <path d="M18.4 6.6a9 9 0 1 1-12.77.04" />
+    </>
+  ),
+  volumeUp: (
+    <>
+      <path d="M11 5 6 9H2v6h4l5 4Z" />
+      <path d="M15 12h6M18 9v6" />
+    </>
+  ),
+  volumeDown: (
+    <>
+      <path d="M11 5 6 9H2v6h4l5 4Z" />
+      <path d="M15 12h6" />
+    </>
+  ),
   bookmark: <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />,
   pencil: (
     <path d="M21.17 6.81a1 1 0 0 0-3.99-3.98L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5zM15 5l4 4" />
@@ -232,11 +288,36 @@ const paths = {
       <path d="M12 8v4M12 16h.01" />
     </>
   ),
+  lock: (
+    <>
+      <rect width="18" height="11" x="3" y="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </>
+  ),
+  lockOpen: (
+    <>
+      <rect width="18" height="11" x="3" y="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+    </>
+  ),
+  camera: (
+    <>
+      <path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z" />
+      <circle cx="12" cy="13" r="3" />
+    </>
+  ),
   cpu: (
     <>
       <rect width="16" height="16" x="4" y="4" rx="2" />
       <rect width="6" height="6" x="9" y="9" rx="1" />
       <path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2" />
+    </>
+  ),
+  /** A chip with pins on two sides: a model with no maker's logo. Pins on all four sides read as a gear when small. */
+  chip: (
+    <>
+      <rect width="12" height="16" x="6" y="4" rx="2" />
+      <path d="M10.5 4a1.5 1.5 0 0 0 3 0M3 9h3M3 15h3M18 9h3M18 15h3" />
     </>
   ),
   loader: (
@@ -262,6 +343,15 @@ const paths = {
       <circle cx="12" cy="7" r="4" />
     </>
   ),
+  /** Several people: a huddle of agents. */
+  users: (
+    <>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </>
+  ),
   bell: (
     <>
       <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
@@ -282,6 +372,12 @@ const paths = {
     </>
   ),
   externalLink: <path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />,
+  pin: (
+    <>
+      <path d="M12 17v5" />
+      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+    </>
+  ),
   handoff: <path d="m16 3 4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" />,
   monitor: (
     <>
@@ -293,6 +389,21 @@ const paths = {
     <>
       <rect width="20" height="16" x="2" y="4" rx="2" />
       <path d="M10 4v4M2 8h20M6 4v4" />
+    </>
+  ),
+  history: (
+    <>
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l4 2" />
+    </>
+  ),
+  /** An agent tile with a shell prompt, and a plus that breaks out of its corner. Distinct from New chat's pen. */
+  agentNew: (
+    <>
+      <path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6" />
+      <path d="m8 10 3 3-3 3M13 16h3" />
+      <path d="M18 3v6M15 6h6" />
     </>
   ),
   squarePen: (

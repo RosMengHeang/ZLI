@@ -32,6 +32,39 @@ afterEach(async () => {
   for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true });
 });
 
+async function plainFolder(): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), "zli-files-plain-"));
+  directories.push(directory);
+  const root = join(directory, "app");
+  await mkdir(join(root, "src"), { recursive: true });
+  await mkdir(join(root, "node_modules", "dep"), { recursive: true });
+  await writeFile(join(root, "index.html"), "<h1>Hello World</h1>\n");
+  await writeFile(join(root, "src", "app.js"), "console.log('hello');\n");
+  await writeFile(join(root, "node_modules", "dep", "index.js"), "hello\n");
+  return root;
+}
+
+describe("FileService in a folder without Git", () => {
+  it("lists the folder's files without Git state, skipping node_modules", async () => {
+    const root = await plainFolder();
+
+    await expect(new FileService().list(root)).resolves.toEqual({
+      files: [{ path: "index.html" }, { path: "src/app.js" }],
+      truncated: false,
+    });
+  });
+
+  it("searches the folder's files", async () => {
+    const root = await plainFolder();
+
+    const result = await new FileService().search(root, "hello");
+
+    expect(result.matches.map((match) => match.path).sort()).toEqual(
+      expect.arrayContaining(["index.html", "src/app.js"]),
+    );
+  });
+});
+
 describe("FileService.list", () => {
   it("lists tracked and untracked files with their Git state, skipping ignored ones", async () => {
     const root = await repository();

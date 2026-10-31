@@ -3,6 +3,7 @@ import {
   type IssueListResult,
   IssueListResult as IssueListSchema,
   type IssueSource,
+  IssueSourcesResult,
   type IssueStateFilter,
   LinearStatusResult,
   ProjectId,
@@ -64,6 +65,10 @@ export function getIssue(
   key: string,
 ): Promise<IssueGetResult> {
   return request(dispatch, { type: "issues.get", projectId: ProjectId.parse(projectId), source, key }, IssueGetResult);
+}
+
+export function issueSources(dispatch: Dispatch, projectId: string): Promise<IssueSourcesResult> {
+  return request(dispatch, { type: "issues.sources", projectId: ProjectId.parse(projectId) }, IssueSourcesResult);
 }
 
 export function linearStatus(dispatch: Dispatch): Promise<LinearStatusResult> {

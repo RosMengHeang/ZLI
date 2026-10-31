@@ -734,7 +734,7 @@ describe("FilesPane Ask agent", () => {
     act(() => {
       row?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 50 }));
     });
-    const menu = document.querySelector<HTMLElement>(".files-menu");
+    const menu = document.querySelector<HTMLElement>(".menu");
     expect(menu?.getAttribute("aria-label")).toBe("Actions for app.ts");
     expect([...(menu?.querySelectorAll("[role=menuitem]") ?? [])].map((item) => item.textContent)).toEqual([
       "Add to Droid chat",
@@ -744,7 +744,7 @@ describe("FilesPane Ask agent", () => {
     ]);
     act(() => button(document.body, "Add to Droid chat").click());
     expect(asked.at(-1)).toEqual({ path: "src/app.ts" });
-    expect(document.querySelector(".files-menu")).toBeNull();
+    expect(document.querySelector(".menu")).toBeNull();
   });
 
   it("explains why asking is unavailable without an agent chat", async () => {
@@ -760,7 +760,7 @@ describe("FilesPane Ask agent", () => {
     act(() => {
       host?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
     });
-    const editorMenu = document.querySelector<HTMLElement>(".files-menu");
+    const editorMenu = document.querySelector<HTMLElement>(".menu");
     if (!editorMenu) throw new Error("No menu");
     const [item] = editorMenu.querySelectorAll<HTMLElement>("[role=menuitem]");
     expect(item?.firstElementChild?.textContent).toBe("Ask an agent about this");
@@ -769,7 +769,7 @@ describe("FilesPane Ask agent", () => {
     act(() => {
       editorMenu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
-    expect(document.querySelector(".files-menu")).toBeNull();
+    expect(document.querySelector(".menu")).toBeNull();
   });
 });
 

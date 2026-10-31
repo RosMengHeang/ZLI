@@ -1,6 +1,9 @@
-import { AgentToolAccess, isHttpServer, MCP_CATALOG, type McpServerConfig } from "@zli-v2/contracts";
+import { isHttpServer, MCP_CATALOG, type McpServerConfig } from "@zli-v2/contracts";
 import { Fragment, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
+import { useMobileSettings } from "../mobile/useMobileSettings.js";
+import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Field, Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
@@ -12,6 +15,7 @@ import { McpStatusDot } from "./McpStatusDot.js";
 import { McpToolsPanel } from "./McpToolsPanel.js";
 import {
   AGENT_ACCESS_LABELS,
+  AGENT_SCOPE_LABELS,
   applyDraft,
   catalogEntryForUrl,
   draftFromServer,
@@ -24,7 +28,6 @@ import {
   SIGN_IN_CANCELED,
   serverStatus,
   serverSummary,
-  settingsProblems,
   signedInText,
   signInFor,
   TRANSPORT_LABELS,
@@ -35,7 +38,7 @@ import { TextLink } from "./SectionHeader.js";
 
 type Editing = { index?: number; draft: McpDraft };
 
-const SETTINGS_AGENTS = "Cursor, Droid, Gemini, Kimi Code, and Qwen Code";
+const PROJECT_FILE_AGENTS = "Cursor, Droid, Gemini, Kimi Code, and Qwen Code";
 
 /** The catalog entry a saved server came from, by name or address, for its logo and title. */
 export function serverLogoId(server: McpServerConfig): string {
@@ -54,14 +57,15 @@ export function McpServersSection({
   onBrowse,
   onCustom,
   onInstalled,
+  onAgentMessages,
 }: {
   view: McpServersView;
   onBrowse?(): void;
   onCustom?(): void;
   onInstalled?(): void;
+  onAgentMessages?: (() => void) | undefined;
 }) {
-  const { state, reload, save, setAgentAccess, signIn, cancelSignIn, signOut, pending, test, tests, testing } =
-    useMcpServers();
+  const { state, reload, save, signIn, cancelSignIn, signOut, pending, test, tests, testing } = useMcpServers();
   const knownProjects = useKnownProjects();
   const [signInProblems, setSignInProblems] = useState<Record<string, string>>({});
   const [openTools, setOpenTools] = useState<ReadonlySet<string>>(new Set());
@@ -99,8 +103,11 @@ export function McpServersSection({
     );
   }
 
-  const { servers, userSettings, agentAccess, problem: storeProblem } = state.result;
-  const problems = settingsProblems(userSettings.outcomes);
+  const { servers, agentAccess, agentScope, problem: storeProblem } = state.result;
+  const zliStatus =
+    agentAccess === "off"
+      ? "Off."
+      : `${AGENT_ACCESS_LABELS[agentAccess]}, ${AGENT_SCOPE_LABELS[agentScope].toLowerCase()}.`;
   const pluginSignIns = pluginSignInsOf(state.result);
   const result = state.result;
 
@@ -236,10 +243,12 @@ export function McpServersSection({
     setAdded(undefined);
     setImported(undefined);
     const server = index === undefined ? undefined : servers[index];
-    setEditing(
-      index !== undefined && server ? { index, draft: draftFromServer(server) } : { draft: { ...EMPTY_DRAFT } },
+    flushSync(() =>
+      setEditing(
+        index !== undefined && server ? { index, draft: draftFromServer(server) } : { draft: { ...EMPTY_DRAFT } },
+      ),
     );
-    requestAnimationFrame(() => nameRef.current?.focus());
+    nameRef.current?.focus();
   };
 
   const submit = async () => {
@@ -464,18 +473,10 @@ export function McpServersSection({
           <span className="mcp-row-copy">
             <strong>zli</strong>
             <span className="mcp-row-detail">
-              Lets agents list and read the other agents in their project, and start or message them when allowed. Also
-              available as the zli command in terminals.
+              Lets agents list, read, start, and message other agents. Also available as the zli command in terminals.{" "}
+              {zliStatus} Change it in <TextLink onClick={onAgentMessages}>Agent messages</TextLink>.
             </span>
           </span>
-          <Select<AgentToolAccess>
-            className="input-sm"
-            label="What agents may do with other agents"
-            value={agentAccess}
-            disabled={saving}
-            options={AgentToolAccess.options.map((access) => ({ value: access, label: AGENT_ACCESS_LABELS[access] }))}
-            onChange={(access) => void run(() => setAgentAccess(access))}
-          />
         </li>
         <li className="mcp-row">
           <ZliLogo size={28} className="mcp-row-logo" />
@@ -487,6 +488,7 @@ export function McpServersSection({
             </span>
           </span>
         </li>
+        <ZliMobileRow />
       </ul>
       <h3 className="mcp-subhead">Your MCP servers</h3>
       {servers.length === 0 ? (
@@ -623,17 +625,41 @@ export function McpServersSection({
       ) : null}
       {editorForm}
       <p className="settings-footnote">
-        {userSettings.enabled
-          ? `${SETTINGS_AGENTS} only read servers from their own settings files, so ZLI writes enabled servers there and removes the ones it added.`
-          : `${SETTINGS_AGENTS} only read servers from their own settings files, and ZLI is set to leave those files alone.`}
+        ZLI gives these servers only to agents it starts. {PROJECT_FILE_AGENTS} read them from a project MCP file that
+        ZLI writes in the agent's worktree, hides from git, and deletes when ZLI quits. If the worktree already has that
+        file, ZLI leaves it alone and those agents start without these servers.
       </p>
-      {problems.length > 0 ? (
-        <ul className="mcp-settings-problems">
-          {problems.map((line) => (
-            <li key={line}>{line}</li>
-          ))}
-        </ul>
-      ) : null}
     </>
+  );
+}
+
+/** Shown only in the desktop app, where the device tools exist. */
+function ZliMobileRow() {
+  const { bridge } = useRuntime();
+  const mobile = bridge?.mobile;
+  const { settings, error, setAgentTools } = useMobileSettings(mobile);
+  if (!mobile) return null;
+  const on = settings?.agentTools ?? false;
+  return (
+    <li className={`mcp-row${settings && !on ? " is-off" : ""}`}>
+      <ZliLogo size={28} className="mcp-row-logo" />
+      <span className="mcp-row-copy">
+        <strong>zli-mobile</strong>
+        <span className="mcp-row-detail" role={error ? "alert" : undefined}>
+          {error ??
+            "Lets agents boot Android emulators and iOS simulators, install and open apps, tap, type, and read logs, all shown in the Mobile panel. Also available as the zli-mobile command in terminals."}
+        </span>
+      </span>
+      <input
+        className="switch"
+        type="checkbox"
+        role="switch"
+        checked={on}
+        aria-checked={on}
+        aria-label="Give agents zli-mobile"
+        disabled={!settings}
+        onChange={(event) => setAgentTools(event.target.checked)}
+      />
+    </li>
   );
 }

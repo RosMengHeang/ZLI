@@ -1,6 +1,10 @@
 import { ProjectionStore } from "@zli-v2/client-runtime";
 import {
+  AgentReachAnswer,
+  AgentReachRequest,
   BrowserBounds,
+  BrowserDesignCaptureInput,
+  BrowserDesignMarkInput,
   BrowserFillInput,
   BrowserNavigateInput,
   BrowserPressInput,
@@ -16,6 +20,31 @@ import {
   type BrowserViewport,
   BrowserWaitForNetworkIdleInput,
   MobileAccessStatus,
+  MobileAvdCreateInput,
+  MobileAvdDeleteInput,
+  MobileAvdList,
+  MobileDevice,
+  MobileDeviceIdInput,
+  MobileLogLines,
+  MobileOpenUrlResult,
+  MobilePanelInput,
+  MobilePanelLaunchInput,
+  MobilePanelLogsInput,
+  MobilePanelOpenUrlInput,
+  MobilePopOutAspectInput,
+  MobilePopOutList,
+  MobilePopOutPinInput,
+  MobileRevealEvent,
+  MobileScreenshot,
+  MobileSettings,
+  MobileSetupPlan,
+  MobileSetupProgress,
+  MobileSetupRunInput,
+  MobileSetupStatus,
+  MobileStreamEvent,
+  MobileStreamInfo,
+  OpenInApp,
+  OpenInRequest,
   RpcRequest,
   RpcResponse,
   RuntimeEventEnvelope,
@@ -36,6 +65,91 @@ type IpcBridge = {
   invoke(channel: string, payload?: unknown): Promise<unknown>;
   on(channel: string, listener: (event: unknown, value: unknown) => void): () => void;
 };
+
+function createMobileApi(ipc: IpcBridge) {
+  const device = (deviceId: string) => MobileDeviceIdInput.parse({ deviceId });
+  const listen =
+    <T>(channel: string, schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } }) =>
+    (listener: (value: T) => void) =>
+      ipc.on(channel, (_event, value) => {
+        const parsed = schema.safeParse(value);
+        if (parsed.success) listener(parsed.data);
+      });
+  return {
+    status: async (options: { recheckAcceleration?: boolean } = {}) =>
+      MobileSetupStatus.parse(
+        await ipc.invoke("zli:mobile:status", { recheckAcceleration: options.recheckAcceleration === true }),
+      ),
+    setupPlan: async () => MobileSetupPlan.parse(await ipc.invoke("zli:mobile:setup-plan")),
+    setupProgress: async () => MobileSetupProgress.parse(await ipc.invoke("zli:mobile:setup-progress")),
+    /** Resolves when setup ends; progress arrives through onSetupProgress meanwhile. */
+    runSetup: async (acceptedLicenses: readonly string[]) => {
+      await ipc.invoke("zli:mobile:setup-run", MobileSetupRunInput.parse({ acceptedLicenses: [...acceptedLicenses] }));
+    },
+    cancelSetup: async () => {
+      await ipc.invoke("zli:mobile:setup-cancel");
+    },
+    onSetupProgress: listen("zli:mobile:setup", MobileSetupProgress),
+    listAvds: async () => MobileAvdList.parse(await ipc.invoke("zli:mobile:avd-list")),
+    createAvd: async (input: MobileAvdCreateInput) =>
+      MobileAvdList.parse(await ipc.invoke("zli:mobile:avd-create", MobileAvdCreateInput.parse(input))),
+    /** Refused while the device is booting or running. */
+    deleteAvd: async (name: string) =>
+      MobileAvdList.parse(await ipc.invoke("zli:mobile:avd-delete", MobileAvdDeleteInput.parse({ name }))),
+    devices: async () => MobileDevice.array().parse(await ipc.invoke("zli:mobile:devices")),
+    onDevices: listen("zli:mobile:devices", MobileDevice.array()),
+    boot: async (deviceId: string) => MobileDevice.parse(await ipc.invoke("zli:mobile:boot", device(deviceId))),
+    shutdown: async (deviceId: string) => {
+      await ipc.invoke("zli:mobile:shutdown", device(deviceId));
+    },
+    startStream: async (deviceId: string) =>
+      MobileStreamInfo.parse(await ipc.invoke("zli:mobile:stream-start", device(deviceId))),
+    stopStream: async (deviceId: string) => {
+      await ipc.invoke("zli:mobile:stream-stop", device(deviceId));
+    },
+    onStream: listen("zli:mobile:stream", MobileStreamEvent),
+    input: async (input: MobilePanelInput) => {
+      await ipc.invoke("zli:mobile:input", MobilePanelInput.parse(input));
+    },
+    /** Resolves with the localhost port forwarded to an Android device, when the URL needed one. */
+    openUrl: async (deviceId: string, url: string) =>
+      MobileOpenUrlResult.parse(
+        await ipc.invoke("zli:mobile:open-url", MobilePanelOpenUrlInput.parse({ deviceId, url })),
+      ),
+    logs: async (deviceId: string, query: { appId?: string; lines?: number; filter?: string } = {}) =>
+      MobileLogLines.parse(await ipc.invoke("zli:mobile:logs", MobilePanelLogsInput.parse({ ...query, deviceId }))),
+    launch: async (deviceId: string, appId: string, options: { stop?: boolean } = {}) => {
+      await ipc.invoke("zli:mobile:launch", MobilePanelLaunchInput.parse({ ...options, deviceId, appId }));
+    },
+    takeOver: async (deviceId: string) => {
+      await ipc.invoke("zli:mobile:take-over", device(deviceId));
+    },
+    release: async (deviceId: string) => {
+      await ipc.invoke("zli:mobile:release", device(deviceId));
+    },
+    screenshot: async (deviceId: string) =>
+      MobileScreenshot.parse(await ipc.invoke("zli:mobile:screenshot", device(deviceId))),
+    getSettings: async () => MobileSettings.parse(await ipc.invoke("zli:mobile:settings-get")),
+    setSettings: async (patch: Partial<MobileSettings>) =>
+      MobileSettings.parse(await ipc.invoke("zli:mobile:settings-set", MobileSettings.partial().parse(patch))),
+    /** Fires when an agent boots or drives a device, so the renderer can show the Mobile panel with it. */
+    onReveal: listen("zli:mobile:reveal", MobileRevealEvent),
+    popOuts: async () => MobilePopOutList.parse(await ipc.invoke("zli:mobile:popout-list")),
+    onPopOuts: listen("zli:mobile:popouts", MobilePopOutList),
+    /** Opens the device in its own window, or focuses the window it already has. */
+    popOut: async (deviceId: string) =>
+      MobilePopOutList.parse(await ipc.invoke("zli:mobile:popout-open", device(deviceId))),
+    closePopOut: async (deviceId: string) =>
+      MobilePopOutList.parse(await ipc.invoke("zli:mobile:popout-close", device(deviceId))),
+    pinPopOut: async (deviceId: string, pinned: boolean) =>
+      MobilePopOutList.parse(
+        await ipc.invoke("zli:mobile:popout-pin", MobilePopOutPinInput.parse({ deviceId, pinned })),
+      ),
+    setPopOutAspect: async (input: MobilePopOutAspectInput) => {
+      await ipc.invoke("zli:mobile:popout-aspect", MobilePopOutAspectInput.parse(input));
+    },
+  };
+}
 
 /**
  * Keeps a copy of the main process projection by folding the events main forwards, so a streaming
@@ -218,16 +332,25 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
         ipc.invoke("zli:browser:inspect", BrowserSelectorInput.parse(input)),
       designInspect: (input: { browserTabId: string; selector: string }) =>
         ipc.invoke("zli:browser:design-inspect", BrowserSelectorInput.parse(input)),
-      /** Waits for the person to click an element in the page; null when the pick is cancelled. */
+      /**
+       * Waits for the next element clicked or region drawn in the page's annotate session, starting
+       * the session if needed; null when the session ends.
+       */
       designPick: (browserTabId: string) =>
         ipc.invoke("zli:browser:design-pick", BrowserTabIdInput.parse({ browserTabId })),
+      /** Ends the annotate session and removes its overlay from the page. */
       designCancel: (browserTabId: string) =>
         ipc.invoke("zli:browser:design-cancel", BrowserTabIdInput.parse({ browserTabId })),
+      designMark: (input: { browserTabId: string; marks: unknown; drop?: unknown }) =>
+        ipc.invoke("zli:browser:design-mark", BrowserDesignMarkInput.parse(input)),
+      designCapture: (input: { browserTabId: string; bounds: unknown; strokes: unknown }) =>
+        ipc.invoke("zli:browser:design-capture", BrowserDesignCaptureInput.parse(input)),
       consoleEntries: (browserTabId: string) =>
         ipc.invoke("zli:browser:console", BrowserTabIdInput.parse({ browserTabId })),
       networkEntries: (browserTabId: string) =>
         ipc.invoke("zli:browser:network", BrowserTabIdInput.parse({ browserTabId })),
     },
+    mobile: createMobileApi(ipc),
     dialog: {
       openProject: () => ipc.invoke("zli:dialog:open-project"),
       saveSupportBundle: async () => {
@@ -246,6 +369,13 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
         return typeof path === "string" ? path : undefined;
       },
     },
+    openIn: {
+      /** Editors, agent apps, terminals, and the file manager found on this computer. */
+      apps: async () => OpenInApp.array().parse(await ipc.invoke("zli:open-in:apps")),
+      open: async (worktreeId: string, appId: string) => {
+        await ipc.invoke("zli:open-in:open", OpenInRequest.parse({ worktreeId, appId }));
+      },
+    },
     capture: {
       sources: async () => parseCaptureSources(await ipc.invoke("zli:capture:sources")),
       take: async (id: string) => parseCapture(await ipc.invoke("zli:capture:take", { id })),
@@ -256,6 +386,7 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
     app: {
       getVersion: () => ipc.invoke("zli:app:version"),
       quit: () => ipc.invoke("zli:app:quit"),
+      zoom: (zoom: "in" | "out" | "reset") => ipc.invoke("zli:app:zoom", { zoom }),
       openExternal: (url: string) => ipc.invoke("zli:app:open-external", { url }),
     },
     notifications: {
@@ -284,18 +415,38 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
         }),
     },
     mobileAccess: {
-      getStatus: async () => MobileAccessStatus.parse(await ipc.invoke("zli:mobile:get-status")),
+      getStatus: async () => MobileAccessStatus.parse(await ipc.invoke("zli:remote:get-status")),
       setEnabled: async (enabled: boolean) =>
-        MobileAccessStatus.parse(await ipc.invoke("zli:mobile:set-enabled", { enabled: enabled === true })),
+        MobileAccessStatus.parse(await ipc.invoke("zli:remote:set-enabled", { enabled: enabled === true })),
       /** Opens a new one-time pairing code, replacing any code still open. */
-      startPairing: async () => MobileAccessStatus.parse(await ipc.invoke("zli:mobile:start-pairing")),
-      cancelPairing: async () => MobileAccessStatus.parse(await ipc.invoke("zli:mobile:cancel-pairing")),
+      startPairing: async () => MobileAccessStatus.parse(await ipc.invoke("zli:remote:start-pairing")),
+      cancelPairing: async () => MobileAccessStatus.parse(await ipc.invoke("zli:remote:cancel-pairing")),
       /** Forgets a paired phone and closes its connections. */
       revoke: async (deviceId: string) =>
-        MobileAccessStatus.parse(await ipc.invoke("zli:mobile:revoke", { deviceId: String(deviceId).slice(0, 100) })),
+        MobileAccessStatus.parse(await ipc.invoke("zli:remote:revoke", { deviceId: String(deviceId).slice(0, 100) })),
       onStatus: (listener: (status: MobileAccessStatus) => void) =>
-        ipc.on("zli:mobile:status", (_event, value) => {
+        ipc.on("zli:remote:status", (_event, value) => {
           const parsed = MobileAccessStatus.safeParse(value);
+          if (parsed.success) listener(parsed.data);
+        }),
+    },
+    agentReach: {
+      /** The open question whether agents may reach other projects, if an agent is waiting on one. */
+      current: async () => {
+        const parsed = AgentReachRequest.safeParse(await ipc.invoke("zli:agents:reach-current"));
+        return parsed.success ? parsed.data : undefined;
+      },
+      answer: async (answer: AgentReachAnswer) => {
+        await ipc.invoke("zli:agents:reach-answer", AgentReachAnswer.parse(answer));
+      },
+      /** Fires with a new question, and with undefined once it is answered. */
+      onRequest: (listener: (request: AgentReachRequest | undefined) => void) =>
+        ipc.on("zli:agents:reach-request", (_event, value) => {
+          if (value === null) {
+            listener(undefined);
+            return;
+          }
+          const parsed = AgentReachRequest.safeParse(value);
           if (parsed.success) listener(parsed.data);
         }),
     },
@@ -333,6 +484,7 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
           restartRuntime: () => ipc.invoke("zli:test:restart-runtime"),
           crashMain: () => ipc.invoke("zli:test:crash-main"),
           takeExternalUrl: () => ipc.invoke("zli:test:take-external-url"),
+          takeOpenIn: () => ipc.invoke("zli:test:take-open-in"),
         },
       }
     : bridge;

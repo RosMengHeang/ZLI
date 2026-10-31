@@ -47,7 +47,8 @@ export function IssuesSection() {
   return (
     <>
       <SectionHeader title="Issues">
-        GitHub issues come from the GitHub CLI (gh) in each project folder. Linear issues need a personal API key.
+        GitHub and GitLab issues come from their CLIs, gh and glab, run in each project folder. Sign in to a self-hosted
+        GitLab with glab auth login --hostname and its host name. Linear issues need a personal API key.
       </SectionHeader>
       <div className="setting-list">
         {loadError ? (

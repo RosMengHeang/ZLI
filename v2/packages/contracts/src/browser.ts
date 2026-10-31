@@ -106,6 +106,66 @@ export function browserViewportForPreset(presetId: string): BrowserViewport | un
 export const BrowserSetViewportInput = BrowserTabIdInput.extend({ viewport: BrowserViewport.nullable() });
 export type BrowserSetViewportInput = z.infer<typeof BrowserSetViewportInput>;
 
+/** A rectangle in page coordinates, which stay put when the page scrolls. */
+export const BrowserDesignRect = z.object({
+  x: z.number().min(-100_000).max(1_000_000),
+  y: z.number().min(-100_000).max(1_000_000),
+  width: z.number().positive().max(100_000),
+  height: z.number().positive().max(100_000),
+});
+export type BrowserDesignRect = z.infer<typeof BrowserDesignRect>;
+
+/** A mark drawn on an annotated region. Pen strokes list x,y pairs; shapes and arrows list two points. */
+export const BrowserDesignStroke = z.object({
+  tool: z.enum(["pen", "rect", "ellipse", "arrow"]),
+  points: z.array(z.number().min(-100_000).max(1_000_000)).max(2_000),
+});
+export type BrowserDesignStroke = z.infer<typeof BrowserDesignStroke>;
+const BrowserDesignStrokes = z.array(BrowserDesignStroke).max(200);
+
+/** A text or style change the page previews while Annotate is on. */
+export const BrowserDesignPreview = z.object({
+  text: z.string().max(10_000).optional(),
+  styles: z.record(z.string().max(40), z.string().max(200)).optional(),
+});
+export type BrowserDesignPreview = z.infer<typeof BrowserDesignPreview>;
+
+const BrowserDesignNote = z.string().max(4_000).optional();
+
+/** A numbered pin the page draws for an annotation the Browser panel holds, with its note. */
+export const BrowserDesignMark = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("element"),
+    id: z.string().min(1).max(100),
+    n: z.number().int().min(1).max(99),
+    selector: z.string().min(1).max(2_000),
+    note: BrowserDesignNote,
+    preview: BrowserDesignPreview.optional(),
+  }),
+  z.object({
+    kind: z.literal("region"),
+    id: z.string().min(1).max(100),
+    n: z.number().int().min(1).max(99),
+    bounds: BrowserDesignRect,
+    strokes: BrowserDesignStrokes,
+    note: BrowserDesignNote,
+  }),
+]);
+export type BrowserDesignMark = z.infer<typeof BrowserDesignMark>;
+
+/** `drop` names annotations the panel turned down, so the page closes their open note. */
+export const BrowserDesignMarkInput = BrowserTabIdInput.extend({
+  marks: z.array(BrowserDesignMark).max(20),
+  drop: z.array(z.string().min(1).max(100)).max(20).optional(),
+});
+export type BrowserDesignMarkInput = z.infer<typeof BrowserDesignMarkInput>;
+
+export const BrowserDesignCaptureInput = BrowserTabIdInput.extend({
+  bounds: BrowserDesignRect,
+  strokes: BrowserDesignStrokes,
+});
+export type BrowserDesignCaptureInput = z.infer<typeof BrowserDesignCaptureInput>;
+
 /** Sent to the renderer when an agent opens a tab so the Browser panel can show it. */
 export const BrowserRevealEvent = z.object({ browserTabId: BrowserTabId, worktreeId: WorktreeId });
 export type BrowserRevealEvent = z.infer<typeof BrowserRevealEvent>;

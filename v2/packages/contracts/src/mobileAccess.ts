@@ -1,14 +1,14 @@
 import { z } from "zod";
 
 /** A phone paired with this desktop. The credential itself never leaves the desktop's settings file. */
-export const MobileDevice = z.object({
+export const PairedPhone = z.object({
   deviceId: z.string().min(1).max(100),
   name: z.string().min(1).max(60),
   pairedAt: z.string().datetime({ offset: true }),
   lastSeenAt: z.string().datetime({ offset: true }).optional(),
   connected: z.boolean(),
 });
-export type MobileDevice = z.infer<typeof MobileDevice>;
+export type PairedPhone = z.infer<typeof PairedPhone>;
 
 export const MobilePairing = z.object({
   /** The text the QR code encodes, which a person can also paste on the phone. */
@@ -25,6 +25,6 @@ export const MobileAccessStatus = z.object({
   hosts: z.array(z.string().min(1).max(253)).max(8),
   port: z.number().int().min(0).max(65_535).optional(),
   pairing: MobilePairing.optional(),
-  devices: z.array(MobileDevice).max(100),
+  devices: z.array(PairedPhone).max(100),
 });
 export type MobileAccessStatus = z.infer<typeof MobileAccessStatus>;

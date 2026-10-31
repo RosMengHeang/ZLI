@@ -24,15 +24,18 @@ import { Icon } from "../ui/Icon.js";
 import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { latestContext } from "../usage/usage.js";
+import { fileName, splitAttachedFiles } from "./attachedFiles.js";
 import type { BestOfAgentOption } from "./BestOfPopover.js";
 import { ChatImageScope } from "./ChatImage.js";
 import { Composer, type ComposerAttachment, type ComposerBestOf } from "./Composer.js";
 import { ConnectorCard } from "./ConnectorCard.js";
 import { clearCodeReferences, removeCodeReference, useCodeReferences } from "./codeReferences.js";
+import { FileBadge } from "./FileBadge.js";
 import { Markdown } from "./Markdown.js";
 import { RequestCard } from "./RequestCard.js";
+import { reasoningLevels } from "./reasoning.js";
 import { TurnChanges } from "./TurnChanges.js";
-import { ChangedFiles, elapsedLabel, liveStepLabel, WorkSteps } from "./WorkLog.js";
+import { ChangedFiles, elapsedLabel, WorkSteps } from "./WorkLog.js";
 import "./chat.css";
 
 export function ChatView({
@@ -44,6 +47,7 @@ export function ChatView({
   onHandoff,
   onOpenConnectors,
   onStartRuns,
+  active,
 }: {
   projection: RuntimeProjection;
   thread: ThreadProjection;
@@ -55,6 +59,7 @@ export function ChatView({
   onOpenConnectors?: ((connectorId?: string) => void) | undefined;
   /** Starts best-of runs from this chat. Absent where runs cannot start, such as a scratch chat. */
   onStartRuns?: ((request: StartRunsRequest) => Promise<string | undefined>) | undefined;
+  active?: boolean;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
@@ -68,9 +73,13 @@ export function ChatView({
   const [peerTargetId, setPeerTargetId] = useState<string>();
   const logRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
-  const displayName = providerDisplayName(thread.provider, projection.providers);
+  const displayName = thread.name ?? providerDisplayName(thread.provider, projection.providers);
   const discovery = projection.providers?.find((entry) => entry.provider === thread.provider);
   const models = discovery?.status === "found" ? discovery.models : undefined;
+  const [chosenReasoning, setChosenReasoning] = useState<string>();
+  const reasoning = reasoningLevels(models, model, thread.capabilities, discovery);
+  // A level the new model does not take falls back to the default instead of failing the turn.
+  const reasoningEffort = chosenReasoning && reasoning.levels.includes(chosenReasoning) ? chosenReasoning : undefined;
   // The projection passed in skips chat-only updates, so this thread's chat state is read from the
   // store. Each selector returns the same value while this thread is unchanged, even when another
   // thread is streaming.
@@ -127,6 +136,9 @@ export function ChatView({
   latestLinks.current = fileLinks;
   const openFile = useCallback((path: string) => latestLinks.current?.open({ path }), []);
   const ended = thread.status === "stopped" || thread.status === "failed";
+  // The agent's own conversation id lets the next message start it again where it left off.
+  const resumable = ended && Boolean(thread.providerSessionId) && worktree !== undefined;
+  const canSend = !ended || resumable;
   const working = thread.status === "working" || thread.status === "waiting";
   const busy = working || queued.length > 0;
   const peers = useMemo(() => {
@@ -175,6 +187,7 @@ export function ChatView({
           threadId: thread.threadId,
           text,
           ...(model ? { model } : {}),
+          ...(reasoningEffort ? { reasoningEffort } : {}),
           ...(permissionSwitch && permissionMode !== threadMode ? { permissionMode } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
         },
@@ -249,8 +262,10 @@ export function ChatView({
       ),
     [projection.providers],
   );
+  // Runs each get their own worktree, which a folder without Git cannot have.
+  const gitProject = projection.projects.find((project) => project.projectId === worktree?.projectId)?.git !== false;
   const bestOf: ComposerBestOf | undefined =
-    onStartRuns && worktree?.status === "ready"
+    onStartRuns && worktree?.status === "ready" && gitProject
       ? {
           agents: runAgents,
           current: { provider: thread.provider, ...(model ? { model } : {}) },
@@ -278,8 +293,8 @@ export function ChatView({
   };
 
   const step = useMemo(() => (working ? currentStep(timeline) : undefined), [working, timeline]);
-  const liveLabel =
-    thread.status === "waiting" ? `${displayName} is waiting for you` : step ? liveStepLabel(step) : "Thinking";
+  // A running step already shimmers in the list, so the line under it only says that work goes on.
+  const liveLabel = thread.status === "waiting" ? `${displayName} is waiting for you` : step ? "Working" : "Thinking";
   const visibleError = error;
 
   return (
@@ -324,7 +339,7 @@ export function ChatView({
                       index={index}
                       links={fileLinks}
                       source={item.message.role === "agent" ? sourceLabel(projection, item.message.sourceThreadId) : ""}
-                      onTryWays={bestOf && !ended ? tryWays : undefined}
+                      onTryWays={bestOf && canSend ? tryWays : undefined}
                     />
                   )}
                   {placedCheckpoints.after.get(index)?.map(turnChanges)}
@@ -332,7 +347,7 @@ export function ChatView({
               ))
             )}
             {placedCheckpoints.unplaced.map(turnChanges)}
-            {working ? <WorkingStatus label={liveLabel} /> : null}
+            {working ? <WorkingStatus label={liveLabel} live={!step && thread.status !== "waiting"} /> : null}
           </div>
         </div>
       </ChatImageScope>
@@ -358,7 +373,7 @@ export function ChatView({
               key={connectorActivity.activityId}
               connector={connectorActivity.connector}
               displayName={displayName}
-              onTryAgain={ended ? undefined : (text) => send(text, [])}
+              onTryAgain={canSend ? (text) => send(text, []) : undefined}
               onNewChat={() => void newChatForConnector()}
               onOpenConnectors={onOpenConnectors}
               onDismiss={() => setDismissedConnectors((current) => new Set(current).add(connectorActivity.activityId))}
@@ -369,6 +384,13 @@ export function ChatView({
               queued={queued}
               displayName={displayName}
               canSteer={!ended && thread.status !== "starting"}
+              pendingNote={
+                thread.status === "starting"
+                  ? `Sent when ${displayName} is ready`
+                  : ended
+                    ? "Not sent"
+                    : `Sent in order after ${displayName}'s current turn`
+              }
               waiting={thread.status === "waiting" || waitingCount > 0}
               onSteer={(queueId) => run({ type: "thread.steer", threadId: thread.threadId, queueId })}
               onRemove={(queueId) => run({ type: "thread.queue.remove", threadId: thread.threadId, queueId })}
@@ -379,7 +401,17 @@ export function ChatView({
               {visibleError}
             </p>
           ) : null}
-          {ended ? (
+          {resumable ? (
+            <p className={`chat-paused${thread.status === "failed" ? " is-failed" : ""}`} role="status">
+              <Icon name={thread.status === "failed" ? "alert" : "square"} size={12} />
+              <span>
+                {thread.status === "failed"
+                  ? `${thread.errorMessage ?? `${displayName} failed.`} Your next message starts it again in this conversation.`
+                  : `${displayName} is stopped. Your next message picks up where it left off.`}
+              </span>
+            </p>
+          ) : null}
+          {ended && !resumable ? (
             <div className={`chat-ended${thread.status === "failed" ? " is-failed" : ""}`} role="status">
               <Icon name={thread.status === "failed" ? "alert" : "square"} size={13} />
               <span className="chat-ended-copy">
@@ -408,6 +440,7 @@ export function ChatView({
             <Composer
               capture={bridge?.capture}
               displayName={displayName}
+              provider={thread.provider}
               branch={worktree?.branch ?? "this worktree"}
               disabled={thread.status === "starting"}
               queues={busy}
@@ -415,6 +448,10 @@ export function ChatView({
               model={model}
               modelLocked={thread.capabilities.modelSwitch === "unsupported" && messages.length > 0}
               onModelChange={setModel}
+              reasoningLevels={reasoning.levels}
+              defaultReasoning={reasoning.defaultLevel}
+              reasoningEffort={reasoningEffort}
+              onReasoningEffortChange={setChosenReasoning}
               permissionMode={permissionMode}
               onPermissionModeChange={permissionSwitch ? setPermissionMode : undefined}
               projectId={worktree?.projectId}
@@ -425,6 +462,7 @@ export function ChatView({
               onSubmit={send}
               onStop={working ? stopTurn : undefined}
               bestOf={bestOf}
+              active={active}
             />
           )}
           {peers.length > 0 && selectedPeerId && !ended ? (
@@ -475,6 +513,7 @@ function QueuedMessages({
   queued,
   displayName,
   canSteer,
+  pendingNote,
   waiting,
   onSteer,
   onRemove,
@@ -482,6 +521,7 @@ function QueuedMessages({
   queued: readonly ThreadQueuedMessage[];
   displayName: string;
   canSteer: boolean;
+  pendingNote: string;
   waiting: boolean;
   onSteer(queueId: string): void;
   onRemove(queueId: string): void;
@@ -490,13 +530,15 @@ function QueuedMessages({
     <section className="chat-queue" aria-label="Queued messages">
       <p className="chat-queue-head">
         {queued.length === 1 ? "1 queued message" : `${queued.length} queued messages`}
-        <span>{canSteer ? `Sent in order after ${displayName}'s current turn` : "Not sent"}</span>
+        <span>{pendingNote}</span>
       </p>
       <ol className="chat-queue-list">
         {queued.map((message, index) => {
-          const preview = message.text.trim().split(/\r?\n/u)[0] ?? "";
-          const files = message.attachments ?? [];
-          const onlyImages = files.every((file) => file.mimeType !== "text/plain");
+          const typed = splitAttachedFiles(message.text);
+          const preview = typed.text.trim().split(/\r?\n/u)[0] ?? "";
+          const uploads = message.attachments ?? [];
+          const files = [...uploads.map((file) => file.name), ...typed.paths.map(fileName)];
+          const onlyImages = typed.paths.length === 0 && uploads.every((file) => file.mimeType !== "text/plain");
           return (
             <li className="chat-queue-item" key={message.queueId}>
               <span className="chat-queue-index" aria-hidden="true">
@@ -506,7 +548,7 @@ function QueuedMessages({
                 {preview}
               </span>
               {files.length > 0 ? (
-                <span className="chat-queue-meta" title={files.map((file) => file.name).join(", ")}>
+                <span className="chat-queue-meta" title={files.join(", ")}>
                   <Icon name={onlyImages ? "image" : "paperclip"} size={11} />
                   {files.length}
                   <span className="sr-only">{files.length === 1 ? " attachment" : " attachments"}</span>
@@ -546,7 +588,7 @@ function QueuedMessages({
 }
 
 /** Mounted for as long as the agent works, so the time counts from the moment the message went out. */
-function WorkingStatus({ label }: { label: string }) {
+function WorkingStatus({ label, live }: { label: string; live: boolean }) {
   const [startedAt] = useState(() => Date.now());
   const [now, setNow] = useState(startedAt);
   useEffect(() => {
@@ -555,8 +597,7 @@ function WorkingStatus({ label }: { label: string }) {
   }, []);
   return (
     <p className="chat-working">
-      <span className="spinner" aria-hidden="true" />
-      <span className="chat-working-label" role="status">
+      <span className={`chat-working-label${live ? " shimmer-text" : ""}`} role="status">
         {label}
       </span>
       <span className="chat-working-time">{elapsedLabel(now - startedAt)}</span>
@@ -646,6 +687,8 @@ const ChatMessage = memo(function ChatMessage({
   onTryWays?: ((message: ThreadMessageProjection, index: number) => void) | undefined;
 }) {
   if (message.role === "user") {
+    const typed = splitAttachedFiles(message.text);
+    const uploads = message.attachments ?? [];
     return (
       <article className="chat-message chat-message-user">
         {onTryWays && message.text.trim() ? (
@@ -661,17 +704,28 @@ const ChatMessage = memo(function ChatMessage({
             </Button>
           </span>
         ) : null}
-        {message.attachments && message.attachments.length > 0 ? (
-          <ul className="chat-attachments">
-            {message.attachments.map((attachment) => (
-              <li key={attachment.path} title={attachment.path}>
-                <Icon name={attachment.mimeType === "text/plain" ? "fileText" : "image"} size={12} />
-                {attachment.name}
+        {uploads.length > 0 || typed.paths.length > 0 ? (
+          <ul className="chat-attachments" aria-label="Attachments">
+            {uploads.map((attachment) => (
+              <li key={attachment.path} title={attachment.name}>
+                <span
+                  className={`file-badge is-sm ${attachment.mimeType === "text/plain" ? "is-doc" : "is-media"}`}
+                  aria-hidden="true"
+                >
+                  <Icon name={attachment.mimeType === "text/plain" ? "fileText" : "image"} size={11} />
+                </span>
+                <span className="chat-attachment-name">{attachment.name}</span>
+              </li>
+            ))}
+            {typed.paths.map((path) => (
+              <li key={path} title={path}>
+                <FileBadge path={path} size="sm" />
+                <span className="chat-attachment-name">{fileName(path)}</span>
               </li>
             ))}
           </ul>
         ) : null}
-        <p>{message.text}</p>
+        {typed.text ? <p>{typed.text}</p> : null}
       </article>
     );
   }

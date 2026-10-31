@@ -35,6 +35,7 @@ describe("keybindings", () => {
   it("refuses shortcuts that would break typing, editing, or another shortcut", () => {
     expect(shortcutProblem({}, "newAgent", "Shift+N")).toMatch(/Include Ctrl, Cmd, or Alt/u);
     expect(shortcutProblem({}, "newAgent", "Mod+C")).toBe("This key is kept for copy.");
+    expect(shortcutProblem({}, "newAgent", "Mod+=")).toBe("This key is kept for zooming in.");
     expect(shortcutProblem({}, "newAgent", "Mod+K")).toBe("Already used by Command palette.");
     expect(shortcutProblem({ palette: "Mod+Shift+P" }, "newAgent", "Mod+K")).toBeUndefined();
     expect(shortcutProblem({}, "newAgent", "Mod+N")).toBeUndefined();

@@ -25,6 +25,7 @@ class FakeClient {
   readonly calls: Array<{ method: string; value: unknown }> = [];
   private readonly listeners = new Set<(event: AcpProviderEvent) => void>();
   turns: AcpTranscriptTurn[] = [];
+  agentSessionId?: string;
 
   async sendTurn(input: unknown) {
     this.calls.push({ method: "turn", value: input });
@@ -100,6 +101,46 @@ describe("AcpProviderAdapter", () => {
       { method: "turn", value: { text: "plain" } },
       { method: "interrupt", value: turnId },
     ]);
+  });
+
+  it("returns the agent's session id and passes a resume id to the client", async () => {
+    const starts: unknown[] = [];
+    const adapter = new AcpProviderAdapter(config, {
+      createClient: async (input) => {
+        starts.push(input);
+        const client = new FakeClient();
+        client.agentSessionId = input.resumeSessionId ?? "s-new";
+        return client;
+      },
+    });
+    await expect(adapter.startSession({ threadId, cwd: "/work/tree" })).resolves.toEqual({
+      threadId,
+      provider: "opencode",
+      cwd: "/work/tree",
+      status: "idle",
+      providerSessionId: "s-new",
+    });
+    await adapter.stopSession({ threadId });
+    await expect(adapter.startSession({ threadId, cwd: "/work/tree", resumeSessionId: "s-old" })).resolves.toEqual({
+      threadId,
+      provider: "opencode",
+      cwd: "/work/tree",
+      status: "idle",
+      providerSessionId: "s-old",
+    });
+    expect(starts).toEqual([{ cwd: "/work/tree" }, { cwd: "/work/tree", resumeSessionId: "s-old" }]);
+  });
+
+  it("fails the start when the client cannot resume, so the caller can start fresh", async () => {
+    const adapter = new AcpProviderAdapter(config, {
+      createClient: async () => {
+        throw new AcpProviderError("unsupported", "OpenCode cannot resume earlier sessions.");
+      },
+    });
+    await expect(adapter.startSession({ threadId, cwd: "/work/tree", resumeSessionId: "s-old" })).rejects.toMatchObject(
+      { code: "unsupported" },
+    );
+    expect(adapter.hasSession({ threadId })).toBe(false);
   });
 
   it("maps turn, tool, approval, and error events onto the thread", async () => {

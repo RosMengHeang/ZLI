@@ -5,6 +5,7 @@ import { DiffView } from "../review/DiffView.js";
 import { parseDiffLines, patchBody } from "../review/diffLines.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Button } from "../ui/Button.js";
+import { Collapse } from "../ui/Collapse.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Icon } from "../ui/Icon.js";
 import { ImageViewer, isImagePath } from "./ChatImage.js";
@@ -156,9 +157,11 @@ export const TurnChanges = memo(function TurnChanges({
                   <LineCounts additions={file.additions} deletions={file.deletions} />
                 )}
               </button>
-              {open ? (
-                <TurnDiff path={file.path} worktreeId={worktreeId} state={diffs[file.path] ?? { kind: "loading" }} />
-              ) : null}
+              {opens ? null : (
+                <Collapse open={open}>
+                  <TurnDiff path={file.path} worktreeId={worktreeId} state={diffs[file.path] ?? { kind: "loading" }} />
+                </Collapse>
+              )}
             </li>
           );
         })}
@@ -196,8 +199,7 @@ function TurnDiff({ path, worktreeId, state }: { path: string; worktreeId: strin
   if (state.kind === "loading") {
     return (
       <p className="turn-diff-note" role="status">
-        <span className="spinner" aria-hidden="true" />
-        Loading diff
+        <span className="shimmer-text">Loading diff</span>
       </p>
     );
   }

@@ -1,4 +1,4 @@
-import type { MobileAccessStatus, MobileDevice } from "@zli-v2/contracts";
+import type { MobileAccessStatus, PairedPhone } from "@zli-v2/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useCopyFeedback } from "../review/links.js";
@@ -44,7 +44,7 @@ type PairingOutcome = { kind: "paired"; name: string } | { kind: "ended" };
 /** Remembers how the last pairing code ended: a phone paired with it, or it expired or was used. */
 function usePairingOutcome(status: MobileAccessStatus | undefined) {
   const [outcome, setOutcome] = useState<PairingOutcome>();
-  const opened = useRef<{ devices: readonly MobileDevice[] } | undefined>(undefined);
+  const opened = useRef<{ devices: readonly PairedPhone[] } | undefined>(undefined);
   const cancelled = useRef(false);
   useEffect(() => {
     if (!status) return;
@@ -81,7 +81,7 @@ export function MobileAccessSection() {
   const [confirmRemove, setConfirmRemove] = useState<string>();
 
   const header = (
-    <SectionHeader title="Mobile access">
+    <SectionHeader title="Phone access">
       Follow agents, answer their requests, and send messages from the ZLI phone app. The phone has to be on the same
       network as this computer.
     </SectionHeader>
@@ -91,7 +91,7 @@ export function MobileAccessSection() {
     return (
       <>
         {header}
-        <p className="settings-empty">Mobile access is available in the ZLI desktop app only.</p>
+        <p className="settings-empty">Phone access is available in the ZLI desktop app only.</p>
       </>
     );
   }

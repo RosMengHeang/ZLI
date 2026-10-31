@@ -8,6 +8,7 @@ import {
   type SkillSummary,
 } from "@zli-v2/contracts";
 import { useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import { providerDisplayName } from "../agent/providers.js";
 import { Badge } from "../ui/Badge.js";
@@ -132,21 +133,23 @@ export function SkillsSection({
 
   const startNew = () => {
     closeForms();
-    setEditing({ scope: "user", draft: { ...EMPTY_SKILL_DRAFT }, files: [] });
-    requestAnimationFrame(() => nameRef.current?.focus());
+    flushSync(() => setEditing({ scope: "user", draft: { ...EMPTY_SKILL_DRAFT }, files: [] }));
+    nameRef.current?.focus();
   };
 
   const startEdit = (skill: SkillSummary) =>
     run(async () => {
       closeForms();
       const document = await readSkill(dispatch, scopeOf(skill.scope), skill.name);
-      setEditing({
-        scope: skill.scope,
-        previousName: skill.name,
-        draft: { name: document.name, description: document.description, instructions: document.instructions },
-        files: document.files,
-      });
-      requestAnimationFrame(() => nameRef.current?.focus());
+      flushSync(() =>
+        setEditing({
+          scope: skill.scope,
+          previousName: skill.name,
+          draft: { name: document.name, description: document.description, instructions: document.instructions },
+          files: document.files,
+        }),
+      );
+      nameRef.current?.focus();
     });
 
   const submit = async () => {
@@ -173,8 +176,8 @@ export function SkillsSection({
 
   const startInstall = () => {
     closeForms();
-    setInstalling({ source: "", scope: "user", selected: [] });
-    requestAnimationFrame(() => sourceRef.current?.focus());
+    flushSync(() => setInstalling({ source: "", scope: "user", selected: [] }));
+    sourceRef.current?.focus();
   };
 
   const lookUp = () =>
@@ -221,7 +224,7 @@ export function SkillsSection({
         {skill.problem ? <span className="skill-row-problem">{skill.problem}</span> : null}
         {skill.conflicts?.length ? (
           <span className="skill-row-problem">
-            Not copied to {skill.conflicts.join(", ")}: a skill you made has the same name there.
+            Not copied to {skill.conflicts.join(", ")}: a skill with the same name is already there.
           </span>
         ) : null}
         {skill.source ? (
@@ -593,8 +596,8 @@ function SyncFootnote({ result }: { result: SkillListResult }) {
       ) : null}
       <p className="settings-footnote">
         {result.sync.enabled
-          ? "ZLI copies your enabled skills into ~/.agents/skills, which most agents read, and into ~/.claude/skills for Claude Code. It removes only the copies it made."
-          : `ZLI is set to leave agent folders alone, so your skills stay in ${result.libraryPath}.`}
+          ? "ZLI gives your enabled skills only to agents it starts. It copies them into each worktree's .agents/skills, which most agents read, and .claude/skills for Claude Code, hides the copies from git, and deletes them when ZLI quits."
+          : `ZLI keeps your skills in ${result.libraryPath} and does not copy them anywhere.`}
       </p>
     </>
   );

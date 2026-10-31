@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import { posix, win32 } from "node:path";
 
 import {
+  agentNameTaken,
+  HuddleCommand,
+  type HuddleEvent,
   type PermissionMode,
   ProjectId,
   type ProjectProjection,
@@ -19,6 +22,8 @@ import {
 } from "@zli-v2/contracts";
 
 import { resolveTerminalCwd, TerminalCwdError } from "../terminal/terminalCwd.js";
+import { NOT_GIT_WORKTREE_MESSAGE } from "../worktrees/WorktreeService.js";
+import { decideHuddle } from "./huddleDecider.js";
 
 export type DomainErrorCode =
   | "project_exists"
@@ -32,9 +37,16 @@ export type DomainErrorCode =
   | "thread_missing"
   | "session_missing"
   | "worktree_occupied"
+  | "agent_name_taken"
+  | "agent_missing"
   | "a2a_cross_project"
   | "a2a_invalid_target"
   | "setup_not_waiting"
+  | "huddle_exists"
+  | "huddle_missing"
+  | "huddle_closed"
+  | "huddle_member_missing"
+  | "huddle_posted"
   | "unsupported_command";
 
 export class DomainError extends Error {
@@ -58,9 +70,13 @@ export type DomainDecision = Extract<
     type:
       | "project.registered"
       | "project.archived"
+      | "project.git.changed"
+      | "project.agents.changed"
+      | "project.renamed"
       | "worktree.create.requested"
       | "worktree.imported"
       | "worktree.status.changed"
+      | "worktree.branch.changed"
       | "worktree.remove.requested"
       | "worktree.archive.requested"
       | "worktree.removed"
@@ -69,6 +85,7 @@ export type DomainDecision = Extract<
       | "terminal.write.requested"
       | "terminal.resize.requested"
       | "terminal.stop.requested"
+      | "terminal.renamed"
       | "browser.updated"
       | "browser.closed"
       | "review.refresh.requested"
@@ -99,9 +116,12 @@ export type DomainDecision = Extract<
       | "thread.a2a.delivered"
       | "thread.interrupt.requested"
       | "thread.stop.requested"
+      | "thread.renamed"
+      | "thread.resume.requested"
       | "session.deleted"
       | "thread.status.changed"
       | "thread.message.appended"
+      | "thread.provider-session.recorded"
       | "thread.request.requested"
       | "thread.activity.updated"
       | "thread.request.resolved"
@@ -111,9 +131,12 @@ export type DomainDecision = Extract<
       | "devserver.stopped"
       | "worktree.setup.changed"
       | "worktree.setup.responded"
-      | "project.setup.trusted";
+      | "project.setup.trusted"
+      | HuddleEvent["type"];
   }
 >;
+
+const busyWorktreeStatuses = new Set<string>(["queued", "fetching", "creating", "bootstrapping", "cancelling"]);
 
 export function decide(projection: RuntimeProjection, command: RuntimeCommand): DomainDecision[] {
   switch (command.type) {
@@ -134,15 +157,46 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
         },
       ];
     }
-    case "project.archive":
+    case "project.archive": {
       assertProject(projection, command.projectId);
-      if (projection.worktrees.some((worktree) => worktree.projectId === command.projectId)) {
-        throw new DomainError("unsupported_command", "Archive worktrees before archiving the project.");
+      const worktrees = projection.worktrees.filter((worktree) => worktree.projectId === command.projectId);
+      const worktreeIds = new Set<string>(worktrees.map((worktree) => worktree.worktreeId));
+      if (worktrees.some((worktree) => busyWorktreeStatuses.has(worktree.status))) {
+        throw new DomainError(
+          "unsupported_command",
+          "A worktree in this project is still being set up. Try again when it is ready.",
+        );
       }
-      return [{ type: "project.archived", projectId: command.projectId }];
+      const running =
+        projection.terminals.some(
+          (terminal) =>
+            worktreeIds.has(terminal.worktreeId) && (terminal.status === "running" || terminal.status === "starting"),
+        ) ||
+        projection.threads.some(
+          (thread) => worktreeIds.has(thread.worktreeId) && threadOccupiesWorktree(thread.status),
+        );
+      if (running) {
+        throw new DomainError("unsupported_command", "Stop the agents and terminals in this project first.");
+      }
+      // Archiving only forgets the worktrees. Their folders, and the project's own folder, stay on disk.
+      return [
+        ...worktrees.map((worktree) => ({ type: "worktree.archived" as const, worktreeId: worktree.worktreeId })),
+        { type: "project.archived", projectId: command.projectId },
+      ];
+    }
+    case "project.git":
+      assertProject(projection, command.projectId);
+      return [{ type: "project.git.changed", projectId: command.projectId, git: command.git }];
+    case "project.agents":
+      assertProject(projection, command.projectId);
+      return [{ type: "project.agents.changed", projectId: command.projectId, trusted: command.trusted }];
+    case "project.rename":
+      assertProject(projection, command.projectId);
+      return [{ type: "project.renamed", projectId: command.projectId, name: command.name }];
     case "worktree.create": {
       const project = projection.projects.find((entry) => entry.projectId === command.projectId);
       if (!project) throw new DomainError("project_missing", `Project does not exist: ${command.projectId}`);
+      if (project.git === false) throw new DomainError("unsupported_command", NOT_GIT_WORKTREE_MESSAGE);
       if (projection.worktrees.some((worktree) => worktree.worktreeId === command.worktreeId)) {
         throw new DomainError("worktree_exists", `Worktree already exists: ${command.worktreeId}`);
       }
@@ -205,6 +259,13 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           ...(command.branch ? { branch: command.branch } : {}),
         },
       ];
+    case "worktree.branch": {
+      assertWorktree(projection, command.worktreeId);
+      assertSafeRef(command.branch);
+      const current = projection.worktrees.find((worktree) => worktree.worktreeId === command.worktreeId);
+      if (current?.branch === command.branch) return [];
+      return [{ type: "worktree.branch.changed", worktreeId: command.worktreeId, branch: command.branch }];
+    }
     case "worktree.cancel":
       assertWorktree(projection, command.worktreeId);
       return [{ type: "worktree.status.changed", worktreeId: command.worktreeId, status: "cancelling" }];
@@ -245,6 +306,14 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
         if (error instanceof TerminalCwdError) throw new DomainError("terminal_cwd_rejected", error.message);
         throw error;
       }
+      if (command.name !== undefined) {
+        if (!command.agent) throw new DomainError("unsupported_command", "Only agent terminals take a name.");
+        assertAgentNameFree(projection, worktree.projectId, command.name);
+      }
+      if (command.startedBy !== undefined) {
+        if (!command.agent) throw new DomainError("unsupported_command", "Only agent terminals can be sub-agents.");
+        assertStartedBy(projection, worktree.projectId, command.startedBy);
+      }
       return [
         {
           type: "terminal.create.requested",
@@ -256,6 +325,8 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             lastSequence: 0,
             kind: command.agent ? "agent" : "shell",
             ...(command.agent ? { agent: command.agent } : {}),
+            ...(command.name !== undefined ? { name: command.name } : {}),
+            ...(command.startedBy !== undefined ? { startedBy: command.startedBy } : {}),
             ...(command.sessionId ? { sessionId: command.sessionId } : {}),
           },
           cwd,
@@ -283,6 +354,25 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     case "terminal.stop":
       assertTerminal(projection, command.terminalId);
       return [{ type: "terminal.stop.requested", terminalId: command.terminalId }];
+    case "terminal.rename": {
+      const terminal = projection.terminals.find((candidate) => candidate.terminalId === command.terminalId);
+      if (!terminal) throw new DomainError("terminal_missing", `Terminal does not exist: ${command.terminalId}`);
+      if (!terminal.agent) throw new DomainError("unsupported_command", "Only agent terminals take a name.");
+      if (command.name !== null)
+        assertAgentNameFree(
+          projection,
+          worktreeProjectId(projection, terminal.worktreeId),
+          command.name,
+          terminal.terminalId,
+        );
+      return [
+        {
+          type: "terminal.renamed",
+          terminalId: command.terminalId,
+          ...(command.name !== null ? { name: command.name } : {}),
+        },
+      ];
+    }
     case "thread.start": {
       const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === command.worktreeId);
       if (!worktree) throw new DomainError("worktree_missing", `Worktree does not exist: ${command.worktreeId}`);
@@ -299,6 +389,8 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           "This worktree already has a live agent. Start on a free worktree, or confirm sharing it.",
         );
       }
+      if (command.name !== undefined) assertAgentNameFree(projection, worktree.projectId, command.name);
+      if (command.startedBy !== undefined) assertStartedBy(projection, worktree.projectId, command.startedBy);
       return [
         {
           type: "thread.start.requested",
@@ -313,6 +405,8 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             capabilities: {},
             ...(command.permissionMode ? { permissionMode: command.permissionMode } : {}),
             ...(command.model ? { model: command.model } : {}),
+            ...(command.name !== undefined ? { name: command.name } : {}),
+            ...(command.startedBy !== undefined ? { startedBy: command.startedBy } : {}),
             ...(command.sessionId ? { sessionId: command.sessionId } : {}),
             ...(command.accountId ? { accountId: command.accountId } : {}),
           },
@@ -325,7 +419,8 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     }
     case "thread.queue": {
       const thread = requireThread(projection, command.threadId);
-      if (thread.status === "stopped" || thread.status === "failed")
+      const ended = thread.status === "stopped" || thread.status === "failed";
+      if (ended && !thread.providerSessionId)
         throw new DomainError("unsupported_command", "This agent has ended. Start a new chat to send it more.");
       const queue = queuedFor(projection, command.threadId);
       if (queue.some((queued) => queued.queueId === command.queueId)) return [];
@@ -342,9 +437,25 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
         threadId: command.threadId,
         text: command.text,
         ...(command.model ? { model: command.model } : {}),
+        ...(command.reasoningEffort ? { reasoningEffort: command.reasoningEffort } : {}),
         ...(command.permissionMode ? { permissionMode: command.permissionMode } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
       };
+      if (ended) {
+        const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread.worktreeId);
+        if (!worktree) throw new DomainError("worktree_missing", "This chat's worktree is gone. Start a new chat.");
+        // A stopped agent gives up its name, so another agent may hold it now. That agent keeps it and
+        // this one comes back without a name, rather than refusing the message.
+        const nameTaken =
+          thread.name !== undefined &&
+          agentNameTaken(projection, { projectId: worktree.projectId, name: thread.name, exceptId: thread.threadId });
+        // The message waits in the queue and goes out once the resumed agent reports idle.
+        return [
+          ...(nameTaken ? [{ type: "thread.renamed" as const, threadId: command.threadId }] : []),
+          { type: "thread.queued", message },
+          { type: "thread.resume.requested", threadId: command.threadId, cwd: worktree.path },
+        ];
+      }
       if (!readyForNext(projection, thread)) return [{ type: "thread.queued", message }];
       if (queue.length === 0) return [sendRequested(projection, message)];
       return [{ type: "thread.queued", message }, ...sendQueued(projection, queue[0] as ThreadQueuedMessage)];
@@ -389,6 +500,23 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     case "thread.stop":
       assertThread(projection, command.threadId);
       return [{ type: "thread.stop.requested", threadId: command.threadId }];
+    case "thread.rename": {
+      const thread = requireThread(projection, command.threadId);
+      if (command.name !== null)
+        assertAgentNameFree(
+          projection,
+          worktreeProjectId(projection, thread.worktreeId),
+          command.name,
+          thread.threadId,
+        );
+      return [
+        {
+          type: "thread.renamed",
+          threadId: command.threadId,
+          ...(command.name !== null ? { name: command.name } : {}),
+        },
+      ];
+    }
     case "session.delete": {
       // The session's drawer shells go with it. Agent records from before sessions existed are
       // their own session, keyed by their own id.
@@ -412,6 +540,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     case "thread.status":
       assertThread(projection, command.threadId);
       return [
+        ...expiredRequests(projection, command.threadId, command.status),
         {
           type: "thread.status.changed",
           threadId: command.threadId,
@@ -421,6 +550,17 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           ...(command.errorMessage ? { errorMessage: command.errorMessage } : {}),
         },
       ];
+    case "thread.provider-session": {
+      const thread = requireThread(projection, command.threadId);
+      if (thread.providerSessionId === command.providerSessionId) return [];
+      return [
+        {
+          type: "thread.provider-session.recorded",
+          threadId: command.threadId,
+          providerSessionId: command.providerSessionId,
+        },
+      ];
+    }
     case "thread.message":
       assertThread(projection, command.message.threadId);
       return [{ type: "thread.message.appended", message: command.message }];
@@ -572,8 +712,17 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     case "worktree.setup.respond":
       return decideSetupResponse(projection, command);
     default:
+      if (isHuddleCommand(command)) return decideHuddle(projection, command);
       throw new DomainError("unsupported_command", `Command ${command.type} is not a domain mutation.`);
   }
+}
+
+const HUDDLE_COMMAND_TYPES: ReadonlySet<string> = new Set(
+  HuddleCommand.options.map((option) => option.shape.type.value),
+);
+
+function isHuddleCommand(command: RuntimeCommand): command is HuddleCommand {
+  return HUDDLE_COMMAND_TYPES.has(command.type);
 }
 
 function decideSetupResponse(
@@ -644,6 +793,39 @@ function assertProject(projection: RuntimeProjection, projectId: string): void {
   }
 }
 
+function worktreeProjectId(projection: RuntimeProjection, worktreeId: string): string | undefined {
+  return projection.worktrees.find((worktree) => worktree.worktreeId === worktreeId)?.projectId;
+}
+
+/** Agents reach each other by name, so two listed agents in one project cannot share one. */
+function assertAgentNameFree(
+  projection: RuntimeProjection,
+  projectId: string | undefined,
+  name: string,
+  exceptId?: string,
+): void {
+  if (projectId === undefined) return;
+  if (agentNameTaken(projection, { projectId, name, ...(exceptId ? { exceptId } : {}) }))
+    throw new DomainError(
+      "agent_name_taken",
+      `Another agent in this project is already called ${name}. Pick a different name.`,
+    );
+}
+
+/** A sub-agent's parent must be a chat or agent terminal in the same project, since agents start others only there. */
+function assertStartedBy(projection: RuntimeProjection, projectId: string, startedBy: string): void {
+  const worktreeId =
+    projection.threads.find((thread) => thread.threadId === startedBy)?.worktreeId ??
+    projection.terminals.find((terminal) => terminal.terminalId === startedBy && terminal.agent)?.worktreeId;
+  if (worktreeId === undefined)
+    throw new DomainError("agent_missing", `The agent that started this one does not exist: ${startedBy}`);
+  if (worktreeProjectId(projection, worktreeId) !== projectId)
+    throw new DomainError(
+      "unsupported_command",
+      "A sub-agent has to start in the same project as the agent that started it.",
+    );
+}
+
 function assertTerminal(projection: RuntimeProjection, terminalId: string): void {
   if (!projection.terminals.some((terminal) => terminal.terminalId === terminalId)) {
     throw new DomainError("terminal_missing", `Terminal does not exist: ${terminalId}`);
@@ -711,6 +893,21 @@ function readyForNext(projection: RuntimeProjection, thread: ThreadProjection): 
   );
 }
 
+/**
+ * A request only means something while its turn is paused on it. Once the turn is stopped or over, or the
+ * session has ended or started again, nobody can answer it, and an open one would hold the queue forever.
+ */
+function expiredRequests(
+  projection: RuntimeProjection,
+  threadId: ThreadId,
+  status: ThreadProjection["status"],
+): DomainDecision[] {
+  if (status === "working" || status === "waiting") return [];
+  return (projection.requests ?? [])
+    .filter((request) => request.threadId === threadId)
+    .map((request): DomainDecision => ({ type: "thread.request.resolved", threadId, requestId: request.requestId }));
+}
+
 function permissionChanged(thread: ThreadProjection | undefined, mode: PermissionMode | undefined): boolean {
   return mode !== undefined && mode !== (thread?.permissionMode ?? "full-access");
 }
@@ -738,6 +935,7 @@ function sendRequested(
     threadId: ThreadId;
     text: string;
     model?: string | undefined;
+    reasoningEffort?: string | undefined;
     permissionMode?: PermissionMode | undefined;
     attachments?: readonly ThreadAttachment[] | undefined;
   },
@@ -750,6 +948,7 @@ function sendRequested(
     threadId: input.threadId,
     text: input.text,
     ...(input.model ? { model: input.model } : {}),
+    ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
     ...(permissionChanged(thread, input.permissionMode) && input.permissionMode
       ? { permissionMode: input.permissionMode }
       : {}),

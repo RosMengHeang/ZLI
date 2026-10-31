@@ -28,6 +28,30 @@ function envelope(sequence: number, event: unknown) {
 }
 
 describe("ProjectionStore", () => {
+  it("applies agent renames to threads and terminals", () => {
+    const store = new ProjectionStore();
+    store.replace({
+      ...projection(),
+      threads: [
+        { threadId: id("21"), worktreeId: id("22"), provider: "codex", status: "idle", capabilities: {}, name: "Old" },
+      ],
+      terminals: [
+        {
+          terminalId: id("23"),
+          worktreeId: id("22"),
+          title: "Codex",
+          status: "running",
+          lastSequence: 0,
+          agent: { provider: "codex" },
+        },
+      ],
+    });
+    expect(store.apply(envelope(1, { type: "thread.renamed", threadId: id("21") }))).toBe("applied");
+    expect(store.apply(envelope(2, { type: "terminal.renamed", terminalId: id("23"), name: "John" }))).toBe("applied");
+    expect(store.current()?.threads[0]).not.toHaveProperty("name");
+    expect(store.current()?.terminals[0]?.name).toBe("John");
+    expect(store.current()?.lastSequence).toBe(2);
+  });
   it("applies durable worktree, terminal, and review events without losing sequence", () => {
     const store = new ProjectionStore();
     store.replace(projection());
@@ -63,6 +87,10 @@ describe("ProjectionStore", () => {
     expect(store.current()?.worktrees[0]?.status).toBe("ready");
     expect(store.current()?.reviews?.[0]?.state).toBe("changes");
     expect(store.current()?.lastSequence).toBe(3);
+    expect(store.apply(envelope(4, { type: "worktree.branch.changed", worktreeId: id("11"), branch: "topic" }))).toBe(
+      "applied",
+    );
+    expect(store.current()?.worktrees[0]).toMatchObject({ branch: "topic", status: "ready" });
   });
 
   it("applies browser tab updates as they arrive, including device viewports", () => {

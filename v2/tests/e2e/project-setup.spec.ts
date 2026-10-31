@@ -3,10 +3,17 @@ import { join } from "node:path";
 
 import { expect, type Page, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, git, launchDesktop, type DesktopFixture } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  openCreateWorktree,
+  createGitFixture,
+  git,
+  launchDesktop,
+  type DesktopFixture,
+} from "./desktop-fixtures.js";
 
 async function createWorktree(page: Page, branch: string) {
-  await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+  await openCreateWorktree(page);
   const dialog = page.getByRole("dialog", { name: "Create worktree" });
   await dialog.getByLabel("Branch").fill(branch);
   await dialog.getByRole("button", { name: "Create worktree" }).click();

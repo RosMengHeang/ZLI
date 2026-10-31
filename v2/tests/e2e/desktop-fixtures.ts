@@ -1,16 +1,30 @@
 import { type ChildProcess, execFile } from "node:child_process";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { _electron as electron, type ElectronApplication, expect, type Page } from "@playwright/test";
+import { type ElectronApplication, _electron as electron, expect, type Locator, type Page } from "@playwright/test";
 
 import { closeChildProcess } from "../closeChildProcess.js";
 import { getProcessTreeTerminationOrder } from "../processTree.js";
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * The terminal draws with WebGL where the GPU allows it, which leaves no text in the page for the tests
+ * to read. Without WebGL it falls back to the DOM renderer, as it already does on Linux runners.
+ * Chromium's --disable-webgl switch reaches Electron but does not stop the page from getting a context.
+ */
+const DISABLE_WEBGL = `(() => {
+  const getContext = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (type, ...rest) {
+    return type === "webgl" || type === "webgl2" ? null : getContext.call(this, type, ...rest);
+  };
+})();`;
+
 export const V2_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 
 export type DesktopFixture = {
@@ -24,6 +38,8 @@ export type DesktopLaunchOptions = {
   legacySnapshotPath?: string;
   /** Extra environment for the app and the runtime it starts, such as a PATH with stand-in CLIs. */
   env?: Record<string, string>;
+  /** Answers yes when the app asks to let agents work in the project. On unless a test checks that question. */
+  trustAgents?: boolean;
 };
 
 /** Sends a message from the chat composer of a newly started Codex agent once it is ready. */
@@ -34,6 +50,48 @@ export async function sendChatMessage(page: Page, message: string): Promise<void
   // The text box takes input while the agent starts, but Send stays off until it is ready.
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled({ timeout: 30_000 });
   await composer.press("Enter");
+}
+
+/**
+ * A port nothing is listening on, for a dev server the test starts in an agent's terminal. A random pick
+ * from a fixed range can land on a port another process already holds, since that range sits inside the
+ * one the OS hands out for outgoing connections.
+ */
+export async function freePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolveListen, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolveListen());
+  });
+  const address = server.address();
+  await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+  if (!address || typeof address === "string") throw new Error("No free port was found.");
+  return address.port;
+}
+
+/**
+ * Clicks one of a sidebar project row's actions. They are display:none until the row is hovered, and a
+ * role query skips display:none, so a hover that does not stick makes the lookup wait until it times out.
+ * Put every action on the row back in the layout, then click.
+ */
+export async function clickProjectAction(row: Locator, button: Locator): Promise<void> {
+  await expect(async () => {
+    await row.evaluate((label) => {
+      for (const element of label.querySelectorAll<HTMLElement>(".project-action")) {
+        element.style.setProperty("display", "inline-flex");
+        element.style.setProperty("opacity", "1");
+      }
+    });
+    await button.click({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+}
+
+/** Opens the Create worktree dialog from the first project's row. */
+export async function openCreateWorktree(page: Page): Promise<void> {
+  const row = page.locator(".project-label").first();
+  // Scope to the row. The dialog has another Create worktree button, and a page-wide role query
+  // cannot see this one while it is display:none.
+  await clickProjectAction(row, row.getByRole("button", { name: "Create worktree", exact: true }));
 }
 
 export async function createGitFixture(): Promise<{ root: string; repo: string }> {
@@ -50,11 +108,19 @@ export async function createGitFixture(): Promise<{ root: string; repo: string }
   return { root, repo };
 }
 
-export async function launchDesktop(
+export type DesktopCommand = {
+  /** Unset when Playwright starts the Electron binary from node_modules. */
+  executablePath?: string;
+  args: string[];
+  env: NodeJS.ProcessEnv;
+};
+
+/** The command launchDesktop starts the app with, for a test that starts another copy on the same data. */
+export async function desktopCommand(
   repo: string,
   root: string,
   options: DesktopLaunchOptions = {},
-): Promise<DesktopFixture> {
+): Promise<DesktopCommand> {
   const databasePath = join(root, "runtime.sqlite");
   const externalExecutable = process.env.ZLI_ELECTRON_EXECUTABLE;
   const packagedExecutable = externalExecutable
@@ -63,6 +129,38 @@ export async function launchDesktop(
       ? await findPackagedExecutable()
       : undefined;
   const executablePath = externalExecutable ?? packagedExecutable;
+  return {
+    ...(executablePath ? { executablePath } : {}),
+    args: packagedExecutable ? [] : [join(V2_ROOT, "apps/desktop/dist/main.js")],
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: undefined,
+      ...(externalExecutable ? { ZLI_RUNTIME_NODE: process.execPath } : { ZLI_RUNTIME_NODE: undefined }),
+      ZLI_DATABASE_PATH: databasePath,
+      ZLI_SESSION_DATA_PATH: join(root, "session"),
+      ...(packagedExecutable
+        ? {}
+        : {
+            ZLI_RENDERER_ROOT: join(V2_ROOT, "apps/desktop/renderer"),
+            ZLI_SERVER_ENTRY: join(V2_ROOT, "apps/desktop/dist/server-entry.js"),
+          }),
+      ZLI_TEST_PROJECT_PATH: repo,
+      ZLI_TEST_PROVIDER: "mock",
+      ZLI_REDUCED_MOTION: "1",
+      // The packaged app under test must never ask GitHub for a newer release or replace itself.
+      ZLI_DISABLE_UPDATES: "1",
+      ZLI_TEST_LEGACY_SNAPSHOT_PATH: options.legacySnapshotPath,
+      ...options.env,
+    },
+  };
+}
+
+export async function launchDesktop(
+  repo: string,
+  root: string,
+  options: DesktopLaunchOptions = {},
+): Promise<DesktopFixture> {
+  const command = await desktopCommand(repo, root, options);
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await launchOnce();
@@ -76,44 +174,33 @@ export async function launchDesktop(
 
   async function launchOnce(): Promise<DesktopFixture> {
     const app = await electron.launch({
-      args: executablePath
-        ? packagedExecutable
-          ? []
-          : [join(V2_ROOT, "apps/desktop/dist/main.js")]
-        : [join(V2_ROOT, "apps/desktop/dist/main.js")],
-      ...(executablePath ? { executablePath } : {}),
-      env: {
-        ...process.env,
-        ELECTRON_RUN_AS_NODE: undefined,
-        ...(externalExecutable ? { ZLI_RUNTIME_NODE: process.execPath } : { ZLI_RUNTIME_NODE: undefined }),
-        ZLI_DATABASE_PATH: databasePath,
-        ...(packagedExecutable
-          ? {}
-          : {
-              ZLI_RENDERER_ROOT: join(V2_ROOT, "apps/desktop/renderer"),
-              ZLI_SERVER_ENTRY: join(V2_ROOT, "apps/desktop/dist/server-entry.js"),
-            }),
-        ZLI_TEST_PROJECT_PATH: repo,
-        ZLI_TEST_PROVIDER: "mock",
-        ZLI_REDUCED_MOTION: "1",
-        // The packaged app under test must never ask GitHub for a newer release or replace itself.
-        ZLI_DISABLE_UPDATES: "1",
-        ZLI_TEST_LEGACY_SNAPSHOT_PATH: options.legacySnapshotPath,
-        ...options.env,
-      },
+      args: command.args,
+      ...(command.executablePath ? { executablePath: command.executablePath } : {}),
+      env: command.env,
       timeout: 30_000,
     });
     try {
+      await app.context().addInitScript({ content: DISABLE_WEBGL });
       const page = await app.firstWindow().catch((error: unknown) => {
         throw new WindowTimeout(error);
+      });
+      // The first window can start loading before the init script is registered. When that page
+      // navigates mid-call, the new page already ran the registered init script.
+      await page.evaluate(DISABLE_WEBGL).catch((error: unknown) => {
+        if (!(error instanceof Error && error.message.includes("Execution context was destroyed"))) throw error;
       });
       await page.waitForLoadState("domcontentloaded");
       // The app also forces reduced motion through ZLI_REDUCED_MOTION; this covers a page loaded before it applied.
       await page.emulateMedia({ reducedMotion: "reduce" });
-      const runtime = page.getByText("Local runtime");
+      if (options.trustAgents !== false) {
+        await page.addLocatorHandler(page.getByRole("dialog", { name: "Let agents work in this project" }), (dialog) =>
+          dialog.getByRole("button", { name: "Let agents work" }).click(),
+        );
+      }
+      const runtime = page.getByRole("status").filter({ hasText: "Runtime connected" });
       const showSidebar = page.getByRole("button", { name: "Show sidebar" });
       await runtime.or(showSidebar).first().waitFor({ state: "visible" });
-      // The window shares its profile with local dev runs, which can leave the sidebar hidden.
+      // A relaunch in the same test keeps the profile of the launch before it, which can leave the sidebar hidden.
       if (await showSidebar.isVisible()) await showSidebar.click();
       await runtime.waitFor({ state: "visible" });
       return { app, page, root, repo };

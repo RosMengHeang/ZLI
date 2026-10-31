@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type Server as HttpServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -8,11 +8,12 @@ import {
   type AccountDraft,
   type AccountListResult,
   type AgentToolAccess,
+  type AgentToolScope,
   CHECKPOINT_COMMAND_TYPES,
   type CheckpointCommand,
   ClientWireMessage,
+  CommandId,
   type EnvironmentDescriptor,
-  type ListedProviderKind,
   FILE_COMMAND_TYPES,
   type FileCommand,
   FileDataResult,
@@ -21,8 +22,13 @@ import {
   FileReadResult,
   FileSearchResult,
   FileWriteResult,
+  GIT_CHANGES_COMMAND_TYPES,
+  type GitChangesCommand,
   ISSUE_COMMAND_TYPES,
   type IssueCommand,
+  LIMITS_COMMAND_TYPES,
+  type LimitsCommand,
+  type ListedProviderKind,
   MCP_COMMAND_TYPES,
   type McpCommand,
   type McpImportResult,
@@ -31,6 +37,7 @@ import {
   type McpSignInStart,
   type McpTestResult,
   PLUGIN_COMMAND_TYPES,
+  type PlanLimitsResult,
   type PluginCommand,
   type ProviderDiscovery,
   PULL_REQUEST_COMMAND_TYPES,
@@ -47,23 +54,27 @@ import { type RawData, WebSocket, WebSocketServer } from "ws";
 
 import { CheckpointError, type TurnCheckpoints } from "../checkpoints/TurnCheckpoints.js";
 import { errorCode, FileService, FileServiceError } from "../files/FileService.js";
+import { huddleScopeError } from "../huddles/huddleScope.js";
+import type { TerminalInputTracker } from "../huddles/TerminalInputTracker.js";
 import { defaultIssueSources, IssueError, type IssueSources, runIssueCommand } from "../issues/IssueService.js";
-import type { Engine } from "../orchestration/Engine.js";
 import { McpRequestError } from "../mcp/McpServerStore.js";
 import { SignInError } from "../mcp/signIn/oauth.js";
+import type { Engine } from "../orchestration/Engine.js";
 import { isPluginError, type PluginStore } from "../plugins/PluginStore.js";
 import { runPluginCommand } from "../plugins/runPluginCommand.js";
 import { unavailableProviderDiscovery } from "../providers/discoverCliProviders.js";
+import { GitChangesError, GitChangesService, runGitChangesCommand } from "../review/GitChangesService.js";
 import {
+  branchChanges,
   PullRequestError,
   PullRequestService,
   redactSecrets,
   runPullRequestCommand,
 } from "../review/PullRequestService.js";
-import type { TerminalService, TerminalSubscription } from "../terminal/TerminalService.js";
 import { runSkillCommand } from "../skills/runSkillCommand.js";
-import { SkillError } from "../skills/skillFolders.js";
 import type { SkillStore } from "../skills/SkillStore.js";
+import { SkillError } from "../skills/skillFolders.js";
+import type { TerminalService, TerminalSubscription } from "../terminal/TerminalService.js";
 import { readableTerminalText } from "../terminal/terminalText.js";
 import { readZliConfig } from "../worktrees/zliConfig.js";
 import { AttachmentError, storeThreadAttachments } from "./attachments.js";
@@ -85,11 +96,14 @@ type RpcServerOptions = {
   environment: EnvironmentDescriptor;
   token: string;
   terminalService?: TerminalService;
+  /** Told about the person's keystrokes, so huddle messages wait while they type in a terminal. */
+  terminalInput?: TerminalInputTracker;
   fileService?: FileService;
   discoverProviders?: () => Promise<readonly ProviderDiscovery[]>;
   /** Root for uploaded thread images. Without it, image uploads are rejected. */
   attachmentsDir?: string;
   pullRequestService?: PullRequestService;
+  gitChangesService?: GitChangesService;
   /** GitHub issues through gh, and Linear when a key path is configured. */
   issues?: IssueSources;
   /** Turn diffs and restores. Without it, checkpoint commands are answered as unavailable. */
@@ -107,6 +121,8 @@ type RpcServerOptions = {
     delete(accountId: string): Promise<AccountListResult>;
     setDefault(provider: ListedProviderKind, accountId?: string): Promise<AccountListResult>;
   };
+  /** Plan limits per login. Without it, limits commands are answered as unavailable. */
+  limits?: { read(refresh?: boolean): Promise<PlanLimitsResult> };
   host?: string;
   port?: number;
 };
@@ -116,16 +132,19 @@ export class RpcServer {
   private readonly environment: EnvironmentDescriptor;
   private readonly token: string;
   private readonly terminalService: TerminalService | undefined;
+  private readonly terminalInput: TerminalInputTracker | undefined;
   private readonly fileService: FileService;
   private readonly discoverProviders: RpcServerOptions["discoverProviders"];
   private readonly attachmentsDir: string | undefined;
   private readonly pullRequestService: PullRequestService;
+  private readonly gitChangesService: GitChangesService;
   private readonly issues: IssueSources;
   private readonly checkpoints: RpcServerOptions["checkpoints"];
   private readonly mcpServers: RpcServerOptions["mcpServers"];
   private readonly skills: SkillStore | undefined;
   private readonly plugins: PluginStore | undefined;
   private readonly accounts: RpcServerOptions["accounts"];
+  private readonly limits: RpcServerOptions["limits"];
   private readonly host: string;
   private readonly port: number;
   private httpServer: HttpServer | undefined;
@@ -143,16 +162,19 @@ export class RpcServer {
     this.environment = options.environment;
     this.token = options.token;
     this.terminalService = options.terminalService;
+    this.terminalInput = options.terminalInput;
     this.fileService = options.fileService ?? new FileService();
     this.discoverProviders = options.discoverProviders;
     this.attachmentsDir = options.attachmentsDir;
     this.pullRequestService = options.pullRequestService ?? new PullRequestService();
+    this.gitChangesService = options.gitChangesService ?? new GitChangesService();
     this.issues = options.issues ?? defaultIssueSources();
     this.checkpoints = options.checkpoints;
     this.mcpServers = options.mcpServers;
     this.skills = options.skills;
     this.plugins = options.plugins;
     this.accounts = options.accounts;
+    this.limits = options.limits;
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
   }
@@ -332,8 +354,10 @@ export class RpcServer {
         send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
         return true;
       }
-      if (command.type === "terminal.write") terminalService.write(command.terminalId, command.data);
-      else terminalService.resize(command.terminalId, command.cols, command.rows);
+      if (command.type === "terminal.write") {
+        terminalService.write(command.terminalId, command.data);
+        this.terminalInput?.record(command.terminalId, command.data);
+      } else terminalService.resize(command.terminalId, command.cols, command.rows);
       send(client, { type: "response", response: { commandId: request.commandId, accepted: true } });
     } catch (error) {
       send(client, {
@@ -518,6 +542,25 @@ export class RpcServer {
     return true;
   }
 
+  /** Plan limits come from each provider on demand and are cached in memory, outside the event log. */
+  private async handleLimitsCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isLimitsCommand(command)) return false;
+    const reject = (error: RuntimeError) =>
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: false, error } });
+    if (!this.limits) {
+      reject({ code: "unavailable", message: "Plan limits are not available here.", retryable: false });
+      return true;
+    }
+    try {
+      const result = await this.limits.read(command.refresh === true);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch {
+      reject({ code: "internal", message: "Plan limits could not be read.", retryable: true });
+    }
+    return true;
+  }
+
   private async runFileCommand(root: string, command: FileCommand): Promise<unknown> {
     switch (command.type) {
       case "files.list":
@@ -554,7 +597,10 @@ export class RpcServer {
     const command = request.command;
     if (!isPullRequestCommand(command)) return false;
     try {
-      const result = await runPullRequestCommand(this.pullRequestService, await this.engine.projection(), command);
+      const projection = await this.engine.projection();
+      const result = await runPullRequestCommand(this.pullRequestService, projection, command, (worktree, branches) =>
+        this.recordBranches(branchChanges(projection, worktree, branches)),
+      );
       send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
     } catch (error) {
       const message =
@@ -571,6 +617,48 @@ export class RpcServer {
       });
     }
     return true;
+  }
+
+  /** Staging, discard, and stash commands run git in the worktree and answer directly, outside the event log. */
+  private async handleGitChangesCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isGitChangesCommand(command)) return false;
+    try {
+      const result = await runGitChangesCommand(this.gitChangesService, await this.engine.projection(), command);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch (error) {
+      const message =
+        error instanceof GitChangesError
+          ? error.message
+          : `The Git command failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`;
+      send(client, {
+        type: "response",
+        response: {
+          commandId: request.commandId,
+          accepted: false,
+          error: { code: "invalid_request", message, retryable: false },
+        },
+      });
+    }
+    return true;
+  }
+
+  /**
+   * Git can switch or rename a worktree's branch outside the event log, so the branch it reports is
+   * recorded through a command. A failure here leaves the old name until the next branch list.
+   */
+  private async recordBranches(changes: ReturnType<typeof branchChanges>): Promise<void> {
+    for (const change of changes) {
+      try {
+        await this.engine.dispatchPromise({
+          protocolVersion: 1,
+          commandId: CommandId.parse(randomUUID()),
+          command: { type: "worktree.branch", worktreeId: change.worktreeId, branch: change.branch },
+        });
+      } catch {
+        // The Git action itself succeeded; the next branch list records the branch again.
+      }
+    }
   }
 
   /** Issue commands read GitHub or Linear and answer directly, outside the event log. */
@@ -704,6 +792,7 @@ export class RpcServer {
         if (this.terminalService && this.handleTerminalInput(client, message.data.request)) return;
         if (await this.handleFileCommand(client, message.data.request)) return;
         if (await this.handlePullRequestCommand(client, message.data.request)) return;
+        if (await this.handleGitChangesCommand(client, message.data.request)) return;
         if (await this.handleIssueCommand(client, message.data.request)) return;
         if (await this.handleCheckpointCommand(client, message.data.request)) return;
         if (await this.handleProjectConfig(client, message.data.request)) return;
@@ -711,6 +800,7 @@ export class RpcServer {
         if (await this.handleSkillCommand(client, message.data.request)) return;
         if (await this.handlePluginCommand(client, message.data.request)) return;
         if (await this.handleAccountCommand(client, message.data.request)) return;
+        if (await this.handleLimitsCommand(client, message.data.request)) return;
         try {
           let request: RpcRequest;
           try {
@@ -723,6 +813,25 @@ export class RpcServer {
                 commandId: message.data.request.commandId,
                 accepted: false,
                 error: { code: "invalid_request", message: error.message, retryable: false },
+              },
+            });
+            return;
+          }
+          const scopeError =
+            request.command.type === "huddle.create" || request.command.type === "huddle.join"
+              ? huddleScopeError(
+                  await this.engine.projection(),
+                  request.command,
+                  this.mcpServers?.list().agentScope ?? "project",
+                )
+              : undefined;
+          if (scopeError) {
+            send(client, {
+              type: "response",
+              response: {
+                commandId: request.commandId,
+                accepted: false,
+                error: { code: "invalid_request", message: scopeError, retryable: false },
               },
             });
             return;
@@ -820,6 +929,10 @@ function isAccountCommand(command: RpcRequest["command"]): command is AccountCom
   return (ACCOUNT_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
+function isLimitsCommand(command: RpcRequest["command"]): command is LimitsCommand {
+  return (LIMITS_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
 function isMcpCommand(command: RpcRequest["command"]): command is McpCommand {
   return (MCP_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
@@ -828,6 +941,7 @@ export type McpServerCommands = {
   list(): McpListResult;
   save(servers: readonly McpServerConfig[]): Promise<McpListResult>;
   setAgentAccess(access: AgentToolAccess): Promise<McpListResult>;
+  setAgentScope(scope: AgentToolScope): Promise<McpListResult>;
   signIn?(name: string): Promise<McpSignInStart>;
   waitForSignIn?(attemptId: string): Promise<McpListResult>;
   cancelSignIn?(attemptId: string): McpListResult;
@@ -864,6 +978,8 @@ function runMcpCommand(
       return store.save(command.servers);
     case "mcp.agentAccess":
       return store.setAgentAccess(command.access);
+    case "mcp.agentScope":
+      return store.setAgentScope(command.scope);
     case "mcp.signIn":
       return store.signIn ? store.signIn(command.name) : missing();
     case "mcp.signIn.wait":
@@ -893,6 +1009,10 @@ function isFileCommand(command: RpcRequest["command"]): command is FileCommand {
 
 function isPullRequestCommand(command: RpcRequest["command"]): command is PullRequestCommand {
   return (PULL_REQUEST_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
+function isGitChangesCommand(command: RpcRequest["command"]): command is GitChangesCommand {
+  return (GIT_CHANGES_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
 function isIssueCommand(command: RpcRequest["command"]): command is IssueCommand {

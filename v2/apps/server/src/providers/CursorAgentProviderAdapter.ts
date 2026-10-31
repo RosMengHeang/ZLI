@@ -12,7 +12,10 @@ import type {
 import { toolActivity } from "./toolActivity.js";
 
 type CursorClient = Pick<CursorAgentClient, "sendTurn" | "interruptTurn" | "transcript" | "subscribe" | "close">;
-type ClientStart = Pick<ProviderSessionStart, "cwd" | "permissionMode" | "model" | "worktreeId" | "account">;
+type ClientStart = Pick<
+  ProviderSessionStart,
+  "cwd" | "permissionMode" | "model" | "worktreeId" | "account" | "resumeSessionId"
+>;
 
 export class CursorAgentProviderAdapter implements ProviderAdapter {
   readonly provider = "cursor-agent" as const;
@@ -40,12 +43,14 @@ export class CursorAgentProviderAdapter implements ProviderAdapter {
       ...(input.model ? { model: input.model } : {}),
       ...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
       ...(input.account ? { account: input.account } : {}),
+      ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
     });
     const session: ProviderSession = {
       threadId: input.threadId,
       provider: this.provider,
       cwd: input.cwd,
       status: "idle",
+      ...(input.resumeSessionId ? { providerSessionId: input.resumeSessionId } : {}),
     };
     const unsubscribe = client.subscribe((event) => this.onCursorEvent(input.threadId, input.cwd, event));
     this.sessions.set(input.threadId, { session, client, unsubscribe });
@@ -157,6 +162,12 @@ export class CursorAgentProviderAdapter implements ProviderAdapter {
           activity: toolActivity(event.tool, cwd),
         });
         return;
+      case "session.identified": {
+        const context = this.sessions.get(threadId);
+        if (context) context.session.providerSessionId = event.sessionId;
+        this.emit({ type: "session.identified", threadId, providerSessionId: event.sessionId });
+        return;
+      }
       case "session.closed":
         this.dropSession(threadId);
         this.emit({ type: "session.closed", threadId, reason: event.reason });

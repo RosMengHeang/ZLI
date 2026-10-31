@@ -4,7 +4,7 @@ The phone app for ZLI. It pairs with the ZLI desktop app over the local network 
 follow agents, answer their approvals and questions, send them messages, start new ones, and use a
 shell in a worktree.
 
-The phone never talks to the runtime directly. It connects to the desktop's Mobile access gateway,
+The phone never talks to the runtime directly. It connects to the desktop's Phone access gateway,
 which is off until you turn it on, over a channel encrypted with keys that stay on the two devices.
 The gateway forwards only an allowlist of commands; see `packages/remote-protocol/src/policy.ts`.
 
@@ -23,7 +23,7 @@ check that Metro resolves the workspace packages.
 
 ## Pair a phone
 
-1. On the desktop, open Settings, then Mobile access, and turn on Allow phones on this network.
+1. On the desktop, open Settings, then Phone access, and turn on Allow phones on this network.
 2. Choose Pair a new phone. A QR code appears for five minutes.
 3. In ZLI Remote, scan the code, or copy it on the desktop and paste it into the app.
 4. Name the phone and choose Pair. The phone shows up under Paired phones on the desktop.

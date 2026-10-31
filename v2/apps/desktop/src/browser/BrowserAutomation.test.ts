@@ -292,9 +292,11 @@ describe("BrowserAutomation device emulation", () => {
     });
   });
 
-  it("waits in the page for a picked element and treats a lost page as a cancelled pick", async () => {
+  it("waits in the page for the next annotation and treats a lost page as the end of the session", async () => {
     const evaluations: Array<Record<string, unknown>> = [];
-    let answer: () => Promise<unknown> = async () => ({ result: { value: { selector: "main > button" } } });
+    let answer: () => Promise<unknown> = async () => ({
+      result: { value: { kind: "element", id: "a-1", selector: "main > button" } },
+    });
     const cdp: CdpClientLike = {
       send: async (method, params) => {
         if (method !== "Runtime.evaluate") return {};
@@ -304,9 +306,30 @@ describe("BrowserAutomation device emulation", () => {
       onMessage: () => () => undefined,
     };
     const automation = new BrowserAutomation(cdp);
-    await expect(automation.pickElement()).resolves.toEqual({ selector: "main > button" });
+    await expect(automation.pickElement()).resolves.toEqual({ kind: "element", id: "a-1", selector: "main > button" });
     expect(evaluations[0]).toMatchObject({ awaitPromise: true, returnByValue: true });
-    expect(String(evaluations[0]?.expression)).toContain("__zliDesignPicker");
+    expect(String(evaluations[0]?.expression)).toContain("__zliAnnotate");
+
+    answer = async () => ({
+      result: {
+        value: {
+          kind: "region",
+          id: "region-1",
+          bounds: { x: 10, y: 20, width: 30, height: 40 },
+          viewport: { width: 800, height: 600 },
+          strokes: [{ tool: "pen", points: [11, 21, 12, 22] }],
+          instruction: " Tighten the spacing ",
+        },
+      },
+    });
+    await expect(automation.pickElement()).resolves.toEqual({
+      kind: "region",
+      id: "region-1",
+      bounds: { x: 10, y: 20, width: 30, height: 40 },
+      viewport: { width: 800, height: 600 },
+      strokes: [{ tool: "pen", points: [11, 21, 12, 22] }],
+      instruction: "Tighten the spacing",
+    });
 
     answer = async () => ({ result: { value: null } });
     await expect(automation.pickElement()).resolves.toBeNull();
@@ -319,6 +342,6 @@ describe("BrowserAutomation device emulation", () => {
 
     answer = async () => ({ result: { value: true } });
     await automation.cancelPick();
-    expect(String(evaluations.at(-1)?.expression)).toContain("__zliDesignPicker?.cancel()");
+    expect(String(evaluations.at(-1)?.expression)).toContain("__zliAnnotate?.stop()");
   });
 });

@@ -1,7 +1,7 @@
 import type { ThreadActivityProjection } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
-import { elapsedLabel, exploreCounts, groupSteps, liveStepLabel } from "./WorkLog.js";
+import { elapsedLabel, exploreCounts, groupSteps } from "./WorkLog.js";
 
 const activity = (id: string, kind: ThreadActivityProjection["kind"], extra: Partial<ThreadActivityProjection> = {}) =>
   ({
@@ -42,16 +42,6 @@ describe("step labels", () => {
       ]),
     ).toBe("2 files, 1 search");
     expect(exploreCounts([activity("w1", "web"), activity("w2", "web")])).toBe("2 web pages");
-  });
-
-  it("says what is running in a few words", () => {
-    expect(liveStepLabel(activity("r", "file-read", { files: ["src/app/routes.ts"] }))).toBe("Reading routes.ts");
-    expect(liveStepLabel(activity("e", "file-edit", { files: ["C:\\repo\\notes.md"] }))).toBe("Editing notes.md");
-    expect(liveStepLabel(activity("c", "command", { title: "npm test" }))).toBe("Running npm test");
-    expect(liveStepLabel(activity("s", "search", { title: "Search TODO" }))).toBe("Searching for TODO");
-    expect(liveStepLabel(activity("w", "web", { title: "Fetch https://example.com" }))).toBe(
-      "Opening https://example.com",
-    );
   });
 
   it("formats elapsed time", () => {

@@ -9,16 +9,30 @@ import { Kbd } from "../ui/Kbd.js";
 import { ariaShortcut, shortcutText } from "../ui/shortcuts.js";
 import { useShortcuts } from "./keybindings.js";
 
-export type SidePane = "files" | "browser" | "review";
+export type SidePane = "files" | "browser" | "mobile" | "review" | "huddle";
 
-export const sidePaneLabel: Record<SidePane, string> = { files: "Files", browser: "Browser", review: "Changes" };
+export const sidePaneLabel: Record<SidePane, string> = {
+  files: "Files",
+  browser: "Browser",
+  mobile: "Mobile",
+  review: "Changes",
+  huddle: "Huddle",
+};
 
-const sidePaneIcon: Record<SidePane, IconName> = { files: "folderTree", browser: "globe", review: "diff" };
+const sidePaneIcon: Record<SidePane, IconName> = {
+  files: "folderTree",
+  browser: "globe",
+  mobile: "smartphone",
+  review: "diff",
+  huddle: "users",
+};
 
 export const sidePaneShortcut = {
   files: "toggleFiles",
   browser: "toggleBrowser",
+  mobile: "toggleMobile",
   review: "toggleChanges",
+  huddle: "toggleHuddle",
 } as const satisfies Record<SidePane, ShortcutId>;
 
 export function Topbar({
@@ -37,6 +51,7 @@ export function Topbar({
   devServers = [],
   onOpenDevServer,
   updateNotice,
+  mobileAvailable = false,
 }: {
   sidebarOpen: boolean;
   project: ProjectProjection | undefined;
@@ -56,7 +71,12 @@ export function Topbar({
   onOpenDevServer?(url: string): void;
   /** The update pill, shown before the panel toggles. */
   updateNotice?: ReactNode;
+  /** The Mobile panel exists only in the desktop app, which runs the emulators and simulators. */
+  mobileAvailable?: boolean;
 }) {
+  const panes: readonly SidePane[] = mobileAvailable
+    ? ["files", "browser", "mobile", "review", "huddle"]
+    : ["files", "browser", "review", "huddle"];
   const shortcuts = useShortcuts();
   return (
     <header className="topbar">
@@ -85,8 +105,8 @@ export function Topbar({
       <span className="topbar-spacer" />
       {updateNotice}
       {sidebarOpen || !hasProjects ? null : (
-        <Button variant="ghost" size="sm" icon="plus" shortcut={shortcuts.newAgent} onClick={onNewAgent}>
-          New agent
+        <Button variant="ghost" size="sm" icon="agentNew" shortcut={shortcuts.newAgent} onClick={onNewAgent}>
+          <span className="topbar-new-agent-label">New agent</span>
         </Button>
       )}
       {hasProjects && onOpenIssues ? (
@@ -95,13 +115,13 @@ export function Topbar({
       <fieldset className="topbar-tools" aria-label="Panels">
         <ToolToggle
           label="Terminal"
-          icon="panelBottom"
+          icon="terminal"
           shortcut={shortcuts.toggleDrawer}
           active={drawerOpen}
           onClick={onToggleDrawer}
         />
         <span className="toolbar-divider" aria-hidden="true" />
-        {(["files", "browser", "review"] as const).map((pane) => (
+        {panes.map((pane) => (
           <ToolToggle
             key={pane}
             label={sidePaneLabel[pane]}

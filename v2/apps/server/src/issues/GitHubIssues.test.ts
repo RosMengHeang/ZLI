@@ -4,10 +4,13 @@ import type { ProcessResult, ProcessRunner } from "../review/PullRequestService.
 import { GitHubIssues, parseGitHubIssue, parseGitHubIssueList } from "./GitHubIssues.js";
 import { IssueError } from "./issueText.js";
 
-type Call = { command: "git" | "gh"; args: string[]; cwd: string };
+type Call = { command: Parameters<ProcessRunner>[0]; args: string[]; cwd: string };
 
 const ok = (stdout = ""): ProcessResult => ({ code: 0, stdout, stderr: "" });
 const fail = (stderr: string, code = 1): ProcessResult => ({ code, stdout: "", stderr });
+const remotes = (...lines: [string, string][]) =>
+  ok(lines.map(([name, url]) => `${name}\t${url} (fetch)\n${name}\t${url} (push)\n`).join(""));
+const noHosts = { github: async () => [], gitlab: async () => [] };
 
 const RAW_ISSUE = {
   number: 42,
@@ -34,7 +37,7 @@ function fakeRunner(overrides: (call: Call) => ProcessResult | Error | undefined
     if (override instanceof Error) throw override;
     if (override) return override;
     const line = `${command} ${args.join(" ")}`;
-    if (line === "git remote") return ok("origin\n");
+    if (line === "git remote -v") return remotes(["origin", "https://github.com/acme/app.git"]);
     if (line === "gh --version") return ok("gh version 2.60.0\n");
     if (line === "gh auth status") return ok();
     if (line.startsWith("gh issue list")) return ok(JSON.stringify([RAW_ISSUE]));
@@ -161,19 +164,87 @@ describe("GitHubIssues", () => {
     await expect(new GitHubIssues(runner).list("/repo", {})).rejects.toThrow(/gh auth login/u);
   });
 
-  it("explains a folder without a remote", async () => {
+  it("lists nothing for a folder without a remote, without running gh", async () => {
     const { runner, calls } = fakeRunner((call) => (call.command === "git" ? ok("") : undefined));
-    await expect(new GitHubIssues(runner).list("/repo", {})).rejects.toThrow(/no Git remote/u);
+    const issues = new GitHubIssues(runner, noHosts);
+    expect(await issues.list("/repo", {})).toEqual({ issues: [], unavailable: { code: "no_remote" } });
+    await expect(issues.get("/repo", "42")).rejects.toThrow(/no Git remote/u);
     expect(calls.some((call) => call.command === "gh")).toBe(false);
   });
 
-  it("explains remotes that are not on GitHub", async () => {
+  it("lists nothing for a folder that is not a repository", async () => {
     const { runner } = fakeRunner((call) =>
-      call.args[1] === "list"
-        ? fail("none of the git remotes configured for this repository point to a known GitHub host.")
+      call.command === "git"
+        ? fail("fatal: not a git repository (or any of the parent directories): .git", 128)
         : undefined,
     );
-    await expect(new GitHubIssues(runner).list("/repo", {})).rejects.toThrow(/point to a GitHub repository/u);
+    expect(await new GitHubIssues(runner, noHosts).list("/repo", {})).toEqual({
+      issues: [],
+      unavailable: { code: "not_repo" },
+    });
+  });
+
+  it("names the host of remotes on neither GitHub nor GitLab, without running gh", async () => {
+    const { runner, calls } = fakeRunner((call) =>
+      call.command === "git"
+        ? remotes(["backup", "https://dev.azure.com/acme/app/_git/app"], ["origin", "git@bitbucket.org:acme/app.git"])
+        : undefined,
+    );
+    const issues = new GitHubIssues(runner, noHosts);
+    expect(await issues.list("/repo", {})).toEqual({
+      issues: [],
+      unavailable: { code: "other_host", host: "bitbucket.org" },
+    });
+    await expect(issues.get("/repo", "42")).rejects.toThrow(/remote is on bitbucket\.org/u);
+    expect(calls.some((call) => call.command === "gh")).toBe(false);
+  });
+
+  it("refuses a project on GitLab, without running gh", async () => {
+    const { runner, calls } = fakeRunner((call) =>
+      call.command === "git" ? remotes(["origin", "git@gitlab.company.com:acme/app.git"]) : undefined,
+    );
+    await expect(new GitHubIssues(runner, noHosts).list("/repo", {})).rejects.toThrow(
+      /remote is on gitlab\.company\.com, not GitHub/u,
+    );
+    expect(calls.some((call) => call.command === "gh")).toBe(false);
+  });
+
+  it("reads issues when any remote is on GitHub", async () => {
+    const { runner } = fakeRunner((call) =>
+      call.command === "git"
+        ? remotes(["origin", "https://gitlab.com/acme/app.git"], ["upstream", "git@github.com:acme/app.git"])
+        : undefined,
+    );
+    const result = await new GitHubIssues(runner, noHosts).list("/repo", {});
+    expect(result.issues).toHaveLength(1);
+    expect(result.unavailable).toBeUndefined();
+  });
+
+  it("reads issues from a GitHub Enterprise host gh is signed in to", async () => {
+    const { runner, calls } = fakeRunner((call) =>
+      call.command === "git" ? remotes(["origin", "https://git.corp.example/acme/app.git"]) : undefined,
+    );
+    const result = await new GitHubIssues(runner, { ...noHosts, github: async () => ["Git.Corp.Example"] }).list(
+      "/repo",
+      {},
+    );
+    expect(result.issues).toHaveLength(1);
+    expect(calls.some((call) => call.args[1] === "list")).toBe(true);
+  });
+
+  it("lets gh judge local and SSH alias remotes", async () => {
+    const { runner, calls } = fakeRunner((call) => {
+      if (call.command === "git") return remotes(["origin", "/srv/git/app.git"]);
+      if (call.args[1] === "list") {
+        return fail("none of the git remotes configured for this repository point to a known GitHub host.");
+      }
+      return undefined;
+    });
+    expect(await new GitHubIssues(runner, noHosts).list("/repo", {})).toEqual({
+      issues: [],
+      unavailable: { code: "other_host" },
+    });
+    expect(calls.some((call) => call.args[1] === "list")).toBe(true);
   });
 
   it("redacts tokens from other gh failures", async () => {

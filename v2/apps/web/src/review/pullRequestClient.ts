@@ -1,9 +1,22 @@
 import {
+  GitBranchesResult,
+  GitChangeResult,
+  type GitHunkAction,
+  GitPullResult,
+  type GitStashAction,
+  GitStashListResult,
+  GitStashResult,
   PullRequestCheckLogResult,
   PullRequestCommentsResult,
   PullRequestCreateResult,
+  type PullRequestMergeMethod,
+  PullRequestMergeResult,
   PullRequestPushResult,
+  PullRequestReplyResult,
+  PullRequestResolveResult,
+  type PullRequestReviewEvent,
   PullRequestStatusResult,
+  PullRequestUpdateResult,
   type RpcResponse,
   WorktreeId,
 } from "@zli-v2/contracts";
@@ -70,5 +83,218 @@ export function createPullRequest(
     dispatch,
     { type: "review.pr.create", worktreeId: WorktreeId.parse(worktreeId), ...input },
     PullRequestCreateResult,
+  );
+}
+
+export function mergePullRequest(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { method: PullRequestMergeMethod; deleteBranch: boolean },
+): Promise<PullRequestMergeResult> {
+  return request(
+    dispatch,
+    { type: "review.pr.merge", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    PullRequestMergeResult,
+  );
+}
+
+export function listBranches(dispatch: Dispatch, worktreeId: string): Promise<GitBranchesResult> {
+  return request(
+    dispatch,
+    { type: "review.git.branches", worktreeId: WorktreeId.parse(worktreeId) },
+    GitBranchesResult,
+  );
+}
+
+export function fetchBranches(dispatch: Dispatch, worktreeId: string): Promise<GitBranchesResult> {
+  return request(dispatch, { type: "review.git.fetch", worktreeId: WorktreeId.parse(worktreeId) }, GitBranchesResult);
+}
+
+export function pullBranch(dispatch: Dispatch, worktreeId: string): Promise<GitPullResult> {
+  return request(dispatch, { type: "review.git.pull", worktreeId: WorktreeId.parse(worktreeId) }, GitPullResult);
+}
+
+export function reviewPullRequest(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { event: PullRequestReviewEvent; body: string },
+): Promise<PullRequestUpdateResult> {
+  return request(
+    dispatch,
+    { type: "review.pr.review", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    PullRequestUpdateResult,
+  );
+}
+
+export function commentOnPullRequest(
+  dispatch: Dispatch,
+  worktreeId: string,
+  body: string,
+): Promise<PullRequestUpdateResult> {
+  return request(
+    dispatch,
+    { type: "review.pr.comment", worktreeId: WorktreeId.parse(worktreeId), body },
+    PullRequestUpdateResult,
+  );
+}
+
+export function replyToThread(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { threadId: string; body: string },
+): Promise<PullRequestReplyResult> {
+  return request(
+    dispatch,
+    { type: "review.pr.reply", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    PullRequestReplyResult,
+  );
+}
+
+export function resolveThread(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { threadId: string; resolved: boolean },
+): Promise<PullRequestResolveResult> {
+  return request(
+    dispatch,
+    { type: "review.pr.resolve", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    PullRequestResolveResult,
+  );
+}
+
+export function setAutoMerge(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { enabled: true; method: PullRequestMergeMethod } | { enabled: false },
+): Promise<PullRequestUpdateResult> {
+  return request(
+    dispatch,
+    { type: "review.pr.autoMerge", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    PullRequestUpdateResult,
+  );
+}
+
+/** Stages the paths, or every change when `paths` is omitted. */
+export function stageFiles(
+  dispatch: Dispatch,
+  worktreeId: string,
+  paths?: readonly string[],
+): Promise<GitChangeResult> {
+  return request(
+    dispatch,
+    { type: "review.git.stage", worktreeId: WorktreeId.parse(worktreeId), ...(paths ? { paths: [...paths] } : {}) },
+    GitChangeResult,
+  );
+}
+
+/** Unstages the paths, or everything staged when `paths` is omitted. */
+export function unstageFiles(
+  dispatch: Dispatch,
+  worktreeId: string,
+  paths?: readonly string[],
+): Promise<GitChangeResult> {
+  return request(
+    dispatch,
+    { type: "review.git.unstage", worktreeId: WorktreeId.parse(worktreeId), ...(paths ? { paths: [...paths] } : {}) },
+    GitChangeResult,
+  );
+}
+
+export function discardFile(dispatch: Dispatch, worktreeId: string, path: string): Promise<GitChangeResult> {
+  return request(
+    dispatch,
+    { type: "review.git.discard", worktreeId: WorktreeId.parse(worktreeId), path },
+    GitChangeResult,
+  );
+}
+
+export function applyHunk(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { path: string; action: GitHunkAction; index: number; hunk: string },
+): Promise<GitChangeResult> {
+  return request(
+    dispatch,
+    { type: "review.git.hunk", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    GitChangeResult,
+  );
+}
+
+export function listStashes(dispatch: Dispatch, worktreeId: string): Promise<GitStashListResult> {
+  return request(
+    dispatch,
+    { type: "review.git.stashList", worktreeId: WorktreeId.parse(worktreeId) },
+    GitStashListResult,
+  );
+}
+
+export function stashChanges(dispatch: Dispatch, worktreeId: string, message?: string): Promise<GitStashResult> {
+  return request(
+    dispatch,
+    { type: "review.git.stash", worktreeId: WorktreeId.parse(worktreeId), ...(message ? { message } : {}) },
+    GitStashResult,
+  );
+}
+
+export function runStashAction(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { action: GitStashAction; index: number; commit: string },
+): Promise<GitStashResult> {
+  return request(
+    dispatch,
+    { type: "review.git.stashAction", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    GitStashResult,
+  );
+}
+
+export function createBranch(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { name: string; from?: string | undefined; switchTo: boolean },
+): Promise<GitBranchesResult> {
+  return request(
+    dispatch,
+    {
+      type: "review.git.createBranch",
+      worktreeId: WorktreeId.parse(worktreeId),
+      name: input.name,
+      ...(input.from ? { from: input.from } : {}),
+      switchTo: input.switchTo,
+    },
+    GitBranchesResult,
+  );
+}
+
+/** `name` is a local branch, or `origin/<name>` to check out a local branch that tracks it. */
+export function switchBranch(dispatch: Dispatch, worktreeId: string, name: string): Promise<GitBranchesResult> {
+  return request(
+    dispatch,
+    { type: "review.git.switchBranch", worktreeId: WorktreeId.parse(worktreeId), name },
+    GitBranchesResult,
+  );
+}
+
+export function renameBranch(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { from: string; to: string },
+): Promise<GitBranchesResult> {
+  return request(
+    dispatch,
+    { type: "review.git.renameBranch", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    GitBranchesResult,
+  );
+}
+
+export function deleteBranch(
+  dispatch: Dispatch,
+  worktreeId: string,
+  input: { name: string; force: boolean; remote: boolean },
+): Promise<GitBranchesResult> {
+  return request(
+    dispatch,
+    { type: "review.git.deleteBranch", worktreeId: WorktreeId.parse(worktreeId), ...input },
+    GitBranchesResult,
   );
 }

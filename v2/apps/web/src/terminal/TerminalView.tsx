@@ -1,4 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { type ITheme, Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
@@ -6,7 +8,8 @@ import "@xterm/xterm/css/xterm.css";
 import type { RpcResponse } from "@zli-v2/contracts";
 import { themeColors } from "@zli-v2/ui/colors";
 import type { FileLinks } from "../files/FileIndex.js";
-import type { ZliBridge } from "../runtime/bridge.js";
+import { getBridge, type ZliBridge } from "../runtime/bridge.js";
+import { extendScreenBackground } from "./screenBackground.js";
 import { registerTerminalModes } from "./terminalModes.js";
 
 type Props = {
@@ -85,11 +88,18 @@ export function TerminalView({
       scrollback: 5_000,
       cursorBlink: false,
       theme: terminalTheme,
+      // The Unicode 11 width tables need the proposed unicode API.
+      allowProposedApi: true,
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
+    // Agent TUIs measure emoji and symbols with Unicode 11+ widths; xterm's default
+    // Unicode 6 tables count them as one column, which shifts borders and wraps lines.
+    terminal.loadAddon(new Unicode11Addon());
+    terminal.unicode.activeVersion = "11";
     terminal.open(host);
     terminalRef.current = terminal;
+    const backgroundExtension = extendScreenBackground(terminal, host, terminalTheme);
     const linkProvider = terminal.registerLinkProvider({
       provideLinks(lineNumber, callback) {
         const links = fileLinksRef.current;
@@ -214,6 +224,7 @@ export function TerminalView({
     };
     const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(scheduleResize);
     observer?.observe(host);
+    loadWebglRenderer(terminal, scheduleResize);
     try {
       fit.fit();
     } catch {
@@ -238,6 +249,7 @@ export function TerminalView({
       observer?.disconnect();
       dataSubscription.dispose();
       linkProvider.dispose();
+      backgroundExtension.dispose();
       focusSubscription?.();
       unregisterModes();
       unsubscribe();
@@ -259,8 +271,44 @@ export function TerminalView({
       aria-label={label}
       ref={hostRef}
       onMouseDown={() => terminalRef.current?.focus()}
+      onDragOver={(event) => {
+        if ([...event.dataTransfer.types].includes("Files")) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        const pathForFile = getBridge()?.pathForFile;
+        const paths = [...event.dataTransfer.files].map((file) => pathForFile?.(file)).filter(Boolean);
+        if (paths.length === 0) return;
+        event.preventDefault();
+        // Typed like a terminal emulator does: shell-quoted, space-separated, as a paste.
+        terminalRef.current?.paste(`${paths.map((path) => `'${path?.replaceAll("'", "'\\''")}'`).join(" ")} `);
+        terminalRef.current?.focus();
+      }}
     />
   );
+}
+
+/**
+ * The WebGL renderer draws box-drawing, block, and Powerline characters as shapes that fill the cell,
+ * so agent logos and borders join up even with the extra line height. The DOM renderer draws them
+ * with the font, which leaves seams between rows, so the line height drops to 1 when it is in use.
+ * WebGL is unavailable on some machines, and the browser drops the oldest contexts when too many
+ * panes are open; both cases fall back to the DOM renderer.
+ */
+function loadWebglRenderer(terminal: Terminal, onFallback: () => void): void {
+  const switchToDomRenderer = () => {
+    terminal.options.lineHeight = 1;
+    onFallback();
+  };
+  try {
+    const webgl = new WebglAddon();
+    webgl.onContextLoss(() => {
+      webgl.dispose();
+      switchToDomRenderer();
+    });
+    terminal.loadAddon(webgl);
+  } catch {
+    switchToDomRenderer();
+  }
 }
 
 /**

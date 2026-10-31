@@ -40,10 +40,17 @@ const xterm = vi.hoisted(() => {
     readonly buffer = {
       active: { getLine: (index: number) => ({ translateToString: () => this.lines[index] ?? "" }) },
     };
-    constructor() {
+    readonly options: Record<string, unknown>;
+    readonly unicode = { activeVersion: "6" };
+    readonly addons: unknown[] = [];
+    constructor(options: Record<string, unknown> = {}) {
+      this.options = { ...options };
       FakeTerminal.instances.push(this);
     }
-    loadAddon(): void {}
+    loadAddon(addon: unknown): void {
+      if (addon instanceof FakeWebglAddon && FakeWebglAddon.unavailable) throw new Error("WebGL2 not supported");
+      this.addons.push(addon);
+    }
     open(): void {}
     focus(): void {}
     write(data: string | Uint8Array): void {
@@ -61,6 +68,9 @@ const xterm = vi.hoisted(() => {
       this.linkProviders.push(provider);
       return { dispose: () => undefined };
     }
+    onRender() {
+      return { dispose: () => undefined };
+    }
     type(data: string): void {
       this.dataListener?.(data);
     }
@@ -74,7 +84,23 @@ const xterm = vi.hoisted(() => {
       this.disposed = true;
     }
   }
-  return { FakeTerminal };
+  class FakeWebglAddon {
+    static unavailable = false;
+    disposed = false;
+    private contextLossListener: (() => void) | undefined;
+    onContextLoss(listener: () => void) {
+      this.contextLossListener = listener;
+      return { dispose: () => (this.contextLossListener = undefined) };
+    }
+    loseContext(): void {
+      this.contextLossListener?.();
+    }
+    dispose(): void {
+      this.disposed = true;
+    }
+  }
+  class FakeUnicode11Addon {}
+  return { FakeTerminal, FakeWebglAddon, FakeUnicode11Addon };
 });
 
 vi.mock("@xterm/xterm", () => ({ Terminal: xterm.FakeTerminal }));
@@ -83,6 +109,8 @@ vi.mock("@xterm/addon-fit", () => ({
     fit(): void {}
   },
 }));
+vi.mock("@xterm/addon-webgl", () => ({ WebglAddon: xterm.FakeWebglAddon }));
+vi.mock("@xterm/addon-unicode11", () => ({ Unicode11Addon: xterm.FakeUnicode11Addon }));
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -171,6 +199,7 @@ async function render(
       worktree={projection.worktrees[0]}
       sessionId={sessionId}
       height={280}
+      maxHeight={600}
       onHeightChange={() => undefined}
       onClose={() => undefined}
     />
@@ -197,6 +226,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   xterm.FakeTerminal.instances.length = 0;
+  xterm.FakeWebglAddon.unavailable = false;
 });
 afterEach(() => document.body.replaceChildren());
 
@@ -227,6 +257,42 @@ describe("TerminalDrawer", () => {
     expect(opened).toEqual([]);
     links?.[0]?.activate({ ctrlKey: true, metaKey: false }, "");
     expect(opened).toEqual([{ worktreeId, path: "src/app.ts", line: 12, column: 5 }]);
+  });
+
+  it("draws with WebGL and Unicode 11 widths so agent logos and borders join up", async () => {
+    const { bridge } = makeBridge();
+    await render(bridge, [
+      { terminalId: firstId, worktreeId, title: "Terminal 1", status: "running", lastSequence: 0 },
+    ]);
+    const terminal = xterm.FakeTerminal.instances[0];
+    expect(terminal?.unicode.activeVersion).toBe("11");
+    expect(terminal?.addons.some((addon) => addon instanceof xterm.FakeUnicode11Addon)).toBe(true);
+    expect(terminal?.addons.some((addon) => addon instanceof xterm.FakeWebglAddon)).toBe(true);
+    expect(terminal?.options.lineHeight).toBe(1.15);
+  });
+
+  it("drops the line height to 1 when WebGL is unavailable", async () => {
+    xterm.FakeWebglAddon.unavailable = true;
+    const { bridge } = makeBridge();
+    await render(bridge, [
+      { terminalId: firstId, worktreeId, title: "Terminal 1", status: "running", lastSequence: 0 },
+    ]);
+    const terminal = xterm.FakeTerminal.instances[0];
+    expect(terminal?.addons.some((addon) => addon instanceof xterm.FakeWebglAddon)).toBe(false);
+    expect(terminal?.options.lineHeight).toBe(1);
+  });
+
+  it("falls back to the DOM renderer when the WebGL context is lost", async () => {
+    const { bridge } = makeBridge();
+    await render(bridge, [
+      { terminalId: firstId, worktreeId, title: "Terminal 1", status: "running", lastSequence: 0 },
+    ]);
+    const terminal = xterm.FakeTerminal.instances[0];
+    const webgl = terminal?.addons.find((addon) => addon instanceof xterm.FakeWebglAddon);
+    if (!(webgl instanceof xterm.FakeWebglAddon)) throw new Error("No WebGL renderer");
+    act(() => webgl.loseContext());
+    expect(webgl.disposed).toBe(true);
+    expect(terminal?.options.lineHeight).toBe(1);
   });
 
   it("replays buffered bytes, decoding characters split across chunks", async () => {
@@ -375,14 +441,45 @@ describe("TerminalDrawer", () => {
     });
   });
 
-  it("stops a running shell when its pane closes", async () => {
+  it("stops a running shell when its pane closes and hides the pane once the shell has exited", async () => {
     const { bridge, dispatched } = makeBridge();
-    const container = await render(bridge, [
-      { terminalId: firstId, worktreeId, title: "Terminal 1", status: "running", lastSequence: 0 },
-    ]);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const show = async (status: TerminalProjection["status"]) => {
+      const projection = projectionWith([
+        { terminalId: firstId, worktreeId, title: "Terminal 1", status, lastSequence: 0 },
+      ]);
+      await act(async () => {
+        root.render(
+          <RuntimeProvider bridge={bridge}>
+            <TerminalDrawer
+              projection={projection}
+              worktree={projection.worktrees[0]}
+              sessionId={undefined}
+              height={280}
+              maxHeight={600}
+              onHeightChange={() => undefined}
+              onClose={() => undefined}
+            />
+          </RuntimeProvider>,
+        );
+      });
+    };
+    await show("running");
     await act(async () => button(container, "Stop Terminal 1")?.click());
     expect(dispatched.at(-1)?.command).toEqual({ type: "terminal.stop", terminalId: firstId });
+    expect(container.querySelectorAll(".drawer-pane")).toHaveLength(1);
+    expect(container.querySelector(".drawer-pane-state")?.textContent).toBe("Stopping");
+
+    await act(async () => button(container, "Stop Terminal 1")?.click());
+    expect(dispatched.filter((request) => request.command.type === "terminal.stop")).toHaveLength(2);
+
+    await show("exited");
     expect(container.querySelectorAll(".drawer-pane")).toHaveLength(0);
+    expect(container.textContent).toContain("No shell in");
+    await act(async () => root.unmount());
+    container.remove();
   });
 
   it("offers to start a shell when the worktree has none", async () => {

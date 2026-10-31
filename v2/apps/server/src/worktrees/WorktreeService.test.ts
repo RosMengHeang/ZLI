@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -134,6 +134,41 @@ describe("worktree lifecycle", () => {
     await expect(
       execFileAsync("git", ["show-ref", "--verify", "refs/heads/feature/preserve"], { cwd: repoPath }),
     ).resolves.toBeDefined();
+  });
+
+  it("treats a worktree git never created as removed, and keeps unknown folders on disk", async () => {
+    const { repoPath, worktreesPath } = await createRepository();
+    const service = new WorktreeService(new GitProcess());
+    const unknown = join(worktreesPath, "not-registered");
+    await mkdir(unknown);
+    await writeFile(join(unknown, "notes.txt"), "keep\n");
+
+    await expect(
+      service.remove({ repoPath, workspaceRoot: worktreesPath, worktreePath: join(worktreesPath, "never-created") }),
+    ).resolves.toMatchObject({ removed: true });
+    await expect(
+      service.remove({ repoPath, workspaceRoot: worktreesPath, worktreePath: unknown, force: true }),
+    ).resolves.toMatchObject({ removed: true });
+    await expect(readFile(join(unknown, "notes.txt"), "utf8")).resolves.toBe("keep\n");
+  });
+
+  it("removes a worktree record of a folder that is not a Git repository without touching disk", async () => {
+    const root = await mkdtemp(join(tmpdir(), "zli-v2-not-a-repo-"));
+    roots.push(root);
+    const project = join(root, "app");
+    const workspaceRoot = join(root, "app-worktrees");
+    await mkdir(project);
+    const service = new WorktreeService(new GitProcess());
+
+    await expect(
+      service.remove({
+        repoPath: project,
+        workspaceRoot,
+        worktreePath: join(workspaceRoot, "droid-u8ik"),
+        branch: "droid-u8ik",
+        deleteBranch: true,
+      }),
+    ).resolves.toEqual({ removed: true, branchDeleted: false });
   });
 
   it("cancels an in-flight Git operation and reports the cancelled terminal state", async () => {

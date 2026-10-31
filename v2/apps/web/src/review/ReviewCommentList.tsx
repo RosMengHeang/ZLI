@@ -1,26 +1,34 @@
 import type { WorktreeProjection } from "@zli-v2/contracts";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { SessionMode } from "../sessions/sessions.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { commentLocation, editReviewComment, removeReviewComments, useReviewComments } from "./reviewComments.js";
-import { SendCommentsDialog } from "./SendCommentsDialog.js";
+import {
+  commentLocation,
+  editReviewComment,
+  formatCommentsMessage,
+  removeReviewComments,
+  useReviewComments,
+} from "./reviewComments.js";
+import { type SentNotice, SendToAgentButton } from "./SendToAgentButton.js";
 
 /** Comments waiting to be sent, with the action that sends them to an agent. */
 export function ReviewCommentList({
   worktree,
   onOpenFile,
   onShowAgent,
+  onNotice,
 }: {
   worktree: WorktreeProjection;
   onOpenFile(path: string): void;
   onShowAgent?: ((sessionId: string, mode: SessionMode) => void) | undefined;
+  onNotice?: ((notice: SentNotice) => void) | undefined;
 }) {
   const comments = useReviewComments(worktree.worktreeId);
   const [editing, setEditing] = useState<string>();
   const [editText, setEditText] = useState("");
-  const [sending, setSending] = useState(false);
+  const message = useMemo(() => formatCommentsMessage(comments, worktree.branch), [comments, worktree.branch]);
   const editRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -44,9 +52,20 @@ export function ReviewCommentList({
           {comments.length} comment{comments.length === 1 ? "" : "s"}
         </span>
         <span className="review-comments-note">not sent yet</span>
-        <Button size="sm" variant="primary" icon="message" onClick={() => setSending(true)}>
+        <SendToAgentButton
+          worktree={worktree}
+          label="Send to agent"
+          dialogLabel="Send comments"
+          dialogTitle={`Send ${comments.length} comment${comments.length === 1 ? "" : "s"}`}
+          message={message}
+          noAgentMessage={`No agent is running in ${worktree.branch}. Start one with New agent, then send the comments. They stay here until then.`}
+          icon="message"
+          onSent={() => removeReviewComments(comments.map((comment) => comment.id))}
+          onNotice={onNotice}
+          onShowAgent={onShowAgent}
+        >
           Send to agent
-        </Button>
+        </SendToAgentButton>
       </header>
       <ul className="review-comment-items">
         {comments.map((comment) => {
@@ -127,14 +146,6 @@ export function ReviewCommentList({
           );
         })}
       </ul>
-      {sending ? (
-        <SendCommentsDialog
-          worktree={worktree}
-          comments={comments}
-          onClose={() => setSending(false)}
-          onShowAgent={onShowAgent}
-        />
-      ) : null}
     </section>
   );
 }

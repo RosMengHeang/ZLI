@@ -1,6 +1,7 @@
 import {
   type Account,
   type ListedProviderKind,
+  MAX_AGENT_NAME_LENGTH,
   type PermissionMode,
   type ProjectProjection,
   type RuntimeProjection,
@@ -11,7 +12,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { accountOptions, defaultAccountId, launchAccountId } from "../accounts/accounts.js";
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
 import { ISSUE_SOURCE_NAMES, type IssueRef, issueBranchName } from "../issues/issueStart.js";
-import { permissionHint, permissionIcon, permissionLabel, permissionOptions } from "../chat/permissions.js";
+import { PermissionIcon, permissionHint, permissionLabel, permissionOptions } from "../chat/permissions.js";
 import {
   branchFromTemplate,
   type LaunchDefaults,
@@ -26,7 +27,7 @@ import { Icon } from "../ui/Icon.js";
 import { ModelMark, modelOptions } from "../ui/ModelMark.js";
 import { Picker } from "../ui/Picker.js";
 import { checkoutWorktree, type LaunchOptions, type Placement, safeBranchName } from "./launch.js";
-import type { SessionMode } from "./sessions.js";
+import { agentNameProblem, type SessionMode } from "./sessions.js";
 import "../issues/issues.css";
 
 const LAST_LAUNCH_KEY = "zli.lastLaunch.v1";
@@ -88,7 +89,7 @@ export function NewAgentDialog({
   const [initial] = useState(() => launchStart(listed, resolveLaunchDefaults(settings, projectId, last)));
   const [provider, setProvider] = useState<ListedProviderKind | undefined>(initial.provider);
   const [mode, setMode] = useState<SessionMode>(initial.mode ?? "terminal");
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>(initial.permissionMode ?? "full-access");
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(initial.permissionMode ?? "supervised");
   const [model, setModel] = useState(initial.model ?? "");
   const [showMissing, setShowMissing] = useState(false);
   // Unset follows the agent's default account, which can change while the dialog is open.
@@ -107,7 +108,8 @@ export function NewAgentDialog({
         worktree.status === "fetching" ||
         worktree.status === "bootstrapping"),
   );
-  const [placementKind, setPlacementKind] = useState<Placement["kind"]>(() =>
+  const noGit = project?.git === false;
+  const [chosenPlacement, setPlacementKind] = useState<Placement["kind"]>(() =>
     !prefill && initialWorktreeId && projectWorktrees.some((worktree) => worktree.worktreeId === initialWorktreeId)
       ? "existing"
       : "new",
@@ -118,12 +120,23 @@ export function NewAgentDialog({
       : branchFromTemplate(settings.branchTemplate, agent);
   const [branch, setBranch] = useState(() => branchFor(provider));
   const [prompt, setPrompt] = useState(prefill?.prompt ?? "");
+  const [name, setName] = useState("");
   const [branchEdited, setBranchEdited] = useState(false);
   const [baseRef, setBaseRef] = useState("");
-  const [existingId, setExistingId] = useState<string | undefined>(
+  const [pickedExistingId, setExistingId] = useState<string | undefined>(
     projectWorktrees.find((worktree) => worktree.worktreeId === initialWorktreeId)?.worktreeId ??
       projectWorktrees[0]?.worktreeId,
   );
+  // A worktree picked before switching projects belongs to the old project, so it gives way to this one's.
+  const existingId = projectWorktrees.some((worktree) => worktree.worktreeId === pickedExistingId)
+    ? pickedExistingId
+    : projectWorktrees[0]?.worktreeId;
+  // Worktrees need Git, so a folder without it only has its own checkout.
+  const placementKind = noGit
+    ? "checkout"
+    : chosenPlacement === "existing" && existingId === undefined
+      ? "new"
+      : chosenPlacement;
   const [busy, setBusy] = useState(false);
   // `busy` state lags a render behind, so two quick Cmd/Ctrl+Enter presses would both see it false.
   const launching = useRef(false);
@@ -133,7 +146,7 @@ export function NewAgentDialog({
   const discovery = listed.find((entry) => entry.provider === provider);
   const models = discovery?.status === "found" ? (discovery.models ?? []) : [];
   const modelUnsupported = mode === "terminal" && provider === "droid";
-  const modelChoices = useMemo(() => modelOptions(models, model || undefined), [models, model]);
+  const modelChoices = useMemo(() => modelOptions(models, model || undefined, provider), [models, model, provider]);
   const shownModel = modelUnsupported ? "" : model;
   const modelLabel = modelChoices.find((option) => option.value === shownModel)?.label ?? shownModel;
   const checkout = project ? checkoutWorktree(projection, project) : undefined;
@@ -144,18 +157,26 @@ export function NewAgentDialog({
   const accountChoices = accountOptions(accounts, provider);
   const shownAccount = provider ? (pickedAccount ?? defaultAccountId(accounts, provider)) : "";
 
-  const placementOptions: ChoiceOption<Placement["kind"]>[] = [
-    {
-      value: "new",
-      label: "New worktree",
-      icon: "branch",
-      title: "Its own folder and branch, so agents never collide",
-    },
-    { value: "checkout", label: "Current checkout", icon: "folder", title: project?.path },
-    ...(projectWorktrees.length > 0
-      ? [{ value: "existing" as const, label: "Existing worktree", icon: "folderOpen" as const }]
-      : []),
-  ];
+  const checkoutOption: ChoiceOption<Placement["kind"]> = {
+    value: "checkout",
+    label: "Current checkout",
+    icon: "folder",
+    title: project?.path,
+  };
+  const placementOptions: ChoiceOption<Placement["kind"]>[] = noGit
+    ? [checkoutOption]
+    : [
+        {
+          value: "new",
+          label: "New worktree",
+          icon: "branch",
+          title: "Its own folder and branch, so agents never collide",
+        },
+        checkoutOption,
+        ...(projectWorktrees.length > 0
+          ? [{ value: "existing" as const, label: "Existing worktree", icon: "folderOpen" as const }]
+          : []),
+      ];
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: branchFor only reads the template and the prefill.
   useEffect(() => {
@@ -176,7 +197,10 @@ export function NewAgentDialog({
     if (override.permissionMode) setPermissionMode(override.permissionMode);
   };
 
+  const nameError = agentNameProblem(projection, projectId, name);
+
   const ready =
+    nameError === undefined &&
     project !== undefined &&
     discovery?.status === "found" &&
     (placementKind !== "new" || newBranch.length > 0) &&
@@ -210,6 +234,7 @@ export function NewAgentDialog({
         ...(model && !modelUnsupported ? { model } : {}),
         ...(prompt.trim() ? { prompt: prompt.trim() } : {}),
         ...(accountId ? { accountId } : {}),
+        ...(name.trim() ? { name: name.trim() } : {}),
       });
     } catch (cause) {
       failure = cause instanceof Error ? cause.message : String(cause);
@@ -307,6 +332,31 @@ export function NewAgentDialog({
             </FormSection>
           ) : null}
 
+          <FormSection
+            label="Name"
+            htmlFor={`${ids}-name`}
+            hint={nameError ? undefined : "Optional. You and other agents can use it in place of the agent's id."}
+          >
+            <input
+              id={`${ids}-name`}
+              className="input"
+              aria-label="Name"
+              aria-invalid={nameError ? true : undefined}
+              aria-describedby={nameError ? `${ids}-name-error` : undefined}
+              value={name}
+              maxLength={MAX_AGENT_NAME_LENGTH}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Bob"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            {nameError ? (
+              <p id={`${ids}-name-error`} className="form-section-hint is-warning" role="alert">
+                {nameError}
+              </p>
+            ) : null}
+          </FormSection>
+
           <FormSection label="View" hint={viewHint[mode]}>
             <ChoiceSegmented<SessionMode>
               name="agent-mode"
@@ -317,7 +367,10 @@ export function NewAgentDialog({
             />
           </FormSection>
 
-          <FormSection label="Workspace">
+          <FormSection
+            label="Workspace"
+            hint={noGit ? "This folder is not a Git repository, so the agent works in the folder itself." : undefined}
+          >
             <ChoiceSegmented<typeof placementKind>
               name="agent-placement"
               label="Workspace"
@@ -410,7 +463,7 @@ export function NewAgentDialog({
                 options={permissionOptions}
                 onChange={setPermissionMode}
               >
-                <Icon name={permissionIcon[permissionMode]} size={15} />
+                <PermissionIcon mode={permissionMode} size={15} />
                 <span className="picker-trigger-label">{permissionLabel[permissionMode]}</span>
               </Picker>
             </FormSection>

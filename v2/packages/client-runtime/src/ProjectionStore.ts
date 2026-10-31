@@ -1,7 +1,10 @@
 import {
   appendCheckpoint,
   appendThreadMessage,
+  applyHuddleEvent,
+  deliverAgentMessage,
   deriveSharedProjectContexts,
+  isHuddleEvent,
   pruneDevServers,
   RuntimeEventEnvelope,
   type RuntimeEventEnvelope as RuntimeEventEnvelopeValue,
@@ -12,6 +15,7 @@ import {
   upsertDevServer,
   upsertThreadActivity,
   upsertUsageRecord,
+  withAgentName,
 } from "@zli-v2/contracts";
 
 function touchThread(
@@ -50,6 +54,15 @@ export class ProjectionStore {
     if (envelope.sequence !== current.lastSequence + 1) return "gap";
 
     const event = envelope.event;
+    if (isHuddleEvent(event)) {
+      this.#projection = {
+        ...current,
+        ...applyHuddleEvent(current, event, envelope.occurredAt),
+        lastSequence: envelope.sequence,
+      };
+      this.#publish({ kind: "event", envelope });
+      return "applied";
+    }
     switch (event.type) {
       case "runtime.ready":
         this.#projection = { ...current, lastSequence: envelope.sequence };
@@ -75,6 +88,33 @@ export class ProjectionStore {
         };
         break;
       }
+      case "project.git.changed":
+        this.#projection = {
+          ...current,
+          projects: current.projects.map((project) =>
+            project.projectId === event.projectId ? { ...project, git: event.git } : project,
+          ),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "project.agents.changed":
+        this.#projection = {
+          ...current,
+          projects: current.projects.map((project) =>
+            project.projectId === event.projectId ? { ...project, agentsTrusted: event.trusted } : project,
+          ),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "project.renamed":
+        this.#projection = {
+          ...current,
+          projects: current.projects.map((project) =>
+            project.projectId === event.projectId ? { ...project, name: event.name } : project,
+          ),
+          lastSequence: envelope.sequence,
+        };
+        break;
       case "project.archived":
         this.#projection = {
           ...current,
@@ -105,6 +145,15 @@ export class ProjectionStore {
                   ...(event.branch ? { branch: event.branch } : {}),
                 }
               : worktree,
+          ),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "worktree.branch.changed":
+        this.#projection = {
+          ...current,
+          worktrees: current.worktrees.map((worktree) =>
+            worktree.worktreeId === event.worktreeId ? { ...worktree, branch: event.branch } : worktree,
           ),
           lastSequence: envelope.sequence,
         };
@@ -164,10 +213,27 @@ export class ProjectionStore {
       case "thread.a2a.delivered":
         this.#projection = {
           ...current,
-          messages: [
-            ...(current.messages ?? []).filter((message) => message.messageId !== event.message.messageId),
-            event.message,
-          ].slice(-2_000),
+          messages: deliverAgentMessage(current.messages ?? [], event.message),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "thread.resume.requested":
+        this.#projection = {
+          ...current,
+          threads: current.threads.map((thread) => {
+            if (thread.threadId !== event.threadId) return thread;
+            const { errorMessage: _previousError, ...rest } = thread;
+            return { ...rest, status: "starting" as const, updatedAt: envelope.occurredAt };
+          }),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "thread.provider-session.recorded":
+        this.#projection = {
+          ...current,
+          threads: current.threads.map((thread) =>
+            thread.threadId === event.threadId ? { ...thread, providerSessionId: event.providerSessionId } : thread,
+          ),
           lastSequence: envelope.sequence,
         };
         break;
@@ -218,6 +284,26 @@ export class ProjectionStore {
       case "thread.interrupt.requested":
       case "thread.stop.requested":
         this.#projection = { ...current, lastSequence: envelope.sequence };
+        break;
+      case "thread.renamed":
+        this.#projection = {
+          ...current,
+          threads: current.threads.map((thread) =>
+            thread.threadId === event.threadId ? withAgentName(thread, event.name, envelope.occurredAt) : thread,
+          ),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "terminal.renamed":
+        this.#projection = {
+          ...current,
+          terminals: current.terminals.map((terminal) =>
+            terminal.terminalId === event.terminalId
+              ? withAgentName(terminal, event.name, envelope.occurredAt)
+              : terminal,
+          ),
+          lastSequence: envelope.sequence,
+        };
         break;
       case "thread.send.requested": {
         const { permissionMode } = event;

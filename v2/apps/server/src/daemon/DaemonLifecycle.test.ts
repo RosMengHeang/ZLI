@@ -94,4 +94,27 @@ describe("DaemonLifecycle", () => {
     lifecycle.clientDisconnected();
     expect(exits).toBe(1);
   });
+
+  it("stops terminals that ignored the first stop again on shutdown", async () => {
+    const statuses: Array<"running" | "exited"> = ["running"];
+    let stops = 0;
+    const lifecycle = new DaemonLifecycle({
+      terminals: {
+        list: () => statuses.map((status) => ({ status })) as never,
+        stopAll: () => {
+          stops += 1;
+          if (stops === 2) statuses.fill("exited");
+        },
+        subscribeExit: () => () => undefined,
+      },
+      exit: () => undefined,
+      stopTimeoutMs: 2_000,
+      forceStopAfterMs: 100,
+    });
+    const started = Date.now();
+    await lifecycle.stopTerminals();
+    expect(stops).toBe(2);
+    expect(statuses).toEqual(["exited"]);
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
 });

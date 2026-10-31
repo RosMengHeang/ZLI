@@ -17,6 +17,8 @@ export type CursorProviderEvent =
   | { type: "turn.failed"; providerTurnId: string; message: string }
   | { type: "tool.updated"; providerTurnId: string; tool: CursorToolUpdate }
   | { type: "protocol.error"; message: string }
+  /** The CLI reported the chat id that later turns, and a later process, continue with --resume. */
+  | { type: "session.identified"; sessionId: string }
   | { type: "session.closed"; reason: string };
 
 export type CursorTurnResult = { providerTurnId: string };
@@ -66,6 +68,8 @@ export type CursorAgentClientOptions = {
   /** Default model for every turn that does not name one. */
   model?: string;
   approveMcps?: boolean;
+  /** A chat from an earlier process. The first turn continues it with --resume instead of starting a new one. */
+  resumeSessionId?: string;
   /** Whether turns pass --disable-auto-update. Found from the CLI's help when not given. */
   disableAutoUpdate?: boolean;
   spawnProcess?: (command: string, args: readonly string[], options: CursorSpawnOptions) => CursorChild;
@@ -88,6 +92,8 @@ export class CursorAgentClient {
   private readonly listeners = new Set<(event: CursorProviderEvent) => void>();
   private readonly completed: CursorTranscriptTurn[] = [];
   private sessionId: string | undefined;
+  /** False while a resumed id has not been echoed by the CLI, so a failed first turn is not treated as resumable. */
+  private sessionConfirmed = false;
   private active: ActiveTurn | undefined;
   private peer: CursorPeer | undefined;
   private unlistenMessage: (() => void) | undefined;
@@ -104,7 +110,10 @@ export class CursorAgentClient {
     private readonly model: string | undefined,
     private readonly approveMcps: boolean,
     private readonly disableAutoUpdate: boolean,
-  ) {}
+    resumeSessionId: string | undefined,
+  ) {
+    this.sessionId = resumeSessionId;
+  }
 
   static async start(options: CursorAgentClientOptions): Promise<CursorAgentClient> {
     const command = options.command ?? "cursor-agent";
@@ -122,6 +131,7 @@ export class CursorAgentClient {
       options.model?.trim() || undefined,
       options.approveMcps ?? false,
       options.disableAutoUpdate ?? (options.spawnProcess ? false : await supportsDisableAutoUpdate(command)),
+      options.resumeSessionId?.trim() || undefined,
     );
   }
 
@@ -235,15 +245,15 @@ export class CursorAgentClient {
 
   private handleMessage(raw: unknown): void {
     if (this.closed) return;
-    this.noteSession(raw);
     if (!raw || typeof raw !== "object") {
       this.emit({ type: "protocol.error", message: "Malformed Cursor CLI message." });
       return;
     }
     const message = classifyCursorMessage(raw);
+    if (message.kind === "init") this.noteSession(message.sessionId, true);
+    else this.noteSession(sessionIdOf(raw), false);
     switch (message.kind) {
       case "init":
-        if (!this.sessionId) this.sessionId = message.sessionId;
         return;
       case "invalid":
         this.emit({
@@ -341,7 +351,7 @@ export class CursorAgentClient {
       return;
     }
     const reason = error?.message ?? "Cursor CLI process closed.";
-    const resumable = this.sessionId !== undefined;
+    const resumable = this.sessionConfirmed;
     this.finishTurn("error", reason);
     if (!resumable) {
       this.closed = true;
@@ -349,10 +359,17 @@ export class CursorAgentClient {
     }
   }
 
-  private noteSession(raw: unknown): void {
-    if (this.sessionId) return;
-    const record = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
-    if (typeof record?.session_id === "string" && record.session_id.length > 0) this.sessionId = record.session_id;
+  /** Only system/init may replace a known id; other records just confirm or fill it in. */
+  private noteSession(sessionId: string | undefined, fromInit: boolean): void {
+    if (!sessionId) return;
+    if (sessionId === this.sessionId) {
+      if (this.sessionConfirmed) return;
+    } else if (this.sessionId && !fromInit) {
+      return;
+    }
+    this.sessionId = sessionId;
+    this.sessionConfirmed = true;
+    this.emit({ type: "session.identified", sessionId });
   }
 
   private assertOpen(): void {
@@ -368,6 +385,11 @@ export class CursorAgentClient {
       }
     }
   }
+}
+
+function sessionIdOf(raw: unknown): string | undefined {
+  const record = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
+  return typeof record?.session_id === "string" && record.session_id.length > 0 ? record.session_id : undefined;
 }
 
 function defaultSpawn(command: string, args: readonly string[], options: CursorSpawnOptions): CursorChild {

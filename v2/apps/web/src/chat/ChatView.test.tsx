@@ -3,7 +3,7 @@
 import { CommandId, EnvironmentId, ProjectId, type RuntimeProjection, type ThreadProjection } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
@@ -52,6 +52,8 @@ async function render(
   projection: RuntimeProjection,
   onOpenDiff = vi.fn(),
   results: (command: Record<string, unknown>) => unknown = () => undefined,
+  active = false,
+  bridgeExtras: Partial<ZliBridge> = {},
 ) {
   const dispatched: Array<{ command: Record<string, unknown> }> = [];
   const bridge = {
@@ -69,6 +71,7 @@ async function render(
       attachTerminal: async () => ({ accepted: true }),
       onTerminal: () => () => undefined,
     },
+    ...bridgeExtras,
   } as unknown as ZliBridge;
   const container = document.createElement("div");
   document.body.append(container);
@@ -81,6 +84,7 @@ async function render(
           worktree={projection.worktrees[0]}
           onOpenDiff={onOpenDiff}
           onRestart={() => undefined}
+          active={active}
         />
       </RuntimeProvider>,
     );
@@ -96,6 +100,21 @@ const button = (container: HTMLElement, name: string) =>
 afterEach(() => document.body.replaceChildren());
 
 describe("ChatView", () => {
+  it("keeps the composer for a stopped chat that can resume, and offers New chat otherwise", async () => {
+    const stopped = { ...thread, status: "stopped", providerSessionId: "conv-1" } as ThreadProjection;
+    const resumable = await render(projectionWith({ threads: [stopped] }));
+    expect(resumable.container.querySelector(".chat-paused")?.textContent).toContain("picks up where it left off");
+    expect(resumable.container.querySelector('textarea[aria-label="Message Droid"]')).not.toBeNull();
+    expect(button(resumable.container, "New chat")).toBeUndefined();
+    document.body.replaceChildren();
+
+    const { providerSessionId: _id, ...withoutId } = stopped;
+    const ended = await render(projectionWith({ threads: [withoutId as ThreadProjection] }));
+    expect(ended.container.querySelector(".chat-paused")).toBeNull();
+    expect(ended.container.querySelector('textarea[aria-label="Message Droid"]')).toBeNull();
+    expect(button(ended.container, "New chat")).toBeDefined();
+  });
+
   it("shows the turn's work log and changed files, and opens a diff from them", async () => {
     const turnId = thread.activeTurnId as string;
     const { container, onOpenDiff } = await render(
@@ -159,7 +178,6 @@ describe("ChatView", () => {
           ? {
               servers: [linear],
               agentAccess: "full",
-              userSettings: { enabled: true, outcomes: [] },
               signIns: [{ name: "linear", url: linear.url, signedIn: false }],
             }
           : undefined,
@@ -213,7 +231,9 @@ describe("ChatView", () => {
       "Fixed the helper.",
       "steps:Run the tests",
     ]);
-    expect(container.querySelector(".chat-working-label")?.textContent).toBe("Run the tests");
+    expect(container.querySelector(".chat-working-label")?.textContent).toBe("Working");
+    expect(container.querySelector(".step.is-running .shimmer-text")?.textContent).toBe("Run the tests");
+    expect(container.querySelector(".step.is-running .spinner")).toBeNull();
     await act(async () => button(container, "Stop Droid")?.click());
     expect(dispatched.at(-1)?.command).toMatchObject({ type: "thread.interrupt", threadId, turnId });
   });
@@ -345,6 +365,58 @@ describe("ChatView", () => {
     });
   });
 
+  it("gathers attach files, window capture, and saved prompts behind one Add button", async () => {
+    const sources = vi.fn(async () => []);
+    const { container } = await render(
+      projectionWith({ threads: [{ ...thread, status: "idle" }] }),
+      vi.fn(),
+      () => undefined,
+      false,
+      { capture: { sources, take: vi.fn() } },
+    );
+    const add = button(container, "Add files and more");
+    expect(add?.getAttribute("aria-haspopup")).toBe("menu");
+    expect(button(container, "Attach files")).toBeUndefined();
+    const items = () => [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitem"]')];
+    await act(async () => add?.click());
+    expect(items().map((item) => item.querySelector(".menu-item-label")?.textContent)).toEqual([
+      "Attach files",
+      "Attach a window",
+      "Saved prompts",
+    ]);
+
+    const pickFiles = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => undefined);
+    await act(async () => items()[0]?.click());
+    expect(pickFiles).toHaveBeenCalledTimes(1);
+    pickFiles.mockRestore();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+
+    await act(async () => add?.click());
+    await act(async () => items()[1]?.click());
+    // The window picker loads on first use.
+    for (let tick = 0; tick < 50 && !container.querySelector('section[aria-label="Attach a window"]'); tick += 1)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(container.querySelector('section[aria-label="Attach a window"]')).not.toBeNull();
+    expect(sources).toHaveBeenCalledTimes(1);
+
+    await act(async () => add?.click());
+    await act(async () => items()[2]?.click());
+    expect(document.querySelector('[role="listbox"][aria-label="Saved prompts"]')).not.toBeNull();
+    expect(document.activeElement).toBe(container.querySelector('textarea[aria-label="Message Droid"]'));
+  });
+
+  it("dims an unset model, marks it with the agent's logo, and tints only the Full access lock", async () => {
+    const { container } = await render(
+      projectionWith({ threads: [{ ...thread, status: "idle", permissionMode: "full-access" }] }),
+    );
+    const model = button(container, "Model: Default model");
+    expect(model?.classList.contains("is-default")).toBe(true);
+    expect(model?.querySelector(`.provider-mark-${thread.provider}`)).not.toBeNull();
+    const badge = container.querySelector(".composer-badge");
+    expect(badge?.querySelector(".permission-icon")?.getAttribute("class")).toContain("is-full-access");
+    expect(badge?.getAttribute("data-tooltip")).toContain("without asking");
+  });
+
   it("sends file references from the Files panel ahead of the message, then clears them", async () => {
     const { container, dispatched } = await render(projectionWith({ threads: [{ ...thread, status: "idle" }] }));
     await act(async () => {
@@ -373,6 +445,94 @@ describe("ChatView", () => {
       text: "`src/app.ts` lines 3-4:\n```ts\nconst a = 1;\nconst b = 2;\n```\n\nWhy two constants?",
     });
     expect(chips()).toEqual([]);
+  });
+
+  it("attaches picked and dropped files as cards and sends their paths after the message", async () => {
+    const pdf = "C:\\Users\\USER\\Downloads\\Ros MengHeang (1).pdf";
+    const sheet = "C:\\Users\\USER\\Desktop\\budget.xlsx";
+    const paths = new Map<File, string>();
+    // The composer asks the desktop app for a dropped file's path, which only it can see.
+    vi.stubGlobal("zli", { pathForFile: (file: File) => paths.get(file) ?? "" });
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
+    const { container, dispatched } = await render(projectionWith({ threads: [{ ...thread, status: "idle" }] }));
+    const textarea = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Droid"]');
+    const picked = new File(["%PDF-1.7"], "Ros MengHeang (1).pdf", { type: "application/pdf" });
+    paths.set(picked, pdf);
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    await act(async () => {
+      Object.defineProperty(input, "files", { configurable: true, value: [picked] });
+      input?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(textarea?.value).toBe("");
+    const cards = () =>
+      [...container.querySelectorAll(".composer-attachments li")].map((item) => [
+        item.querySelector(".file-badge")?.textContent,
+        item.querySelector(".composer-attachment-label")?.textContent,
+      ]);
+    expect(cards()).toEqual([["pdf", "Ros MengHeang (1).pdfDownloads · 8 bytes"]]);
+
+    const dropped = new File(["xlsx"], "budget.xlsx", { type: "" });
+    paths.set(dropped, sheet);
+    const form = container.querySelector<HTMLFormElement>("form.composer");
+    const drag = (type: string, files: File[] = []) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", { value: { types: ["Files"], files } });
+      form?.dispatchEvent(event);
+    };
+    await act(async () => drag("dragenter"));
+    expect(container.querySelector(".composer-drop")?.textContent).toBe("Drop files to attach them");
+    await act(async () => drag("drop", [dropped, picked]));
+    expect(container.querySelector(".composer-drop")).toBeNull();
+    expect(textarea?.value).toBe("");
+    expect(cards().map(([badge]) => badge)).toEqual(["pdf", "xlsx"]);
+
+    // An image tile shows only its picture, but its name stays in the list for screen readers.
+    const image = new File(["png"], "window.png", { type: "image/png" });
+    await act(async () => drag("drop", [image]));
+    expect(container.querySelector(".composer-attachment.is-image")?.textContent).toBe("window.png");
+    await act(async () => button(container, "Remove window.png")?.click());
+    expect(container.querySelector(".composer-attachment.is-image")).toBeNull();
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(textarea, "Compare these");
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => button(container, "Send")?.click());
+    expect(dispatched.at(-1)?.command).toMatchObject({
+      type: "thread.queue",
+      text: `Compare these\n\nAttached files:\n- \`${pdf}\`\n- \`${sheet}\``,
+    });
+    expect(dispatched.at(-1)?.command).not.toHaveProperty("attachments");
+    expect(cards()).toEqual([]);
+  });
+
+  it("shows a sent message's files as cards above what the person typed", async () => {
+    const { container } = await render(
+      projectionWith({
+        threads: [{ ...thread, status: "idle" }],
+        messages: [
+          {
+            messageId: "m1",
+            threadId,
+            role: "user",
+            text: "Read this\n\nAttached files:\n- `C:\\Users\\USER\\Downloads\\report.pdf`",
+            attachments: [{ name: "shot.png", mimeType: "image/png", path: "/data/a.png" }],
+          },
+        ] as RuntimeProjection["messages"],
+      }),
+    );
+    const message = container.querySelector(".chat-message-user");
+    expect([...(message?.querySelectorAll(".chat-attachments li") ?? [])].map((item) => item.textContent)).toEqual([
+      "shot.png",
+      "report.pdf",
+    ]);
+    expect(message?.querySelector(".chat-attachments li:last-child")?.getAttribute("title")).toBe(
+      "C:\\Users\\USER\\Downloads\\report.pdf",
+    );
+    expect(message?.querySelector("p")?.textContent).toBe("Read this");
   });
 
   it("queues messages while the agent works and can send one now or remove it", async () => {
@@ -472,7 +632,7 @@ describe("ChatView", () => {
     const options = [...document.querySelectorAll<HTMLButtonElement>('[role="listbox"] [role="option"]')];
     expect(options.map((option) => option.querySelector(".provider-mark")?.getAttribute("class") ?? "generic")).toEqual(
       [
-        "generic",
+        "provider-mark provider-mark-droid",
         "provider-mark provider-mark-claude-code",
         "provider-mark provider-mark-openai",
         "provider-mark provider-mark-zai",
@@ -576,6 +736,29 @@ describe("ChatView", () => {
       requestId: "r4",
       answers: { db: "Postgres", name: "atlas" },
     });
+  });
+});
+
+describe("ChatView focus", () => {
+  const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+
+  it("puts the cursor in the message box when its tile becomes active", async () => {
+    const { container } = await render(projectionWith(), vi.fn(), () => undefined, true);
+    await nextFrame();
+    expect(document.activeElement).toBe(container.querySelector('textarea[aria-label="Message Droid"]'));
+  });
+
+  it("leaves the cursor in another field of the tile that the click focused", async () => {
+    const tile = document.createElement("section");
+    tile.className = "agent-tile";
+    const search = document.createElement("input");
+    tile.append(search);
+    document.body.append(tile);
+    search.focus();
+    const { container } = await render(projectionWith(), vi.fn(), () => undefined, true);
+    tile.append(container);
+    await nextFrame();
+    expect(document.activeElement).toBe(search);
   });
 });
 

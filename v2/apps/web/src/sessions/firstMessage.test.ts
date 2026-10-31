@@ -42,6 +42,17 @@ describe("first message delivery", () => {
     ).toEqual({ kind: "drop" });
   });
 
+  it("waits for a new chat while the session still shows one it already had", () => {
+    expect(firstMessageStep({ ...base, thread: thread("idle") }, ["t1"])).toEqual({ kind: "wait" });
+    expect(firstMessageStep({ ...base, thread: thread("stopped") }, ["t1"])).toEqual({ kind: "wait" });
+    expect(
+      firstMessageStep({ ...base, thread: { ...thread("idle"), threadId: "t2" } as ThreadProjection }, ["t1"]),
+    ).toEqual({
+      kind: "chat",
+      threadId: "t2",
+    });
+  });
+
   it("pastes multi-line text so its newlines do not submit early", () => {
     expect(terminalFirstMessage("fix it")).toEqual({ body: "fix it", submit: "\r" });
     expect(terminalFirstMessage("a\nb").body).toBe("\u001b[200~a\nb\u001b[201~");

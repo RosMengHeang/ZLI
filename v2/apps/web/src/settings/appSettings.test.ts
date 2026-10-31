@@ -22,6 +22,7 @@ describe("app settings", () => {
           branchTemplate: "   ",
           shortcuts: { newAgent: "Mod+Shift+N", unknown: "Mod+U", palette: 3 },
           fileTreePosition: "top",
+          sidebarLimits: { enabled: "yes", hidden: ["codex", "goose", 4], pinned: "goose" },
         }),
       ),
     ).toEqual({
@@ -30,7 +31,19 @@ describe("app settings", () => {
       branchTemplate: "{agent}-{random}",
       shortcuts: { newAgent: "Mod+Shift+N" },
       fileTreePosition: "right",
+      sidebarLimits: { enabled: false, hidden: ["codex"] },
     });
+  });
+
+  it("keeps plan limits out of the sidebar until they are turned on", () => {
+    expect(DEFAULT_SETTINGS.sidebarLimits).toEqual({ enabled: false, hidden: [] });
+    expect(parseAppSettings(JSON.stringify({ sidebarLimits: { enabled: true } })).sidebarLimits).toEqual({
+      enabled: true,
+      hidden: [],
+    });
+    expect(
+      parseAppSettings(JSON.stringify({ sidebarLimits: { enabled: true, pinned: "cursor-agent" } })).sidebarLimits,
+    ).toEqual({ enabled: true, hidden: [], pinned: "cursor-agent" });
   });
 
   it("keeps the file tree on the right unless left was chosen", () => {

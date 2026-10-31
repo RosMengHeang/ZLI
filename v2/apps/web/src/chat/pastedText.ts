@@ -27,8 +27,8 @@ export function textByteLength(text: string): number {
 }
 
 /** The stand-in sent when the person attaches something without typing a message. */
-export function attachmentOnlyMessage(images: number, texts: number): string {
-  if (images > 0 && texts > 0) return "See the attached files.";
+export function attachmentOnlyMessage(images: number, texts: number, files = 0): string {
+  if (files > 0 || (images > 0 && texts > 0)) return "See the attached files.";
   if (texts > 0) return texts === 1 ? "See the attached text." : "See the attached texts.";
   return "See the attached images.";
 }

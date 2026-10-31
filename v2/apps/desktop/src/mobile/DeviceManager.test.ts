@@ -1,0 +1,409 @@
+import type { MobilePanelInput } from "@zli-v2/contracts";
+import { describe, expect, it, vi } from "vitest";
+
+import type { AndroidDriver } from "./AndroidDriver.js";
+import { DeviceManager, type IosVideoStarter, type MobileStreamMessage, scrcpyMessagesFor } from "./DeviceManager.js";
+import { FakeDriver } from "./FakeDriver.js";
+import { FakeProcessRunner } from "./FakeProcessRunner.js";
+import { encodeInjectKeycode, encodeInjectText, encodeRotateDevice, KeyAction } from "./scrcpy/protocol.js";
+
+const pixel = {
+  deviceId: "android-avd:Pixel_7",
+  platform: "android",
+  kind: "emulator",
+  name: "Pixel 7",
+  state: "online",
+  serial: "emulator-5554",
+} as const;
+const iphone = {
+  deviceId: "ios:UDID-1",
+  platform: "ios",
+  kind: "simulator",
+  name: "iPhone 16",
+  state: "online",
+} as const;
+
+const agent = { ownerId: "agent:wt-1", ownerLabel: "The agent in app", kind: "agent" } as const;
+
+function androidFake(): FakeDriver & Pick<AndroidDriver, "connection"> {
+  const driver = new FakeDriver("android", [pixel]) as FakeDriver & Pick<AndroidDriver, "connection">;
+  driver.connection = async () => ({ runner: new FakeProcessRunner(), adb: "adb", serial: "emulator-5554", env: {} });
+  return driver;
+}
+
+function manager(options: { scrcpyFails?: boolean } = {}) {
+  const android = androidFake();
+  const ios = new FakeDriver("ios", [iphone]);
+  const messages: MobileStreamMessage[] = [];
+  const sent: Buffer[] = [];
+  const devices = new DeviceManager({
+    android: android as unknown as AndroidDriver,
+    ios,
+    scrcpyServer: async () => "/zli/scrcpy-server",
+    events: { stream: (message) => messages.push(message) },
+    startScrcpy: async () => {
+      if (options.scrcpyFails) throw new Error("adb forward failed");
+      return { send: (message) => sent.push(message) > 0, close: async () => undefined, closed: false };
+    },
+    // Each stills loop takes one screenshot, then waits forever, so tests see exactly one still.
+    sleep: () => new Promise<void>(() => undefined),
+  });
+  return { android, ios, devices, messages, sent };
+}
+
+describe("device manager", () => {
+  it("lists devices from both platforms with their leases", async () => {
+    const { devices } = manager();
+    devices.acquireForAgent(pixel.deviceId, agent);
+    const listed = await devices.list();
+    expect(listed.map((device) => device.deviceId)).toEqual([pixel.deviceId, iphone.deviceId]);
+    expect(listed[0]?.lease).toMatchObject({ ownerId: "agent:wt-1", kind: "agent" });
+    expect(listed[1]?.lease).toBeNull();
+  });
+
+  it("publishes the device list when an agent's lease lapses", async () => {
+    vi.useFakeTimers();
+    try {
+      const published: (string | undefined)[] = [];
+      const watched = new DeviceManager({
+        android: androidFake() as unknown as AndroidDriver,
+        ios: new FakeDriver("ios", [iphone]),
+        scrcpyServer: async () => "/zli/scrcpy-server",
+        events: { devices: (next) => published.push(next[0]?.lease?.ownerId) },
+      });
+      await watched.list();
+      watched.acquireForAgent(pixel.deviceId, agent);
+      expect(published.at(-1)).toBe("agent:wt-1");
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(published.at(-1)).toBeUndefined();
+      await watched.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("streams Android video through scrcpy and sends panel input as control messages", async () => {
+    const { devices, sent } = manager();
+    expect(await devices.startStream(pixel.deviceId)).toEqual({
+      deviceId: pixel.deviceId,
+      mode: "video",
+      width: 0,
+      height: 0,
+    });
+    await devices.panelInput({ deviceId: pixel.deviceId, type: "text", text: "hi" });
+    await devices.panelInput({ deviceId: pixel.deviceId, type: "rotate" });
+    expect(sent).toEqual([encodeInjectText("hi"), encodeRotateDevice()]);
+  });
+
+  it("shares one stream between viewers and stops it with the last one", async () => {
+    const sessions: { closed: boolean; reason?: string }[] = [];
+    const devices = new DeviceManager({
+      android: androidFake() as unknown as AndroidDriver,
+      ios: new FakeDriver("ios", [iphone]),
+      scrcpyServer: async () => "/zli/scrcpy-server",
+      startScrcpy: async () => {
+        const session = { closed: false } as { closed: boolean; reason?: string };
+        sessions.push(session);
+        return {
+          send: () => true,
+          close: async (reason?: string) => {
+            session.closed = true;
+            if (reason) session.reason = reason;
+          },
+          get closed() {
+            return session.closed;
+          },
+        };
+      },
+    });
+    await devices.startStream(pixel.deviceId, "panel");
+    await devices.startStream(pixel.deviceId, "panel");
+    expect(sessions).toHaveLength(1);
+    // The new window's decoder needs the codec config, so the video starts over for both viewers.
+    await devices.startStream(pixel.deviceId, "window-7");
+    expect(sessions).toHaveLength(2);
+    expect(sessions[0]).toMatchObject({ closed: true, reason: "Another window started showing this device." });
+    expect(devices.viewerCount(pixel.deviceId)).toBe(2);
+    await devices.stopStream(pixel.deviceId, "panel");
+    expect(sessions[1]?.closed).toBe(false);
+    expect(devices.viewerCount(pixel.deviceId)).toBe(1);
+    await devices.stopStream(pixel.deviceId, "window-7");
+    expect(sessions[1]?.closed).toBe(true);
+    expect(devices.viewerCount(pixel.deviceId)).toBe(0);
+  });
+
+  it("lets viewers that join while the stream starts share it, and stops it for all without a viewer", async () => {
+    let starts = 0;
+    let closes = 0;
+    const devices = new DeviceManager({
+      android: androidFake() as unknown as AndroidDriver,
+      ios: new FakeDriver("ios", [iphone]),
+      scrcpyServer: async () => "/zli/scrcpy-server",
+      startScrcpy: async () => {
+        starts += 1;
+        return {
+          send: () => true,
+          close: async () => {
+            closes += 1;
+          },
+          closed: false,
+        };
+      },
+    });
+    const [first, second] = await Promise.all([
+      devices.startStream(pixel.deviceId, "panel"),
+      devices.startStream(pixel.deviceId, "window-7"),
+    ]);
+    expect(first.mode).toBe("video");
+    expect(second).toEqual(first);
+    expect(starts).toBe(1);
+    await devices.stopStream(pixel.deviceId);
+    expect(closes).toBe(1);
+    expect(devices.viewerCount(pixel.deviceId)).toBe(0);
+  });
+
+  it("falls back to screenshots when scrcpy cannot start, and says why", async () => {
+    const { devices, messages } = manager({ scrcpyFails: true });
+    const info = await devices.startStream(pixel.deviceId);
+    expect(info.mode).toBe("stills");
+    expect(info.fallbackReason).toMatch(/adb forward failed/u);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(messages.some((message) => message.type === "still" && message.width === 1080)).toBe(true);
+  });
+
+  it("turns a stills-mode press and release into a tap, scaled to iOS points", async () => {
+    const { devices, ios } = manager();
+    ios.size = { width: 1080, height: 2400 };
+    await devices.startStream(iphone.deviceId);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    ios.points = { width: 540, height: 1200 };
+    const touch = (action: "down" | "up", x: number, y: number): MobilePanelInput => ({
+      deviceId: iphone.deviceId,
+      type: "touch",
+      action,
+      x,
+      y,
+    });
+    await devices.panelInput(touch("down", 200, 400));
+    await devices.panelInput(touch("up", 202, 401));
+    await devices.panelInput(touch("down", 500, 2000));
+    await devices.panelInput(touch("up", 500, 600));
+    expect(ios.actions).toEqual(["tap ios:UDID-1 100,200", "swipe ios:UDID-1 250,1000 250,300 100"]);
+  });
+
+  it("taps when a stills-mode press moves less than the slop, and swipes once it moves further", async () => {
+    const { devices, android } = manager({ scrcpyFails: true });
+    await devices.startStream(pixel.deviceId);
+    const touch = (action: "down" | "up", x: number, y: number): MobilePanelInput => ({
+      deviceId: pixel.deviceId,
+      type: "touch",
+      action,
+      x,
+      y,
+    });
+    await devices.panelInput(touch("down", 100, 100));
+    await devices.panelInput(touch("up", 111, 100));
+    await devices.panelInput(touch("down", 100, 100));
+    await devices.panelInput(touch("up", 100, 112));
+    expect(android.actions).toEqual([
+      "tap android-avd:Pixel_7 100,100",
+      "swipe android-avd:Pixel_7 100,100 100,112 100",
+    ]);
+  });
+
+  it("takes simulator screenshots faster for a few seconds after input, then slows back down", async () => {
+    let clock = 10_000;
+    const waits: number[] = [];
+    const wakeups: Array<() => void> = [];
+    const ios = new FakeDriver("ios", [iphone]);
+    const shots = vi.spyOn(ios, "screenshot");
+    const devices = new DeviceManager({
+      android: androidFake() as unknown as AndroidDriver,
+      ios,
+      scrcpyServer: async () => "/zli/scrcpy-server",
+      now: () => clock,
+      sleep: (milliseconds) => {
+        waits.push(milliseconds);
+        return new Promise<void>((resolve) => wakeups.push(resolve));
+      },
+    });
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const info = await devices.startStream(iphone.deviceId);
+    expect(info.fallbackReason).toMatch(/faster for a few seconds after you use them/u);
+    await settle();
+    expect(waits).toEqual([1_000]);
+
+    await devices.panelInput({ deviceId: iphone.deviceId, type: "button", button: "home" });
+    await settle();
+    // The input ends the idle wait at once, and the next waits are short.
+    expect(shots).toHaveBeenCalledTimes(2);
+    expect(waits).toEqual([1_000, 300]);
+    clock += 1_000;
+    wakeups.at(-1)?.();
+    await settle();
+    expect(waits.at(-1)).toBe(300);
+    clock += 2_500;
+    wakeups.at(-1)?.();
+    await settle();
+    expect(waits.at(-1)).toBe(1_000);
+    expect(shots).toHaveBeenCalledTimes(4);
+    await devices.stopStream(iphone.deviceId);
+  });
+
+  it("keeps Android screenshot mode at its steady rate after input", async () => {
+    const waits: number[] = [];
+    const devices = new DeviceManager({
+      android: androidFake() as unknown as AndroidDriver,
+      ios: new FakeDriver("ios", [iphone]),
+      scrcpyServer: async () => "/zli/scrcpy-server",
+      startScrcpy: async () => {
+        throw new Error("adb forward failed");
+      },
+      sleep: (milliseconds) => {
+        waits.push(milliseconds);
+        return new Promise<void>(() => undefined);
+      },
+    });
+    await devices.startStream(pixel.deviceId);
+    await devices.panelInput({ deviceId: pixel.deviceId, type: "button", button: "home" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(waits).toEqual([1_000]);
+  });
+
+  it("streams a simulator through the iOS video seam when it is on, with taps still going through the driver", async () => {
+    const ios = new FakeDriver("ios", [iphone]);
+    ios.size = { width: 1179, height: 2556 };
+    const messages: MobileStreamMessage[] = [];
+    let handlers: Parameters<IosVideoStarter>[1] | undefined;
+    const closed: string[] = [];
+    const devices = new DeviceManager({
+      android: androidFake() as unknown as AndroidDriver,
+      ios,
+      scrcpyServer: async () => "/zli/scrcpy-server",
+      events: { stream: (message) => messages.push(message) },
+      sleep: () => new Promise<void>(() => undefined),
+      iosVideo: async (_device, next) => {
+        handlers = next;
+        return { closed: false, close: async (reason) => void closed.push(reason ?? "") };
+      },
+    });
+    const info = await devices.startStream(iphone.deviceId);
+    expect(info).toEqual({ deviceId: iphone.deviceId, mode: "video", width: 1179, height: 2556 });
+    const sps = Buffer.from([0, 0, 0, 1, 0x67, 0x64, 0x00, 0x28]);
+    handlers?.onVideo({ type: "frame", key: true, pts: 0n, data: Buffer.from([1, 2, 3]), config: sps });
+    expect(messages.filter((message) => message.type !== "info")).toEqual([
+      { type: "config", deviceId: iphone.deviceId, codec: "avc1.640028", width: 1179, height: 2556 },
+      { type: "frame", deviceId: iphone.deviceId, key: true, timestamp: 0, data: new Uint8Array([1, 2, 3]) },
+    ]);
+    ios.points = { width: 393, height: 852 };
+    await devices.panelInput({ deviceId: iphone.deviceId, type: "touch", action: "down", x: 600, y: 1200 });
+    await devices.panelInput({ deviceId: iphone.deviceId, type: "touch", action: "up", x: 600, y: 1200 });
+    expect(ios.actions).toEqual([`tap ${iphone.deviceId} ${(600 * 393) / 1179},${(1200 * 852) / 2556}`]);
+    await devices.stopStream(iphone.deviceId);
+    expect(closed).toEqual(["The panel stopped showing this device."]);
+  });
+
+  it("falls back to screenshots with the reason when the iOS video seam cannot start", async () => {
+    const devices = new DeviceManager({
+      android: androidFake() as unknown as AndroidDriver,
+      ios: new FakeDriver("ios", [iphone]),
+      scrcpyServer: async () => "/zli/scrcpy-server",
+      sleep: () => new Promise<void>(() => undefined),
+      iosVideo: async () => {
+        throw new Error("This needs idb.");
+      },
+    });
+    const info = await devices.startStream(iphone.deviceId);
+    expect(info.mode).toBe("stills");
+    expect(info.fallbackReason).toBe(
+      "Live video from idb is unavailable, so the panel shows screenshots: This needs idb.",
+    );
+  });
+
+  it("cancels a boot when the device is shut down while booting", async () => {
+    const ios = new FakeDriver("ios", [{ ...iphone, state: "shutdown" }]);
+    ios.holdBoot = true;
+    const states: string[] = [];
+    const watched = new DeviceManager({
+      android: androidFake() as unknown as AndroidDriver,
+      ios,
+      scrcpyServer: async () => "/zli/scrcpy-server",
+      events: { devices: (next) => states.push(next.find((device) => device.platform === "ios")?.state ?? "") },
+    });
+    const booting = watched.boot(iphone.deviceId);
+    const outcome = booting.catch((cause: unknown) => cause);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((await watched.list()).find((device) => device.deviceId === iphone.deviceId)?.state).toBe("booting");
+
+    await watched.shutdown(iphone.deviceId);
+    expect(String(await outcome)).toMatch(/Booting iPhone 16 was cancelled/u);
+    expect(ios.actions).toEqual(["boot ios:UDID-1", "shutdown ios:UDID-1"]);
+    expect(states.at(-1)).toBe("shutdown");
+    expect(states).toContain("booting");
+  });
+
+  it("blocks panel input while an agent holds the device, until the person takes over", async () => {
+    const { devices, android } = manager({ scrcpyFails: true });
+    devices.acquireForAgent(pixel.deviceId, agent);
+    const press: MobilePanelInput = { deviceId: pixel.deviceId, type: "button", button: "home" };
+    await expect(devices.panelInput(press)).rejects.toThrow(/The agent in app is driving this device/u);
+    devices.takeOver(pixel.deviceId);
+    await devices.panelInput(press);
+    expect(android.actions).toEqual(["press android-avd:Pixel_7 home"]);
+    expect(() => devices.acquireForAgent(pixel.deviceId, agent)).toThrow(/took over/u);
+  });
+
+  it("opens URLs, reads logs, and launches apps for the panel, and refuses while an agent holds the device", async () => {
+    const { devices, android } = manager();
+    android.openUrl = async (device, url) => {
+      android.actions.push(`open ${device.deviceId} ${url}`);
+      return { reversedPort: 8081 };
+    };
+    expect(await devices.openUrl(pixel.deviceId, "exp://localhost:8081")).toEqual({ reversedPort: 8081 });
+    await devices.launch(pixel.deviceId, "com.example.app", { stop: true });
+    expect(await devices.logs(pixel.deviceId)).toEqual(["200 lines"]);
+    expect(await devices.logs(pixel.deviceId, { lines: 50, filter: "error" })).toEqual(["50 lines"]);
+    expect(android.actions).toEqual([
+      `open ${pixel.deviceId} exp://localhost:8081`,
+      `launch ${pixel.deviceId} com.example.app`,
+    ]);
+
+    devices.acquireForAgent(pixel.deviceId, agent);
+    const refusal = "The agent in app is driving this device. Take over to use it.";
+    await expect(devices.openUrl(pixel.deviceId, "https://example.com")).rejects.toThrow(refusal);
+    await expect(devices.launch(pixel.deviceId, "com.example.app")).rejects.toThrow(refusal);
+    await expect(devices.logs(pixel.deviceId)).rejects.toThrow(refusal);
+    expect(android.actions).toHaveLength(2);
+
+    devices.takeOver(pixel.deviceId);
+    await devices.openUrl(pixel.deviceId, "https://example.com");
+    expect(android.actions.at(-1)).toBe(`open ${pixel.deviceId} https://example.com`);
+  });
+
+  it("refuses panel Open URL and Logs on a device that is not running", async () => {
+    const { devices, android } = manager();
+    android.devices = [{ ...pixel, state: "shutdown" }];
+    await expect(devices.openUrl(pixel.deviceId, "https://example.com")).rejects.toThrow("Pixel 7 is not running.");
+    await expect(devices.logs(pixel.deviceId)).rejects.toThrow("Pixel 7 is not running.");
+  });
+  it("sends arrows and Tab through scrcpy as Android keycodes", () => {
+    const frame = { width: 720, height: 1600 };
+    const keys = { dpad_up: 19, dpad_down: 20, dpad_left: 21, dpad_right: 22, tab: 61 } as const;
+    for (const [button, keycode] of Object.entries(keys))
+      expect(
+        scrcpyMessagesFor({ deviceId: pixel.deviceId, type: "button", button: button as keyof typeof keys }, frame),
+      ).toEqual([encodeInjectKeycode(KeyAction.down, keycode), encodeInjectKeycode(KeyAction.up, keycode)]);
+  });
+
+  it("encodes a touch in the stream's frame size", () => {
+    const [message] = scrcpyMessagesFor(
+      { deviceId: pixel.deviceId, type: "touch", action: "down", x: 10, y: 20 },
+      { width: 720, height: 1600 },
+    );
+    expect(message?.readUInt8(0)).toBe(2);
+    expect(message?.readInt32BE(10)).toBe(10);
+    expect(message?.readInt32BE(14)).toBe(20);
+    expect(message?.readUInt16BE(18)).toBe(720);
+    expect(message?.readUInt16BE(20)).toBe(1600);
+  });
+});

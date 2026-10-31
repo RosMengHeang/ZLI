@@ -51,6 +51,13 @@ await build({
   format: "esm",
 });
 
+await build({
+  ...shared,
+  entryPoints: [resolve(root, "apps/desktop/src/mobile-tool/zli-mobile.ts")],
+  outfile: resolve(desktopDist, "zli-mobile.js"),
+  format: "esm",
+});
+
 // The MCP sign-in bridge agents launch; also run under ELECTRON_RUN_AS_NODE.
 await build({
   ...shared,

@@ -7,13 +7,17 @@ export type ShortcutAction = { id: ShortcutId; label: string; shortcut: string }
 export const shortcutActions: readonly ShortcutAction[] = [
   { id: "palette", label: "Command palette", shortcut: "Mod+K" },
   { id: "newAgent", label: "New agent", shortcut: "Mod+N" },
+  { id: "newChat", label: "New chat in the focused agent", shortcut: "Mod+Shift+O" },
   { id: "quickOpen", label: "Go to file", shortcut: "Mod+P" },
   { id: "searchFiles", label: "Search in files", shortcut: "Mod+Shift+F" },
   { id: "toggleSidebar", label: "Show or hide the sidebar", shortcut: "Mod+B" },
   { id: "toggleDrawer", label: "Show or hide the terminal", shortcut: "Mod+J" },
   { id: "toggleFiles", label: "Show or hide files", shortcut: "Mod+Shift+E" },
   { id: "toggleBrowser", label: "Show or hide the browser", shortcut: "Mod+Shift+B" },
+  { id: "toggleMobile", label: "Show or hide the mobile panel", shortcut: "Mod+Shift+M" },
   { id: "toggleChanges", label: "Show or hide changes", shortcut: "Mod+Shift+G" },
+  { id: "toggleHuddle", label: "Show or hide the huddle panel", shortcut: "Mod+Shift+H" },
+  { id: "focusProject", label: "Show only the current project's agents", shortcut: "Mod+Shift+P" },
   { id: "settings", label: "Settings", shortcut: "Mod+," },
 ];
 
@@ -30,6 +34,9 @@ const reserved = new Map<string, string>([
   ["Mod+L", "asking an agent about code"],
   ["Mod+F", "find"],
   ["Mod+Enter", "sending"],
+  ["Mod+=", "zooming in"],
+  ["Mod+-", "zooming out"],
+  ["Mod+0", "resetting zoom"],
 ]);
 
 const codeKeys: Record<string, string> = {

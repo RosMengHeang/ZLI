@@ -1,11 +1,14 @@
 import { z } from "zod";
 import { AccountCommand } from "./accounts.js";
+import { AgentName, StartedBy } from "./agentName.js";
 import { BrowserTabProjection } from "./browser.js";
 import { CheckpointCommand, ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
 import { DesktopAppInfo, DiagnosticLog } from "./diagnostics.js";
 import { RuntimeEventEnvelope } from "./events.js";
 import { FileCommand } from "./files.js";
+import { GitChangesCommand } from "./gitChanges.js";
+import { HuddleCommand } from "./huddles.js";
 import {
   AccountId,
   BrowserTabId,
@@ -20,6 +23,7 @@ import {
 } from "./ids.js";
 import { LegacyImportPreview } from "./import.js";
 import { IssueCommand } from "./issues.js";
+import { LimitsCommand } from "./limits.js";
 import { McpCommand } from "./mcp.js";
 import { PluginCommand } from "./plugins.js";
 import { SetupDecision, WorktreeSetupProjection } from "./projectConfig.js";
@@ -33,6 +37,7 @@ import {
   PermissionMode,
   ProviderCapabilities,
   ProviderKind,
+  ReasoningEffort,
   ThreadActivityProjection,
   ThreadAttachmentUpload,
   ThreadMessageProjection,
@@ -50,6 +55,9 @@ export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("project.register"), path: z.string().min(1) }),
   z.object({ type: z.literal("project.archive"), projectId: ProjectId }),
+  z.object({ type: z.literal("project.git"), projectId: ProjectId, git: z.boolean() }),
+  z.object({ type: z.literal("project.agents"), projectId: ProjectId, trusted: z.boolean() }),
+  z.object({ type: z.literal("project.rename"), projectId: ProjectId, name: z.string().trim().min(1) }),
   z.object({
     type: z.literal("worktree.create"),
     worktreeId: WorktreeId,
@@ -87,6 +95,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     errorMessage: z.string().min(1).optional(),
     branch: z.string().min(1).optional(),
   }),
+  /** Records the branch now checked out in the worktree, after it was switched or renamed. */
+  z.object({ type: z.literal("worktree.branch"), worktreeId: WorktreeId, branch: z.string().min(1).max(255) }),
   z.object({
     type: z.literal("terminal.create"),
     terminalId: TerminalId,
@@ -98,6 +108,10 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     rows: z.number().int().positive(),
     /** Start this agent CLI instead of an interactive shell. The runtime resolves the executable. */
     agent: TerminalAgentLaunch.optional(),
+    /** A name for the agent. Rejected when another agent in the project has it. */
+    name: AgentName.optional(),
+    /** The agent starting this one as its sub-agent. It must be an agent in the same project. */
+    startedBy: StartedBy.optional(),
     sessionId: SessionId.optional(),
     /** Arguments for `shell`, so the terminal runs one command instead of an interactive shell. */
     args: z.array(z.string().max(8_000)).max(16).optional(),
@@ -121,6 +135,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     maxBytes: z.number().int().min(1).max(262_144).optional(),
   }),
   z.object({ type: z.literal("terminal.stop"), terminalId: TerminalId }),
+  /** Names a terminal agent, or clears its name with null. */
+  z.object({ type: z.literal("terminal.rename"), terminalId: TerminalId, name: AgentName.nullable() }),
   z.object({ type: z.literal("terminal.list") }),
   z.object({ type: z.literal("browser.updated"), tab: BrowserTabProjection }),
   z.object({ type: z.literal("browser.closed"), browserTabId: BrowserTabId }),
@@ -134,6 +150,10 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     shareWorktree: z.boolean().optional(),
     permissionMode: PermissionMode.optional(),
     model: z.string().min(1).max(200).optional(),
+    /** A name for the agent. Rejected when another agent in the project has it. */
+    name: AgentName.optional(),
+    /** The agent starting this one as its sub-agent. It must be an agent in the same project. */
+    startedBy: StartedBy.optional(),
     sessionId: SessionId.optional(),
     /** Omitted runs the provider's default account. */
     accountId: AccountId.optional(),
@@ -143,6 +163,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     threadId: ThreadId,
     text: z.string(),
     model: z.string().min(1).optional(),
+    /** Omitted runs the turn at the agent's default level. */
+    reasoningEffort: ReasoningEffort.optional(),
     /** Applies from this turn on. Only providers with permissionSwitch "in-session" accept a change. */
     permissionMode: PermissionMode.optional(),
     attachments: z.array(ThreadAttachmentUpload).max(8).optional(),
@@ -154,6 +176,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     queueId: z.string().min(1).max(200),
     text: z.string().min(1),
     model: z.string().min(1).optional(),
+    reasoningEffort: ReasoningEffort.optional(),
     permissionMode: PermissionMode.optional(),
     attachments: z.array(ThreadAttachmentUpload).max(8).optional(),
   }),
@@ -171,6 +194,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("thread.interrupt"), threadId: ThreadId, turnId: TurnId.optional() }),
   z.object({ type: z.literal("thread.stop"), threadId: ThreadId }),
+  /** Names a chat agent, or clears its name with null. */
+  z.object({ type: z.literal("thread.rename"), threadId: ThreadId, name: AgentName.nullable() }),
   /** Stops every terminal and thread in the session and removes them, with their history, for good. */
   z.object({ type: z.literal("session.delete"), sessionId: SessionId }),
   z.object({
@@ -182,6 +207,12 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     errorMessage: z.string().min(1).optional(),
   }),
   z.object({ type: z.literal("thread.message"), message: ThreadMessageProjection }),
+  /** Reported by the runtime once the agent CLI names its own session, so a later process can resume it. */
+  z.object({
+    type: z.literal("thread.provider-session"),
+    threadId: ThreadId,
+    providerSessionId: ThreadProjection.shape.providerSessionId.unwrap(),
+  }),
   /** Reported by the runtime as a provider counts a turn's tokens. */
   z.object({
     type: z.literal("thread.usage"),
@@ -252,12 +283,15 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("devserver.stopped"), terminalId: TerminalId, port: DevServerProjection.shape.port }),
   ...FileCommand.options,
   ...PullRequestCommand.options,
+  ...GitChangesCommand.options,
   ...CheckpointCommand.options,
   ...McpCommand.options,
   ...IssueCommand.options,
   ...SkillCommand.options,
   ...PluginCommand.options,
   ...AccountCommand.options,
+  ...LimitsCommand.options,
+  ...HuddleCommand.options,
   /** Reported by the runtime while it copies files and runs zli.json setup in a new worktree. */
   z.object({ type: z.literal("worktree.setup"), setup: WorktreeSetupProjection }),
   /** The person's answer to running zli.json setup commands; the hash pins the exact list they saw. */

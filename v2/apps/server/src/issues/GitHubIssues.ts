@@ -3,6 +3,7 @@ import {
   IssueDetail,
   type IssueLabel,
   type IssueListResult,
+  type IssueListUnavailable,
   type IssueStateFilter,
   IssueSummary,
 } from "@zli-v2/contracts";
@@ -17,6 +18,7 @@ import {
   runProcess,
 } from "../review/PullRequestService.js";
 import { IssueError, truncate } from "./issueText.js";
+import { CLI_HOSTS, type KnownHosts, readProjectRemotes } from "./remotes.js";
 
 const GH_TIMEOUT_MS = 60_000;
 const GH_READY_MS = 5 * 60_000;
@@ -30,6 +32,8 @@ const NO_REMOTE =
 const NOT_GITHUB = "None of this folder's Git remotes point to a GitHub repository, so it has no GitHub issues.";
 const NOT_REPO = "This folder is not a Git repository, so it has no GitHub issues.";
 
+type Readiness = { unavailable: IssueListUnavailable } | { unavailable?: undefined; host?: string };
+
 export type GitHubIssueFilter = {
   query?: string;
   state?: IssueStateFilter;
@@ -41,10 +45,18 @@ export type GitHubIssueFilter = {
 export class GitHubIssues {
   private ghReadyUntil = 0;
 
-  constructor(private readonly runner: ProcessRunner = runProcess) {}
+  constructor(
+    private readonly runner: ProcessRunner = runProcess,
+    private readonly knownHosts: KnownHosts = CLI_HOSTS,
+  ) {}
 
   async list(cwd: string, filter: GitHubIssueFilter): Promise<IssueListResult> {
-    await this.ready(cwd);
+    const ready = await this.ready(cwd);
+    if (ready.unavailable) return { issues: [], unavailable: ready.unavailable };
+    const notGitHub: IssueListResult = {
+      issues: [],
+      unavailable: { code: "other_host", ...(ready.host ? { host: ready.host } : {}) },
+    };
     const query = filter.query?.trim() ?? "";
     const number = /^#?(\d{1,10})$/u.exec(query)?.[1];
     if (number) {
@@ -53,6 +65,7 @@ export class GitHubIssues {
         const issue = parseGitHubIssue(view.stdout);
         return { issues: issue ? [summaryOf(issue)] : [] };
       }
+      if (isNotGitHub(view)) return notGitHub;
       if (!isNotFound(view)) throw new IssueError(listFailure(view));
     }
     const args = ["issue", "list", "--json", LIST_FIELDS, "--limit", String(LIST_LIMIT)];
@@ -61,13 +74,15 @@ export class GitHubIssues {
     for (const label of filter.labels ?? []) args.push("--label", label);
     if (query && !number) args.push("--search", query);
     const result = await this.gh(args, cwd);
+    if (isNotGitHub(result)) return notGitHub;
     if (result.code !== 0) throw new IssueError(listFailure(result));
     return { issues: parseGitHubIssueList(result.stdout) };
   }
 
   async get(cwd: string, number: string): Promise<IssueDetail> {
     if (!/^\d{1,10}$/u.test(number)) throw new IssueError("GitHub issues are named by number, such as 123.");
-    await this.ready(cwd);
+    const ready = await this.ready(cwd);
+    if (ready.unavailable) throw new IssueError(unavailableMessage(ready.unavailable));
     const result = await this.gh(["issue", "view", number, "--json", VIEW_FIELDS], cwd);
     if (result.code !== 0) {
       if (isNotFound(result)) throw new IssueError(`Issue #${number} was not found in this repository.`);
@@ -78,18 +93,18 @@ export class GitHubIssues {
     return issue;
   }
 
-  private async ready(cwd: string): Promise<void> {
-    const remotes = await this.runner("git", ["remote"], { cwd, timeoutMs: GH_TIMEOUT_MS });
-    if (remotes.code !== 0) {
-      throw new IssueError(/not a git repository/iu.test(remotes.stderr) ? NOT_REPO : NO_REMOTE);
-    }
-    if (!remotes.stdout.trim()) throw new IssueError(NO_REMOTE);
-    if (Date.now() < this.ghReadyUntil) return;
+  private async ready(cwd: string): Promise<Readiness> {
+    const remotes = await readProjectRemotes(this.runner, cwd, this.knownHosts);
+    if (remotes.unavailable) return remotes;
+    if (!remotes.sources.includes("github")) throw new IssueError(notGitHubMessage(remotes.host));
+    const ready: Readiness = remotes.host ? { host: remotes.host } : {};
+    if (Date.now() < this.ghReadyUntil) return ready;
     const version = await this.gh(["--version"], cwd);
     if (version.code !== 0) throw new IssueError(GH_MISSING);
     const auth = await this.gh(["auth", "status"], cwd);
     if (auth.code !== 0) throw new IssueError(GH_SIGNED_OUT);
     this.ghReadyUntil = Date.now() + GH_READY_MS;
+    return ready;
   }
 
   private async gh(args: readonly string[], cwd: string): Promise<ProcessResult> {
@@ -106,15 +121,28 @@ function isNotFound(result: ProcessResult): boolean {
   return /could not resolve to an? (issue|issueorpullrequest)|issue .* not found|no issue found/iu.test(result.stderr);
 }
 
+function isNotGitHub(result: ProcessResult): boolean {
+  return (
+    result.code !== 0 &&
+    /none of the git remotes|no git remotes|unable to determine (the )?(base )?repo|not a known github host/iu.test(
+      `${result.stderr}\n${result.stdout}`,
+    )
+  );
+}
+
+function unavailableMessage(unavailable: IssueListUnavailable): string {
+  if (unavailable.code === "not_repo") return NOT_REPO;
+  if (unavailable.code === "no_remote") return NO_REMOTE;
+  return notGitHubMessage(unavailable.host);
+}
+
+function notGitHubMessage(host: string | undefined): string {
+  return host ? `This folder's remote is on ${host}, not GitHub, so it has no GitHub issues.` : NOT_GITHUB;
+}
+
 function listFailure(result: ProcessResult): string {
   const output = `${result.stderr}\n${result.stdout}`;
-  if (
-    /none of the git remotes|no git remotes|unable to determine (the )?(base )?repo|not a known github host/iu.test(
-      output,
-    )
-  ) {
-    return NOT_GITHUB;
-  }
+  if (isNotGitHub(result)) return NOT_GITHUB;
   if (/gh auth login|not logged in|authentication required|HTTP 401/iu.test(output)) return GH_SIGNED_OUT;
   if (/could not resolve to a repository/iu.test(output)) {
     return "GitHub has no repository at this folder's remote, or this account cannot see it.";

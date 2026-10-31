@@ -1,7 +1,25 @@
 import type {
+  AgentReachAnswer,
+  AgentReachRequest,
   BrowserTabProjection,
   BrowserViewport,
   MobileAccessStatus,
+  MobileAvdCreateInput,
+  MobileAvdList,
+  MobileDevice,
+  MobileOpenUrlResult,
+  MobilePanelInput,
+  MobilePopOut,
+  MobilePopOutAspectInput,
+  MobileRevealEvent,
+  MobileScreenshot,
+  MobileSettings,
+  MobileSetupPlan,
+  MobileSetupProgress,
+  MobileSetupStatus,
+  MobileStreamEvent,
+  MobileStreamInfo,
+  OpenInApp,
   RpcResponse,
   RuntimeProjection,
   TerminalAttachSnapshot,
@@ -46,25 +64,49 @@ export type ZliBridge = {
     screenshot(input: unknown): Promise<unknown>;
     inspectElement(input: unknown): Promise<unknown>;
     designInspect(input: unknown): Promise<unknown>;
-    /** Resolves with the selector of the element the person clicks, or null when the pick is cancelled. */
+    /**
+     * Resolves with the next thing done in the page's annotate session (a pick, a saved note, a
+     * removal, or a change of step), starting the session if needed, or null when it ends.
+     */
     designPick?(browserTabId: string): Promise<unknown>;
+    /** Ends the annotate session and removes its overlay from the page. */
     designCancel?(browserTabId: string): Promise<unknown>;
+    /** Draws numbered pins for the annotations on the page; `drop` closes notes the panel turned down. */
+    designMark?(input: { browserTabId: string; marks: unknown; drop?: unknown }): Promise<unknown>;
+    /** A screenshot of a drawn region with its sketch on top. */
+    designCapture?(input: { browserTabId: string; bounds: unknown; strokes: unknown }): Promise<unknown>;
     consoleEntries(browserTabId: string): Promise<readonly unknown[]>;
     networkEntries(browserTabId: string): Promise<readonly unknown[]>;
   };
+  /** Present in the desktop app, which runs the emulators and simulators. */
+  mobile?: MobileBridge;
   dialog: {
     openProject(): Promise<string | undefined>;
     saveSupportBundle(): Promise<string | undefined>;
     openLegacySnapshot(): Promise<string | undefined>;
   };
   scratch?: { folder(): Promise<string | undefined> };
+  /** Present in the desktop app. The path on disk of a dropped or picked file, or "" when it has none. */
+  pathForFile?(file: File): string;
+  /** Present in the desktop app, which can start other apps on a worktree folder. */
+  openIn?: { apps(): Promise<OpenInApp[]>; open(worktreeId: string, appId: string): Promise<void> };
   capture?: {
     sources(): Promise<CaptureSource[]>;
     take(id: string): Promise<{ name: string; dataBase64: string }>;
   };
   menu: { trigger(command: string): Promise<unknown> };
-  app: { getVersion(): Promise<string>; quit(): Promise<void>; openExternal?(url: string): Promise<unknown> };
-  test?: { restartRuntime(): Promise<unknown>; crashMain(): Promise<unknown>; takeExternalUrl?(): Promise<unknown> };
+  app: {
+    getVersion(): Promise<string>;
+    quit(): Promise<void>;
+    openExternal?(url: string): Promise<unknown>;
+    zoom?(zoom: "in" | "out" | "reset"): Promise<unknown>;
+  };
+  test?: {
+    restartRuntime(): Promise<unknown>;
+    crashMain(): Promise<unknown>;
+    takeExternalUrl?(): Promise<unknown>;
+    takeOpenIn?(): Promise<unknown>;
+  };
   notifications?: {
     getSettings(): Promise<NotificationSettings>;
     setSettings(patch: Partial<NotificationSettings>): Promise<NotificationSettings>;
@@ -81,6 +123,13 @@ export type ZliBridge = {
     revoke(deviceId: string): Promise<MobileAccessStatus>;
     onStatus(listener: (status: MobileAccessStatus) => void): () => void;
   };
+  /** Present in the desktop app. Questions from agents that want to reach other projects. */
+  agentReach?: {
+    current(): Promise<AgentReachRequest | undefined>;
+    answer(answer: AgentReachAnswer): Promise<void>;
+    /** Fires with a new question, and with undefined once it is answered. */
+    onRequest(listener: (request: AgentReachRequest | undefined) => void): () => void;
+  };
   updates?: {
     getStatus(): Promise<UpdateStatus>;
     onStatus(listener: (status: UpdateStatus) => void): () => void;
@@ -92,6 +141,48 @@ export type ZliBridge = {
     whatsNew(): Promise<WhatsNew | undefined>;
     dismissWhatsNew(): Promise<void>;
   };
+};
+
+export type MobileBridge = {
+  status(options?: { recheckAcceleration?: boolean }): Promise<MobileSetupStatus>;
+  setupPlan(): Promise<MobileSetupPlan>;
+  setupProgress(): Promise<MobileSetupProgress>;
+  runSetup(acceptedLicenses: readonly string[]): Promise<void>;
+  cancelSetup(): Promise<void>;
+  onSetupProgress(listener: (progress: MobileSetupProgress) => void): () => void;
+  /** Android virtual devices, the installed system images, and the hardware profiles to create one with. */
+  listAvds(): Promise<MobileAvdList>;
+  createAvd(input: MobileAvdCreateInput): Promise<MobileAvdList>;
+  /** Refused while the device is booting or running. */
+  deleteAvd(name: string): Promise<MobileAvdList>;
+  devices(): Promise<MobileDevice[]>;
+  onDevices(listener: (devices: MobileDevice[]) => void): () => void;
+  boot(deviceId: string): Promise<MobileDevice>;
+  shutdown(deviceId: string): Promise<void>;
+  startStream(deviceId: string): Promise<MobileStreamInfo>;
+  stopStream(deviceId: string): Promise<void>;
+  onStream(listener: (event: MobileStreamEvent) => void): () => void;
+  input(input: MobilePanelInput): Promise<void>;
+  /** Refused while an agent holds the device, like input. */
+  openUrl(deviceId: string, url: string): Promise<MobileOpenUrlResult>;
+  logs(deviceId: string, query?: { appId?: string; lines?: number; filter?: string }): Promise<string[]>;
+  launch(deviceId: string, appId: string, options?: { stop?: boolean }): Promise<void>;
+  takeOver(deviceId: string): Promise<void>;
+  release(deviceId: string): Promise<void>;
+  screenshot(deviceId: string): Promise<MobileScreenshot>;
+  getSettings(): Promise<MobileSettings>;
+  setSettings(patch: Partial<MobileSettings>): Promise<MobileSettings>;
+  onReveal(listener: (event: MobileRevealEvent) => void): () => void;
+  /** Pop-out windows exist only in the desktop app; without them the panel offers no Pop out. */
+  popOuts?(): Promise<MobilePopOut[]>;
+  onPopOuts?(listener: (popOuts: MobilePopOut[]) => void): () => void;
+  /** Opens the device in its own window, or focuses the window it already has. */
+  popOut?(deviceId: string): Promise<MobilePopOut[]>;
+  closePopOut?(deviceId: string): Promise<MobilePopOut[]>;
+  /** Keeps the device's window above other windows. */
+  pinPopOut?(deviceId: string, pinned: boolean): Promise<MobilePopOut[]>;
+  /** Tells the window the device's shape, so resizing keeps it. */
+  setPopOutAspect?(input: MobilePopOutAspectInput): Promise<void>;
 };
 
 export type NotificationSettings = { enabled: boolean; sound: boolean };

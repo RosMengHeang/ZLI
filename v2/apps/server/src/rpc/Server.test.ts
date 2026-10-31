@@ -526,7 +526,7 @@ describe("MCP commands", () => {
     const list = {
       servers: [],
       agentAccess: "full" as const,
-      userSettings: { enabled: false, outcomes: [] },
+      agentScope: "project" as const,
       signIns: [],
       health: [],
     };
@@ -540,6 +540,7 @@ describe("MCP commands", () => {
         list: () => list,
         save: async () => list,
         setAgentAccess: async () => list,
+        setAgentScope: async () => list,
         reloadSignIns: async () => {
           reloaded += 1;
         },

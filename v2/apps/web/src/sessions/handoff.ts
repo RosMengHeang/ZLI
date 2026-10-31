@@ -87,6 +87,31 @@ export function handoffMessage(input: {
   };
 }
 
+/** A new chat starts small, so it carries only the end of the last one. */
+export const RECENT_CONTEXT_CHAR_BUDGET = 12_000;
+export const RECENT_CONTEXT_FILE_NAME = "earlier-chat.md";
+
+/** The first message of a new chat that picks up the recent part of the chat before it. */
+export function recentContextMessage(input: {
+  title: string;
+  name: string;
+  branch: string;
+  messages: readonly ThreadMessageProjection[];
+}): HandoffMessage {
+  const transcript = handoffTranscript(input.messages, input.name, RECENT_CONTEXT_CHAR_BUDGET);
+  const text = [
+    `Continue: ${input.title.replace(/^(Continue: )+/u, "")}`,
+    `This is a new chat about work already under way in this folder, on branch ${input.branch}. The end of the earlier chat is in ${RECENT_CONTEXT_FILE_NAME}.`,
+    "Read it and check the current state of the files, then say in a sentence or two where things stand. Wait for my next message before changing anything.",
+  ].join("\n\n");
+  return {
+    text,
+    transcript: { name: RECENT_CONTEXT_FILE_NAME, text: `# Earlier chat with ${input.name}\n\n${transcript.text}\n` },
+    included: transcript.included,
+    omitted: transcript.omitted,
+  };
+}
+
 /** A chat with something said in it can be handed to another agent. */
 export function canHandOff(
   session: Pick<AgentSession, "thread">,

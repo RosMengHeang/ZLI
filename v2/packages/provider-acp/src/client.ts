@@ -18,6 +18,7 @@ import {
   initializeParams,
   JSON_RPC_METHOD_NOT_FOUND,
   type JsonRpcId,
+  LoadSessionResult,
   MAX_ACP_LINE_CHARS,
   NewSessionResult,
   type PermissionOption,
@@ -25,6 +26,7 @@ import {
   parseConfigOptions,
   RequestPermissionParams,
   type SessionConfigOption,
+  selectOptionValues,
 } from "./protocol.js";
 import {
   type AcpToolFields,
@@ -122,6 +124,8 @@ export type AcpClientOptions = {
   model?: string;
   /** MCP servers the agent connects to for this session only. */
   mcpServers?: readonly AcpMcpServer[];
+  /** An ACP session id from an earlier process to continue through session/load instead of opening a new one. */
+  resumeSessionId?: string;
   requestTimeoutMs?: number;
   spawnProcess?: (command: string, args: readonly string[], options: AcpSpawnOptions) => AcpChild;
   readAttachment?: (path: string) => Promise<Buffer>;
@@ -177,11 +181,15 @@ export class AcpClient {
   private legacyModelId: string | undefined;
   private legacyModels = false;
   private modelApi: ModelApi | undefined;
+  /** The reasoning level the session started with, which a turn without one goes back to. */
+  private defaultThoughtLevel: string | undefined;
   private active: ActiveTurn | undefined;
   /** Usage arrives in pieces and can land just after the prompt settles, so it stays with its turn. */
   private usageTurn: { id: string; costBefore?: number; usage: ProviderUsage } | undefined;
   private sessionCostUsd: number | undefined;
   private promptSettled: Promise<void> = Promise.resolve();
+  /** True while session/load runs, when the agent replays the old conversation as session updates. */
+  private loading = false;
   private closed = false;
 
   private constructor(
@@ -231,7 +239,11 @@ export class AcpClient {
       options.readAttachment ?? ((path) => readFile(path)),
     );
     try {
-      await client.handshake(options.model?.trim() || undefined, options.mcpServers ?? []);
+      await client.handshake(
+        options.model?.trim() || undefined,
+        options.mcpServers ?? [],
+        options.resumeSessionId?.trim() || undefined,
+      );
     } catch (error) {
       await client.close();
       throw startError(error, command, displayName);
@@ -248,6 +260,12 @@ export class AcpClient {
     return this.sessionId;
   }
 
+  /** The values of the agent's thought_level option. Empty when it has none. */
+  get reasoningEfforts(): string[] {
+    const option = this.thoughtLevelOption();
+    return option ? selectOptionValues(option) : [];
+  }
+
   subscribe(listener: (event: AcpProviderEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -260,6 +278,7 @@ export class AcpClient {
   async sendTurn(input: {
     text: string;
     model?: string;
+    reasoningEffort?: string;
     attachments?: readonly AcpImageAttachment[];
   }): Promise<AcpTurnResult> {
     this.assertOpen();
@@ -273,6 +292,7 @@ export class AcpClient {
       this.assertOpen();
       const model = input.model?.trim();
       if (model) await this.applyModel(model);
+      await this.applyThoughtLevel(input.reasoningEffort?.trim() || this.defaultThoughtLevel);
       prompt = [{ type: "text", text: input.text }, ...(await this.imageBlocks(input.attachments ?? []))];
       this.assertOpen();
     } catch (error) {
@@ -332,7 +352,11 @@ export class AcpClient {
     await this.connection.close();
   }
 
-  private async handshake(model: string | undefined, mcpServers: readonly AcpMcpServer[]): Promise<void> {
+  private async handshake(
+    model: string | undefined,
+    mcpServers: readonly AcpMcpServer[],
+    resumeSessionId: string | undefined,
+  ): Promise<void> {
     const init = InitializeResult.safeParse(
       await this.connection.request("initialize", initializeParams(), this.timeoutMs),
     );
@@ -350,9 +374,29 @@ export class AcpClient {
     // Agents must accept stdio servers; HTTP ones only when they say so, or session/new may fail outright.
     const http = init.data.agentCapabilities?.mcpCapabilities?.http === true;
     const offered = http ? mcpServers : mcpServers.filter((server) => !("type" in server && server.type === "http"));
+    const state = resumeSessionId
+      ? await this.loadSession(resumeSessionId, offered, init.data.agentCapabilities?.loadSession === true)
+      : await this.newSession(offered);
+    this.configOptions = parseConfigOptions(state.configOptions);
+    if (state.models) {
+      this.legacyModels = true;
+      this.legacyModelId = state.models.currentModelId;
+    }
+    // Kimi Code opens a session while signed out, then ends every prompt at once with no reply.
+    // An empty model picker with no current model is the only sign of that before the first prompt.
+    const modelOption = this.modelOption();
+    if (modelOption && (modelOption.options ?? []).length === 0 && !modelOption.currentValue) {
+      throw new AcpProviderError("auth_required", `${this.displayName} has no model set up. ${this.authMessage()}`);
+    }
+    if (model) await this.applyModel(model);
+    const thought = this.thoughtLevelOption()?.currentValue;
+    if (typeof thought === "string" && thought.length > 0) this.defaultThoughtLevel = thought;
+  }
+
+  private async newSession(mcpServers: readonly AcpMcpServer[]): Promise<NewSessionResult> {
     let created: unknown;
     try {
-      created = await this.connection.request("session/new", { cwd: this.cwd, mcpServers: offered }, this.timeoutMs);
+      created = await this.connection.request("session/new", { cwd: this.cwd, mcpServers }, this.timeoutMs);
     } catch (error) {
       if (isAuthError(error)) throw new AcpProviderError("auth_required", this.authMessage(error), { cause: error });
       throw error;
@@ -362,18 +406,66 @@ export class AcpClient {
       throw new AcpProviderError("invalid_response", `${this.displayName} did not return an ACP session id.`);
     }
     this.sessionId = session.data.sessionId;
-    this.configOptions = parseConfigOptions(session.data.configOptions);
-    if (session.data.models) {
-      this.legacyModels = true;
-      this.legacyModelId = session.data.models.currentModelId;
+    return session.data;
+  }
+
+  private async loadSession(
+    sessionId: string,
+    mcpServers: readonly AcpMcpServer[],
+    supported: boolean,
+  ): Promise<LoadSessionResult> {
+    if (!supported) {
+      throw new AcpProviderError("unsupported", `${this.displayName} cannot resume earlier sessions.`);
     }
-    // Kimi Code opens a session while signed out, then ends every prompt at once with no reply.
-    // An empty model picker with no current model is the only sign of that before the first prompt.
-    const modelOption = this.modelOption();
-    if (modelOption && (modelOption.options ?? []).length === 0 && !modelOption.currentValue) {
-      throw new AcpProviderError("auth_required", `${this.displayName} has no model set up. ${this.authMessage()}`);
+    // The agent replays the conversation as session/update notifications before it answers,
+    // so the id has to match those updates and the replay must not surface as new output.
+    this.sessionId = sessionId;
+    this.loading = true;
+    let loaded: unknown;
+    try {
+      loaded = await this.connection.request("session/load", { sessionId, cwd: this.cwd, mcpServers }, this.timeoutMs);
+    } catch (error) {
+      if (isAuthError(error)) throw new AcpProviderError("auth_required", this.authMessage(error), { cause: error });
+      if (error instanceof AcpProviderError) throw error;
+      throw new AcpProviderError(
+        "request_failed",
+        `${this.displayName} could not resume session ${sessionId}: ${errorDetail(error)}`,
+        { cause: error },
+      );
+    } finally {
+      this.loading = false;
     }
-    if (model) await this.applyModel(model);
+    // Older agents answer session/load with null.
+    const session = LoadSessionResult.safeParse(loaded ?? {});
+    if (!session.success) {
+      throw new AcpProviderError("invalid_response", `${this.displayName} sent an invalid session/load response.`);
+    }
+    return session.data;
+  }
+
+  private async applyThoughtLevel(level: string | undefined): Promise<void> {
+    const option = this.thoughtLevelOption();
+    if (!option || !level || option.currentValue === level) return;
+    try {
+      const result = await this.connection.request(
+        "session/set_config_option",
+        { sessionId: this.sessionId, configId: option.id, value: level },
+        this.timeoutMs,
+      );
+      const updated = parseConfigOptions(asRecord(result)?.configOptions);
+      if (updated.length > 0) this.configOptions = updated;
+      else option.currentValue = level;
+    } catch (error) {
+      throw new AcpProviderError(
+        "request_failed",
+        `${this.displayName} could not switch to reasoning level ${level}: ${errorDetail(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  private thoughtLevelOption(): SessionConfigOption | undefined {
+    return this.configOptions.find((option) => option.category === "thought_level");
   }
 
   /**
@@ -473,11 +565,15 @@ export class AcpClient {
     if (this.closed || method !== "session/update") return;
     const notification = parseSessionNotification(params);
     if (!notification) {
-      this.emit({ type: "protocol.error", message: `Malformed ${this.displayName} session update.` });
+      if (!this.loading)
+        this.emit({ type: "protocol.error", message: `Malformed ${this.displayName} session update.` });
       return;
     }
     if (notification.sessionId !== this.sessionId) return;
     const { update } = notification;
+    // Replayed config and usage still describe the session as it is now; with no turn running,
+    // usage only sets the cost baseline the next turn is measured against.
+    if (this.loading && update.kind !== "config" && update.kind !== "usage") return;
     const active = this.active?.prompted ? this.active : undefined;
     switch (update.kind) {
       case "text": {

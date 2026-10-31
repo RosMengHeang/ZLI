@@ -1,8 +1,11 @@
 import {
   appendCheckpoint,
   appendThreadMessage,
+  applyHuddleEvent,
+  deliverAgentMessage,
   deriveSharedProjectContexts,
   type EnvironmentDescriptor,
+  isHuddleEvent,
   pruneDevServers,
   RuntimeEvent,
   type RuntimeEventEnvelope,
@@ -12,6 +15,7 @@ import {
   upsertDevServer,
   upsertThreadActivity,
   upsertUsageRecord,
+  withAgentName,
 } from "@zli-v2/contracts";
 
 export function createEmptyProjection(environment: EnvironmentDescriptor): RuntimeProjection {
@@ -45,6 +49,12 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
       `Projection sequence mismatch: expected ${projection.lastSequence + 1}, received ${envelope.sequence}`,
     );
   }
+  if (isHuddleEvent(event))
+    return {
+      ...projection,
+      ...applyHuddleEvent(projection, event, envelope.occurredAt),
+      lastSequence: envelope.sequence,
+    };
 
   switch (event.type) {
     case "project.registered":
@@ -61,6 +71,30 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
       };
     case "project.archive.requested":
       return { ...projection, lastSequence: envelope.sequence };
+    case "project.git.changed":
+      return {
+        ...projection,
+        projects: projection.projects.map((project) =>
+          project.projectId === event.projectId ? { ...project, git: event.git } : project,
+        ),
+        lastSequence: envelope.sequence,
+      };
+    case "project.agents.changed":
+      return {
+        ...projection,
+        projects: projection.projects.map((project) =>
+          project.projectId === event.projectId ? { ...project, agentsTrusted: event.trusted } : project,
+        ),
+        lastSequence: envelope.sequence,
+      };
+    case "project.renamed":
+      return {
+        ...projection,
+        projects: projection.projects.map((project) =>
+          project.projectId === event.projectId ? { ...project, name: event.name } : project,
+        ),
+        lastSequence: envelope.sequence,
+      };
     case "worktree.create.requested":
       return {
         ...projection,
@@ -85,6 +119,14 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
                 ...(event.branch ? { branch: event.branch } : {}),
               }
             : worktree,
+        ),
+        lastSequence: envelope.sequence,
+      };
+    case "worktree.branch.changed":
+      return {
+        ...projection,
+        worktrees: projection.worktrees.map((worktree) =>
+          worktree.worktreeId === event.worktreeId ? { ...worktree, branch: event.branch } : worktree,
         ),
         lastSequence: envelope.sequence,
       };
@@ -130,6 +172,24 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
     case "terminal.resize.requested":
     case "terminal.stop.requested":
       return { ...projection, lastSequence: envelope.sequence };
+    case "terminal.renamed":
+      return {
+        ...projection,
+        terminals: projection.terminals.map((terminal) =>
+          terminal.terminalId === event.terminalId
+            ? withAgentName(terminal, event.name, envelope.occurredAt)
+            : terminal,
+        ),
+        lastSequence: envelope.sequence,
+      };
+    case "thread.renamed":
+      return {
+        ...projection,
+        threads: projection.threads.map((thread) =>
+          thread.threadId === event.threadId ? withAgentName(thread, event.name, envelope.occurredAt) : thread,
+        ),
+        lastSequence: envelope.sequence,
+      };
     case "thread.start.requested":
       return {
         ...projection,
@@ -161,6 +221,24 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
         }),
         lastSequence: envelope.sequence,
       };
+    case "thread.resume.requested":
+      return {
+        ...projection,
+        threads: projection.threads.map((thread) => {
+          if (thread.threadId !== event.threadId) return thread;
+          const { errorMessage: _previousError, ...rest } = thread;
+          return { ...rest, status: "starting" as const, updatedAt: envelope.occurredAt };
+        }),
+        lastSequence: envelope.sequence,
+      };
+    case "thread.provider-session.recorded":
+      return {
+        ...projection,
+        threads: projection.threads.map((thread) =>
+          thread.threadId === event.threadId ? { ...thread, providerSessionId: event.providerSessionId } : thread,
+        ),
+        lastSequence: envelope.sequence,
+      };
     case "thread.message.appended":
       return {
         ...projection,
@@ -178,10 +256,7 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
     case "thread.a2a.delivered":
       return {
         ...projection,
-        messages: [
-          ...(projection.messages ?? []).filter((message) => message.messageId !== event.message.messageId),
-          event.message,
-        ].slice(-2_000),
+        messages: deliverAgentMessage(projection.messages ?? [], event.message),
         lastSequence: envelope.sequence,
       };
     case "thread.request.requested":

@@ -59,3 +59,21 @@ describe("zli-browser shims", () => {
     }
   });
 });
+
+describe("zli-mobile shim", () => {
+  it("adds the zli-mobile command and its script variable when the script is bundled", () => {
+    const paths = {
+      controlFile: "/home/me/.config/ZLI/browser-control.json",
+      command: "/opt/zli/zli",
+      script: "/opt/zli/zli-browser.js",
+      agentScript: "/opt/zli/zli.js",
+      mobileScript: "/opt/zli/zli-mobile.js",
+      connectScript: "/opt/zli/zli-connect.js",
+      shimDir: "/home/me/.config/ZLI/bin",
+    };
+    expect(browserToolEnvironment(paths).ZLI_MOBILE_TOOL_SCRIPT).toBe(paths.mobileScript);
+    const shims = browserToolShims(paths, "linux");
+    expect(shims.map((shim) => shim.name)).toEqual(["zli-browser", "zli", "zli-mobile"]);
+    expect(shims[2]?.content).toContain("'/opt/zli/zli-mobile.js'");
+  });
+});

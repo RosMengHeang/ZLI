@@ -5,12 +5,13 @@ import { parseDevServerUrl } from "@zli-v2/contracts";
 const ESCAPE_SEQUENCES = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/gu;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: see above.
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b-\u001f\u007f]/gu;
-const LOCAL_URL = /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):\d{1,5}(?:\/[^\s"'<>`)\]]*)?/giu;
+/** Expo prints Metro's address as exp:// when it serves on localhost, and Metro answers plain http there too. */
+const LOCAL_URL = /\b(?:https?|exp):\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):\d{1,5}(?:\/[^\s"'<>`)\]]*)?/giu;
 /**
  * Words dev servers put on the line with their address. A command the person typed, such as
  * `curl http://localhost:3000`, has none of them, so its echo is not taken for a server.
  */
-const SERVER_WORDS = /\b(?:local|loopback|listening|running|ready|serving|server|started|available|url)\b/iu;
+const SERVER_WORDS = /\b(?:local|loopback|listening|running|ready|serving|server|started|available|url|waiting on)\b/iu;
 /**
  * Error and request logs often name a local address next to a server word ("proxy error ... url",
  * "GET http://localhost:3000/api 500"), but they describe a call to a server, not one starting.
@@ -36,7 +37,7 @@ export function detectDevServerUrls(rawLine: string): string[] {
   if (!SERVER_WORDS.test(words) || LOG_WORDS.test(words) || HTTP_METHODS.test(words)) return [];
   const urls: string[] = [];
   for (const match of matches) {
-    const parsed = parseDevServerUrl(match.replace(/[.,;:!]+$/u, ""));
+    const parsed = parseDevServerUrl(match.replace(/[.,;:!]+$/u, "").replace(/^exp:/iu, "http:"));
     if (parsed && !urls.includes(parsed.url)) urls.push(parsed.url);
   }
   return urls;

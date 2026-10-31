@@ -261,8 +261,14 @@ describe("PluginsSection", () => {
     await act(async () => setValue(form.querySelector("input") as HTMLInputElement, "acme/kit"));
     await act(async () => form.requestSubmit());
     expect(commands.at(-1)).toEqual({ type: "plugins.previewInstall", source: "acme/kit" });
-    expect(container.textContent).toContain("1 skill, 2 MCP servers, 1 prompt, 1 action");
-    expect(container.textContent).toContain("Test: npm test");
+    const parts = [...container.querySelectorAll(".plugin-part")].map((part) => part.textContent);
+    expect(parts).toEqual([
+      "1 skillhelper",
+      "2 MCP serversdocs, local",
+      "1 prompt/ship",
+      "1 actionTest: npm test",
+      "Left outhooks",
+    ]);
     expect(container.textContent).toContain("acme/far");
 
     await act(async () => button(container, "Install 1 plugin").click());

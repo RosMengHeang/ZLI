@@ -181,6 +181,47 @@ describe("durable environment engine", () => {
     expect(await new Engine({ database: engine.database, environment }).projection()).toEqual(replayed);
   });
 
+  it("replays the whole log once when a migration asks for a rebuild", async () => {
+    const engine = makeEngine();
+    await engine.dispatchPromise(registerRequest("00000000-0000-4000-8000-000000000031", "C:\\workspace\\one"));
+    await engine.dispatchPromise(registerRequest("00000000-0000-4000-8000-000000000032", "C:\\workspace\\two"));
+    await engine.flushProjection();
+    const stored = JSON.parse(
+      (
+        engine.database.raw.prepare("SELECT projection_json FROM projection_state WHERE projection_id = 1").get() as {
+          projection_json: string;
+        }
+      ).projection_json,
+    );
+    engine.database.execute("UPDATE projection_state SET projection_json = ? WHERE projection_id = 1", [
+      JSON.stringify({ ...stored, projects: [] }),
+    ]);
+    engine.database.execute("INSERT INTO projection_rebuilds (reason, requested_at) VALUES ('test', 'now')");
+
+    const reopened = await new Engine({ database: engine.database, environment }).projection();
+
+    expect(reopened.projects.map((project) => project.path)).toEqual(["C:\\workspace\\one", "C:\\workspace\\two"]);
+    expect(engine.database.raw.prepare("SELECT COUNT(*) AS count FROM projection_rebuilds").get()).toEqual({
+      count: 0,
+    });
+  });
+
+  it("keeps the stored projection when an old event no longer parses during a rebuild", async () => {
+    const engine = makeEngine();
+    await engine.dispatchPromise(registerRequest("00000000-0000-4000-8000-000000000033", "C:\\workspace\\kept"));
+    await engine.flushProjection();
+    const before = await engine.projection();
+    engine.database.execute("UPDATE events SET event_json = ? WHERE sequence = 1", ["{broken"]);
+    engine.database.execute("INSERT INTO projection_rebuilds (reason, requested_at) VALUES ('test', 'now')");
+
+    const reopened = await new Engine({ database: engine.database, environment }).projection();
+
+    expect(reopened).toEqual(before);
+    expect(engine.database.raw.prepare("SELECT COUNT(*) AS count FROM projection_rebuilds").get()).toEqual({
+      count: 0,
+    });
+  });
+
   it("stores the projection again once enough events accumulate", async () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
     onTestFinished(() => now.mockRestore());

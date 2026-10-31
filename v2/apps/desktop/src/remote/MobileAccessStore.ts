@@ -123,6 +123,11 @@ export class MobileAccessStore {
     await this.#save({ ...this.#settings, devices });
   }
 
+  /** Resolves once every write started so far has finished. */
+  async settled(): Promise<void> {
+    await this.#writing;
+  }
+
   async #save(next: StoredSettings): Promise<void> {
     this.#settings = next;
     const snapshot = structuredClone(next);

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { lstat, mkdir, open, readFile, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { lstat, mkdir, open, readdir, readFile, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 
 import {
@@ -57,7 +58,18 @@ export class FileService {
 
   /** Every listed file, with its uncommitted state. Files deleted from disk stay listed as `deleted`. */
   async list(root: string): Promise<FileListResult> {
-    const [listed, changes, prefix, numstat] = await Promise.all([
+    try {
+      return await this.listGit(root);
+    } catch (error) {
+      if (error instanceof FileServiceError && NOT_A_REPOSITORY.test(error.message)) return listFolder(root);
+      throw error;
+    }
+  }
+
+  private async listGit(root: string): Promise<FileListResult> {
+    // allSettled, not all: an early failure must still wait for the other git processes. On Windows a running
+    // process holds its working folder open, so returning early leaves the folder locked.
+    const settled = await Promise.allSettled([
       runGitNullList(root, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]),
       runGitNullList(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames", "--", "."]),
       runGitNullList(root, ["rev-parse", "--show-prefix"]),
@@ -74,6 +86,11 @@ export class FileService {
         ".",
       ]).catch(() => ({ entries: [], truncated: false })),
     ]);
+    const failed = settled.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
+    const [listed, changes, prefix, numstat] = settled.map((result) =>
+      result.status === "fulfilled" ? result.value : { entries: [], truncated: false },
+    ) as [GitNullList, GitNullList, GitNullList, GitNullList];
     const statuses = parseStatus(changes.entries, prefix.entries[0]?.trim() ?? "");
     const counts = parseNumstat(numstat.entries);
     const paths = [...new Set([...listed.entries, ...statuses.keys()])].sort(comparePaths);
@@ -185,11 +202,26 @@ export class FileService {
   async search(root: string, query: string, options: FileSearchOptions = {}): Promise<FileSearchResult> {
     if (query.length === 0) return { matches: [], truncated: false };
     const maxResults = Math.min(Math.max(1, options.maxResults ?? DEFAULT_SEARCH_RESULTS), MAX_SEARCH_RESULTS);
+    const result = await this.runSearch(root, query, options, maxResults, "--untracked");
+    if (result !== "not_a_repository") return result;
+    // A folder without Git is still searchable; --no-index reads it as plain files.
+    const plain = await this.runSearch(root, query, options, maxResults, "--no-index");
+    if (plain === "not_a_repository") throw new FileServiceError("Search failed.");
+    return plain;
+  }
+
+  private async runSearch(
+    root: string,
+    query: string,
+    options: FileSearchOptions,
+    maxResults: number,
+    scope: "--untracked" | "--no-index",
+  ): Promise<FileSearchResult | "not_a_repository"> {
     const args = [
       "-c",
       "core.quotepath=off",
       "grep",
-      "--untracked",
+      scope,
       "-I",
       "-n",
       "--column",
@@ -229,10 +261,45 @@ export class FileService {
     });
     if (!result.stopped && !result.timedOut && remainder.length > 0) consumeLine(remainder);
     if (!result.stopped && !result.timedOut && result.code !== 0 && result.code !== 1) {
+      if (scope === "--untracked" && NOT_A_REPOSITORY.test(result.stderr)) return "not_a_repository";
       throw new FileServiceError(searchFailure(result.stderr, options.regex === true));
     }
     return { matches, truncated: overflow || result.timedOut };
   }
+}
+
+const NOT_A_REPOSITORY = /not a git repository/iu;
+/** Folders a plain listing skips. Inside a repository, .gitignore usually hides the same ones. */
+const UNLISTED_FOLDERS = new Set([".git", "node_modules"]);
+
+/** Lists a folder that is not a Git repository by walking it. Symlinked folders are not followed. */
+async function listFolder(root: string): Promise<FileListResult> {
+  const base = await realRoot(root);
+  const paths: string[] = [];
+  const pending = [""];
+  let truncated = false;
+  while (pending.length > 0 && !truncated) {
+    const folder = pending.shift() ?? "";
+    let entries: Dirent[];
+    try {
+      entries = await readdir(join(base, folder), { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const path = folder ? `${folder}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (!UNLISTED_FOLDERS.has(entry.name)) pending.push(path);
+      } else if (entry.isFile() || entry.isSymbolicLink()) {
+        if (paths.length >= MAX_LISTED_FILES) {
+          truncated = true;
+          break;
+        }
+        paths.push(path);
+      }
+    }
+  }
+  return { files: paths.sort(comparePaths).map((path) => ({ path })), truncated };
 }
 
 /** A diff that adds every line of a file Git has no earlier version of. */
@@ -472,7 +539,9 @@ function statusFromCode(code: string): FileChangeStatus {
   return "modified";
 }
 
-async function runGitNullList(root: string, args: string[]): Promise<{ entries: string[]; truncated: boolean }> {
+type GitNullList = { entries: string[]; truncated: boolean };
+
+async function runGitNullList(root: string, args: string[]): Promise<GitNullList> {
   const chunks: Buffer[] = [];
   let bytes = 0;
   const result = await runGit(root, args, {

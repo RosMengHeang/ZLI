@@ -11,9 +11,16 @@ class FakeClient {
   readonly calls: Array<{ method: string; value: unknown }> = [];
   private readonly listeners = new Set<(event: CodexProviderEvent) => void>();
 
+  resumeError: Error | undefined;
+
   async startSession(input: { cwd: string }) {
     this.calls.push({ method: "start", value: input });
     return { providerThreadId: "codex-thread-1" };
+  }
+  async resumeSession(input: { providerThreadId: string; cwd: string }) {
+    this.calls.push({ method: "resume", value: input });
+    if (this.resumeError) throw this.resumeError;
+    return { providerThreadId: input.providerThreadId };
   }
   async sendTurn(input: { providerThreadId: string; text: string }) {
     this.calls.push({ method: "turn", value: input });
@@ -102,6 +109,63 @@ describe("CodexProviderAdapter", () => {
       method: "start",
       value: { cwd: "C:/workspace/tree", config: { "mcp_servers.zli-browser.env": { ZLI_WORKTREE_ID: "wt-1" } } },
     });
+  });
+});
+
+describe("CodexProviderAdapter resume", () => {
+  it("returns the Codex thread id of a fresh session so it can be resumed later", async () => {
+    const client = new FakeClient();
+    const adapter = new CodexProviderAdapter({ createClient: async () => client });
+    await expect(adapter.startSession({ threadId, cwd: "/tree" })).resolves.toMatchObject({
+      providerSessionId: "codex-thread-1",
+    });
+  });
+
+  it("continues the earlier Codex thread with the same settings a fresh start uses", async () => {
+    const client = new FakeClient();
+    const adapter = new CodexProviderAdapter({
+      createClient: async () => client,
+      threadConfig: () => ({ "mcp_servers.zli-browser.env": { ZLI_WORKTREE_ID: "wt-1" } }),
+    });
+    await expect(
+      adapter.startSession({
+        threadId,
+        cwd: "/tree",
+        model: "gpt-5.2",
+        permissionMode: "supervised",
+        resumeSessionId: "codex-thread-earlier",
+      }),
+    ).resolves.toMatchObject({ threadId, providerSessionId: "codex-thread-earlier" });
+    expect(client.calls).toEqual([
+      {
+        method: "resume",
+        value: {
+          providerThreadId: "codex-thread-earlier",
+          cwd: "/tree",
+          config: { "mcp_servers.zli-browser.env": { ZLI_WORKTREE_ID: "wt-1" } },
+          model: "gpt-5.2",
+          approvalPolicy: "on-request",
+          sandboxPolicy: "workspace-write",
+        },
+      },
+    ]);
+
+    await adapter.sendTurn({ threadId, text: "and now?" });
+    expect(client.calls.at(-1)).toEqual({
+      method: "turn",
+      value: { providerThreadId: "codex-thread-earlier", text: "and now?" },
+    });
+  });
+
+  it("throws when the resume fails and keeps no session, so the caller can start over", async () => {
+    const client = new FakeClient();
+    client.resumeError = new Error("Codex request failed: thread/resume.");
+    const adapter = new CodexProviderAdapter({ createClient: async () => client });
+    await expect(
+      adapter.startSession({ threadId, cwd: "/tree", resumeSessionId: "codex-thread-gone" }),
+    ).rejects.toThrow("thread/resume");
+    expect(adapter.hasSession({ threadId })).toBe(false);
+    expect(client.calls.map((call) => call.method)).toEqual(["resume"]);
   });
 });
 

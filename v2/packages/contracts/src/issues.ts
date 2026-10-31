@@ -2,13 +2,13 @@ import { z } from "zod";
 
 import { ProjectId } from "./ids.js";
 
-export const IssueSource = z.enum(["github", "linear"]);
+export const IssueSource = z.enum(["github", "gitlab", "linear"]);
 export type IssueSource = z.infer<typeof IssueSource>;
 
 export const IssueStateFilter = z.enum(["open", "closed", "all"]);
 export type IssueStateFilter = z.infer<typeof IssueStateFilter>;
 
-/** A GitHub issue number or a Linear identifier such as ENG-123. */
+/** A GitHub or GitLab issue number or a Linear identifier such as ENG-123. */
 export const IssueKey = z
   .string()
   .trim()
@@ -33,6 +33,8 @@ export const IssueCommand = z.discriminatedUnion("type", [
     labels: z.array(z.string().trim().min(1).max(100)).max(10).optional(),
   }),
   z.object({ type: z.literal("issues.get"), projectId: ProjectId, source: IssueSource, key: IssueKey }),
+  /** Which issue sources the project's Git remotes point to. */
+  z.object({ type: z.literal("issues.sources"), projectId: ProjectId }),
   z.object({ type: z.literal("issues.linear.status") }),
   /** Checks the key with Linear before it is saved; the key is never sent back. */
   z.object({ type: z.literal("issues.linear.connect"), apiKey: LinearApiKey }),
@@ -42,6 +44,7 @@ export type IssueCommand = z.infer<typeof IssueCommand>;
 export const ISSUE_COMMAND_TYPES = [
   "issues.list",
   "issues.get",
+  "issues.sources",
   "issues.linear.status",
   "issues.linear.connect",
   "issues.linear.disconnect",
@@ -53,7 +56,7 @@ export type IssueLabel = z.infer<typeof IssueLabel>;
 /** One row of an issue list, the same shape for every source. */
 export const IssueSummary = z.object({
   source: IssueSource,
-  /** `123` on GitHub, `ENG-123` on Linear. */
+  /** `123` on GitHub and GitLab, `ENG-123` on Linear. */
   key: IssueKey,
   /** How the issue is written in text: `#123` or `ENG-123`. */
   reference: z.string().min(1).max(40),
@@ -87,11 +90,30 @@ export const IssueDetail = IssueSummary.extend({
 });
 export type IssueDetail = z.infer<typeof IssueDetail>;
 
-export const IssueListResult = z.object({ issues: z.array(IssueSummary).max(100) });
+/** Why a project has no GitHub or GitLab issues to list, so the list is empty rather than failed. */
+export const IssueListUnavailable = z.object({
+  code: z.enum(["other_host", "no_remote", "not_repo"]),
+  /** The host the project's remote points to, such as gitlab.example.com, when it has one. */
+  host: z.string().min(1).max(253).optional(),
+});
+export type IssueListUnavailable = z.infer<typeof IssueListUnavailable>;
+
+export const IssueListResult = z.object({
+  issues: z.array(IssueSummary).max(100),
+  unavailable: IssueListUnavailable.optional(),
+});
 export type IssueListResult = z.infer<typeof IssueListResult>;
 
 export const IssueGetResult = z.object({ issue: IssueDetail });
 export type IssueGetResult = z.infer<typeof IssueGetResult>;
+
+export const IssueSourcesResult = z.object({
+  /** GitHub and GitLab, as the remotes point to them, origin first. Linear does not depend on the remotes. */
+  sources: z.array(z.enum(["github", "gitlab"])).max(2),
+  /** Set when no remote points to GitHub or GitLab. */
+  unavailable: IssueListUnavailable.optional(),
+});
+export type IssueSourcesResult = z.infer<typeof IssueSourcesResult>;
 
 export const LinearStatusResult = z.object({
   connected: z.boolean(),

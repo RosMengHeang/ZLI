@@ -2,6 +2,7 @@ import { z } from "zod";
 import { BrowserTabProjection } from "./browser.js";
 import { ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
+import { dropHuddleMembers, HuddlePost, HuddleProjection } from "./huddles.js";
 import { EnvironmentId, ProjectId, ThreadId, WorktreeId } from "./ids.js";
 import { LegacyImportProjection } from "./import.js";
 import { SetupTrustProjection, WorktreeSetupProjection } from "./projectConfig.js";
@@ -38,6 +39,10 @@ export const ProjectProjection = z.object({
   projectId: ProjectId,
   path: z.string().min(1),
   name: z.string().min(1),
+  /** False when the folder is not a Git repository. Missing means it is one, or it has not been checked yet. */
+  git: z.boolean().optional(),
+  /** The person let agents work in this folder, so ZLI answers each agent CLI's own "trust this folder?" question. */
+  agentsTrusted: z.boolean().optional(),
 });
 export type ProjectProjection = z.infer<typeof ProjectProjection>;
 
@@ -127,11 +132,34 @@ export const RuntimeProjection = z.object({
   lastSequence: z.number().int().nonnegative(),
   worktreeSetups: z.array(WorktreeSetupProjection).optional(),
   setupTrust: z.array(SetupTrustProjection).optional(),
+  huddles: z.array(HuddleProjection).optional(),
+  huddlePosts: z.array(HuddlePost).optional(),
 });
 export type RuntimeProjection = z.infer<typeof RuntimeProjection>;
 
-const MAX_PROJECTED_MESSAGES = 2_000;
-const MAX_PROJECTED_ACTIVITIES = 4_000;
+/**
+ * History is capped per chat, not across all of them: a shared cap let a busy chat push every older
+ * chat's messages out of the projection.
+ */
+export const MAX_MESSAGES_PER_THREAD = 1_000;
+export const MAX_ACTIVITIES_PER_THREAD = 2_000;
+export const MAX_CHECKPOINTS_PER_THREAD = 200;
+export const MAX_USAGE_PER_THREAD = 1_000;
+
+/** Drops the oldest entries of one thread beyond `max`, leaving every other thread's entries in place. */
+export function trimThread<T extends { threadId: string }>(items: T[], threadId: string, max: number): T[] {
+  let count = 0;
+  for (const item of items) if (item.threadId === threadId) count += 1;
+  let excess = count - max;
+  if (excess <= 0) return items;
+  return items.filter((item) => {
+    if (excess > 0 && item.threadId === threadId) {
+      excess -= 1;
+      return false;
+    }
+    return true;
+  });
+}
 
 /** Drops a deleted session's terminals and threads, and everything recorded for those threads. */
 export function removeSession(
@@ -146,7 +174,7 @@ export function removeSession(
     requests.filter((request) => threads.has(request.threadId)).map((request) => `thread-request:${request.requestId}`),
   );
   return {
-    ...projection,
+    ...dropHuddleMembers(projection, [...terminalIds, ...threadIds]),
     terminals: projection.terminals.filter((terminal) => !terminals.has(terminal.terminalId)),
     threads: projection.threads.filter((thread) => !threads.has(thread.threadId)),
     ...(projection.messages
@@ -182,23 +210,35 @@ export function appendThreadMessage(
       break;
     }
   }
-  return [...messages.filter((candidate) => candidate.messageId !== message.messageId), message].slice(
-    -MAX_PROJECTED_MESSAGES,
+  return trimThread(
+    [...messages.filter((candidate) => candidate.messageId !== message.messageId), message],
+    message.threadId,
+    MAX_MESSAGES_PER_THREAD,
   );
 }
 
-const MAX_PROJECTED_CHECKPOINTS = 400;
+/** A message from another agent lands as-is; delivering the same message again replaces it. */
+export function deliverAgentMessage(
+  messages: readonly ThreadMessageProjection[],
+  message: ThreadMessageProjection,
+): ThreadMessageProjection[] {
+  return trimThread(
+    [...messages.filter((candidate) => candidate.messageId !== message.messageId), message],
+    message.threadId,
+    MAX_MESSAGES_PER_THREAD,
+  );
+}
 
 export function appendCheckpoint(
   checkpoints: readonly ThreadCheckpoint[],
   checkpoint: ThreadCheckpoint,
 ): ThreadCheckpoint[] {
-  return [...checkpoints.filter((candidate) => candidate.checkpointId !== checkpoint.checkpointId), checkpoint].slice(
-    -MAX_PROJECTED_CHECKPOINTS,
+  return trimThread(
+    [...checkpoints.filter((candidate) => candidate.checkpointId !== checkpoint.checkpointId), checkpoint],
+    checkpoint.threadId,
+    MAX_CHECKPOINTS_PER_THREAD,
   );
 }
-
-const MAX_PROJECTED_USAGE = 10_000;
 
 /** A turn reports usage as it goes; the latest report for a turn replaces the earlier one. */
 export function upsertUsageRecord(
@@ -206,7 +246,7 @@ export function upsertUsageRecord(
   record: ThreadUsageRecord,
 ): ThreadUsageRecord[] {
   const index = records.findIndex((candidate) => candidate.usageId === record.usageId);
-  if (index === -1) return [...records, record].slice(-MAX_PROJECTED_USAGE);
+  if (index === -1) return trimThread([...records, record], record.threadId, MAX_USAGE_PER_THREAD);
   return [...records.slice(0, index), record, ...records.slice(index + 1)];
 }
 
@@ -216,7 +256,7 @@ export function upsertThreadActivity(
   activity: ThreadActivityProjection,
 ): ThreadActivityProjection[] {
   const index = activities.findIndex((candidate) => candidate.activityId === activity.activityId);
-  if (index === -1) return [...activities, activity].slice(-MAX_PROJECTED_ACTIVITIES);
+  if (index === -1) return trimThread([...activities, activity], activity.threadId, MAX_ACTIVITIES_PER_THREAD);
   const previous = activities[index];
   const merged: ThreadActivityProjection = {
     ...previous,

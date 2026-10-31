@@ -40,7 +40,7 @@ describe("ReviewService", () => {
         calls.push([...args]);
         if (args[0] === "rev-parse") return { code: 0, stdout: "feature/ui\n", stderr: "" };
         if (args[0] === "status")
-          return { code: 0, stdout: " M src/App.tsx\n?? notes.txt\nUU src/conflict.ts\n", stderr: "" };
+          return { code: 0, stdout: " M src/App.tsx\0?? notes.txt\0UU src/conflict.ts\0", stderr: "" };
         if (args[0] === "merge-base") return { code: 0, stdout: "abc123\n", stderr: "" };
         return { code: 0, stdout: "2\t1\tsrc/App.tsx\0-\t-\tassets/logo.png\0", stderr: "" };
       },
@@ -54,12 +54,45 @@ describe("ReviewService", () => {
     });
     expect(review.state).toBe("conflicted");
     expect(review.files).toEqual([
-      { path: "assets/logo.png", kind: "modified", staged: false, additions: 0, deletions: 0, binary: true },
-      { path: "notes.txt", kind: "untracked", staged: false, additions: 0, deletions: 0, binary: false },
-      { path: "src/App.tsx", kind: "modified", staged: false, additions: 2, deletions: 1, binary: false },
-      { path: "src/conflict.ts", kind: "modified", staged: false, additions: 0, deletions: 0, binary: false },
+      {
+        path: "assets/logo.png",
+        kind: "modified",
+        staged: false,
+        unstaged: false,
+        additions: 0,
+        deletions: 0,
+        binary: true,
+      },
+      {
+        path: "notes.txt",
+        kind: "untracked",
+        staged: false,
+        unstaged: true,
+        additions: 0,
+        deletions: 0,
+        binary: false,
+      },
+      {
+        path: "src/App.tsx",
+        kind: "modified",
+        staged: false,
+        unstaged: true,
+        additions: 2,
+        deletions: 1,
+        binary: false,
+      },
+      {
+        path: "src/conflict.ts",
+        kind: "modified",
+        staged: false,
+        unstaged: true,
+        additions: 0,
+        deletions: 0,
+        binary: false,
+      },
     ]);
     expect(review.conflictFiles).toEqual(["src/conflict.ts"]);
+    expect(calls[1]).toEqual(["status", "--porcelain=v1", "-z"]);
     expect(calls[2]).toEqual(["merge-base", "main", "HEAD"]);
     expect(calls[3]).toEqual(["diff", "--numstat", "-z", "--find-renames", "abc123"]);
   });
@@ -91,9 +124,9 @@ describe("ReviewService", () => {
         baseRef: "main",
       });
       expect(review.files).toEqual([
-        { path: "README.md", kind: "modified", staged: false, additions: 2, deletions: 1, binary: false },
-        { path: "committed.txt", kind: "modified", staged: false, additions: 2, deletions: 0, binary: false },
-        { path: "untracked.txt", kind: "untracked", staged: false, additions: 3, deletions: 0, binary: false },
+        expect.objectContaining({ path: "README.md", staged: false, unstaged: true, additions: 2, deletions: 1 }),
+        expect.objectContaining({ path: "committed.txt", staged: false, unstaged: true, additions: 2, deletions: 0 }),
+        expect.objectContaining({ path: "untracked.txt", kind: "untracked", unstaged: true, additions: 3 }),
       ]);
     } finally {
       await rm(fixture.directory, { recursive: true, force: true });
@@ -104,7 +137,7 @@ describe("ReviewService", () => {
     const service = new ReviewService({
       run: async (args) => {
         if (args[0] === "rev-parse") return { code: 0, stdout: "feature/ui\n", stderr: "" };
-        if (args[0] === "status") return { code: 0, stdout: " M src/App.tsx\n", stderr: "" };
+        if (args[0] === "status") return { code: 0, stdout: " M src/App.tsx\0", stderr: "" };
         if (args[0] === "merge-base") return { code: 0, stdout: "abc123\n", stderr: "" };
         if (args[1] === "--numstat") return { code: 0, stdout: "2\t1\tsrc/App.tsx\0", stderr: "" };
         return { code: 0, stdout: "@@ -1,1 +1,2 @@\n-old\n+new\n", stderr: "" };
@@ -181,7 +214,7 @@ describe("ReviewService", () => {
     }
   });
 
-  it("stages all files and commits with an argument-safe message", async () => {
+  it("stages all files when nothing is staged and commits with an argument-safe message", async () => {
     const calls: string[][] = [];
     const service = new ReviewService({
       run: async (args) => {
@@ -199,7 +232,8 @@ describe("ReviewService", () => {
       baseRef: "main",
       message: "ship review",
     });
-    expect(calls.slice(0, 2)).toEqual([
+    expect(calls.slice(0, 3)).toEqual([
+      ["diff", "--cached", "--name-only", "-z"],
       ["add", "--all", "--", "."],
       ["commit", "-m", "ship review"],
     ]);
@@ -389,8 +423,8 @@ describe("ReviewService", () => {
         expect.arrayContaining([
           expect.objectContaining({ path: "new-name.txt", oldPath: "old-name.txt", kind: "renamed" }),
           expect.objectContaining({ path: "logo.bin", binary: true }),
-          expect.objectContaining({ path: "staged.txt", staged: true }),
-          expect.objectContaining({ path: "README.md", staged: false }),
+          expect.objectContaining({ path: "staged.txt", staged: true, unstaged: false }),
+          expect.objectContaining({ path: "README.md", staged: false, unstaged: true }),
         ]),
       );
     } finally {
@@ -467,6 +501,62 @@ describe("ReviewService", () => {
       });
       expect(review.branch).toBe("HEAD");
       expect(review.files).toEqual([expect.objectContaining({ path: "detached.txt", kind: "untracked" })]);
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  });
+  it("commits only the staged changes when something is staged", async () => {
+    const fixture = await createRepository();
+    try {
+      await writeFile(join(fixture.worktreePath, "README.md"), "staged edit\n", "utf8");
+      await fixture.git.run(["add", "README.md"], { cwd: fixture.worktreePath });
+      await writeFile(join(fixture.worktreePath, "README.md"), "staged edit\nunstaged edit\n", "utf8");
+      await writeFile(join(fixture.worktreePath, "left out.txt"), "not staged\n", "utf8");
+      await new ReviewService(fixture.git).commit({
+        worktreeId: WORKTREE_ID,
+        worktreePath: fixture.worktreePath,
+        repositoryPath: fixture.repositoryPath,
+        branch: "feature/ui",
+        baseRef: "main",
+        message: "staged only",
+      });
+      await expect(fixture.git.run(["show", "HEAD:README.md"], { cwd: fixture.worktreePath })).resolves.toMatchObject({
+        stdout: "staged edit\n",
+      });
+      await expect(fixture.git.run(["status", "--porcelain=v1"], { cwd: fixture.worktreePath })).resolves.toMatchObject(
+        { stdout: ' M README.md\n?? "left out.txt"\n' },
+      );
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("lists names with spaces once and splits a partly staged diff into staged and unstaged halves", async () => {
+    const fixture = await createRepository();
+    try {
+      await writeFile(join(fixture.worktreePath, "README.md"), "base\nstaged line\n", "utf8");
+      await fixture.git.run(["add", "README.md"], { cwd: fixture.worktreePath });
+      await writeFile(join(fixture.worktreePath, "README.md"), "base\nstaged line\nunstaged line\n", "utf8");
+      await writeFile(join(fixture.worktreePath, "with space.txt"), "x\n", "utf8");
+      const input = {
+        worktreeId: WORKTREE_ID,
+        worktreePath: fixture.worktreePath,
+        repositoryPath: fixture.repositoryPath,
+        branch: "feature/ui",
+        baseRef: "main",
+      };
+      const service = new ReviewService(fixture.git);
+      const review = await service.diff({ ...input, path: "README.md" });
+      expect(review.files.map((file) => [file.path, file.staged, file.unstaged])).toEqual([
+        ["README.md", true, true],
+        ["with space.txt", false, true],
+      ]);
+      expect(review.diff?.patch).toContain("+staged line\n+unstaged line");
+      expect(review.diff?.stagedPatch).toContain("+staged line");
+      expect(review.diff?.stagedPatch).not.toContain("unstaged line");
+      expect(review.diff?.unstagedPatch).toContain("+unstaged line");
+      expect(review.diff?.unstagedPatch).not.toContain("+staged line");
+      expect((await service.diff({ ...input, path: "with space.txt" })).diff?.stagedPatch).toBeUndefined();
     } finally {
       await rm(fixture.directory, { recursive: true, force: true });
     }

@@ -7,8 +7,10 @@ import { expect, test } from "@playwright/test";
 import {
   closeApp,
   closeDesktop,
+  openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
+  freePort,
   git,
   launchDesktop,
 } from "./desktop-fixtures.js";
@@ -24,7 +26,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    await openCreateWorktree(page);
     const dialog = page.getByRole("dialog", { name: "Create worktree" });
     await dialog.getByLabel("Branch").fill("e2e");
     await dialog.getByRole("button", { name: "Create worktree" }).click();
@@ -38,7 +40,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     });
     if (!worktreeId) throw new Error("The created worktree was not present in the runtime projection.");
 
-    const terminalPort = 43100 + Math.floor(Math.random() * 500);
+    const terminalPort = await freePort();
     const worktreePath = join(`${repo}-worktrees`, "e2e");
     browserServer = createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html" });
@@ -126,7 +128,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await page.getByRole("button", { name: "Changes", exact: true }).click();
     await page.getByRole("button", { name: "Refresh changes" }).click();
     await expect(page.getByText("change.txt")).toBeVisible({ timeout: 20_000 });
-    await page.getByRole("button", { name: /change\.txt/iu }).click();
+    await page.locator(".review-file", { hasText: "change.txt" }).click();
     await expect(page.getByRole("region", { name: "Diff for change.txt" })).toContainText("integration change");
     const previousReviewUpdate = await page.evaluate(async (id) => {
       const projection = await window.zli?.runtime.getProjection();
@@ -134,7 +136,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     }, worktreeId);
     expect(previousReviewUpdate).not.toBe("");
     await page.getByLabel("Commit message").fill("exercise review flow");
-    await page.getByRole("button", { name: "Commit changes" }).click();
+    await page.getByRole("button", { name: "Commit all changes" }).click();
     await expect
       .poll(
         () =>
@@ -155,7 +157,11 @@ test("completes the workspace, provider, browser, review, and restoration journe
     expect(reviewError).toBeUndefined();
     await expect(page.locator(".review-pane .inline-error")).toHaveCount(0);
     expect(await git(worktreePath, ["status", "--porcelain"])).toBe("");
-    await page.getByRole("button", { name: "Merge into target" }).click();
+    await page.getByRole("button", { name: "More Git actions" }).click();
+    await page.getByRole("menuitem", { name: "Merge into another branch…" }).click();
+    const mergeLocal = page.getByRole("dialog", { name: "Merge into another branch" });
+    await mergeLocal.getByRole("button", { name: "Merge", exact: true }).click();
+    await expect(mergeLocal).toHaveCount(0, { timeout: 20_000 });
     await expect
       .poll(() => git(repo, ["show", "main:change.txt"]).catch(() => ""), { timeout: 20_000 })
       .toBe("integration change");
@@ -180,7 +186,8 @@ test("completes the workspace, provider, browser, review, and restoration journe
         { timeout: 30_000 },
       )
       .toBe("ready");
-    await expect(fixture.page.getByRole("button", { name: /e2e/iu })).toContainText("Ready", { timeout: 30_000 });
+    // The worktree has an agent, so the sidebar shows its branch under that agent rather than as its own row.
+    await expect(fixture.page.locator(".session-branch", { hasText: "e2e" })).toBeVisible({ timeout: 30_000 });
     await expect(fixture.page.getByText("Mock response: inspect workspace")).toBeVisible({ timeout: 20_000 });
     await fixture.page.getByRole("button", { name: "Browser", exact: true }).click();
     await expect(fixture.page.getByRole("heading", { name: "ZLI fixture" })).toBeVisible({ timeout: 20_000 });

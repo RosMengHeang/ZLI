@@ -16,18 +16,19 @@ import {
   type McpServerSource,
   type McpServerSpec,
   zliMcpServerSpecs,
-  opencodeConfigContent,
-  writeAgentMcpConfig,
+  type writeAgentMcpConfig,
 } from "../browser-tool/browserTool.js";
 import type { Engine } from "../orchestration/Engine.js";
 import {
   AGENT_PTY_ENV,
   AgentLaunchError,
   agentCliMissingMessage,
+  agentMcpLaunch,
+  agentModeEnv,
   buildAgentArgs,
-  mcpConfigFileKind,
-  mcpLaunchArgs,
+  type WorktreeFileWriter,
 } from "./agentLaunch.js";
+import { type AgentFolderTrustLaunch, agentFolderTrust, trustedProject } from "./agentTrust.js";
 import type { TerminalService } from "./TerminalService.js";
 
 type CreateIntent = Extract<RuntimeEventEnvelope["event"], { type: "terminal.create.requested" }>;
@@ -44,6 +45,8 @@ export type TerminalReactorOptions = {
   /** Where per-launch MCP config files go when there is no browser tool. */
   mcpConfigDir?: string;
   writeMcpConfig?: typeof writeAgentMcpConfig;
+  /** Writes the project MCP file in the worktree for CLIs that read one. Without it they get no servers. */
+  writeWorktreeFile?: WorktreeFileWriter;
   /** The environment agent settings such as OPENCODE_CONFIG_CONTENT are merged with. */
   env?: NodeJS.ProcessEnv;
   /** The environment for an agent's account; without it every agent uses the usual login. */
@@ -139,12 +142,18 @@ export class TerminalReactor {
       // An await with no resolver would still delay the spawn past callers that only wait on the engine.
       const account = launch && resolveAccount ? await resolveAccount(launch.provider, launch.accountId) : undefined;
       if (launch?.login && !account) throw new AgentLaunchError("Choose an account to sign in to.");
-      const agent = launch ? await this.agentCommand(launch, worktreeId) : undefined;
+      const [agent, trust] = launch
+        ? await Promise.all([
+            this.agentCommand(launch, worktreeId, worktreePath),
+            launch.login ? undefined : this.folderTrust(launch.provider, worktreeId, worktreePath, account?.env),
+          ])
+        : [];
       const browserTool = this.options.browserTool;
       const envOverrides = {
         ...(agent ? AGENT_PTY_ENV : {}),
         ...(browserTool ? browserToolEnv(browserTool, worktreeId) : {}),
         ...agent?.env,
+        ...trust?.env,
         ...account?.env,
       };
       await this.service.create({
@@ -153,7 +162,7 @@ export class TerminalReactor {
         worktreePath,
         cwd: intent.cwd,
         shell: agent?.file ?? intent.shell,
-        ...(agent ? { args: agent.args } : intent.args ? { args: intent.args } : {}),
+        ...(agent ? { args: [...agent.args, ...(trust?.args ?? [])] } : intent.args ? { args: intent.args } : {}),
         ...(Object.keys(envOverrides).length > 0 ? { envOverrides } : {}),
         ...(browserTool ? { pathPrepend: browserTool.shimDir } : {}),
         cols: intent.cols,
@@ -161,7 +170,7 @@ export class TerminalReactor {
         title: intent.terminal.title,
       });
       if (this.deleted.has(intent.terminal.terminalId)) {
-        this.stopQuietly(intent.terminal.terminalId);
+        this.release(intent.terminal.terminalId);
         return;
       }
       await this.dispatchStatus(intent.terminal.terminalId, "running");
@@ -210,18 +219,19 @@ export class TerminalReactor {
   private forget(terminalId: string): void {
     this.deleted.add(terminalId);
     this.intents.delete(terminalId);
-    this.stopQuietly(terminalId);
+    this.release(terminalId);
   }
 
-  private stopQuietly(terminalId: string): void {
-    try {
-      this.service.stop(TerminalId.parse(terminalId));
-    } catch {
-      // Not started yet, or already gone.
-    }
+  /** Stops the terminal if it runs and drops its output; a terminal not started yet is skipped. */
+  private release(terminalId: string): void {
+    this.service.release(TerminalId.parse(terminalId));
   }
 
-  private async agentCommand(agent: TerminalAgentLaunch, worktreeId: string): Promise<AgentCommand> {
+  private async agentCommand(
+    agent: TerminalAgentLaunch,
+    worktreeId: string,
+    worktreePath: string,
+  ): Promise<AgentCommand> {
     const login = agent.login ? accountLoginArgs(agent.provider) : undefined;
     if (agent.login && !login) throw new AgentLaunchError("This agent has no sign-in that ZLI can start.");
     const args = login ?? buildAgentArgs(agent);
@@ -232,12 +242,11 @@ export class TerminalReactor {
       file = undefined;
     }
     if (!file) throw new AgentLaunchError(agentCliMissingMessage(agent.provider));
-    const specs = login
-      ? []
-      : this.mcpSpecs(worktreeId, this.options.mcpServers ? await this.addedMcpServers(worktreeId) : []);
-    if (specs.length === 0) return { file, args, env: {} };
-    const mcp = await this.mcpLaunch(specs, agent, worktreeId);
-    return { file, args: [...args, ...mcp.args], env: mcp.env };
+    if (login) return { file, args, env: {} };
+    const modeEnv = agentModeEnv(agent);
+    const specs = this.mcpSpecs(worktreeId, this.options.mcpServers ? await this.addedMcpServers(worktreeId) : []);
+    const mcp = await this.mcpLaunch(specs, agent, worktreeId, worktreePath);
+    return { file, args: [...args, ...mcp.args], env: { ...modeEnv, ...mcp.env } };
   }
 
   private mcpSpecs(worktreeId: string, added: readonly McpServerSpec[]): McpServerSpec[] {
@@ -258,23 +267,32 @@ export class TerminalReactor {
     specs: readonly McpServerSpec[],
     agent: TerminalAgentLaunch,
     worktreeId: string,
+    worktreePath: string,
   ): Promise<{ args: string[]; env: Record<string, string> }> {
-    const kind = mcpConfigFileKind(agent.provider);
-    const dir = this.options.browserTool?.mcpConfigDir ?? this.options.mcpConfigDir;
-    let configFile: string | undefined;
-    if (kind && dir) {
-      try {
-        configFile = await (this.options.writeMcpConfig ?? writeAgentMcpConfig)(dir, kind, worktreeId, specs);
-      } catch {
-        configFile = undefined;
-      }
-    }
-    const env: Record<string, string> = {};
-    if (agent.provider === "opencode") {
-      const content = opencodeConfigContent(specs, (this.options.env ?? process.env).OPENCODE_CONFIG_CONTENT);
-      if (content) env.OPENCODE_CONFIG_CONTENT = content;
-    }
-    return { args: mcpLaunchArgs(agent.provider, { specs, ...(configFile ? { configFile } : {}) }), env };
+    const configDir = this.options.browserTool?.mcpConfigDir ?? this.options.mcpConfigDir;
+    return agentMcpLaunch(agent.provider, specs, {
+      worktreeId,
+      worktreePath,
+      ...(configDir ? { configDir } : {}),
+      ...(this.options.writeWorktreeFile ? { writeWorktreeFile: this.options.writeWorktreeFile } : {}),
+      ...(this.options.env ? { env: this.options.env } : {}),
+      ...(this.options.writeMcpConfig ? { writeMcpConfig: this.options.writeMcpConfig } : {}),
+    });
+  }
+
+  private async folderTrust(
+    provider: ListedProviderKind,
+    worktreeId: string,
+    worktreePath: string,
+    accountEnv: Readonly<Record<string, string>> | undefined,
+  ): Promise<AgentFolderTrustLaunch | undefined> {
+    const projectPath = await trustedProject(this.engine, worktreeId);
+    if (!projectPath) return undefined;
+    return agentFolderTrust(provider, {
+      projectPath,
+      cwd: worktreePath,
+      env: { ...(this.options.env ?? process.env), ...accountEnv },
+    });
   }
 
   private async worktreePath(worktreeId: string): Promise<string | undefined> {

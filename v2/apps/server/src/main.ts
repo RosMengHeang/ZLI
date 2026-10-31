@@ -1,10 +1,17 @@
 import { randomBytes } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { EnvironmentId, type McpServerConfig } from "@zli-v2/contracts";
+import {
+  EnvironmentId,
+  type McpServerConfig,
+  PLAN_LIMIT_PROVIDERS,
+  TerminalId,
+  USUAL_LOGIN_ACCOUNT_ID,
+} from "@zli-v2/contracts";
+import { CodexAppServerClient } from "@zli-v2/provider-codex";
 import { AccountStore } from "./accounts/AccountStore.js";
 import {
   type BrowserToolConfig,
@@ -13,12 +20,7 @@ import {
   type McpServerSpec,
   zliMcpServerSpecs,
 } from "./browser-tool/browserTool.js";
-import {
-  registerBrowserToolInUserSettings,
-  syncAccountMcpServers,
-  syncUserMcpServers,
-  type UserSettingsOutcome,
-} from "./browser-tool/userSettings.js";
+import { removeZliFromUserSettings, syncAccountMcpServers } from "./browser-tool/mcpSettingsFiles.js";
 import { TurnCheckpoints } from "./checkpoints/TurnCheckpoints.js";
 import { DaemonSupervisor } from "./daemon/DaemonSupervisor.js";
 import { Database } from "./db/Database.js";
@@ -26,15 +28,20 @@ import { DevServerReactor } from "./devservers/DevServerReactor.js";
 import { DiagnosticsReactor } from "./diagnostics/DiagnosticsReactor.js";
 import { StructuredLogger } from "./diagnostics/StructuredLogger.js";
 import { GitProcess } from "./git/GitProcess.js";
+import { HuddleReactor } from "./huddles/HuddleReactor.js";
+import { TerminalInputTracker } from "./huddles/TerminalInputTracker.js";
 import { LegacyImportReactor } from "./import/LegacyImportReactor.js";
 import { GitHubIssues } from "./issues/GitHubIssues.js";
+import { GitLabIssues } from "./issues/GitLabIssues.js";
 import { LinearIssues } from "./issues/LinearIssues.js";
+import { type LimitTarget, mockLimitRead, PlanLimits } from "./limits/PlanLimits.js";
+import { planLimitReader } from "./limits/readers.js";
 import { McpServerStore } from "./mcp/McpServerStore.js";
 import { GITHUB_OAUTH_CLIENT_ID } from "./mcp/signIn/github.js";
 import { McpSignIns } from "./mcp/signIn/McpSignIns.js";
-import { PluginStore } from "./plugins/PluginStore.js";
 import { AgentMessageReactor } from "./orchestration/AgentMessageReactor.js";
 import { Engine } from "./orchestration/Engine.js";
+import { PluginStore } from "./plugins/PluginStore.js";
 import { ProviderReactor } from "./providers/ProviderReactor.js";
 import { ProviderService } from "./providers/ProviderService.js";
 import { createProviderRegistry } from "./providers/registerProviders.js";
@@ -42,10 +49,11 @@ import { ReviewReactor } from "./review/ReviewReactor.js";
 import { ReviewService } from "./review/ReviewService.js";
 import { RpcServer } from "./rpc/Server.js";
 import { SkillStore } from "./skills/SkillStore.js";
-import { syncUserSkills } from "./skills/userSkillSync.js";
+import { type SkillCopyTarget, syncSkillCopies, worktreeRootOf, worktreeSkillDirs } from "./skills/skillCopies.js";
 import { RemotePtyFactory } from "./terminal/RemotePtyFactory.js";
 import { TerminalReactor } from "./terminal/TerminalReactor.js";
 import { TerminalService } from "./terminal/TerminalService.js";
+import { WorktreeAgentFiles } from "./worktrees/WorktreeAgentFiles.js";
 import { WorktreeReactor } from "./worktrees/WorktreeReactor.js";
 import { WorktreeService } from "./worktrees/WorktreeService.js";
 import { WorktreeSetupRunner } from "./worktrees/WorktreeSetup.js";
@@ -55,6 +63,7 @@ export type RuntimeProcess = {
   engine: Engine;
   server: RpcServer;
   worktreeReactor: WorktreeReactor;
+  huddleReactor: HuddleReactor;
   terminalService: TerminalService;
   terminalReactor: TerminalReactor;
   daemonSupervisor: DaemonSupervisor;
@@ -69,8 +78,9 @@ export type RuntimeProcess = {
   skills: SkillStore;
   plugins: PluginStore;
   accounts: AccountStore;
-  /** Settles once the browser tool is registered in agent user settings (empty when not configured). */
-  browserToolRegistration: Promise<readonly UserSettingsOutcome[]>;
+  agentFiles: WorktreeAgentFiles;
+  /** Settles once ZLI's entries from older versions are out of the person's own agent settings. */
+  userSettingsCleanup: Promise<void>;
   token: string;
   close: () => Promise<void>;
 };
@@ -82,10 +92,13 @@ export async function startRuntime(options: {
   label?: string;
   /** Lets agents drive ZLI's browser. Absent in tests and CLI runs, which then inject nothing. */
   browserTool?: BrowserToolConfig;
-  /** Home directory whose agent settings receive the browser tool and MCP servers. Defaults to the user's home. */
+  /** The person's home directory, where agents keep their own settings. Defaults to the user's home. */
   userHome?: string;
-  /** False keeps ZLI's MCP servers out of agent user settings; per-launch wiring still applies. */
-  registerInUserSettings?: boolean;
+  /**
+   * False leaves the person's own agent settings untouched. Otherwise the MCP servers and skills older
+   * versions copied there are removed once.
+   */
+  cleanUpUserSettings?: boolean;
 }): Promise<RuntimeProcess> {
   const databasePath = resolve(options.databasePath);
   await mkdir(dirname(databasePath), { recursive: true });
@@ -114,7 +127,13 @@ export async function startRuntime(options: {
   const reviewReactor = new ReviewReactor(engine, new ReviewService(new GitProcess()));
   const browserTool = options.browserTool;
   const userHome = options.userHome ?? homedir();
-  const writeUserSettings = options.registerInUserSettings !== false;
+  const cleanUpUserSettings = options.cleanUpUserSettings !== false;
+  const log = (level: "info" | "warn", message: string, context: Record<string, unknown>) =>
+    logger.record(level, message, {}, context);
+  const agentFiles = new WorktreeAgentFiles({ statePath: join(dirname(databasePath), "worktree-files.json"), log });
+  await agentFiles.load();
+  // Leftovers from a run that did not shut down cleanly. Done before any agent starts or is restored.
+  await agentFiles.removeAll().catch(() => undefined);
   const mcpConfigDir = browserTool?.mcpConfigDir ?? join(dirname(databasePath), "mcp");
   const githubToken = process.env.GH_TOKEN?.trim() || process.env.GITHUB_TOKEN?.trim() || undefined;
   // Loaded first: the MCP and skill stores read plugin parts as they load. The callbacks below run later.
@@ -128,7 +147,7 @@ export async function startRuntime(options: {
     skillConflicts: (name): string[] => skills.conflictPaths(name),
     onChange: async (): Promise<void> => {
       await mcpServers.refresh();
-      await skills.syncUserSettings();
+      await skills.syncCopies();
     },
     exportSources: {
       skills: async (): Promise<Array<{ name: string; path: string }>> =>
@@ -147,37 +166,44 @@ export async function startRuntime(options: {
     extraServers: (taken): McpServerConfig[] => plugins.mcpServers(taken),
     signIns,
     importFrom: { home: userHome },
+    // Huddles across projects pause or resume at once when this setting changes.
+    onAgentScopeChange: () => huddleReactor.refresh(),
     ...(browserTool?.connectScript
       ? { connectTool: { command: browserTool.command, script: browserTool.connectScript } }
       : {}),
-    ...(writeUserSettings
-      ? {
-          syncUserSettings: (specs, owned) =>
-            syncUserMcpServers(specs, owned, {
-              home: userHome,
-              isInstalled: async (provider): Promise<boolean> => (await resolveAgentCli(provider)) !== undefined,
-              log: (level, message, context) => logger.record(level, message, {}, context),
-            }),
-        }
-      : {}),
   });
   await mcpServers.load();
+  // Every ready worktree gets the skills, so agents in chat and in terminals both find them.
+  const skillTargets = async (): Promise<SkillCopyTarget[]> => {
+    const projection = await engine.projection();
+    const roots = [
+      ...new Set(
+        projection.worktrees.filter((worktree) => worktree.status === "ready").map((worktree) => worktree.path),
+      ),
+    ];
+    const present = await Promise.all(roots.map(async (root) => ((await isDirectory(root)) ? [root] : [])));
+    return present.flat().flatMap((root) =>
+      worktreeSkillDirs().map(({ dir, agents }) => ({
+        path: join(root, ...dir.split("/")),
+        agents,
+        root,
+        prepare: async (names: readonly string[]) => {
+          await agentFiles.hide(
+            root,
+            names.map((name) => `${dir}/${name}/`),
+          );
+          await agentFiles.makeDir(root, dir);
+        },
+      })),
+    );
+  };
   const skills = new SkillStore({
     libraryDir: join(dirname(databasePath), "skills"),
     statePath: join(dirname(databasePath), "skills.json"),
     home: userHome,
     githubToken,
     extraSkills: () => plugins.skills(),
-    ...(writeUserSettings
-      ? {
-          sync: (list, owned) =>
-            syncUserSkills(list, owned, {
-              home: userHome,
-              isInstalled: async (provider): Promise<boolean> => (await resolveAgentCli(provider)) !== undefined,
-              log: (level, message, context) => logger.record(level, message, {}, context),
-            }),
-        }
-      : {}),
+    sync: async (list, owned) => syncSkillCopies(list, owned, await skillTargets(), { log, rootOf: worktreeRootOf }),
   });
   await skills.load();
   const accounts = new AccountStore({
@@ -209,11 +235,16 @@ export async function startRuntime(options: {
     },
     mcpConfigDir,
   };
+  const writeWorktreeFile = (worktreePath: string, relPath: string, contents: string | undefined) =>
+    agentFiles.writeFile(worktreePath, relPath, contents);
   const providerService = new ProviderService(
-    createProviderRegistry(process.env, { ...(browserTool ? { browserTool } : {}), ...mcpOptions }),
+    createProviderRegistry(process.env, {
+      ...(browserTool ? { browserTool } : {}),
+      ...mcpOptions,
+      writeWorktreeFile,
+    }),
   );
-  // Started now so it overlaps server start and terminal restore; the first projection and the
-  // browser tool registration below share this run.
+  // Started now so it overlaps server start and terminal restore; the first projection shares this run.
   void providerService.discoverProviders().catch(() => undefined);
   const resolveAgentCli = async (provider: string): Promise<string | undefined> => {
     const discovery = (await providerService.discoverProviders()).find((entry) => entry.provider === provider);
@@ -222,6 +253,7 @@ export async function startRuntime(options: {
   const terminalReactor = new TerminalReactor(engine, terminalService, {
     resolveAgentCli,
     resolveAccount,
+    writeWorktreeFile,
     ...(browserTool ? { browserTool } : {}),
     ...mcpOptions,
   });
@@ -231,47 +263,81 @@ export async function startRuntime(options: {
   const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
   const legacyImportReactor = new LegacyImportReactor(engine);
   const devServerReactor = new DevServerReactor(engine, terminalService);
+  const terminalInput = new TerminalInputTracker();
+  const huddleReactor = new HuddleReactor(engine, {
+    input: terminalInput,
+    writeTerminal: (terminalId, data) => terminalService.write(TerminalId.parse(terminalId), data),
+    agentScope: () => mcpServers.agentScope(),
+  });
   const linearIssues = new LinearIssues({ keyPath: join(dirname(databasePath), "linear-key.json") });
+  const mockLimits = process.env.ZLI_TEST_PROVIDER === "mock";
+  const readLimits = planLimitReader({
+    home: userHome,
+    resolveCli: resolveAgentCli,
+    connectCodex: (command, codexHome) =>
+      CodexAppServerClient.connect({ command, ...(codexHome ? { env: { CODEX_HOME: codexHome } } : {}) }),
+  });
+  const planLimits = new PlanLimits({
+    // The usual login shows only when its CLI is installed; the harness has no real CLIs, so it shows all.
+    targets: async (): Promise<LimitTarget[]> => {
+      const usual = await Promise.all(
+        PLAN_LIMIT_PROVIDERS.map(async (provider) =>
+          mockLimits || (await resolveAgentCli(provider)) ? [{ provider, accountId: USUAL_LOGIN_ACCOUNT_ID }] : [],
+        ),
+      );
+      return [...usual.flat(), ...accounts.limitTargets()];
+    },
+    read: (target) => (mockLimits ? Promise.resolve(mockLimitRead(target)) : readLimits(target)),
+  });
   const server = new RpcServer({
     engine,
     environment,
     token,
     terminalService,
+    terminalInput,
     discoverProviders: () => providerService.discoverProviders(),
     attachmentsDir: join(dirname(databasePath), "attachments"),
     checkpoints,
     mcpServers,
-    issues: { github: new GitHubIssues(), linear: linearIssues },
+    issues: { github: new GitHubIssues(), gitlab: new GitLabIssues(), linear: linearIssues },
     skills,
     plugins,
     accounts,
+    limits: planLimits,
   });
   // Before the server accepts commands, so a setup started by a new request is never mistaken for a stale one.
   await worktreeSetup.reconcile();
   await server.start();
   await terminalReactor.restore();
   await providerReactor.reconcileOrphanedThreads();
-  // Runs in the background: discovery can take seconds and agent settings are not needed to serve the UI.
-  const browserToolRegistration: Promise<readonly UserSettingsOutcome[]> =
-    browserTool && writeUserSettings
-      ? registerBrowserToolInUserSettings(browserTool, {
-          home: userHome,
-          isInstalled: async (provider) => (await resolveAgentCli(provider)) !== undefined,
-          log: (level, message, context) => logger.record(level, message, {}, context),
-        }).catch(() => [])
-      : Promise.resolve([]);
-  // After the browser registration, which writes the same files. Picks up agents installed since the last save.
-  void browserToolRegistration.then(() => mcpServers.syncUserSettings()).catch(() => undefined);
-  // After discovery, so skills reach agents installed since the last save.
-  void providerService
-    .discoverProviders()
-    .then(() => skills.syncUserSettings())
-    .catch(() => undefined);
+  const unsubscribeWorktrees = engine.subscribe((envelope) => {
+    const event = envelope.event;
+    if (
+      (event.type === "worktree.status.changed" && event.status === "ready") ||
+      event.type === "worktree.imported" ||
+      event.type === "worktree.removed" ||
+      event.type === "worktree.archived"
+    ) {
+      void skills.syncCopies().catch(() => undefined);
+    }
+  });
+  void skills.syncCopies().catch(() => undefined);
+  // In the background: none of this is needed to serve the UI.
+  const userSettingsCleanup: Promise<void> = cleanUpUserSettings
+    ? Promise.all([
+        mcpServers.cleanUpUserSettings((owned) => removeZliFromUserSettings(owned, { home: userHome, log })),
+        skills.cleanUpUserFolders(async (owned) => (await syncSkillCopies([], owned, [], { log })).owned),
+      ]).then(
+        () => undefined,
+        () => undefined,
+      )
+    : Promise.resolve();
   return {
     database,
     engine,
     server,
     worktreeReactor,
+    huddleReactor,
     terminalService,
     terminalReactor,
     daemonSupervisor,
@@ -286,12 +352,14 @@ export async function startRuntime(options: {
     skills,
     plugins,
     accounts,
-    browserToolRegistration,
+    agentFiles,
+    userSettingsCleanup,
     token,
     close: async () => {
       signIns.close();
+      unsubscribeWorktrees();
       await server.stop();
-      await browserToolRegistration;
+      await userSettingsCleanup;
       await mcpServers.waitForIdle();
       await linearIssues.waitForIdle();
       await plugins.waitForIdle();
@@ -305,6 +373,11 @@ export async function startRuntime(options: {
       await agentMessageReactor.waitForIdle();
       await diagnosticsReactor.waitForIdle();
       await legacyImportReactor.waitForIdle();
+      await huddleReactor.waitForIdle();
+      // After the terminals and chats settle, so no launch writes a file once these are gone.
+      await skills.removeCopies().catch(() => undefined);
+      await agentFiles.removeAll().catch(() => undefined);
+      huddleReactor.stop();
       worktreeReactor.stop();
       worktreeSetup.stop();
       terminalReactor.stop();
@@ -324,14 +397,25 @@ export async function startRuntime(options: {
   };
 }
 
-async function main(): Promise<void> {
-  const browserTool = browserToolConfigFromEnv(process.env);
-  const runtime = await startRuntime({
-    databasePath: process.env.ZLI_DATABASE_PATH ?? "./.zli/runtime.sqlite",
-    ...(process.env.ZLI_RUNTIME_TOKEN ? { token: process.env.ZLI_RUNTIME_TOKEN } : {}),
+/**
+ * Reads the server's launch settings from `env` and deletes the runtime token from it. Agents, git
+ * hooks, terminals, and MCP servers inherit this environment, and with the token any of them could
+ * connect to the runtime and run its commands.
+ */
+export function takeLaunchOptions(env: NodeJS.ProcessEnv): Parameters<typeof startRuntime>[0] {
+  const token = env.ZLI_RUNTIME_TOKEN;
+  delete env.ZLI_RUNTIME_TOKEN;
+  const browserTool = browserToolConfigFromEnv(env);
+  return {
+    databasePath: env.ZLI_DATABASE_PATH ?? "./.zli/runtime.sqlite",
+    ...(token ? { token } : {}),
     ...(browserTool ? { browserTool } : {}),
-    registerInUserSettings: process.env.ZLI_BROWSER_USER_SETTINGS !== "0",
-  });
+    cleanUpUserSettings: env.ZLI_BROWSER_USER_SETTINGS !== "0",
+  };
+}
+
+async function main(): Promise<void> {
+  const runtime = await startRuntime(takeLaunchOptions(process.env));
   process.stdout.write(`${JSON.stringify({ url: runtime.server.url(), token: runtime.token })}\n`);
   let closing = false;
   const shutdown = () => {
@@ -346,6 +430,14 @@ async function main(): Promise<void> {
   if (process.env.ZLI_RUNTIME_STOP_ON_STDIN_END === "1") {
     process.stdin.once("end", shutdown);
     process.stdin.resume();
+  }
+}
+
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
   }
 }
 

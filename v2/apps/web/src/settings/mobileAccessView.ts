@@ -1,4 +1,4 @@
-import type { MobileDevice } from "@zli-v2/contracts";
+import type { PairedPhone } from "@zli-v2/contracts";
 import qrcode from "qrcode-generator";
 
 /**
@@ -49,7 +49,7 @@ function ago(iso: string, now: number): string {
 }
 
 /** The line under a phone's name in Settings. */
-export function deviceDetail(device: MobileDevice, now: number): string {
+export function deviceDetail(device: PairedPhone, now: number): string {
   const paired = `Paired ${shortDate(device.pairedAt, now)}`;
   if (device.connected) return `${paired}. Connected now.`;
   if (!device.lastSeenAt) return `${paired}.`;
@@ -57,7 +57,7 @@ export function deviceDetail(device: MobileDevice, now: number): string {
 }
 
 /** Phones in the list that were not there before, for the "paired" confirmation. */
-export function newlyPaired(before: readonly MobileDevice[], after: readonly MobileDevice[]): MobileDevice | undefined {
+export function newlyPaired(before: readonly PairedPhone[], after: readonly PairedPhone[]): PairedPhone | undefined {
   const known = new Set(before.map((device) => device.deviceId));
   return after.find((device) => !known.has(device.deviceId));
 }

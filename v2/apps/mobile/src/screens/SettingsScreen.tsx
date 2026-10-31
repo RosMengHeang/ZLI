@@ -32,7 +32,7 @@ export function SettingsScreen({ onForget }: { onForget: () => Promise<void> }) 
     }
     Alert.alert(
       `${pairing.desktopName} could not be reached`,
-      "Forget it on this phone anyway? The desktop keeps listing this phone until you revoke it in Mobile access.",
+      "Forget it on this phone anyway? The desktop keeps listing this phone until you revoke it in Phone access.",
       [
         {
           text: "Keep pairing",

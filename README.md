@@ -38,7 +38,9 @@ Download the installer for your platform from the [latest release](https://githu
 | --- | --- | --- |
 | Windows | `ZLI-<version>-win-x64.exe` | The installer is not code signed yet. If SmartScreen warns about it, choose **More info**, then **Run anyway**. |
 | macOS (Apple silicon) | `ZLI-<version>-mac-arm64.dmg` | The app is not signed or notarized yet. Right-click ZLI in Applications, choose **Open**, then confirm **Open**. |
-| Linux | `ZLI-<version>-linux-x86_64.AppImage` | Make the file executable with `chmod +x`, then run it. |
+| Linux (Debian, Ubuntu) | `ZLI-<version>-linux-amd64.deb` | Install with `sudo apt install ./ZLI-<version>-linux-amd64.deb`. This adds a menu entry and a `zli` command. |
+| Linux (Fedora, RHEL) | `ZLI-<version>-linux-x86_64.rpm` | Install with `sudo dnf install ./ZLI-<version>-linux-x86_64.rpm`. This adds a menu entry and a `zli` command. |
+| Linux (AppImage) | `ZLI-<version>-linux-x86_64.AppImage` | Make the file executable with `chmod +x`, then run it. |
 
 ZLI runs the agent CLIs you already have installed. Install and sign in to at least one of them before you start.
 
@@ -47,6 +49,7 @@ ZLI runs the agent CLIs you already have installed. Install and sign in to at le
 ZLI checks GitHub Releases a few seconds after it starts and every four hours after that.
 
 - **Windows and Linux (AppImage):** the new version downloads in the background and **Restart to update** appears in the title bar. Otherwise it installs the next time you quit. If agents are still working when you restart, ZLI asks first. To download updates only when you choose, turn off **Install updates automatically** in **Settings > Updates**.
+- **Linux (.deb and .rpm):** the new version downloads in the background and **Restart to update** appears in the title bar. When you restart, Linux asks for your password so `dpkg` or `dnf` can install the new package, then ZLI opens again. These packages install only when you choose **Restart to update**, not when you quit. If you cancel the password prompt, ZLI opens again on the version you have.
 - **macOS:** ZLI tells you when a new version is out and opens the release page, because macOS only lets signed apps update themselves.
 
 **Settings > Updates** and **Help and diagnostics** show the running version and let you check for updates by hand. After an update, ZLI shows what changed.
@@ -55,8 +58,8 @@ ZLI checks GitHub Releases a few seconds after it starts and every four hours af
 
 ### Requirements
 
-- Node.js 24
-- pnpm 10.14.0, through Corepack
+- Node.js 24.22.1 or a newer 24.x
+- pnpm 10.34.9, through Corepack
 - Git
 
 ### Setup
@@ -100,17 +103,17 @@ On Linux without a display, run them under `xvfb-run -a`.
 
 Every merge to `main` publishes a new patch release through the [Release workflow](.github/workflows/release.yml):
 
-1. Runs `pnpm audit --audit-level high` and `pnpm run verify` on Windows, macOS, and Linux, and stops if either fails.
-2. Takes the next version from the highest `vX.Y.Z` tag, tags the merge commit, and creates a draft release with generated notes.
-3. Builds the installers and update files (`latest*.yml`, `.blockmap`) on each platform, uploads them to the draft, and publishes it once every file is there.
+1. Takes the next version from the highest `vX.Y.Z` tag.
+2. Runs the pull request checks from the [ZLI V2 desktop workflow](.github/workflows/v2-desktop.yml): `pnpm audit --audit-level high`, boundaries, format, lint, and typecheck once on Linux, and the unit tests and the Electron journey on Windows, macOS, and Linux. The same jobs build the installers and update files (`latest*.yml`, `.blockmap`) with the release version, including the Linux `.deb` and `.rpm`, and the journey runs against that build. It stops if any of them fail.
+3. Tags the merge commit, creates a draft release with generated notes and the installers from step 2, and publishes it once every file is there. Only this last job can write to the repository.
 
-The `package.json` files on `main` stay at `0.0.0`. The build jobs write the release version into them.
+The `package.json` files on `main` stay at `0.0.0`. The gate's build jobs write the release version into them.
 
 - A push is not released when every changed file is Markdown or under a `docs/` folder, or when the head commit message contains `[skip release]`.
 - For a minor or major release, run the **Release** workflow from the Actions tab and pick the bump.
 - Releases run one at a time, so two quick merges never get the same version.
 
-To build installers locally without publishing, use `npm run desktop:pack`.
+To build installers locally without publishing, use `npm run desktop:pack`. On Linux that also builds the `.deb` and `.rpm`, which needs `rpmbuild` (`sudo apt install rpm` on Debian and Ubuntu).
 
 ## Architecture
 

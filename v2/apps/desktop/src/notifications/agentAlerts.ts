@@ -50,7 +50,7 @@ export function detectAgentAlerts(previous: AlertState, projection: AlertProject
   for (const thread of projection.threads) {
     const before = previous.threads.get(thread.threadId);
     if (before === undefined || before === thread.status) continue;
-    const name = agentName(thread.provider, projection.providers);
+    const name = thread.name ?? agentName(thread.provider, projection.providers);
     const sessionId = thread.sessionId ?? thread.threadId;
     if (before === "working" && thread.status === "idle") {
       alerts.push({
@@ -74,7 +74,7 @@ export function detectAgentAlerts(previous: AlertState, projection: AlertProject
     if (previous.requests.has(request.requestId)) continue;
     const thread = threadsById.get(request.threadId);
     if (!thread) continue;
-    const name = agentName(thread.provider, projection.providers);
+    const name = thread.name ?? agentName(thread.provider, projection.providers);
     alerts.push({
       key: `request:${request.requestId}`,
       kind: request.kind,
@@ -91,7 +91,7 @@ export function detectAgentAlerts(previous: AlertState, projection: AlertProject
       key: `terminal:${terminal.terminalId}:failed`,
       kind: "failed",
       sessionId: terminal.sessionId ?? terminal.terminalId,
-      title: `${terminal.title || "Agent"} stopped with an error`,
+      title: `${terminal.name ?? (terminal.title || "Agent")} stopped with an error`,
       body: clip(terminal.errorMessage) || context(branchOf(projection, terminal.worktreeId)),
     });
   }

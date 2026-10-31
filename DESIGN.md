@@ -26,7 +26,7 @@ comes from real project, process, or Git state.
   and spinners.
 - `v2/apps/web/src/ui` has the React side of those primitives: `Button`,
   `IconButton`, `Kbd`, `Tooltip`, `Dialog`, `Segmented`, `Switch`, `Badge`, `Field`,
-  `Select`, `Picker`, `ProviderMark`, `ModelMark`, `PaneHeader`, `EmptyState`, and
+  `Select`, `Picker`, `Menu`, `ProviderMark`, `ModelMark`, `PaneHeader`, `EmptyState`, and
   `LoadingState`.
 - Each feature keeps its own stylesheet next to its components, for example
   `sidebar/sidebar.css`, `sessions/tile.css`, `chat/chat.css`, and
@@ -95,19 +95,48 @@ not cover, add it to the primitives instead of styling it locally.
   right edge so the window controls never cover the search trigger.
 - The left sidebar is the home for projects, agents, and worktrees.
   Collapsing it removes it completely so the workbench gets the full width.
-  It is 256px wide, 236px under 1240px, and 216px under 1080px. Add project
-  (folder with a plus) and New agent (pen on a square) are plain rows at the
-  top, in that order; the New agent shortcut appears
-  when the row is hovered or focused. The footer
-  holds the runtime status, Usage, Settings, and Help.
-- Agent rows are single lines indented under their project, with the
-  provider mark and the title. The selected agent gets a fill, not a stripe.
+  It is 256px wide, 236px under 1240px, and 216px under 1080px. The top holds
+  Add project (folder with a plus) as a plain row, then New agent as the one
+  raised button, the window's main action; the New agent shortcut appears
+  when it is hovered or focused. Its icon is an agent tile
+  with a shell prompt and a plus breaking out of the corner, used wherever
+  New agent appears (sidebar, project row and menu, top bar, empty board,
+  command palette), so it never shares the pen on a square that New chat
+  uses. With no projects the Projects heading is gone, New agent is disabled,
+  and the sidebar says what to add. Plan limits sit above the footer on a surface-tone card
+  with no border. The footer holds the runtime status, Usage, Settings, and
+  Help.
+- A project's name folds its agents and worktrees away, with a chevron that
+  shows on hover or while folded. A folded project shows its agent count,
+  in blue or amber when an agent there is working or waiting. The project
+  row also holds Create worktree (a branch icon) and New agent here (the
+  New agent icon), both shown on hover.
+- Worktrees have no section of their own. An agent in a worktree shows the
+  branch on a second line under its title, with commits to push or pull,
+  the pull request and its checks, the setup or worktree status when it is
+  not plain Ready, and the changed file count. When that worktree failed or
+  needs setup approval, the fix (Retry, Review setup, Setup output) shows
+  under the first agent in it.
+- Worktrees no agent runs in fold into one "N worktrees without agents"
+  row under the agents. It starts folded, but still lists the worktree in
+  view and any that is being created, failed, or waiting on the person.
+  Folded projects and opened worktree rows are remembered across restarts.
+- Agent and worktree rows have no floating buttons. Each has one "..."
+  menu at its end, in the spot of its time or status, shown while the row
+  is pointed at or focused. An agent's menu has Stop agent, Copy branch
+  name, and Delete agent. A worktree's menu has its setup and retry fixes,
+  Cancel while it is being created, and Delete worktree (or Forget
+  checkout, which never touches disk), which asks once in the row. A
+  checkout stuck in Queued can still be forgotten.
+- Agent rows are indented under their project, with the provider mark and
+  the title. The selected agent gets a fill, not a stripe.
   The right side shows the status while the agent is starting, working,
   waiting, or failed; otherwise it says Background for an agent without a
-  tile, or how recently the agent was active. The branch is in the row's
-  tooltip and the tile header.
+  tile, or how recently the agent was active. The branch and worktree path
+  are also in the row's tooltip and the tile header.
 - The top bar has the breadcrumb (project, then branch in mono) on the left,
-  then icon-only panel toggles with Terminal split from Files, Browser, and
+  then icon-only panel toggles with Terminal (a shell prompt, the same icon
+  as the terminal drawer's header) split from Files, Browser, and
   Changes, then the command palette trigger. Each toggle's name is its
   accessible label and its tooltip says what it will do and shows its
   shortcut.
@@ -120,18 +149,51 @@ not cover, add it to the primitives instead of styling it locally.
   and the status, then the view switch and the window actions. The header and
   the body share one surface with no rule between them. The active tile gets
   an accent edge because that is where typing goes.
+- The first tile action is Environment (a monitor). It opens a small dark
+  popover under the button: where the agent works (Local or Worktree, with
+  the end of the path in mono), Changes with the +/− line totals (opens the
+  Changes panel), the branch (opens Branches), then one Git action. With
+  uncommitted changes that is a commit message field and Commit and push, or
+  Commit when the repository has no origin; with commits waiting it is Push;
+  otherwise it stays disabled and says why. A folder without Git shows only
+  where the agent works.
+- A chat tile also has New chat (pen on a square, Mod+Shift+O), a menu with
+  Blank chat and Start with recent context, which brings the end of the
+  current chat along as a file. The current chat stops and stays in Chat
+  history (a clock), shown once the tile has more than one chat, newest
+  first with its age and status. A stopped chat the agent can pick up again
+  keeps its composer, and the next message resumes it.
 - In chats, user messages are right-aligned bubbles,
   replies are plain text in a centered column, and the log fades out above
   the composer. Tiles under 520px use smaller gutters and 13px text.
-- The composer footer holds attach, window capture, and saved prompts, then
-  the Model and Permissions pickers. Both open a dark popover list instead of
-  a native select, whose option list follows the system's light theme. Each
-  model shows its maker's logo in the list and in the closed chip; the default or an unknown model shows a neutral chip glyph.
+- The composer footer is one row of 28px controls on the 8px radius. On the
+  left a single + button opens a menu with Attach files, Attach a window
+  (only in the desktop app), and Saved prompts, each with an icon and a
+  one-line hint, so the row is not a run of loose icons. Pasting, dropping
+  files, and typing / still work without it. A short rule then separates it
+  from the Model, Reasoning, and Permissions pickers. They are quiet chips
+  (icon, label, small chevron, no border until hovered) and open a dark
+  popover list instead of a native select, whose option list follows the
+  system's light theme. Each model shows its maker's logo in the list and in
+  the closed chip. The default model shows the agent's own mark, since that
+  agent picks it; an unknown model shows a neutral chip glyph (pins on two
+  sides, so it never reads as a gear). Reasoning shows a meter of three
+  rising bars filled up to the level, in the chip and on each option, so the
+  level reads at a glance. Attach a window uses a camera, the usual icon for
+  a screenshot. An unset model or
+  reasoning level is written in the dim text color, so a choice the person
+  made stands out. The tooltip gives the full model name.
+- In a narrow tile the row keeps every control and drops words: the
+  reasoning level under 560px, the permission label under 460px, and the
+  model name, the rule, and the context meter under 360px. Only the model
+  name truncates before that.
 - Permissions have three levels, from least to most an agent may do alone:
-  Read only (eye), Auto (shield with a check), and Full access (shield with an
-  alert). Each option carries a one-line description, and the chip stays
-  neutral because the mode is a choice, not a process state. Agents that keep
-  one mode for the whole chat show it as a static label instead.
+  Read only (a closed lock), Auto (a shield with a check), and Full access (an
+  open lock). Each option carries a one-line description. The chip stays
+  neutral because the mode is a choice, not a process state; only the Full
+  access lock takes a muted amber, wherever it appears, because the agent then
+  acts without asking. Agents that keep one mode for the whole chat show it
+  as a static chip of the same shape without the chevron.
 - Send is a split button: the arrow sends, and a narrow chevron beside it
   opens a one-item menu, Send as Best of N (Mod+Shift+Enter). That opens a
   compact dark popover anchored above the composer, not a dialog: a title
@@ -164,6 +226,9 @@ not cover, add it to the primitives instead of styling it locally.
 - The terminal drawer is its own island under the grid. It starts closed.
   Opened without a shell, it is a single row with Start terminal; once a
   shell runs it takes its remembered height.
+- The agent grid always keeps at least 320 by 160 pixels. When the window
+  is too small for a panel's or the drawer's remembered size, the panel or
+  drawer shrinks to fit, and grows back to that size when the window does.
 - Notices and the attention bar take the island shape above the workbench
   instead of running edge to edge across the window.
 - Dialog forms stack labelled sections: the label sits above its control and
@@ -193,12 +258,33 @@ not cover, add it to the primitives instead of styling it locally.
   Mod+Shift+G for Changes, and Mod+, for Settings. People can change these in
   Settings, and every key cap and tooltip shows the current binding. In the
   composer, Enter sends and Mod+Shift+Enter opens Send as Best of N.
-- Settings is one dialog with a section list on the left (New agents,
-  Projects, Worktrees, MCP servers, Shortcuts, Notifications) and a
-  fixed-height panel so switching sections does not resize it. Each section
-  is a grouped list of setting rows: the label and a short description on the
-  left, the control on the right. Switches are
-  square-cornered and neutral: on is a light track, not the accent.
+- Settings is one fixed-size dialog laid out like the window: a canvas
+  sidebar with a search field and the sections under four headings (Agents,
+  Workspace, Tools, App), and the open section on a surface island inset by
+  the gutter. The island starts with a breadcrumb (heading, then section)
+  and the close button. Search matches section names and the words people
+  use for them, Enter opens the first match, and Escape clears the field
+  before it closes Settings. Each section is titled groups of setting rows:
+  the label and a short description on the left, the control on the right.
+  Switches are square-cornered and neutral: on is a light track, not the
+  accent.
+- Settings > Mobile works like an IDE's device manager: the devices with
+  their state and Boot or Shut down, the device frame and agent switches,
+  then the Android SDK location and each tool it needs, and iPhone
+  simulator support.
+- The Mobile panel's bottom bar has three clusters: Type text and Open URL
+  on the left, the system buttons (Back, Home, Recents) centered in a well
+  like a phone's navigation bar, and Rotate, Save a screenshot, and the
+  More menu on the right. Shut down is an icon button in the toolbar, and
+  the reason for screenshots mode is a caption under the device.
+- Integrations Browse shows connectors and plugins as cards one step above
+  the island: logo, name, publisher, a two-line description, then a footer
+  with the action. Card buttons stay neutral; the accent is kept for the
+  final step. Install, Connect with a token, and a browser sign-in open the
+  card across the row in place. Install lists what the plugin adds (skills,
+  MCP servers, prompts, actions) and where it comes from before Install. A
+  sign-in shows what to do in the browser, the code when there is one, Open
+  again, and Cancel, on an accent-edged panel.
 - MCP servers are one list shared by every agent. Each row leads with its
   switch so a server can be turned off without losing its setup, and the
   command line sits under the name in mono because it is what people check.
@@ -207,11 +293,20 @@ not cover, add it to the primitives instead of styling it locally.
   accent border and a soft glow. The composer as a whole lifts to the overlay
   fill and takes the same glow while anything inside it has focus. Panel
   resize handles show an accent line on hover.
+- Stopping running work uses one control everywhere: the agent tile header,
+  the composer during a turn, and Cancel on a booting device. It is a raised
+  pill (round when it has no text) with a small square inside a ring. The
+  ring turns in the Working blue while the work runs and stays still for an
+  idle agent. Pointing at it turns it red, and after a click the ring speeds
+  up until the work has ended. Menus use the same ring-and-square icon for
+  Stop agent.
 - Dialogs trap Tab, give focus back when they close, and close on Escape or a
   click outside.
 - Pickers open above their trigger when there is room, focus the selected
   option, move with the arrow keys, Home, End, or a typed letter, and close on
   Escape, Tab, a pick, or a click outside, giving focus back to the trigger.
+  Long lists can sort options under small dim group headings; arrow keys move
+  straight across groups.
 
 ## States
 
@@ -229,7 +324,7 @@ not cover, add it to the primitives instead of styling it locally.
 ## Motion
 
 Motion is limited to hover and focus feedback, a slight press on buttons,
-resizing, chevrons, status spinners, and one entrance: dialogs and the command
+resizing, chevrons, status spinners (including the Stop ring), and one entrance: dialogs and the command
 palette fade in and rise 4px over 150ms so they read as part of the same
 window. Durations stay between 100 and 160ms. There are no decorative loops.
 With reduced motion turned on, transitions and animations are switched off,

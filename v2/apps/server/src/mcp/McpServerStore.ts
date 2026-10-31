@@ -3,7 +3,9 @@ import { dirname, join, posix, win32 } from "node:path";
 
 import {
   AgentToolAccess,
+  AgentToolScope,
   DEFAULT_AGENT_TOOL_ACCESS,
+  DEFAULT_AGENT_TOOL_SCOPE,
   isHttpServer,
   type McpHttpServerConfig,
   type McpImportResult,
@@ -11,14 +13,12 @@ import {
   type McpServerConfig,
   type McpServerHealth,
   McpServerList,
-  type McpSettingsOutcome,
   type McpSignInStart,
   type McpSignInState,
   type McpTestResult,
 } from "@zli-v2/contracts";
 
 import { isPlainObject, type McpServerSpec, writeFileAtomic, writeFileIfChanged } from "../browser-tool/browserTool.js";
-import type { UserSettingsOwnership } from "../browser-tool/userSettings.js";
 import { type ImportEnvironment, scanImportableServers } from "./importServers.js";
 import { type McpProbe, type McpProbeOptions, type McpProbeOutcome, probeMcpServer } from "./McpProbe.js";
 import type { McpSignIns } from "./signIn/McpSignIns.js";
@@ -27,12 +27,6 @@ import { freshAccessToken, markSignInExpired } from "./signIn/tokenFile.js";
 
 /** ZLI's bundled connect bridge, run with Electron's Node like the other agent tools. */
 export type ConnectTool = { command: string; script: string };
-
-/** Copies the enabled servers into agents that read MCP servers only from their own settings files. */
-export type McpUserSettingsSync = (
-  specs: readonly McpServerSpec[],
-  owned: UserSettingsOwnership,
-) => Promise<{ outcomes: McpSettingsOutcome[]; owned: Record<string, string[]> }>;
 
 /** Where an agent is about to start. Servers limited to some projects reach only agents in those projects. */
 export type McpSpecContext = { projectPath?: string };
@@ -43,8 +37,10 @@ export class McpRequestError extends Error {}
 type StoredFile = {
   version: 1;
   servers: McpServerConfig[];
+  /** Servers older versions copied into the person's own agent settings, by file, until they are removed. */
   owned: Record<string, string[]>;
   agentAccess: AgentToolAccess;
+  agentScope: AgentToolScope;
 };
 
 export type McpLaunchOptions = {
@@ -175,7 +171,7 @@ export class McpServerStore {
   private servers: McpServerConfig[] = [];
   private owned: Record<string, string[]> = {};
   private access: AgentToolAccess = DEFAULT_AGENT_TOOL_ACCESS;
-  private outcomes: McpSettingsOutcome[] = [];
+  private scope: AgentToolScope = DEFAULT_AGENT_TOOL_SCOPE;
   private problem: string | undefined;
   private queue: Promise<unknown> = Promise.resolve();
   /** The last connection test per server, by lowercase name. Kept in memory only. */
@@ -184,7 +180,8 @@ export class McpServerStore {
   constructor(
     private readonly options: {
       path: string;
-      syncUserSettings?: McpUserSettingsSync;
+      /** Called after a saved change to which agents others can reach. */
+      onAgentScopeChange?: () => void;
       /** Servers from other sources, such as plugins. `taken` holds the lowercase names of the person's own servers, which win. */
       extraServers?: (taken: ReadonlySet<string>) => McpServerConfig[];
       signIns?: McpSignIns;
@@ -216,6 +213,8 @@ export class McpServerStore {
     if (isPlainObject(parsed)) {
       const access = AgentToolAccess.safeParse(parsed.agentAccess);
       if (access.success) this.access = access.data;
+      const scope = AgentToolScope.safeParse(parsed.agentScope);
+      if (scope.success) this.scope = scope.data;
     }
     const servers = isPlainObject(parsed) ? McpServerList.safeParse(parsed.servers) : undefined;
     if (!servers?.success) {
@@ -229,7 +228,7 @@ export class McpServerStore {
 
   /**
    * Enabled servers in the form agent launches use. Servers limited to some projects are included only
-   * when `projectPath` is one of them, so without a project (agent user settings) they are left out.
+   * when `projectPath` is one of them, so without a project they are left out.
    */
   specs(context: McpSpecContext = {}): McpServerSpec[] {
     return [
@@ -274,11 +273,15 @@ export class McpServerStore {
     return this.access;
   }
 
+  agentScope(): AgentToolScope {
+    return this.scope;
+  }
+
   list(): McpListResult {
     return {
       servers: this.servers.map(copyServer),
       agentAccess: this.access,
-      userSettings: { enabled: this.options.syncUserSettings !== undefined, outcomes: [...this.outcomes] },
+      agentScope: this.scope,
       signIns: this.signInStates(),
       health: this.healthStates(),
       ...(this.problem ? { problem: this.problem } : {}),
@@ -403,7 +406,6 @@ export class McpServerStore {
       this.servers = next;
       this.problem = undefined;
       await this.writeBridgeFiles();
-      await this.sync();
       return this.list();
     });
   }
@@ -439,19 +441,40 @@ export class McpServerStore {
     });
   }
 
-  /** Picks up a change in the extra servers: rewrites their bridge files and agent settings. */
-  refresh(): Promise<void> {
+  setAgentScope(scope: AgentToolScope): Promise<McpListResult> {
     return this.serialize(async () => {
-      await this.writeBridgeFiles();
-      await this.sync();
+      const next = AgentToolScope.parse(scope);
+      const previous = this.scope;
+      this.scope = next;
+      try {
+        await this.write();
+      } catch (error) {
+        this.scope = previous;
+        throw error;
+      }
+      if (next !== previous) this.options.onAgentScopeChange?.();
+      return this.list();
     });
   }
 
-  /** Brings agent settings in line with the saved list, for example after an agent CLI was installed. */
-  syncUserSettings(): Promise<McpListResult> {
+  /** Picks up a change in the extra servers by rewriting their bridge files. */
+  refresh(): Promise<void> {
+    return this.serialize(() => this.writeBridgeFiles());
+  }
+
+  /**
+   * Hands the servers older versions copied into the person's own agent settings to `remove`, and keeps
+   * whatever it reports could not be removed.
+   */
+  cleanUpUserSettings(
+    remove: (owned: Readonly<Record<string, readonly string[]>>) => Promise<Record<string, string[]>>,
+  ): Promise<void> {
     return this.serialize(async () => {
-      await this.sync();
-      return this.list();
+      const remaining = await remove(this.owned);
+      if (sameOwned(this.owned, remaining)) return;
+      this.owned = remaining;
+      // A list that could not be read must not be replaced by an empty one.
+      if (!this.problem) await this.write().catch(() => undefined);
     });
   }
 
@@ -477,24 +500,6 @@ export class McpServerStore {
       });
     } catch {
       return [];
-    }
-  }
-
-  private async sync(): Promise<void> {
-    const sync = this.options.syncUserSettings;
-    if (!sync) return;
-    let result: Awaited<ReturnType<McpUserSettingsSync>>;
-    try {
-      // User settings apply in every project, so servers limited to some projects stay out.
-      result = await sync(this.specs(), this.owned);
-    } catch {
-      return;
-    }
-    this.outcomes = result.outcomes;
-    if (!sameOwned(this.owned, result.owned)) {
-      this.owned = result.owned;
-      // The list itself is already saved; a lost ownership record only means a later delete leaves an entry.
-      await this.write().catch(() => undefined);
     }
   }
 
@@ -538,7 +543,13 @@ export class McpServerStore {
   }
 
   private async write(servers: McpServerConfig[] = this.servers): Promise<void> {
-    const file: StoredFile = { version: 1, servers, owned: this.owned, agentAccess: this.access };
+    const file: StoredFile = {
+      version: 1,
+      servers,
+      owned: this.owned,
+      agentAccess: this.access,
+      agentScope: this.scope,
+    };
     await writeFileAtomic(this.options.path, `${JSON.stringify(file, null, 2)}\n`);
   }
 }

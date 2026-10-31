@@ -101,7 +101,7 @@ export async function registerMobileAccess(options: {
   const publish = () => {
     void status()
       .then((value) => {
-        if (!window.isDestroyed()) window.webContents.send("zli:mobile:status", value);
+        if (!window.isDestroyed()) window.webContents.send("zli:remote:status", value);
       })
       .catch(() => undefined);
   };
@@ -148,15 +148,15 @@ export async function registerMobileAccess(options: {
 
   if (store.enabled) await start();
 
-  ipcMain.handle("zli:mobile:get-status", () => status());
-  ipcMain.handle("zli:mobile:set-enabled", async (_event, input: unknown) => {
+  ipcMain.handle("zli:remote:get-status", () => status());
+  ipcMain.handle("zli:remote:set-enabled", async (_event, input: unknown) => {
     const enabled = (input as { enabled?: unknown } | null)?.enabled === true;
     await store.setEnabled(enabled);
     if (enabled) await start();
     else await stop();
     return status();
   });
-  ipcMain.handle("zli:mobile:start-pairing", async () => {
+  ipcMain.handle("zli:remote:start-pairing", async () => {
     if (!store.enabled) throw new Error("Turn on phone access first.");
     if (!gateway.listening) await start();
     if (state !== "listening") return status();
@@ -172,12 +172,12 @@ export async function registerMobileAccess(options: {
     await store.keyPair();
     return status();
   });
-  ipcMain.handle("zli:mobile:cancel-pairing", () => {
+  ipcMain.handle("zli:remote:cancel-pairing", () => {
     pairing.close();
     if (expiryTimer) clearTimeout(expiryTimer);
     return status();
   });
-  ipcMain.handle("zli:mobile:revoke", async (_event, input: unknown) => {
+  ipcMain.handle("zli:remote:revoke", async (_event, input: unknown) => {
     const deviceId = (input as { deviceId?: unknown } | null)?.deviceId;
     if (typeof deviceId !== "string" || deviceId.length === 0 || deviceId.length > 100) {
       throw new Error("Choose a phone to remove.");

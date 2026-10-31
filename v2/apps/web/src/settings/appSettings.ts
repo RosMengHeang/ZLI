@@ -1,4 +1,9 @@
-import type { ListedProviderKind, PermissionMode } from "@zli-v2/contracts";
+import {
+  type ListedProviderKind,
+  type PermissionMode,
+  PLAN_LIMIT_PROVIDERS,
+  type PlanLimitProvider,
+} from "@zli-v2/contracts";
 import { useSyncExternalStore } from "react";
 
 import type { SessionMode } from "../sessions/sessions.js";
@@ -21,17 +26,28 @@ export type LaunchDefaults = {
 export type ShortcutId =
   | "palette"
   | "newAgent"
+  | "newChat"
   | "quickOpen"
   | "searchFiles"
   | "toggleSidebar"
   | "toggleDrawer"
   | "toggleFiles"
   | "toggleBrowser"
+  | "toggleMobile"
   | "toggleChanges"
+  | "toggleHuddle"
+  | "focusProject"
   | "settings";
 
 /** Which side of the Files panel the folder tree sits on when there is room for both. */
 export type FileTreePosition = "right" | "left";
+
+/**
+ * The plan limits line in the sidebar footer. Off until the person turns it on; agents show unless
+ * switched off. `pinned` is the agent the folded line always shows; without it, the line follows the
+ * selected agent.
+ */
+export type SidebarLimits = { enabled: boolean; hidden: PlanLimitProvider[]; pinned?: PlanLimitProvider };
 
 export type AppSettings = {
   defaults: LaunchDefaults;
@@ -41,6 +57,7 @@ export type AppSettings = {
   /** Only the shortcuts the person changed. */
   shortcuts: Partial<Record<ShortcutId, string>>;
   fileTreePosition: FileTreePosition;
+  sidebarLimits: SidebarLimits;
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -49,6 +66,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   branchTemplate: DEFAULT_BRANCH_TEMPLATE,
   shortcuts: {},
   fileTreePosition: "right",
+  sidebarLimits: { enabled: false, hidden: [] },
 };
 
 const modes: readonly SessionMode[] = ["terminal", "chat"];
@@ -56,13 +74,17 @@ const permissions: readonly PermissionMode[] = ["read-only", "supervised", "full
 const shortcutIds: readonly ShortcutId[] = [
   "palette",
   "newAgent",
+  "newChat",
   "quickOpen",
   "searchFiles",
   "toggleSidebar",
   "toggleDrawer",
   "toggleFiles",
   "toggleBrowser",
+  "toggleMobile",
   "toggleChanges",
+  "toggleHuddle",
+  "focusProject",
   "settings",
 ];
 
@@ -83,6 +105,15 @@ function parseDefaults(value: unknown): LaunchDefaults {
       : {}),
     ...(model ? { model } : {}),
   };
+}
+
+function parseSidebarLimits(value: unknown): SidebarLimits {
+  if (!isRecord(value)) return { enabled: false, hidden: [] };
+  const hidden = Array.isArray(value.hidden)
+    ? PLAN_LIMIT_PROVIDERS.filter((provider) => (value.hidden as unknown[]).includes(provider))
+    : [];
+  const pinned = PLAN_LIMIT_PROVIDERS.find((provider) => provider === value.pinned);
+  return { enabled: value.enabled === true, hidden, ...(pinned ? { pinned } : {}) };
 }
 
 export function parseAppSettings(raw: string | null): AppSettings {
@@ -118,6 +149,7 @@ export function parseAppSettings(raw: string | null): AppSettings {
     branchTemplate: template,
     shortcuts,
     fileTreePosition: value.fileTreePosition === "left" ? "left" : "right",
+    sidebarLimits: parseSidebarLimits(value.sidebarLimits),
   };
 }
 

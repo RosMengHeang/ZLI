@@ -13,7 +13,7 @@ import { Icon } from "../ui/Icon.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
 
 const STEPS = [
-  "Open Settings, then Mobile access, in ZLI on your desktop.",
+  "Open Settings, then Phone access, in ZLI on your desktop.",
   "Turn on Allow phones on this network.",
   "Choose Pair a new phone, then scan the code it shows.",
 ] as const;
@@ -68,7 +68,7 @@ export function PairScreen({
   const onScanned = ({ data }: BarcodeScanningResult) => {
     if (scanned.current) return;
     if (!data.replace(/\s+/gu, "").startsWith(PAIRING_CODE_PREFIX)) {
-      setScanHint("That QR code is not a ZLI pairing code. Scan the code in the desktop's Mobile access settings.");
+      setScanHint("That QR code is not a ZLI pairing code. Scan the code in the desktop's Phone access settings.");
       return;
     }
     scanned.current = true;

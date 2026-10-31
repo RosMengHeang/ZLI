@@ -3,6 +3,7 @@ import {
   type FileListEntry,
   type FileReadResult,
   MAX_PREVIEW_FILE_BYTES,
+  type ProjectProjection,
   previewMimeType,
   type RuntimeProjection,
   type WorktreeProjection,
@@ -17,13 +18,13 @@ import { useAppSettings } from "../settings/appSettings.js";
 import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { Menu, type MenuRequest } from "../ui/Menu.js";
 import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
 import { type CodeEditorHandle, createCodeEditor, languageLabel } from "./codeEditor.js";
 import { type DiffSource, FileDiffPanel, latestTurnFor } from "./FileDiffPanel.js";
 import { useFileIndex, useFileIndexContext } from "./FileIndex.js";
 import { FileStatusMark, LineCounts } from "./FileMarks.js";
 import { FileSearchView, type SearchSettings } from "./FileSearchView.js";
-import { type ContextMenuRequest, FilesContextMenu } from "./FilesContextMenu.js";
 import { FilesDivider } from "./FilesDivider.js";
 import { FileTreeView } from "./FileTreeView.js";
 import { readFile, writeFile } from "./fileClient.js";
@@ -33,6 +34,7 @@ import { ancestorDirectories } from "./fileTree.js";
 import { FILE_VIEW_MODES, type FileViewMode, previewKind } from "./fileViewModes.js";
 import { ImagePreview } from "./ImagePreview.js";
 import type { PreviewHandle } from "./MarkdownPreview.js";
+import { OpenInButton } from "./OpenInButton.js";
 
 const MarkdownPreview = lazy(() =>
   import("./MarkdownPreview.js").then((module) => ({ default: module.MarkdownPreview })),
@@ -101,6 +103,8 @@ export function FilesPane({
   worktree,
   focus,
   askAgent,
+  projects = [],
+  onOpenProject,
   onOpenDiff,
   onQuickOpen,
 }: {
@@ -108,22 +112,44 @@ export function FilesPane({
   focus?: FilesFocus | undefined;
   /** Absent when no agent chat in this worktree can take a reference. */
   askAgent?: AskAgentTarget | undefined;
+  /** Offered when there is no worktree to show, such as a folder that was just added. */
+  projects?: readonly ProjectProjection[] | undefined;
+  /** Shows the project's own folder, adding it as the project's checkout when needed. */
+  onOpenProject?: ((projectId: string) => Promise<void>) | undefined;
   onOpenDiff(path: string): void;
   onQuickOpen(): void;
 }) {
   if (worktree?.status !== "ready") {
+    const project = worktree ? projects.find((entry) => entry.projectId === worktree.projectId) : undefined;
+    const offered = worktree ? (project && worktree.kind !== "checkout" ? [project] : []) : projects;
     return (
       <div className="tool-pane files-pane">
         <PaneHeader icon="folderTree" title="Files" detail={worktree?.branch} />
         <EmptyState
           icon="folderTree"
-          title={worktree ? "The worktree is not ready yet" : "Select a worktree"}
-          detail={
-            worktree
-              ? "Files appear once Git finishes preparing the folder."
-              : "Files are shown for the worktree of the focused agent."
+          title={
+            !worktree
+              ? offered.length > 0
+                ? "Pick a project folder"
+                : "Select a worktree"
+              : worktree.status === "failed"
+                ? "The worktree could not be prepared"
+                : "The worktree is not ready yet"
           }
-        />
+          detail={
+            !worktree
+              ? offered.length > 0
+                ? "No agent is focused. Pick a project to browse its folder."
+                : "Files are shown for the worktree of the focused agent."
+              : worktree.status === "failed"
+                ? (worktree.errorMessage ?? "Retry or remove it from the sidebar.")
+                : "Files appear once Git finishes preparing the folder."
+          }
+        >
+          {onOpenProject && offered.length > 0 ? (
+            <ProjectFolderButtons projects={offered} worktree={worktree} onOpenProject={onOpenProject} />
+          ) : null}
+        </EmptyState>
       </div>
     );
   }
@@ -136,6 +162,38 @@ export function FilesPane({
       onOpenDiff={onOpenDiff}
       onQuickOpen={onQuickOpen}
     />
+  );
+}
+
+/** One button per project that shows its folder in the file list. */
+function ProjectFolderButtons({
+  projects,
+  worktree,
+  onOpenProject,
+}: {
+  projects: readonly ProjectProjection[];
+  worktree: WorktreeProjection | undefined;
+  onOpenProject(projectId: string): Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="files-project-list">
+      {projects.slice(0, 6).map((project, index) => (
+        <Button
+          key={project.projectId}
+          variant={index === 0 ? "primary" : "secondary"}
+          size="sm"
+          icon="folderOpen"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void onOpenProject(project.projectId).finally(() => setBusy(false));
+          }}
+        >
+          {worktree ? `Show ${project.name} folder instead` : `Show ${project.name}`}
+        </Button>
+      ))}
+    </div>
   );
 }
 
@@ -169,8 +227,9 @@ function FilesWorkspace({
   /** The open file whose diff is showing in place of its contents. */
   const [diffPath, setDiffPath] = useState<string>();
   const checkpoints = useRuntimeSelector(selectCheckpoints);
-  const [menu, setMenu] = useState<ContextMenuRequest>();
+  const [menu, setMenu] = useState<MenuRequest>();
   const closeMenu = useCallback(() => setMenu(undefined), []);
+  const [openInError, setOpenInError] = useState<string>();
   const askAgentRef = useRef(askAgent);
   askAgentRef.current = askAgent;
   /** Whether the editor of the active file is on screen, so its selection is what the person sees. */
@@ -911,6 +970,7 @@ function FilesWorkspace({
   return (
     <div className="tool-pane files-pane" ref={rootRef}>
       <PaneHeader icon="folderTree" title="Files" detail={worktree.branch}>
+        <OpenInButton worktreeId={worktreeId} onError={setOpenInError} />
         <IconButton icon="search" size="sm" label="Go to file" shortcut={quickOpenShortcut} onClick={onQuickOpen} />
         <IconButton
           icon="reload"
@@ -930,7 +990,14 @@ function FilesWorkspace({
           onClick={toggleTree}
         />
       </PaneHeader>
-      {menu ? <FilesContextMenu request={menu} onClose={closeMenu} /> : null}
+      {menu ? <Menu request={menu} onClose={closeMenu} /> : null}
+      {openInError ? (
+        <FileBanner
+          tone="danger"
+          message={openInError}
+          actions={[{ label: "Dismiss", run: () => setOpenInError(undefined) }]}
+        />
+      ) : null}
       <div className={`files-body${wide ? " is-split" : ""}${treeOnRight ? " is-tree-right" : ""}`}>
         {treeOnRight ? (
           <>

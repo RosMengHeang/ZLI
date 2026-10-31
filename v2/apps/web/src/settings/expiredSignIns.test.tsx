@@ -31,7 +31,6 @@ describe("expired sign-ins", () => {
         { name: "vercel", enabled: true, transport: "http", url: "https://mcp.vercel.com", headers: {}, oauth: true },
       ],
       agentAccess: "full",
-      userSettings: { enabled: true, outcomes: [] },
       signIns: [
         { name: "work-linear", url: "https://mcp.linear.app/mcp", signedIn: false, expired: true },
         { name: "vercel", url: "https://mcp.vercel.com", signedIn: false },
@@ -72,7 +71,6 @@ describe("ExpiredSignInNotice", () => {
             result: McpListResult.parse({
               servers: [],
               agentAccess: "full",
-              userSettings: { enabled: true, outcomes: [] },
               signIns: [{ name: "linear", url: "https://mcp.linear.app/mcp", signedIn: false, expired }],
             }),
           };

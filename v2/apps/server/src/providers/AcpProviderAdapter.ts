@@ -1,4 +1,10 @@
-import { isImageMimeType, type ProviderCapabilities, type ProviderKind, type ThreadId } from "@zli-v2/contracts";
+import {
+  isImageMimeType,
+  type ProviderCapabilities,
+  type ProviderKind,
+  ReasoningEffort,
+  type ThreadId,
+} from "@zli-v2/contracts";
 import { AcpClient, AcpProviderError, type AcpProviderEvent, type AcpToolUpdate } from "@zli-v2/provider-acp";
 
 import {
@@ -8,6 +14,7 @@ import {
   type McpServerSource,
   zliMcpServerSpecs,
 } from "../browser-tool/browserTool.js";
+import { agentFolderTrust } from "../terminal/agentTrust.js";
 import { approvalAllowed } from "./ClaudeCodeProviderAdapter.js";
 import type {
   ProviderAdapter,
@@ -37,8 +44,12 @@ export type AcpProviderConfig = {
 type AcpSessionClient = Pick<
   AcpClient,
   "sendTurn" | "interruptTurn" | "respondToPermission" | "transcript" | "subscribe" | "close"
+> &
+  Partial<Pick<AcpClient, "reasoningEfforts" | "agentSessionId">>;
+type ClientStart = Pick<
+  ProviderSessionStart,
+  "cwd" | "permissionMode" | "model" | "worktreeId" | "account" | "resumeSessionId" | "trustedProjectPath"
 >;
-type ClientStart = Pick<ProviderSessionStart, "cwd" | "permissionMode" | "model" | "worktreeId" | "account">;
 
 const MAX_TITLE = 500;
 const GENERIC_TITLES = new Set(["Read file", "Edit files", "Search", "List files", "Tool call"]);
@@ -68,9 +79,16 @@ export class AcpProviderAdapter implements ProviderAdapter {
     this.provider = config.provider;
     this.createClient =
       options.createClient ??
-      (async ({ worktreeId, account, ...input }) => {
+      (async ({ worktreeId, account, trustedProjectPath, ...input }) => {
         const browserTool = config.browserTool;
-        const env = { ...(browserTool ? agentEnv(browserTool, worktreeId) : {}), ...account?.env };
+        const trust = trustedProjectPath
+          ? await agentFolderTrust(config.provider, {
+              projectPath: trustedProjectPath,
+              cwd: input.cwd,
+              env: { ...process.env, ...account?.env },
+            })
+          : undefined;
+        const env = { ...(browserTool ? agentEnv(browserTool, worktreeId) : {}), ...trust?.env, ...account?.env };
         const specs = [
           ...(browserTool ? zliMcpServerSpecs(browserTool, worktreeId) : []),
           ...((await config.mcpServers?.(worktreeId ? { worktreeId } : {})) ?? []),
@@ -78,7 +96,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
         return AcpClient.start({
           ...input,
           command: await config.resolveCommand(),
-          args: config.acpArgs,
+          args: [...config.acpArgs, ...(trust?.args ?? [])],
           displayName: config.displayName,
           authHint: config.authHint,
           ...(Object.keys(env).length > 0 ? { env } : {}),
@@ -94,12 +112,21 @@ export class AcpProviderAdapter implements ProviderAdapter {
       ...(input.model ? { model: input.model } : {}),
       ...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
       ...(input.account ? { account: input.account } : {}),
+      ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
+      ...(input.trustedProjectPath ? { trustedProjectPath: input.trustedProjectPath } : {}),
     });
+    // Agents name their own levels; only ones the runtime can carry and pass back are offered.
+    const reasoningEfforts = (client.reasoningEfforts ?? [])
+      .filter((level) => ReasoningEffort.safeParse(level).success)
+      .slice(0, 20);
+    const providerSessionId = client.agentSessionId;
     const session: ProviderSession = {
       threadId: input.threadId,
       provider: this.provider,
       cwd: input.cwd,
       status: "idle",
+      ...(reasoningEfforts.length > 0 ? { reasoningEfforts } : {}),
+      ...(providerSessionId ? { providerSessionId } : {}),
     };
     const unsubscribe = client.subscribe((event) => this.onAcpEvent(input.threadId, input.cwd, event));
     this.sessions.set(input.threadId, { session, client, unsubscribe });
@@ -114,6 +141,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
     const result = await context.client.sendTurn({
       text: input.text,
       ...(input.model ? { model: input.model } : {}),
+      ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
     });
     return { turnId: result.providerTurnId };

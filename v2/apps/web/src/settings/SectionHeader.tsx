@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useId } from "react";
 
 export function SectionHeader({ title, children }: { title: string; children?: ReactNode }) {
   return (
@@ -49,5 +49,35 @@ export function SettingRow({
       </div>
       <div className="setting-control">{children}</div>
     </div>
+  );
+}
+
+/** A titled block of setting rows, the way IDE settings pages split one page into groups. */
+export function SettingGroup({
+  title,
+  description,
+  actions,
+  className,
+  children,
+}: {
+  title: string;
+  description?: ReactNode;
+  /** Controls for the whole group, shown at the right of its title. */
+  actions?: ReactNode;
+  className?: string | undefined;
+  children: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <section className={`settings-group${className ? ` ${className}` : ""}`} aria-labelledby={id}>
+      <div className="settings-group-head">
+        <h4 id={id} className="settings-group-title">
+          {title}
+        </h4>
+        {actions ? <div className="settings-group-actions">{actions}</div> : null}
+      </div>
+      {description ? <p className="settings-group-note">{description}</p> : null}
+      <div className="setting-list">{children}</div>
+    </section>
   );
 }

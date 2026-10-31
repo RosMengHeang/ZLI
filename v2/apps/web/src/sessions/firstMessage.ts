@@ -10,10 +10,12 @@ export type FirstMessageStep =
   | { kind: "terminal"; terminalId: string };
 
 /** What to do with a first message that is waiting for its session's agent to be ready for input. */
-export function firstMessageStep(session: AgentSession | undefined): FirstMessageStep {
+export function firstMessageStep(session: AgentSession | undefined, after: readonly string[] = []): FirstMessageStep {
   if (!session) return { kind: "wait" };
   if (session.pending?.errorMessage) return { kind: "drop" };
   const thread = session.thread;
+  // A new chat in a session that had others: the old chat is still the one shown until the new one exists.
+  if (thread && after.includes(thread.threadId)) return { kind: "wait" };
   if (thread) {
     if (thread.status === "idle") return { kind: "chat", threadId: thread.threadId };
     if (thread.status === "stopped" || thread.status === "failed") return { kind: "drop" };

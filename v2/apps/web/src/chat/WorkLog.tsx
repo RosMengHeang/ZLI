@@ -2,6 +2,7 @@ import type { ThreadActivityProjection } from "@zli-v2/contracts";
 import { useState } from "react";
 
 import { Button } from "../ui/Button.js";
+import { Collapse } from "../ui/Collapse.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 
 type Activity = ThreadActivityProjection;
@@ -68,26 +69,6 @@ export function baseName(path: string): string {
   return normalized.slice(normalized.lastIndexOf("/") + 1) || normalized;
 }
 
-/** What the agent is doing right now, in a few words, for the line under the chat. */
-export function liveStepLabel(entry: Activity): string {
-  const file = entry.files?.[0] ? baseName(entry.files[0]) : undefined;
-  switch (entry.kind) {
-    case "file-read":
-      return file ? `Reading ${file}` : "Reading files";
-    case "file-edit":
-      return file ? `Editing ${file}` : "Editing files";
-    case "command":
-      // A title that already describes the command reads fine on its own.
-      return entry.command ? entry.title : `Running ${entry.title}`;
-    case "search":
-      return entry.title.replace(/^Search\b/u, "Searching for").replace(/^List\b/u, "Listing");
-    case "web":
-      return entry.title.replace(/^Fetch\b/u, "Opening").replace(/^Web search\b/u, "Searching the web for");
-    default:
-      return entry.title;
-  }
-}
-
 /** Seconds as "8s", "1m 05s", or "1h 02m". */
 export function elapsedLabel(milliseconds: number): string {
   const seconds = Math.max(0, Math.floor(milliseconds / 1_000));
@@ -104,7 +85,8 @@ function rowStatus(entries: readonly Activity[]): Activity["status"] {
 }
 
 function StepStatus({ status }: { status: Activity["status"] }) {
-  if (status === "running") return <span className="spinner step-spinner" role="img" aria-label="Running" />;
+  // A running step shows it through the shimmer on its text; this keeps the state readable aloud.
+  if (status === "running") return <span className="sr-only" role="img" aria-label="Running" />;
   if (status === "failed") {
     return (
       <span className="step-failed">
@@ -162,22 +144,27 @@ export function WorkSteps({
                   onClick={() => toggle(row.key)}
                   title={row.entries.map((entry) => entry.title).join("\n")}
                 >
-                  <span className="step-verb">{status === "running" ? "Exploring" : "Explored"}</span>{" "}
+                  <Icon name="search" size={13} className="step-icon" />
+                  <span className={`step-verb${status === "running" ? " shimmer-text" : ""}`}>
+                    {status === "running" ? "Exploring" : "Explored"}
+                  </span>{" "}
                   <span className="step-muted">{exploreCounts(row.entries)}</span>
                   <Icon name="chevronRight" size={11} className="step-chevron" />
                   <StepStatus status={status} />
                 </button>
-                {expanded ? (
+                <Collapse open={expanded}>
                   <ol className="step-children">
                     {row.entries.map((entry) => (
                       <li className={`step-child is-${entry.status}`} key={entry.activityId} title={entry.title}>
                         <Icon name={kindIcon[entry.kind]} size={12} />
-                        <span className="step-child-title">{entry.title}</span>
+                        <span className={`step-child-title${entry.status === "running" ? " shimmer-text" : ""}`}>
+                          {entry.title}
+                        </span>
                         <StepStatus status={entry.status} />
                       </li>
                     ))}
                   </ol>
-                ) : null}
+                </Collapse>
               </li>
             );
           }
@@ -185,6 +172,7 @@ export function WorkSteps({
           if (entry.kind === "file-edit") return <EditStep key={row.key} entry={entry} onOpenFile={onOpenFile} />;
           const detail = entry.command ? [`$ ${entry.command}`, entry.detail].filter(Boolean).join("\n") : entry.detail;
           const mono = entry.kind === "command" && !entry.command;
+          const running = entry.status === "running";
           return (
             <li className={`step is-${entry.kind} is-${entry.status}`} key={row.key}>
               <button
@@ -196,11 +184,17 @@ export function WorkSteps({
                 title={entry.command ?? entry.title}
               >
                 <Icon name={kindIcon[entry.kind]} size={13} className="step-icon" />
-                <span className={`step-title${mono ? " is-mono" : ""}`}>{entry.title}</span>
+                <span className={`step-title${mono ? " is-mono" : ""}${running ? " shimmer-text" : ""}`}>
+                  {entry.title}
+                </span>
                 {detail ? <Icon name="chevronRight" size={11} className="step-chevron" /> : null}
                 <StepStatus status={entry.status} />
               </button>
-              {expanded && detail ? <pre className="step-detail">{detail}</pre> : null}
+              {detail ? (
+                <Collapse open={expanded}>
+                  <pre className="step-detail">{detail}</pre>
+                </Collapse>
+              ) : null}
             </li>
           );
         })}
@@ -211,38 +205,49 @@ export function WorkSteps({
 
 function EditStep({ entry, onOpenFile }: { entry: Activity; onOpenFile?: ((path: string) => void) | undefined }) {
   const total = lineTotal(entry);
-  const verb = entry.status === "running" ? "Editing" : "Edit";
+  const running = entry.status === "running";
   const files = entry.files ?? [];
   const [first] = files;
+  const content = (
+    <>
+      <Icon name="pencil" size={13} className="step-icon" />
+      <span className={`step-verb${running ? " shimmer-text" : ""}`}>
+        {running ? "Editing" : "Edit"}
+        {total ? ` ${plural(total, "line", "lines")}` : ""}
+      </span>{" "}
+      {first ? (
+        <span className="step-file">
+          <span className="step-file-name">{baseName(first)}</span>
+          {entry.lines ? <LineCounts lines={entry.lines} /> : null}
+        </span>
+      ) : (
+        <span className="step-title">{entry.title}</span>
+      )}
+      {files.length > 1 ? <span className="step-muted">and {files.length - 1} more</span> : null}
+      {first && onOpenFile ? <Icon name="arrowRight" size={11} className="step-chevron" /> : null}
+      <StepStatus status={entry.status} />
+    </>
+  );
   return (
     <li className={`step is-file-edit is-${entry.status}`}>
-      <div className="step-row is-static" title={files.join("\n") || entry.title}>
-        <Icon name="pencil" size={13} className="step-icon" />
-        <span className="step-verb">
-          {verb}
-          {total ? ` ${plural(total, "line", "lines")}` : ""}
-        </span>{" "}
-        {first ? (
-          <button
-            className="step-file"
-            type="button"
-            disabled={!onOpenFile}
-            onClick={() => onOpenFile?.(first)}
-            aria-label={`Open ${first}`}
-          >
-            <span className="step-file-name">{baseName(first)}</span>
-            {entry.lines ? <LineCounts lines={entry.lines} /> : null}
-          </button>
-        ) : (
-          <span className="step-title">{entry.title}</span>
-        )}
-        {files.length > 1 ? <span className="step-muted">and {files.length - 1} more</span> : null}
-        <StepStatus status={entry.status} />
-      </div>
+      {first && onOpenFile ? (
+        <button
+          className="step-row"
+          type="button"
+          aria-label={`Open ${first}`}
+          title={files.join("\n")}
+          onClick={() => onOpenFile(first)}
+        >
+          {content}
+        </button>
+      ) : (
+        <div className="step-row is-static" title={files.join("\n") || entry.title}>
+          {content}
+        </div>
+      )}
     </li>
   );
 }
-
 export function ChangedFiles({ files, onOpenDiff }: { files: readonly string[]; onOpenDiff(path?: string): void }) {
   return (
     <section className="changed-files" aria-label="Changed files">

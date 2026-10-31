@@ -1,10 +1,12 @@
-import type {
-  PermissionMode,
-  RuntimeProjection,
-  TerminalProjection,
-  ThreadActivityProjection,
-  ThreadMessageProjection,
-  ThreadProjection,
+import {
+  AgentName,
+  agentNameTaken,
+  type PermissionMode,
+  type RuntimeProjection,
+  type TerminalProjection,
+  type ThreadActivityProjection,
+  type ThreadMessageProjection,
+  type ThreadProjection,
 } from "@zli-v2/contracts";
 
 import { providerDisplayName } from "../agent/providers.js";
@@ -25,6 +27,7 @@ export type PendingLaunch = {
   model?: string;
   permissionMode?: PermissionMode;
   accountId?: string;
+  name?: string;
   shareWorktree?: boolean;
   createdAt: string;
   errorMessage?: string;
@@ -44,8 +47,10 @@ export type AgentSession = {
   provider: string;
   /** Latest agent CLI terminal for this session. */
   terminal?: TerminalProjection;
-  /** Latest structured chat thread for this session. */
+  /** The chat shown for this session: the one picked from its history, or else the latest. */
   thread?: ThreadProjection;
+  /** Every chat this session has had, oldest first. */
+  threads?: readonly ThreadProjection[];
   pending?: PendingLaunch;
   createdAt?: string;
   updatedAt?: string;
@@ -57,7 +62,11 @@ export type AgentSession = {
   mode: SessionMode;
 };
 
-type Builder = Omit<AgentSession, "status" | "mode"> & { order: number; lastKind?: SessionMode };
+type Builder = Omit<AgentSession, "status" | "mode" | "threads"> & {
+  order: number;
+  lastKind?: SessionMode;
+  threads?: ThreadProjection[];
+};
 
 /**
  * Agent terminals and chat threads that share a sessionId are one session.
@@ -66,6 +75,8 @@ type Builder = Omit<AgentSession, "status" | "mode"> & { order: number; lastKind
 export function deriveSessions(
   projection: Pick<RuntimeProjection, "terminals" | "threads">,
   pending: readonly PendingLaunch[] = [],
+  /** The chat picked from each session's history, by session id. */
+  chosenChats: Readonly<Record<string, string>> = {},
 ): AgentSession[] {
   const sessions = new Map<string, Builder>();
   let order = 0;
@@ -86,7 +97,7 @@ export function deriveSessions(
   }
   for (const thread of projection.threads) {
     const entry = touch(thread.sessionId ?? thread.threadId, thread.worktreeId, thread.provider);
-    entry.thread = thread;
+    entry.threads = [...(entry.threads ?? []), thread];
     if (!entry.lastKind || !entry.terminal || isLater(thread.createdAt, entry.terminal.createdAt)) {
       entry.lastKind = "chat";
     }
@@ -99,6 +110,11 @@ export function deriveSessions(
     entry.lastKind = launch.mode;
     mergeTimes(entry, launch.createdAt, launch.createdAt);
   }
+  for (const entry of sessions.values()) {
+    const chosen = chosenChats[entry.sessionId];
+    const thread = entry.threads?.find((candidate) => candidate.threadId === chosen) ?? entry.threads?.at(-1);
+    if (thread) entry.thread = thread;
+  }
   return [...sessions.values()]
     .sort((left, right) => left.order - right.order)
     .map(({ order: _order, lastKind, ...session }) => ({
@@ -107,6 +123,43 @@ export function deriveSessions(
       mode: lastKind ?? "chat",
     }));
 }
+
+export type SessionChat = {
+  threadId: string;
+  title: string;
+  updatedAt?: string | undefined;
+  status: ThreadProjection["status"];
+  current: boolean;
+};
+
+/** A session's chats for its history menu, newest first. A chat with nothing said in it yet is a New chat. */
+export function sessionChats(
+  session: Pick<AgentSession, "thread" | "threads" | "provider">,
+  messages: readonly ThreadMessageProjection[] | undefined,
+  providers: RuntimeProjection["providers"],
+): SessionChat[] {
+  const said = new Set(
+    (messages ?? []).filter((message) => message.role === "user" && message.text.trim()).map((m) => m.threadId),
+  );
+  return [...(session.threads ?? [])].reverse().map((thread) => ({
+    threadId: thread.threadId,
+    title: said.has(thread.threadId)
+      ? sessionTitle({ thread, provider: session.provider }, messages, providers)
+      : "New chat",
+    updatedAt: thread.updatedAt ?? thread.createdAt,
+    status: thread.status,
+    current: thread.threadId === session.thread?.threadId,
+  }));
+}
+
+export const chatStatusLabel: Record<ThreadProjection["status"], string> = {
+  starting: "Starting",
+  idle: "Ready",
+  working: "Working",
+  waiting: "Needs input",
+  stopped: "Stopped",
+  failed: "Failed",
+};
 
 function mergeTimes(entry: Builder, createdAt: string | undefined, updatedAt: string | undefined): void {
   if (createdAt && (!entry.createdAt || createdAt < entry.createdAt)) entry.createdAt = createdAt;
@@ -151,6 +204,87 @@ export function sessionStopCommands(
   return commands;
 }
 
+type NamedSession = Pick<AgentSession, "mode" | "terminal" | "thread">;
+
+/** The terminal or chat that holds the session's name: the one its tile shows. */
+function namedRecord(session: NamedSession): { id: string; name: string | undefined } | undefined {
+  if (session.mode === "terminal") {
+    return session.terminal ? { id: session.terminal.terminalId, name: session.terminal.name } : undefined;
+  }
+  return session.thread ? { id: session.thread.threadId, name: session.thread.name } : undefined;
+}
+
+/** The name the person gave the session's agent, if any. */
+export function sessionAgentName(session: NamedSession & Pick<AgentSession, "pending">): string | undefined {
+  const record = namedRecord(session);
+  return record ? record.name : session.pending?.name;
+}
+
+/** The id of the agent that started this one with zli start, if an agent did. */
+export function sessionStartedBy(session: Pick<AgentSession, "terminal" | "thread" | "threads">): string | undefined {
+  return (
+    session.threads?.find((thread) => thread.startedBy)?.startedBy ??
+    session.thread?.startedBy ??
+    session.terminal?.startedBy
+  );
+}
+
+/**
+ * The session each sub-agent's starter lives in, by sub-agent session id. A starter that is gone
+ * leaves its sub-agents out of the map.
+ */
+export function sessionParents(sessions: readonly AgentSession[]): Map<string, AgentSession> {
+  const byAgentId = new Map<string, AgentSession>();
+  for (const session of sessions) {
+    for (const thread of session.threads ?? (session.thread ? [session.thread] : [])) {
+      byAgentId.set(thread.threadId, session);
+    }
+    if (session.terminal) byAgentId.set(session.terminal.terminalId, session);
+  }
+  const parents = new Map<string, AgentSession>();
+  for (const session of sessions) {
+    const startedBy = sessionStartedBy(session);
+    const parent = startedBy ? byAgentId.get(startedBy) : undefined;
+    if (parent && parent.sessionId !== session.sessionId) parents.set(session.sessionId, parent);
+  }
+  return parents;
+}
+
+/** The command that sets or clears the agent's name. Undefined while the agent has not started. */
+export function sessionRenameCommand(
+  session: NamedSession,
+  name: string | null,
+):
+  | { type: "terminal.rename"; terminalId: string; name: string | null }
+  | { type: "thread.rename"; threadId: string; name: string | null }
+  | undefined {
+  const record = namedRecord(session);
+  if (!record) return undefined;
+  return session.mode === "terminal"
+    ? { type: "terminal.rename", terminalId: record.id, name }
+    : { type: "thread.rename", threadId: record.id, name };
+}
+
+/**
+ * Why a typed name can't be used, or undefined when it can. An empty name means no name.
+ * `session` is the agent being renamed, which may keep its own name.
+ */
+export function agentNameProblem(
+  projection: Pick<RuntimeProjection, "worktrees" | "threads" | "terminals">,
+  projectId: string | undefined,
+  name: string,
+  session?: NamedSession,
+): string | undefined {
+  if (!name.trim()) return undefined;
+  const parsed = AgentName.safeParse(name);
+  if (!parsed.success) return parsed.error.issues[0]?.message ?? "This name can't be used.";
+  const exceptId = session ? namedRecord(session)?.id : undefined;
+  if (projectId && agentNameTaken(projection, { projectId, name: parsed.data, ...(exceptId ? { exceptId } : {}) })) {
+    return `Another agent in this project is already called ${parsed.data}.`;
+  }
+  return undefined;
+}
+
 export const sessionStatusLabel: Record<SessionStatus, string> = {
   preparing: "Preparing",
   starting: "Starting",
@@ -171,7 +305,13 @@ export function sessionTitle(
     ? messages?.find((message) => message.threadId === threadId && message.role === "user" && message.text.trim())
     : undefined;
   if (first) {
-    const line = first.text.trim().split(/\r?\n/u)[0] ?? "";
+    const lines = first.text.trim().split(/\r?\n/u);
+    // A sub-agent's first message opens with a line on who started it, and a huddle message with a
+    // line on who wrote it; the task or message itself follows.
+    const heading =
+      (session.thread?.startedBy && lines[0]?.startsWith("Task from ")) || lines[0]?.startsWith('Huddle "');
+    const task = heading ? lines.slice(1).find((entry) => entry.trim()) : undefined;
+    const line = (task ?? lines[0] ?? "").trim();
     return line.length > 72 ? `${line.slice(0, 71)}…` : line;
   }
   return providerDisplayName(session.provider, providers);
@@ -329,9 +469,12 @@ const GRID_GAP = 8;
 /**
  * Columns for n tiles in a grid `width` pixels wide. Tiles that would fall under the minimum width
  * stack into more rows instead, so opening a side panel does not squeeze every agent into a sliver.
+ * When the tiles do not fill the last row, the first `tall` tiles span two rows so no cell is left
+ * empty: three tiles become one tall tile beside two stacked ones.
  */
-export function gridLayout(count: number, width: number | undefined): { columns: number; rows: number } {
+export function gridLayout(count: number, width: number | undefined): { columns: number; rows: number; tall: number } {
   const fit = width ? Math.max(1, Math.floor((width + GRID_GAP) / (MIN_TILE_WIDTH + GRID_GAP))) : Infinity;
   const columns = Math.max(1, Math.min(gridColumns(count), fit));
-  return { columns, rows: Math.max(1, Math.ceil(count / columns)) };
+  const rows = Math.max(1, Math.ceil(count / columns));
+  return { columns, rows, tall: rows > 1 ? columns * rows - count : 0 };
 }

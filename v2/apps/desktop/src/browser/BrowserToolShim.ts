@@ -10,6 +10,8 @@ export type BrowserToolPaths = {
   readonly script: string;
   /** The bundled zli.js agent tool script. */
   readonly agentScript: string;
+  /** The bundled zli-mobile.js mobile device tool script. */
+  readonly mobileScript?: string;
   /** The bundled zli-connect.js MCP sign-in bridge script. */
   readonly connectScript: string;
   readonly shimDir: string;
@@ -22,18 +24,20 @@ export function browserToolEnvironment(paths: BrowserToolPaths): Record<string, 
     ZLI_BROWSER_TOOL_COMMAND: paths.command,
     ZLI_BROWSER_TOOL_SCRIPT: paths.script,
     ZLI_AGENT_TOOL_SCRIPT: paths.agentScript,
+    ...(paths.mobileScript ? { ZLI_MOBILE_TOOL_SCRIPT: paths.mobileScript } : {}),
     ZLI_CONNECT_TOOL_SCRIPT: paths.connectScript,
     ZLI_BROWSER_SHIM_DIR: paths.shimDir,
   };
 }
 
 export function browserToolShims(
-  paths: Pick<BrowserToolPaths, "command" | "script" | "agentScript">,
+  paths: Pick<BrowserToolPaths, "command" | "script" | "agentScript" | "mobileScript">,
   platform: NodeJS.Platform = process.platform,
 ): Array<{ name: string; content: string; executable: boolean }> {
   return [
     ...toolShims("zli-browser", paths.command, paths.script, platform),
     ...toolShims("zli", paths.command, paths.agentScript, platform),
+    ...(paths.mobileScript ? toolShims("zli-mobile", paths.command, paths.mobileScript, platform) : []),
   ];
 }
 

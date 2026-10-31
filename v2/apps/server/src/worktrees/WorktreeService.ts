@@ -4,6 +4,9 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { type GitProcess, GitProcessError } from "../git/GitProcess.js";
 import { applyWorktreeInclude, type WorktreeIncludeReport } from "./WorktreeInclude.js";
 
+export const NOT_GIT_WORKTREE_MESSAGE =
+  "This folder is not a Git repository, so it cannot have worktrees. Start the agent in the current checkout, or run git init in the folder first.";
+
 export type WorktreeState =
   | "queued"
   | "fetching"
@@ -61,7 +64,8 @@ export class WorktreeError extends Error {
       | "cancelled"
       | "cleanup_failed"
       | "git_locked"
-      | "git_checkout_blocked",
+      | "git_checkout_blocked"
+      | "not_git_repository",
     message: string,
     options?: ErrorOptions,
   ) {
@@ -110,7 +114,16 @@ export class WorktreeService {
     const args = ["worktree", "remove"];
     if (request.force) args.push("--force");
     args.push(worktreePath);
-    await this.git.run(args, { cwd: repoPath });
+    try {
+      await this.git.run(args, { cwd: repoPath });
+    } catch (error) {
+      if (!(error instanceof GitProcessError)) throw error;
+      // Git has no worktree to remove here: the folder is not a repository, creation never finished, or the
+      // folder is gone. The record can go; files git does not know about stay on disk.
+      if (isNotGitRepository(error)) return { removed: true, branchDeleted: false };
+      if (!isUnknownWorktree(error) && (await pathExists(worktreePath))) throw error;
+      await this.git.run(["worktree", "prune"], { cwd: repoPath }).catch(() => undefined);
+    }
 
     let branchDeleted = false;
     if (request.deleteBranch && request.branch) {
@@ -123,6 +136,19 @@ export class WorktreeService {
       }
     }
     return { removed: true, branchDeleted };
+  }
+
+  /** False when `path` is not inside a Git repository; undefined when git could not tell. */
+  async isRepository(path: string): Promise<boolean | undefined> {
+    try {
+      await this.git.run(["rev-parse", "--is-inside-work-tree"], {
+        cwd: assertAbsolute(path, "path"),
+        timeoutMs: 10_000,
+      });
+      return true;
+    } catch (error) {
+      return isNotGitRepository(error) ? false : undefined;
+    }
   }
 
   /** Branch checked out at `worktreePath`, or "HEAD" when detached. Reads only; never changes the checkout. */
@@ -223,6 +249,25 @@ async function assertTargetAvailable(worktreePath: string): Promise<void> {
   }
 }
 
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    if (isNotFoundError(error)) return false;
+    throw error;
+  }
+}
+
+/** True when git failed because the folder is not inside a Git repository. */
+export function isNotGitRepository(error: unknown): boolean {
+  return error instanceof GitProcessError && /not a git repository/iu.test(`${error.stderr}\n${error.message}`);
+}
+
+function isUnknownWorktree(error: GitProcessError): boolean {
+  return /is not a working tree|does not exist/iu.test(error.stderr);
+}
+
 async function assertSafeWorktreePath(workspaceRootInput: string, worktreePathInput: string): Promise<string> {
   const workspaceRoot = assertAbsolute(workspaceRootInput, "workspaceRoot");
   const worktreePath = assertAbsolute(worktreePathInput, "worktreePath");
@@ -273,6 +318,9 @@ export function explainWorktreeGitFailure(error: unknown): unknown {
   const detail = `${error.stderr}\n${error.message}`;
   const normalized = detail.toLowerCase();
   const gitLine = firstGitLine(error.stderr);
+  if (isNotGitRepository(error)) {
+    return new WorktreeError("not_git_repository", NOT_GIT_WORKTREE_MESSAGE, { cause: error });
+  }
   if (isGitLockFailure(normalized)) {
     return new WorktreeError(
       "git_locked",
