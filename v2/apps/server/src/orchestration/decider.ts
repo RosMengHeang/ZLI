@@ -540,6 +540,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     case "thread.status":
       assertThread(projection, command.threadId);
       return [
+        ...expiredRequests(projection, command.threadId, command.status),
         {
           type: "thread.status.changed",
           threadId: command.threadId,
@@ -890,6 +891,21 @@ function readyForNext(projection: RuntimeProjection, thread: ThreadProjection): 
   return (
     thread.status === "idle" && !(projection.requests ?? []).some((request) => request.threadId === thread.threadId)
   );
+}
+
+/**
+ * A request only means something while its turn is paused on it. Once the turn is stopped or over, or the
+ * session has ended or started again, nobody can answer it, and an open one would hold the queue forever.
+ */
+function expiredRequests(
+  projection: RuntimeProjection,
+  threadId: ThreadId,
+  status: ThreadProjection["status"],
+): DomainDecision[] {
+  if (status === "working" || status === "waiting") return [];
+  return (projection.requests ?? [])
+    .filter((request) => request.threadId === threadId)
+    .map((request): DomainDecision => ({ type: "thread.request.resolved", threadId, requestId: request.requestId }));
 }
 
 function permissionChanged(thread: ThreadProjection | undefined, mode: PermissionMode | undefined): boolean {

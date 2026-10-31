@@ -114,8 +114,14 @@ export class ProviderReactor {
   async reconcileOrphanedThreads(): Promise<void> {
     const projection = await this.engine.projection();
     for (const thread of projection.threads) {
-      if (!LIVE_STATUSES.has(thread.status)) continue;
       if (this.service.hasSession(ThreadId.parse(thread.threadId))) continue;
+      if (!LIVE_STATUSES.has(thread.status)) {
+        // Older runs could end a chat without closing its requests, which left the chat stuck.
+        for (const request of projection.requests ?? []) {
+          if (request.threadId === thread.threadId) await this.dropRequest(thread.threadId, request.requestId);
+        }
+        continue;
+      }
       await this.status(thread.threadId, "stopped", {
         errorMessage: thread.providerSessionId
           ? "The agent stopped when ZLI restarted. Send a message to pick up where it left off."
@@ -567,7 +573,7 @@ export class ProviderReactor {
       await this.service.respondToRequest({ threadId: ThreadId.parse(threadId), requestId, decision });
       await this.resolveRequest(threadId, requestId);
     } catch (error) {
-      await this.fail(threadId, error, "Approval response failed.");
+      if (await this.requestOpen(requestId)) await this.fail(threadId, error, "Approval response failed.");
     }
   }
 
@@ -576,8 +582,16 @@ export class ProviderReactor {
       await this.service.respondToUserInput({ threadId: ThreadId.parse(threadId), requestId, answers });
       await this.resolveRequest(threadId, requestId);
     } catch (error) {
-      await this.fail(threadId, error, "User input response failed.");
+      if (await this.requestOpen(requestId)) await this.fail(threadId, error, "User input response failed.");
     }
+  }
+
+  /**
+   * An answer can race a Stop or a session end, which close the request. The agent has nothing left to
+   * answer then, so its refusal is not a failure of the chat.
+   */
+  private async requestOpen(requestId: string): Promise<boolean> {
+    return ((await this.engine.projection()).requests ?? []).some((request) => request.requestId === requestId);
   }
 
   private request(
@@ -599,19 +613,25 @@ export class ProviderReactor {
       .then(() => undefined);
   }
 
-  /** Answering a request resumes the same turn, so the thread goes back to working, not idle. */
-  private resolveRequest(threadId: string, requestId: string): Promise<void> {
+  private dropRequest(threadId: string, requestId: string): Promise<boolean> {
     return this.engine
       .dispatchPromise({
         protocolVersion: 1,
         commandId: CommandId.parse(randomUUID()),
         command: { type: "thread.request.resolved", threadId: ThreadId.parse(threadId), requestId },
       })
-      .then(async () => {
-        const projection = await this.engine.projection();
-        const stillWaiting = (projection.requests ?? []).some((request) => request.threadId === threadId);
-        await this.status(threadId, stillWaiting ? "waiting" : "working");
-      });
+      .then((receipt) => receipt.status !== "rejected");
+  }
+
+  /** Answering a request resumes the same turn, so the thread goes back to working, not idle. */
+  private resolveRequest(threadId: string, requestId: string): Promise<void> {
+    return this.dropRequest(threadId, requestId).then(async (resolved) => {
+      // Already closed because the turn ended first, so the thread's status is already right.
+      if (!resolved) return;
+      const projection = await this.engine.projection();
+      const stillWaiting = (projection.requests ?? []).some((request) => request.threadId === threadId);
+      await this.status(threadId, stillWaiting ? "waiting" : "working");
+    });
   }
 
   private activity(event: ActivityEvent): Promise<void> {

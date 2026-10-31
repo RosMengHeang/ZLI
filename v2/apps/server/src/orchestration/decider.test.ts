@@ -544,6 +544,58 @@ describe("queued messages", () => {
     expect(() => decide(waiting, { type: "thread.steer", threadId, queueId: "q9" })).toThrow(/no longer queued/u);
   });
 
+  it("closes the agent's open requests when its turn or session ends, so queued messages go out", () => {
+    const otherThreadId = ThreadId.parse("00000000-0000-4000-8000-000000000433");
+    const base = withThread("waiting");
+    let waiting: RuntimeProjection = {
+      ...base,
+      threads: [
+        ...base.threads,
+        { threadId: otherThreadId, worktreeId, provider: "codex", status: "waiting", capabilities: {} },
+      ],
+    } as RuntimeProjection;
+    waiting = apply(waiting, queue("q1"));
+    waiting = apply(waiting, {
+      type: "thread.request",
+      request: { requestId: "r1", threadId, kind: "approval", payload: {} },
+    });
+    waiting = apply(waiting, {
+      type: "thread.request",
+      request: { requestId: "r2", threadId: otherThreadId, kind: "user-input", payload: {} },
+    });
+
+    for (const status of ["idle", "stopped", "failed", "starting"] as const) {
+      expect(decide(waiting, { type: "thread.status", threadId, status })).toEqual([
+        { type: "thread.request.resolved", threadId, requestId: "r1" },
+        { type: "thread.status.changed", threadId, status },
+      ]);
+      const ended = apply(waiting, { type: "thread.status", threadId, status });
+      expect(ended.requests?.map((request) => request.requestId)).toEqual(["r2"]);
+      expect(ended.attention.map((item) => item.id)).toEqual(["thread-request:r2"]);
+      expect(() =>
+        decide(ended, { type: "thread.respond", threadId, requestId: "r1", decision: { approved: true } }),
+      ).toThrow(/does not exist/u);
+    }
+
+    const idle = apply(waiting, { type: "thread.status", threadId, status: "idle" });
+    expect(decide(idle, { type: "thread.queue.flush", threadId })).toEqual([
+      { type: "thread.queue.removed", threadId, queueId: "q1" },
+      { type: "thread.send.requested", threadId, text: "q1" },
+    ]);
+  });
+
+  it("keeps open requests while the turn is still paused on them", () => {
+    const waiting = apply(withThread("waiting"), {
+      type: "thread.request",
+      request: { requestId: "r1", threadId, kind: "approval", payload: {} },
+    });
+    for (const status of ["waiting", "working"] as const) {
+      expect(decide(waiting, { type: "thread.status", threadId, status })).toEqual([
+        { type: "thread.status.changed", threadId, status },
+      ]);
+    }
+  });
+
   it("rejects messages for an ended agent, past the queue limit, or with a mode the agent cannot take", () => {
     expect(() => decide(withThread("stopped"), queue("q1"))).toThrow(/has ended/u);
     let state = withThread("working");
