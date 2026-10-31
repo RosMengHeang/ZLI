@@ -6,7 +6,8 @@ import { StyleSheet, Text, View } from "react-native";
 import { useLink } from "../LinkContext.js";
 import { sendCommand } from "../lib/launch.js";
 import { mono, radius, space, type, usePalette } from "../theme.js";
-import { Banner, Button, Card, Choice, Field } from "../ui/components.js";
+import { Button, Card, ChoiceRow, Field, Notice, Section } from "../ui/components.js";
+import { Icon } from "../ui/Icon.js";
 
 /** An approval or a question from an agent, answered from the phone. */
 export function RequestCard({
@@ -36,10 +37,13 @@ export function RequestCard({
   };
 
   return (
-    <Card style={{ borderColor: palette.tones.amber.ink }}>
-      <Text accessibilityRole="header" style={[local.title, { color: palette.text }]}>
-        {approval ? `${agentName} asks to continue` : `${agentName} has a question`}
-      </Text>
+    <Card edge={palette.tones.amber.ink}>
+      <View style={local.head}>
+        <Icon name={approval ? "shieldAlert" : "message"} size={20} color={palette.tones.amber.ink} />
+        <Text accessibilityRole="header" style={[local.title, { color: palette.text }]}>
+          {approval ? `${agentName} asks to continue` : `${agentName} has a question`}
+        </Text>
+      </View>
       {approval ? (
         <Approval
           request={request}
@@ -68,7 +72,7 @@ export function RequestCard({
           }
         />
       )}
-      {error ? <Banner tone="error" message={error} /> : null}
+      {error ? <Notice tone="error" message={error} /> : null}
     </Card>
   );
 }
@@ -96,7 +100,8 @@ function Approval({
             selectable
             style={[
               field.mono ? local.code : local.body,
-              { color: palette.text, backgroundColor: field.mono ? palette.well : "transparent" },
+              { color: palette.text },
+              field.mono ? { backgroundColor: palette.well } : null,
             ]}
           >
             {field.value}
@@ -166,15 +171,19 @@ function Question({
         <Text style={[local.fieldLabel, { color: palette.muted }]}>{question.header}</Text>
       ) : null}
       <Text style={[local.body, { color: palette.text }]}>{question.question}</Text>
-      {question.options.map((option) => (
-        <Choice
-          key={option.label}
-          label={option.label}
-          description={option.description}
-          checked={value === option.label}
-          onPress={() => onChange(question.id, option.label)}
-        />
-      ))}
+      {question.options.length > 0 ? (
+        <Section tone="well">
+          {question.options.map((option) => (
+            <ChoiceRow
+              key={option.label}
+              label={option.label}
+              description={option.description}
+              checked={value === option.label}
+              onPress={() => onChange(question.id, option.label)}
+            />
+          ))}
+        </Section>
+      ) : null}
       {question.allowOther ? (
         <Field
           label={question.options.length > 0 ? "Or type your own answer" : "Your answer"}
@@ -190,11 +199,12 @@ function Question({
 }
 
 const local = StyleSheet.create({
-  title: { fontSize: type.title, fontWeight: "600" },
-  body: { fontSize: type.body, lineHeight: 22 },
-  field: { gap: 2 },
-  fieldLabel: { fontSize: type.meta, fontWeight: "600" },
-  code: { fontFamily: mono, fontSize: type.meta, lineHeight: 18, padding: space.sm, borderRadius: radius.sm },
+  head: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  title: { ...type.headline, fontWeight: "600", flex: 1 },
+  body: { ...type.body },
+  field: { gap: space.xs },
+  fieldLabel: { ...type.meta, fontWeight: "600" },
+  code: { fontFamily: mono, ...type.meta, padding: space.md, borderRadius: radius.sm, overflow: "hidden" },
   choices: { gap: space.sm },
   question: { gap: space.sm },
 });

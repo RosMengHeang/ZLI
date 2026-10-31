@@ -5,9 +5,9 @@ import { View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { LinkProvider } from "./LinkContext.js";
-import { Navigator } from "./Navigator.js";
 import { PairError } from "./lib/pairing.js";
 import type { StoredPairing } from "./lib/pairingRecord.js";
+import { Navigator } from "./Navigator.js";
 import { clearPairing, loadPairing, savePairing } from "./platform.js";
 import { PairScreen } from "./screens/PairScreen.js";
 import { usePalette } from "./theme.js";

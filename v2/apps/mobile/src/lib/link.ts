@@ -8,14 +8,14 @@ import {
   keyPairFromSecret,
   openRemoteSession,
   type RandomBytes,
-  RemoteConnectError,
   type RemoteCloseInfo,
+  RemoteConnectError,
   type RemoteFailure,
   type RemoteSession,
   remoteUrl,
 } from "@zli-v2/remote-protocol";
 
-import { hostsToTry, samePairing, type StoredPairing, withReady } from "./pairingRecord.js";
+import { hostsToTry, type StoredPairing, samePairing, withReady } from "./pairingRecord.js";
 
 /**
  * The gateway answers the runtime hello itself and never forwards it, so the phone holds no runtime

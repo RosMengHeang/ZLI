@@ -9,7 +9,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import { ids } from "./fixtures.js";
-import { PairError, pairWithDesktop, previewPairingCode } from "./pairing.js";
+import { PairError, pairingCodeFromLink, pairWithDesktop, previewPairingCode } from "./pairing.js";
 
 const now = 1_800_000_000_000;
 const code = encodePairingCode({
@@ -88,5 +88,21 @@ describe("pairWithDesktop", () => {
     });
     await expect(pairWithDesktop(code, "Pixel", unreachable)).rejects.toThrow(/Could not reach Studio/u);
     await expect(pairWithDesktop(code, "  ", unreachable)).rejects.toBeInstanceOf(PairError);
+  });
+});
+
+describe("pairingCodeFromLink", () => {
+  it("takes a zli-remote: link as the code", () => {
+    expect(pairingCodeFromLink(` ${code} `)).toBe(code);
+  });
+
+  it("reads the code parameter of another link", () => {
+    expect(pairingCodeFromLink(`exp://10.0.2.2:8081/--/pair?code=${encodeURIComponent(code)}`)).toBe(code);
+  });
+
+  it("ignores links without a pairing code", () => {
+    expect(pairingCodeFromLink("exp://10.0.2.2:8081")).toBeUndefined();
+    expect(pairingCodeFromLink("https://example.com/?code=hello")).toBeUndefined();
+    expect(pairingCodeFromLink("https://example.com/?code=%E0%A4%A")).toBeUndefined();
   });
 });

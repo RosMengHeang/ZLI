@@ -1,10 +1,10 @@
 import { EnvironmentId } from "@zli-v2/contracts";
 import {
-  RemoteConnectError,
+  failureMessage,
   type RemoteCloseInfo,
+  RemoteConnectError,
   type RemoteSession,
   type RemoteTransport,
-  failureMessage,
   webCryptoRandomBytes,
 } from "@zli-v2/remote-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";

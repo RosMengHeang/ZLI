@@ -1,6 +1,16 @@
 import type { ThreadMessageProjection } from "@zli-v2/contracts";
 import { useMemo, useState } from "react";
-import { Alert, FlatList, KeyboardAvoidingView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLink, useLinkSnapshot } from "../LinkContext.js";
@@ -15,8 +25,10 @@ import {
 } from "../lib/views.js";
 import { useNavigation } from "../navigation.js";
 import { newId } from "../platform.js";
-import { radius, space, TAP, type, usePalette } from "../theme.js";
-import { Banner, Button, EmptyState, Header, StatusLabel } from "../ui/components.js";
+import { mono, radius, space, TAP, type, usePalette } from "../theme.js";
+import { Button, EmptyState, Header, IconButton, Notice, StatusText, StopButton } from "../ui/components.js";
+import { Icon } from "../ui/Icon.js";
+import { ProviderMark } from "../ui/ProviderMark.js";
 import { ConnectionBanner } from "./ConnectionBanner.js";
 import { RequestCard } from "./RequestCard.js";
 
@@ -32,6 +44,7 @@ export function AgentScreen({ threadId }: { threadId: string }) {
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState<"interrupt" | "stop">();
   const [error, setError] = useState<string>();
+  const [focused, setFocused] = useState(false);
 
   const messages = useMemo(
     () => (projection ? [...threadMessages(projection, threadId)].reverse() : []),
@@ -44,7 +57,8 @@ export function AgentScreen({ threadId }: { threadId: string }) {
       <View style={[local.screen, { backgroundColor: palette.canvas }]}>
         <Header title="Agent" onBack={navigation.back} />
         <EmptyState
-          title={projection ? "This agent is gone" : "Loading"}
+          {...(projection ? { icon: "message" as const } : {})}
+          title={projection ? "This agent is gone" : "Loading the conversation"}
           busy={!projection}
           message={projection ? "Its session was deleted on the desktop." : undefined}
           action={projection ? { label: "Back to the list", onPress: navigation.back } : undefined}
@@ -54,13 +68,14 @@ export function AgentScreen({ threadId }: { threadId: string }) {
   }
 
   const name = providerName(thread.provider, projection.providers);
-  const branch = projection.worktrees.find((worktree) => worktree.worktreeId === thread.worktreeId)?.branch;
+  const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread.worktreeId);
   const status = threadStatus(thread, requests.length);
   const activity = currentActivity(projection, thread);
   const queued = queuedMessages(projection, threadId);
   const online = snapshot.state.kind === "online";
   const ended = thread.status === "stopped" || thread.status === "failed";
   const running = thread.status === "working";
+  const canSend = online && draft.trim().length > 0 && !sending;
 
   const send = async () => {
     const text = draft.trim();
@@ -106,17 +121,57 @@ export function AgentScreen({ threadId }: { threadId: string }) {
     ]);
   };
 
+  const waitingLine = activity
+    ? activity.title
+    : running
+      ? `${name} is working`
+      : queued.length === 1
+        ? "1 message waits for this turn to end"
+        : queued.length > 1
+          ? `${queued.length} messages wait for this turn to end`
+          : undefined;
+
+  const tail = (
+    <View style={local.tail}>
+      {requests.map(({ request }) => (
+        <RequestCard key={request.requestId} request={request} provider={thread.provider} agentName={name} />
+      ))}
+      {thread.errorMessage ? (
+        <Notice tone="error" title="The agent reported an error" message={thread.errorMessage} />
+      ) : null}
+      {waitingLine ? (
+        <View style={local.activity} accessibilityLiveRegion="polite">
+          {running ? <ActivityIndicator size="small" color={palette.tones.blue.ink} /> : null}
+          <Text style={[local.activityText, { color: palette.muted }]} numberOfLines={2}>
+            {waitingLine}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+
   return (
     <KeyboardAvoidingView behavior="padding" style={[local.screen, { backgroundColor: palette.canvas }]}>
       <Header
         title={name}
-        subtitle={branch}
+        leading={<ProviderMark provider={thread.provider} size={22} color={palette.text} />}
+        subtitle={
+          <View style={local.subtitle}>
+            <StatusText label={status.label} tone={status.tone} />
+            {worktree ? (
+              <Text style={[local.branch, { color: palette.muted }]} numberOfLines={1}>
+                {worktree.branch}
+              </Text>
+            ) : null}
+          </View>
+        }
         onBack={navigation.back}
-        action={
+        actions={
           ended ? undefined : (
             <Button
               label="Stop"
               accessibilityLabel={`Stop ${name}`}
+              accessibilityHint="Ends the agent's process on the desktop"
               variant="quiet"
               busy={busy === "stop"}
               disabled={!online}
@@ -126,85 +181,86 @@ export function AgentScreen({ threadId }: { threadId: string }) {
         }
       />
       <ConnectionBanner />
-      <FlatList
-        inverted
-        data={messages}
-        keyExtractor={(message) => message.messageId}
-        renderItem={({ item }) => <Message message={item} agentName={name} />}
-        contentContainerStyle={local.transcript}
-        keyboardShouldPersistTaps="handled"
-        ListHeaderComponent={
-          <View style={local.tail}>
-            {requests.map(({ request }) => (
-              <RequestCard key={request.requestId} request={request} provider={thread.provider} agentName={name} />
-            ))}
-            {thread.errorMessage ? (
-              <Banner tone="error" title="The agent reported an error" message={thread.errorMessage} />
-            ) : null}
-          </View>
-        }
-        ListEmptyComponent={
-          <Text style={[local.empty, { color: palette.muted }]}>
-            No messages yet. Write to {name} below to give it a task.
-          </Text>
-        }
-      />
-      <View
-        style={[
-          local.footer,
-          { borderTopColor: palette.border, backgroundColor: palette.surface, paddingBottom: insets.bottom + space.sm },
-        ]}
-      >
-        <View style={local.statusLine}>
-          <StatusLabel label={status.label} tone={status.tone} />
-          <Text style={[local.meta, local.activity, { color: palette.muted }]} numberOfLines={1}>
-            {activity
-              ? activity.title
-              : queued.length > 0
-                ? queued.length === 1
-                  ? "1 message waits for this turn to end"
-                  : `${queued.length} messages wait for this turn to end`
-                : ""}
-          </Text>
-          {running ? (
-            <Button
-              label="Interrupt"
-              busy={busy === "interrupt"}
-              disabled={!online}
-              accessibilityHint="Ends the current turn. The agent keeps running."
-              onPress={() => void interrupt()}
-            />
-          ) : null}
-        </View>
-        {error ? <Banner tone="error" message={error} /> : null}
+      {messages.length === 0 ? (
+        <ScrollView contentContainerStyle={local.transcript} keyboardShouldPersistTaps="handled">
+          <EmptyState
+            icon="message"
+            title={`Give ${name} a task`}
+            message={ended ? "This conversation has no messages." : "Write below. The agent works on the desktop."}
+          />
+          {tail}
+        </ScrollView>
+      ) : (
+        <FlatList
+          inverted
+          data={messages}
+          keyExtractor={(message) => message.messageId}
+          renderItem={({ item }) => <Message message={item} />}
+          contentContainerStyle={local.transcript}
+          keyboardShouldPersistTaps="handled"
+          ListHeaderComponent={tail}
+        />
+      )}
+      <View style={[local.dock, { paddingBottom: insets.bottom + space.sm }]}>
+        {error ? <Notice tone="error" message={error} /> : null}
         {ended ? (
-          <Text style={[local.meta, { color: palette.muted }]}>
-            {thread.status === "failed"
-              ? "This agent failed. Start a new one from the home screen."
-              : "This agent stopped. Start a new one from the home screen."}
-          </Text>
+          <View style={[local.ended, { backgroundColor: palette.surface }]}>
+            <Text style={[local.endedText, { color: palette.muted }]}>
+              {thread.status === "failed" ? "This agent failed." : "This agent stopped."} Start a new one to keep
+              working.
+            </Text>
+            <Button
+              label="New agent"
+              icon="squarePen"
+              variant="primary"
+              disabled={!online}
+              onPress={() =>
+                navigation.replace({ name: "start", ...(worktree ? { projectId: worktree.projectId } : {}) })
+              }
+            />
+          </View>
         ) : (
-          <View style={local.composer}>
+          <View
+            style={[
+              local.composer,
+              {
+                backgroundColor: focused ? palette.overlay : palette.raised,
+                borderColor: focused ? palette.accent : palette.border,
+              },
+            ]}
+          >
             <TextInput
               accessibilityLabel={`Message to ${name}`}
               value={draft}
               onChangeText={setDraft}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
               placeholder={running ? "Sends when this turn ends" : `Message ${name}`}
               placeholderTextColor={palette.dim}
               selectionColor={palette.accent}
+              cursorColor={palette.accent}
               multiline
-              style={[
-                local.input,
-                { color: palette.text, backgroundColor: palette.well, borderColor: palette.borderStrong },
-              ]}
+              style={[local.input, { color: palette.text }]}
             />
-            <Button
-              label="Send"
-              variant="primary"
-              busy={sending}
-              disabled={!online || !draft.trim()}
-              onPress={() => void send()}
-            />
+            <View style={local.composerActions}>
+              {running ? (
+                <StopButton
+                  label="Interrupt this turn"
+                  running={running}
+                  stopping={busy === "interrupt"}
+                  disabled={!online}
+                  onPress={() => void interrupt()}
+                />
+              ) : null}
+              <IconButton
+                icon="arrowUp"
+                label={running ? "Queue message" : "Send"}
+                variant="primary"
+                busy={sending}
+                disabled={!canSend}
+                onPress={() => void send()}
+              />
+            </View>
           </View>
         )}
       </View>
@@ -212,77 +268,104 @@ export function AgentScreen({ threadId }: { threadId: string }) {
   );
 }
 
-function Message({ message, agentName }: { message: ThreadMessageProjection; agentName: string }) {
+function Message({ message }: { message: ThreadMessageProjection }) {
   const palette = usePalette();
-  const mine = message.role === "user";
   const attachments = message.attachments?.length ?? 0;
-  const label =
-    message.role === "user"
-      ? "You"
-      : message.role === "assistant"
-        ? agentName
-        : message.role === "agent"
-          ? "Another agent"
-          : "System";
+  const note =
+    attachments === 0
+      ? undefined
+      : attachments === 1
+        ? "Includes 1 attachment. See it on the desktop."
+        : `Includes ${attachments} attachments. See them on the desktop.`;
+  const text = message.text.trim() ? message.text : undefined;
+
+  if (message.role === "user") {
+    return (
+      <View style={[local.bubble, { backgroundColor: palette.raised }]}>
+        {text ? (
+          <Text selectable style={[local.body, { color: palette.text }]}>
+            {text}
+          </Text>
+        ) : null}
+        {note ? <Text style={[local.meta, { color: palette.muted }]}>{note}</Text> : null}
+      </View>
+    );
+  }
+
+  if (message.role === "system") {
+    return (
+      <View style={local.system}>
+        <Icon name="alert" size={14} color={palette.muted} />
+        <Text selectable style={[local.meta, local.systemText, { color: palette.muted }]}>
+          {text ?? note}
+        </Text>
+      </View>
+    );
+  }
+
   return (
-    <View
-      style={[
-        local.message,
-        mine
-          ? { alignSelf: "flex-end", backgroundColor: palette.raised, borderColor: palette.border }
-          : { alignSelf: "stretch", borderColor: "transparent" },
-      ]}
-    >
-      <Text style={[local.messageLabel, { color: palette.muted }]}>{label}</Text>
-      {message.text.trim() ? (
-        <Text selectable style={[local.body, { color: message.role === "system" ? palette.muted : palette.text }]}>
-          {message.text}
+    <View style={local.reply}>
+      {message.role === "agent" ? (
+        <Text style={[local.meta, local.from, { color: palette.muted }]}>From another agent</Text>
+      ) : null}
+      {text ? (
+        <Text selectable style={[local.body, { color: palette.text }]}>
+          {text}
         </Text>
       ) : null}
-      {attachments > 0 ? (
-        <Text style={[local.meta, { color: palette.dim }]}>
-          {attachments === 1
-            ? "Includes 1 attachment. See it on the desktop."
-            : `Includes ${attachments} attachments. See them on the desktop.`}
-        </Text>
-      ) : null}
+      {note ? <Text style={[local.meta, { color: palette.muted }]}>{note}</Text> : null}
     </View>
   );
 }
 
 const local = StyleSheet.create({
   screen: { flex: 1 },
-  transcript: { padding: space.lg, gap: space.md, flexGrow: 1 },
+  subtitle: { flexDirection: "row", alignItems: "center", gap: space.sm, minWidth: 0 },
+  branch: { flexShrink: 1, fontFamily: mono, ...type.caption },
+  transcript: { paddingHorizontal: space.lg, paddingVertical: space.md, gap: space.lg, flexGrow: 1 },
   tail: { gap: space.md },
-  empty: { fontSize: type.body, lineHeight: 22, textAlign: "center", paddingVertical: space.xl },
-  footer: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: space.md,
-    paddingTop: space.sm,
-    gap: space.sm,
+  activity: { flexDirection: "row", alignItems: "center", gap: space.sm, minHeight: 24 },
+  activityText: { ...type.footnote, flex: 1 },
+  dock: { paddingHorizontal: space.md, paddingTop: space.xs, gap: space.sm },
+  composer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: space.xs,
+    paddingLeft: space.lg,
+    paddingRight: space.xs + 2,
+    paddingVertical: space.xs + 2,
+    borderRadius: radius.composer + 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
-  statusLine: { flexDirection: "row", alignItems: "center", gap: space.sm, minHeight: TAP },
-  composer: { flexDirection: "row", alignItems: "flex-end", gap: space.sm },
   input: {
     flex: 1,
     minHeight: TAP,
-    maxHeight: 140,
-    paddingHorizontal: space.md,
+    maxHeight: 160,
     paddingTop: 11,
     paddingBottom: 11,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    fontSize: type.body,
+    ...type.body,
   },
-  message: {
-    maxWidth: "100%",
-    gap: 4,
-    padding: space.md,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
+  composerActions: { flexDirection: "row", alignItems: "center", gap: space.xs },
+  ended: { borderRadius: radius.island, padding: space.lg, gap: space.md },
+  endedText: { ...type.footnote },
+  bubble: {
+    alignSelf: "flex-end",
+    maxWidth: "86%",
+    gap: space.xs,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md - 2,
+    borderRadius: 20,
+    borderBottomRightRadius: 6,
   },
-  messageLabel: { fontSize: type.meta, fontWeight: "600" },
-  body: { fontSize: type.body, lineHeight: 22 },
-  meta: { fontSize: type.meta, lineHeight: 18 },
-  activity: { flex: 1 },
+  reply: { alignSelf: "stretch", gap: space.xs },
+  from: { fontWeight: "600" },
+  system: { flexDirection: "row", alignItems: "flex-start", gap: space.sm, paddingHorizontal: space.xs },
+  systemText: { flex: 1 },
+  body: { ...type.body },
+  meta: { ...type.meta },
 });

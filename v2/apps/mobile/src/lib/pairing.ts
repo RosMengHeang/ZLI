@@ -8,6 +8,7 @@ import {
   generateKeyPair,
   keyPairFromSecret,
   openRemoteSession,
+  PAIRING_CODE_PREFIX,
   PairingCodeError,
   type RandomBytes,
   RemoteConnectError,
@@ -41,6 +42,23 @@ export function previewPairingCode(text: string, now: number): { desktopName: st
     return { desktopName: code.name };
   } catch (error) {
     return { error: error instanceof PairingCodeError ? error.message : "This is not a ZLI pairing code." };
+  }
+}
+
+/**
+ * The pairing code carried by a link that opened the app: the code itself, which is a
+ * `zli-remote:` URL, or a link with the code in its `code` parameter, as development builds use.
+ */
+export function pairingCodeFromLink(url: string): string | undefined {
+  const text = url.trim();
+  if (text.startsWith(PAIRING_CODE_PREFIX)) return text;
+  const match = /[?&]code=([^&#]+)/u.exec(text);
+  if (!match?.[1]) return undefined;
+  try {
+    const code = decodeURIComponent(match[1]).trim();
+    return code.startsWith(PAIRING_CODE_PREFIX) ? code : undefined;
+  } catch {
+    return undefined;
   }
 }
 

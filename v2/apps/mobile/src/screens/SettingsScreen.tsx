@@ -7,7 +7,8 @@ import { unpairFromDesktop } from "../lib/pairing.js";
 import { useNavigation } from "../navigation.js";
 import { createSocket, random } from "../platform.js";
 import { mono, space, type, usePalette } from "../theme.js";
-import { Button, Card, Header, SectionTitle } from "../ui/components.js";
+import { Header, Row, Section, StatusText } from "../ui/components.js";
+import { Icon } from "../ui/Icon.js";
 
 export function SettingsScreen({ onForget }: { onForget: () => Promise<void> }) {
   const navigation = useNavigation();
@@ -19,6 +20,7 @@ export function SettingsScreen({ onForget }: { onForget: () => Promise<void> }) 
   const [forgetting, setForgetting] = useState(false);
   const { pairing } = snapshot;
   const address = `${pairing.lastHost ?? pairing.hosts[0] ?? ""}:${pairing.port}`;
+  const online = snapshot.state.kind === "online";
 
   const forget = async () => {
     setForgetting(true);
@@ -59,46 +61,51 @@ export function SettingsScreen({ onForget }: { onForget: () => Promise<void> }) 
   return (
     <View style={[local.screen, { backgroundColor: palette.canvas }]}>
       <Header title="Settings" onBack={navigation.back} />
-      <ScrollView contentContainerStyle={[local.content, { paddingBottom: insets.bottom + space.xl }]}>
-        <SectionTitle>Paired desktop</SectionTitle>
-        <Card>
-          <Detail label="Desktop" value={pairing.desktopName} />
-          <Detail label="Status" value={connection} />
-          <Detail label="Address" value={address} monospace />
-          <Detail label="This phone" value={pairing.deviceName} />
-          <Detail label="Paired" value={new Date(pairing.pairedAt).toLocaleDateString()} />
-        </Card>
-        <Text style={[local.note, { color: palette.muted }]}>
-          Each time the phone connects, it learns the desktop's current addresses.
-        </Text>
+      <ScrollView contentContainerStyle={[local.content, { paddingBottom: insets.bottom + space.xxl }]}>
+        <Section
+          title="Paired desktop"
+          footer="Each time the phone connects, it learns the desktop's current addresses."
+        >
+          <Row
+            leading={<Icon name="monitor" size={20} color={palette.text} />}
+            title={pairing.desktopName}
+            trailing={<StatusText label={connection} tone={online ? "green" : "neutral"} />}
+            accessibilityLabel={`${pairing.desktopName}, ${connection}`}
+          />
+          <Value label="Address" value={address} monospace />
+          <Value label="Paired on" value={new Date(pairing.pairedAt).toLocaleDateString()} />
+        </Section>
 
-        <SectionTitle>Forget this desktop</SectionTitle>
-        <Text style={[local.note, { color: palette.muted }]}>
-          Removes the pairing from this phone and asks the desktop to forget the phone too.
-        </Text>
-        <Button
-          label={`Forget ${pairing.desktopName}`}
-          variant="danger"
-          busy={forgetting}
-          busyLabel="Forgetting…"
-          onPress={confirmForget}
-        />
+        <Section title="This phone">
+          <Row
+            leading={<Icon name="smartphone" size={20} color={palette.text} />}
+            title={pairing.deviceName}
+            subtitle="The desktop lists this phone by this name"
+          />
+        </Section>
+
+        <Section footer="Removes the pairing from this phone and asks the desktop to forget the phone too.">
+          <Row
+            title={forgetting ? "Forgetting…" : `Forget ${pairing.desktopName}`}
+            tone="danger"
+            disabled={forgetting}
+            accessibilityLabel={`Forget ${pairing.desktopName}`}
+            onPress={confirmForget}
+          />
+        </Section>
       </ScrollView>
     </View>
   );
 }
 
-function Detail({ label, value, monospace = false }: { label: string; value: string; monospace?: boolean }) {
+function Value({ label, value, monospace = false }: { label: string; value: string; monospace?: boolean }) {
   const palette = usePalette();
   return (
-    <View style={local.detail} accessible accessibilityLabel={`${label}, ${value}`}>
-      <Text style={[local.detailLabel, { color: palette.muted }]}>{label}</Text>
+    <View style={local.value} accessible accessibilityLabel={`${label}, ${value}`}>
+      <Text style={[local.valueLabel, { color: palette.text }]}>{label}</Text>
       <Text
-        style={[
-          local.detailValue,
-          { color: palette.text },
-          monospace ? { fontFamily: mono, fontSize: type.meta } : null,
-        ]}
+        selectable
+        style={[local.valueText, { color: palette.muted }, monospace ? local.mono : null]}
         numberOfLines={1}
       >
         {value}
@@ -109,9 +116,16 @@ function Detail({ label, value, monospace = false }: { label: string; value: str
 
 const local = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: space.lg, gap: space.md },
-  note: { fontSize: type.meta, lineHeight: 18 },
-  detail: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: space.md },
-  detailLabel: { fontSize: type.body },
-  detailValue: { flexShrink: 1, fontSize: type.body, fontWeight: "500", textAlign: "right" },
+  content: { paddingHorizontal: space.lg, paddingTop: space.sm, gap: space.xl },
+  value: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: space.md,
+    paddingHorizontal: space.lg,
+  },
+  valueLabel: { ...type.body },
+  valueText: { ...type.body, flexShrink: 1, textAlign: "right" },
+  mono: { fontFamily: mono, ...type.meta },
 });

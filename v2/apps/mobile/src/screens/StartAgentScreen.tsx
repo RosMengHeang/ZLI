@@ -9,17 +9,30 @@ import { type LaunchStep, launchAgent } from "../lib/launch.js";
 import { installedProviders, newWorktreePath, readyWorktrees, safeBranchName } from "../lib/views.js";
 import { useNavigation } from "../navigation.js";
 import { newId } from "../platform.js";
-import { space, type, usePalette } from "../theme.js";
-import { Banner, Button, Choice, EmptyState, Field, Header, SectionTitle } from "../ui/components.js";
+import { mono, space, type, usePalette } from "../theme.js";
+import { Button, ChoiceRow, EmptyState, Field, Header, Notice, Row, Section, Segmented } from "../ui/components.js";
+import { Icon, type IconName } from "../ui/Icon.js";
+import { ModelMark, ProviderMark } from "../ui/ProviderMark.js";
 import { ConnectionBanner } from "./ConnectionBanner.js";
 
-const PERMISSIONS: { mode: PermissionMode; label: string; description: string }[] = [
-  { mode: "full-access", label: "Full access", description: "Runs commands and edits files without asking." },
-  { mode: "supervised", label: "Supervised", description: "Edits files, and asks before risky commands." },
-  { mode: "read-only", label: "Read only", description: "Reads and plans without changing files." },
+/** The desktop's names and hints, ordered from the least to the most an agent may do alone. */
+const PERMISSIONS: { mode: PermissionMode; label: string; description: string; icon: IconName }[] = [
+  { mode: "read-only", label: "Read only", description: "Reads and plans, never changes files.", icon: "eye" },
+  {
+    mode: "supervised",
+    label: "Auto",
+    description: "Edits files without asking, asks before commands.",
+    icon: "shieldCheck",
+  },
+  {
+    mode: "full-access",
+    label: "Full access",
+    description: "Edits files and runs commands without asking.",
+    icon: "shieldAlert",
+  },
 ];
 
-const MODELS_SHOWN = 8;
+const MODELS_SHOWN = 6;
 
 const stepLabels: Record<LaunchStep, string> = {
   "creating-worktree": "Creating the worktree…",
@@ -55,8 +68,8 @@ export function StartAgentScreen({ projectId }: { projectId?: string }) {
   if (!projection) {
     return (
       <View style={[local.screen, { backgroundColor: palette.canvas }]}>
-        <Header title="Start an agent" onBack={navigation.back} />
-        <EmptyState busy title="Loading" />
+        <Header title="New agent" onBack={navigation.back} />
+        <EmptyState busy title="Loading projects and agents" />
       </View>
     );
   }
@@ -64,15 +77,25 @@ export function StartAgentScreen({ projectId }: { projectId?: string }) {
   const project = projects.find((candidate) => candidate.projectId === chosenProject);
   const providerEntry = providers.find((candidate) => candidate.provider === provider);
   const models = providerEntry?.models ?? [];
-  const shownModels = allModels ? models : models.slice(0, MODELS_SHOWN);
+  const pickedIndex = models.findIndex((candidate) => candidate.id === model);
+  const shownModels = allModels || pickedIndex >= MODELS_SHOWN ? models : models.slice(0, MODELS_SHOWN);
   const worktrees = project ? readyWorktrees(projection, project.projectId) : [];
   const online = snapshot.state.kind === "online";
   const safeBranch = safeBranchName(branch);
-  const ready =
-    online &&
-    project !== undefined &&
-    providerEntry !== undefined &&
-    (placement === "new" ? safeBranch.length > 0 : worktrees.some((worktree) => worktree.worktreeId === existing));
+  const placed =
+    placement === "new" ? safeBranch.length > 0 : worktrees.some((worktree) => worktree.worktreeId === existing);
+  const ready = online && project !== undefined && providerEntry !== undefined && placed;
+  const missing = !project
+    ? "Pick a project"
+    : !providerEntry
+      ? "Pick an agent"
+      : !placed
+        ? placement === "new"
+          ? "Name the branch"
+          : "Pick a worktree"
+        : !online
+          ? "Waiting for the desktop"
+          : undefined;
 
   const start = async () => {
     if (!project || !providerEntry) return;
@@ -108,21 +131,24 @@ export function StartAgentScreen({ projectId }: { projectId?: string }) {
 
   return (
     <KeyboardAvoidingView behavior="padding" style={[local.screen, { backgroundColor: palette.canvas }]}>
-      <Header title="Start an agent" onBack={navigation.back} />
+      <Header
+        title="New agent"
+        subtitle={project && projects.length === 1 ? project.name : undefined}
+        onBack={navigation.back}
+      />
       <ConnectionBanner />
       <ScrollView
-        contentContainerStyle={[local.content, { paddingBottom: insets.bottom + space.xl }]}
+        contentContainerStyle={[local.content, { paddingBottom: space.xl }]}
         keyboardShouldPersistTaps="handled"
       >
-        {projects.length > 1 || !project ? (
-          <View style={local.group} accessibilityRole="radiogroup" accessibilityLabel="Project">
-            <SectionTitle>Project</SectionTitle>
-            {projects.length === 0 ? (
-              <Text style={[local.note, { color: palette.muted }]}>Add a project in ZLI on the desktop first.</Text>
-            ) : null}
+        {projects.length === 0 ? (
+          <Notice tone="warning" message="Add a project in ZLI on the desktop first." />
+        ) : projects.length > 1 ? (
+          <Section title="Project">
             {projects.map((candidate) => (
-              <Choice
+              <ChoiceRow
                 key={candidate.projectId}
+                leading={<Icon name="folder" size={20} color={palette.text} />}
                 label={candidate.name}
                 description={candidate.path}
                 checked={candidate.projectId === chosenProject}
@@ -132,140 +158,171 @@ export function StartAgentScreen({ projectId }: { projectId?: string }) {
                 }}
               />
             ))}
-          </View>
+          </Section>
+        ) : null}
+
+        {providers.length === 0 ? (
+          <Notice
+            tone="warning"
+            title="No agents installed"
+            message="The desktop has no agent CLIs installed. Install one there, and it shows up here."
+          />
         ) : (
-          <Text style={[local.note, { color: palette.muted }]}>
-            In <Text style={{ color: palette.text }}>{project.name}</Text>
-          </Text>
+          <Section title="Agent">
+            {providers.map((candidate) => (
+              <ChoiceRow
+                key={candidate.provider}
+                leading={<ProviderMark provider={candidate.provider} size={22} color={palette.text} />}
+                label={candidate.displayName}
+                description={candidate.version}
+                checked={candidate.provider === provider}
+                onPress={() => {
+                  setProvider(candidate.provider);
+                  setModel(undefined);
+                  setAllModels(false);
+                }}
+              />
+            ))}
+          </Section>
         )}
 
-        <View style={local.group} accessibilityRole="radiogroup" accessibilityLabel="Agent">
-          <SectionTitle>Agent</SectionTitle>
-          {providers.length === 0 ? (
-            <Banner
-              tone="warning"
-              message="The desktop has no agents installed. Install one there, and it shows up here."
-            />
-          ) : null}
-          {providers.map((candidate) => (
-            <Choice
-              key={candidate.provider}
-              label={candidate.displayName}
-              description={candidate.version}
-              checked={candidate.provider === provider}
-              onPress={() => {
-                setProvider(candidate.provider);
-                setModel(undefined);
-                setAllModels(false);
-              }}
-            />
-          ))}
-        </View>
-
         {models.length > 0 ? (
-          <View style={local.group} accessibilityRole="radiogroup" accessibilityLabel="Model">
-            <SectionTitle>Model</SectionTitle>
-            <Choice label="The agent's default" checked={model === undefined} onPress={() => setModel(undefined)} />
+          <Section title="Model">
+            <ChoiceRow
+              leading={<ModelMark id={undefined} size={20} color={palette.muted} />}
+              label="Default model"
+              description={`Whatever ${providerEntry?.displayName ?? "the agent"} uses unless told otherwise.`}
+              checked={model === undefined}
+              onPress={() => setModel(undefined)}
+            />
             {shownModels.map((candidate) => (
-              <Choice
+              <ChoiceRow
                 key={candidate.id}
+                leading={<ModelMark id={candidate.id} label={candidate.label} size={20} color={palette.text} />}
                 label={candidate.label}
                 checked={candidate.id === model}
                 onPress={() => setModel(candidate.id)}
               />
             ))}
-            {models.length > MODELS_SHOWN && !allModels ? (
-              <Button label={`Show all ${models.length} models`} variant="quiet" onPress={() => setAllModels(true)} />
+            {shownModels.length < models.length ? (
+              <Row
+                leading={<Icon name="chevronDown" size={20} color={palette.muted} />}
+                title={`Show all ${models.length} models`}
+                tone="muted"
+                onPress={() => setAllModels(true)}
+              />
             ) : null}
-          </View>
+          </Section>
         ) : null}
 
-        <View style={local.group} accessibilityRole="radiogroup" accessibilityLabel="Where it works">
-          <SectionTitle>Where it works</SectionTitle>
-          <Choice
-            label="A new worktree"
-            description="A fresh branch, so its changes stay apart from yours."
-            checked={placement === "new"}
-            onPress={() => setPlacement("new")}
-          />
-          <Choice
-            label="An existing worktree"
-            description={worktrees.length === 0 ? "None are ready in this project." : undefined}
-            checked={placement === "existing"}
-            disabled={worktrees.length === 0}
-            onPress={() => setPlacement("existing")}
+        <View style={local.group}>
+          <Text accessibilityRole="header" style={[local.title, { color: palette.muted }]}>
+            Where it works
+          </Text>
+          <Segmented
+            label="Where it works"
+            value={placement}
+            onChange={setPlacement}
+            options={[
+              { value: "new", label: "New worktree" },
+              { value: "existing", label: "Existing", disabled: worktrees.length === 0 },
+            ]}
           />
           {placement === "new" ? (
             <Field
-              label="Branch name"
+              accessibilityLabel="Branch name"
               hint={
                 project && safeBranch
-                  ? `Goes in ${newWorktreePath(project.path, branch)} on the desktop.`
-                  : "Letters, numbers, dots, dashes, and slashes."
+                  ? `Creates ${newWorktreePath(project.path, branch)} on the desktop.`
+                  : "A fresh branch keeps its changes apart from yours."
               }
               value={branch}
               onChangeText={setBranch}
-              placeholder="fix/login-form"
+              placeholder="Branch name, such as fix/login-form"
               autoCapitalize="none"
               autoCorrect={false}
               spellCheck={false}
               monospace
             />
           ) : (
-            worktrees.map((worktree) => (
-              <Choice
-                key={worktree.worktreeId}
-                label={worktree.branch}
-                labelMono
-                description={
-                  worktreeHasLiveThread(projection.threads, worktree.worktreeId)
-                    ? "An agent already works here. They will share the files."
-                    : undefined
-                }
-                checked={worktree.worktreeId === existing}
-                onPress={() => setExisting(worktree.worktreeId)}
-              />
-            ))
+            <Section>
+              {worktrees.map((worktree) => (
+                <ChoiceRow
+                  key={worktree.worktreeId}
+                  leading={<Icon name="branch" size={20} color={palette.text} />}
+                  label={worktree.branch}
+                  labelMono
+                  description={
+                    worktreeHasLiveThread(projection.threads, worktree.worktreeId)
+                      ? "An agent already works here. They will share the files."
+                      : undefined
+                  }
+                  checked={worktree.worktreeId === existing}
+                  onPress={() => setExisting(worktree.worktreeId)}
+                />
+              ))}
+            </Section>
           )}
+          {worktrees.length === 0 ? (
+            <Text style={[local.note, { color: palette.muted }]}>
+              No worktree in this project is ready, so the agent gets a new one.
+            </Text>
+          ) : null}
         </View>
 
-        <View style={local.group} accessibilityRole="radiogroup" accessibilityLabel="Permissions">
-          <SectionTitle>Permissions</SectionTitle>
+        <Section title="Permissions">
           {PERMISSIONS.map((option) => (
-            <Choice
+            <ChoiceRow
               key={option.mode}
+              leading={<Icon name={option.icon} size={20} color={palette.text} />}
               label={option.label}
               description={option.description}
               checked={option.mode === permissionMode}
               onPress={() => setPermissionMode(option.mode)}
             />
           ))}
-        </View>
+        </Section>
 
-        {error ? <Banner tone="error" message={error} /> : null}
+        {error ? <Notice tone="error" message={error} /> : null}
         {step === "creating-worktree" ? (
-          <Text accessibilityLiveRegion="polite" style={[local.note, { color: palette.muted }]}>
-            If the project runs setup commands, approve them on the desktop. The agent starts once the worktree is
-            ready.
-          </Text>
+          <Notice
+            tone="info"
+            message="If the project runs setup commands, approve them on the desktop. The agent starts once the worktree is ready."
+            action={{ label: "Stop waiting", onPress: stopWaiting }}
+          />
+        ) : null}
+      </ScrollView>
+      <View style={[local.footer, { borderTopColor: palette.separator, paddingBottom: insets.bottom + space.md }]}>
+        {missing && step === undefined ? (
+          <Text style={[local.missing, { color: palette.muted }]}>{missing}</Text>
         ) : null}
         <Button
           label={providerEntry ? `Start ${providerEntry.displayName}` : "Start"}
           variant="primary"
+          size="lg"
           disabled={!ready}
           busy={step !== undefined}
           {...(step ? { busyLabel: stepLabels[step] } : {})}
+          {...(missing ? { accessibilityHint: missing } : {})}
           onPress={() => void start()}
         />
-        {step === "creating-worktree" ? <Button label="Stop waiting" onPress={stopWaiting} /> : null}
-      </ScrollView>
+      </View>
     </KeyboardAvoidingView>
   );
 }
 
 const local = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: space.lg, gap: space.lg },
+  content: { paddingHorizontal: space.lg, paddingTop: space.sm, gap: space.xl },
   group: { gap: space.sm },
-  note: { fontSize: type.body, lineHeight: 22 },
+  title: { ...type.footnote, fontWeight: "600", paddingHorizontal: space.xs },
+  note: { ...type.meta, paddingHorizontal: space.xs },
+  mono: { fontFamily: mono },
+  footer: {
+    paddingHorizontal: space.lg,
+    paddingTop: space.md,
+    gap: space.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  missing: { ...type.meta, textAlign: "center" },
 });

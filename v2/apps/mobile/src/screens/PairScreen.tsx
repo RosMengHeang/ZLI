@@ -1,14 +1,22 @@
-import { type BarcodeScanningResult, CameraView, useCameraPermissions } from "expo-camera";
 import { PAIRING_CODE_PREFIX } from "@zli-v2/remote-protocol";
-import { useRef, useState } from "react";
-import { Linking, ScrollView, StyleSheet, Text, View } from "react-native";
+import { type BarcodeScanningResult, CameraView, useCameraPermissions } from "expo-camera";
+import { useEffect, useRef, useState } from "react";
+import { KeyboardAvoidingView, Linking, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { PairError, pairWithDesktop, previewPairingCode } from "../lib/pairing.js";
+import { PairError, pairingCodeFromLink, pairWithDesktop, previewPairingCode } from "../lib/pairing.js";
 import type { StoredPairing } from "../lib/pairingRecord.js";
 import { createSocket, defaultDeviceName, random } from "../platform.js";
 import { radius, space, type, usePalette } from "../theme.js";
-import { Banner, Button, Card, Field } from "../ui/components.js";
+import { Button, Card, Field, Notice, Row, Section } from "../ui/components.js";
+import { Icon } from "../ui/Icon.js";
+import { ZliLogo } from "../ui/ZliLogo.js";
+
+const STEPS = [
+  "Open Settings, then Mobile access, in ZLI on your desktop.",
+  "Turn on Allow phones on this network.",
+  "Choose Pair a new phone, then scan the code it shows.",
+] as const;
 
 export function PairScreen({
   notice,
@@ -29,8 +37,23 @@ export function PairScreen({
   const [error, setError] = useState<string>();
   const scanned = useRef(false);
 
+  // A pairing code is itself a zli-remote: link, so scanning it with the phone's camera app opens here.
+  useEffect(() => {
+    const take = (url: string | null | undefined) => {
+      const linked = url ? pairingCodeFromLink(url) : undefined;
+      if (!linked) return;
+      setScanning(false);
+      setError(undefined);
+      setCode(linked);
+    };
+    void Linking.getInitialURL().then(take, () => {});
+    const subscription = Linking.addEventListener("url", ({ url }) => take(url));
+    return () => subscription.remove();
+  }, []);
+
   const preview = code.trim() ? previewPairingCode(code, Date.now()) : undefined;
   const desktopName = preview && "desktopName" in preview ? preview.desktopName : undefined;
+  const codeError = preview && "error" in preview ? preview.error : undefined;
   const cameraBlocked = permission !== null && !permission.granted && !permission.canAskAgain;
 
   const startScan = async () => {
@@ -70,30 +93,40 @@ export function PairScreen({
   };
 
   return (
-    <ScrollView
-      style={{ backgroundColor: palette.canvas }}
-      contentContainerStyle={[
-        local.content,
-        { paddingTop: insets.top + space.xl, paddingBottom: insets.bottom + space.xl },
-      ]}
-      keyboardShouldPersistTaps="handled"
-    >
-      <View style={local.intro}>
-        <Text accessibilityRole="header" style={[local.heading, { color: palette.text }]}>
-          Pair with ZLI on your desktop
-        </Text>
-        <Text style={[local.body, { color: palette.muted }]}>
-          On the desktop, open Settings, then Mobile access. Turn on Allow phones on this network, then choose Pair a
-          new phone.
-        </Text>
-      </View>
+    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: palette.canvas }}>
+      <ScrollView
+        contentContainerStyle={[
+          local.content,
+          { paddingTop: insets.top + space.xxl, paddingBottom: insets.bottom + space.xl },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={local.intro}>
+          <ZliLogo size={52} />
+          <Text accessibilityRole="header" style={[local.heading, { color: palette.text }]}>
+            Pair with your desktop
+          </Text>
+          <Text style={[local.lede, { color: palette.muted }]}>
+            Follow your agents, answer their questions, and start new work from this phone.
+          </Text>
+        </View>
 
-      {notice ? <Banner tone="warning" message={notice} /> : null}
+        {notice ? <Notice tone="warning" message={notice} /> : null}
 
-      <Card>
+        <Section title="On the desktop">
+          {STEPS.map((step, index) => (
+            <View key={step} style={local.step} accessible accessibilityLabel={`Step ${index + 1}. ${step}`}>
+              <View style={[local.stepNumber, { backgroundColor: palette.raised }]}>
+                <Text style={[local.stepDigit, { color: palette.text }]}>{index + 1}</Text>
+              </View>
+              <Text style={[local.stepText, { color: palette.text }]}>{step}</Text>
+            </View>
+          ))}
+        </Section>
+
         {scanning ? (
-          <>
-            <View style={[local.camera, { borderColor: palette.borderStrong }]}>
+          <Card>
+            <View style={[local.camera, { backgroundColor: palette.well }]}>
               <CameraView
                 style={StyleSheet.absoluteFill}
                 facing="back"
@@ -102,87 +135,105 @@ export function PairScreen({
                 accessibilityLabel="Camera view for scanning the pairing code"
               />
             </View>
-            <Text accessibilityLiveRegion="polite" style={[local.body, { color: palette.muted }]}>
+            <Text accessibilityLiveRegion="polite" style={[local.footnote, { color: palette.muted }]}>
               {scanHint ?? "Point the camera at the QR code on the desktop."}
             </Text>
             <Button label="Stop scanning" onPress={() => setScanning(false)} />
-          </>
+          </Card>
         ) : (
-          <>
-            <Button label="Scan the QR code" variant="primary" onPress={() => void startScan()} />
+          <View style={local.group}>
+            <Button
+              label="Scan pairing code"
+              icon="scan"
+              size="lg"
+              variant={desktopName ? "secondary" : "primary"}
+              onPress={() => void startScan()}
+            />
             {cameraBlocked ? (
-              <Banner
+              <Notice
                 tone="warning"
                 message="Camera access is off for ZLI Remote. Paste the code below instead, or turn camera access on in Settings."
                 action={{ label: "Open Settings", onPress: () => void Linking.openSettings() }}
               />
             ) : null}
-          </>
+          </View>
         )}
-      </Card>
 
-      <Field
-        label="Or paste the pairing code"
-        hint="Use Copy code under the QR code on the desktop, then paste it here."
-        error={preview && "error" in preview ? preview.error : undefined}
-        value={code}
-        onChangeText={setCode}
-        placeholder="zli-remote:…"
-        autoCapitalize="none"
-        autoCorrect={false}
-        spellCheck={false}
-        multiline
-        monospace
-        style={local.codeInput}
-      />
+        <Field
+          label="Or paste the code"
+          hint="On the desktop, choose Copy code under the QR code."
+          error={codeError}
+          value={code}
+          onChangeText={setCode}
+          placeholder="zli-remote:"
+          autoCapitalize="none"
+          autoCorrect={false}
+          spellCheck={false}
+          multiline
+          numberOfLines={3}
+          monospace
+          style={local.codeInput}
+        />
 
-      {desktopName ? (
-        <Text style={[local.body, { color: palette.text }]} accessibilityLiveRegion="polite">
-          This code pairs with <Text style={local.strong}>{desktopName}</Text>.
-        </Text>
-      ) : null}
+        {desktopName ? (
+          <Section>
+            <Row
+              leading={<Icon name="monitor" size={20} color={palette.text} />}
+              title={desktopName}
+              subtitle="This code pairs with this desktop"
+              trailing={<Icon name="check" size={20} color={palette.tones.green.ink} strokeWidth={2.25} />}
+            />
+          </Section>
+        ) : null}
 
-      <Field
-        label="Name for this phone"
-        hint="The desktop lists paired phones by this name."
-        value={deviceName}
-        onChangeText={setDeviceName}
-        maxLength={60}
-        autoCorrect={false}
-        returnKeyType="done"
-      />
+        <Field
+          label="Name for this phone"
+          hint="The desktop lists paired phones by this name."
+          value={deviceName}
+          onChangeText={setDeviceName}
+          maxLength={60}
+          autoCorrect={false}
+          returnKeyType="done"
+        />
 
-      {error ? <Banner tone="error" message={error} /> : null}
+        {error ? <Notice tone="error" message={error} /> : null}
 
-      <Button
-        label={desktopName ? `Pair with ${desktopName}` : "Pair"}
-        variant="primary"
-        disabled={!desktopName || !deviceName.trim()}
-        busy={busy}
-        busyLabel="Pairing…"
-        onPress={() => void pair()}
-      />
+        <Button
+          label={desktopName ? `Pair with ${desktopName}` : "Pair"}
+          variant="primary"
+          size="lg"
+          disabled={!desktopName || !deviceName.trim()}
+          busy={busy}
+          busyLabel="Pairing…"
+          {...(desktopName ? {} : { accessibilityHint: "Scan or paste a pairing code first" })}
+          onPress={() => void pair()}
+        />
 
-      <Text style={[local.footnote, { color: palette.dim }]}>
-        The phone and the desktop need to be on the same network. Everything between them is encrypted with keys that
-        stay on the two devices.
-      </Text>
-    </ScrollView>
+        <View style={local.privacy}>
+          <Icon name="shieldCheck" size={16} color={palette.muted} />
+          <Text style={[local.footnote, local.privacyText, { color: palette.muted }]}>
+            The phone and the desktop need to be on the same network. Everything between them is encrypted with keys
+            that stay on the two devices.
+          </Text>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const local = StyleSheet.create({
-  content: { paddingHorizontal: space.lg, gap: space.lg },
-  intro: { gap: space.sm },
-  heading: { fontSize: type.heading, fontWeight: "700" },
-  body: { fontSize: type.body, lineHeight: 22 },
-  strong: { fontWeight: "600" },
-  camera: {
-    height: 280,
-    borderRadius: radius.md,
-    overflow: "hidden",
-    borderWidth: StyleSheet.hairlineWidth,
-  },
+  content: { paddingHorizontal: space.lg, gap: space.xl },
+  intro: { gap: space.md, paddingHorizontal: space.xs },
+  heading: { ...type.largeTitle, fontWeight: "700", letterSpacing: -0.4, marginTop: space.sm },
+  lede: { ...type.body },
+  group: { gap: space.md },
+  step: { flexDirection: "row", alignItems: "flex-start", gap: space.md, padding: space.lg },
+  stepNumber: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  stepDigit: { ...type.meta, fontWeight: "700", fontVariant: ["tabular-nums"] },
+  stepText: { ...type.body, flex: 1, marginTop: 1 },
+  camera: { height: 280, borderRadius: radius.md, overflow: "hidden" },
   codeInput: { minHeight: 88, textAlignVertical: "top" },
-  footnote: { fontSize: type.meta, lineHeight: 18 },
+  footnote: { ...type.footnote },
+  privacy: { flexDirection: "row", gap: space.sm, paddingHorizontal: space.xs },
+  privacyText: { flex: 1 },
 });
