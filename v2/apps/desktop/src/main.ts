@@ -73,7 +73,7 @@ import { createMobileService, type MobileService, type MobileServiceOptions } fr
 import { MobileSettingsStore } from "./mobile/MobileSettingsStore.js";
 import { mobileIpcHandlers, streamViewer } from "./mobile/mobileIpc.js";
 import { PopOutWindows, type PopOutWindowLike, type WindowBounds } from "./mobile/PopOutWindows.js";
-import { createNodeProcessRunner } from "./mobile/ProcessRunner.js";
+import { createNodeProcessRunner, withDefaultEnv } from "./mobile/ProcessRunner.js";
 import { createFakeMobileService } from "./mobile/testing/fakeMobileService.js";
 import type { AgentNotifier } from "./notifications/AgentNotifier.js";
 import { registerAgentNotifications } from "./notifications/electronNotifications.js";
@@ -395,7 +395,7 @@ async function startBrowserControl(databasePath: string): Promise<BrowserToolPat
   const settingsStore = mobileSettings;
   const liveWorktrees = () => (runtime?.projection()?.worktrees ?? []).filter((entry) => entry.status !== "cancelled");
   const devHost: MobileDevHost = {
-    runner: fakeMobile?.runner ?? createNodeProcessRunner(),
+    runner: fakeMobile?.runner ?? withDefaultEnv(createNodeProcessRunner(), mobileEnv),
     fs: nodeMobileFileSystem,
     fetch: fakeMobile?.fetch ?? (globalThis.fetch as unknown as FetchLike),
     os: hostOs(),

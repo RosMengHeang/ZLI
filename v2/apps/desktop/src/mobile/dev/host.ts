@@ -12,7 +12,10 @@ import type { ProposalStore } from "./ProposalStore.js";
 
 /** What every mobile dev feature gets from the desktop. Features never reach Electron or process.env directly. */
 export type MobileDevHost = {
-  /** Every process a feature starts goes through this, so tests and the e2e fake can script it. */
+  /**
+   * Every process a feature starts goes through this, so tests and the e2e fake can script it. The app's runner
+   * falls back to the scrubbed env, so a call that forgets env still never inherits ZLI's private variables.
+   */
   readonly runner: ProcessRunner;
   readonly fs: MobileFileSystem;
   readonly fetch: FetchLike;
