@@ -41,7 +41,7 @@ test("a pasted build log is explained, and its fix is proposed as a card", async
     await log.fill(await fixture("eas-pods-incompatible"));
     await group.getByRole("button", { name: "Explain" }).click();
     await expect(group.locator(".badge").first()).toHaveText("CocoaPods");
-    await group.getByRole("button", { name: "Propose fix" }).click();
+    await group.getByRole("button", { name: "Propose fix: Install pods" }).click();
     const card = mobile.getByRole("article", { name: "Install pods" });
     await expect(card).toContainText("pod install --repo-update");
     await expect(card).toContainText("Runs in ios in a new terminal.");

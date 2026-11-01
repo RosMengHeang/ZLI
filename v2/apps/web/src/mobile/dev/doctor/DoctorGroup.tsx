@@ -231,7 +231,7 @@ export function FindingRow({
         ) : null}
       </div>
       {finding.fix && doctor ? (
-        <Button size="xs" loading={busy} onClick={() => void propose()}>
+        <Button size="xs" loading={busy} aria-label={`Propose fix: ${finding.title}`} onClick={() => void propose()}>
           Propose fix
         </Button>
       ) : null}

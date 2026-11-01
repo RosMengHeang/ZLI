@@ -95,7 +95,7 @@ async function render(node: React.ReactNode) {
 
 function button(container: HTMLElement, name: string): HTMLButtonElement {
   const found = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
-    (candidate) => candidate.textContent?.trim() === name,
+    (candidate) => candidate.textContent?.trim() === name || candidate.getAttribute("aria-label") === name,
   );
   if (!found) throw new Error(`No button ${name}`);
   return found;
@@ -120,13 +120,13 @@ describe("the Toolchain group", () => {
     const problems = container.querySelector('[aria-label="Problems"]');
     expect(problems?.querySelectorAll("li")).toHaveLength(2);
     expect(problems?.textContent).toContain("ErrorExpo SDK 55 cannot turn off the New Architecture");
-    expect(button(container, "Propose fix")).toBeDefined();
+    expect(button(container, "Propose fix: Expo Go stops at SDK 54").textContent).toBe("Propose fix");
   });
 
   it("proposes a fix without running it and says where the card is", async () => {
     const { context, doctor } = setup();
     const container = await render(<DoctorGroup context={context} />);
-    await click(button(container, "Propose fix"));
+    await click(button(container, "Propose fix: Expo Go stops at SDK 54"));
     expect(doctor.proposeFix).toHaveBeenCalledWith("wt-1", "expo-go-sdk55");
     expect(context.onNotice).toHaveBeenCalledWith(expect.stringContaining("Nothing runs until you choose Run"));
   });

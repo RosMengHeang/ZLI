@@ -88,7 +88,11 @@ describe("build failure group", () => {
     const row = container.querySelector(".mobile-doctor-finding") as HTMLElement;
     expect(row.querySelector(".badge")?.textContent).toBe("Error");
     expect(row.textContent).toContain(finding.title);
-    await click(button(row, "Propose fix"));
+    const proposeNames = [...container.querySelectorAll("button")]
+      .filter((candidate) => candidate.textContent?.trim() === "Propose fix")
+      .map((candidate) => candidate.getAttribute("aria-label"));
+    expect(proposeNames).toEqual([`Propose fix: ${finding.title}`, "Propose fix: Install pods"]);
+    await click(button(row, `Propose fix: ${finding.title}`));
     expect(doctor.proposeFix).toHaveBeenCalledWith("wt-1", "newarch-optout-removed");
   });
 
@@ -99,7 +103,7 @@ describe("build failure group", () => {
     const container = await render(<BuildGroup context={context} />, runtime.bridge);
     await paste(container, "log");
     await click(button(container, "Explain"));
-    await click(button(container, "Propose fix"));
+    await click(button(container, "Propose fix: Install pods"));
     expect(build.propose).toHaveBeenCalledWith({
       worktreeId: "wt-1",
       title: "Install pods",
@@ -111,13 +115,27 @@ describe("build failure group", () => {
     expect(context.onNotice).toHaveBeenCalledWith("Sent to the agent in feat-login");
   });
 
+  it("names Propose fix after the command when the suggestion has no title", async () => {
+    const build = fakeBuild();
+    build.brief.mockResolvedValueOnce({
+      ...brief,
+      suggestion: { text: "Install pods.", action: { kind: "command", program: "pod", args: ["install"], cwd: "ios" } },
+    });
+    const container = await render(<BuildGroup context={devContext({ build })} />, testRuntime().bridge);
+    await paste(container, "log");
+    await click(button(container, "Explain"));
+    expect(button(container, "Propose fix: pod install").textContent).toBe("Propose fix");
+  });
+
   it("has no Propose fix without a command, and no Send to agent without an agent", async () => {
     const build = fakeBuild();
     build.brief.mockResolvedValueOnce({ ...brief, suggestion: { text: "Install JDK 17 and point JAVA_HOME to it." } });
     const container = await render(<BuildGroup context={devContext({ build })} />, testRuntime(false).bridge);
     await paste(container, "log");
     await click(button(container, "Explain"));
-    expect(() => button(container, "Propose fix")).toThrow();
+    expect([...container.querySelectorAll("button")].map((candidate) => candidate.textContent?.trim())).not.toContain(
+      "Propose fix",
+    );
     expect(button(container, "Send to agent").disabled).toBe(true);
     expect(container.textContent).toContain("Install JDK 17 and point JAVA_HOME to it.");
   });

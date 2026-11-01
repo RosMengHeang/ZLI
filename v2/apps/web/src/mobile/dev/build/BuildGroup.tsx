@@ -210,7 +210,13 @@ export function BuildGroup({ context }: { context: MobileDevContext }) {
               Copy brief
             </Button>
             {brief.suggestion?.action ? (
-              <Button size="xs" variant="ghost" loading={busy === "propose"} onClick={() => void propose(brief)}>
+              <Button
+                size="xs"
+                variant="ghost"
+                loading={busy === "propose"}
+                aria-label={`Propose fix: ${suggestionName(brief.suggestion)}`}
+                onClick={() => void propose(brief)}
+              >
                 Propose fix
               </Button>
             ) : null}
@@ -219,4 +225,12 @@ export function BuildGroup({ context }: { context: MobileDevContext }) {
       ) : null}
     </section>
   );
+}
+
+/** What the suggestion's Propose fix button is named for screen readers, next to the findings' own buttons. */
+function suggestionName(suggestion: NonNullable<MobileBuildBrief["suggestion"]>): string {
+  if (suggestion.title) return suggestion.title;
+  const { action } = suggestion;
+  if (action?.kind === "command") return proposalCommandLine(action);
+  return action ? `write to ${action.file}` : suggestion.text;
 }
