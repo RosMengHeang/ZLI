@@ -1,4 +1,5 @@
 import { type HostOs, type MobileFileSystem, pathFor } from "../../host.js";
+import { findAppDir } from "../doctor/readProject.js";
 
 /** What the open URL needs from the app: whether it is a development build, and its link scheme. */
 export type ProjectInfo = {
@@ -9,38 +10,21 @@ export type ProjectInfo = {
 };
 
 const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]{0,99}$/u;
-const APP_PACKAGES = ["expo", "react-native", "expo-dev-client"];
 
 /**
- * Finds the React Native or Expo app in a worktree: the root, or one folder down in apps/ or packages/. It reads
- * package.json, app.json, and a static app.config.json, and never runs app.config.js.
+ * Reads the app the project check finds in a worktree. It reads package.json, app.json, and a static
+ * app.config.json, and never runs app.config.js.
  */
 export async function readProjectInfo(root: string, fs: MobileFileSystem, os: HostOs): Promise<ProjectInfo> {
+  const appDir = await findAppDir(fs, root, os);
+  if (appDir === undefined) return { devClient: false };
   const path = pathFor(os);
-  for (const dir of await candidateDirs(root, fs, os)) {
-    const pkg = await readJson(fs, path.join(root, dir, "package.json"));
-    if (!pkg) continue;
-    const deps = { ...record(pkg.dependencies), ...record(pkg.devDependencies) };
-    if (!APP_PACKAGES.some((name) => name in deps)) continue;
-    const scheme = await readScheme(fs, path.join(root, dir), os);
-    return { devClient: "expo-dev-client" in deps, ...(scheme ? { scheme } : {}), appDir: dir };
-  }
-  return { devClient: false };
+  const dir = appDir === "." ? root : path.join(root, ...appDir.split("/"));
+  const pkg = await readJson(fs, path.join(dir, "package.json"));
+  const deps = { ...record(pkg?.dependencies), ...record(pkg?.devDependencies) };
+  const scheme = await readScheme(fs, dir, os);
+  return { devClient: "expo-dev-client" in deps, ...(scheme ? { scheme } : {}), appDir };
 }
-
-async function candidateDirs(root: string, fs: MobileFileSystem, os: HostOs): Promise<string[]> {
-  const path = pathFor(os);
-  const dirs = ["."];
-  for (const parent of ["apps", "packages"]) {
-    const entries = (await fs.readdir(path.join(root, parent)).catch(() => [] as string[])).sort();
-    for (const entry of entries) {
-      if (entry === "node_modules" || entry.startsWith(".")) continue;
-      if (await fs.isDirectory(path.join(root, parent, entry))) dirs.push(`${parent}/${entry}`);
-    }
-  }
-  return dirs;
-}
-
 async function readScheme(fs: MobileFileSystem, dir: string, os: HostOs): Promise<string | undefined> {
   for (const file of ["app.json", "app.config.json"]) {
     const json = await readJson(fs, pathFor(os).join(dir, file));
