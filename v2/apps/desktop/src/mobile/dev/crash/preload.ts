@@ -1,10 +1,18 @@
-import type { PreloadIpc } from "../preloadIpc.js";
+import { MobileCrashDismissInput, MobileCrashEvent, MobileCrashList, MobileCrashListInput } from "@zli-v2/contracts";
 
-/**
- * Placeholder for the renderer API of F4, the live device log with crash detection. Stream S3 owns this file and replaces it with
- * methods that call its zli:mobile:crash:* channels and parse every result. This file is part of the preload
- * bundle, so it may import only @zli-v2/contracts and other preload files.
- */
-export function createCrashApi(_ipc: PreloadIpc): Record<never, never> {
-  return {};
+import { listenParsed, type PreloadIpc } from "../preloadIpc.js";
+
+/** The crash banner's view of crash watch: the reports per device, dismiss, and a push when they change. */
+export function createCrashApi(ipc: PreloadIpc) {
+  return {
+    crash: {
+      list: async (deviceId: string) =>
+        MobileCrashList.parse(await ipc.invoke("zli:mobile:crash:list", MobileCrashListInput.parse({ deviceId }))),
+      dismiss: async (deviceId: string, crashId: string) =>
+        MobileCrashList.parse(
+          await ipc.invoke("zli:mobile:crash:dismiss", MobileCrashDismissInput.parse({ deviceId, crashId })),
+        ),
+      onChange: listenParsed(ipc, "zli:mobile:crash", MobileCrashEvent),
+    },
+  };
 }

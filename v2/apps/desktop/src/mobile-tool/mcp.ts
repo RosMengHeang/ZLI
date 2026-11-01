@@ -198,6 +198,13 @@ export function mobileToolInput(
 }
 
 export function formatMobileResult(action: string, result: unknown): ToolResult {
+  const formatted = formatMobileResultBody(action, result);
+  const notice = isRecord(result) && typeof result.crashNotice === "string" ? result.crashNotice : undefined;
+  if (!notice || formatted.content.some((part) => part.type === "text" && part.text.includes(notice))) return formatted;
+  return { ...formatted, content: [...formatted.content, { type: "text", text: notice }] };
+}
+
+function formatMobileResultBody(action: string, result: unknown): ToolResult {
   const dev = formatMobileDevResult(action, result);
   if (dev) return dev;
   if (action === "mobilescreenshot" && isRecord(result) && typeof result.data === "string") {

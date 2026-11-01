@@ -16,7 +16,7 @@ describe("mobile dev composition", () => {
       ]),
     );
     expect(Object.keys(dev.testOps)).toEqual(expect.arrayContaining(["propose", "propose-file"]));
-    expect(dev.decorate).toBeUndefined();
+    void dev.dispose();
   });
 
   it("refuses two features that claim the same action or channel", () => {

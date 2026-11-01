@@ -18,9 +18,11 @@ import {
   type BootOptions,
   type DriverDevice,
   type LogQuery,
+  type LogStream,
   type MobileDriver,
   MobileDriverError,
   type Orientation,
+  processLogStream,
   type Screenshot,
 } from "./MobileDriver.js";
 import { type ProcessRunner, type RunningProcess, runChecked } from "./ProcessRunner.js";
@@ -396,6 +398,30 @@ export class AndroidDriver implements MobileDriver {
 
   #shell(device: DriverDevice, args: readonly string[]): Promise<string> {
     return this.#adbRun(device, ["shell", deviceShellCommand(args)]);
+  }
+
+  /**
+   * Follows logcat from now on. The crash buffer has native tombstones and the system buffer has ANRs; the app's own
+   * process is not filtered, because a crashed app's pid is gone by the time anyone asks.
+   */
+  async streamLogs(device: DriverDevice): Promise<LogStream> {
+    const tools = await this.#deps.tools();
+    const args = [
+      "-s",
+      this.#serial(device),
+      "logcat",
+      "-v",
+      "threadtime",
+      "-T",
+      "1",
+      "-b",
+      "main",
+      "-b",
+      "system",
+      "-b",
+      "crash",
+    ];
+    return processLogStream(this.#deps.runner.spawn(this.#adb(tools), args, { env: tools.env }));
   }
 }
 

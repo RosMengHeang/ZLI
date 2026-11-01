@@ -1,5 +1,10 @@
-/**
- * Placeholder for the renderer API of F5, the build-failure brief. Stream S3 owns this file and replaces it with the methods its
- * preload adds to window.zli.mobile.dev, such as { build: { ... } }.
- */
-export type BuildBridge = { build?: never };
+import type { MobileBuildBrief, MobileBuildProposeInput, MobileProposal } from "@zli-v2/contracts";
+
+/** window.zli.mobile.dev.build: the build brief for a pasted log. */
+export type BuildBridge = {
+  build: {
+    brief(worktreeId: string, log: string): Promise<MobileBuildBrief>;
+    /** Creates a proposal card for the brief's command. It still runs only from Run in terminal. */
+    propose(input: MobileBuildProposeInput): Promise<MobileProposal>;
+  };
+};

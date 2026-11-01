@@ -246,3 +246,30 @@ Use a project with at least one worktree besides the checkout, and an Android em
   Expected: the screen falls back to screenshots, the chip reads "Screenshots", and its tooltip gives the reason.
 - [ ] WebCodecs unavailable (run with `--disable-features=WebCodecs`, or force a decode error).
   Expected: the panel polls screenshots itself, the note under the screen says the video could not be decoded, and input keeps working.
+
+## Crash watch and build brief
+
+Crash watch reads a device's log only while an agent holds the device or a window shows it. It is on by default, under Settings > Mobile > Crash watch.
+
+- [ ] Android: install an app that throws from a button (for example `throw IllegalStateException("test")` in a click handler), open it in the panel, and tap the button.
+  Expected: within about two seconds a red banner reads "<package> crashed: IllegalStateException: test". Show details lists the frames and the log lines before the crash.
+- [ ] Crash it again the same way.
+  Expected: the same banner gains "×2". No second banner appears.
+- [ ] Let an agent drive the device, crash the app, then have the agent run any other zli-mobile tool.
+  Expected: that result ends with "The app crashed … ago: … Call mobile_crashes for the stack." The result after it has no notice. mobile_crashes returns the title, the frames, and "Last N log lines:".
+- [ ] Native crash: crash a native library, for example with a null dereference in a JNI call.
+  Expected: one banner with "Fatal signal 11 (SIGSEGV)". Once the tombstone is written, Show details lists `#00 pc …` frames.
+- [ ] ANR: block the main thread for more than 5 seconds and tap the screen.
+  Expected: a banner "<package> crashed: ANR in <package>: Input dispatching timed out…".
+- [ ] iOS simulator (macOS): raise an uncaught `NSException` in the app.
+  Expected: a banner with the exception name and reason.
+- [ ] Turn off Watch for crashes, then crash the app.
+  Expected: no banner, and ZLI's `adb logcat -v threadtime -T 1` process for the device is gone.
+- [ ] Close the Mobile panel and wait two minutes with no agent on the device.
+  Expected: ZLI's `logcat` process for that device stops.
+- [ ] Rename adb while a device runs, then reopen the panel.
+  Expected: the desktop log says once that ZLI could not read the device's log. Nothing else changes.
+- [ ] Project check > Build failure: paste the end of a real failed `./gradlew assembleDebug` or `xcodebuild` log and click Explain.
+  Expected: the class badge, the first real error line rather than the final `FAILURE:` line, Show context with 20 lines on each side, and Send to agent, which sends the brief to the worktree's chat agent.
+- [ ] From an agent, call mobile_build_brief with `logPath` set to a log in the temp folder, then to a file outside the worktree such as `~/.ssh/config`.
+  Expected: the first returns the brief. The second is refused with "ZLI reads build logs only from this worktree or the temp folder."

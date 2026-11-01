@@ -10,9 +10,11 @@ import {
   type BootOptions,
   type DriverDevice,
   type LogQuery,
+  type LogStream,
   type MobileDriver,
   MobileDriverError,
   type Orientation,
+  processLogStream,
   type Screenshot,
 } from "./MobileDriver.js";
 import { type ProcessRunner, runChecked } from "./ProcessRunner.js";
@@ -471,6 +473,22 @@ export class IosSimulatorDriver implements MobileDriver {
       { timeoutMs: 60_000 },
     );
     return result.stdout.toString("utf8");
+  }
+
+  /** Follows the simulator's unified log: errors, faults, and the lines an uncaught exception or a bad access prints. */
+  async streamLogs(device: DriverDevice): Promise<LogStream> {
+    const args = [
+      "simctl",
+      "spawn",
+      udidOf(this.#online(device)),
+      "log",
+      "stream",
+      "--style",
+      "compact",
+      "--predicate",
+      'messageType == error OR messageType == fault OR eventMessage CONTAINS "uncaught exception" OR eventMessage CONTAINS "EXC_BAD_ACCESS"',
+    ];
+    return processLogStream(this.#deps.runner.spawn(await this.#xcrun(), args));
   }
 }
 

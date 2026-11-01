@@ -600,6 +600,17 @@ With no devices, nothing starts and no UI shows. `mobile_crashes` returns the ex
 - `CrashBanner.test.tsx`: Send to agent calls the helper, and the state with no agent.
 - e2e `tests/e2e/mobile-crash.spec.ts` (fake mode): open Mobile and call the test op `emit-log` with the `java-fatal` fixture lines. See the crash banner title, click Show details, see the frames, and click Dismiss so the banner goes away.
 
+### Built differently (S3)
+
+- `streamLogs(device)` returns `Promise<LogStream>`, because the drivers look up adb and xcrun first. A missing tool rejects, and the watcher logs it once.
+- Android also reads `-b system`, where ActivityManager writes ANRs. iOS uses `--predicate` for errors, faults, uncaught exceptions, and `EXC_BAD_ACCESS`, because `log stream --level` takes only default, info, or debug.
+- `MobileCrashReport` has an optional `dismissed`. A repeat clears it. `mobile_crashes` returns `{ deviceId, watching, reports }`, so the agent can tell "no crashes" from "not watching".
+- A native crash's `Fatal signal` line and its later tombstone make one report. The tombstone adds the frames and the cause.
+- The notice is new when a crash's `lastSeen` or `count` changed since that owner last saw it. Calling `mobile_crashes` marks every report as seen.
+- `emit-log` takes an optional `deviceId`, starts watching that device first, and closes any open block after printing.
+- The banner is a region named "App crash", not an alert, and the toggle reads **Hide details** while open.
+- The "once per owner" test is in `mobile/dev/crash/index.test.ts`, and the `streamLogs` args test is in `CrashWatcher.test.ts`, so S3 does not edit the core test files.
+
 ---
 
 ## 9. F5: Build-failure classifier and agent brief (stream S3)
@@ -673,6 +684,16 @@ Fully local. It works on Linux with no tools. Without doctor facts the brief say
 - `logPath.test.ts`: inside the worktree OK, `../` refused, a symlink out of the worktree refused, a large file read from the tail only.
 - `BuildGroup.test.tsx`.
 - e2e `tests/e2e/mobile-build.spec.ts` (a separate file, so S3 never edits S2's spec): paste the `gradle-unsupported-class-version` fixture, click Explain, see "JDK / Gradle" and the first error line, click Propose fix (when present), and see the card.
+
+### Built differently (S3)
+
+- `MobileBuildBrief` adds `versionChecked` (false without doctor facts) and `suggestion.title` (the card's title). The panel uses `MobileBuildPanelInput` for Explain and `MobileBuildProposeInput` (`worktreeId`, optional `title` and `reason`, `action`) for Propose fix, which refuses file blocks.
+- `Unsupported class file major version` is JDK / Gradle, not Version mismatch, and a Kotlin metadata mismatch is Version mismatch. When rules tie on a line, the order in `classify.ts` decides.
+- Without doctor facts, the brief treats the project as Expo when the log is from EAS or names `node_modules/expo`.
+- Suggestions with a command: version on Expo, `CI=1 npx expo install --fix`; CocoaPods, `pod install` in `ios`, with `--repo-update` when no compatible versions were found; config plugin on Expo, `npx expo config --type introspect`. The others are text only.
+- Avoid also says, for config plugins, not to edit generated `android/` or `ios/` folders by hand.
+- `logPath`: a missing file gets 404 "There is no build log at …", and a file over 50 MB gets its own 400 message. Paths outside the worktree and the temp folder get the message above.
+- The JDK fixture has no command to propose, so the e2e test then pastes `eas-pods-incompatible` and checks the "Install pods" card.
 
 ---
 

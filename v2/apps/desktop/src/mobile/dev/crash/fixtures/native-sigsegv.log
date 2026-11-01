@@ -1,0 +1,112 @@
+11-01 10:24:58.064  4321  4352 I OpenGLRenderer: Davey! duration=701ms;
+11-01 10:24:58.119  1180  1201 I ActivityManager: Changes in 10190 2 to 1, 0 to 0
+11-01 10:24:58.206  4321  4352 D OpenGLRenderer: Davey! duration=1143ms; Flags=0, FrameTimelineVsyncId=717814, IntendedVsync=953747584537, Vsync=808642976579
+11-01 10:24:58.245   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:24:58.304  4321  4365 D OkHttp  : <-- 200 https://api.example.com/v1/feed?page=2 (222ms)
+11-01 10:24:58.345  4321  4321 I Choreographer: Skipped 42 frames!  The application may be doing too much work on its main thread.
+11-01 10:24:58.371  4321  4321 I Choreographer: Skipped 31 frames!  The application may be doing too much work on its main thread.
+11-01 10:24:58.410  4321  4380 I ReactNativeJS: 'Feed loaded', { items: 20 }
+11-01 10:24:58.487  4321  4352 D EGL_emulation: app_time_stats: avg=17.70ms min=3.09ms max=76.03ms count=51
+11-01 10:24:58.577  4321  4333 I com.example.app: Background concurrent mark compact GC freed 6406KB AllocSpace bytes, 14(403KB) LOS objects, 53% free, 7MB/14MB, paused 402us,847us total 54.427ms
+11-01 10:24:58.666  4321  4352 D OpenGLRenderer: Davey! duration=1255ms; Flags=0, FrameTimelineVsyncId=839130, IntendedVsync=372647978537, Vsync=403429615665
+11-01 10:24:58.718  1180  1402 W ActivityManager: Slow operation: 71ms so far, now at startProcess: done updating pids map
+11-01 10:24:58.775  1180  1201 I ActivityManager: Changes in 10190 3 to 3, 0 to 0
+11-01 10:24:58.838  1180  1201 I ActivityManager: Changes in 10190 3 to 1, 0 to 0
+11-01 10:24:58.879  4321  4333 I com.example.app: Background concurrent mark compact GC freed 7361KB AllocSpace bytes, 2(671KB) LOS objects, 49% free, 6MB/15MB, paused 358us,283us total 99.970ms
+11-01 10:24:58.946  4321  4352 D EGL_emulation: app_time_stats: avg=27.94ms min=4.67ms max=71.30ms count=54
+11-01 10:24:58.969  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:24:58.998  4321  4321 I chatty  : uid=10190(com.example.app) RenderThread identical 6 lines
+11-01 10:24:59.026  4321  4380 I ReactNativeJS: 'Navigation state changed', { route: 'Profile' }
+11-01 10:24:59.048  4321  4333 I com.example.app: Background concurrent mark compact GC freed 8632KB AllocSpace bytes, 15(379KB) LOS objects, 43% free, 9MB/12MB, paused 716us,514us total 81.341ms
+11-01 10:24:59.114  4321  4365 D OkHttp  : <-- 200 https://api.example.com/v1/feed?page=4 (286ms)
+11-01 10:24:59.164  4321  4321 I chatty  : uid=10190(com.example.app) RenderThread identical 6 lines
+11-01 10:24:59.227  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_DOWN
+11-01 10:24:59.237  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=2
+11-01 10:24:59.323  1180  1402 W ActivityManager: Slow operation: 87ms so far, now at startProcess: done updating pids map
+11-01 10:24:59.404  4321  4321 I chatty  : uid=10190(com.example.app) RenderThread identical 12 lines
+11-01 10:24:59.466  4321  4352 D OpenGLRenderer: Davey! duration=1106ms; Flags=0, FrameTimelineVsyncId=986247, IntendedVsync=740000019140, Vsync=894155069024
+11-01 10:24:59.559  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=3
+11-01 10:24:59.601  4321  4352 D OpenGLRenderer: Davey! duration=912ms; Flags=0, FrameTimelineVsyncId=770908, IntendedVsync=622430099838, Vsync=869765611221
+11-01 10:24:59.630  4321  4333 I com.example.app: Background concurrent mark compact GC freed 4897KB AllocSpace bytes, 38(176KB) LOS objects, 58% free, 7MB/24MB, paused 113us,451us total 109.389ms
+11-01 10:24:59.720  4321  4352 D OpenGLRenderer: Davey! duration=1252ms; Flags=0, FrameTimelineVsyncId=359996, IntendedVsync=632894993348, Vsync=247890578548
+11-01 10:24:59.760  1180  1233 D ConnectivityService: requestNetwork for uid/pid:10190/4321 activeRequest: null callbackRequest: 232 [NetworkRequest [ REQUEST id=266, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10190 RequestorUid: 10190 RequestorPkg: com.example.app UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false declaredMethods: AVAIL|LOST|NC
+11-01 10:24:59.844  1180  1201 I ActivityManager: Changes in 10190 4 to 2, 0 to 0
+11-01 10:24:59.875  1180  1233 D ConnectivityService: requestNetwork for uid/pid:10190/4321 activeRequest: null callbackRequest: 300 [NetworkRequest [ REQUEST id=334, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10190 RequestorUid: 10190 RequestorPkg: com.example.app UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false declaredMethods: AVAIL|LOST|NC
+11-01 10:24:59.931  4321  4352 I OpenGLRenderer: Davey! duration=894ms;
+11-01 10:24:59.950  1180  1201 I ActivityManager: Changes in 10190 4 to 2, 0 to 0
+11-01 10:25:00.049  4321  4352 D OpenGLRenderer: Davey! duration=1159ms; Flags=0, FrameTimelineVsyncId=643938, IntendedVsync=708397917565, Vsync=502004882804
+11-01 10:25:00.136  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_DOWN
+11-01 10:25:00.148  4321  4321 I chatty  : uid=10190(com.example.app) RenderThread identical 5 lines
+11-01 10:25:00.182  4321  4321 D SoLoader: init start
+11-01 10:25:03.512  4321  4377 F libc    : Fatal signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0000000000000008 in tid 4377 (mqt_native_modu), pid 4321 (com.example.app)
+11-01 10:25:03.521  4400  4400 I crash_dump64: obtaining output fd from tombstoned, type: kDebuggerdTombstoneProto
+11-01 10:25:03.523   380   380 I tombstoned: received crash request for pid 4377
+11-01 10:25:03.526  4400  4400 I crash_dump64: performing dump of process 4321 (target tid = 4377)
+11-01 10:25:03.836  1180  1290 V WindowManager: Relayout Window{a4f12c u0 com.example.app/com.example.app.MainActivity}: viewVisibility=0 req=1080x2400
+11-01 10:25:04.076   412   480 I SurfaceFlinger: Bound buffer for layer com.example.app/com.example.app.MainActivity#842
+11-01 10:25:04.243  4400  4400 F DEBUG   : *** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+11-01 10:25:04.243  4400  4400 F DEBUG   : Build fingerprint: 'google/sdk_gphone64_x86_64/emu64xa:15/AE3A.240806.005/12228598:userdebug/dev-keys'
+11-01 10:25:04.243  4400  4400 F DEBUG   : Revision: '0'
+11-01 10:25:04.243  4400  4400 F DEBUG   : ABI: 'x86_64'
+11-01 10:25:04.244  4400  4400 F DEBUG   : Timestamp: 2026-11-01 10:25:03.512000000+0000
+11-01 10:25:04.244  4400  4400 F DEBUG   : Process uptime: 12s
+11-01 10:25:04.244  4400  4400 F DEBUG   : Cmdline: com.example.app
+11-01 10:25:04.244  4400  4400 F DEBUG   : pid: 4321, tid: 4377, name: mqt_native_modu  >>> com.example.app <<<
+11-01 10:25:04.244  4400  4400 F DEBUG   : uid: 10190
+11-01 10:25:04.244  4400  4400 F DEBUG   : signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0000000000000008
+11-01 10:25:04.244  4400  4400 F DEBUG   : Cause: null pointer dereference
+11-01 10:25:04.245  4400  4400 F DEBUG   :     rax 0000000000000000  rbx 00007b3c2a5f1e40  rcx 0000000000000001  rdx 00007b3c1f2a8c00
+11-01 10:25:04.245  4400  4400 F DEBUG   :     r8  0000000000000000  r9  00007b3e8c1d5a20  r10 0000000000000004  r11 0000000000000246
+11-01 10:25:04.245  4400  4400 F DEBUG   :     r12 00007b3c2a5f1e48  r13 0000000000000000  r14 00007b3c1f2a8d10  r15 00007ffd4c3b2e90
+11-01 10:25:04.245  4400  4400 F DEBUG   :     rdi 00007b3c2a5f1e40  rsi 0000000000000000
+11-01 10:25:04.245  4400  4400 F DEBUG   :     rbp 00007b3c1f2a8cf0  rsp 00007b3c1f2a8c80  rip 00007b3b9e0a1b2c
+11-01 10:25:04.245  4400  4400 F DEBUG   : 
+11-01 10:25:04.245  4400  4400 F DEBUG   : 10 total frames
+11-01 10:25:04.245  4400  4400 F DEBUG   : backtrace:
+11-01 10:25:04.246  4400  4400 F DEBUG   :       #00 pc 00000000000a1b2c  /data/app/~~Xy12==/com.example.app-Ab3==/lib/x86_64/libimagefilter.so (ImageFilter::apply(Bitmap const&)+44) (BuildId: 3f2a9c71e4b0d85a6c1f2e3d4b5a69788d7c6b5a)
+11-01 10:25:04.246  4400  4400 F DEBUG   :       #01 pc 00000000000a1f90  /data/app/~~Xy12==/com.example.app-Ab3==/lib/x86_64/libimagefilter.so (ImageFilter::applyChain(std::__ndk1::vector<Filter, std::__ndk1::allocator<Filter> > const&)+132) (BuildId: 3f2a9c71e4b0d85a6c1f2e3d4b5a69788d7c6b5a)
+11-01 10:25:04.246  4400  4400 F DEBUG   :       #02 pc 000000000005c3a4  /apex/com.android.runtime/lib64/bionic/libc.so (pthread_mutex_unlock+52) (BuildId: 9f0c2a41d3b6e8f7a1c2d3e4f5a6b7c8)
+11-01 10:25:04.246  4400  4400 F DEBUG   :       #03 pc 00000000000a0b18  /data/app/~~Xy12==/com.example.app-Ab3==/lib/x86_64/libimagefilter.so (Java_com_example_app_imagefilter_ImageFilterModule_nativeApply+212) (BuildId: 3f2a9c71e4b0d85a6c1f2e3d4b5a69788d7c6b5a)
+11-01 10:25:04.246  4400  4400 F DEBUG   :       #04 pc 0000000000390a7d  /apex/com.android.art/lib64/libart.so (art_quick_generic_jni_trampoline+217) (BuildId: b21c6d4f0e9a8c7b6a5f4e3d2c1b0a99)
+11-01 10:25:04.246  4400  4400 F DEBUG   :       #05 pc 000000000037b3d6  /apex/com.android.art/lib64/libart.so (art_quick_invoke_stub+758) (BuildId: b21c6d4f0e9a8c7b6a5f4e3d2c1b0a99)
+11-01 10:25:04.247  4400  4400 F DEBUG   :       #06 pc 00000000003d4e5c  /apex/com.android.art/lib64/libart.so (art::ArtMethod::Invoke(art::Thread*, unsigned int*, unsigned int, art::JValue*, char const*)+204) (BuildId: b21c6d4f0e9a8c7b6a5f4e3d2c1b0a99)
+11-01 10:25:04.247  4400  4400 F DEBUG   :       #07 pc 00000000005f1a2b  /apex/com.android.art/lib64/libart.so (art::Thread::CreateCallback(void*)+1355) (BuildId: b21c6d4f0e9a8c7b6a5f4e3d2c1b0a99)
+11-01 10:25:04.247  4400  4400 F DEBUG   :       #08 pc 00000000000c8e9a  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+58) (BuildId: 9f0c2a41d3b6e8f7a1c2d3e4f5a6b7c8)
+11-01 10:25:04.247  4400  4400 F DEBUG   :       #09 pc 000000000005a1b4  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+68) (BuildId: 9f0c2a41d3b6e8f7a1c2d3e4f5a6b7c8)
+11-01 10:25:04.717  1180  1402 I ActivityManager: Process com.example.app (pid 4321) has died: fg  TOP 
+11-01 10:25:04.763  4321  4352 I OpenGLRenderer: Davey! duration=847ms;
+11-01 10:25:04.799  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_DOWN
+11-01 10:25:04.843  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=5
+11-01 10:25:04.886  4321  4352 D EGL_emulation: app_time_stats: avg=16.26ms min=2.61ms max=63.05ms count=40
+11-01 10:25:04.917  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_UP
+11-01 10:25:04.970   523   602 D gralloc4: gralloc4: allocate buffer 1080x2400 format 0x1 usage 0xb00
+11-01 10:25:05.037  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=5
+11-01 10:25:05.067  4321  4321 I Choreographer: Skipped 87 frames!  The application may be doing too much work on its main thread.
+11-01 10:25:05.128  4321  4352 D OpenGLRenderer: Davey! duration=961ms; Flags=0, FrameTimelineVsyncId=158730, IntendedVsync=141421633141, Vsync=754025523454
+11-01 10:25:05.149  1180  1290 V WindowManager: Relayout Window{a4f12c u0 com.example.app/com.example.app.MainActivity}: viewVisibility=0 req=1080x2400
+11-01 10:25:05.165  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_UP
+11-01 10:25:05.245  4321  4321 D SoLoader: init exiting
+11-01 10:25:05.332  4321  4380 I ReactNativeJS: 'Fetching feed', { page: 2 }
+11-01 10:25:05.348   412   480 I SurfaceFlinger: Bound buffer for layer com.example.app/com.example.app.MainActivity#881
+11-01 10:25:05.375  1180  1201 I ActivityManager: Changes in 10190 2 to 3, 0 to 0
+11-01 10:25:05.392  4321  4352 D OpenGLRenderer: Davey! duration=1074ms; Flags=0, FrameTimelineVsyncId=344564, IntendedVsync=840932841838, Vsync=103984994490
+11-01 10:25:05.432   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:25:05.506  4321  4321 D SoLoader: init start
+11-01 10:25:05.527  4321  4352 D EGL_emulation: app_time_stats: avg=9.98ms min=1.54ms max=55.51ms count=46
+11-01 10:25:05.608  1180  1214 I ActivityTaskManager: Displayed com.example.app/.MainActivity for user 0: +1s630ms
+11-01 10:25:05.705  4321  4333 I com.example.app: Background concurrent mark compact GC freed 5465KB AllocSpace bytes, 12(703KB) LOS objects, 44% free, 4MB/17MB, paused 407us,678us total 71.407ms
+11-01 10:25:05.762  1180  1402 W ActivityManager: Slow operation: 85ms so far, now at startProcess: done updating pids map
+11-01 10:25:05.780  4321  4380 I ReactNativeJS: 'Navigation state changed', { route: 'Profile' }
+11-01 10:25:05.825  1180  1233 D ConnectivityService: requestNetwork for uid/pid:10190/4321 activeRequest: null callbackRequest: 336 [NetworkRequest [ REQUEST id=299, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10190 RequestorUid: 10190 RequestorPkg: com.example.app UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false declaredMethods: AVAIL|LOST|NC
+11-01 10:25:05.924  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:25:05.954  4321  4321 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:25:05.982  1180  1402 W ActivityManager: Slow operation: 110ms so far, now at startProcess: done updating pids map
+11-01 10:25:06.004  4321  4352 D EGL_emulation: app_time_stats: avg=10.82ms min=5.72ms max=63.87ms count=47
+11-01 10:25:06.092  1180  1214 I ActivityTaskManager: Displayed com.example.app/.MainActivity for user 0: +1s579ms
+11-01 10:25:06.149   412   480 I SurfaceFlinger: Bound buffer for layer com.example.app/com.example.app.MainActivity#887
+11-01 10:25:06.164  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_DOWN
+11-01 10:25:06.176  4321  4333 I com.example.app: Background concurrent mark compact GC freed 4925KB AllocSpace bytes, 12(228KB) LOS objects, 45% free, 10MB/13MB, paused 102us,610us total 23.436ms
+11-01 10:25:06.222  4321  4321 D InsetsController: hide(ime(), fromIme=false)
+11-01 10:25:06.309  4321  4333 I com.example.app: Background concurrent mark compact GC freed 3488KB AllocSpace bytes, 21(545KB) LOS objects, 49% free, 9MB/15MB, paused 729us,411us total 111.606ms
+11-01 10:25:06.351  4321  4365 D OkHttp  : <-- 200 https://api.example.com/v1/feed?page=1 (97ms)
+11-01 10:25:06.372  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_UP

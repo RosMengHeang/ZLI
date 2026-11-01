@@ -44,6 +44,8 @@ export type MobileDriver = {
   screenSize(device: DriverDevice): Promise<{ width: number; height: number }>;
   /** Stops processes this driver started, such as emulators, when ZLI quits. */
   dispose(): Promise<void>;
+  /** Follows the device's log from now on. Rejects when the log tool is missing. */
+  streamLogs(device: DriverDevice): Promise<LogStream>;
 };
 
 export class MobileDriverError extends Error {
@@ -54,4 +56,50 @@ export class MobileDriverError extends Error {
     super(message);
     this.name = "MobileDriverError";
   }
+}
+
+/** A device log that keeps coming, line by line, until stop() or the log process ends. */
+export type LogStream = {
+  onLine(listener: (line: string) => void): void;
+  stop(): void;
+  readonly exited: Promise<void>;
+};
+
+/** Splits output chunks into lines, keeping a partial line until the rest of it arrives. */
+export function lineSplitter(emit: (line: string) => void): { push(chunk: Buffer | string): void; end(): void } {
+  let partial = "";
+  return {
+    push(chunk) {
+      const lines = `${partial}${chunk.toString()}`.split("\n");
+      partial = lines.pop() ?? "";
+      // A runaway line without a newline must not grow forever.
+      if (partial.length > 64 * 1024) partial = partial.slice(-64 * 1024);
+      for (const line of lines) emit(line.endsWith("\r") ? line.slice(0, -1) : line);
+    },
+    end() {
+      if (partial) emit(partial);
+      partial = "";
+    },
+  };
+}
+
+/** A LogStream over a process that prints log lines to stdout. */
+export function processLogStream(process: {
+  onStdout(listener: (chunk: Buffer) => void): void;
+  kill(): void;
+  readonly exited: Promise<unknown>;
+}): LogStream {
+  const listeners: ((line: string) => void)[] = [];
+  const splitter = lineSplitter((line) => {
+    for (const listener of listeners) listener(line);
+  });
+  process.onStdout((chunk) => splitter.push(chunk));
+  const exited = process.exited.then(() => splitter.end());
+  return {
+    onLine: (listener) => {
+      listeners.push(listener);
+    },
+    stop: () => process.kill(),
+    exited,
+  };
 }
