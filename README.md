@@ -26,6 +26,7 @@ ZLI puts your agent CLIs side by side in one window. Each agent works in its own
 - **Best of N.** Send one message to two to four agents at once, compare what each one changed, and keep the best run.
 - **Review and merge.** See every change with line counts, leave notes for the agent, commit, and merge a worktree back into its branch.
 - **Built-in browser.** A Chromium panel scoped to each worktree, which agents can also open and test pages in.
+- **Mobile devices.** Boot Android emulators, plug in a phone, or use iPhone simulators on a Mac, and drive them from the Mobile panel or let agents drive them. A project check reads an agent's worktree for toolchain, package, and build problems, and a command or file change an agent proposes waits for your click.
 - **Integrations.** Connect services such as GitHub, Linear, Vercel, and Supabase, add any MCP server, and install Claude Code or Codex plugins. Every agent ZLI starts can use them.
 - **Skills, prompts, and issues.** Share skills and saved prompts across agents, and start work from GitHub or Linear issues.
 - **Multiple accounts.** Sign in to the same agent CLI with more than one account and choose one per agent.

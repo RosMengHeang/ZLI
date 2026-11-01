@@ -131,7 +131,7 @@ export const MobileProjectFactsCore = z.object({
 
 ### Desktop
 
-- `apps/desktop/src/mobile/dev/childEnv.ts`: `mobileChildEnv(env)` returns a copy without `ZLI_RUNTIME_TOKEN`, `ZLI_DAEMON_TOKEN`, `ZLI_DAEMON_ENDPOINT_PATH`, or `ZLI_BROWSER_CONTROL_FILE`.
+- `packages/contracts/src/privateEnv.ts`: `ZLI_PRIVATE_ENV_KEYS` names the four variables ZLI keeps to itself (`ZLI_RUNTIME_TOKEN`, `ZLI_DAEMON_TOKEN`, `ZLI_DAEMON_ENDPOINT_PATH`, `ZLI_BROWSER_CONTROL_FILE`), and `withoutPrivateEnv(env, { keep? })` returns a copy without them.
 - `apps/desktop/src/mobile/dev/ProposalStore.ts`:
   - Keeps proposals in memory, at most 20 per worktree, and at most 5 pending agent proposals per worktree (the next one gets 429).
   - `create`, `list(worktreeId?)`, `dismiss(id)`, and `accept(id)`.
@@ -194,7 +194,7 @@ export const MobileProjectFactsCore = z.object({
 
 - Unit:
   - `ProposalStore.test.ts`: argument quoting on POSIX and Windows. Refusal of `cwd` with `..` or an absolute path, and of programs outside the list. Agent rate limit. The `terminal.create` payload, asserting no `envOverrides` (rule 1). The file-block cases: create, replace between markers, append, a changed digest refused, CRLF files kept CRLF.
-  - `childEnv.test.ts`: strips the four keys.
+  - `privateEnv.test.ts`: strips the four keys, and `keep` spares one.
   - `mobileIpc.test.ts`: the proposal channels and zod rejection.
   - `MobileControlActions.test.ts`: `mobilepropose` goes through the gate, and the 403 when agent tools are off.
   - `zli-mobile.test.ts`: the tool list includes `mobile_propose`, and the generic CLI path works.
@@ -740,7 +740,7 @@ S0 is built. These are the differences from section 4 that the streams code agai
 - **Extra S0 files.** S0 owns these, and streams use them without editing them:
   - Contracts: `mobileDev.ts` also has `MobileProposalList`, `MobileTestInput`, and the e2e inputs `MobileTestProposeInput`, `MobileTestProposeFileInput`, `MobileTestRunnerAnswer`, and `MobileTestFetchAnswer`.
   - Desktop: `mobile/dev/proposalActions.ts` (the proposals feature), `mobile/dev/preloadIpc.ts` (`PreloadIpc` and `listenParsed` for preload stubs), `mobile/dev/proposalPreload.ts`, `mobile/dev/testHost.ts` (`createTestDevHost`, an in-memory host for unit tests), `mobileDevApi.ts`, `mobile/testing/fakeMobileService.ts`, and `mobile-tool/devTools.ts`.
-  - Web: `mobile/dev/context.ts` (`MobileDevContext`, which also has `onOpenTerminal`), `mobile/dev/styles.ts` (imports the four stylesheets), `MobileDevSettingGroups.tsx`, and `sendToAgent.ts` (`sendToWorktreeAgent` sends when the agent is idle and queues the message when it is busy).
+  - Web: `mobile/dev/context.ts` (`MobileDevContext`, which also has `onOpenTerminal`), `mobile/dev/dev.css` (the proposal cards and the project check layout; each feature's component imports its own stylesheet), `MobileDevSettingGroups.tsx`, and `sendToAgent.ts` (`sendToWorktreeAgent` sends when the agent is idle and queues the message when it is busy).
 - **e2e test operations.** A mock launch with `ZLI_TEST_MOBILE=fake` exposes `window.zli.test.mobile(op, input)`. S0's operations: `propose` and `propose-file` (both use the first ready worktree when `worktreeId` is left out), `runner-answer` `{ match, answer: { code, stdout, stderr, timedOut } }` (the newest answer whose `match` is in the command line wins; with none, the fake runner answers exit 0 and no output), and `fetch-answer` `{ url, status, json }` (unanswered URLs get 404). A stream adds operations in its own feature's `testOps`, and its specs reuse the helpers in `tests/e2e/mobile.spec.ts` by copying them.
 
 ### Streams
