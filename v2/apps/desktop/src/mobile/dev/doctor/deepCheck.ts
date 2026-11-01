@@ -1,6 +1,7 @@
 import type { MobileDoctorDeep, MobileDoctorDeepPlan, MobileDoctorDeepStep } from "@zli-v2/contracts";
 
 import { pathFor } from "../../host.js";
+import { stripAnsi } from "../build/classify.js";
 import type { MobileDevHost } from "../host.js";
 import { findAppDir } from "./readProject.js";
 
@@ -160,11 +161,6 @@ async function hasBin(host: MobileDevHost, root: string, dir: string, bin: strin
     if (parent === current || path.relative(root, parent).startsWith("..")) return false;
     current = parent;
   }
-}
-
-function stripAnsi(text: string): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape codes start with ESC.
-  return text.replace(/\u001b\[[0-9;?]*[A-Za-z]/gu, "");
 }
 
 function lastLines(text: string, count: number): string {
