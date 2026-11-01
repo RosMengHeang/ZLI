@@ -69,6 +69,29 @@ describe("build failure group", () => {
     expect(container.querySelector(".mobile-build-well .is-error")?.textContent?.trim()).toBe(brief.firstError.line);
   });
 
+  it("shows the doctor's version findings as the project check's rows, with their own Propose fix", async () => {
+    const finding = {
+      id: "newarch-optout-removed",
+      severity: "error" as const,
+      title: "Expo SDK 55 cannot turn off the New Architecture",
+      detail: "newArchEnabled is false in app.json.",
+      fix: { kind: "command" as const, program: "npx" as const, args: ["expo", "install", "--fix"], cwd: "." },
+    };
+    const build = {
+      ...fakeBuild(),
+      brief: vi.fn(async () => ({ ...brief, versionChecked: true, versionFindings: [finding] })),
+    };
+    const doctor = { proposeFix: vi.fn(async () => ({ proposalId: "p-2" })) };
+    const container = await render(<BuildGroup context={devContext({ build, doctor })} />, testRuntime().bridge);
+    await paste(container, "log");
+    await click(button(container, "Explain"));
+    const row = container.querySelector(".mobile-doctor-finding") as HTMLElement;
+    expect(row.querySelector(".badge")?.textContent).toBe("Error");
+    expect(row.textContent).toContain(finding.title);
+    await click(button(row, "Propose fix"));
+    expect(doctor.proposeFix).toHaveBeenCalledWith("wt-1", "newarch-optout-removed");
+  });
+
   it("proposes the fix as a card, and sends the brief to the agent", async () => {
     const build = fakeBuild();
     const runtime = testRuntime();

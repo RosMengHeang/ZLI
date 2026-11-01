@@ -779,7 +779,7 @@ S0 is built. These are the differences from section 4 that the streams code agai
 3. **S2**. After it, F5 briefs pick up real version findings with no code change, because `facts.ts` now has content.
 4. **S3**. Rebase, then run the full verify, `npm run build`, and every `tests/e2e/mobile*.spec.ts`. Then the final full e2e suite.
 
-After S2 merged, a cleanup commit made S1's `projectInfo.ts` use S2's `findAppDir` from `readProject.ts`, so the workspace and the doctor always pick the same app folder. After S3 merges, `BuildGroup` reuses S2's `FindingRow` from `DoctorGroup.tsx`.
+After S2 merged, a cleanup commit made S1's `projectInfo.ts` use S2's `findAppDir` from `readProject.ts`, so the workspace and the doctor always pick the same app folder. After S3 merged, `BuildGroup` shows the brief's version findings with S2's `FindingRow` from `DoctorGroup.tsx`, so they look the same as in Toolchain and keep their Propose fix.
 
 ### Hand-back checklist for every stream
 

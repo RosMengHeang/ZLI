@@ -19,9 +19,7 @@
 .mobile-build-well { white-space: pre; }
 .mobile-build-well .is-error { color: var(--zli-red); }
 .mobile-build-subtitle { margin: var(--zli-space-1) 0 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
-.mobile-build-findings, .mobile-build-files, .mobile-build-avoid { display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0; padding-left: var(--zli-space-4); color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
-.mobile-build-findings { padding-left: 0; list-style: none; }
-.mobile-build-findings li { display: flex; align-items: baseline; gap: var(--zli-space-1-5); }
+.mobile-build-files, .mobile-build-avoid { display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0; padding-left: var(--zli-space-4); color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
 .mobile-build-files { font-family: var(--zli-mono); }
 .mobile-build-suggestion { display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 .mobile-build-suggestion code { color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); }

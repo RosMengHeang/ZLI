@@ -2,25 +2,20 @@ import {
   BUILD_CATEGORY_LABELS,
   BUILD_STACK_LABELS,
   type MobileBuildBrief,
-  type MobileFinding,
   proposalCommandLine,
 } from "@zli-v2/contracts";
 import { useEffect, useId, useState } from "react";
 
-import { Badge, type BadgeTone } from "../../../ui/Badge.js";
+import { Badge } from "../../../ui/Badge.js";
 import { Button } from "../../../ui/Button.js";
 import { Field } from "../../../ui/Field.js";
 import { errorText } from "../../mobile.js";
 import type { MobileDevContext } from "../context.js";
 import { copyText, useWorktreeAgent } from "../crash/useWorktreeAgent.js";
+import { FindingRow } from "../doctor/DoctorGroup.js";
 
 const HINT = "Paste the end of a failed Gradle, Xcode, or EAS build. ZLI finds the first real error.";
 const NO_AGENT = "No chat agent works in this worktree";
-const SEVERITY_TONE: Record<MobileFinding["severity"], BadgeTone> = {
-  error: "danger",
-  warning: "warning",
-  info: "quiet",
-};
 
 /** The project check's Build failure group: paste a failed build log and get a brief to fix it or hand to the agent. */
 export function BuildGroup({ context }: { context: MobileDevContext }) {
@@ -163,12 +158,9 @@ export function BuildGroup({ context }: { context: MobileDevContext }) {
           ) : brief.versionFindings.length === 0 ? (
             <p className="mobile-build-dim">No version problems found.</p>
           ) : (
-            <ul className="mobile-build-findings">
+            <ul className="mobile-doctor-findings" aria-label="Version problems">
               {brief.versionFindings.map((finding) => (
-                <li key={finding.id}>
-                  <Badge tone={SEVERITY_TONE[finding.severity]}>{finding.severity}</Badge>
-                  <span>{finding.title}</span>
-                </li>
+                <FindingRow key={finding.id} finding={finding} context={context} worktreeId={worktreeId} />
               ))}
             </ul>
           )}
