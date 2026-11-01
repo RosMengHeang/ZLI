@@ -29,12 +29,20 @@ export function createProposalFeature(host: MobileDevHost): MobileDevFeature {
       mobilepropose: async (input, context) => {
         const parsed = MobileControlProposeInput.parse(input);
         const worktree = context.worktreeFor(parsed);
-        const owner = context.ownerFor(parsed);
+        // The client carrying the agent's call injects the agent's own worktree. A card filed for another
+        // worktree names both, and counts toward the caller's own waiting limit wherever it lands.
+        const own =
+          host.worktrees().find((entry) => entry.worktreeId === parsed.defaultWorktreeId) ?? worktree;
+        const sourceLabel =
+          own.worktreeId === worktree.worktreeId
+            ? `Proposed by the agent in ${baseName(own.path)}`
+            : `Proposed by the agent in ${baseName(own.path)}, for ${baseName(worktree.path)}`;
         try {
           const proposal = proposals.create({
             worktreeId: worktree.worktreeId,
             source: "agent",
-            sourceLabel: `Proposed by ${lowerFirst(owner.ownerLabel)}`,
+            sourceLabel,
+            agentKey: `agent:${own.worktreeId}`,
             title: parsed.title,
             reason: parsed.reason,
             action: { kind: "command", program: parsed.program, args: parsed.args, cwd: parsed.folder ?? "." },
@@ -60,6 +68,7 @@ export function createProposalFeature(host: MobileDevHost): MobileDevFeature {
           worktreeId: worktree.worktreeId,
           source: "agent",
           sourceLabel: `Proposed by the agent in ${baseName(worktree.path)}`,
+          agentKey: `agent:${worktree.worktreeId}`,
           title: parsed.title,
           reason: parsed.reason,
           action: { kind: "command", program: parsed.program, args: parsed.args, cwd: parsed.folder ?? "." },
@@ -87,10 +96,6 @@ export function createProposalFeature(host: MobileDevHost): MobileDevFeature {
     },
     dispose() {},
   };
-}
-
-function lowerFirst(text: string): string {
-  return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
 function baseName(path: string): string {

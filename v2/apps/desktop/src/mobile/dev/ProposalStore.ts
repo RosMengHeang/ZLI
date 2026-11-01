@@ -80,6 +80,12 @@ export type ProposalInput = {
   worktreeId: string;
   source: MobileProposal["source"];
   sourceLabel: string;
+  /**
+   * The agent that asked, as agent:<its worktree id>. With one, its waiting proposals are capped across every
+   * worktree, so an agent cannot spread cards over many worktrees to escape the limit. Without one the cap is
+   * per worktree.
+   */
+  agentKey?: string;
   title: string;
   reason: string;
   action: MobileProposalActionInput;
@@ -174,6 +180,7 @@ export class ProposalStore {
   readonly #platform: NodeJS.Platform;
   #proposals: MobileProposal[] = [];
   readonly #accepting = new Set<string>();
+  readonly #agentKeys = new Map<string, string>();
 
   constructor(options: ProposalStoreOptions) {
     this.#options = options;
@@ -202,13 +209,14 @@ export class ProposalStore {
       parsed.data.kind === "command" ? { ...parsed.data, cwd: proposalFolder(parsed.data.cwd) } : parsed.data;
     if (action.kind === "file-block") refuseMarkerContent(action.content);
     if (input.source === "agent") {
-      const waiting = this.#proposals.filter(
-        (proposal) =>
-          proposal.worktreeId === input.worktreeId && proposal.source === "agent" && proposal.state === "pending",
-      );
+      const waiting = this.#proposals.filter((proposal) => {
+        if (proposal.source !== "agent" || proposal.state !== "pending") return false;
+        if (input.agentKey !== undefined) return this.#agentKeys.get(proposal.proposalId) === input.agentKey;
+        return proposal.worktreeId === input.worktreeId;
+      });
       if (waiting.length >= MAX_PENDING_FROM_AGENTS)
         throw new ProposalError(
-          `The person already has ${MAX_PENDING_FROM_AGENTS} proposals from agents waiting in this worktree. Wait until they run or dismiss one.`,
+          `The person already has ${MAX_PENDING_FROM_AGENTS} proposals from this agent waiting. Wait until they run or dismiss one.`,
           429,
         );
     }
@@ -223,7 +231,10 @@ export class ProposalStore {
       state: "pending",
       createdAt: (this.#options.now?.() ?? new Date()).toISOString(),
     };
+    if (input.agentKey !== undefined) this.#agentKeys.set(proposal.proposalId, input.agentKey);
     this.#proposals = trimWorktree([...this.#proposals, proposal], input.worktreeId);
+    const live = new Set(this.#proposals.map((entry) => entry.proposalId));
+    for (const proposalId of this.#agentKeys.keys()) if (!live.has(proposalId)) this.#agentKeys.delete(proposalId);
     this.#changed();
     return proposal;
   }
