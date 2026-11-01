@@ -1,1 +1,27 @@
-/* Styles for F2 doctor and F3 package guard. Stream S2 owns this file. */
+/* The project check's Toolchain and Packages groups. Stream S2 owns this file. */
+.mobile-doctor-head { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-2); }
+.mobile-doctor-rows,
+.mobile-doctor-findings { display: flex; flex-direction: column; margin: 0; padding: 0; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); list-style: none; }
+.mobile-doctor-row,
+.mobile-doctor-finding { display: flex; align-items: flex-start; gap: var(--zli-space-2) var(--zli-space-3); padding: var(--zli-space-2) var(--zli-space-3); }
+.mobile-doctor-row + .mobile-doctor-row,
+.mobile-doctor-finding + .mobile-doctor-finding { border-top: 1px solid var(--zli-border); }
+.mobile-doctor-row { flex-wrap: wrap; align-items: center; }
+.mobile-doctor-finding .badge { flex: 0 0 auto; margin-top: 1px; }
+.mobile-doctor-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: var(--zli-space-0-5); }
+.mobile-doctor-label { color: var(--zli-text); font-size: var(--zli-text-sm); overflow-wrap: anywhere; }
+code.mobile-doctor-label { font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
+.mobile-doctor-detail { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
+.mobile-doctor-value { display: flex; align-items: center; color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.mobile-doctor-value code,
+.mobile-doctor-step code { color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.mobile-doctor-actions { display: flex; align-items: center; gap: var(--zli-space-2); }
+.mobile-doctor-plan { display: flex; flex-direction: column; gap: var(--zli-space-1-5); margin-top: var(--zli-space-1-5); }
+.mobile-doctor-steps { display: flex; flex-direction: column; gap: var(--zli-space-1-5); margin: var(--zli-space-1-5) 0 0; padding: 0; list-style: none; }
+.mobile-doctor-steps li { display: flex; flex-direction: column; gap: var(--zli-space-1); }
+.mobile-doctor-step { display: flex; align-items: center; gap: var(--zli-space-2); }
+.mobile-doctor .inline-error,
+.mobile-packages .inline-error { margin: var(--zli-space-1) 0 0; }
+.mobile-packages-form { display: flex; align-items: flex-end; gap: var(--zli-space-2); }
+.mobile-packages-form .field { flex: 1; }
+.mobile-packages-form > .btn { margin-bottom: 22px; }

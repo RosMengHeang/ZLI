@@ -449,6 +449,16 @@ On Linux with no adb, Java, or Xcode, static facts still come from files. The pr
   - `DoctorGroup.test.tsx`: copy, Propose fix creates a proposal and runs nothing, and the deep plan is shown before running.
 - e2e `tests/e2e/mobile-doctor.spec.ts`: write an `expo55-newarch-off`-style `package.json` and `app.json` into the test repo, open the project view, and see the "cannot turn off the New Architecture" error. Click Prepare notes, see the proposal card, click Write to AGENTS.md, and assert the file contains both markers and that a second Prepare notes shows "Up to date".
 
+### How S2 built F2, where it differs from this section
+
+- Proposals from the doctor use `sourceLabel: "From the project check"`, matching the label S0 shipped, instead of "Project check".
+- `MobileProjectFacts` carries more than listed: `newArch.disabledIn` (the files that still set `newArchEnabled` false), `ios.developmentTeam` (presence only), `packageManager`, `devClient`, `projectFingerprint` (project versions only), `notes { file, state }`, and `unreadable` (files ZLI could not parse). On SDK 55 and later `newArch.enabled` is true even when `app.json` says false, because the SDK ignores the flag.
+- `deep` steps have a `state` (`passed`, `failed`, `not-installed`, `timed-out`) and `detail` instead of `ok`, and `expoConfig` is reported too. `MobileDoctorDeepPlan` also has `folder`. `MobileAgentsBlockPreview` became `MobileAgentsBlockResult`, `{ upToDate: true, file }` or `{ upToDate: false, file, proposalId }`.
+- `facts.ts` reads the files on every call instead of caching by mtime, so an edit shows at once; only the host probes are cached for 60 s. `projectFacts(host, worktreeId, { refresh })` takes an optional third argument that skips that cache. The two-argument form still works.
+- `knownIssues.ts` adds `expo-install-check` (from the last Expo checks, fix `npx expo install --fix`) and `unreadable:<file>`. `expo-go-sdk55` offers the fix `npx expo install expo-dev-client`.
+- The block ends with "Project versions fingerprint" built from project versions only, so two computers with different Node or Java versions write the same block. The host fingerprint stays in `fingerprint` for agents.
+- The doctor's agent and IPC cases are tested in `doctor/index.test.ts` and `doctor/preload.test.ts` instead of S0's `mobileIpc.test.ts` and `MobileControlActions.test.ts`.
+
 ---
 
 ## 7. F3: Package guard (stream S2)
@@ -506,6 +516,12 @@ With no network, every package shows Not checked and the install command is stil
 - `rules.test.ts`: each rule, with Expo and bare package managers.
 - `PackagesGroup.test.tsx`.
 - e2e: covered in `mobile-doctor.spec.ts` with the network blocked. With `ZLI_TEST_MOBILE=fake`, the fake host's `fetch` returns canned JSON keyed by URL (test op `fetch-answer`). Check `react-native-fs`, see Warning, and click Propose install to see the card.
+
+### How S2 built F3, where it differs from this section
+
+- `MobilePackageCheck` also has `command`, the install line as the person reads it.
+- Rule 2 also warns, rather than blocks, when the doctor cannot tell whether the New Architecture is on. On SDK 55 and later it is always on, so an untested package such as `react-native-fs` is blocked there. The e2e test answers the directory with `react-native-fs` as unmaintained only, so it shows Warning as described above.
+- The proposal uses `sourceLabel: "From the project check"`, like F2.
 
 ---
 

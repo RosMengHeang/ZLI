@@ -1,0 +1,32 @@
+lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
+  apps/mobile:
+    dependencies:
+      expo:
+        specifier: ~56.0.0
+        version: 56.0.5(@babel/core@7.28.0)
+      react-native:
+        specifier: 0.84.2
+        version: 0.84.2(@babel/core@7.28.0)
+
+packages:
+
+  '@expo/cli@56.0.5':
+    resolution: {integrity: sha512-aaa}
+
+  expo-asset@12.0.1:
+    resolution: {integrity: sha512-bbb}
+
+  expo@56.0.5:
+    resolution: {integrity: sha512-ccc}
+
+  react-native@0.84.2:
+    resolution: {integrity: sha512-ddd}

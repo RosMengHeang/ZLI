@@ -1,0 +1,12 @@
+{
+  "name": "expo56-devclient",
+  "version": "1.0.0",
+  "main": "expo-router/entry",
+  "dependencies": {
+    "expo": "~56.0.3",
+    "expo-dev-client": "~6.0.2",
+    "expo-router": "~6.0.1",
+    "react": "19.2.0",
+    "react-native": "0.85.1"
+  }
+}

@@ -1,10 +1,19 @@
+import { MobilePackageCheck, MobilePackagesInput, MobileProposal } from "@zli-v2/contracts";
+
 import type { PreloadIpc } from "../preloadIpc.js";
 
-/**
- * Placeholder for the renderer API of F3, the package guard. Stream S2 owns this file and replaces it with
- * methods that call its zli:mobile:packages:* channels and parse every result. This file is part of the preload
- * bundle, so it may import only @zli-v2/contracts and other preload files.
- */
-export function createPackagesApi(_ipc: PreloadIpc): Record<never, never> {
-  return {};
+/** window.zli.mobile.dev.packages. Part of the preload bundle, so it imports only contracts and preload files. */
+export function createPackagesApi(ipc: PreloadIpc) {
+  return {
+    packages: {
+      check: async (worktreeId: string, packages: string[]) =>
+        MobilePackageCheck.parse(
+          await ipc.invoke("zli:mobile:packages:check", MobilePackagesInput.parse({ worktreeId, packages })),
+        ),
+      proposeInstall: async (worktreeId: string, packages: string[]) =>
+        MobileProposal.parse(
+          await ipc.invoke("zli:mobile:packages:propose-install", MobilePackagesInput.parse({ worktreeId, packages })),
+        ),
+    },
+  };
 }

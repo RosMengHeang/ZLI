@@ -204,6 +204,21 @@ Use a project with at least one worktree besides the checkout, and an Android em
 - [ ] In a project with `expo-dev-client` and a `scheme` in `app.json`, look at "Open on a device", then open it on a device.
   Expected: "Development build" and `<scheme>://expo-development-client/?url=http%3A%2F%2Flocalhost%3A<port>`. It opens in the development build, not Expo Go. Without `expo-dev-client`, it reads "Expo Go" and `exp://localhost:<port>`.
 
+## Project check: Toolchain and Packages
+
+- [ ] On a Mac with Xcode and CocoaPods, open an Expo or React Native worktree and click Project check.
+  Expected: the Toolchain group lists Xcode and CocoaPods versions, and Signing says how many iPhone signing identities this Mac has. No certificate names or team ids appear.
+- [ ] On Linux or Windows, open the same worktree.
+  Expected: Xcode and CocoaPods say "Not checked on this computer", Signing says "iPhone: not checked on this computer.", and nothing is shown as an error because of it.
+- [ ] In a real Expo project with `node_modules` installed, click Run Expo checks.
+  Expected: the three exact command lines appear with Run and Cancel, and nothing runs until Run. After Run, each check shows Passed, Failed, or Timed out within about a minute, and mismatched packages from `expo install --check` are listed.
+- [ ] Remove `node_modules` and click Run Expo checks, then Run.
+  Expected: each check says "Not installed in this project".
+- [ ] Online, type `react-native-reanimated react-native-fs` under Packages and click Check.
+  Expected: answers from React Native Directory within a few seconds, and the install line uses `npx expo install` in Expo apps or the lockfile's package manager otherwise.
+- [ ] Turn off the network and check a package.
+  Expected: Not checked with "React Native Directory could not be reached", and Propose install is still offered.
+
 ## Agent and person handoff
 
 - [ ] In an agent terminal, run `zli-mobile devices`, `zli-mobile tap e3`, and `zli-mobile screenshot`.
