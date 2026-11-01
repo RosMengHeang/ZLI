@@ -324,6 +324,20 @@ The port allocation, env, tool, and UI work fully. The owner check works with `l
 - `WorkspaceBanner.test.tsx`, `ExpoBanner.test.tsx`, `WorktreesSettingGroup.test.tsx`: copy and states.
 - e2e `tests/e2e/mobile-workspace.spec.ts`: create a worktree, open the project view, and see a port in 8100-8199. Use the `metro-owner` test op to set "other-worktree" and see the banner text. Open a terminal in the worktree, run `echo $RCT_METRO_PORT`, and see the same port. Then assert `ZLI_RUNTIME_TOKEN` is unset in that terminal (`echo "${ZLI_RUNTIME_TOKEN:-unset}"` prints `unset`).
 
+### How S1 was built, where it differs from this section
+
+- `@expo/cli` honors `RCT_METRO_PORT`: `resolveMetroPortAsync` reads it when `--port` is not given. The agent instructions still say `--port $ZLI_METRO_PORT`, which works for both Expo and React Native CLI.
+- Codex chat agents get no Metro port. One Codex app server serves every thread, so its environment has no single worktree. Claude Code, Cursor, Droid, and the ACP agents get both keys. `registerProviders` takes a `metroEnv(worktreeId)` option, which `apps/server/src/main.ts` wires to the engine projection (one line outside S1's files).
+- `TerminalReactor` keeps the worktree list from `worktree.*` events instead of reading the projection at each launch, because a projection read queues behind engine commands and slowed every terminal start. A worktree it has not seen yet still falls back to a projection read.
+- `MobileWorkspace` has two optional extra fields, `path` and `checkout`, so Settings can show the end of the path and the project view can say when the checkout keeps 8081. The contracts file also exports `MobileWorkspaceOpened`, `MobileWorkspaceChanged`, and `MobileWorkspaceTestMetroOwner` for the extra IPC below.
+- Two extra IPC channels: `zli:mobile:workspace:open` opens `openUrl` on a device, and refuses with 409 when another worktree holds the port. `zli:mobile:workspace:changed` is sent after the `metro-owner` test op, so open views refresh without waiting for the 10 s poll.
+- The `mobile_workspace` text adds the emulator port line, and a warning not to open the URL when another worktree or program holds the port.
+- `expoServer()` accepts any port in `METRO_BAND` as well as the optional `metroPort` argument. `MobilePane.tsx` does not pass `metroPort`; band detection covers it, and the only S0 change is one line passing `worktreeId` to `ExpoBanner`.
+- `adb.ts` `localhostPort` reads the port from the inner `url` parameter of a dev-client link, so dev-client URLs get forwarding and the 8081 mapping too.
+- The 8081 mapping lives in a new `AndroidDriver.reverse(device, devicePort, hostPort)` and a public `DeviceManager.mapMetro(device, url, metroPort)`. `DeviceManager.openUrl` takes `{ metroPort }` and returns `mapped8081To`, which the opened notice mentions.
+- The web side adds `useWorkspace.ts` (the shared hook, owner badge, and warning copy) and `fakeWorkspace.ts` (a test fixture) next to the files listed above.
+- Hardware-only checks for this feature are in `apps/web/src/mobile/MANUAL_TEST.md` under "Per-worktree Metro port".
+
 ---
 
 ## 6. F2: Mobile doctor and the AGENTS.md block (stream S2)

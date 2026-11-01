@@ -12,12 +12,12 @@ import {
   codexThreadConfig,
   type McpServerSource,
   type McpServerSpec,
-  zliMcpServerSpecs,
   writeAgentMcpConfig,
+  zliMcpServerSpecs,
 } from "../browser-tool/browserTool.js";
 import { type WorktreeFileWriter, writeProjectMcpFile } from "../terminal/agentLaunch.js";
 import { agentFolderTrust } from "../terminal/agentTrust.js";
-import { type AcpProviderConfig, AcpProviderAdapter, type AcpProviderKind } from "./AcpProviderAdapter.js";
+import { AcpProviderAdapter, type AcpProviderConfig, type AcpProviderKind } from "./AcpProviderAdapter.js";
 import { ClaudeCodeProviderAdapter } from "./ClaudeCodeProviderAdapter.js";
 import { CodexProviderAdapter } from "./CodexProviderAdapter.js";
 import { CursorAgentProviderAdapter } from "./CursorAgentProviderAdapter.js";
@@ -134,7 +134,11 @@ export type ProviderRegistryOptions = {
   writeMcpConfig?: typeof writeAgentMcpConfig;
   /** Writes ZLI's project MCP file in a worktree for Cursor and Droid, which have no per-session option for servers. */
   writeWorktreeFile?: WorktreeFileWriter;
+  /** The worktree's Metro port variables, added to every chat agent started in that worktree. */
+  metroEnv?: MetroEnvSource;
 };
+
+export type MetroEnvSource = (worktreeId: string | undefined) => Promise<Record<string, string>>;
 
 export function createProviderRegistry(
   env: NodeJS.ProcessEnv = process.env,
@@ -167,6 +171,22 @@ export function createProviderRegistry(
     if (!trustedProjectPath) return;
     await agentFolderTrust(provider, { projectPath: trustedProjectPath, cwd, env: { ...env, ...account?.env } });
   };
+  const metroEnv = async (worktreeId: string | undefined) => {
+    try {
+      return (await options.metroEnv?.(worktreeId)) ?? {};
+    } catch {
+      return {};
+    }
+  };
+  const chatEnv = async (worktreeId: string | undefined, account?: ProviderAccount) => {
+    const merged = {
+      ...(browserTool ? agentEnv(browserTool, worktreeId, env) : {}),
+      ...(await metroEnv(worktreeId)),
+      ...account?.env,
+    };
+    return Object.keys(merged).length > 0 ? { env: merged } : {};
+  };
+  // One app server serves every Codex thread, so it has no worktree and gets no Metro port.
   const browserEnv = (worktreeId: string | undefined, account?: ProviderAccount) => {
     const merged = { ...(browserTool ? agentEnv(browserTool, worktreeId, env) : {}), ...account?.env };
     return Object.keys(merged).length > 0 ? { env: merged } : {};
@@ -215,7 +235,7 @@ export function createProviderRegistry(
         return ClaudeCodeClient.start({
           ...input,
           command: await resolveClaudeCommand(),
-          ...browserEnv(worktreeId, account),
+          ...(await chatEnv(worktreeId, account)),
           ...(await claudeMcpConfig(worktreeId)),
         });
       },
@@ -227,7 +247,7 @@ export function createProviderRegistry(
         return CursorAgentClient.start({
           ...input,
           command: await resolveCursorCommand(),
-          ...browserEnv(worktreeId, account),
+          ...(await chatEnv(worktreeId, account)),
           ...(approveMcps ? { approveMcps } : {}),
         });
       },
@@ -239,7 +259,7 @@ export function createProviderRegistry(
         return DroidClient.start({
           ...input,
           command: await resolveDroidCommand(),
-          ...browserEnv(worktreeId, account),
+          ...(await chatEnv(worktreeId, account)),
         });
       },
     }),
@@ -250,6 +270,7 @@ export function createProviderRegistry(
           resolveCommand: () => resolveAcpCommand(config.provider),
           ...(browserTool ? { browserTool } : {}),
           ...(options.mcpServers ? { mcpServers: (context) => addedServers(context.worktreeId) } : {}),
+          ...(options.metroEnv ? { metroEnv } : {}),
         }),
     ),
   ]);

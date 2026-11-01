@@ -1,4 +1,5 @@
 import {
+  emulatorPortFor,
   MobileControlAction,
   MobileControlBootInput,
   MobileControlDeviceInput,
@@ -15,6 +16,7 @@ import {
   type MobileSettings,
   type MobileSetupStatus,
   type MobileUiNode,
+  metroPortFor,
 } from "@zli-v2/contracts";
 
 import {
@@ -218,9 +220,11 @@ export function createMobileControlActions(host: MobileControlHost): BrowserCont
         });
         lease(device, owner);
         host.reveal({ deviceId: device.deviceId });
+        const preferredPort = emulatorPortFor(worktreeFor(parsed).worktreeId, host.worktrees());
         const boot = manager().boot(device.deviceId, {
           ...(parsed.window !== undefined ? { window: parsed.window } : {}),
           ...(parsed.wipeData !== undefined ? { wipeData: parsed.wipeData } : {}),
+          ...(preferredPort !== undefined ? { preferredPort } : {}),
         });
         const finished = await Promise.race([
           boot.then((booted) => ({ booted })),
@@ -259,9 +263,11 @@ export function createMobileControlActions(host: MobileControlHost): BrowserCont
       case "mobileopenurl": {
         const parsed = MobileControlOpenUrlInput.parse(input);
         const { device, driver } = await online(parsed);
+        const metroPort = metroPortFor(worktreeFor(parsed).worktreeId, host.worktrees());
+        const mapped8081To = await manager().mapMetro(device, parsed.url, metroPort);
         const result = await driver.openUrl(device, parsed.url);
         host.reveal({ deviceId: device.deviceId });
-        return { deviceId: device.deviceId, opened: parsed.url, ...result };
+        return { deviceId: device.deviceId, opened: parsed.url, ...result, ...(mapped8081To ? { mapped8081To } : {}) };
       }
       case "mobilesnapshot": {
         const parsed = MobileControlDeviceInput.parse(input);

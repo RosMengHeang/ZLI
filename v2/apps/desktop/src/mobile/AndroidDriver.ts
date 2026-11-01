@@ -15,6 +15,7 @@ import {
   repairScreencap,
 } from "./adb.js";
 import {
+  type BootOptions,
   type DriverDevice,
   type LogQuery,
   type MobileDriver,
@@ -118,7 +119,7 @@ export class AndroidDriver implements MobileDriver {
     return devices;
   }
 
-  async boot(device: DriverDevice, options: { window?: boolean; wipeData?: boolean }): Promise<DriverDevice> {
+  async boot(device: DriverDevice, options: BootOptions): Promise<DriverDevice> {
     if (device.kind === "physical") throw new MobileDriverError("A physical phone is already on; ZLI cannot boot it.");
     if (device.state === "online") return device;
     const avdName = device.deviceId.startsWith(AVD_PREFIX) ? device.deviceId.slice(AVD_PREFIX.length) : undefined;
@@ -133,7 +134,9 @@ export class AndroidDriver implements MobileDriver {
       serial = (await this.#serialForAvd(tools, avdName)) ?? "";
     } else {
       const serials = (await this.#connected(adb, tools.env)).map((entry) => entry.serial);
-      const port = freeEmulatorPort(serials);
+      const preferred = options.preferredPort;
+      const port =
+        preferred !== undefined && !serials.includes(`emulator-${preferred}`) ? preferred : freeEmulatorPort(serials);
       serial = `emulator-${port}`;
       process = this.#deps.runner.spawn(tools.emulator, emulatorBootArgs(avdName, port, options), { env: tools.env });
       this.#started.set(avdName, process);
@@ -236,6 +239,11 @@ export class AndroidDriver implements MobileDriver {
     const output = await this.#shell(device, ["am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url]);
     if (/Error:/u.test(output)) throw new MobileDriverError(`No app on the device opens ${url}: ${output.trim()}`, 404);
     return port === undefined ? {} : { reversedPort: port };
+  }
+
+  /** Makes the device's own localhost:devicePort reach hostPort on this computer. */
+  async reverse(device: DriverDevice, devicePort: number, hostPort: number): Promise<void> {
+    await this.#adbRun(device, ["reverse", `tcp:${devicePort}`, `tcp:${hostPort}`]);
   }
 
   async snapshot(device: DriverDevice): Promise<UiTree> {

@@ -5,7 +5,9 @@ import { join } from "node:path";
 import type { MobileButton, MobileDeviceState, MobileUiNode } from "@zli-v2/contracts";
 
 import { filterLogLines, pngSize } from "./adb.js";
+import { type IdbVideoSession, startIdbVideo } from "./IosVideoSource.js";
 import {
+  type BootOptions,
   type DriverDevice,
   type LogQuery,
   type MobileDriver,
@@ -13,7 +15,6 @@ import {
   type Orientation,
   type Screenshot,
 } from "./MobileDriver.js";
-import { type IdbVideoSession, startIdbVideo } from "./IosVideoSource.js";
 import { type ProcessRunner, runChecked } from "./ProcessRunner.js";
 import type { VideoEvent } from "./scrcpy/protocol.js";
 import type { UiTree } from "./uiTree.js";
@@ -250,7 +251,8 @@ export class IosSimulatorDriver implements MobileDriver {
     }));
   }
 
-  async boot(device: DriverDevice, options: { window?: boolean; wipeData?: boolean }): Promise<DriverDevice> {
+  /** preferredPort is an Android emulator setting, so it is ignored here. */
+  async boot(device: DriverDevice, options: BootOptions): Promise<DriverDevice> {
     const xcrun = await this.#xcrun();
     const udid = udidOf(device);
     this.#orientations.delete(udid);

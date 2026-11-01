@@ -601,6 +601,7 @@ function MobilePaneBody({
       {device && online && expo && !showSetup ? (
         <ExpoBanner
           mobile={mobile}
+          worktreeId={worktreeId}
           device={device}
           server={expo}
           inputBlocked={agentHolds}

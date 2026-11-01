@@ -269,6 +269,27 @@ it("rejects terminal cwd escapes and argv, and accepts a worktree subdirectory",
       type: "result",
     });
     expect(launches.at(-1)).toEqual({ envOverrides: accepted, pathPrepend: shimDir });
+
+    const metro = { ZLI_METRO_PORT: "8142", RCT_METRO_PORT: "8142" };
+    expect(await request(browser(7, { envOverrides: metro }))).toMatchObject({ type: "result" });
+    expect(launches.at(-1)).toEqual({ envOverrides: metro });
+    for (const [n, value] of [
+      [8, "80"],
+      [9, "abc"],
+    ] as const) {
+      expect(await request(browser(n, { envOverrides: { RCT_METRO_PORT: value } }))).toMatchObject({
+        type: "error",
+        message: "Terminal environment override is not allowed: RCT_METRO_PORT",
+      });
+    }
+    for (const value of ["99999", "8142;rm"]) {
+      expect(
+        await request({
+          ...browser(0, { envOverrides: { ZLI_METRO_PORT: value } }),
+          terminalId: `00000000-0000-4000-8000-0000000001${value === "99999" ? "30" : "31"}`,
+        }),
+      ).toMatchObject({ type: "error", message: "Terminal environment override is not allowed: ZLI_METRO_PORT" });
+    }
   } finally {
     restoreEnv("ZLI_DAEMON_TOKEN", previous.token);
     restoreEnv("ZLI_DAEMON_ENDPOINT_PATH", previous.endpointPath);

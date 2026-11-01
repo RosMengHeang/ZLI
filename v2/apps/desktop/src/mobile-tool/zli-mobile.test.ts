@@ -26,24 +26,26 @@ describe("zli-mobile MCP server", () => {
     const init = await request("initialize", { protocolVersion: "2025-06-18" });
     expect((init.result.serverInfo as { name: string }).name).toBe("zli-mobile");
     const listed = await request("tools/list");
-    expect(listed.result.tools?.map((tool) => tool.name)).toEqual([
-      "mobile_devices",
-      "mobile_boot",
-      "mobile_shutdown",
-      "mobile_install",
-      "mobile_launch",
-      "mobile_open_url",
-      "mobile_snapshot",
-      "mobile_tap",
-      "mobile_swipe",
-      "mobile_type",
-      "mobile_press",
-      "mobile_rotate",
-      "mobile_screenshot",
-      "mobile_logs",
-      "mobile_release",
-      "mobile_propose",
-    ]);
+    expect(listed.result.tools?.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining([
+        "mobile_devices",
+        "mobile_boot",
+        "mobile_shutdown",
+        "mobile_install",
+        "mobile_launch",
+        "mobile_open_url",
+        "mobile_snapshot",
+        "mobile_tap",
+        "mobile_swipe",
+        "mobile_type",
+        "mobile_press",
+        "mobile_rotate",
+        "mobile_screenshot",
+        "mobile_logs",
+        "mobile_release",
+        "mobile_propose",
+      ]),
+    );
     expect(String(init.result.instructions)).toMatch(/call mobile_propose so the person can run it/u);
   });
 

@@ -11,11 +11,18 @@ export type Screenshot = { readonly data: Buffer; readonly width: number; readon
 
 export type LogQuery = { readonly appId?: string; readonly lines: number; readonly filter?: string };
 
+export type BootOptions = {
+  readonly window?: boolean;
+  readonly wipeData?: boolean;
+  /** The Android emulator console port to use when it is free, so each worktree's emulator keeps its serial. */
+  readonly preferredPort?: number;
+};
+
 /** What one platform can do with its devices. Coordinates are in the unit the platform's tree reports. */
 export type MobileDriver = {
   readonly platform: MobilePlatform;
   list(): Promise<DriverDevice[]>;
-  boot(device: DriverDevice, options: { window?: boolean; wipeData?: boolean }): Promise<DriverDevice>;
+  boot(device: DriverDevice, options: BootOptions): Promise<DriverDevice>;
   shutdown(device: DriverDevice): Promise<void>;
   install(device: DriverDevice, path: string): Promise<string>;
   launch(device: DriverDevice, appId: string, options: { stop?: boolean }): Promise<void>;

@@ -183,6 +183,27 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
 - [ ] Uninstall or rename idb, then click Refresh.
   Expected: Setup lists idb as missing with the install command. Screenshots still show; taps report that they need idb.
 
+## Per-worktree Metro port
+
+Use a project with at least one worktree besides the checkout, and an Android emulator or a Mac with Xcode.
+
+- [ ] Open the project view for a worktree, then for the checkout.
+  Expected: the worktree's "Metro port" row shows a port from 8100 to 8199, and the checkout shows 8081. Settings > Mobile > Worktrees lists the same ports.
+- [ ] In a ZLI terminal of the worktree, run `echo $RCT_METRO_PORT $ZLI_METRO_PORT`, then start `npx expo start` with no `--port`.
+  Expected: both print the worktree's port, and Expo starts on that port without asking about 8081.
+- [ ] With Metro running from the worktree, look at the "Metro port" row. Then start Metro on the same port from a second worktree's folder in a plain terminal, and look at the first worktree again.
+  Expected: "Running here" while it runs from this worktree. With the other worktree's Metro, "Used by <branch>", the amber banner names that branch, and the Expo banner's Open is disabled with the tooltip "Port <port> belongs to <branch>".
+- [ ] On macOS, repeat the owner check. On Linux, repeat it with `lsof` removed from `PATH`.
+  Expected: the same owner on macOS. On Linux the `ss` fallback finds the same owner.
+- [ ] Ask an agent in the worktree to boot an emulator with `zli-mobile boot`.
+  Expected: the emulator's serial matches the worktree's "Emulator port" row (for example emulator-5560). If that port is taken, it boots on any free port.
+- [ ] With a development build made for 8081 on the emulator, open the worktree's URL from the Expo banner, or have the agent call `mobile_workspace` and open its URL. Then run `adb -s <serial> reverse --list`.
+  Expected: the app loads the worktree's bundle, the notice says "The device's localhost:8081 now reaches port <port> too.", and the list shows `tcp:8081 tcp:<port>`.
+- [ ] Repeat the open on a USB phone.
+  Expected: no 8081 mapping is added for the phone.
+- [ ] In a project with `expo-dev-client` and a `scheme` in `app.json`, look at "Open on a device", then open it on a device.
+  Expected: "Development build" and `<scheme>://expo-development-client/?url=http%3A%2F%2Flocalhost%3A<port>`. It opens in the development build, not Expo Go. Without `expo-dev-client`, it reads "Expo Go" and `exp://localhost:<port>`.
+
 ## Agent and person handoff
 
 - [ ] In an agent terminal, run `zli-mobile devices`, `zli-mobile tap e3`, and `zli-mobile screenshot`.

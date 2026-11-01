@@ -13,6 +13,7 @@ import {
   parseWmSize,
   pngSize,
   repairScreencap,
+  reverseExtra,
 } from "./adb.js";
 
 describe("adb output", () => {
@@ -78,6 +79,18 @@ describe("adb output", () => {
   });
 });
 
+describe("the extra Metro reverse", () => {
+  it("maps 8081 only for an emulator opening the worktree's own non-default port", () => {
+    expect(reverseExtra("exp://localhost:8142", true, 8142)).toBe(8142);
+    expect(reverseExtra("myapp://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8142", true, 8142)).toBe(8142);
+    expect(reverseExtra("http://127.0.0.1:8142/status", true, 8142)).toBe(8142);
+    expect(reverseExtra("exp://localhost:8142", false, 8142)).toBeUndefined();
+    expect(reverseExtra("exp://localhost:8081", true, 8081)).toBeUndefined();
+    expect(reverseExtra("exp://localhost:9000", true, 8142)).toBeUndefined();
+    expect(reverseExtra("exp://localhost:8142", true, undefined)).toBeUndefined();
+  });
+});
+
 describe("device shell arguments", () => {
   it("quotes values the device shell would otherwise split or expand", () => {
     expect(deviceShellQuote("com.example.app")).toBe("com.example.app");
@@ -99,6 +112,9 @@ describe("device shell arguments", () => {
     expect(localhostPort("exp://127.0.0.1:19000")).toBe(19000);
     expect(localhostPort("https://example.com")).toBeUndefined();
     expect(localhostPort("not a url")).toBeUndefined();
+    expect(localhostPort("myapp://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8142")).toBe(8142);
+    expect(localhostPort("myapp://expo-development-client/?url=http%3A%2F%2Fexample.com%3A8142")).toBeUndefined();
+    expect(localhostPort("myapp://open?url=myapp%3A%2F%2Flocalhost%3A1")).toBeUndefined();
   });
 });
 

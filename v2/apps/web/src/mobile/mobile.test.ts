@@ -289,6 +289,9 @@ describe("mobile panel helpers", () => {
     expect(openedNotice("http://localhost:3000", { reversedPort: 3000 })).toBe(
       "Opened http://localhost:3000. Forwarded localhost:3000 to the device.",
     );
+    expect(openedNotice("exp://localhost:8142", { reversedPort: 8142, mapped8081To: 8142 })).toBe(
+      "Opened exp://localhost:8142. Forwarded localhost:8142 to the device. The device's localhost:8081 now reaches port 8142 too.",
+    );
   });
   it("finds the Expo server by port or terminal name, newest first", () => {
     const vite = { port: 5173, url: "http://localhost:5173/" };
@@ -305,6 +308,11 @@ describe("mobile panel helpers", () => {
     expect(expoServer([vite, named])).toBe(named);
     expect(expoServer([{ ...vite, name: "Metro bundler" }])?.port).toBe(5173);
     expect(expoUrl(metro)).toBe("exp://localhost:8081");
+    const worktreeMetro = { port: 8142, url: "http://localhost:8142/" };
+    expect(expoServer([vite, worktreeMetro])).toBe(worktreeMetro);
+    expect(expoServer([{ port: 8200, url: "http://localhost:8200/" }])).toBeUndefined();
+    expect(expoServer([metro, worktreeMetro], 8142)).toBe(worktreeMetro);
+    expect(expoServer([metro], 8142)).toBe(metro);
   });
   it("labels system images and suggests a free name for a new virtual device", () => {
     expect(systemImageLabel("system-images;android-35;google_apis;x86_64")).toBe("API 35, Google APIs, x86_64");

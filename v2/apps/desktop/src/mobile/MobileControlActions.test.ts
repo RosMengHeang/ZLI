@@ -1,17 +1,18 @@
-import type { MobileSettings, MobileSetupStatus } from "@zli-v2/contracts";
+import { emulatorPortFor, type MobileSettings, type MobileSetupStatus, metroPortFor } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { AndroidDriver } from "./AndroidDriver.js";
 import { DeviceManager } from "./DeviceManager.js";
-import { FakeDriver } from "./FakeDriver.js";
 import { createMobileDev } from "./dev/index.js";
 import { createTestDevHost } from "./dev/testHost.js";
+import { FakeDriver } from "./FakeDriver.js";
 import {
   createMobileControlActions,
   isMobileControlAction,
   type MobileDevExtension,
   swipeForDirection,
 } from "./MobileControlActions.js";
+import type { BootOptions, DriverDevice } from "./MobileDriver.js";
 
 const pixel = {
   deviceId: "android-avd:Pixel_7",
@@ -140,6 +141,36 @@ describe("mobile control actions", () => {
     android.devices = android.devices.map((device) => ({ ...device, state: "shutdown" }));
     const slow = (await dispatch("mobileboot", { ...inOther, deviceId: pixel.deviceId })) as { booting: boolean };
     expect(slow.booting).toBe(true);
+  });
+
+  it("boots an agent's emulator on its worktree's console port, and maps 8081 to its Metro port on open", async () => {
+    const { dispatch, android } = setup();
+    const boots: unknown[] = [];
+    Object.assign(android, {
+      boot: async (device: DriverDevice, options: BootOptions) => {
+        boots.push(options);
+        android.devices = android.devices.map((entry) =>
+          entry.deviceId === device.deviceId ? { ...entry, state: "online", serial: "emulator-5560" } : entry,
+        );
+        return { ...device, state: "online" };
+      },
+    });
+    const reversed: number[] = [];
+    Object.assign(android, {
+      reverse: async (_device: unknown, from: number, to: number) => {
+        reversed.push(from, to);
+      },
+    });
+    await dispatch("mobileboot", { ...inApp, deviceId: tablet.deviceId });
+    expect(boots).toEqual([{ preferredPort: emulatorPortFor("wt-1", worktrees) }]);
+
+    const port = metroPortFor("wt-1", worktrees);
+    const opened = await dispatch("mobileopenurl", { ...inApp, url: `exp://localhost:${port}` });
+    expect(opened).toMatchObject({ opened: `exp://localhost:${port}`, mapped8081To: port });
+    expect(reversed).toEqual([8081, port]);
+    expect(await dispatch("mobileopenurl", { ...inApp, url: "https://example.com" })).not.toHaveProperty(
+      "mapped8081To",
+    );
   });
 
   it("answers access checks when off and refuses every other action", async () => {

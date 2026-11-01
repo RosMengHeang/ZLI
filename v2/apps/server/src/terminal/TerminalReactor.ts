@@ -6,18 +6,19 @@ import {
   type RuntimeEventEnvelope,
   type TerminalAgentLaunch,
   TerminalId,
+  type WorktreeProjection,
 } from "@zli-v2/contracts";
-
-import { accountLoginArgs } from "../accounts/accountEnv.js";
 import type { AccountResolver } from "../accounts/AccountStore.js";
+import { accountLoginArgs } from "../accounts/accountEnv.js";
 import {
   type BrowserToolConfig,
   browserToolEnv,
   type McpServerSource,
   type McpServerSpec,
-  zliMcpServerSpecs,
   type writeAgentMcpConfig,
+  zliMcpServerSpecs,
 } from "../browser-tool/browserTool.js";
+import { metroEnv, projectionMetroEnv } from "../mobile/metroEnv.js";
 import type { Engine } from "../orchestration/Engine.js";
 import {
   AGENT_PTY_ENV,
@@ -57,6 +58,7 @@ type AgentCommand = { file: string; args: string[]; env: Record<string, string> 
 
 export class TerminalReactor {
   private readonly intents = new Map<string, CreateIntent>();
+  private worktrees: readonly WorktreeProjection[] | undefined;
   /** Terminals whose session was deleted. Their exit and startup results have no record to update. */
   private readonly deleted = new Set<string>();
   private readonly tasks = new Set<Promise<void>>();
@@ -69,6 +71,7 @@ export class TerminalReactor {
     private readonly options: TerminalReactorOptions = {},
   ) {
     this.unsubscribe = engine.subscribe((envelope) => this.onEvent(envelope));
+    this.refreshWorktrees();
     this.unsubscribeExit = service.subscribeExit((terminalId, event) => {
       if (this.deleted.has(terminalId)) return;
       this.track(this.dispatchStatus(terminalId, "exited", undefined, event.code));
@@ -105,6 +108,7 @@ export class TerminalReactor {
   }
 
   private onEvent(envelope: RuntimeEventEnvelope): void {
+    if (envelope.event.type.startsWith("worktree.")) this.refreshWorktrees();
     switch (envelope.event.type) {
       case "terminal.create.requested":
         this.intents.set(envelope.event.terminal.terminalId, envelope.event);
@@ -149,9 +153,11 @@ export class TerminalReactor {
           ])
         : [];
       const browserTool = this.options.browserTool;
+      const metro = this.cachedMetroEnv(worktreeId) ?? (await projectionMetroEnv(this.engine, worktreeId));
       const envOverrides = {
         ...(agent ? AGENT_PTY_ENV : {}),
         ...(browserTool ? browserToolEnv(browserTool, worktreeId) : {}),
+        ...metro,
         ...agent?.env,
         ...trust?.env,
         ...account?.env,
@@ -293,6 +299,25 @@ export class TerminalReactor {
       cwd: worktreePath,
       env: { ...(this.options.env ?? process.env), ...accountEnv },
     });
+  }
+
+  /**
+   * Reading the projection at launch would queue behind the engine's commands and delay every spawn, so the
+   * worktree list is kept from worktree events. A worktree not seen yet falls back to a projection read.
+   */
+  private refreshWorktrees(): void {
+    this.engine.projection().then(
+      (projection) => {
+        this.worktrees = projection.worktrees;
+      },
+      () => undefined,
+    );
+  }
+
+  private cachedMetroEnv(worktreeId: string): Record<string, string> | undefined {
+    const worktrees = this.worktrees;
+    if (!worktrees?.some((entry) => entry.worktreeId === worktreeId)) return undefined;
+    return metroEnv(worktreeId, worktrees);
   }
 
   private async worktreePath(worktreeId: string): Promise<string | undefined> {

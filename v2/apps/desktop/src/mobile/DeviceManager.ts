@@ -1,8 +1,14 @@
 import type { MobileDevice, MobilePanelInput, MobileStreamEvent, MobileStreamInfo } from "@zli-v2/contracts";
 import type { AndroidDriver } from "./AndroidDriver.js";
-import { ANDROID_KEYCODES } from "./adb.js";
+import { ANDROID_KEYCODES, reverseExtra } from "./adb.js";
 import { DeviceLeases, type LeaseOwner } from "./DeviceLeases.js";
-import { type DriverDevice, type MobileDriver, MobileDriverError, type Screenshot } from "./MobileDriver.js";
+import {
+  type BootOptions,
+  type DriverDevice,
+  type MobileDriver,
+  MobileDriverError,
+  type Screenshot,
+} from "./MobileDriver.js";
 import {
   encodeInjectKeycode,
   encodeInjectText,
@@ -128,7 +134,7 @@ export class DeviceManager {
     return device.platform === "android" ? this.#deps.android : this.#deps.ios;
   }
 
-  async boot(deviceId: string, options: { window?: boolean; wipeData?: boolean } = {}): Promise<MobileDevice> {
+  async boot(deviceId: string, options: BootOptions = {}): Promise<MobileDevice> {
     const device = await this.find(deviceId);
     this.#devices = this.#devices.map((entry) =>
       entry.deviceId === deviceId ? { ...entry, state: "booting" } : entry,
@@ -311,12 +317,34 @@ export class DeviceManager {
   }
 
   /** Opens a URL from the Mobile panel. On Android a localhost URL's port is forwarded to the device first. */
-  async openUrl(deviceId: string, url: string): Promise<{ reversedPort?: number }> {
+  async openUrl(
+    deviceId: string,
+    url: string,
+    options: { metroPort?: number } = {},
+  ): Promise<{ reversedPort?: number; mapped8081To?: number }> {
     const { device, driver } = await this.#forPanel(deviceId);
     try {
-      return await driver.openUrl(device, url);
+      const mapped8081To = await this.mapMetro(device, url, options.metroPort);
+      return { ...(await driver.openUrl(device, url)), ...(mapped8081To ? { mapped8081To } : {}) };
     } finally {
       this.#markActive(device);
+    }
+  }
+
+  /**
+   * On an Android emulator opening a worktree's Metro port, also maps the emulator's localhost:8081 to that port,
+   * so an app built for 8081 loads this worktree's bundle. Returns the port it mapped to, or undefined.
+   */
+  async mapMetro(device: MobileDevice, url: string, metroPort: number | undefined): Promise<number | undefined> {
+    if (device.platform !== "android") return undefined;
+    const port = reverseExtra(url, device.kind === "emulator", metroPort);
+    if (port === undefined) return undefined;
+    try {
+      await this.#deps.android.reverse(device, 8081, port);
+      return port;
+    } catch {
+      // The worktree's own URL still opens; only apps that ignore it and dial 8081 miss out.
+      return undefined;
     }
   }
 

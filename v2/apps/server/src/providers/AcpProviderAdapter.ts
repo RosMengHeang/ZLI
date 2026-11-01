@@ -39,6 +39,8 @@ export type AcpProviderConfig = {
   browserTool?: BrowserToolConfig;
   /** MCP servers added in Settings, read when each session starts. */
   mcpServers?: McpServerSource;
+  /** The worktree's Metro port variables, read when each session starts. */
+  metroEnv?: (worktreeId: string | undefined) => Promise<Record<string, string>>;
 };
 
 type AcpSessionClient = Pick<
@@ -88,7 +90,12 @@ export class AcpProviderAdapter implements ProviderAdapter {
               env: { ...process.env, ...account?.env },
             })
           : undefined;
-        const env = { ...(browserTool ? agentEnv(browserTool, worktreeId) : {}), ...trust?.env, ...account?.env };
+        const env = {
+          ...(browserTool ? agentEnv(browserTool, worktreeId) : {}),
+          ...(await config.metroEnv?.(worktreeId)),
+          ...trust?.env,
+          ...account?.env,
+        };
         const specs = [
           ...(browserTool ? zliMcpServerSpecs(browserTool, worktreeId) : []),
           ...((await config.mcpServers?.(worktreeId ? { worktreeId } : {})) ?? []),

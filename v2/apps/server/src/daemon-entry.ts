@@ -209,7 +209,7 @@ const MAX_LAUNCH_ARG_LENGTH = 4_000;
 const MAX_PATH_LENGTH = 1_000;
 
 /**
- * Terminal capability hints plus the browser tool's variables. Each value is checked narrowly:
+ * Terminal capability hints, the browser tool's variables, and the worktree's Metro port. Each value is checked narrowly:
  * anything looser could redirect the child's tools.
  */
 const ENV_OVERRIDE_RULES: Record<string, (value: string, worktreeId: unknown) => boolean> = {
@@ -218,7 +218,14 @@ const ENV_OVERRIDE_RULES: Record<string, (value: string, worktreeId: unknown) =>
   ZLI_WORKTREE_ID: (value, worktreeId) => value === worktreeId,
   ZLI_BROWSER_CONTROL_FILE: (value) => value.length <= MAX_PATH_LENGTH && isAbsolute(value),
   OPENCODE_CONFIG_CONTENT: (value) => value.length <= 16_000 && isJsonObject(value),
+  ZLI_METRO_PORT: isPortValue,
+  RCT_METRO_PORT: isPortValue,
 };
+
+/** A TCP port a user process may listen on, written as digits only. */
+function isPortValue(value: string): boolean {
+  return /^[0-9]{4,5}$/u.test(value) && Number(value) >= 1024 && Number(value) <= 65535;
+}
 
 function readLaunchArgs(value: unknown): string[] | undefined {
   if (value === undefined) return undefined;

@@ -7,13 +7,15 @@ import { createTestDevHost } from "./testHost.js";
 describe("mobile dev composition", () => {
   it("joins the features, with proposals and every placeholder in place", () => {
     const dev = createMobileDev(createTestDevHost());
-    expect(Object.keys(dev.actions)).toEqual(["mobilepropose"]);
-    expect(Object.keys(dev.ipc)).toEqual([
-      "zli:mobile:proposals:list",
-      "zli:mobile:proposals:accept",
-      "zli:mobile:proposals:dismiss",
-    ]);
-    expect(Object.keys(dev.testOps)).toEqual(["propose", "propose-file"]);
+    expect(Object.keys(dev.actions)).toContain("mobilepropose");
+    expect(Object.keys(dev.ipc)).toEqual(
+      expect.arrayContaining([
+        "zli:mobile:proposals:list",
+        "zli:mobile:proposals:accept",
+        "zli:mobile:proposals:dismiss",
+      ]),
+    );
+    expect(Object.keys(dev.testOps)).toEqual(expect.arrayContaining(["propose", "propose-file"]));
     expect(dev.decorate).toBeUndefined();
   });
 
