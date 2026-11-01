@@ -184,4 +184,27 @@ describe("file-block proposals", () => {
   it("writes an empty block when there is no content", () => {
     expect(withProposalBlock(undefined, "")).toBe(`${PROPOSAL_BLOCK_START}\n${PROPOSAL_BLOCK_END}\n`);
   });
+
+  it("refuses content that carries a marker, at propose time and at write time", () => {
+    const host = createTestDevHost();
+    expect(() => host.proposals.create(block(`see ${PROPOSAL_BLOCK_END} here`, "absent"))).toThrow(/markers/u);
+    expect(() => withProposalBlock(undefined, `x\n${PROPOSAL_BLOCK_START}`)).toThrow(/markers/u);
+  });
+
+  it("refuses a file whose markers do not pair up, and keeps every byte", async () => {
+    const broken = [
+      `# Notes\n\n${PROPOSAL_BLOCK_START}\nold\n`,
+      `${PROPOSAL_BLOCK_START}\nold\n${PROPOSAL_BLOCK_END}\n${PROPOSAL_BLOCK_START}\n`,
+      `${PROPOSAL_BLOCK_END}\n${PROPOSAL_BLOCK_START}\n`,
+    ];
+    for (const before of broken) {
+      const host = createTestDevHost({ files: { "/repo/app/AGENTS.md": before } });
+      const proposal = host.proposals.create(block("new", proposalDigest(before)));
+      expect(await host.proposals.accept(proposal.proposalId)).toMatchObject({
+        state: "failed",
+        error: expect.stringMatching(/markers/u),
+      });
+      expect(host.files.get("/repo/app/AGENTS.md")).toBe(before);
+    }
+  });
 });

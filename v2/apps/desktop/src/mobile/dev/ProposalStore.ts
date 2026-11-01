@@ -130,21 +130,38 @@ function posixQuote(word: string): string {
   return `'${word.replaceAll("'", `'\\''`)}'`;
 }
 
+/** Content may not carry a marker itself, or a later write could mistake it for the block's edge. */
+function refuseMarkerContent(content: string): void {
+  if (content.includes(PROPOSAL_BLOCK_START) || content.includes(PROPOSAL_BLOCK_END))
+    throw new ProposalError(
+      "The proposed text contains one of ZLI's block markers, so ZLI cannot place it between them.",
+    );
+}
+
 /**
  * The file with ZLI's block set to content: replaced between the markers, appended after one blank line, or as a
- * new file. The file's line endings are kept.
+ * new file. The file's line endings are kept. A file whose markers are not exactly one start followed by one end
+ * is refused, so a stray or doubled marker never makes a write delete the text around it.
  */
 export function withProposalBlock(existing: string | undefined, content: string): string {
+  refuseMarkerContent(content);
   const eol = existing?.includes("\r\n") ? "\r\n" : "\n";
   const body = content.replaceAll("\r\n", "\n").replace(/\n+$/u, "").split("\n").join(eol);
   const block = `${PROPOSAL_BLOCK_START}${eol}${body ? `${body}${eol}` : ""}${PROPOSAL_BLOCK_END}`;
   if (existing === undefined) return `${block}${eol}`;
+  const starts = existing.split(PROPOSAL_BLOCK_START).length - 1;
+  const ends = existing.split(PROPOSAL_BLOCK_END).length - 1;
   const start = existing.indexOf(PROPOSAL_BLOCK_START);
-  const end = start === -1 ? -1 : existing.indexOf(PROPOSAL_BLOCK_END, start);
-  if (start !== -1 && end !== -1)
+  const end = existing.indexOf(PROPOSAL_BLOCK_END);
+  if (starts === 1 && ends === 1 && start < end)
     return `${existing.slice(0, start)}${block}${existing.slice(end + PROPOSAL_BLOCK_END.length)}`;
-  const kept = existing.replace(/(\r?\n)+$/u, "");
-  return kept ? `${kept}${eol}${eol}${block}${eol}` : `${block}${eol}`;
+  if (starts === 0 && ends === 0) {
+    const kept = existing.replace(/(\r?\n)+$/u, "");
+    return kept ? `${kept}${eol}${eol}${block}${eol}` : `${block}${eol}`;
+  }
+  throw new ProposalError(
+    "This file's zli:mobile markers are not one start marker followed by one end marker, so ZLI wrote nothing. Fix or remove the markers by hand.",
+  );
 }
 
 /**
@@ -183,6 +200,7 @@ export class ProposalStore {
     }
     const action =
       parsed.data.kind === "command" ? { ...parsed.data, cwd: proposalFolder(parsed.data.cwd) } : parsed.data;
+    if (action.kind === "file-block") refuseMarkerContent(action.content);
     if (input.source === "agent") {
       const waiting = this.#proposals.filter(
         (proposal) =>
