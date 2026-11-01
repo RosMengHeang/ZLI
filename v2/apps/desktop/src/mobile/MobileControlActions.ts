@@ -25,8 +25,30 @@ import {
 } from "../browser/BrowserControlActions.js";
 import { DeviceBusyError, type LeaseOwner } from "./DeviceLeases.js";
 import type { DeviceManager } from "./DeviceManager.js";
-import { MobileDriverError } from "./MobileDriver.js";
+import { type MobileDriver, MobileDriverError } from "./MobileDriver.js";
 import { centerOf, formatUiTree, type UiTree } from "./uiTree.js";
+
+/** What a mobile dev feature's agent action can use: the same worktree, device, and lease rules as the core tools. */
+export type MobileDevActionContext = {
+  ownerFor(input: MobileControlDeviceInput): LeaseOwner;
+  worktreeFor(input: MobileControlDeviceInput): BrowserControlWorktree;
+  /** The caller's running device, leased to it. */
+  online(input: MobileControlDeviceInput): Promise<{ owner: LeaseOwner; device: MobileDevice; driver: MobileDriver }>;
+  pickDevice(
+    input: MobileControlDeviceInput,
+    owner: LeaseOwner,
+    options: { needOnline: boolean; platform?: MobileDevice["platform"] },
+  ): Promise<MobileDevice>;
+  lease(device: MobileDevice, owner: LeaseOwner): void;
+};
+
+export type MobileDevAction = (input: unknown, context: MobileDevActionContext) => Promise<unknown>;
+
+/** Agent actions served by the mobile dev features, and a hook that can add to every action's result. */
+export type MobileDevExtension = {
+  readonly actions: Partial<Record<MobileControlAction, MobileDevAction>>;
+  decorate?(owner: LeaseOwner, action: MobileControlAction, result: unknown): unknown;
+};
 
 export type MobileControlHost = {
   manager(): DeviceManager | undefined;
@@ -39,6 +61,7 @@ export type MobileControlHost = {
   /** How long mobile_boot waits before answering that the device is still booting. Agent requests time out near three minutes. */
   readonly bootWaitMs?: number;
   readonly sleep?: (milliseconds: number) => Promise<void>;
+  readonly dev?: MobileDevExtension;
 };
 
 export function isMobileControlAction(action: string): boolean {
@@ -66,8 +89,11 @@ export function createMobileControlActions(host: MobileControlHost): BrowserCont
     return current;
   };
 
+  const worktreeFor = (input: MobileControlDeviceInput) =>
+    resolveBrowserControlWorktree(input, host.worktrees(), platform);
+
   const ownerFor = (input: MobileControlDeviceInput): LeaseOwner => {
-    const worktree = resolveBrowserControlWorktree(input, host.worktrees(), platform);
+    const worktree = worktreeFor(input);
     const name = worktree.path.replaceAll("\\", "/").split("/").filter(Boolean).pop() ?? worktree.worktreeId;
     return { ownerId: `agent:${worktree.worktreeId}`, ownerLabel: `The agent in ${name}`, kind: "agent" };
   };
@@ -142,9 +168,27 @@ export function createMobileControlActions(host: MobileControlHost): BrowserCont
     return node;
   };
 
+  const devContext: MobileDevActionContext = { ownerFor, worktreeFor, online, pickDevice, lease };
+
   const run = async (action: MobileControlAction, input: unknown): Promise<unknown> => {
     if (action === "mobileaccess") return { enabled: (await host.settings()).agentTools };
     if (!(await host.settings()).agentTools) throw new BrowserControlError(OFF_MESSAGE, 403);
+    const extension = host.dev?.actions[action];
+    const result = extension ? await extension(input, devContext) : await core(action, input);
+    const decorate = host.dev?.decorate;
+    if (!decorate) return result;
+    const target = MobileControlDeviceInput.safeParse(input);
+    if (!target.success) return result;
+    let owner: LeaseOwner;
+    try {
+      owner = ownerFor(target.data);
+    } catch {
+      return result;
+    }
+    return decorate(owner, action, result);
+  };
+
+  const core = async (action: MobileControlAction, input: unknown): Promise<unknown> => {
     switch (action) {
       case "mobiledevices": {
         const parsed = MobileControlDeviceInput.parse(input);
@@ -311,6 +355,8 @@ export function createMobileControlActions(host: MobileControlHost): BrowserCont
           .filter((deviceId) => manager().leases.release(deviceId, owner.ownerId));
         return { released };
       }
+      default:
+        throw new BrowserControlError("This version of ZLI does not have that mobile tool yet.", 404);
     }
   };
 

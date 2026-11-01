@@ -2,6 +2,8 @@ import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import type { ZliBrowserCall } from "../browser-tool/client.js";
+import { MOBILE_DEV_MCP_TOOLS } from "./devTools.js";
+import { mobileToolInput } from "./mcp.js";
 
 export const ZLI_MOBILE_HELP = `zli-mobile: drive the phones and simulators in ZLI's Mobile panel.
 
@@ -23,6 +25,8 @@ Usage:
   zli-mobile screenshot [file.png]
   zli-mobile logs [--app <id>] [--lines <n>] [--filter <text>]
   zli-mobile release                       Hand your devices back.
+  zli-mobile <tool_name> --json '<args>'   Run any other zli-mobile tool, such as mobile_propose, with its
+                                           arguments as a JSON object.
 
 Options for every command:
   --device <id>      Use this deviceId from zli-mobile devices.
@@ -51,6 +55,7 @@ const VALUE_FLAGS = new Set([
   "app",
   "lines",
   "filter",
+  "json",
 ]);
 const BOOLEAN_FLAGS = new Set(["window", "wipe-data", "stop", "long", "help"]);
 
@@ -110,6 +115,23 @@ export function parseMobileArgs(argv: readonly string[], cwd: () => string = () 
   if (text("cwd") !== undefined) input.cwd = resolve(text("cwd") ?? ".");
   if (text("worktree") !== undefined) input.worktreeId = text("worktree");
   if (text("device") !== undefined) input.deviceId = text("device");
+
+  const devTool = MOBILE_DEV_MCP_TOOLS.find((tool) => tool.name === command);
+  if (devTool) {
+    let args: unknown = {};
+    try {
+      args = JSON.parse(text("json") ?? "{}");
+    } catch {
+      throw new MobileCliUsageError(`--json for ${command} is not valid JSON.`);
+    }
+    if (typeof args !== "object" || args === null || Array.isArray(args))
+      throw new MobileCliUsageError(`--json for ${command} must be a JSON object.`);
+    return {
+      kind: "call",
+      action: devTool.action,
+      input: { ...mobileToolInput(devTool, args as Record<string, unknown>), ...input },
+    };
+  }
 
   switch (command) {
     case "devices":

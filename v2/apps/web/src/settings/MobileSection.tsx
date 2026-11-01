@@ -10,6 +10,7 @@ import {
   stateTone,
   systemImageLabel,
 } from "../mobile/mobile.js";
+import { MobileDevSettingGroups } from "../mobile/dev/MobileDevSettingGroups.js";
 import { useDeviceFrame } from "../mobile/useDeviceFrame.js";
 import { useMobileSettings } from "../mobile/useMobileSettings.js";
 import type { MobileBridge } from "../runtime/bridge.js";
@@ -177,6 +178,8 @@ function MobileSettingsBody({ mobile }: { mobile: MobileBridge }) {
           onChange={setAgentTools}
         />
       </SettingGroup>
+
+      <MobileDevSettingGroups mobile={mobile} />
 
       <SettingGroup
         title="Android SDK"

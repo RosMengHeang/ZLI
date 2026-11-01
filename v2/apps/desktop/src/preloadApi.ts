@@ -54,6 +54,7 @@ import {
   WhatsNew,
 } from "@zli-v2/contracts";
 
+import { createMobileDevApi } from "./mobileDevApi.js";
 import {
   type NotificationSettings,
   parseNotificationSettings,
@@ -147,6 +148,7 @@ function createMobileApi(ipc: IpcBridge) {
     setPopOutAspect: async (input: MobilePopOutAspectInput) => {
       await ipc.invoke("zli:mobile:popout-aspect", MobilePopOutAspectInput.parse(input));
     },
+    dev: createMobileDevApi(ipc),
   };
 }
 
@@ -468,6 +470,8 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
           crashMain: () => ipc.invoke("zli:test:crash-main"),
           takeExternalUrl: () => ipc.invoke("zli:test:take-external-url"),
           takeOpenIn: () => ipc.invoke("zli:test:take-open-in"),
+          /** Drives the fake mobile service of a launch with ZLI_TEST_MOBILE=fake, such as op "propose". */
+          mobile: (op: string, input?: unknown) => ipc.invoke("zli:test:mobile", { op, input }),
         },
       }
     : bridge;

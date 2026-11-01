@@ -679,6 +679,19 @@ The stub files S0 creates, which each stream fully owns and replaces:
 
 Stylesheets follow the same rule: S0 creates `dev/dev.css`, `dev/workspace/workspace.css`, `dev/doctor/doctor.css`, and `dev/crash/crash.css`, empty, and imports them once. Each stream writes only its own file.
 
+### How S0 was built, where it differs from section 4
+
+S0 is built. These are the differences from section 4 that the streams code against. The ownership tables above still hold.
+
+- **`mobile_propose` takes `folder`, not `cwd`.** `cwd` already carries the agent's own folder, which ZLI uses to find its worktree, so the command's folder (relative to the worktree, "." by default) is `folder`. The stored proposal action still calls it `cwd`.
+- **Each tool stub exports one object.** `mobile-tool/dev/<feature>.ts` exports `<feature>Tools: MobileDevToolModule` (`{ tools, format?, instructions }`, type in `mobile-tool/dev/types.ts`), for example `workspaceTools`. Replace the object, keep the name.
+- **Channel names are enforced.** `registerMobileIpc` throws at startup for a dev channel that does not match `zli:mobile:<feature>:<verb>` (lowercase, verb may have dashes). `composeMobileDev` throws when two features register the same action, channel, or test operation.
+- **Extra S0 files.** S0 owns these, and streams use them without editing them:
+  - Contracts: `mobileDev.ts` also has `MobileProposalList`, `MobileTestInput`, and the e2e inputs `MobileTestProposeInput`, `MobileTestProposeFileInput`, `MobileTestRunnerAnswer`, and `MobileTestFetchAnswer`.
+  - Desktop: `mobile/dev/proposalActions.ts` (the proposals feature), `mobile/dev/preloadIpc.ts` (`PreloadIpc` and `listenParsed` for preload stubs), `mobile/dev/proposalPreload.ts`, `mobile/dev/testHost.ts` (`createTestDevHost`, an in-memory host for unit tests), `mobileDevApi.ts`, `mobile/testing/fakeMobileService.ts`, and `mobile-tool/devTools.ts`.
+  - Web: `mobile/dev/context.ts` (`MobileDevContext`, which also has `onOpenTerminal`), `mobile/dev/styles.ts` (imports the four stylesheets), `MobileDevSettingGroups.tsx`, and `sendToAgent.ts` (`sendToWorktreeAgent` sends when the agent is idle and queues the message when it is busy).
+- **e2e test operations.** A mock launch with `ZLI_TEST_MOBILE=fake` exposes `window.zli.test.mobile(op, input)`. S0's operations: `propose` and `propose-file` (both use the first ready worktree when `worktreeId` is left out), `runner-answer` `{ match, answer: { code, stdout, stderr, timedOut } }` (the newest answer whose `match` is in the command line wins; with none, the fake runner answers exit 0 and no output), and `fetch-answer` `{ url, status, json }` (unanswered URLs get 404). A stream adds operations in its own feature's `testOps`, and its specs reuse the helpers in `tests/e2e/mobile.spec.ts` by copying them.
+
 ### Streams
 
 **S0: Scaffold, proposals, and e2e fake (do first, alone).**

@@ -102,7 +102,8 @@ const sections: readonly SectionEntry[] = [
     label: "Mobile",
     icon: "smartphone",
     group: "Tools",
-    keywords: "phone android emulator iphone simulator device frame sdk avd",
+    keywords:
+      "phone android emulator iphone simulator device frame sdk avd metro port worktree doctor expo crash build package",
   },
   { id: "shortcuts", label: "Shortcuts", icon: "command", group: "App", keywords: "keys keyboard bindings" },
   { id: "notifications", label: "Notifications", icon: "bell", group: "App", keywords: "sound alerts" },

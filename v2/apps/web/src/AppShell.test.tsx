@@ -273,7 +273,7 @@ describe("AppShell", () => {
       devices: async () => [device],
       onDevices: () => () => undefined,
       onReveal: () => () => undefined,
-      getSettings: async () => ({ agentTools: true }),
+      getSettings: async () => ({ agentTools: true, crashWatch: true }),
       startStream: async (deviceId: string) => ({ deviceId, mode: "stills" as const, width: 0, height: 0 }),
       stopStream: async () => undefined,
       onStream: () => () => undefined,

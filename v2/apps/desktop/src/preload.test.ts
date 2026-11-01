@@ -500,3 +500,49 @@ describe("preload mobile API", () => {
     expect(changes).toEqual([[{ deviceId: pixel, pinned: true }]]);
   });
 });
+
+describe("preload mobile dev API", () => {
+  it("sends only a proposal id, and parses proposals from main and its events", async () => {
+    const proposal = {
+      proposalId: "00000000-0000-4000-8000-000000000001",
+      worktreeId: "wt-1",
+      source: "agent",
+      sourceLabel: "Proposed by the agent in app",
+      title: "Install packages",
+      reason: "",
+      action: { kind: "command", program: "npm", args: ["install"], cwd: "." },
+      state: "pending",
+      createdAt: "2026-01-02T03:04:05.000Z",
+    };
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const listeners = new Map<string, (event: unknown, value: unknown) => void>();
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        if (channel === "zli:mobile:proposals:list") return [proposal];
+        if (channel === "zli:mobile:proposals:accept") return { ...proposal, state: "started", terminalId: "t-1" };
+        return { ...proposal, state: "bogus" };
+      },
+      on: (channel, listener) => {
+        listeners.set(channel, listener);
+        return () => listeners.delete(channel);
+      },
+    });
+    expect(await api.mobile.dev.proposals.list("wt-1")).toEqual([proposal]);
+    expect((await api.mobile.dev.proposals.accept(proposal.proposalId)).state).toBe("started");
+    await expect(api.mobile.dev.proposals.dismiss(proposal.proposalId)).rejects.toThrow();
+    await expect(api.mobile.dev.proposals.accept("not-an-id")).rejects.toThrow();
+    expect(calls).toEqual([
+      { channel: "zli:mobile:proposals:list", payload: { worktreeId: "wt-1" } },
+      { channel: "zli:mobile:proposals:accept", payload: { proposalId: proposal.proposalId } },
+      { channel: "zli:mobile:proposals:dismiss", payload: { proposalId: proposal.proposalId } },
+    ]);
+    const seen: unknown[] = [];
+    api.mobile.dev.proposals.onChange((list) => seen.push(list));
+    listeners.get("zli:mobile:proposals")?.({}, [proposal]);
+    listeners.get("zli:mobile:proposals")?.({}, [
+      { ...proposal, action: { kind: "command", program: "rm", args: [] } },
+    ]);
+    expect(seen).toEqual([[proposal]]);
+  });
+});

@@ -4,6 +4,7 @@ import { MobileButton } from "@zli-v2/contracts";
 
 import type { ZliBrowserCall } from "../browser-tool/client.js";
 import { createToolServer, type McpServer, type McpTool, pickToolInput, type ToolResult } from "../browser-tool/mcp.js";
+import { formatMobileDevResult, MOBILE_DEV_INSTRUCTIONS, MOBILE_DEV_MCP_TOOLS } from "./devTools.js";
 
 export const ZLI_MOBILE_VERSION = "1.0.0";
 
@@ -17,7 +18,7 @@ const COORDINATE = {
   description: "Pixels on Android, points on iOS, as mobile_snapshot reports.",
 };
 
-export const MOBILE_MCP_TOOLS: readonly McpTool[] = [
+const CORE_TOOLS: readonly McpTool[] = [
   {
     name: "mobile_devices",
     title: "List mobile devices",
@@ -169,6 +170,8 @@ export const MOBILE_MCP_TOOLS: readonly McpTool[] = [
   },
 ];
 
+export const MOBILE_MCP_TOOLS: readonly McpTool[] = [...CORE_TOOLS, ...MOBILE_DEV_MCP_TOOLS];
+
 const TARGET_PROPERTIES = {
   cwd: {
     type: "string",
@@ -195,6 +198,8 @@ export function mobileToolInput(
 }
 
 export function formatMobileResult(action: string, result: unknown): ToolResult {
+  const dev = formatMobileDevResult(action, result);
+  if (dev) return dev;
   if (action === "mobilescreenshot" && isRecord(result) && typeof result.data === "string") {
     return {
       content: [
@@ -227,7 +232,7 @@ export function createMobileMcpServer(call: ZliBrowserCall): McpServer {
   return createToolServer(call, {
     tools: MOBILE_MCP_TOOLS,
     serverInfo: { name: "zli-mobile", title: "ZLI mobile", version: ZLI_MOBILE_VERSION },
-    instructions: `${PANEL} Use mobile_devices to see what is available, mobile_boot to start a device, mobile_install and mobile_launch or mobile_open_url to run your app, then mobile_snapshot, mobile_tap, mobile_type, and mobile_screenshot to test it. Call mobile_release when you are done.`,
+    instructions: `${PANEL} Use mobile_devices to see what is available, mobile_boot to start a device, mobile_install and mobile_launch or mobile_open_url to run your app, then mobile_snapshot, mobile_tap, mobile_type, and mobile_screenshot to test it. Call mobile_release when you are done.${MOBILE_DEV_INSTRUCTIONS ? ` ${MOBILE_DEV_INSTRUCTIONS}` : ""}`,
     targetProperties: TARGET_PROPERTIES,
     failureMessage: "The mobile action failed.",
     toInput: (tool, args) => mobileToolInput(tool, args),
