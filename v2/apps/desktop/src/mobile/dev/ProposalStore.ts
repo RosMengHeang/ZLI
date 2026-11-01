@@ -332,13 +332,13 @@ export class ProposalStore {
   }
 }
 
-/** Keeps the newest proposals of a worktree, dropping finished ones before any that still wait. */
+/** Keeps the newest proposals of a worktree, dropping ones the person already acted on before any still waiting. */
 function trimWorktree(proposals: MobileProposal[], worktreeId: string): MobileProposal[] {
   const mine = proposals.filter((proposal) => proposal.worktreeId === worktreeId);
   const extra = mine.length - MAX_PER_WORKTREE;
   if (extra <= 0) return proposals;
-  const finished = (proposal: MobileProposal) => proposal.state === "dismissed" || proposal.state === "written";
-  const order = [...mine.filter(finished), ...mine.filter((proposal) => !finished(proposal))];
+  const waiting = (proposal: MobileProposal) => proposal.state === "pending";
+  const order = [...mine.filter((proposal) => !waiting(proposal)), ...mine.filter(waiting)];
   const drop = new Set(order.slice(0, extra).map((proposal) => proposal.proposalId));
   return proposals.filter((proposal) => !drop.has(proposal.proposalId));
 }

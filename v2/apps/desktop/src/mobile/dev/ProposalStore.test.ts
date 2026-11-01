@@ -74,6 +74,26 @@ describe("proposal store", () => {
     expect(ids).not.toContain(dismissed.proposalId);
   });
 
+  it("drops proposals the person already ran before any still waiting for an answer", async () => {
+    const host = createTestDevHost({
+      answer: (request) =>
+        request.command.title === "fail"
+          ? { accepted: false, error: { code: "unavailable", message: "No shell.", retryable: false } }
+          : {},
+    });
+    const started = host.proposals.create({ ...command(["started"]), source: "zli" });
+    await host.proposals.accept(started.proposalId);
+    const failed = host.proposals.create({ ...command(["failed"]), source: "zli", title: "fail" });
+    await host.proposals.accept(failed.proposalId);
+    for (let index = 0; index < 18; index += 1) host.proposals.create({ ...command(["pending"]), source: "zli" });
+    host.proposals.create({ ...command(["newest"]), source: "zli" });
+    const states = new Map(host.proposals.list("wt-1").map((proposal) => [proposal.proposalId, proposal.state]));
+    expect(states).toHaveLength(20);
+    expect(states.has(started.proposalId)).toBe(false);
+    expect(states.get(failed.proposalId)).toBe("failed");
+    expect([...states.values()].filter((state) => state === "pending")).toHaveLength(19);
+  });
+
   it("runs an accepted command in a new terminal in its folder, with no extra environment", async () => {
     const host = createTestDevHost();
     const proposal = host.proposals.create(command(["install"], { cwd: "apps/mobile", env: { CI: "1" } }));
