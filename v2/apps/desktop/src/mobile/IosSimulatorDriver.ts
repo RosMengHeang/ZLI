@@ -17,7 +17,7 @@ import {
   processLogStream,
   type Screenshot,
 } from "./MobileDriver.js";
-import { type ProcessRunner, runChecked } from "./ProcessRunner.js";
+import { type ProcessRunner, runChecked, withDefaultEnv } from "./ProcessRunner.js";
 import type { VideoEvent } from "./scrcpy/protocol.js";
 import type { UiTree } from "./uiTree.js";
 
@@ -32,6 +32,8 @@ export type IosTools = {
 
 export type IosDriverDeps = {
   readonly runner: ProcessRunner;
+  /** The environment for every simctl, idb, and open command, without ZLI's runtime secrets. */
+  readonly env: NodeJS.ProcessEnv;
   readonly tools: () => Promise<IosTools>;
   readonly readFile?: (path: string) => Promise<Buffer>;
 };
@@ -224,6 +226,7 @@ export function simulatorRotateError(stderr: string, deviceName: string): Mobile
 export class IosSimulatorDriver implements MobileDriver {
   readonly platform = "ios" as const;
   readonly #deps: IosDriverDeps;
+  readonly #runner: ProcessRunner;
   /** Boots in progress, so a shutdown can stop simctl waiting for a boot that will not finish. */
   readonly #booting = new Map<string, AbortController>();
   /**
@@ -234,12 +237,13 @@ export class IosSimulatorDriver implements MobileDriver {
 
   constructor(deps: IosDriverDeps) {
     this.#deps = deps;
+    this.#runner = withDefaultEnv(deps.runner, deps.env);
   }
 
   async list(): Promise<DriverDevice[]> {
     const tools = await this.#deps.tools();
     if (!tools.xcrun) return [];
-    const result = await this.#deps.runner.run(tools.xcrun, ["simctl", "list", "devices", "--json"], {
+    const result = await this.#runner.run(tools.xcrun, ["simctl", "list", "devices", "--json"], {
       timeoutMs: 30_000,
     });
     if (result.code !== 0) return [];
@@ -258,19 +262,19 @@ export class IosSimulatorDriver implements MobileDriver {
     const xcrun = await this.#xcrun();
     const udid = udidOf(device);
     this.#orientations.delete(udid);
-    if (options.wipeData) await runChecked(this.#deps.runner, xcrun, ["simctl", "erase", udid], { timeoutMs: 120_000 });
+    if (options.wipeData) await runChecked(this.#runner, xcrun, ["simctl", "erase", udid], { timeoutMs: 120_000 });
     const controller = new AbortController();
     this.#booting.set(udid, controller);
     const { signal } = controller;
     try {
       if (device.state !== "online") {
-        const boot = await this.#deps.runner.run(xcrun, ["simctl", "boot", udid], { timeoutMs: 120_000, signal });
+        const boot = await this.#runner.run(xcrun, ["simctl", "boot", udid], { timeoutMs: 120_000, signal });
         if (signal.aborted) throw new MobileDriverError(`${device.name} was shut down while booting.`, 409);
         // simctl reports an already booted device as an error; that is the state wanted here.
         if (boot.code !== 0 && !/current state: Booted/u.test(boot.stderr))
           throw new MobileDriverError(`The simulator would not boot: ${boot.stderr.trim()}`, 500);
       }
-      await runChecked(this.#deps.runner, xcrun, ["simctl", "bootstatus", udid, "-b"], {
+      await runChecked(this.#runner, xcrun, ["simctl", "bootstatus", udid, "-b"], {
         timeoutMs: 300_000,
         signal,
       }).catch((cause: unknown) => {
@@ -281,7 +285,7 @@ export class IosSimulatorDriver implements MobileDriver {
       if (this.#booting.get(udid) === controller) this.#booting.delete(udid);
     }
     if (options.window)
-      await this.#deps.runner.run("open", ["-a", "Simulator", "--args", "-CurrentDeviceUDID", udid], {
+      await this.#runner.run("open", ["-a", "Simulator", "--args", "-CurrentDeviceUDID", udid], {
         timeoutMs: 30_000,
       });
     return { ...device, state: "online" };
@@ -289,7 +293,7 @@ export class IosSimulatorDriver implements MobileDriver {
 
   async shutdown(device: DriverDevice): Promise<void> {
     this.#booting.get(udidOf(device))?.abort();
-    const result = await this.#deps.runner.run(await this.#xcrun(), ["simctl", "shutdown", udidOf(device)], {
+    const result = await this.#runner.run(await this.#xcrun(), ["simctl", "shutdown", udidOf(device)], {
       timeoutMs: 60_000,
     });
     if (result.code !== 0 && !/current state: Shutdown/u.test(result.stderr))
@@ -306,7 +310,7 @@ export class IosSimulatorDriver implements MobileDriver {
   async launch(device: DriverDevice, appId: string, options: { stop?: boolean }): Promise<void> {
     const udid = udidOf(this.#online(device));
     if (options.stop)
-      await this.#deps.runner.run(await this.#xcrun(), ["simctl", "terminate", udid, appId], { timeoutMs: 30_000 });
+      await this.#runner.run(await this.#xcrun(), ["simctl", "terminate", udid, appId], { timeoutMs: 30_000 });
     await this.#simctl(device, ["launch", udid, appId], 60_000);
   }
 
@@ -369,7 +373,7 @@ export class IosSimulatorDriver implements MobileDriver {
     const turns = (ROTATIONS.indexOf(target) - ROTATIONS.indexOf(current) + ROTATIONS.length) % ROTATIONS.length;
     if (turns === 0) return target;
     const [key, presses] = turns === 3 ? [KEY_LEFT_ARROW, 1] : [KEY_RIGHT_ARROW, turns];
-    const result = await this.#deps.runner.run(
+    const result = await this.#runner.run(
       tools.osascript,
       [...SIMULATOR_ROTATE_SCRIPT.flatMap((line) => ["-e", line]), device.name, String(key), String(presses)],
       { timeoutMs: 30_000 },
@@ -391,7 +395,7 @@ export class IosSimulatorDriver implements MobileDriver {
     const tools = await this.#deps.tools();
     if (!tools.idb) throw new MobileDriverError(IDB_MISSING, 409);
     return startIdbVideo({
-      runner: this.#deps.runner,
+      runner: this.#runner,
       idb: tools.idb,
       udid: udidOf(this.#online(device)),
       ...handlers,
@@ -458,7 +462,7 @@ export class IosSimulatorDriver implements MobileDriver {
   }
 
   async #simctl(_device: DriverDevice, args: readonly string[], timeoutMs: number): Promise<string> {
-    const result = await runChecked(this.#deps.runner, await this.#xcrun(), ["simctl", ...args], { timeoutMs });
+    const result = await runChecked(this.#runner, await this.#xcrun(), ["simctl", ...args], { timeoutMs });
     return result.stdout.toString("utf8");
   }
 
@@ -467,7 +471,7 @@ export class IosSimulatorDriver implements MobileDriver {
     if (!tools.idb) throw new MobileDriverError(IDB_MISSING, 409);
     const [group, command, ...rest] = args;
     const result = await runChecked(
-      this.#deps.runner,
+      this.#runner,
       tools.idb,
       [group ?? "", command ?? "", "--udid", udidOf(this.#online(device)), ...rest],
       { timeoutMs: 60_000 },
@@ -488,7 +492,7 @@ export class IosSimulatorDriver implements MobileDriver {
       "--predicate",
       'messageType == error OR messageType == fault OR eventMessage CONTAINS "uncaught exception" OR eventMessage CONTAINS "EXC_BAD_ACCESS"',
     ];
-    return processLogStream(this.#deps.runner.spawn(await this.#xcrun(), args));
+    return processLogStream(this.#runner.spawn(await this.#xcrun(), args));
   }
 }
 
