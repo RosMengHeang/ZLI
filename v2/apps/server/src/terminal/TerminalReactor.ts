@@ -59,6 +59,8 @@ type AgentCommand = { file: string; args: string[]; env: Record<string, string> 
 export class TerminalReactor {
   private readonly intents = new Map<string, CreateIntent>();
   private worktrees: readonly WorktreeProjection[] | undefined;
+  /** Sequence for projection reads, so a slow older read never overwrites a newer answer. */
+  private worktreeReads = 0;
   /** Terminals whose session was deleted. Their exit and startup results have no record to update. */
   private readonly deleted = new Set<string>();
   private readonly tasks = new Set<Promise<void>>();
@@ -306,9 +308,10 @@ export class TerminalReactor {
    * worktree list is kept from worktree events. A worktree not seen yet falls back to a projection read.
    */
   private refreshWorktrees(): void {
+    const read = ++this.worktreeReads;
     this.engine.projection().then(
       (projection) => {
-        this.worktrees = projection.worktrees;
+        if (read === this.worktreeReads) this.worktrees = projection.worktrees;
       },
       () => undefined,
     );

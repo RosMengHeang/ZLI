@@ -47,8 +47,40 @@ describe("Metro port owner", () => {
     });
   });
 
-  it("reports a free port when lsof finds no listener", async () => {
-    expect(await check((command) => (command === "lsof" ? { code: 1 } : undefined)).owner).toEqual({ state: "free" });
+  it("reports a free port when lsof finds no listener and ss confirms", async () => {
+    const { owner, runner } = check((command) => (command === "lsof" ? { code: 1 } : undefined));
+    expect(await owner).toEqual({ state: "free" });
+    expect(runner.argsOf("ss")).toEqual([["-ltnpH", "sport = :8142"]]);
+  });
+
+  it("sees another user's listener through ss when lsof finds nothing", async () => {
+    // lsof cannot see other users' sockets, such as docker-proxy; ss lists them without a pid.
+    const { owner } = check((command) => {
+      if (command === "lsof") return { code: 1 };
+      if (command === "ss") return { stdout: "LISTEN 0 511 *:8142 *:*\n" };
+      return undefined;
+    });
+    expect(await owner).toEqual({ state: "other-process" });
+  });
+
+  it("matches a worktree behind a symlinked path once it is resolved", async () => {
+    const runner = new FakeProcessRunner((command, args) => {
+      if (command !== "lsof") return undefined;
+      return args.includes("-Fp") ? { stdout: "p64\n" } : { stdout: "n/real/disk/wt/cart\n" };
+    });
+    const symlinked: OwnerWorktree[] = [{ worktreeId: "wt-2", path: "/link/wt/cart", branch: "feat-cart" }];
+    const host = {
+      runner,
+      os: "linux" as const,
+      env: {},
+      fs: { realpath: async (path: string) => path.replace("/link/", "/real/disk/") },
+    };
+    expect(await metroOwner(8142, "wt-2", symlinked, host)).toEqual({ state: "this-worktree", pid: 64 });
+    // Without realpath the resolved folder does not match the symlinked path.
+    expect(await metroOwner(8142, "wt-2", symlinked, { runner, os: "linux", env: {} })).toEqual({
+      state: "other-process",
+      pid: 64,
+    });
   });
 
   it("reads the folder from /proc on Linux when lsof cannot", async () => {

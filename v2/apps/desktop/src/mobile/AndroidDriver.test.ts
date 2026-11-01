@@ -223,10 +223,14 @@ describe("Android driver", () => {
     ]);
   });
 
-  it("maps one device port to another host port", async () => {
+  it("maps one device port to another host port, and removes the mapping", async () => {
     const { android, runner } = driver(() => undefined);
     await android.reverse(online, 8081, 8142);
-    expect(runner.argsOf("adb")).toEqual([["-s", "emulator-5554", "reverse", "tcp:8081", "tcp:8142"]]);
+    await android.removeReverse(online, 8081);
+    expect(runner.argsOf("adb")).toEqual([
+      ["-s", "emulator-5554", "reverse", "tcp:8081", "tcp:8142"],
+      ["-s", "emulator-5554", "reverse", "--remove", "tcp:8081"],
+    ]);
   });
 
   it("launches by package through the launcher and reports a missing app", async () => {

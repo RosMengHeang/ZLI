@@ -248,6 +248,11 @@ export class AndroidDriver implements MobileDriver {
     await this.#adbRun(device, ["reverse", `tcp:${devicePort}`, `tcp:${hostPort}`]);
   }
 
+  /** Undoes a reverse mapping, so the device's devicePort is its own again. */
+  async removeReverse(device: DriverDevice, devicePort: number): Promise<void> {
+    await this.#adbRun(device, ["reverse", "--remove", `tcp:${devicePort}`]);
+  }
+
   async snapshot(device: DriverDevice): Promise<UiTree> {
     const file = "/data/local/tmp/zli-window.xml";
     let lastError = "";

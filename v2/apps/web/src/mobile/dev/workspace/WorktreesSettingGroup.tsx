@@ -2,8 +2,10 @@ import type { MobileWorkspace } from "@zli-v2/contracts";
 import { useEffect, useState } from "react";
 
 import type { MobileBridge } from "../../../runtime/bridge.js";
-import { SettingGroup } from "../../../settings/SectionHeader.js";
+import { SettingGroup, SettingRow } from "../../../settings/SectionHeader.js";
 import { Badge } from "../../../ui/Badge.js";
+import { LoadingState } from "../../../ui/Pane.js";
+import { errorText } from "../../mobile.js";
 import { folderName, ownerBadge } from "./useWorkspace.js";
 import "./workspace.css";
 
@@ -13,19 +15,25 @@ export function WorktreesSettingGroup({ mobile }: { mobile: MobileBridge }) {
   const [list, setList] = useState<readonly MobileWorkspace[]>();
   const [error, setError] = useState<string>();
   useEffect(() => {
+    setList(undefined);
+    setError(undefined);
     if (!api) return;
     let current = true;
-    const load = () =>
-      api.list().then(
+    // Reads overlap (change events and the first load), so only the newest one lands.
+    let request = 0;
+    const load = () => {
+      const id = ++request;
+      return api.list().then(
         (next) => {
-          if (!current) return;
+          if (!current || id !== request) return;
           setList(next);
           setError(undefined);
         },
         (cause: unknown) => {
-          if (current) setError(cause instanceof Error ? cause.message : String(cause));
+          if (current && id === request) setError(errorText(cause, "ZLI could not read the worktrees."));
         },
       );
+    };
     void load();
     const unsubscribe = api.onChange(() => void load());
     return () => {
@@ -38,30 +46,37 @@ export function WorktreesSettingGroup({ mobile }: { mobile: MobileBridge }) {
   return (
     <SettingGroup
       title="Worktrees"
+      className="mobile-worktrees"
       description="Each worktree gets its own Metro port so agents never test another branch's app."
     >
       {error ? (
         <p className="inline-error" role="alert">
           {error}
         </p>
-      ) : list?.length === 0 ? (
+      ) : list === undefined ? (
+        <LoadingState label="Reading worktrees" />
+      ) : list.length === 0 ? (
         <p className="settings-group-note">No worktrees yet.</p>
       ) : (
-        list?.map((workspace) => {
+        list.map((workspace) => {
           const badge = ownerBadge(workspace.metro);
           return (
-            <div key={workspace.worktreeId} className="setting-row mobile-worktree-row">
-              <div className="setting-copy">
-                <span className="setting-label is-mono">{workspace.branch}</span>
-                <p className="setting-description" title={workspace.path}>
-                  {folderName(workspace.path)}
-                </p>
-              </div>
-              <div className="setting-control mobile-workspace-value">
+            <SettingRow
+              key={workspace.worktreeId}
+              label={workspace.branch}
+              description={
+                workspace.path ? (
+                  <span className="is-mono" title={workspace.path}>
+                    {folderName(workspace.path)}
+                  </span>
+                ) : undefined
+              }
+            >
+              <span className="mobile-workspace-value">
                 <span className="settings-value is-mono">{workspace.metroPort}</span>
                 <Badge tone={badge.tone}>{badge.label}</Badge>
-              </div>
-            </div>
+              </span>
+            </SettingRow>
           );
         })
       )}

@@ -11,6 +11,7 @@ import { DeviceScreen } from "./DeviceScreen.js";
 import type { MobileDevContext } from "./dev/context.js";
 import { MobileDevBanners } from "./dev/MobileDevBanners.js";
 import { MobileProjectView } from "./dev/MobileProjectView.js";
+import { useWorkspace } from "./dev/workspace/useWorkspace.js";
 import { ExpoBanner } from "./ExpoBanner.js";
 import { LeaseBanner } from "./LeaseBanner.js";
 import { MobileControls } from "./MobileControls.js";
@@ -134,6 +135,8 @@ function MobilePaneBody({
   const [notice, showNotice] = useNotice();
   const takeOverRef = useRef<HTMLButtonElement>(null);
   const [screenMode, setScreenMode] = useState<ScreenMode>();
+  /** The worktree's own Metro port, so the Expo banner prefers its server over another worktree's. */
+  const { workspace } = useWorkspace(mobile.dev?.workspace, worktreeId);
   /** When each device was first seen booting, so the elapsed time survives re-renders and device switches. */
   const bootStartsRef = useRef(new Map<string, number>());
   /** Devices the person cancelled, whose boot call then fails on purpose. */
@@ -505,7 +508,7 @@ function MobilePaneBody({
   const android = device?.platform === "android";
   const virtual = device ? device.kind !== "physical" : false;
   const online = device?.state === "online";
-  const expo = expoServer(devServers);
+  const expo = expoServer(devServers, workspace?.metroPort);
 
   return (
     <div className="tool-pane mobile-pane">

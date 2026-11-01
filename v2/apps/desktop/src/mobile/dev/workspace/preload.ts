@@ -1,4 +1,5 @@
 import {
+  MOBILE_WORKSPACE_CHANGED_CHANNEL,
   MobileWorkspace,
   MobileWorkspaceChanged,
   MobileWorkspaceInput,
@@ -23,7 +24,7 @@ export function createWorkspaceApi(ipc: PreloadIpc) {
         MobileWorkspaceOpened.parse(
           await ipc.invoke("zli:mobile:workspace:open", MobileWorkspaceOpenInput.parse({ worktreeId, deviceId })),
         ),
-      onChange: listenParsed(ipc, "zli:mobile:workspace:changed", MobileWorkspaceChanged),
+      onChange: listenParsed(ipc, MOBILE_WORKSPACE_CHANGED_CHANNEL, MobileWorkspaceChanged),
     },
   };
 }

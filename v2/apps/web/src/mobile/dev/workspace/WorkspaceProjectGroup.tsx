@@ -1,6 +1,7 @@
 import { SettingGroup, SettingRow } from "../../../settings/SectionHeader.js";
 import { Badge } from "../../../ui/Badge.js";
 import { IconButton } from "../../../ui/Button.js";
+import { LoadingState } from "../../../ui/Pane.js";
 import type { MobileDevContext } from "../context.js";
 import { ownerBadge, useWorkspace } from "./useWorkspace.js";
 import "./workspace.css";
@@ -10,13 +11,17 @@ export function WorkspaceProjectGroup({ context }: { context: MobileDevContext }
   const { workspace, error } = useWorkspace(context.mobile.dev?.workspace, context.worktreeId);
   if (!context.mobile.dev?.workspace) return null;
   if (!workspace)
-    return error ? (
-      <SettingGroup title="This worktree">
-        <p className="inline-error" role="alert">
-          {error}
-        </p>
+    return (
+      <SettingGroup title="This worktree" className="mobile-workspace-group">
+        {error ? (
+          <p className="inline-error" role="alert">
+            {error}
+          </p>
+        ) : (
+          <LoadingState label="Reading this worktree's Metro port" />
+        )}
       </SettingGroup>
-    ) : null;
+    );
   const badge = ownerBadge(workspace.metro);
   const copy = () => {
     if (!navigator.clipboard) return context.onError("ZLI could not copy the URL. Select it and copy it instead.");

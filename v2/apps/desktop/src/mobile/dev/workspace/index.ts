@@ -1,6 +1,7 @@
 import {
   emulatorPortFor,
   type MetroOwner,
+  MOBILE_WORKSPACE_CHANGED_CHANNEL,
   MobileControlDeviceInput,
   MobileTestMetroOwner,
   type MobileWorkspace,
@@ -17,13 +18,13 @@ import type { MobileDevFeature, MobileDevHost } from "../host.js";
 import { metroOwner, type OwnerWorktree } from "./portOwner.js";
 import { type ProjectInfo, readProjectInfo } from "./projectInfo.js";
 
-export const WORKSPACE_CHANGED = "zli:mobile:workspace:changed";
+export const WORKSPACE_CHANGED = MOBILE_WORKSPACE_CHANGED_CHANNEL;
 
 /** The runtime hands the desktop full worktree projections, which carry the branch and kind as well. */
 type KnownWorktree = PortWorktree & { readonly path: string; readonly branch?: string };
 
 /**
- * F1: each worktree's own Metro port, who is listening on it, the URL that opens the app on a device against it,
+ * Each worktree's own Metro port, who is listening on it, the URL that opens the app on a device against it,
  * and the device the worktree's agent holds.
  */
 export function createWorkspace(host: MobileDevHost): MobileDevFeature {
@@ -51,7 +52,7 @@ export function createWorkspace(host: MobileDevHost): MobileDevFeature {
           (): MetroOwner => ({ state: "unknown", reason: "The port check failed." }),
         ),
     ]);
-    const { scheme } = info;
+    const { scheme, slug } = info;
     const deviceId = host.manager()?.leases.heldBy(`agent:${worktreeId}`)[0];
     return {
       worktreeId,
@@ -63,7 +64,7 @@ export function createWorkspace(host: MobileDevHost): MobileDevFeature {
       metro,
       devClient: info.devClient,
       ...(scheme ? { scheme } : {}),
-      openUrl: metroOpenUrl(metroPort, { devClient: info.devClient, scheme }),
+      openUrl: metroOpenUrl(metroPort, { devClient: info.devClient, scheme, slug }),
       ...(deviceId ? { deviceId } : {}),
     };
   };

@@ -236,8 +236,9 @@ export function emulatorPortFor(worktreeId: string, worktrees: readonly Pick<Wor
 
 Algorithm:
 - `kind === "checkout"` gets 8081.
-- Otherwise walk the non-cancelled worktrees in projection order, which is creation order. Each gets `first + fnv1a32(worktreeId) % size`, probing forward (with wraparound) past ports already given to earlier worktrees. Past `size` worktrees, it falls back to the bare hash.
-- The emulator port is the same walk over `size` even ports, returning `undefined` when they are all taken.
+- The decider pins each worktree's port at creation (`assignMetroPort`) and stores it on the worktree projection, so the port never changes while the worktree exists, even when an older colliding worktree is removed or cancelled. Worktrees made before pinning fall back to the walk.
+- The walk goes over worktrees in projection order, which is creation order, counting cancelled worktrees and pinned ports as taken. Each gets `first + fnv1a32(worktreeId) % size`, probing forward (with wraparound) past taken ports. Past `size` worktrees, it falls back to the bare hash.
+- The emulator port is the same walk over `size` even ports, returning `undefined` when they are all taken. It is not pinned; only Metro's is.
 - Pure, with no I/O.
 
 Also in this file:
@@ -332,11 +333,19 @@ The port allocation, env, tool, and UI work fully. The owner check works with `l
 - `MobileWorkspace` has two optional extra fields, `path` and `checkout`, so Settings can show the end of the path and the project view can say when the checkout keeps 8081. The contracts file also exports `MobileWorkspaceOpened`, `MobileWorkspaceChanged`, and `MobileWorkspaceTestMetroOwner` for the extra IPC below.
 - Two extra IPC channels: `zli:mobile:workspace:open` opens `openUrl` on a device, and refuses with 409 when another worktree holds the port. `zli:mobile:workspace:changed` is sent after the `metro-owner` test op, so open views refresh without waiting for the 10 s poll.
 - The `mobile_workspace` text adds the emulator port line, and a warning not to open the URL when another worktree or program holds the port.
-- `expoServer()` accepts any port in `METRO_BAND` as well as the optional `metroPort` argument. `MobilePane.tsx` does not pass `metroPort`; band detection covers it, and the only S0 change is one line passing `worktreeId` to `ExpoBanner`.
+- `expoServer()` accepts any port in `METRO_BAND` as well as the optional `metroPort` argument, which `MobilePane.tsx` passes (an S0 file: one hook and one argument).
 - `adb.ts` `localhostPort` reads the port from the inner `url` parameter of a dev-client link, so dev-client URLs get forwarding and the 8081 mapping too.
 - The 8081 mapping lives in a new `AndroidDriver.reverse(device, devicePort, hostPort)` and a public `DeviceManager.mapMetro(device, url, metroPort)`. `DeviceManager.openUrl` takes `{ metroPort }` and returns `mapped8081To`, which the opened notice mentions.
 - The web side adds `useWorkspace.ts` (the shared hook, owner badge, and warning copy) and `fakeWorkspace.ts` (a test fixture) next to the files listed above.
 - Hardware-only checks for this feature are in `apps/web/src/mobile/MANUAL_TEST.md` under "Per-worktree Metro port".
+
+Review round (fix/mobile-s1-review), which also rewrote the Algorithm above:
+- Ports are pinned at creation, after review found that removing or cancelling an older colliding worktree moved a newer one's port. `TERMINAL_DAEMON_VERSION` is bumped to /7 for the new env override keys, which the first cut missed.
+- The emulator's 8081 mapping is undone when the device changes hands or the holder's lease lapses, and dropped silently on shutdown.
+- On Linux the owner check confirms an empty lsof answer with ss, and worktree paths are realpath-resolved before matching.
+- A development build without a scheme gets an `exp+<slug>` URL instead of Expo Go's.
+- The Expo banner's Open waits for the owner check on a worktree-band port, and stays off when the check fails or another worktree or program serves the port.
+- `useWorkspace` and `WorktreesSettingGroup` drop out-of-order reads, use `errorText`, and show loading states; `WorktreesSettingGroup` reuses `SettingRow`. The workspace-changed channel literal lives in contracts, and `MetroEnvSource` is declared once, in `AcpProviderAdapter.ts`.
 
 ---
 

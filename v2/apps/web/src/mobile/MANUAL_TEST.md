@@ -202,7 +202,11 @@ Use a project with at least one worktree besides the checkout, and an Android em
 - [ ] Repeat the open on a USB phone.
   Expected: no 8081 mapping is added for the phone.
 - [ ] In a project with `expo-dev-client` and a `scheme` in `app.json`, look at "Open on a device", then open it on a device.
-  Expected: "Development build" and `<scheme>://expo-development-client/?url=http%3A%2F%2Flocalhost%3A<port>`. It opens in the development build, not Expo Go. Without `expo-dev-client`, it reads "Expo Go" and `exp://localhost:<port>`.
+  Expected: "Development build" and `<scheme>://expo-development-client/?url=http%3A%2F%2Flocalhost%3A<port>`. It opens in the development build, not Expo Go. Without `expo-dev-client`, it reads "Expo Go" and `exp://localhost:<port>`. With `expo-dev-client` but no scheme, the URL starts with `exp+<slug>://`.
+- [ ] Create a second worktree, note both ports, then remove or cancel the first worktree and reopen the second's project view and a new terminal there.
+  Expected: the second worktree keeps its port, in the view and in `$RCT_METRO_PORT`.
+- [ ] Open a worktree's URL on the emulator so the 8081 mapping is set, then hand the device to another worktree's agent or let the holder's lease lapse.
+  Expected: `adb -s <serial> reverse --list` no longer lists `tcp:8081`. Opening again from the new holder re-adds it with its own port.
 
 ## Project check: Toolchain and Packages
 

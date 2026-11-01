@@ -21,6 +21,21 @@ describe("project info", () => {
     ).toEqual({ devClient: true, scheme: "myapp", appDir: "." });
   });
 
+  it("reads the slug for a development build without a scheme", async () => {
+    expect(
+      await read({
+        "/repo/app/package.json": JSON.stringify({ dependencies: { expo: "54", "expo-dev-client": "6" } }),
+        "/repo/app/app.json": JSON.stringify({ expo: { slug: "my-app" } }),
+      }),
+    ).toEqual({ devClient: true, slug: "my-app", appDir: "." });
+    expect(
+      await read({
+        "/repo/app/package.json": JSON.stringify({ dependencies: { expo: "54", "expo-dev-client": "6" } }),
+        "/repo/app/app.json": JSON.stringify({ expo: { slug: "Not A Slug!" } }),
+      }),
+    ).toEqual({ devClient: true, appDir: "." });
+  });
+
   it("treats an Expo app without expo-dev-client as Expo Go, and reads a static app.config.json", async () => {
     expect(
       await read({

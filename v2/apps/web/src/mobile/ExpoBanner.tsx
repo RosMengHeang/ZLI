@@ -1,4 +1,4 @@
-import type { MobileDevice } from "@zli-v2/contracts";
+import { METRO_BAND, type MobileDevice } from "@zli-v2/contracts";
 import { useState } from "react";
 
 import type { MobileBridge } from "../runtime/bridge.js";
@@ -37,13 +37,30 @@ export function ExpoBanner({
   const [dismissed, setDismissed] = useState<readonly number[]>(readDismissed);
   const [opening, setOpening] = useState(false);
   const api = mobile.dev?.workspace;
-  const { workspace } = useWorkspace(api, worktreeId);
+  const { workspace, error: workspaceError } = useWorkspace(api, worktreeId);
   if (dismissed.includes(server.port)) return null;
   const own = workspace && api && worktreeId && workspace.metroPort === server.port ? workspace : undefined;
-  const heldBy = own?.metro.state === "other-worktree" ? own.metro.branch : undefined;
+  const servedBy =
+    own?.metro.state === "other-worktree"
+      ? own.metro.branch
+      : own?.metro.state === "other-process"
+        ? "another program"
+        : undefined;
+  // A port in the worktree band could be this worktree's, so Open waits until the owner check answers.
+  const bandPort = server.port >= METRO_BAND.first && server.port < METRO_BAND.first + METRO_BAND.size;
+  const unchecked = !own && !workspaceError && bandPort && api !== undefined && worktreeId !== undefined;
+  const blocked = servedBy !== undefined || unchecked || (!own && workspaceError !== undefined && bandPort);
+  const tooltip =
+    servedBy !== undefined
+      ? `Port ${server.port} belongs to ${servedBy}`
+      : unchecked
+        ? `Checking who serves port ${server.port}`
+        : blocked
+          ? workspaceError
+          : undefined;
 
   const open = async () => {
-    if (opening || heldBy) return;
+    if (opening || blocked) return;
     if (inputBlocked) return onBlockedInput();
     const url = own ? own.openUrl : expoUrl(server);
     setOpening(true);
@@ -73,17 +90,19 @@ export function ExpoBanner({
     <div className="banner banner-info" role="status">
       <Icon name="play" size={14} />
       <span className="banner-message">
-        {own
+        {own && servedBy === undefined
           ? `Metro for this worktree is on localhost:${server.port}.`
-          : `Expo is running on localhost:${server.port}.`}
+          : servedBy !== undefined
+            ? `This worktree's Metro port ${server.port} is served from ${servedBy}.`
+            : `Expo is running on localhost:${server.port}.`}
       </span>
       <div className="banner-actions">
         <Button
           size="xs"
           variant="primary"
           loading={opening}
-          disabled={heldBy !== undefined}
-          tooltip={heldBy ? `Port ${server.port} belongs to ${heldBy}` : undefined}
+          disabled={blocked}
+          tooltip={tooltip}
           onClick={() => void open()}
         >
           Open on {device.name}

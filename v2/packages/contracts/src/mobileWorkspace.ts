@@ -13,18 +13,28 @@ export type PortWorktree = {
   readonly worktreeId: string;
   readonly kind?: string | undefined;
   readonly status: string;
+  /** The port pinned when the worktree was created. It wins over the walk, so removal of others never moves it. */
+  readonly metroPort?: number | undefined;
 };
 
 /**
- * The worktree's Metro port: 8081 for the project's own checkout, otherwise a port in METRO_BAND picked from a
- * hash of its id. Worktrees are walked in projection order, which is creation order, so on a collision the
- * earlier worktree keeps its port and a new worktree never moves an older one. Pure, so every process agrees.
+ * The worktree's Metro port: 8081 for the project's own checkout, otherwise the port pinned at creation, or a
+ * port in METRO_BAND picked from a hash of its id for worktrees made before pinning. The walk goes in projection
+ * order, which is creation order, so on a collision the earlier worktree keeps its port, and cancelled worktrees
+ * keep theirs too: a port must not move while its worktree exists, or a running Metro and the badge disagree.
+ * Pure, so every process agrees.
  */
 export function metroPortFor(worktreeId: string, worktrees: readonly PortWorktree[]): number {
   const self = worktrees.find((entry) => entry.worktreeId === worktreeId);
   if (self?.kind === "checkout") return METRO_DEFAULT_PORT;
-  const slot = walk(worktreeId, worktrees, METRO_BAND.size);
+  if (self?.metroPort !== undefined) return self.metroPort;
+  const slot = walk(worktreeId, worktrees, METRO_BAND.size, metroSlot);
   return METRO_BAND.first + (slot ?? fnv1a32(worktreeId) % METRO_BAND.size);
+}
+
+/** The port to pin on a worktree being created: the walk with the new id last, so held ports stay held. */
+export function assignMetroPort(worktreeId: string, worktrees: readonly PortWorktree[]): number {
+  return metroPortFor(worktreeId, [...worktrees, { worktreeId, status: "creating" }]);
 }
 
 /** The emulator console port an agent in this worktree boots on, or undefined for the checkout or a full band. */
@@ -35,12 +45,28 @@ export function emulatorPortFor(worktreeId: string, worktrees: readonly PortWork
   return slot === undefined ? undefined : EMULATOR_BAND.first + slot * 2;
 }
 
+/** The band slot a pinned Metro port holds, so the walk does not hand it out again. */
+function metroSlot(entry: PortWorktree): number | undefined {
+  return entry.metroPort === undefined ? undefined : entry.metroPort - METRO_BAND.first;
+}
+
 /** The slot the walk gives worktreeId, or undefined when every slot was taken before it (or it is not walked). */
-function walk(worktreeId: string, worktrees: readonly PortWorktree[], size: number): number | undefined {
+function walk(
+  worktreeId: string,
+  worktrees: readonly PortWorktree[],
+  size: number,
+  pinned?: (entry: PortWorktree) => number | undefined,
+): number | undefined {
   const taken = new Set<number>();
   for (const entry of worktrees) {
-    if (entry.status === "cancelled" || entry.kind === "checkout") continue;
+    if (entry.kind === "checkout") continue;
     if (taken.size >= size) return undefined;
+    const held = pinned?.(entry);
+    if (held !== undefined && held >= 0 && held < size) {
+      taken.add(held);
+      if (entry.worktreeId === worktreeId) return held;
+      continue;
+    }
     let slot = fnv1a32(entry.worktreeId) % size;
     while (taken.has(slot)) slot = (slot + 1) % size;
     if (entry.worktreeId === worktreeId) return slot;
@@ -59,10 +85,17 @@ export function fnv1a32(text: string): number {
   return hash >>> 0;
 }
 
-/** The URL that opens the app on a device against this port: the development build's own link, or Expo Go's. */
-export function metroOpenUrl(port: number, app: { devClient: boolean; scheme?: string | undefined }): string {
-  if (app.devClient && app.scheme)
-    return `${app.scheme}://expo-development-client/?url=${encodeURIComponent(`http://localhost:${port}`)}`;
+/**
+ * The URL that opens the app on a device against this port: the development build's own link, or Expo Go's.
+ * A development build without a scheme in app.json still answers to exp+<slug>, never to Expo Go's exp://.
+ */
+export function metroOpenUrl(
+  port: number,
+  app: { devClient: boolean; scheme?: string | undefined; slug?: string | undefined },
+): string {
+  const scheme = app.scheme ?? (app.slug ? `exp+${app.slug}` : undefined);
+  if (app.devClient && scheme)
+    return `${scheme}://expo-development-client/?url=${encodeURIComponent(`http://localhost:${port}`)}`;
   return `exp://localhost:${port}`;
 }
 
@@ -118,6 +151,8 @@ export type MobileWorkspaceOpened = z.infer<typeof MobileWorkspaceOpened>;
 
 /** Fired when a worktree's workspace may have changed, so open views read it again. */
 export const MobileWorkspaceChanged = z.object({ worktreeId: z.string().max(200).optional() });
+/** Its IPC channel, shared by the desktop feature and the preload bridge so the literal is written once. */
+export const MOBILE_WORKSPACE_CHANGED_CHANNEL = "zli:mobile:workspace:changed";
 export type MobileWorkspaceChanged = z.infer<typeof MobileWorkspaceChanged>;
 
 /** e2e: what the port owner check answers for one worktree, or for every worktree without worktreeId. */

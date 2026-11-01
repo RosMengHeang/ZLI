@@ -17,7 +17,12 @@ import {
 } from "../browser-tool/browserTool.js";
 import { type WorktreeFileWriter, writeProjectMcpFile } from "../terminal/agentLaunch.js";
 import { agentFolderTrust } from "../terminal/agentTrust.js";
-import { AcpProviderAdapter, type AcpProviderConfig, type AcpProviderKind } from "./AcpProviderAdapter.js";
+import {
+  AcpProviderAdapter,
+  type AcpProviderConfig,
+  type AcpProviderKind,
+  type MetroEnvSource,
+} from "./AcpProviderAdapter.js";
 import { ClaudeCodeProviderAdapter } from "./ClaudeCodeProviderAdapter.js";
 import { CodexProviderAdapter } from "./CodexProviderAdapter.js";
 import { CursorAgentProviderAdapter } from "./CursorAgentProviderAdapter.js";
@@ -138,7 +143,7 @@ export type ProviderRegistryOptions = {
   metroEnv?: MetroEnvSource;
 };
 
-export type MetroEnvSource = (worktreeId: string | undefined) => Promise<Record<string, string>>;
+export type { MetroEnvSource };
 
 export function createProviderRegistry(
   env: NodeJS.ProcessEnv = process.env,

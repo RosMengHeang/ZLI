@@ -1,4 +1,10 @@
-import type { MobileDevice, MobilePanelInput, MobileStreamEvent, MobileStreamInfo } from "@zli-v2/contracts";
+import {
+  METRO_DEFAULT_PORT,
+  type MobileDevice,
+  type MobilePanelInput,
+  type MobileStreamEvent,
+  type MobileStreamInfo,
+} from "@zli-v2/contracts";
 import type { AndroidDriver } from "./AndroidDriver.js";
 import { ANDROID_KEYCODES, reverseExtra } from "./adb.js";
 import { DeviceLeases, type LeaseOwner } from "./DeviceLeases.js";
@@ -94,6 +100,8 @@ export class DeviceManager {
   #listing: Promise<MobileDevice[]> | undefined;
   /** Devices whose boot was stopped by a shutdown, so the boot reports a cancel instead of a failure. */
   readonly #cancelledBoots = new Set<string>();
+  /** The 8081 mapping each device carries, with the lease holder who set it, so it can be undone on handover. */
+  readonly #metroMaps = new Map<string, { readonly ownerKey: string; readonly port: number }>();
 
   constructor(deps: DeviceManagerDeps) {
     this.#deps = deps;
@@ -165,6 +173,8 @@ export class DeviceManager {
       if (booting) this.#cancelledBoots.delete(deviceId);
       throw cause;
     }
+    // The mapping dies with the device, so dropping the record is enough.
+    this.#metroMaps.delete(deviceId);
     this.leases.release(deviceId);
     await this.list();
   }
@@ -340,11 +350,33 @@ export class DeviceManager {
     const port = reverseExtra(url, device.kind === "emulator", metroPort);
     if (port === undefined) return undefined;
     try {
-      await this.#deps.android.reverse(device, 8081, port);
+      await this.#deps.android.reverse(device, METRO_DEFAULT_PORT, port);
+      this.#metroMaps.set(device.deviceId, { ownerKey: this.#leaseKey(device.deviceId), port });
       return port;
     } catch {
       // The worktree's own URL still opens; only apps that ignore it and dial 8081 miss out.
       return undefined;
+    }
+  }
+
+  /**
+   * The person and "no lease" share one key: taking over must not undo a mapping the person just opened with.
+   * An agent's key is its own, so its mapping is undone when its lease lapses or the device changes hands.
+   */
+  #leaseKey(deviceId: string): string {
+    const lease = this.leases.get(deviceId);
+    return lease?.kind === "agent" ? lease.ownerId : "person";
+  }
+
+  /** Undoes the 8081 mapping once the lease holder who set it no longer holds the device. */
+  #undoStaleMaps(): void {
+    for (const [deviceId, map] of this.#metroMaps) {
+      if (this.#leaseKey(deviceId) === map.ownerKey) continue;
+      this.#metroMaps.delete(deviceId);
+      const device = this.#devices.find((entry) => entry.deviceId === deviceId);
+      // An offline device lost the mapping with its adb connection; there is nothing to undo.
+      if (device?.state !== "online") continue;
+      void this.#deps.android.removeReverse(device, METRO_DEFAULT_PORT).catch(() => undefined);
     }
   }
 
@@ -563,6 +595,7 @@ export class DeviceManager {
   }
 
   #publish(): void {
+    this.#undoStaleMaps();
     this.#deps.events?.devices?.(this.cached());
   }
 }

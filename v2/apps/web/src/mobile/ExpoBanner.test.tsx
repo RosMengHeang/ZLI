@@ -77,6 +77,53 @@ describe("Expo banner", () => {
     expect(open?.getAttribute("data-tooltip")).toBe("Port 8142 belongs to feat-login");
   });
 
+  it("waits for the owner check before opening a worktree-band port", async () => {
+    let answer: ((found: typeof workspace) => void) | undefined;
+    const api = {
+      get: vi.fn(() => new Promise<typeof workspace>((resolve) => (answer = resolve))),
+      list: vi.fn(),
+      open: vi.fn(),
+      onChange: () => () => undefined,
+    };
+    const shown = props(api as never, 8142);
+    const container = await render(<ExpoBanner {...shown} />);
+    const openButton = () =>
+      [...container.querySelectorAll("button")].find((entry) => entry.textContent === "Open on Pixel 8");
+    expect(container.querySelector(".banner-message")?.textContent).toBe("Expo is running on localhost:8142.");
+    expect(openButton()?.disabled).toBe(true);
+    expect(openButton()?.getAttribute("data-tooltip")).toBe("Checking who serves port 8142");
+    await act(async () => answer?.(workspace));
+    expect(container.querySelector(".banner-message")?.textContent).toBe(
+      "Metro for this worktree is on localhost:8142.",
+    );
+    expect(openButton()?.disabled).toBe(false);
+  });
+
+  it("keeps Open off when the owner check fails, and while another program serves the port", async () => {
+    const failing = {
+      get: vi.fn(async (): Promise<typeof workspace> => {
+        throw new Error("Error invoking remote method 'zli:mobile:workspace:get': Error: The check failed.");
+      }),
+      list: vi.fn(),
+      open: vi.fn(),
+      onChange: () => () => undefined,
+    };
+    const container = await render(<ExpoBanner {...props(failing as never, 8142)} />);
+    const open = [...container.querySelectorAll("button")].find((entry) => entry.textContent === "Open on Pixel 8");
+    expect(open?.disabled).toBe(true);
+    expect(open?.getAttribute("data-tooltip")).toBe("The check failed.");
+    act(() => root?.unmount());
+
+    const { api } = fakeWorkspace({ ...workspace, metro: { state: "other-process", pid: 9 } });
+    const next = await render(<ExpoBanner {...props(api, 8142)} />);
+    expect(next.querySelector(".banner-message")?.textContent).toBe(
+      "This worktree's Metro port 8142 is served from another program.",
+    );
+    const other = [...next.querySelectorAll("button")].find((entry) => entry.textContent === "Open on Pixel 8");
+    expect(other?.disabled).toBe(true);
+    expect(other?.getAttribute("data-tooltip")).toBe("Port 8142 belongs to another program");
+  });
+
   it("keeps the plain Expo banner for other ports and without the workspace bridge", async () => {
     const { api } = fakeWorkspace(workspace);
     const other = props(api, 8081);

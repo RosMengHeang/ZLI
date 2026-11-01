@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assignMetroPort,
   EMULATOR_BAND,
   emulatorPortFor,
   fnv1a32,
@@ -68,10 +69,42 @@ describe("metroPortFor", () => {
     expect(metroPortFor(ids[1] as string, worktrees)).toBe(METRO_BAND.first);
   });
 
-  it("ignores cancelled worktrees", () => {
+  it("keeps a cancelled worktree's port, so the others do not move", () => {
     const [first, second] = sameSlot(METRO_BAND.size, 2) as [string, string];
-    const port = metroPortFor(second, [tree(second)]);
+    const both = [tree(first), tree(second)];
+    const port = metroPortFor(second, both);
     expect(metroPortFor(second, [tree(first, { status: "cancelled" }), tree(second)])).toBe(port);
+    expect(port).not.toBe(metroPortFor(second, [tree(second)]));
+  });
+
+  it("never moves a pinned port, even when an older colliding worktree is removed", () => {
+    const [first, second] = sameSlot(METRO_BAND.size, 2) as [string, string];
+    const made: PortWorktree[] = [];
+    const firstPort = assignMetroPort(first, made);
+    made.push(tree(first, { metroPort: firstPort }));
+    const secondPort = assignMetroPort(second, made);
+    made.push(tree(second, { metroPort: secondPort }));
+    expect(secondPort).not.toBe(firstPort);
+    // Removing or cancelling the older worktree leaves the newer one's port alone.
+    expect(metroPortFor(second, [made[1] as PortWorktree])).toBe(secondPort);
+    expect(
+      metroPortFor(second, [tree(first, { status: "cancelled", metroPort: firstPort }), made[1] as PortWorktree]),
+    ).toBe(secondPort);
+    // Without a pinned port (worktrees made before pinning) the walk still answers, past held ports.
+    const [third] = sameSlot(METRO_BAND.size, 1, 0) as [string];
+    expect(metroPortFor(third, [...made, tree(third)])).not.toBe(firstPort);
+  });
+
+  it("pins a port past the ones pinned worktrees hold", () => {
+    const [first, second] = sameSlot(METRO_BAND.size, 2) as [string, string];
+    const firstPort = assignMetroPort(first, []);
+    expect(firstPort).toBe(METRO_BAND.first + (fnv1a32(first) % METRO_BAND.size));
+    const secondPort = assignMetroPort(second, [tree(first, { metroPort: firstPort })]);
+    expect(secondPort).not.toBe(firstPort);
+    // A pinned port outside the band does not block a slot.
+    expect(assignMetroPort(second, [tree("odd", { metroPort: 9999 })])).toBe(
+      METRO_BAND.first + (fnv1a32(second) % METRO_BAND.size),
+    );
   });
 
   it("falls back to the bare hash once every port in the band is given out", () => {
@@ -109,6 +142,10 @@ describe("metroOpenUrl and MetroOwner", () => {
     );
     expect(metroOpenUrl(8142, { devClient: false, scheme: "myapp" })).toBe("exp://localhost:8142");
     expect(metroOpenUrl(8142, { devClient: true })).toBe("exp://localhost:8142");
+    // A development build without a scheme answers to exp+<slug>, not Expo Go's exp://.
+    expect(metroOpenUrl(8142, { devClient: true, slug: "my-app" })).toBe(
+      "exp+my-app://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8142",
+    );
   });
 
   it("parses each owner state", () => {

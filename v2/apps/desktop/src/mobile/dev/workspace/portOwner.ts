@@ -1,13 +1,20 @@
 import type { MetroOwner } from "@zli-v2/contracts";
 
-import { pathFor } from "../../host.js";
+import { type MobileFileSystem, pathFor } from "../../host.js";
 import type { ProcessRunner, RunResult } from "../../ProcessRunner.js";
 import type { MobileDevHost } from "../host.js";
 
-/** A worktree the owner check can match a listener's folder against. */
-export type OwnerWorktree = { readonly worktreeId: string; readonly path: string; readonly branch: string };
+/** A worktree the owner check can match a listener's folder against. realPath is path with symlinks resolved. */
+export type OwnerWorktree = {
+  readonly worktreeId: string;
+  readonly path: string;
+  readonly branch: string;
+  readonly realPath?: string | undefined;
+};
 
-export type PortOwnerHost = Pick<MobileDevHost, "runner" | "os" | "env">;
+export type PortOwnerHost = Pick<MobileDevHost, "runner" | "os" | "env"> & {
+  readonly fs?: Pick<MobileFileSystem, "realpath"> | undefined;
+};
 
 const TIMEOUT_MS = 3_000;
 
@@ -28,7 +35,7 @@ export async function metroOwner(
   if (pid === undefined) return { state: "other-process" };
   const cwd = await processFolder(pid, host);
   if (!cwd) return { state: "unknown", reason: `ZLI could not read the folder of process ${pid}.` };
-  const worktree = owningWorktree(cwd, worktrees, host.os);
+  const worktree = owningWorktree(cwd, await resolveRoots(worktrees, host), host.os);
   if (!worktree) return { state: "other-process", pid };
   if (worktree.worktreeId === selfWorktreeId) return { state: "this-worktree", pid };
   return { state: "other-worktree", pid, worktreeId: worktree.worktreeId, branch: worktree.branch };
@@ -44,21 +51,30 @@ async function findListener(port: number, host: PortOwnerHost): Promise<Listener
     const pid = firstField(lsof.result.stdout.toString("utf8"), "p");
     // lsof exits 1 when nothing matches.
     if (pid !== undefined) return { state: "found", pid: Number(pid) };
-    if (lsof.result.code === 0 || lsof.result.code === 1) return { state: "done", owner: { state: "free" } };
+    if (lsof.result.code === 0 || lsof.result.code === 1) {
+      if (host.os !== "linux") return { state: "done", owner: { state: "free" } };
+      // lsof cannot see other users' sockets, such as docker-proxy, so ss confirms before a port is called free.
+      return ssListener(
+        port,
+        host,
+        "lsof found no listener, and ss is not available to confirm, so the port was not checked.",
+      );
+    }
   }
   if (host.os !== "linux")
     return {
       state: "done",
       owner: { state: "unknown", reason: "lsof is not available, so the port was not checked." },
     };
+  return ssListener(port, host, "Neither lsof nor ss is available, so the port was not checked.");
+}
+
+async function ssListener(port: number, host: PortOwnerHost, unavailable: string): Promise<Listener> {
   const ss = await run(host, "ss", ["-ltnpH", `sport = :${port}`]);
   if (ss.kind === "timeout")
     return { state: "done", owner: { state: "unknown", reason: "The port check took too long." } };
   if (ss.kind === "missing" || ss.result.code !== 0)
-    return {
-      state: "done",
-      owner: { state: "unknown", reason: "Neither lsof nor ss is available, so the port was not checked." },
-    };
+    return { state: "done", owner: { state: "unknown", reason: unavailable } };
   const lines = ss.result.stdout
     .toString("utf8")
     .split(/\r?\n/u)
@@ -81,6 +97,23 @@ async function processFolder(pid: number, host: PortOwnerHost): Promise<string |
   return link.result.stdout.toString("utf8").trim() || undefined;
 }
 
+/**
+ * lsof and /proc report resolved folders, while a worktree path can go through a symlink, so each worktree
+ * also carries its real path. Without realpath the unresolved path is all there is.
+ */
+async function resolveRoots(
+  worktrees: readonly OwnerWorktree[],
+  host: PortOwnerHost,
+): Promise<readonly OwnerWorktree[]> {
+  if (!host.fs?.realpath) return worktrees;
+  return Promise.all(
+    worktrees.map(async (worktree) => {
+      const real = await host.fs?.realpath?.(worktree.path).catch(() => undefined);
+      return real && real !== worktree.path ? { ...worktree, realPath: real } : worktree;
+    }),
+  );
+}
+
 /** The worktree whose folder holds `folder`. The deepest wins, since worktrees can sit inside the checkout. */
 export function owningWorktree(
   folder: string,
@@ -92,7 +125,10 @@ export function owningWorktree(
   let best: OwnerWorktree | undefined;
   let bestLength = -1;
   for (const worktree of worktrees) {
-    for (const root of rootsOf(worktree.path, os)) {
+    const roots = worktree.realPath
+      ? [...rootsOf(worktree.path, os), ...rootsOf(worktree.realPath, os)]
+      : rootsOf(worktree.path, os);
+    for (const root of roots) {
       const normalized = trimSeparator(path.normalize(root), path.sep);
       if (target !== normalized && !target.startsWith(`${normalized}${path.sep}`)) continue;
       if (normalized.length > bestLength) {

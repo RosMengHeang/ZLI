@@ -2,6 +2,7 @@ import type { MetroOwner, MobileWorkspace } from "@zli-v2/contracts";
 import { useEffect, useState } from "react";
 
 import type { BadgeTone } from "../../../ui/Badge.js";
+import { errorText } from "../../mobile.js";
 import type { WorkspaceApi } from "./bridge.js";
 
 /** How often an open view checks the port again, so Metro starting or stopping shows up. */
@@ -16,17 +17,21 @@ export function useWorkspace(api: WorkspaceApi | undefined, worktreeId: string |
     setError(undefined);
     if (!api || !worktreeId) return;
     let current = true;
-    const load = () =>
-      api.get(worktreeId).then(
+    // Reads overlap (the timer, change events, the first load), so only the newest one lands.
+    let request = 0;
+    const load = () => {
+      const id = ++request;
+      return api.get(worktreeId).then(
         (next) => {
-          if (!current) return;
+          if (!current || id !== request) return;
           setWorkspace(next);
           setError(undefined);
         },
         (cause: unknown) => {
-          if (current) setError(cause instanceof Error ? cause.message : String(cause));
+          if (current && id === request) setError(errorText(cause, "ZLI could not read this worktree's Metro port."));
         },
       );
+    };
     void load();
     const unsubscribe = api.onChange((event) => {
       if (!event.worktreeId || event.worktreeId === worktreeId) void load();

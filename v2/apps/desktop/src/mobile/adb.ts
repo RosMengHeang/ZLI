@@ -1,4 +1,4 @@
-import type { MobileButton, MobileDeviceState } from "@zli-v2/contracts";
+import { METRO_DEFAULT_PORT, type MobileButton, type MobileDeviceState } from "@zli-v2/contracts";
 
 export type AdbDevice = {
   readonly serial: string;
@@ -148,7 +148,7 @@ export function localhostPort(url: string): number | undefined {
   if (parsed.protocol === "http:") return 80;
   if (parsed.protocol === "https:") return 443;
   // Expo Go links default to Metro's port.
-  if (parsed.protocol === "exp:") return 8081;
+  if (parsed.protocol === "exp:") return METRO_DEFAULT_PORT;
   return undefined;
 }
 
@@ -157,7 +157,7 @@ export function localhostPort(url: string): number | undefined {
  * worktree's bundle. Only for emulators opening this worktree's port; physical phones are left alone.
  */
 export function reverseExtra(url: string, emulator: boolean, metroPort: number | undefined): number | undefined {
-  if (!emulator || metroPort === undefined || metroPort === 8081) return undefined;
+  if (!emulator || metroPort === undefined || metroPort === METRO_DEFAULT_PORT) return undefined;
   return localhostPort(url) === metroPort ? metroPort : undefined;
 }
 

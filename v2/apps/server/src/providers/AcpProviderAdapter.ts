@@ -27,6 +27,9 @@ import { type ProviderActivity, toolActivity } from "./toolActivity.js";
 
 export type AcpProviderKind = Exclude<ProviderKind, "codex" | "claude-code" | "cursor-agent" | "droid">;
 
+/** The worktree's Metro port variables, read when each session starts. */
+export type MetroEnvSource = (worktreeId: string | undefined) => Promise<Record<string, string>>;
+
 export type AcpProviderConfig = {
   provider: AcpProviderKind;
   displayName: string;
@@ -39,8 +42,7 @@ export type AcpProviderConfig = {
   browserTool?: BrowserToolConfig;
   /** MCP servers added in Settings, read when each session starts. */
   mcpServers?: McpServerSource;
-  /** The worktree's Metro port variables, read when each session starts. */
-  metroEnv?: (worktreeId: string | undefined) => Promise<Record<string, string>>;
+  metroEnv?: MetroEnvSource;
 };
 
 type AcpSessionClient = Pick<

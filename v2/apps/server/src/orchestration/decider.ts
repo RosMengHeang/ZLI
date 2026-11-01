@@ -3,6 +3,7 @@ import { posix, win32 } from "node:path";
 
 import {
   agentNameTaken,
+  assignMetroPort,
   HuddleCommand,
   type HuddleEvent,
   type PermissionMode,
@@ -212,6 +213,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             path: command.path,
             branch: command.branch,
             status: "queued",
+            metroPort: assignMetroPort(command.worktreeId, projection.worktrees),
           },
         },
       ];
@@ -244,6 +246,10 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             branch: command.branch,
             status: "ready",
             ...(command.kind ? { kind: command.kind } : {}),
+            // The checkout keeps Metro's 8081, so only real worktrees get a port pinned.
+            ...(command.kind === "checkout"
+              ? {}
+              : { metroPort: assignMetroPort(command.worktreeId, projection.worktrees) }),
           },
         },
       ];

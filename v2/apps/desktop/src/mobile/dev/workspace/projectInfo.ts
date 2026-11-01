@@ -5,11 +5,14 @@ import { findAppDir } from "../doctor/readProject.js";
 export type ProjectInfo = {
   readonly devClient: boolean;
   readonly scheme?: string;
+  /** The app's slug, which a development build without a scheme answers to as exp+<slug>. */
+  readonly slug?: string;
   /** The app's folder, relative to the worktree root, "." for the root itself. */
   readonly appDir?: string;
 };
 
 const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]{0,99}$/u;
+const SLUG = /^[a-z0-9][a-z0-9-]{0,99}$/u;
 
 /**
  * Reads the app the project check finds in a worktree. It reads package.json, app.json, and a static
@@ -22,18 +25,31 @@ export async function readProjectInfo(root: string, fs: MobileFileSystem, os: Ho
   const dir = appDir === "." ? root : path.join(root, ...appDir.split("/"));
   const pkg = await readJson(fs, path.join(dir, "package.json"));
   const deps = { ...record(pkg?.dependencies), ...record(pkg?.devDependencies) };
-  const scheme = await readScheme(fs, dir, os);
-  return { devClient: "expo-dev-client" in deps, ...(scheme ? { scheme } : {}), appDir };
+  const config = await readAppConfig(fs, dir, os);
+  return {
+    devClient: "expo-dev-client" in deps,
+    ...(config.scheme ? { scheme: config.scheme } : {}),
+    ...(config.slug ? { slug: config.slug } : {}),
+    appDir,
+  };
 }
-async function readScheme(fs: MobileFileSystem, dir: string, os: HostOs): Promise<string | undefined> {
+
+async function readAppConfig(
+  fs: MobileFileSystem,
+  dir: string,
+  os: HostOs,
+): Promise<{ scheme?: string; slug?: string }> {
   for (const file of ["app.json", "app.config.json"]) {
     const json = await readJson(fs, pathFor(os).join(dir, file));
     if (!json) continue;
     const config = record(json.expo ?? json);
     const raw = Array.isArray(config.scheme) ? config.scheme[0] : config.scheme;
-    if (typeof raw === "string" && SCHEME.test(raw)) return raw;
+    return {
+      ...(typeof raw === "string" && SCHEME.test(raw) ? { scheme: raw } : {}),
+      ...(typeof config.slug === "string" && SLUG.test(config.slug) ? { slug: config.slug } : {}),
+    };
   }
-  return undefined;
+  return {};
 }
 
 async function readJson(fs: MobileFileSystem, file: string): Promise<Record<string, unknown> | undefined> {
