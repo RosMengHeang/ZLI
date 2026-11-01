@@ -59,11 +59,15 @@ describe("known issues", () => {
     ).not.toContain("newarch-optout-removed");
   });
 
-  it("warns about Expo Go from SDK 55 without expo-dev-client", () => {
-    expect(ids(expo({ devClient: false }))).toContain("expo-go-sdk55");
-    expect(ids(expo({ devClient: false, versions: { expo: "54.0.0", "react-native": "0.81.0" } }))).not.toContain(
-      "expo-go-sdk55",
-    );
+  it("warns about Expo Go from SDK 55 without expo-dev-client, but not for a bare app", () => {
+    const expoGo = { kind: "expo-go", reason: "There is no expo-dev-client in package.json." } as const;
+    expect(ids(expo({ devClient: false, client: expoGo }))).toContain("expo-go-sdk55");
+    expect(
+      ids(expo({ devClient: false, client: { kind: "bare", reason: "It has its own native folders." } })),
+    ).not.toContain("expo-go-sdk55");
+    expect(
+      ids(expo({ devClient: false, client: expoGo, versions: { expo: "54.0.0", "react-native": "0.81.0" } })),
+    ).not.toContain("expo-go-sdk55");
   });
 
   it("calls Java older than 17 an error for React Native 0.73 and later, and skips a missing Java", () => {
@@ -118,6 +122,7 @@ describe("known issues", () => {
     const findings = findIssues(
       expo({
         devClient: false,
+        client: { kind: "expo-go", reason: "There is no expo-dev-client in package.json." },
         versions: { expo: "55.0.0", "react-native": "0.80.0" },
         newArch: { enabled: true, disabledIn: ["app.json"] },
         ios: { podfile: true },

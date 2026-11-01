@@ -27,16 +27,17 @@ describe("mobile_doctor", () => {
     expect(text).toContain("- Expo SDK package (expo): 55.0.4");
     expect(text).toContain("- React Native: 0.83.1");
     expect(text).toContain("error: ");
-    expect(text).toContain(
-      "Fix: npx expo install expo-dev-client. Propose it with mobile_propose; do not run it yourself.",
-    );
     expect(text).toContain("Expo checks have not run.");
     expect(text).toContain("Do not create or change certificates");
     expect(text).toContain("AGENTS.md has no ZLI mobile notes.");
   });
 
   it("names the app folder in a monorepo and says when there is no app", async () => {
-    expect(formatFacts(await facts("monorepo-apps-mobile"))).toContain("Stack: expo, in apps/mobile.");
+    const mono = formatFacts(await facts("monorepo-apps-mobile"));
+    expect(mono).toContain("Stack: expo, in apps/mobile.");
+    expect(mono).toContain(
+      "Fix: npx expo install expo-dev-client in apps/mobile. Propose it with mobile_propose; do not run it yourself.",
+    );
     const none = await projectFacts(createTestDevHost({ files: { "/repo/app/README.md": "hi" } }), "wt-1");
     expect(formatFacts(none as NonNullable<typeof none>)).toMatch(/^No mobile app found/u);
   });

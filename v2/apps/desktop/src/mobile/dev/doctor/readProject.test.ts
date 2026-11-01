@@ -114,4 +114,77 @@ describe("readProject", () => {
     expect(lockedVersion("npm", '{ "dependencies": { "expo": { "version": "49.0.1" } } }', "expo")).toBe("49.0.1");
     expect(lockedVersion("pnpm", "packages:\n  expo-router@6.0.0:\n", "expo")).toBeUndefined();
   });
+
+  it("reads the app's own versions from a monorepo lockfile, not another workspace's", async () => {
+    const host = createTestDevHost({
+      files: {
+        "/repo/app/package.json": '{ "name": "mono", "private": true }',
+        "/repo/app/apps/mobile/package.json":
+          '{ "dependencies": { "expo": "~56.0.0", "react": "19.1.0", "react-native": "0.84.2" } }',
+        "/repo/app/apps/mobile/app.json": '{ "expo": { "name": "Mobile", "slug": "mobile" } }',
+        "/repo/app/apps/web/package.json": '{ "dependencies": { "react": "^18.3.1" } }',
+        "/repo/app/pnpm-lock.yaml": [
+          "lockfileVersion: '9.0'",
+          "",
+          "importers:",
+          "",
+          "  .:",
+          "    dependencies:",
+          "      react:",
+          "        specifier: ^18.3.1",
+          "        version: 18.3.1",
+          "",
+          "  apps/mobile:",
+          "    dependencies:",
+          "      expo:",
+          "        specifier: ~56.0.0",
+          "        version: 56.0.5",
+          "      react:",
+          "        specifier: 19.1.0",
+          "        version: 19.1.0",
+          "      react-native:",
+          "        specifier: 0.84.2",
+          "        version: 0.84.2(@babel/core@7.28.0)",
+          "",
+          "packages:",
+          "",
+          "  react@18.3.1:",
+          "    resolution: {integrity: sha512-a}",
+          "",
+          "  react@19.1.0:",
+          "    resolution: {integrity: sha512-b}",
+          "",
+        ].join("\n"),
+      },
+    });
+    const project = await readProject(host.fs, "/repo/app", "linux");
+    expect(project).toMatchObject({
+      appDir: "apps/mobile",
+      versions: { expo: "56.0.5", react: "19.1.0", "react-native": "0.84.2" },
+    });
+  });
+
+  it("prefers the app's own node_modules entry in an npm lockfile", () => {
+    const lock = JSON.stringify({
+      packages: {
+        "": {},
+        "node_modules/react": { version: "18.3.1" },
+        "apps/mobile/node_modules/react": { version: "19.1.0" },
+      },
+    });
+    expect(lockedVersion("npm", lock, "react", "apps/mobile")).toBe("19.1.0");
+    expect(lockedVersion("npm", lock, "react")).toBe("18.3.1");
+  });
+
+  it("says app.config.json when that file turns the New Architecture off", async () => {
+    const files = fixtureFiles("expo55-newarch-off");
+    files["/repo/app/app.config.json"] = files["/repo/app/app.json"] as string;
+    delete files["/repo/app/app.json"];
+    const host = createTestDevHost({ files });
+    const project = await readProject(host.fs, "/repo/app", "linux");
+    expect(project?.newArch).toMatchObject({
+      enabled: true,
+      disabledIn: ["app.config.json", "android/gradle.properties"],
+    });
+  });
 });

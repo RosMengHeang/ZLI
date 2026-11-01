@@ -110,7 +110,9 @@ export function formatFacts(facts: MobileProjectFacts): string {
     lines.push(
       facts.notes.state === "current"
         ? `${facts.notes.file} has ZLI's current mobile notes.`
-        : `${facts.notes.file} ${facts.notes.state === "missing" ? "has no" : "has outdated"} ZLI mobile notes. The person can add them from the Project check.`,
+        : facts.notes.state === "unbalanced"
+          ? `${facts.notes.file} has zli:mobile markers ZLI cannot update, such as a start without an end. They need a fix by hand.`
+          : `${facts.notes.file} ${facts.notes.state === "missing" ? "has no" : "has outdated"} ZLI mobile notes. The person can add them from the Project check.`,
     );
   lines.push(`Toolchain fingerprint: ${facts.fingerprint}.`);
   return lines.join("\n");

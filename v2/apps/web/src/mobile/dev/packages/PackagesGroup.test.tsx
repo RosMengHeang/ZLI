@@ -147,4 +147,22 @@ describe("the Packages group", () => {
     await submit(container);
     expect(container.querySelector('[role="alert"]')?.textContent).toBe("That worktree is not in ZLI.");
   });
+
+  it("drops a check that answers after the worktree changed", async () => {
+    let answer: (value: MobilePackageCheck) => void = () => {};
+    const { context, packages } = setup();
+    packages.check.mockImplementation(
+      () =>
+        new Promise<MobilePackageCheck>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const container = await render(<PackagesGroup context={context} />);
+    await type(container, "react-native-fs");
+    await submit(container);
+    await act(async () => root?.render(<PackagesGroup context={{ ...context, worktreeId: "wt-2" }} />));
+    await act(async () => answer(result));
+    expect(container.querySelector('[aria-label="Package results"]')).toBeNull();
+    expect(container.querySelector("input")?.value).toBe("");
+  });
 });

@@ -47,7 +47,7 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-function setup(overrides: Partial<MobileProjectFacts> = {}) {
+function setup(overrides: Partial<MobileProjectFacts> = {}, before: MobileProposal[] = []) {
   const listeners = new Set<(list: MobileProposal[]) => void>();
   const doctor = {
     check: vi.fn(async () => ({ ...facts, ...overrides })),
@@ -64,6 +64,7 @@ function setup(overrides: Partial<MobileProjectFacts> = {}) {
     proposeFix: vi.fn(async () => ({}) as MobileProposal),
   };
   const proposals = {
+    list: vi.fn(async () => before),
     onChange: (listener: (list: MobileProposal[]) => void) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -176,5 +177,23 @@ describe("the Toolchain group", () => {
     expect(signingText({ android: "release-config", ios: { identities: 1 } })).toBe(
       "Android: a release signing config in the Gradle build. iPhone: 1 signing identity.",
     );
+  });
+
+  it("ignores cards acted on before the group opened, and re-checks when the person starts a fix", async () => {
+    const old = { proposalId: "p-old", worktreeId: "wt-1", state: "written" } as MobileProposal;
+    const { context, doctor, publish } = setup({}, [old]);
+    await render(<DoctorGroup context={context} />);
+    expect(doctor.check).toHaveBeenCalledTimes(1);
+    await act(async () => publish([old]));
+    expect(doctor.check).toHaveBeenCalledTimes(1);
+    const fix = { proposalId: "p-new", worktreeId: "wt-1", state: "started" } as MobileProposal;
+    await act(async () => publish([old, fix]));
+    expect(doctor.check).toHaveBeenCalledTimes(2);
+  });
+
+  it("explains markers it cannot update", async () => {
+    const { context } = setup({ notes: { file: "AGENTS.md", state: "unbalanced" } });
+    const container = await render(<DoctorGroup context={context} />);
+    expect(container.textContent).toContain("markers ZLI cannot update");
   });
 });

@@ -24,6 +24,11 @@ describe("the package guard preload API", () => {
       { channel: "zli:mobile:packages:check", payload: { worktreeId: "wt-1", packages: ["expo-camera"] } },
     ]);
     await expect(packages.check("wt-1", ["$(curl evil)"])).rejects.toThrow();
+    await expect(packages.check("wt-1", ["--force"])).rejects.toThrow();
+    await expect(packages.check("wt-1", ["-g"])).rejects.toThrow();
+    await expect(packages.check("wt-1", ["@-bad/pkg"])).rejects.toThrow();
+    await expect(packages.check("wt-1", ["expo-camera@<1.0.0"])).rejects.toThrow();
+    await expect(packages.check("wt-1", ["expo-camera@1.0.0>2"])).rejects.toThrow();
     await expect(packages.proposeInstall("wt-1", [])).rejects.toThrow();
     expect(calls).toHaveLength(1);
   });

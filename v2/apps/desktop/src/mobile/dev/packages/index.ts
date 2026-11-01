@@ -12,7 +12,7 @@ import type { MobileDevFeature, MobileDevHost } from "../host.js";
 import { createDirectory } from "./directory.js";
 import { installAction, verdictFor } from "./rules.js";
 
-/** F3, the package guard: React Native Directory checks before an install, and the install command as a proposal. */
+/** The package guard: React Native Directory checks before an install, and the install command as a proposal. */
 export function createPackages(host: MobileDevHost): MobileDevFeature {
   const directory = createDirectory(host);
 

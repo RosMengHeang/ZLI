@@ -73,7 +73,7 @@ export function renderBlock(facts: MobileProjectFacts): string {
       "- Each worktree has its own Metro port in `$ZLI_METRO_PORT`; start Metro with `--port $ZLI_METRO_PORT`. Ask mobile_workspace for the URL to open.",
     );
   if (forced) lines.push("- Do not set newArchEnabled=false; this SDK cannot turn it off.");
-  if (sdk !== undefined && sdk >= 55 && !facts.devClient)
+  if (sdk !== undefined && sdk >= 55 && !facts.devClient && facts.client?.kind === "expo-go")
     lines.push(
       "- Expo Go from the App Store stops at SDK 54. On a physical iPhone this app needs a development build.",
     );
@@ -104,13 +104,27 @@ function installCommand(manager: MobileProjectFacts["packageManager"]): string {
   }
 }
 
-/** The text between the markers, or undefined when the file has no block. */
-export function currentBlock(text: string | undefined): string | undefined {
-  if (text === undefined) return undefined;
+/**
+ * How the zli:mobile markers stand in a notes file: absent, one balanced block, or unbalanced, which ZLI must not
+ * touch because replacing text between a stray start marker and the next end marker would delete the person's lines.
+ */
+export function blockState(
+  text: string | undefined,
+): { kind: "none" } | { kind: "block"; content: string } | { kind: "unbalanced" } {
+  if (text === undefined) return { kind: "none" };
+  const starts = text.split(PROPOSAL_BLOCK_START).length - 1;
+  const ends = text.split(PROPOSAL_BLOCK_END).length - 1;
+  if (starts === 0 && ends === 0) return { kind: "none" };
   const start = text.indexOf(PROPOSAL_BLOCK_START);
-  const end = start === -1 ? -1 : text.indexOf(PROPOSAL_BLOCK_END, start);
-  if (start === -1 || end === -1) return undefined;
-  return text.slice(start + PROPOSAL_BLOCK_START.length, end);
+  const end = text.indexOf(PROPOSAL_BLOCK_END);
+  if (starts !== 1 || ends !== 1 || end < start) return { kind: "unbalanced" };
+  return { kind: "block", content: text.slice(start + PROPOSAL_BLOCK_START.length, end) };
+}
+
+/** The text between the markers, or undefined when the file has no balanced block. */
+export function currentBlock(text: string | undefined): string | undefined {
+  const state = blockState(text);
+  return state.kind === "block" ? state.content : undefined;
 }
 
 function sameBlock(a: string | undefined, b: string): boolean {
@@ -119,32 +133,40 @@ function sameBlock(a: string | undefined, b: string): boolean {
 }
 
 /**
- * Which file gets the block: the one that already has it, else AGENTS.md if present, else CLAUDE.md if present,
- * else a new AGENTS.md.
+ * Which file gets the block: the one that already has markers, else AGENTS.md if present, else CLAUDE.md if present,
+ * else AGENTS.md. A symbolic link is never read or chosen, because the proposal store refuses to write through it;
+ * a block behind a link is found in the link's target file instead.
  */
 export async function notesFile(
   host: MobileDevHost,
   root: string,
-): Promise<{ file: NotesFile; text: string | undefined }> {
+): Promise<{ file: NotesFile; text: string | undefined; link: boolean }> {
   const path = pathFor(host.os);
   const read = async (file: NotesFile) => {
+    const full = path.join(root, file);
+    if ((await host.fs.isLink?.(full)) === true) return { file, text: undefined, link: true };
     try {
-      return await host.fs.readFile(path.join(root, file));
+      return { file, text: await host.fs.readFile(full), link: false };
     } catch {
-      return undefined;
+      return { file, text: undefined, link: false };
     }
   };
-  const texts = await Promise.all(PROPOSAL_FILES.map(async (file) => ({ file, text: await read(file) })));
+  const texts = await Promise.all(PROPOSAL_FILES.map(read));
   return (
-    texts.find((entry) => currentBlock(entry.text) !== undefined) ??
-    texts.find((entry) => entry.text !== undefined) ?? { file: "AGENTS.md", text: undefined }
+    texts.find((entry) => blockState(entry.text).kind !== "none") ??
+    texts.find((entry) => entry.text !== undefined) ??
+    (texts[0] as { file: NotesFile; text: string | undefined; link: boolean })
   );
 }
 
-export function notesState(text: string | undefined, content: string): "missing" | "current" | "outdated" {
-  const block = currentBlock(text);
-  if (block === undefined) return "missing";
-  return sameBlock(block, content) ? "current" : "outdated";
+export function notesState(
+  text: string | undefined,
+  content: string,
+): "missing" | "current" | "outdated" | "unbalanced" {
+  const state = blockState(text);
+  if (state.kind === "unbalanced") return "unbalanced";
+  if (state.kind === "none") return "missing";
+  return sameBlock(state.content, content) ? "current" : "outdated";
 }
 
 /**
@@ -160,7 +182,17 @@ export async function proposeBlock(
   if (!root) throw new Error("That worktree is not in ZLI.");
   if (facts.stack === "none") throw new Error("No mobile app found in this worktree.");
   const content = renderBlock(facts);
-  const { file, text } = await notesFile(host, root);
+  if (content.includes(PROPOSAL_BLOCK_START) || content.includes(PROPOSAL_BLOCK_END))
+    throw new Error("The notes ZLI would write contain a zli:mobile marker, so ZLI is not proposing them.");
+  const { file, text, link } = await notesFile(host, root);
+  if (link)
+    throw new Error(
+      `${file} is a link to another file, so ZLI does not write through it. Add the mobile notes to the link's target instead.`,
+    );
+  if (blockState(text).kind === "unbalanced")
+    throw new Error(
+      `${file} has zli:mobile markers ZLI cannot make sense of, such as a start without an end or more than one block. Fix the markers by hand; ZLI left the file unchanged.`,
+    );
   if (sameBlock(currentBlock(text), content)) return { upToDate: true, file };
   const baseDigest = proposalDigest(text);
   const waiting = host.proposals

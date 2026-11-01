@@ -39,7 +39,7 @@ function newArch(value: string | boolean | undefined): NewArchitecture | undefin
  * directory could not be reached, so the caller reports it as not checked rather than blocking on missing data.
  */
 export function createDirectory(host: MobileDevHost) {
-  const cache = new Map<string, { at: number; entry: DirectoryEntry }>();
+  const cache = new Map<string, { at: number; entry: DirectoryEntry; partial?: boolean }>();
 
   const getJson = async (url: string): Promise<unknown> => {
     const controller = new AbortController();
@@ -62,7 +62,10 @@ export function createDirectory(host: MobileDevHost) {
   const details = async (name: string): Promise<ReactNativeDirectoryLibrary | undefined> => {
     try {
       const body = await getJson(`${DIRECTORY_BASE}/library?name=${encodeURIComponent(name)}`);
-      const keyed = typeof body === "object" && body !== null ? (body as Record<string, unknown>)[name] : undefined;
+      const keyed =
+        typeof body === "object" && body !== null && Object.hasOwn(body, name)
+          ? (body as Record<string, unknown>)[name]
+          : undefined;
       const parsed = ReactNativeDirectoryLibrary.safeParse(keyed ?? body);
       return parsed.success ? parsed.data : undefined;
     } catch {
@@ -77,7 +80,7 @@ export function createDirectory(host: MobileDevHost) {
       const wanted = [...new Set(names.map(baseName))];
       const missing = wanted.filter((name) => {
         const cached = cache.get(name);
-        if (cached && now - cached.at < CACHE_MS) {
+        if (cached && !cached.partial && now - cached.at < CACHE_MS) {
           result.set(name, cached.entry);
           return false;
         }
@@ -95,12 +98,13 @@ export function createDirectory(host: MobileDevHost) {
         for (const name of missing) result.set(name, undefined);
         return result;
       }
-      const found = missing.filter((name) => checked[name]);
+      // Object.hasOwn, not checked[name]: the directory never listing "constructor" must not find Object.prototype's.
+      const found = missing.filter((name) => Object.hasOwn(checked, name) && checked[name]);
       const extra = new Map(
         await Promise.all(found.slice(0, DETAIL_LIMIT).map(async (name) => [name, await details(name)] as const)),
       );
       for (const name of missing) {
-        const base = checked[name];
+        const base = Object.hasOwn(checked, name) ? checked[name] : undefined;
         const more = extra.get(name);
         const arch = newArch(base?.newArchitecture ?? more?.newArchitecture);
         const configPlugin = more?.github?.configPlugin;
@@ -115,7 +119,10 @@ export function createDirectory(host: MobileDevHost) {
               ...(more?.npm?.latestRelease ? { latest: more.npm.latestRelease } : {}),
             }
           : { found: false };
-        cache.set(name, { at: now, entry });
+        // Without a detail lookup the Expo Go, config plugin, and archived checks did not run, so cache the entry
+        // as partial and let a later lookup ask again instead of reporting those as unknown for an hour.
+        const partial = base != null && extra.get(name) === undefined;
+        cache.set(name, { at: now, entry, ...(partial ? { partial: true } : {}) });
         result.set(name, entry);
       }
       return result;

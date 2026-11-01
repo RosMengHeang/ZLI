@@ -101,4 +101,43 @@ describe("the zli:mobile notes block", () => {
     const host = createTestDevHost({ files: { "/repo/app/README.md": "hi" } });
     await expect(proposeBlock(host, "wt-1", await factsFor(host))).rejects.toThrow("No mobile app found");
   });
+
+  it("refuses markers it cannot make sense of, and leaves the file untouched", async () => {
+    const broken = [
+      `# Notes\n\n${PROPOSAL_BLOCK_START}\n- Old.\n`,
+      `# Notes\n\n${PROPOSAL_BLOCK_END}\n`,
+      `# N\n${PROPOSAL_BLOCK_START}\n- a\n${PROPOSAL_BLOCK_END}\n\n${PROPOSAL_BLOCK_START}\n- b\n${PROPOSAL_BLOCK_END}\n`,
+      `# N\n${PROPOSAL_BLOCK_END}\n\n${PROPOSAL_BLOCK_START}\n- x\n`,
+    ];
+    for (const text of broken) {
+      const host = createTestDevHost({ files: { ...fixtureFiles("expo56-devclient"), "/repo/app/AGENTS.md": text } });
+      const facts = await factsFor(host);
+      expect(facts.notes).toEqual({ file: "AGENTS.md", state: "unbalanced" });
+      await expect(proposeBlock(host, "wt-1", facts)).rejects.toThrow("markers ZLI cannot make sense of");
+      expect(host.files.get("/repo/app/AGENTS.md")).toBe(text);
+      expect(host.proposals.list("wt-1")).toHaveLength(0);
+    }
+  });
+
+  it("refuses block content that itself contains a marker", async () => {
+    const host = createTestDevHost({ files: fixtureFiles("expo56-devclient") });
+    const facts = await factsFor(host);
+    const poisoned = { ...facts, versions: { ...facts.versions, "react-native": `0.85.1 ${PROPOSAL_BLOCK_END}` } };
+    await expect(proposeBlock(host, "wt-1", poisoned)).rejects.toThrow("contain a zli:mobile marker");
+    expect(host.proposals.list("wt-1")).toHaveLength(0);
+  });
+
+  it("writes the block to a link's target file, and refuses when only the link remains", async () => {
+    const linked = (host: ReturnType<typeof createTestDevHost>) =>
+      Object.assign(host, { fs: { ...host.fs, isLink: async (path: string) => path === "/repo/app/AGENTS.md" } });
+    const both = linked(
+      createTestDevHost({ files: { ...fixtureFiles("expo56-devclient"), "/repo/app/CLAUDE.md": "# Rules\n" } }),
+    );
+    const result = await proposeBlock(both, "wt-1", await factsFor(both));
+    expect(result).toMatchObject({ upToDate: false, file: "CLAUDE.md" });
+
+    const only = linked(createTestDevHost({ files: fixtureFiles("expo56-devclient") }));
+    await expect(proposeBlock(only, "wt-1", await factsFor(only))).rejects.toThrow("is a link to another file");
+    expect(only.proposals.list("wt-1")).toHaveLength(0);
+  });
 });

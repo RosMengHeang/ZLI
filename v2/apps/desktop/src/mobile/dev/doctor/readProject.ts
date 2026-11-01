@@ -103,16 +103,25 @@ export async function readProject(fs: MobileFileSystem, root: string, os: HostOs
   const dependencies = new Set(manifest ? dependencyNames(manifest) : []);
   const versions: Record<string, string> = {};
   const lock = await findLockfile(fs, root, dir, os);
+  const lockPrefix = lock ? path.relative(lock.at, dir) || "." : ".";
   for (const name of ["expo", "react-native", "react"]) {
     if (!dependencies.has(name)) continue;
     const version =
-      (lock ? lockedVersion(lock.manager, lock.text, name) : undefined) ??
+      (lock ? lockedVersion(lock.manager, lock.text, name, lockPrefix) : undefined) ??
       (await installedVersion(fs, [dir, root], name, os)) ??
       declaredVersion(manifest, name);
     if (version) versions[name] = version;
   }
 
-  const appJson = ((await json("app.json")) ?? (await json("app.config.json"))) as Json | undefined;
+  let appJsonFile = "app.json";
+  let appJson = (await json("app.json")) as Json | undefined;
+  if (appJson === undefined) {
+    const fromConfig = (await json("app.config.json")) as Json | undefined;
+    if (fromConfig !== undefined) {
+      appJson = fromConfig;
+      appJsonFile = "app.config.json";
+    }
+  }
   const expo = (isObject(appJson?.expo) ? appJson.expo : appJson) as Json | undefined;
   const easJson = await text("eas.json");
 
@@ -222,7 +231,7 @@ export async function readProject(fs: MobileFileSystem, root: string, os: HostOs
     podsProperties,
     androidFile: androidRoot ? rel(join(androidRoot, "gradle.properties")) : undefined,
     iosFile: iosRoot ? rel(join(iosRoot, "Podfile.properties.json")) : undefined,
-    appJsonFile: rel("app.json"),
+    appJsonFile: rel(appJsonFile),
   });
 
   const expoAndroid = isObject(expo?.android) ? expo.android : undefined;
@@ -309,7 +318,7 @@ function newArchState(input: {
   return onByDefault ? { enabled: true, source: "On by default in this version." } : {};
 }
 
-type Lockfile = { manager: MobilePackageManager; text: string };
+type Lockfile = { manager: MobilePackageManager; text: string; at: string };
 
 /** The nearest lockfile, in the app folder first and then up to the worktree root, as monorepos keep one there. */
 async function findLockfile(
@@ -329,7 +338,7 @@ async function findLockfile(
   for (;;) {
     for (const [file, manager] of files) {
       const text = await readText(fs, path.join(current, file));
-      if (text !== undefined) return { manager, text };
+      if (text !== undefined) return { manager, text, at: current };
     }
     if (current === root || path.relative(root, current).startsWith("..")) return undefined;
     const parent = path.dirname(current);
@@ -338,30 +347,75 @@ async function findLockfile(
   }
 }
 
-/** The version a lockfile resolved for a package, found with patterns rather than a full parse. */
-export function lockedVersion(manager: MobilePackageManager, text: string, name: string): string | undefined {
+/**
+ * The version a lockfile resolved for a package, found with patterns rather than a full parse. A monorepo lockfile
+ * covers every workspace, so the app's own entry (prefix, such as apps/mobile) wins over the first version anywhere.
+ */
+export function lockedVersion(
+  manager: MobilePackageManager,
+  text: string,
+  name: string,
+  prefix = ".",
+): string | undefined {
   const escaped = name.replace(/[.*+?^${}()|[\]\\/]/gu, "\\$&");
   switch (manager) {
     case "npm": {
       const parsed = parseJson(text);
       const packages = isObject(parsed?.packages) ? parsed.packages : undefined;
       if (packages) {
+        const keys =
+          prefix === "." ? [`node_modules/${name}`] : [`${prefix}/node_modules/${name}`, `node_modules/${name}`];
+        for (const key of keys) {
+          const value = packages[key];
+          if (isObject(value)) {
+            const version = stringOf(value.version);
+            if (version) return version;
+          }
+        }
         for (const [key, value] of Object.entries(packages)) {
-          if ((key === `node_modules/${name}` || key.endsWith(`/node_modules/${name}`)) && isObject(value))
-            return stringOf(value.version);
+          if (key.endsWith(`/node_modules/${name}`) && isObject(value)) return stringOf(value.version);
         }
       }
       const dependencies = isObject(parsed?.dependencies) ? parsed.dependencies : undefined;
       const entry = dependencies?.[name];
       return isObject(entry) ? stringOf(entry.version) : undefined;
     }
-    case "pnpm":
+    case "pnpm": {
+      const importer = pnpmImporter(text, prefix);
+      const own = importer === undefined ? undefined : pnpmDependencyVersion(importer, escaped);
+      if (own) return own;
       return new RegExp(`^\\s+['"]?/?${escaped}[@/](\\d+\\.\\d+\\.\\d+[^:('"\\s]*)`, "mu").exec(text)?.[1];
+    }
     case "yarn":
       return new RegExp(`^"?${escaped}@[^\\n]*:\\r?\\n\\s+version:? "?([^"\\r\\n]+)"?`, "mu").exec(text)?.[1];
     case "bun":
       return new RegExp(`"${escaped}@(\\d[^"]*)"`, "u").exec(text)?.[1];
   }
+}
+
+/** The importer block of one workspace folder in a pnpm lockfile, such as apps/mobile, or "." at the root. */
+function pnpmImporter(text: string, prefix: string): string | undefined {
+  const lines = text.split("\n");
+  const start = lines.findIndex((line) => line.trimEnd() === "importers:");
+  if (start === -1) return undefined;
+  let from = -1;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (line.trim() !== "" && !line.startsWith(" ")) break;
+    const key = /^ {2}(?! )['"]?([^'"]+?)['"]?:\s*$/u.exec(line)?.[1];
+    if (key === undefined) continue;
+    if (from === -1) {
+      if (key === prefix) from = index + 1;
+    } else return lines.slice(from, index).join("\n");
+  }
+  return from === -1 ? undefined : lines.slice(from).join("\n");
+}
+
+/** The resolved version of one dependency inside a pnpm importer block, without the peer suffix in parentheses. */
+function pnpmDependencyVersion(block: string, escapedName: string): string | undefined {
+  const entry = new RegExp(`^\\s+['"]?${escapedName}['"]?:\\s*$`, "mu").exec(block);
+  if (!entry) return undefined;
+  return /^\s+version:\s*['"]?([^\s('"]+)/mu.exec(block.slice(entry.index))?.[1];
 }
 
 async function installedVersion(

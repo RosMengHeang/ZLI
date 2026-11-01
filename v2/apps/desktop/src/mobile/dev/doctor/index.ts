@@ -15,7 +15,7 @@ import { deepPlan, runDeep } from "./deepCheck.js";
 import { projectFacts } from "./facts.js";
 import { fixTitleFor } from "./knownIssues.js";
 
-/** F2, the mobile doctor: project facts for agents and the Toolchain group, Expo checks on a click, and the notes block. */
+/** The mobile doctor: project facts for agents and the Toolchain group, Expo checks on a click, and the notes block. */
 export function createDoctor(host: MobileDevHost): MobileDevFeature {
   const factsFor = async (worktreeId: string, refresh?: boolean): Promise<MobileProjectFacts> => {
     const facts = await projectFacts(host, worktreeId, refresh ? { refresh } : {});

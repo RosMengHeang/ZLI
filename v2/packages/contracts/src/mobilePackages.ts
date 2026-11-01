@@ -4,7 +4,9 @@ import { MobileControlDeviceInput } from "./mobile.js";
 import { MobileProposalAction } from "./mobileDev.js";
 
 /** An npm package name, optionally with @version, such as expo-camera, @shopify/flash-list, or react-native-mmkv@3.1.0. */
-export const NPM_PACKAGE_NAME = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*(@[A-Za-z0-9._^~<>=-]{1,60})?$/u;
+// A leading "-" would turn the name into an install option such as --force, and < or > pass name validation only
+// to be refused as unsafe arguments later, so both are rejected here.
+export const NPM_PACKAGE_NAME = /^(@[a-z0-9~][a-z0-9-._~]*\/)?[a-z0-9~][a-z0-9-._~]*(@[A-Za-z0-9._^~=-]{1,60})?$/u;
 export const NpmPackageName = z.string().min(1).max(214).regex(NPM_PACKAGE_NAME, "Not an npm package name.");
 
 export const MobilePackageVerdict = z.object({

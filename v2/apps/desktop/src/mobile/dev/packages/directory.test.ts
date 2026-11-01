@@ -102,4 +102,32 @@ describe("React Native Directory lookups", () => {
     expect(baseName("@shopify/flash-list")).toBe("@shopify/flash-list");
     expect(baseName("react-native-mmkv@^3")).toBe("react-native-mmkv");
   });
+
+  it("does not find a package the directory never listed, even one named constructor", async () => {
+    const { fetch } = directoryFetch({ [checkUrl("constructor")]: { body: {} } });
+    const result = await createDirectory(createTestDevHost({ fetch })).lookup(["constructor"]);
+    expect(result.get("constructor")).toEqual({ found: false });
+  });
+
+  it("asks again for entries whose detail lookup did not happen", async () => {
+    const names = ["a", "b", "c", "d", "e", "f"];
+    const { fetch, urls } = directoryFetch({
+      [checkUrl(...names)]: { body: Object.fromEntries(names.map((name) => [name, { newArchitecture: true }])) },
+      [checkUrl("f")]: { body: { f: { newArchitecture: true } } },
+      [libraryUrl("f")]: { body: { expoGo: false } },
+    });
+    const directory = createDirectory(createTestDevHost({ fetch }));
+    const first = await directory.lookup(names);
+    expect(first.get("f")).toEqual({ found: true, newArchitecture: "supported" });
+    const asked = [...urls];
+    expect(asked.filter((url) => url === libraryUrl("a"))).toHaveLength(1);
+
+    const second = await directory.lookup(["f"]);
+    expect(second.get("f")).toEqual({ found: true, newArchitecture: "supported", expoGo: false });
+    expect(urls.slice(asked.length)).toEqual([checkUrl("f"), libraryUrl("f")]);
+
+    const third = await directory.lookup(["f"]);
+    expect(third.get("f")).toEqual(second.get("f"));
+    expect(urls.slice(asked.length)).toEqual([checkUrl("f"), libraryUrl("f")]);
+  });
 });

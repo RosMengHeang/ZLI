@@ -1,4 +1,10 @@
-import type { MobileDoctorDeep, MobileDoctorDeepPlan, MobileFinding, MobileProjectFacts } from "@zli-v2/contracts";
+import type {
+  MobileDoctorDeep,
+  MobileDoctorDeepPlan,
+  MobileFinding,
+  MobileProjectFacts,
+  MobileProposal,
+} from "@zli-v2/contracts";
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { Badge, type BadgeTone } from "../../../ui/Badge.js";
@@ -66,18 +72,34 @@ export function DoctorGroup({ context }: { context: MobileDevContext }) {
     void load();
   }, [load]);
 
-  // A written notes block or a finished fix changes what the doctor sees, so check again quietly.
+  // A written notes block or a fix the person started changes what the doctor sees, so check again quietly.
+  // Cards already acted on when this group opened are the baseline, not news.
   useEffect(() => {
     if (!proposals || !worktreeId) return;
-    const seen = new Set<string>();
-    return proposals.onChange((list) => {
-      const written = list.filter(
+    let acted: Set<string> | undefined;
+    let buffered: MobileProposal[] | undefined;
+    const done = (list: MobileProposal[]) =>
+      list.filter(
         (proposal) =>
-          proposal.worktreeId === worktreeId && proposal.state === "written" && !seen.has(proposal.proposalId),
+          proposal.worktreeId === worktreeId && (proposal.state === "written" || proposal.state === "started"),
       );
-      for (const proposal of written) seen.add(proposal.proposalId);
-      if (written.length > 0) void load();
+    const scan = (list: MobileProposal[]) => {
+      if (!acted) {
+        buffered = list;
+        return;
+      }
+      const known: Set<string> = acted;
+      const fresh = done(list).filter((proposal) => !known.has(proposal.proposalId));
+      for (const proposal of fresh) known.add(proposal.proposalId);
+      if (fresh.length > 0) void load();
+    };
+    void Promise.resolve(proposals.list?.(worktreeId) ?? []).then((list) => {
+      acted = new Set(done(list).map((proposal) => proposal.proposalId));
+      const waiting = buffered;
+      buffered = undefined;
+      if (waiting) scan(waiting);
     });
+    return proposals.onChange(scan);
   }, [proposals, worktreeId, load]);
 
   if (!doctor || !worktreeId) return null;
@@ -315,7 +337,7 @@ function ExpoChecks({
             <code>{plan.commands.join("\n")}</code>
           </pre>
           <p className="mobile-doctor-detail">
-            Runs in {plan.folder === "." ? "the worktree folder" : plan.folder}. This can take a minute.
+            Runs in {plan.folder === "." ? "the worktree folder" : <code>{plan.folder}</code>}. This can take a minute.
           </p>
           <div className="mobile-setup-actions">
             <Button size="xs" variant="primary" loading={busy === "run"} onClick={() => void run()}>
@@ -412,6 +434,12 @@ function AgentNotes({
         </div>
       }
     >
+      {facts.notes?.state === "unbalanced" ? (
+        <p className="mobile-doctor-detail">
+          {file} has zli:mobile markers ZLI cannot update, such as a start without an end or two blocks. Fix them by
+          hand, then Prepare notes works again.
+        </p>
+      ) : null}
       {error ? (
         <p className="inline-error" role="alert">
           {error}

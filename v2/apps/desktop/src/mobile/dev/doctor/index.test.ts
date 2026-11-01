@@ -55,7 +55,7 @@ describe("the mobile doctor feature", () => {
   });
 
   it("proposes a finding's fix once and runs nothing", async () => {
-    const { host, doctor } = setup();
+    const { host, doctor } = setup("monorepo-apps-mobile");
     const input = { worktreeId: "wt-1", findingId: "expo-go-sdk55" };
     const proposal = await doctor.ipc["zli:mobile:doctor:propose-fix"]?.(input);
     expect(proposal).toMatchObject({
@@ -63,7 +63,7 @@ describe("the mobile doctor feature", () => {
       source: "zli",
       sourceLabel: "From the project check",
       title: "Add expo-dev-client",
-      action: { kind: "command", program: "npx", args: ["expo", "install", "expo-dev-client"], cwd: "." },
+      action: { kind: "command", program: "npx", args: ["expo", "install", "expo-dev-client"], cwd: "apps/mobile" },
     });
     expect(await doctor.ipc["zli:mobile:doctor:propose-fix"]?.(input)).toEqual(proposal);
     expect(host.proposals.list("wt-1")).toHaveLength(1);

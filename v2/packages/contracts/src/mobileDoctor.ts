@@ -79,8 +79,10 @@ export const MobileProjectFacts = MobileProjectFactsCore.extend({
   devClient: z.boolean().optional(),
   /** Like fingerprint, over the versions the project declares only, so it is the same on every computer. */
   projectFingerprint: z.string().max(40).optional(),
-  /** ZLI's block in AGENTS.md or CLAUDE.md: missing, current, or written from older facts. */
-  notes: z.object({ file: z.enum(PROPOSAL_FILES), state: z.enum(["missing", "current", "outdated"]) }).optional(),
+  /** ZLI's block in AGENTS.md or CLAUDE.md: missing, current, written from older facts, or with markers ZLI cannot update. */
+  notes: z
+    .object({ file: z.enum(PROPOSAL_FILES), state: z.enum(["missing", "current", "outdated", "unbalanced"]) })
+    .optional(),
   /** Files that exist but could not be parsed; their facts are unknown. */
   unreadable: z.array(z.string().max(200)).max(20).optional(),
 });

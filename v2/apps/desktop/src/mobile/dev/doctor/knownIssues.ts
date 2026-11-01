@@ -101,7 +101,7 @@ export const KNOWN_ISSUES: readonly KnownIssue[] = [
   {
     id: "expo-go-sdk55",
     severity: "warning",
-    when: (facts) => (sdk(facts) ?? 0) >= 55 && !facts.devClient,
+    when: (facts) => (sdk(facts) ?? 0) >= 55 && !facts.devClient && facts.client?.kind === "expo-go",
     title: () => "Expo Go from the App Store cannot open this app",
     detail: () =>
       "The App Store's Expo Go stops at SDK 54. Use a development build on a physical iPhone. The Android emulator can still install a matching Expo Go.",

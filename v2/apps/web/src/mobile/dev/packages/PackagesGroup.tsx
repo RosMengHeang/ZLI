@@ -1,5 +1,5 @@
 import { type MobilePackageCheck, type MobilePackageVerdict, NPM_PACKAGE_NAME } from "@zli-v2/contracts";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useId, useRef, useState } from "react";
 
 import { Badge, type BadgeTone } from "../../../ui/Badge.js";
 import { Button } from "../../../ui/Button.js";
@@ -35,20 +35,33 @@ export function PackagesGroup({ context }: { context: MobileDevContext }) {
   const [checked, setChecked] = useState<{ names: string[]; result: MobilePackageCheck }>();
   const [busy, setBusy] = useState<"check" | "propose">();
   const [error, setError] = useState<string>();
+  const request = useRef(0);
+  // A check started in one worktree must not show its result in another, so a switch resets the group.
+  const [shownWorktree, setShownWorktree] = useState(worktreeId);
+  if (worktreeId !== shownWorktree) {
+    setShownWorktree(worktreeId);
+    request.current += 1;
+    setValue("");
+    setChecked(undefined);
+    setBusy(undefined);
+    setError(undefined);
+  }
   if (!packages || !worktreeId) return null;
 
   const parsed = parsePackages(value);
   const check = async (event: FormEvent) => {
     event.preventDefault();
     if (busy || "problem" in parsed || parsed.names.length === 0) return;
+    const current = ++request.current;
     setBusy("check");
     setError(undefined);
     try {
-      setChecked({ names: parsed.names, result: await packages.check(worktreeId, parsed.names) });
+      const result = await packages.check(worktreeId, parsed.names);
+      if (current === request.current) setChecked({ names: parsed.names, result });
     } catch (cause) {
-      setError(errorText(cause, "ZLI could not check these packages."));
+      if (current === request.current) setError(errorText(cause, "ZLI could not check these packages."));
     } finally {
-      setBusy(undefined);
+      if (current === request.current) setBusy(undefined);
     }
   };
   const propose = async () => {
