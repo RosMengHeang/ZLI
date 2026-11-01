@@ -1,4 +1,4 @@
-import type { MobileCrashReport } from "@zli-v2/contracts";
+import { fnv1a32, type MobileCrashReport } from "@zli-v2/contracts";
 
 import type { DetectedCrash } from "./detector.js";
 
@@ -75,16 +75,9 @@ export class CrashReports {
   }
 }
 
-/** A stable id from the device and the crash signature, so a repeat keeps its id. FNV-1a, two seeds. */
+/** A stable id from the device and the crash signature, so a repeat keeps its id. Two FNV-1a passes. */
 export function crashId(deviceId: string, signature: string): string {
   const text = `${deviceId}\n${signature}`;
-  const hash = (seed: number) => {
-    let value = seed;
-    for (let index = 0; index < text.length; index += 1) {
-      value ^= text.charCodeAt(index);
-      value = Math.imul(value, 0x01000193) >>> 0;
-    }
-    return value.toString(16).padStart(8, "0");
-  };
-  return `crash-${hash(0x811c9dc5)}${hash(0x01000193)}`;
+  const hex = (value: number) => value.toString(16).padStart(8, "0");
+  return `crash-${hex(fnv1a32(text))}${hex(fnv1a32(`zli\n${text}`))}`;
 }

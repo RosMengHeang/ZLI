@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-import { crashLineMarks, shortCrashTitle } from "@zli-v2/contracts";
+import { CRASH_BLOCK_MAX_LINES, crashLineMarks, shortCrashTitle } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
 import { CrashDetector, type DetectedCrash } from "./detector.js";
@@ -119,6 +119,76 @@ describe("crash detector", () => {
     const found = detect([...head, ...frames]);
     expect(found[0]?.at).toBe(42);
     expect(found[0]?.crash.frames).toHaveLength(8);
+  });
+
+  it("does not read a warning-level TypeError as a crash", () => {
+    const lines = [
+      "11-01 10:00:00.000  100  100 W ReactNativeJS: Possible Unhandled Promise Rejection (id: 0): TypeError: Network request failed",
+    ];
+    expect(detect(lines)).toEqual([]);
+    expect(crashLineMarks(lines)).toEqual([false]);
+  });
+
+  it("closes a JS error block at the app's next ordinary log line", () => {
+    const lines = [
+      "11-01 10:00:00.000  100  100 E ReactNativeJS: TypeError: Cannot read property 'x' of undefined",
+      "11-01 10:00:00.001  100  100 E ReactNativeJS:     in App (at App.tsx:12)",
+      "11-01 10:00:00.050  100  100 I ReactNativeJS: 'Fetching feed', { page: 2 }",
+      "11-01 10:00:00.060  100  100 I ReactNativeJS: 'Fetching feed', { page: 3 }",
+    ];
+    const found = detect(lines);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.at).toBe(3);
+    expect(found[0]?.crash.lines).toHaveLength(2);
+    expect(found[0]?.crash.title).toBe("TypeError: Cannot read property 'x' of undefined");
+    expect(crashLineMarks(lines)).toEqual([true, true, false, false]);
+  });
+
+  it("caps an open block, so a busy app cannot grow it without bound", () => {
+    const head = "11-01 10:00:00.000  100  100 E ReactNativeJS: TypeError: boom";
+    const noise = Array.from(
+      { length: CRASH_BLOCK_MAX_LINES + 50 },
+      (_, index) => `11-01 10:00:00.000  100  100 E ReactNativeJS: error output line ${index}`,
+    );
+    const found = detect([head, ...noise]);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.at).toBe(CRASH_BLOCK_MAX_LINES);
+    expect(found[0]?.crash.lines).toHaveLength(CRASH_BLOCK_MAX_LINES);
+  });
+
+  it("does not read a warning-level TypeError as a crash", () => {
+    const lines = [
+      "11-01 10:00:00.000  100  100 W ReactNativeJS: Possible Unhandled Promise Rejection (id: 0): TypeError: Network request failed",
+    ];
+    expect(detect(lines)).toEqual([]);
+    expect(crashLineMarks(lines)).toEqual([false]);
+  });
+
+  it("closes a JS error block at the app's next ordinary log line", () => {
+    const lines = [
+      "11-01 10:00:00.000  100  100 E ReactNativeJS: TypeError: Cannot read property 'x' of undefined",
+      "11-01 10:00:00.001  100  100 E ReactNativeJS:     in App (at App.tsx:12)",
+      "11-01 10:00:00.050  100  100 I ReactNativeJS: 'Fetching feed', { page: 2 }",
+      "11-01 10:00:00.060  100  100 I ReactNativeJS: 'Fetching feed', { page: 3 }",
+    ];
+    const found = detect(lines);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.at).toBe(3);
+    expect(found[0]?.crash.lines).toHaveLength(2);
+    expect(found[0]?.crash.title).toBe("TypeError: Cannot read property 'x' of undefined");
+    expect(crashLineMarks(lines)).toEqual([true, true, false, false]);
+  });
+
+  it("caps an open block, so a busy app cannot grow it without bound", () => {
+    const head = "11-01 10:00:00.000  100  100 E ReactNativeJS: TypeError: boom";
+    const noise = Array.from(
+      { length: CRASH_BLOCK_MAX_LINES + 50 },
+      (_, index) => `11-01 10:00:00.000  100  100 E ReactNativeJS: error output line ${index}`,
+    );
+    const found = detect([head, ...noise]);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.at).toBe(CRASH_BLOCK_MAX_LINES);
+    expect(found[0]?.crash.lines).toHaveLength(CRASH_BLOCK_MAX_LINES);
   });
 
   it("shortens a title to the exception class without its package", () => {

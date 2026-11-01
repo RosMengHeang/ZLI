@@ -1,18 +1,12 @@
-import { MobileCrashList, type MobileCrashReport } from "@zli-v2/contracts";
+import { crashReportText, MobileCrashList, type MobileCrashReport } from "@zli-v2/contracts";
 
 import type { MobileDevToolModule } from "./types.js";
 
 const MAX_REPORTS = 3;
 
-/** A report as the agent reads it: the title, the frames indented, then the log lines before the crash. */
+/** A report as the agent reads it: the title, the frames, then the fenced log lines before the crash. */
 export function formatCrashReport(report: MobileCrashReport): string {
-  const who = report.appId ?? "The app";
-  const seen = report.count > 1 ? ` (${report.count} times, last at ${report.lastSeen})` : ` (at ${report.lastSeen})`;
-  const lines = [`${who} crashed: ${report.title}${seen}`];
-  if (report.heldBy) lines.push(`${report.heldBy} held the device.`);
-  lines.push(...report.frames.map((frame) => `    ${frame.trim()}`));
-  if (report.tail.length > 0) lines.push(`Last ${report.tail.length} log lines:`, ...report.tail);
-  return lines.join("\n");
+  return crashReportText(report);
 }
 
 export const crashTools: MobileDevToolModule = {

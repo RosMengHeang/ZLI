@@ -54,6 +54,43 @@ describe("build log classifier", () => {
     expect(result.firstError).toMatchObject({ line: "three", lineNumber: 3 });
   });
 
+  it("does not read normal codegen output or a CocoaPods warning as the failure", () => {
+    const log = [
+      "> Task :app:generateCodegenSchemaFromJavaScript",
+      "[Codegen] Found codegenConfig in node_modules/react-native-fs/package.json",
+      "[Codegen] Processing react-native-fs",
+      "[!] Your project does not explicitly specify a Swift version for the 'App' target.",
+      "** BUILD FAILED **",
+      "The following build commands failed:",
+    ].join("\n");
+    const result = classifyBuildLog(log);
+    expect(result).toMatchObject({ stack: "gradle", category: "unknown" });
+  });
+
+  it("reads the signing error below a CocoaPods warning, not the warning", () => {
+    const log = [
+      "[!] The `App` target overrides the `ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES` build setting.",
+      'No signing certificate "iOS Development" found: No signing certificate matching the identity was found.',
+    ].join("\n");
+    expect(classifyBuildLog(log).category).toBe("signing");
+  });
+
+  it("does not read a MaxMetaspaceSize flag as out of memory", () => {
+    const log = [
+      "> Task :app:compileJava",
+      "Daemon JVM options: -XX:MaxMetaspaceSize=512m",
+      "FAILURE: Build failed with an exception.",
+    ].join("\n");
+    expect(classifyBuildLog(log).category).toBe("unknown");
+  });
+
+  it("cuts a very long line before matching, so one minified line cannot stall it", () => {
+    const huge = `TurboModuleRegistry${"x".repeat(2_000_000)}`;
+    const result = classifyBuildLog(`${huge}\nFAILURE: Build failed\nerror: boom`);
+    expect(result.category).toBe("unknown");
+    expect(result.firstError.line).toBe("FAILURE: Build failed");
+  });
+
   it("is medium confidence when it knows the class but not the stack", () => {
     expect(classifyBuildLog("java.lang.OutOfMemoryError: Java heap space").confidence).toBe("medium");
   });

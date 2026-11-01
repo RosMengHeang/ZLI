@@ -47,8 +47,8 @@ describe("build brief feature", () => {
   it("reads logPath through the worktree guard", async () => {
     const files: LogFiles = {
       realpath: async (file) => file,
-      stat: async () => ({ size: log.length, isFile: () => true }),
-      readTail: async () => log,
+      stat: async () => ({ dev: 1, ino: 1 }),
+      openTail: async () => ({ isFile: true, size: log.length, dev: 1, ino: 1, text: log }),
       tmpdir: () => "/tmp",
       path: (await import("node:path")).posix,
     };

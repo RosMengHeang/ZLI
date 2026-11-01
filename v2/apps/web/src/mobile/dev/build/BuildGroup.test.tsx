@@ -4,7 +4,7 @@ import type { MobileBuildBrief, MobileProposal } from "@zli-v2/contracts";
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { button, cleanup, click, devContext, render, testRuntime } from "../crash/testRender.js";
+import { button, cleanup, click, devContext, render, rerender, testRuntime } from "../crash/testRender.js";
 import { BuildGroup } from "./BuildGroup.js";
 
 const brief: MobileBuildBrief = {
@@ -138,6 +138,30 @@ describe("build failure group", () => {
     );
     expect(button(container, "Send to agent").disabled).toBe(true);
     expect(container.textContent).toContain("Install JDK 17 and point JAVA_HOME to it.");
+  });
+
+  it("drops an Explain result that lands after the panel switched worktrees", async () => {
+    const build = fakeBuild();
+    let answer: (value: MobileBuildBrief) => void = () => undefined;
+    build.brief.mockImplementationOnce(
+      () =>
+        new Promise<MobileBuildBrief>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const runtime = testRuntime();
+    const container = await render(<BuildGroup context={devContext({ build })} />, runtime.bridge);
+    await paste(container, "log");
+    await click(button(container, "Explain"));
+    expect(build.brief).toHaveBeenCalledWith("wt-1", "log");
+    await rerender(<BuildGroup context={devContext({ build }, { worktreeId: "wt-2" })} />, runtime.bridge);
+    await act(async () => answer(brief));
+    expect(container.querySelector(".mobile-build-result")).toBeNull();
+    // The new worktree can still explain its own log.
+    await paste(container, "other log");
+    await click(button(container, "Explain"));
+    expect(build.brief).toHaveBeenLastCalledWith("wt-2", "other log");
+    expect(container.querySelector(".badge")?.textContent).toBe("JDK / Gradle");
   });
 
   it("shows why a log could not be read", async () => {

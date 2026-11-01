@@ -105,6 +105,26 @@ describe("build brief", () => {
     expect(composeBrief(classifyBuildLog(fixture("unknown-noise")), undefined).suggestion).toBeUndefined();
   });
 
+  it("reads a watcher ENOSPC as the file-watcher limit, and a plain one as disk space", () => {
+    const watchers = composeBrief(
+      classifyBuildLog("> Task :app\nError: ENOSPC: System limit for number of file watchers reached, watch '/repo'"),
+      undefined,
+    );
+    expect(watchers.category).toBe("memory");
+    expect(watchers.suggestion?.text).toContain("file-watcher limit");
+    const disk = composeBrief(classifyBuildLog("> Task :app\nError: ENOSPC: no space left on device"), undefined);
+    expect(disk.suggestion?.text).toContain("disk space");
+  });
+
+  it("says line numbers count from the part ZLI read when the log was cut", () => {
+    const brief = composeBrief(classifyBuildLog(fixture("gradle-unsupported-class-version")), undefined, {
+      logCut: true,
+    });
+    expect(brief.logCut).toBe(true);
+    expect(MobileBuildBrief.parse(brief)).toBeTruthy();
+    expect(brief.text).toContain("First error, line 40 of the log's last 2 MB, the part ZLI read:");
+  });
+
   it("keeps the brief to 4,000 characters by showing less of the log", () => {
     const long = Array.from({ length: 60 }, (_, index) => `> Task :lib${index}:compile ${"x".repeat(480)}`);
     long.splice(

@@ -1,3 +1,5 @@
+import { StringDecoder } from "node:string_decoder";
+
 import type { MobileButton, MobileDevice, MobilePlatform } from "@zli-v2/contracts";
 
 import type { UiTree } from "./uiTree.js";
@@ -67,17 +69,21 @@ export type LogStream = {
 
 /** Splits output chunks into lines, keeping a partial line until the rest of it arrives. */
 export function lineSplitter(emit: (line: string) => void): { push(chunk: Buffer | string): void; end(): void } {
+  // A StringDecoder, because a multi-byte character split between two chunks is still one character.
+  const decoder = new StringDecoder("utf8");
   let partial = "";
   return {
     push(chunk) {
-      const lines = `${partial}${chunk.toString()}`.split("\n");
+      const text = typeof chunk === "string" ? chunk : decoder.write(chunk);
+      const lines = `${partial}${text}`.split("\n");
       partial = lines.pop() ?? "";
       // A runaway line without a newline must not grow forever.
       if (partial.length > 64 * 1024) partial = partial.slice(-64 * 1024);
       for (const line of lines) emit(line.endsWith("\r") ? line.slice(0, -1) : line);
     },
     end() {
-      if (partial) emit(partial);
+      const tail = `${partial}${decoder.end()}`;
+      if (tail) emit(tail.endsWith("\r") ? tail.slice(0, -1) : tail);
       partial = "";
     },
   };

@@ -4,7 +4,7 @@ import {
   type MobileBuildBrief,
   proposalCommandLine,
 } from "@zli-v2/contracts";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { Badge } from "../../../ui/Badge.js";
 import { Button } from "../../../ui/Button.js";
@@ -30,6 +30,10 @@ export function BuildGroup({ context }: { context: MobileDevContext }) {
   const agent = useWorktreeAgent(worktreeId);
   const titleId = useId();
   const contextId = useId();
+  // An Explain still in flight when the panel switches worktrees must not land in the new one.
+  const requestRef = useRef(0);
+  const worktreeRef = useRef(worktreeId);
+  worktreeRef.current = worktreeId;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: a brief belongs to the worktree it was made for.
   useEffect(() => {
@@ -55,7 +59,11 @@ export function BuildGroup({ context }: { context: MobileDevContext }) {
     run(
       "explain",
       async () => {
-        setBrief(await build.brief(worktreeId, log));
+        const forWorktree = worktreeId;
+        const ticket = ++requestRef.current;
+        const result = await build.brief(forWorktree, log);
+        if (ticket !== requestRef.current || worktreeRef.current !== forWorktree) return;
+        setBrief(result);
         setShowContext(false);
       },
       "ZLI could not read this build log.",
@@ -127,7 +135,10 @@ export function BuildGroup({ context }: { context: MobileDevContext }) {
               {brief.phase ? `, ${brief.phase}` : ""}
             </span>
           </div>
-          <p className="mobile-build-label">First error, line {brief.firstError.lineNumber}</p>
+          <p className="mobile-build-label">
+            First error, line {brief.firstError.lineNumber}
+            {brief.logCut ? " of the log's last 2 MB, the part ZLI read" : ""}
+          </p>
           <pre className="mobile-proposal-well mobile-build-well" id={contextId}>
             {showContext ? (
               brief.firstError.context.map((line, index) => (

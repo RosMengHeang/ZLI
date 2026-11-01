@@ -5,7 +5,7 @@ import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CrashBanner, crashCardText } from "./CrashBanner.js";
-import { button, cleanup, click, devContext, pixel, render, testRuntime } from "./testRender.js";
+import { button, cleanup, click, devContext, pixel, render, rerender, testRuntime } from "./testRender.js";
 
 const report: MobileCrashReport = {
   crashId: "crash-1",
@@ -67,7 +67,86 @@ describe("crash banner", () => {
     await click(button(container, "Send to agent"));
     expect(runtime.commands).toEqual([{ type: "thread.send", threadId: "t-1", text: crashCardText(report) }]);
     expect(crashCardText(report)).toContain("Caught by ZLI from the device log.");
+    expect(crashCardText(report)).toContain('<device-log kind="untrusted-device-log">');
     expect(context.onNotice).toHaveBeenCalledWith("Sent to the agent in feat-login");
+  });
+
+  it("sends the report to the agent that holds the device, not the panel's worktree", async () => {
+    const { crash } = fakeCrash([report]);
+    const runtime = testRuntime();
+    runtime.projection.worktrees.push({
+      worktreeId: "wt-2",
+      projectId: "p",
+      path: "/repo/cart",
+      branch: "cart",
+      status: "ready",
+    } as never);
+    runtime.projection.threads.push({
+      threadId: "t-2",
+      worktreeId: "wt-2",
+      status: "idle",
+      createdAt: "2026-01-02T00:00:00.000Z",
+    } as never);
+    const held = {
+      ...pixel,
+      lease: {
+        ownerId: "agent:wt-2",
+        ownerLabel: "The agent in cart",
+        kind: "agent",
+        acquiredAt: "2026-01-02T03:00:00.000Z",
+      },
+    } as typeof pixel;
+    const context = devContext({ crash }, { device: held });
+    const container = await render(<CrashBanner context={context} />, runtime.bridge);
+    await click(button(container, "Send to agent"));
+    expect(runtime.commands).toEqual([{ type: "thread.send", threadId: "t-2", text: crashCardText(report) }]);
+    expect(context.onNotice).toHaveBeenCalledWith("Sent to the agent in cart");
+  });
+
+  it("names the holder in the tooltip when its worktree has no chat agent", async () => {
+    const { crash } = fakeCrash([report]);
+    const held = {
+      ...pixel,
+      lease: {
+        ownerId: "agent:wt-2",
+        ownerLabel: "The agent in cart",
+        kind: "agent",
+        acquiredAt: "2026-01-02T03:00:00.000Z",
+      },
+    } as typeof pixel;
+    const container = await render(
+      <CrashBanner context={devContext({ crash }, { device: held })} />,
+      testRuntime().bridge,
+    );
+    const send = button(container, "Send to agent");
+    expect(send.disabled).toBe(true);
+    expect(send.closest("[data-tooltip]")?.getAttribute("data-tooltip") ?? send.getAttribute("data-tooltip")).toBe(
+      "The agent holding this device has no chat to take the report",
+    );
+  });
+
+  it("ignores a dismiss that lands after the device changed", async () => {
+    let resolveDismiss: (reports: MobileCrashReport[]) => void = () => undefined;
+    const crash = {
+      list: vi.fn(async (deviceId: string) => (deviceId === pixel.deviceId ? [report] : [])),
+      dismiss: vi.fn(
+        () =>
+          new Promise<MobileCrashReport[]>((resolve) => {
+            resolveDismiss = resolve;
+          }),
+      ),
+      onChange: () => () => undefined,
+    };
+    const other = { ...pixel, deviceId: "android-avd:Pixel_6" } as typeof pixel;
+    const runtime = testRuntime();
+    const container = await render(<CrashBanner context={devContext({ crash })} />, runtime.bridge);
+    expect(container.querySelector(".mobile-crash")).not.toBeNull();
+    await click(button(container, "Dismiss crash"));
+    await rerender(<CrashBanner context={devContext({ crash }, { device: other })} />, runtime.bridge);
+    expect(container.querySelector(".mobile-crash")).toBeNull();
+    await act(async () => resolveDismiss([report]));
+    expect(container.querySelector(".mobile-crash")).toBeNull();
+    expect(crash.dismiss).toHaveBeenCalledWith(pixel.deviceId, "crash-1");
   });
 
   it("disables Send to agent when no chat agent works in the worktree", async () => {

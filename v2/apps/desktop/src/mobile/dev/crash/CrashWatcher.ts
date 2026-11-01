@@ -104,6 +104,8 @@ export class CrashWatcher {
         .map((device) => [device.deviceId, device]),
     );
     for (const watch of [...this.#watches.values()]) if (!online.has(watch.device.deviceId)) this.#stop(watch);
+    // A device that went offline may have rebooted, so its log gets another chance when it comes back.
+    for (const deviceId of this.#unavailable) if (!online.has(deviceId)) this.#unavailable.delete(deviceId);
     const now = this.#deps.now();
     for (const device of online.values()) {
       const wanted = manager.leases.get(device.deviceId)?.kind === "agent" || manager.viewerCount(device.deviceId) > 0;

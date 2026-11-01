@@ -35,7 +35,7 @@ export function testRuntime(agent = true) {
       onProjection: () => () => undefined,
     },
   } as unknown as ZliBridge;
-  return { bridge, commands };
+  return { bridge, commands, projection };
 }
 
 export function devContext(dev: unknown, extra: Partial<MobileDevContext> = {}): MobileDevContext {
@@ -62,6 +62,12 @@ export async function render(node: ReactNode, bridge?: ZliBridge): Promise<HTMLE
   // The runtime store reads the projection after its first render.
   await act(async () => undefined);
   return container;
+}
+
+/** Renders new props into the same root, as when the panel switches worktrees or devices. */
+export async function rerender(node: ReactNode, bridge?: ZliBridge): Promise<void> {
+  await act(async () => root?.render(bridge ? <RuntimeProvider bridge={bridge}>{node}</RuntimeProvider> : node));
+  await act(async () => undefined);
 }
 
 export function cleanup() {

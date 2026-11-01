@@ -160,6 +160,23 @@ describe("crash watcher", () => {
     expect(runner.spawned).toHaveLength(0);
   });
 
+  it("tries the log again after the device reconnects", async () => {
+    const { watcher, state, runner } = setup();
+    state.streamError = new Error("adb is missing");
+    await watcher.tick();
+    expect(runner.spawned).toHaveLength(0);
+    state.streamError = undefined;
+    // Still marked unreadable while the device stays as it was.
+    await watcher.tick();
+    expect(runner.spawned).toHaveLength(0);
+    state.devices = [{ ...device, state: "offline" } as MobileDevice];
+    await watcher.tick();
+    state.devices = [device];
+    await watcher.tick();
+    expect(runner.spawned).toHaveLength(1);
+    watcher.dispose();
+  });
+
   it("sends at most one event a second per device, then one with the latest reports", async () => {
     const { watcher, process, sent } = setup();
     await watcher.tick();

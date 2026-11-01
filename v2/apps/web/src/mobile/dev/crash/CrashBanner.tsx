@@ -1,5 +1,5 @@
 import { crashReportText, type MobileCrashReport, shortCrashTitle } from "@zli-v2/contracts";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { Button, IconButton } from "../../../ui/Button.js";
 import { Icon } from "../../../ui/Icon.js";
@@ -9,6 +9,7 @@ import { copyText, useWorktreeAgent } from "./useWorktreeAgent.js";
 import "./crash.css";
 
 const NO_AGENT = "No chat agent works in this worktree";
+const HOLDER_NO_AGENT = "The agent holding this device has no chat to take the report";
 
 /** The text Send to agent and Copy report hand over: the crash, its frames, and the log before it. */
 export function crashCardText(report: MobileCrashReport): string {
@@ -22,8 +23,17 @@ export function CrashBanner({ context }: { context: MobileDevContext }) {
   const [reports, setReports] = useState<readonly MobileCrashReport[]>([]);
   const [expanded, setExpanded] = useState(false);
   const [sending, setSending] = useState(false);
-  const agent = useWorktreeAgent(context.worktreeId);
+  // The crash belongs to whoever holds the device, so Send goes to that agent, not the panel's worktree.
+  // An agent's lease owner id is "agent:<worktreeId>".
+  const lease = context.device?.lease;
+  const holderWorktreeId =
+    lease?.kind === "agent" && lease.ownerId.startsWith("agent:") ? lease.ownerId.slice("agent:".length) : undefined;
+  const agent = useWorktreeAgent(holderWorktreeId ?? context.worktreeId);
+  const noAgent =
+    holderWorktreeId !== undefined && holderWorktreeId !== context.worktreeId ? HOLDER_NO_AGENT : NO_AGENT;
   const detailsId = useId();
+  const deviceRef = useRef(deviceId);
+  deviceRef.current = deviceId;
 
   useEffect(() => {
     setReports([]);
@@ -55,7 +65,7 @@ export function CrashBanner({ context }: { context: MobileDevContext }) {
     setSending(true);
     try {
       if (await agent.send(crashCardText(report))) context.onNotice(`Sent to the agent in ${agent.name}`);
-      else context.onError("No chat agent works in this worktree.");
+      else context.onError(noAgent);
     } catch (cause) {
       context.onError(errorText(cause, "ZLI could not send the crash to the agent."));
     } finally {
@@ -63,9 +73,16 @@ export function CrashBanner({ context }: { context: MobileDevContext }) {
     }
   };
   const dismiss = () => {
-    crash.dismiss(deviceId, report.crashId).then(setReports, (cause: unknown) => {
-      context.onError(errorText(cause, "ZLI could not dismiss the crash."));
-    });
+    const forDevice = deviceId;
+    crash.dismiss(forDevice, report.crashId).then(
+      // The answer names the device the person dismissed on; after a switch it must not overwrite the new one.
+      (next) => {
+        if (deviceRef.current === forDevice) setReports(next);
+      },
+      (cause: unknown) => {
+        context.onError(errorText(cause, "ZLI could not dismiss the crash."));
+      },
+    );
   };
   const details = [
     ...report.frames.map((frame) => `  ${frame.trim()}`),
@@ -94,7 +111,7 @@ export function CrashBanner({ context }: { context: MobileDevContext }) {
           size="xs"
           disabled={!agent.available}
           loading={sending}
-          tooltip={agent.available ? undefined : NO_AGENT}
+          tooltip={agent.available ? undefined : noAgent}
           onClick={() => void send()}
         >
           Send to agent

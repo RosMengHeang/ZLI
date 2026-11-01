@@ -43,14 +43,20 @@ const AVOID: Partial<Record<MobileBuildCategory, string>> = {
 type Suggestion = NonNullable<MobileBuildBrief["suggestion"]>;
 
 /** Classifies the log and adds what ZLI knows about the worktree's app. */
-export async function buildBrief(host: MobileDevHost, worktreeId: string, log: string): Promise<MobileBuildBrief> {
+export async function buildBrief(
+  host: MobileDevHost,
+  worktreeId: string,
+  log: string,
+  options: { logCut?: boolean } = {},
+): Promise<MobileBuildBrief> {
   const facts = await projectFacts(host, worktreeId).catch(() => undefined);
-  return composeBrief(classifyBuildLog(log), facts);
+  return composeBrief(classifyBuildLog(log), facts, options);
 }
 
 export function composeBrief(
   classification: BuildClassification,
   facts: MobileProjectFactsCore | undefined,
+  options: { logCut?: boolean } = {},
 ): MobileBuildBrief {
   const { category } = classification;
   const appDir = facts && facts.appDir !== "." ? facts.appDir.replace(/\/+$/u, "") : undefined;
@@ -76,6 +82,7 @@ export function composeBrief(
     versionChecked: facts !== undefined,
     likelyFiles,
     avoid,
+    ...(options.logCut ? { logCut: true } : {}),
     ...(suggestion ? { suggestion } : {}),
   };
   return { ...fields, text: renderBrief(fields) };
@@ -89,7 +96,9 @@ export function renderBrief(brief: Omit<MobileBuildBrief, "text">): string {
     "",
     ...versionLines(brief),
     "",
-    `First error, line ${brief.firstError.lineNumber}:`,
+    brief.logCut
+      ? `First error, line ${brief.firstError.lineNumber} of the log's last 2 MB, the part ZLI read:`
+      : `First error, line ${brief.firstError.lineNumber}:`,
     `  ${brief.firstError.line}`,
   ];
   const footer = [
@@ -176,11 +185,16 @@ function suggest(
     case "jdk-gradle":
       return { text: "Install JDK 17 and point JAVA_HOME to it." };
     case "memory":
-      return signal?.includes("ENOSPC")
-        ? { text: "The build machine ran out of disk space. Free space, or use a larger EAS resource class." }
-        : {
-            text: "Give Gradle more memory: raise -Xmx in org.gradle.jvmargs in android/gradle.properties, such as -Xmx4g.",
-          };
+      // On Linux, Metro and Watchman also hit ENOSPC when the inotify watch limit is reached; that is not disk.
+      if (signal?.includes("ENOSPC"))
+        return /watchers?|inotify/iu.test(classification.firstError.line)
+          ? {
+              text: "The machine hit its file-watcher limit, not a disk limit. Raise fs.inotify.max_user_watches (for example, sysctl fs.inotify.max_user_watches=524288), then rebuild.",
+            }
+          : { text: "The build machine ran out of disk space. Free space, or use a larger EAS resource class." };
+      return {
+        text: "Give Gradle more memory: raise -Xmx in org.gradle.jvmargs in android/gradle.properties, such as -Xmx4g.",
+      };
     case "signing":
       return {
         text: "Tell the person which certificate, provisioning profile, team, or keystore is missing. They set it up in Xcode or with EAS credentials.",

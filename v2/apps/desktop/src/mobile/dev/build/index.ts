@@ -27,15 +27,18 @@ export function createBuild(host: MobileDevHost, options: { files?: LogFiles } =
           throw new BrowserControlError(parsed.error.issues[0]?.message ?? "Pass either log or logPath.", 400);
         const worktree = context.worktreeFor(parsed.data);
         let log = parsed.data.log;
+        let logCut = false;
         if (log === undefined) {
           try {
-            log = await readBuildLog(parsed.data.logPath ?? "", worktree.path, files);
+            const read = await readBuildLog(parsed.data.logPath ?? "", worktree.path, files);
+            log = read.text;
+            logCut = read.cut;
           } catch (cause) {
             if (cause instanceof LogPathError) throw new BrowserControlError(cause.message, cause.status);
             throw cause;
           }
         }
-        return buildBrief(host, worktree.worktreeId, log.slice(-MOBILE_BUILD_LOG_MAX));
+        return buildBrief(host, worktree.worktreeId, log.slice(-MOBILE_BUILD_LOG_MAX), { logCut });
       },
     },
     ipc: {

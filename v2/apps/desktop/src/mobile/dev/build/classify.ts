@@ -23,7 +23,8 @@ export const BUILD_RULES: readonly Rule[] = [
   {
     category: "memory",
     patterns: [
-      /java\.lang\.OutOfMemoryError|Java heap space|GC overhead limit exceeded|Metaspace/u,
+      // Bare "Metaspace" would also match the -XX:MaxMetaspaceSize flag every Gradle daemon prints.
+      /java\.lang\.OutOfMemoryError|OutOfMemoryError: Metaspace|Java heap space|GC overhead limit exceeded/u,
       /Gradle build daemon disappeared unexpectedly|Daemon disappeared/u,
       /\bENOSPC\b|No space left on device/u,
       /JavaScript heap out of memory/u,
@@ -67,8 +68,9 @@ export const BUILD_RULES: readonly Rule[] = [
     category: "new-arch",
     patterns: [
       /TurboModuleRegistry\.getEnforcing\(\.\.\.\): '[^']+' could not be found/u,
-      /TurboModule\S*.* (?:not found|could not be found)/u,
-      /\[Codegen\].*(?:Could not|Error|error)|\bcodegenConfig\b/u,
+      /TurboModule\b.{0,300}?(?:not found|could not be found)/u,
+      // RN's normal "[Codegen] Found codegenConfig ..." output is not a failure.
+      /\[Codegen\].*(?:Could not|Error|error)|\bcodegenConfig\b.{0,160}(?:missing|invalid|not found|failed)/u,
       /Fabric component .* (?:not found|is not registered)|RCTFabric\S* error/u,
     ],
   },
@@ -77,7 +79,9 @@ export const BUILD_RULES: readonly Rule[] = [
     patterns: [
       /CocoaPods could not find compatible versions/u,
       /The sandbox is not in sync with the Podfile\.lock/u,
-      /\[!\] .*(?:pod|Podfile|CocoaPods|spec)/iu,
+      // CocoaPods also prints "[!]" for plain warnings ("... does not explicitly specify ..."), which are not
+      // the failure; only its error wording counts.
+      /\[!\] .*(?:CocoaPods|Podfile|podspec|specification|Pod::|pod ")/iu,
       /pod install.* (?:failed|error)/iu,
     ],
   },
@@ -108,6 +112,8 @@ const EAS_PHASE = /^\[([A-Z][A-Z0-9_]{2,})\]/u;
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, "gu");
 const CONTEXT = 20;
 const LINE_MAX = 500;
+/** A line longer than this is cut before any rule runs, so one minified line cannot mean quadratic matching. */
+const MATCH_MAX = 4_096;
 
 export function stripAnsi(text: string): string {
   return text.replace(ANSI, "");
@@ -138,7 +144,9 @@ export function detectStack(lines: readonly string[]): MobileBuildStack {
  * earliest line any class matches; with no match, the first FAILURE: or error: line.
  */
 export function classifyBuildLog(text: string): BuildClassification {
-  const lines = stripAnsi(text).split(/\r?\n/u);
+  const lines = stripAnsi(text)
+    .split(/\r?\n/u)
+    .map((line) => (line.length > MATCH_MAX ? line.slice(0, MATCH_MAX) : line));
   const stack = detectStack(lines);
   let hit: { index: number; category: MobileBuildCategory; signal: string } | undefined;
   for (let index = 0; index < lines.length && !hit; index += 1) {
