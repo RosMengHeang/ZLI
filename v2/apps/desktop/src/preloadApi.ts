@@ -54,6 +54,7 @@ import {
   WhatsNew,
 } from "@zli-v2/contracts";
 
+import { listenParsed, type PreloadIpc } from "./mobile/dev/preloadIpc.js";
 import { createMobileDevApi } from "./mobileDevApi.js";
 import {
   type NotificationSettings,
@@ -61,20 +62,8 @@ import {
   parseNotificationSettingsPatch,
 } from "./notifications/notificationSettings.js";
 
-type IpcBridge = {
-  invoke(channel: string, payload?: unknown): Promise<unknown>;
-  on(channel: string, listener: (event: unknown, value: unknown) => void): () => void;
-};
-
-function createMobileApi(ipc: IpcBridge) {
+function createMobileApi(ipc: PreloadIpc) {
   const device = (deviceId: string) => MobileDeviceIdInput.parse({ deviceId });
-  const listen =
-    <T>(channel: string, schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } }) =>
-    (listener: (value: T) => void) =>
-      ipc.on(channel, (_event, value) => {
-        const parsed = schema.safeParse(value);
-        if (parsed.success) listener(parsed.data);
-      });
   return {
     status: async (options: { recheckAcceleration?: boolean } = {}) =>
       MobileSetupStatus.parse(
@@ -89,7 +78,7 @@ function createMobileApi(ipc: IpcBridge) {
     cancelSetup: async () => {
       await ipc.invoke("zli:mobile:setup-cancel");
     },
-    onSetupProgress: listen("zli:mobile:setup", MobileSetupProgress),
+    onSetupProgress: listenParsed(ipc, "zli:mobile:setup", MobileSetupProgress),
     listAvds: async () => MobileAvdList.parse(await ipc.invoke("zli:mobile:avd-list")),
     createAvd: async (input: MobileAvdCreateInput) =>
       MobileAvdList.parse(await ipc.invoke("zli:mobile:avd-create", MobileAvdCreateInput.parse(input))),
@@ -97,7 +86,7 @@ function createMobileApi(ipc: IpcBridge) {
     deleteAvd: async (name: string) =>
       MobileAvdList.parse(await ipc.invoke("zli:mobile:avd-delete", MobileAvdDeleteInput.parse({ name }))),
     devices: async () => MobileDevice.array().parse(await ipc.invoke("zli:mobile:devices")),
-    onDevices: listen("zli:mobile:devices", MobileDevice.array()),
+    onDevices: listenParsed(ipc, "zli:mobile:devices", MobileDevice.array()),
     boot: async (deviceId: string) => MobileDevice.parse(await ipc.invoke("zli:mobile:boot", device(deviceId))),
     shutdown: async (deviceId: string) => {
       await ipc.invoke("zli:mobile:shutdown", device(deviceId));
@@ -107,7 +96,7 @@ function createMobileApi(ipc: IpcBridge) {
     stopStream: async (deviceId: string) => {
       await ipc.invoke("zli:mobile:stream-stop", device(deviceId));
     },
-    onStream: listen("zli:mobile:stream", MobileStreamEvent),
+    onStream: listenParsed(ipc, "zli:mobile:stream", MobileStreamEvent),
     input: async (input: MobilePanelInput) => {
       await ipc.invoke("zli:mobile:input", MobilePanelInput.parse(input));
     },
@@ -133,9 +122,9 @@ function createMobileApi(ipc: IpcBridge) {
     setSettings: async (patch: Partial<MobileSettings>) =>
       MobileSettings.parse(await ipc.invoke("zli:mobile:settings-set", MobileSettings.partial().parse(patch))),
     /** Fires when an agent boots or drives a device, so the renderer can show the Mobile panel with it. */
-    onReveal: listen("zli:mobile:reveal", MobileRevealEvent),
+    onReveal: listenParsed(ipc, "zli:mobile:reveal", MobileRevealEvent),
     popOuts: async () => MobilePopOutList.parse(await ipc.invoke("zli:mobile:popout-list")),
-    onPopOuts: listen("zli:mobile:popouts", MobilePopOutList),
+    onPopOuts: listenParsed(ipc, "zli:mobile:popouts", MobilePopOutList),
     /** Opens the device in its own window, or focuses the window it already has. */
     popOut: async (deviceId: string) =>
       MobilePopOutList.parse(await ipc.invoke("zli:mobile:popout-open", device(deviceId))),
@@ -157,7 +146,7 @@ function createMobileApi(ipc: IpcBridge) {
  * agent costs one small IPC message per event instead of a structured clone and full validation of
  * the whole projection. Main sends the whole projection only when its own copy was replaced.
  */
-function createProjectionMirror(ipc: IpcBridge) {
+function createProjectionMirror(ipc: PreloadIpc) {
   const store = new ProjectionStore();
   const listeners = new Set<(projection: RuntimeProjection) => void>();
   let detach: (() => void) | undefined;
@@ -248,7 +237,7 @@ function parseCapture(value: unknown): { name: string; dataBase64: string } {
   return { name, dataBase64 };
 }
 
-export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean } = {}) {
+export function createPreloadApi(ipc: PreloadIpc, options: { testMode?: boolean } = {}) {
   const projections = createProjectionMirror(ipc);
   const bridge = {
     runtime: {

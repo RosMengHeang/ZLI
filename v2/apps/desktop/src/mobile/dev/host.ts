@@ -50,7 +50,3 @@ export type MobileDevFeature = {
   readonly testOps: Record<string, MobileDevTestOp>;
   dispose(): void | Promise<void>;
 };
-
-export function emptyMobileDevFeature(): MobileDevFeature {
-  return { actions: {}, ipc: {}, decorate: undefined, testOps: {}, dispose() {} };
-}

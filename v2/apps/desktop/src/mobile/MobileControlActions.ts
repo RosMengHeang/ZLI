@@ -25,6 +25,7 @@ import {
   type BrowserControlWorktree,
   resolveBrowserControlWorktree,
 } from "../browser/BrowserControlActions.js";
+import type { MobileDev } from "./dev/index.js";
 import { DeviceBusyError, type LeaseOwner } from "./DeviceLeases.js";
 import type { DeviceManager } from "./DeviceManager.js";
 import { type MobileDriver, MobileDriverError } from "./MobileDriver.js";
@@ -47,10 +48,7 @@ export type MobileDevActionContext = {
 export type MobileDevAction = (input: unknown, context: MobileDevActionContext) => Promise<unknown>;
 
 /** Agent actions served by the mobile dev features, and a hook that can add to every action's result. */
-export type MobileDevExtension = {
-  readonly actions: Partial<Record<MobileControlAction, MobileDevAction>>;
-  decorate?(owner: LeaseOwner, action: MobileControlAction, result: unknown): unknown;
-};
+export type MobileDevExtension = Pick<MobileDev, "actions" | "decorate">;
 
 export type MobileControlHost = {
   manager(): DeviceManager | undefined;

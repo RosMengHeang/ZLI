@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { emptyMobileDevFeature } from "./host.js";
+import type { MobileDevFeature } from "./host.js";
 import { composeMobileDev, createMobileDev } from "./index.js";
 import { createTestDevHost } from "./testHost.js";
+
+function emptyMobileDevFeature(): MobileDevFeature {
+  return { actions: {}, ipc: {}, decorate: undefined, testOps: {}, dispose() {} };
+}
 
 describe("mobile dev composition", () => {
   it("joins the features, with proposals and every placeholder in place", () => {
