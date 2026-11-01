@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { open, realpath, stat } from "node:fs/promises";
+import { lstat, open, realpath, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -48,6 +48,8 @@ export const nodeLogFiles: LogFiles = {
     // O_NOFOLLOW refuses a link as the last component, and O_NONBLOCK keeps a FIFO from holding the worker.
     const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
+      // Windows has no O_NOFOLLOW. A link swapped for a file after this check still fails readBuildLog's inode match.
+      if ((await lstat(file)).isSymbolicLink()) throw Object.assign(new Error(`${file} is a link.`), { code: "ELOOP" });
       const info = await handle.stat();
       const length = info.isFile() && info.size <= LOG_FILE_MAX ? Math.min(info.size, bytes) : 0;
       const buffer = Buffer.alloc(length);
