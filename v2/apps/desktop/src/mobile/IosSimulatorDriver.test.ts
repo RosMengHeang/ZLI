@@ -1,3 +1,4 @@
+import { withoutPrivateEnv } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
 import { FakeProcessRunner } from "./FakeProcessRunner.js";
@@ -9,10 +10,9 @@ import {
   simulatorRotateError,
 } from "./IosSimulatorDriver.js";
 import type { ProcessRunner, RunOptions } from "./ProcessRunner.js";
-import { mobileChildEnv } from "./dev/childEnv.js";
 
 /** The environment main.ts gives the mobile service: the app's own, with ZLI's runtime secrets removed. */
-const TEST_ENV = mobileChildEnv({
+const TEST_ENV = withoutPrivateEnv({
   PATH: "/usr/bin",
   ZLI_RUNTIME_TOKEN: "runtime-secret",
   ZLI_DAEMON_TOKEN: "daemon-secret",

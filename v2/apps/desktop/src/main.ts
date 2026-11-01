@@ -22,6 +22,7 @@ import {
   OpenInRequest,
   RpcRequest,
   TerminalId,
+  withoutPrivateEnv,
 } from "@zli-v2/contracts";
 import {
   app,
@@ -62,7 +63,6 @@ import {
 import { createProjectCheckout } from "./browser/projectCheckout.js";
 import { type CaptureDependencies, captureSource, listCaptureSources, parseSourceId } from "./capture/WindowCapture.js";
 import { DesktopDiagnostics } from "./diagnostics/DesktopDiagnostics.js";
-import { mobileChildEnv } from "./mobile/dev/childEnv.js";
 import type { MobileDevHost, MobileDevTestOp } from "./mobile/dev/host.js";
 import { createMobileDev, type MobileDev } from "./mobile/dev/index.js";
 import { ProposalStore } from "./mobile/dev/ProposalStore.js";
@@ -369,7 +369,7 @@ async function startBrowserControl(databasePath: string): Promise<BrowserToolPat
   mobileSettings = new MobileSettingsStore(
     testLaunch ? `${databasePath}.mobile-settings.json` : join(userData, "mobile-settings.json"),
   );
-  const mobileEnv = mobileChildEnv(process.env);
+  const mobileEnv = withoutPrivateEnv(process.env);
   const mobileEvents: NonNullable<MobileServiceOptions["events"]> = {
     devices: (devices) => sendToMobileWindows("zli:mobile:devices", devices),
     stream: (message) => sendToMobileWindows("zli:mobile:stream", message),

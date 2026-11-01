@@ -24,6 +24,7 @@ export * from "./mobileWorkspace.js";
 export * from "./openIn.js";
 export * from "./pluginCatalog.js";
 export * from "./plugins.js";
+export * from "./privateEnv.js";
 export * from "./projectConfig.js";
 export * from "./projections.js";
 export * from "./provider.js";
