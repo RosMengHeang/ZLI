@@ -8,6 +8,7 @@ overrides:
   '@expo/cli>zod': 4.6.7
   esbuild: 0.28.1
   http-cache-semantics: 4.3.0
+  node-forge: 1.4.2
   source-map-js: 1.2.2
 
 patchedDependencies:
@@ -3451,8 +3452,8 @@ packages:
   node-api-version@0.2.1:
     resolution: {integrity: sha512-2xP/IGGMmmSQpI1+O/k72jF/ykvZ89JeuKX3TLJAYPDVLUalrshrLHkeVcCCZqG/eEa635cr8IBYzgnDvM2O8Q==}
 
-  node-forge@1.4.0:
-    resolution: {integrity: sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ==}
+  node-forge@1.4.2:
+    resolution: {integrity: sha512-rRtAR5XLJ8gCKd9du4qrKAsgCG1ObGP4gLeNJMa4vYSeq4bmBMOJk5IHkrviBV0q7uoAJlVd8HEQYQSVUb4FGQ==}
     engines: {node: '>= 6.13.0'}
 
   node-gyp@12.4.0:
@@ -5385,7 +5386,7 @@ snapshots:
       glob: 13.0.6
       lan-network: 0.2.1
       multitars: 1.0.2
-      node-forge: 1.4.0
+      node-forge: 1.4.2
       npm-package-arg: 11.0.3
       ora: 3.4.0
       picomatch: 4.0.7
@@ -5421,7 +5422,7 @@ snapshots:
 
   '@expo/code-signing-certificates@0.0.7':
     dependencies:
-      node-forge: 1.4.0
+      node-forge: 1.4.2
 
   '@expo/config-plugins@58.0.10(typescript@6.0.3)':
     dependencies:
@@ -8007,7 +8008,7 @@ snapshots:
     dependencies:
       semver: 7.8.5
 
-  node-forge@1.4.0: {}
+  node-forge@1.4.2: {}
 
   node-gyp@12.4.0:
     dependencies:

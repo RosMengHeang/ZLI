@@ -62,7 +62,13 @@ test("shrinks the side panel and terminal drawer to fit a smaller window", async
     // The size the person chose comes back once the window has room for it again.
     await resize(app, page, 1440, 900);
     await expect.poll(async () => (await layout(page)).panel.width, { timeout: 5_000 }).toBe(wide.panel.width);
-    expect((await layout(page)).drawer.height).toBe(wide.drawer.height);
+    await settle(page);
+    const restored = await layout(page);
+    // A window capped at the screen, as on macOS CI, can come back a few pixels shorter, and the drawer gives those up.
+    const shorter = Math.max(0, wide.window.height - restored.window.height);
+    const detail = JSON.stringify({ wide, restored });
+    expect(restored.drawer.height, detail).toBeGreaterThanOrEqual(wide.drawer.height - shorter);
+    expect(restored.drawer.height, detail).toBeLessThanOrEqual(wide.drawer.height);
   } finally {
     if (fixture) await closeDesktop(fixture);
   }
