@@ -76,6 +76,7 @@ function ProposalCard({
     action.kind === "command"
       ? `run:${proposalCommandLine(action)} in ${action.cwd}`
       : `write:${action.file}\n${action.content}`;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: signature is the point; the card rearms when what it would run changes.
   useEffect(() => {
     setArmed(false);
     const timer = setTimeout(() => setArmed(true), ARM_MS);

@@ -31,8 +31,7 @@ export function createProposalFeature(host: MobileDevHost): MobileDevFeature {
         const worktree = context.worktreeFor(parsed);
         // The client carrying the agent's call injects the agent's own worktree. A card filed for another
         // worktree names both, and counts toward the caller's own waiting limit wherever it lands.
-        const own =
-          host.worktrees().find((entry) => entry.worktreeId === parsed.defaultWorktreeId) ?? worktree;
+        const own = host.worktrees().find((entry) => entry.worktreeId === parsed.defaultWorktreeId) ?? worktree;
         const sourceLabel =
           own.worktreeId === worktree.worktreeId
             ? `Proposed by the agent in ${baseName(own.path)}`

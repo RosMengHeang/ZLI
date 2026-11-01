@@ -218,9 +218,7 @@ describe("proposal cards", () => {
     expect(container.querySelector("article")).not.toBeNull();
     // The next worktree's list may never resolve; its predecessor's cards must not linger.
     const other = { ...proposals, list: vi.fn(() => new Promise<MobileProposal[]>(() => undefined)) };
-    await act(async () =>
-      root?.render(<ProposalCards context={contextFor(other, { worktreeId: "wt-2" })} />),
-    );
+    await act(async () => root?.render(<ProposalCards context={contextFor(other, { worktreeId: "wt-2" })} />));
     expect(container.querySelector("article")).toBeNull();
   });
 
