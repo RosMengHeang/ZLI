@@ -105,7 +105,6 @@ function ProposalCard({
   const blockLines = action.kind === "file-block" ? action.content.replace(/\n+$/u, "").split("\n") : [];
   const commandLine = action.kind === "command" ? proposalCommandLine(action) : "";
   const collapsible = blockLines.length > COLLAPSED_LINES || commandLine.length > COLLAPSED_COMMAND_CHARS;
-  /** Part of what the button would do is hidden, so it stays off until the person shows it all. */
   const hidden = collapsible && !expanded;
   const titleId = `proposal-${proposal.proposalId}`;
 
@@ -158,7 +157,7 @@ function ProposalCard({
             size="xs"
             variant="primary"
             loading={busy === "accept"}
-            disabled={!armed || hidden}
+            disabled={!armed}
             onClick={() => void act("accept")}
           >
             {action.kind === "command" ? "Run in terminal" : `Write to ${action.file}`}

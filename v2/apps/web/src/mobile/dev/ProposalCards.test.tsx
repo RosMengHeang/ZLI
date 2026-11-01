@@ -222,16 +222,17 @@ describe("proposal cards", () => {
     expect(container.querySelector("article")).toBeNull();
   });
 
-  it("collapses a very long command behind Show all, with Run off until it is all visible", async () => {
+  it("collapses a very long command behind Show all", async () => {
     const long = { ...command, action: { ...command.action, args: ["install", `expo-${"a".repeat(500)}`] } };
     const { proposals } = fakeProposals([long]);
     const container = await render(<ProposalCards context={contextFor(proposals)} />);
     await arm();
-    expect(button(container, "Run in terminal").disabled).toBe(true);
     expect(container.querySelector("pre")?.className).toContain("mobile-proposal-well-clamped");
     await click(button(container, "Show all"));
     expect(container.querySelector("pre")?.className).not.toContain("mobile-proposal-well-clamped");
     expect(button(container, "Run in terminal").disabled).toBe(false);
+    await click(button(container, "Run in terminal"));
+    expect(proposals.accept).toHaveBeenCalledWith(long.proposalId);
   });
 });
 
