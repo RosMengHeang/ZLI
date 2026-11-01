@@ -8,6 +8,10 @@ import type { MobileDevContext } from "./context.js";
 
 /** A file block longer than this many lines starts collapsed. */
 const COLLAPSED_LINES = 6;
+/** A command line longer than this starts collapsed behind Show all. */
+const COLLAPSED_COMMAND_CHARS = 400;
+/** Run and Write arm only after the card has been still this long, so a tap meant for whatever sat under a fresh card cannot start a command. */
+const ARM_MS = 600;
 const SHOWN: ReadonlySet<MobileProposal["state"]> = new Set(["pending", "started", "failed"]);
 
 /**
@@ -19,10 +23,9 @@ export function ProposalCards({ context }: { context: MobileDevContext }) {
   const { worktreeId } = context;
   const [list, setList] = useState<readonly MobileProposal[]>([]);
   useEffect(() => {
-    if (!proposals || !worktreeId) {
-      setList([]);
-      return;
-    }
+    // A worktree switch shows nothing until its own list arrives, never the previous worktree's cards.
+    setList([]);
+    if (!proposals || !worktreeId) return;
     let current = true;
     const unsubscribe = proposals.onChange((next) => {
       if (current) setList(next.filter((proposal) => proposal.worktreeId === worktreeId));
@@ -62,9 +65,21 @@ function ProposalCard({
   const [busy, setBusy] = useState<"accept" | "dismiss">();
   const [error, setError] = useState<string>();
   const [expanded, setExpanded] = useState(false);
+  const [armed, setArmed] = useState(false);
   const { action } = proposal;
   const started = proposal.state === "started";
   const shownError = error ?? (proposal.state === "failed" ? proposal.error : undefined);
+
+  // What accepting would do. When it changes, the card arms again.
+  const signature =
+    action.kind === "command"
+      ? `run:${proposalCommandLine(action)} in ${action.cwd}`
+      : `write:${action.file}\n${action.content}`;
+  useEffect(() => {
+    setArmed(false);
+    const timer = setTimeout(() => setArmed(true), ARM_MS);
+    return () => clearTimeout(timer);
+  }, [signature]);
 
   const act = async (kind: "accept" | "dismiss") => {
     if (busy) return;
@@ -86,7 +101,10 @@ function ProposalCard({
   };
 
   const blockLines = action.kind === "file-block" ? action.content.replace(/\n+$/u, "").split("\n") : [];
-  const collapsible = blockLines.length > COLLAPSED_LINES;
+  const commandLine = action.kind === "command" ? proposalCommandLine(action) : "";
+  const collapsible = blockLines.length > COLLAPSED_LINES || commandLine.length > COLLAPSED_COMMAND_CHARS;
+  /** Part of what the button would do is hidden, so it stays off until the person shows it all. */
+  const hidden = collapsible && !expanded;
   const titleId = `proposal-${proposal.proposalId}`;
 
   return (
@@ -98,18 +116,25 @@ function ProposalCard({
       {proposal.reason ? <p className="mobile-proposal-reason">{proposal.reason}</p> : null}
       {action.kind === "command" ? (
         <>
-          <pre className="mobile-proposal-well">
-            <code>{proposalCommandLine(action)}</code>
+          <pre className={hidden ? "mobile-proposal-well mobile-proposal-well-clamped" : "mobile-proposal-well"}>
+            <code>{commandLine}</code>
           </pre>
+          {collapsible ? (
+            <Button size="xs" variant="ghost" aria-expanded={expanded} onClick={() => setExpanded((open) => !open)}>
+              {expanded ? "Show less" : "Show all"}
+            </Button>
+          ) : null}
           <p className="mobile-proposal-note">
-            Runs in {action.cwd === "." ? "the worktree folder" : action.cwd} in a new terminal.
+            Runs in {action.cwd === "." ? "the worktree folder" : <code>{action.cwd}</code>} in a new terminal.
           </p>
         </>
       ) : (
         <>
-          <p className="mobile-proposal-note">Adds these lines to {action.file}:</p>
+          <p className="mobile-proposal-note">
+            Adds these lines to <code>{action.file}</code>:
+          </p>
           <pre className="mobile-proposal-well">
-            <code>{(collapsible && !expanded ? blockLines.slice(0, COLLAPSED_LINES) : blockLines).join("\n")}</code>
+            <code>{(hidden ? blockLines.slice(0, COLLAPSED_LINES) : blockLines).join("\n")}</code>
           </pre>
           {collapsible ? (
             <Button size="xs" variant="ghost" aria-expanded={expanded} onClick={() => setExpanded((open) => !open)}>
@@ -127,7 +152,13 @@ function ProposalCard({
             </Button>
           ) : null
         ) : (
-          <Button size="xs" variant="primary" loading={busy === "accept"} onClick={() => void act("accept")}>
+          <Button
+            size="xs"
+            variant="primary"
+            loading={busy === "accept"}
+            disabled={!armed || hidden}
+            onClick={() => void act("accept")}
+          >
             {action.kind === "command" ? "Run in terminal" : `Write to ${action.file}`}
           </Button>
         )}

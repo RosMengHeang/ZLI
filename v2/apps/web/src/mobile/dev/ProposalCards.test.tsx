@@ -3,7 +3,7 @@
 import type { MobileProposal } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MobileBridge } from "../../runtime/bridge.js";
 import type { MobileDevContext } from "./context.js";
@@ -11,6 +11,9 @@ import { MobileProjectView } from "./MobileProjectView.js";
 import { ProposalCards } from "./ProposalCards.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => vi.useRealTimers());
 
 const command: MobileProposal = {
   proposalId: "00000000-0000-4000-8000-000000000001",
@@ -115,6 +118,13 @@ async function click(element: HTMLElement) {
   await act(async () => element.click());
 }
 
+/** Lets a mounted card's Run or Write button arm. */
+async function arm() {
+  await act(async () => {
+    vi.advanceTimersByTime(600);
+  });
+}
+
 describe("proposal cards", () => {
   it("shows who proposed the command, the exact line, and where it runs", async () => {
     const { proposals } = fakeProposals([
@@ -137,6 +147,7 @@ describe("proposal cards", () => {
     const { proposals } = fakeProposals([command]);
     const context = contextFor(proposals);
     const container = await render(<ProposalCards context={context} />);
+    await arm();
     await click(button(container, "Run in terminal"));
     expect(proposals.accept).toHaveBeenCalledWith(command.proposalId);
     expect(container.textContent).toContain("Running in the terminal drawer");
@@ -153,6 +164,7 @@ describe("proposal cards", () => {
       throw new Error("ZLI's runtime is still starting.");
     });
     const container = await render(<ProposalCards context={contextFor(proposals)} />);
+    await arm();
     await click(button(container, "Run in terminal"));
     expect(container.querySelector('[role="alert"]')?.textContent).toBe("ZLI's runtime is still starting.");
     expect(button(container, "Run in terminal")).toBeDefined();
@@ -163,6 +175,7 @@ describe("proposal cards", () => {
     proposals.accept.mockImplementationOnce(async () => ({ ...block, state: "written" }));
     const context = contextFor(proposals);
     const container = await render(<ProposalCards context={context} />);
+    await arm();
     expect(container.textContent).toContain("Adds these lines to AGENTS.md:");
     expect(container.querySelector("pre")?.textContent?.split("\n")).toHaveLength(6);
     await click(button(container, "Show all"));
@@ -177,6 +190,50 @@ describe("proposal cards", () => {
     const container = await render(<ProposalCards context={contextFor(proposals, { worktreeId: undefined })} />);
     expect(container.textContent).toBe("");
     expect(proposals.list).not.toHaveBeenCalled();
+  });
+
+  it("arms Run in terminal only after the card has been still, and again after the command changes", async () => {
+    const { proposals, update } = fakeProposals([command]);
+    const container = await render(<ProposalCards context={contextFor(proposals)} />);
+    expect(button(container, "Run in terminal").disabled).toBe(true);
+    await arm();
+    expect(button(container, "Run in terminal").disabled).toBe(false);
+    await act(async () => {
+      update(command.proposalId, {
+        action: { kind: "command", program: "npx", args: ["expo", "install", "expo-location"], cwd: "apps/mobile" },
+      });
+    });
+    expect(container.textContent).toContain("expo-location");
+    expect(button(container, "Run in terminal").disabled).toBe(true);
+    await arm();
+    expect(button(container, "Run in terminal").disabled).toBe(false);
+  });
+
+  it("clears the cards the moment the worktree changes", async () => {
+    const { proposals } = fakeProposals([command]);
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => root?.render(<ProposalCards context={contextFor(proposals)} />));
+    expect(container.querySelector("article")).not.toBeNull();
+    // The next worktree's list may never resolve; its predecessor's cards must not linger.
+    const other = { ...proposals, list: vi.fn(() => new Promise<MobileProposal[]>(() => undefined)) };
+    await act(async () =>
+      root?.render(<ProposalCards context={contextFor(other, { worktreeId: "wt-2" })} />),
+    );
+    expect(container.querySelector("article")).toBeNull();
+  });
+
+  it("collapses a very long command behind Show all, with Run off until it is all visible", async () => {
+    const long = { ...command, action: { ...command.action, args: ["install", `expo-${"a".repeat(500)}`] } };
+    const { proposals } = fakeProposals([long]);
+    const container = await render(<ProposalCards context={contextFor(proposals)} />);
+    await arm();
+    expect(button(container, "Run in terminal").disabled).toBe(true);
+    expect(container.querySelector("pre")?.className).toContain("mobile-proposal-well-clamped");
+    await click(button(container, "Show all"));
+    expect(container.querySelector("pre")?.className).not.toContain("mobile-proposal-well-clamped");
+    expect(button(container, "Run in terminal").disabled).toBe(false);
   });
 });
 
