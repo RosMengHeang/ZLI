@@ -2217,6 +2217,7 @@ function WorkspaceApp() {
                         reveal={mobileReveal}
                         devServers={mobileDevServers}
                         worktreeId={contextWorktree?.worktreeId}
+                        worktreeName={contextWorktree?.branch}
                         popOutRequest={mobilePopOutRequest}
                         onPopOutRequestDone={() => setMobilePopOutRequest(undefined)}
                         onOpenTerminal={() => updateWorkbench((state) => ({ ...state, drawerOpen: true }))}

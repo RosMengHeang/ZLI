@@ -8,6 +8,8 @@ export type MobileDevContext = {
   readonly mobile: MobileBridge;
   /** The worktree the current agent works in. Without one there is no project to check or propose for. */
   readonly worktreeId: string | undefined;
+  /** That worktree's branch, so the project check can name what it looks at. */
+  readonly worktreeName?: string | undefined;
   /** The device the panel shows, if any. */
   readonly device: MobileDevice | undefined;
   readonly online: boolean;

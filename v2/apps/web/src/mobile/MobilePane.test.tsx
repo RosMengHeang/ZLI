@@ -345,6 +345,29 @@ describe("MobilePane", () => {
     expect(container.textContent).not.toContain("Open an agent or worktree first");
   });
 
+  it("offers a way back from the empty project check, and names the worktree it checks", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    const show = (pane?: { worktreeId?: string; worktreeName?: string }) =>
+      act(async () => {
+        root?.render(
+          <RuntimeProvider bridge={bridgeWith(fake.mobile)}>
+            <MobilePane worktreeId={pane?.worktreeId} worktreeName={pane?.worktreeName} />
+          </RuntimeProvider>,
+        );
+      });
+    await show();
+    await click(button(container, "Project check"));
+    expect(container.textContent).toContain("Open an agent or worktree first");
+    await click(button(container, "Back to the device"));
+    expect(container.textContent).not.toContain("Open an agent or worktree first");
+    await show({ worktreeId: "wt-1", worktreeName: "feat-login" });
+    await click(button(container, "Project check"));
+    expect(container.textContent).toContain("Checking feat-login");
+  });
+
   it("explains that devices need the desktop app when the bridge has no mobile service", async () => {
     const container = await render(bridgeWith(undefined));
     expect(container.textContent).toContain("Devices need the desktop app");

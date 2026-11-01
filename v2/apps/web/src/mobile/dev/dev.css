@@ -12,3 +12,5 @@
 .mobile-proposal-actions { display: flex; flex-wrap: wrap; gap: var(--zli-space-1-5); margin-top: var(--zli-space-0-5); }
 .mobile-proposal .inline-error { margin: 0; }
 .mobile-project { max-width: none; }
+.mobile-project-context { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.mobile-project-context code, .mobile-proposal-note code { font-family: var(--zli-mono); font-size: var(--zli-text-xs); }

@@ -53,6 +53,7 @@ export function MobilePane({
   reveal,
   devServers = [],
   worktreeId,
+  worktreeName,
   popOutRequest,
   onPopOutRequestDone,
   onOpenTerminal,
@@ -60,6 +61,8 @@ export function MobilePane({
   reveal?: MobileReveal | undefined;
   /** The worktree the current agent works in, for its proposals and the project check. */
   worktreeId?: string | undefined;
+  /** That worktree's branch, so the project check can name what it looks at. */
+  worktreeName?: string | undefined;
   /** The current worktree's dev servers, newest first, so the pane can offer to open Expo on a device. */
   devServers?: readonly DevServerHint[] | undefined;
   /** Set to pop the selected device out into its own window once the device list is in. */
@@ -87,6 +90,7 @@ export function MobilePane({
       reveal={reveal}
       devServers={devServers}
       worktreeId={worktreeId}
+      worktreeName={worktreeName}
       popOutRequest={popOutRequest}
       onPopOutRequestDone={onPopOutRequestDone}
       onOpenTerminal={onOpenTerminal}
@@ -99,6 +103,7 @@ function MobilePaneBody({
   reveal,
   devServers,
   worktreeId,
+  worktreeName,
   popOutRequest,
   onPopOutRequestDone,
   onOpenTerminal,
@@ -107,6 +112,7 @@ function MobilePaneBody({
   reveal: MobileReveal | undefined;
   devServers: readonly DevServerHint[];
   worktreeId: string | undefined;
+  worktreeName: string | undefined;
   popOutRequest: number | undefined;
   onPopOutRequestDone: (() => void) | undefined;
   onOpenTerminal: (() => void) | undefined;
@@ -355,6 +361,7 @@ function MobilePaneBody({
   const devContext: MobileDevContext = {
     mobile,
     worktreeId,
+    worktreeName,
     device,
     online: device?.state === "online",
     agentHolds,
@@ -365,7 +372,9 @@ function MobilePaneBody({
   };
 
   let body: ReactNode;
-  if (showProject) body = <MobileProjectView context={devContext} />;
+  // The key remounts the view on a worktree switch, so nothing one worktree asked for can land in another.
+  if (showProject)
+    body = <MobileProjectView key={worktreeId ?? "none"} context={devContext} onClose={() => setSetupFor(undefined)} />;
   else if (!devices && devicesError)
     body = (
       <EmptyState icon="alert" tone="danger" title="Devices could not be listed" detail={devicesError}>
@@ -530,7 +539,7 @@ function MobilePaneBody({
           }}
         />
         <IconButton
-          icon="shieldCheck"
+          icon="gauge"
           size="sm"
           iconSize={14}
           label="Project check"
