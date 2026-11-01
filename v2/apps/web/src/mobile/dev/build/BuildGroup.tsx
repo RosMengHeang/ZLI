@@ -13,6 +13,7 @@ import { errorText } from "../../mobile.js";
 import type { MobileDevContext } from "../context.js";
 import { copyText, useWorktreeAgent } from "../crash/useWorktreeAgent.js";
 import { FindingRow } from "../doctor/DoctorGroup.js";
+import "./build.css";
 
 const HINT = "Paste the end of a failed Gradle, Xcode, or EAS build. ZLI finds the first real error.";
 const NO_AGENT = "No chat agent works in this worktree";

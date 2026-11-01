@@ -5,7 +5,7 @@ import type { MobileDevContext } from "./context.js";
 import { DoctorGroup } from "./doctor/DoctorGroup.js";
 import { PackagesGroup } from "./packages/PackagesGroup.js";
 import { WorkspaceProjectGroup } from "./workspace/WorkspaceProjectGroup.js";
-import "./styles.js";
+import "./dev.css";
 
 /** The Project check view: one titled group per feature, about the current agent's worktree. */
 export function MobileProjectView({ context, onClose }: { context: MobileDevContext; onClose?: () => void }) {

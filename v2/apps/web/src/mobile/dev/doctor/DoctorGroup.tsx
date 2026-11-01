@@ -6,6 +6,7 @@ import { Button } from "../../../ui/Button.js";
 import { LoadingState } from "../../../ui/Pane.js";
 import { errorText } from "../../mobile.js";
 import type { MobileDevContext } from "../context.js";
+import "./doctor.css";
 
 const PROJECT_VERSIONS: readonly [string, string][] = [
   ["expo", "Expo SDK"],

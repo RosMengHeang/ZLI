@@ -1,4 +1,4 @@
-/* Styles for F1 isolation. Stream S1 owns this file. */
+/* The This worktree group and the worktrees list in Settings > Mobile. */
 .mobile-workspace-value { display: inline-flex; align-items: center; gap: var(--zli-space-2); min-width: 0; max-width: 100%; }
 .mobile-workspace-url { max-width: 320px; }
 .mobile-worktree-row .setting-label.is-mono { font-family: var(--zli-mono); font-size: var(--zli-text-sm); overflow-wrap: anywhere; }

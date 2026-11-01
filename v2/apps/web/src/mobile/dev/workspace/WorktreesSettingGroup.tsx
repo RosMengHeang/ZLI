@@ -5,6 +5,7 @@ import type { MobileBridge } from "../../../runtime/bridge.js";
 import { SettingGroup } from "../../../settings/SectionHeader.js";
 import { Badge } from "../../../ui/Badge.js";
 import { folderName, ownerBadge } from "./useWorkspace.js";
+import "./workspace.css";
 
 /** Settings > Mobile: every worktree's Metro port and who listens on it. */
 export function WorktreesSettingGroup({ mobile }: { mobile: MobileBridge }) {

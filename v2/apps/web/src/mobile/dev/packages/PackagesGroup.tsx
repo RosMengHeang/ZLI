@@ -6,6 +6,7 @@ import { Button } from "../../../ui/Button.js";
 import { Field } from "../../../ui/Field.js";
 import { errorText } from "../../mobile.js";
 import type { MobileDevContext } from "../context.js";
+import "./packages.css";
 
 const MAX_PACKAGES = 20;
 

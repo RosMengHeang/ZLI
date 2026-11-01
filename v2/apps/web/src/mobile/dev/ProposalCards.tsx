@@ -5,6 +5,7 @@ import { Button } from "../../ui/Button.js";
 import { errorText } from "../mobile.js";
 import type { ProposalsBridge } from "./bridge.js";
 import type { MobileDevContext } from "./context.js";
+import "./dev.css";
 
 /** A file block longer than this many lines starts collapsed. */
 const COLLAPSED_LINES = 6;

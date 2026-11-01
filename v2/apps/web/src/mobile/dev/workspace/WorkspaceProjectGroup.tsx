@@ -3,6 +3,7 @@ import { Badge } from "../../../ui/Badge.js";
 import { IconButton } from "../../../ui/Button.js";
 import type { MobileDevContext } from "../context.js";
 import { ownerBadge, useWorkspace } from "./useWorkspace.js";
+import "./workspace.css";
 
 /** The project view's "This worktree" group: its Metro port and owner, the URL to open, and its emulator port. */
 export function WorkspaceProjectGroup({ context }: { context: MobileDevContext }) {

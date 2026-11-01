@@ -1,4 +1,4 @@
-/* The project check's Toolchain and Packages groups. Stream S2 owns this file. */
+/* The project check's Toolchain group. */
 .mobile-doctor-head { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-2); }
 .mobile-doctor-rows,
 .mobile-doctor-findings { display: flex; flex-direction: column; margin: 0; padding: 0; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); list-style: none; }
@@ -20,8 +20,4 @@ code.mobile-doctor-label { font-family: var(--zli-mono); font-size: var(--zli-te
 .mobile-doctor-steps { display: flex; flex-direction: column; gap: var(--zli-space-1-5); margin: var(--zli-space-1-5) 0 0; padding: 0; list-style: none; }
 .mobile-doctor-steps li { display: flex; flex-direction: column; gap: var(--zli-space-1); }
 .mobile-doctor-step { display: flex; align-items: center; gap: var(--zli-space-2); }
-.mobile-doctor .inline-error,
-.mobile-packages .inline-error { margin: var(--zli-space-1) 0 0; }
-.mobile-packages-form { display: flex; align-items: flex-end; gap: var(--zli-space-2); }
-.mobile-packages-form .field { flex: 1; }
-.mobile-packages-form > .btn { margin-bottom: 22px; }
+.mobile-doctor .inline-error { margin: var(--zli-space-1) 0 0; }

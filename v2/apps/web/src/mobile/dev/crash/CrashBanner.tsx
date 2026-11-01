@@ -6,6 +6,7 @@ import { Icon } from "../../../ui/Icon.js";
 import { errorText } from "../../mobile.js";
 import type { MobileDevContext } from "../context.js";
 import { copyText, useWorktreeAgent } from "./useWorktreeAgent.js";
+import "./crash.css";
 
 const NO_AGENT = "No chat agent works in this worktree";
 
