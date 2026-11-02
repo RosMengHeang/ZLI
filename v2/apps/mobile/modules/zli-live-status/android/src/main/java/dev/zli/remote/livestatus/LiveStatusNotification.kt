@@ -52,7 +52,7 @@ internal object LiveStatusNotification {
     }
     // A Live Update needs an ongoing, uncolorized notification in a standard style, which this is.
     // The person can still turn promotion off for the app in the system settings.
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+    if (supportsLiveUpdates()) {
       builder.setRequestPromotedOngoing(true)
       builder.setShortCriticalText(content.badge)
     }
@@ -63,6 +63,11 @@ internal object LiveStatusNotification {
     }
     return builder.build()
   }
+
+  // Live Updates came with Android 16 QPR2 (API 36.1); on 36.0 the builder methods do not exist.
+  private fun supportsLiveUpdates(): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA &&
+      Build.VERSION.SDK_INT_FULL >= Build.VERSION_CODES_FULL.BAKLAVA_1
 
   private fun ensureChannel(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
