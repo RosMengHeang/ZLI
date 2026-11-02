@@ -36,31 +36,29 @@ function oneLine(text: string): string {
   return line.length > BODY_LIMIT ? `${line.slice(0, BODY_LIMIT - 1)}…` : line;
 }
 
-function branchLine(projection: RuntimeProjection, thread: ThreadProjection): string {
+export function branchLine(projection: RuntimeProjection, thread: ThreadProjection): string {
   const branch = projection.worktrees.find((worktree) => worktree.worktreeId === thread.worktreeId)?.branch;
   return branch ? `On ${branch}` : "Open it to see what happened.";
 }
 
-function lastReply(projection: RuntimeProjection, thread: ThreadProjection): string | undefined {
+export function lastReply(projection: RuntimeProjection, thread: ThreadProjection): string | undefined {
   const reply = threadMessages(projection, thread.threadId)
     .filter((message) => message.role === "assistant" && message.text.trim())
     .at(-1);
   return reply ? oneLine(reply.text) : undefined;
 }
 
-function requestAlert(
-  projection: RuntimeProjection,
-  thread: ThreadProjection,
+/** What an agent asks for, in one title and one line, for notifications and the live status. */
+export function describeRequest(
+  name: string,
+  thread: Pick<ThreadProjection, "provider">,
   request: ThreadRequestProjection,
-): AgentAlert {
-  const name = agentTitle(thread, projection.providers);
+): { kind: "approval" | "question"; title: string; body: string } {
   if (request.kind === "approval") {
     const view = describeApproval(thread.provider, request.payload);
     const field = view.fields[0];
     return {
-      key: requestAlertKey(request.requestId),
       kind: "approval",
-      threadId: thread.threadId,
       title: `${name} asks to continue`,
       body: oneLine(field ? `${view.title}: ${field.value}` : view.title),
     };
@@ -68,12 +66,19 @@ function requestAlert(
   const questions = describeQuestions(request.payload);
   const first = questions[0]?.question ?? "The agent needs an answer";
   return {
-    key: requestAlertKey(request.requestId),
     kind: "question",
-    threadId: thread.threadId,
     title: `${name} has a question`,
     body: oneLine(questions.length > 1 ? `${first} (${questions.length} questions)` : first),
   };
+}
+
+function requestAlert(
+  projection: RuntimeProjection,
+  thread: ThreadProjection,
+  request: ThreadRequestProjection,
+): AgentAlert {
+  const described = describeRequest(agentTitle(thread, projection.providers), thread, request);
+  return { key: requestAlertKey(request.requestId), threadId: thread.threadId, ...described };
 }
 
 function statusAlert(

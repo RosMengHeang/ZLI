@@ -21,6 +21,9 @@ pnpm exec expo run:ios        # native build on an iPhone (macOS with Xcode)
 `pnpm exec expo export --platform android` bundles the JavaScript without a device, which is a quick
 check that Metro resolves the workspace packages.
 
+Expo Go runs everything except the live status, which needs native code: use a development build to
+try it.
+
 ## Pair a phone
 
 1. On the desktop, open Settings, then Phone access, and turn on Allow phones on this network.
@@ -40,6 +43,20 @@ asks for approval, asks a question, finishes a turn, fails, or stops. Nothing is
 conversation already on screen, and an answered request removes its notification. Tapping one opens
 that agent.
 
+## Live status
+
+While an agent is working or waiting on you, the app shows one status outside itself: the agent that
+needs you first, else the one that changed last, with a count of the others.
+
+- On iPhone it is a Live Activity on the lock screen and in the Dynamic Island, built with
+  `expo-widgets`. Approvals get Approve and Reject buttons; everything else gets Stop.
+- On Android it is an ongoing notification with the same buttons, posted by a foreground service in
+  `modules/zli-live-status`. Android 16 promotes it to a Live Update, a chip in the status bar.
+
+Tapping the status opens that agent. A button checks the newest update from the desktop before it
+sends anything, so it does nothing if the request was already answered or the agent already stopped.
+Swiping the Live Activity away hides it until no agent is busy.
+
 ## What it stores
 
 The pairing lives in the platform keystore through `expo-secure-store`, readable after the first
@@ -56,8 +73,13 @@ phone's own X25519 key, and the device credential the desktop issued.
 ## Limits
 
 - Local network only. There is no relay, so the phone cannot reach the desktop from elsewhere.
-- No push service. The phone posts its own notifications for approvals, questions, and agents that
-  finish, fail, or stop, so they only arrive while it is connected; it disconnects in the background.
+- No push service. The phone posts its own notifications and live status, so they only change while
+  it is connected.
+- On Android the foreground service keeps the connection open in the background while an agent is
+  busy, and the app disconnects once none is. iOS suspends the app soon after it leaves the screen:
+  the Live Activity then says to open the app, and a button press reconnects for a few seconds to
+  send the answer.
+- The Android `specialUse` foreground service has to be explained in the Play Console before release.
 - Messages are plain text. Markdown, diffs, and attachments stay on the desktop.
 - The terminal shows recent output as text and sends typed lines and a few keys. Full-screen
   programs such as editors do not render on the phone.

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { BackHandler, View } from "react-native";
 
 import { useLinkSnapshot } from "./LinkContext.js";
@@ -11,6 +11,7 @@ import { StartAgentScreen } from "./screens/StartAgentScreen.js";
 import { TerminalScreen } from "./screens/TerminalScreen.js";
 import { usePalette } from "./theme.js";
 import { EmptyState, Header } from "./ui/components.js";
+import { useLiveStatus } from "./useLiveStatus.js";
 
 /** A screen stack. The app has five screens, which does not justify a navigation library. */
 export function Navigator({ onForget }: { onForget: (notice?: string) => Promise<void> }) {
@@ -29,14 +30,18 @@ export function Navigator({ onForget }: { onForget: (notice?: string) => Promise
 
   const top = stack[stack.length - 1];
   useAgentAlerts(top?.name === "agent" ? top.threadId : undefined);
-  useNotificationTaps((threadId) =>
-    setStack((current) => {
-      const shown = current[current.length - 1];
-      return shown?.name === "agent" && shown.threadId === threadId
-        ? current
-        : [...current, { name: "agent", threadId }];
-    }),
+  const openAgent = useCallback(
+    (threadId: string) =>
+      setStack((current) => {
+        const shown = current[current.length - 1];
+        return shown?.name === "agent" && shown.threadId === threadId
+          ? current
+          : [...current, { name: "agent", threadId }];
+      }),
+    [],
   );
+  useNotificationTaps(openAgent);
+  useLiveStatus(openAgent);
   useEffect(() => {
     void askForNotificationsOnce().catch(() => {});
   }, []);

@@ -68,6 +68,15 @@ async function show(alert: AgentAlert): Promise<void> {
   });
 }
 
+/** A one-off message, such as a lock screen answer that did not reach the desktop. */
+export async function showNotice(title: string, body: string): Promise<void> {
+  await ensureChannel();
+  await Notifications.scheduleNotificationAsync({
+    content: { title, body },
+    trigger: Platform.OS === "android" ? { channelId: CHANNEL_ID } : null,
+  });
+}
+
 /** Turns changes in the desktop's projection into notifications for as long as it is mounted. */
 export function useAgentAlerts(openThreadId: string | undefined): void {
   const link = useLink();

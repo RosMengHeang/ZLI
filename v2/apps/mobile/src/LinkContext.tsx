@@ -2,6 +2,8 @@ import { createContext, type ReactNode, useContext, useEffect, useState, useSync
 import { AppState } from "react-native";
 
 import { type LinkSnapshot, RemoteLink } from "./lib/link.js";
+import { liveStatus } from "./lib/liveStatus.js";
+import { liveDisplay } from "./liveDisplay.js";
 import type { StoredPairing } from "./lib/pairingRecord.js";
 import { createSocket, newId, random, savePairing } from "./platform.js";
 
@@ -23,10 +25,15 @@ export function LinkProvider({ pairing, children }: { pairing: StoredPairing; ch
 
   useEffect(() => {
     link.start();
-    // Phones suspend background sockets anyway; closing first avoids a long wait on a dead one.
+    // Phones suspend background sockets anyway; closing first avoids a long wait on a dead one. The
+    // exception is Android with an agent busy: the live status runs a foreground service, which keeps
+    // the app and the socket alive.
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") link.start();
-      else if (state === "background") link.pause();
+      else if (state === "background") {
+        const live = liveDisplay.keepsAppRunning && liveStatus(link.getSnapshot().projection) !== undefined;
+        if (!live) link.pause();
+      }
     });
     return () => {
       subscription.remove();

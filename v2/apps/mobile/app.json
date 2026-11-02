@@ -51,6 +51,12 @@
         {
           "faceIDPermission": false
         }
+      ],
+      [
+        "expo-widgets",
+        {
+          "groupIdentifier": "group.dev.zli.remote"
+        }
       ]
     ]
   }
