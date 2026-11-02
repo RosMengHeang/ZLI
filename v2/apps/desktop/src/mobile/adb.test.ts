@@ -1,15 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { emulatorBootArgs } from "./AndroidDriver.js";
 import {
+  adbConnectArgs,
+  adbDisconnectArgs,
+  adbPairArgs,
+  connectPortFor,
   deviceShellCommand,
   deviceShellQuote,
   emulatorPort,
   filterLogLines,
   freeEmulatorPort,
   inputTextArgument,
+  isMdnsSerial,
+  isWifiSerial,
   localhostPort,
   parseAdbDevices,
+  parseConnectOutput,
   parseEmuAvdName,
+  parseMdnsServices,
+  parsePairOutput,
   parseWmSize,
   pngSize,
   repairScreencap,
@@ -37,9 +46,10 @@ describe("adb output", () => {
         model: "sdk gphone64 x86 64",
         product: "sdk_gphone64_x86_64",
         emulator: true,
+        wifi: false,
       },
-      { serial: "R58M123ABC", state: "unauthorized", rawState: "unauthorized", emulator: false },
-      { serial: "0a1b2c3d", state: "offline", rawState: "offline", emulator: false },
+      { serial: "R58M123ABC", state: "unauthorized", rawState: "unauthorized", emulator: false, wifi: false },
+      { serial: "0a1b2c3d", state: "offline", rawState: "offline", emulator: false, wifi: false },
     ]);
   });
 
@@ -136,5 +146,116 @@ describe("emulator boot arguments", () => {
     const windowed = emulatorBootArgs("Pixel_7", 5554, { window: true, wipeData: true });
     expect(windowed).not.toContain("-no-window");
     expect(windowed).toContain("-wipe-data");
+  });
+});
+
+describe("adb over Wi-Fi", () => {
+  it("lists host:port and mDNS phones as Wi-Fi, with their states", () => {
+    const devices = parseAdbDevices(
+      [
+        "List of devices attached",
+        "192.168.1.20:39457     device product:husky model:Pixel_8_Pro device:husky transport_id:4",
+        "adb-R5CT9XYZ-AbC123._adb-tls-connect._tcp device product:dm3q model:SM_S918B device:dm3q transport_id:5",
+        "10.0.0.7:5555          offline transport_id:6",
+        "192.168.1.31:41003     unauthorized transport_id:7",
+      ].join("\n"),
+    );
+    expect(devices.map(({ serial, state, wifi, model }) => ({ serial, state, wifi, model }))).toEqual([
+      { serial: "192.168.1.20:39457", state: "online", wifi: true, model: "Pixel 8 Pro" },
+      { serial: "adb-R5CT9XYZ-AbC123._adb-tls-connect._tcp", state: "online", wifi: true, model: "SM S918B" },
+      { serial: "10.0.0.7:5555", state: "offline", wifi: true, model: undefined },
+      { serial: "192.168.1.31:41003", state: "unauthorized", wifi: true, model: undefined },
+    ]);
+  });
+
+  it("drops an mDNS entry for a phone already listed by address or on its USB cable", () => {
+    const serials = parseAdbDevices(
+      [
+        "List of devices attached",
+        "adb-28041FDH2000ZK-vWgJpq._adb-tls-connect._tcp. device product:husky model:Pixel_8_Pro device:husky transport_id:3",
+        "192.168.1.20:39457     device product:husky model:Pixel_8_Pro device:husky transport_id:4",
+        "R5CT9XYZ               device usb:1-2 product:dm3q model:SM_S918B device:dm3q transport_id:5",
+        "adb-R5CT9XYZ-AbC123._adb-tls-connect._tcp device product:dm3q model:SM_S918B device:dm3q transport_id:6",
+        "emulator-5554          device product:sdk_gphone64 model:sdk_gphone64 device:emu64xa transport_id:1",
+      ].join("\n"),
+    ).map((device) => device.serial);
+    expect(serials).toEqual(["192.168.1.20:39457", "R5CT9XYZ", "emulator-5554"]);
+    expect(isWifiSerial("R5CT9XYZ")).toBe(false);
+    expect(isWifiSerial("emulator-5554")).toBe(false);
+    expect(isMdnsSerial("adb-R5CT9XYZ-AbC123._adb-tls-connect._tcp")).toBe(true);
+  });
+
+  it("builds pair, connect, and disconnect arguments with each value as its own argument", () => {
+    expect(adbPairArgs("192.168.1.20", 37_123, "123456")).toEqual(["pair", "192.168.1.20:37123", "123456"]);
+    expect(adbConnectArgs("pixel.local", 39_457)).toEqual(["connect", "pixel.local:39457"]);
+    expect(adbDisconnectArgs("192.168.1.20:39457")).toEqual(["disconnect", "192.168.1.20:39457"]);
+  });
+
+  it("reads adb pair's answers", () => {
+    const address = "192.168.1.20:37123";
+    expect(
+      parsePairOutput("Successfully paired to 192.168.1.20:37123 [guid=adb-28041FDH2000ZK-vWgJpq]\n", address),
+    ).toEqual({ ok: true, guid: "adb-28041FDH2000ZK-vWgJpq" });
+    expect(parsePairOutput("Successfully paired to 192.168.1.20:37123", address)).toEqual({ ok: true });
+    expect(parsePairOutput("Failed: Wrong password or connection was dropped.", address)).toMatchObject({
+      ok: false,
+      problem: expect.stringContaining("did not accept that code"),
+    });
+    expect(parsePairOutput("Failed: Unable to start pairing client.", address)).toMatchObject({
+      ok: false,
+      problem: expect.stringContaining("Nothing answered at 192.168.1.20:37123"),
+    });
+    expect(parsePairOutput("adb: unknown command pair", address)).toMatchObject({
+      ok: false,
+      problem: expect.stringContaining("too old"),
+    });
+    expect(parsePairOutput("error: something new", address)).toEqual({
+      ok: false,
+      problem: "Pairing failed: error: something new",
+    });
+    expect(parsePairOutput("", address)).toMatchObject({ ok: false });
+  });
+
+  it("reads adb connect's answers, which come with exit code 0 either way", () => {
+    const address = "192.168.1.20:39457";
+    expect(parseConnectOutput("connected to 192.168.1.20:39457", address)).toEqual({ ok: true });
+    expect(parseConnectOutput("already connected to 192.168.1.20:39457", address)).toEqual({ ok: true });
+    expect(parseConnectOutput("failed to authenticate to 192.168.1.20:39457", address)).toMatchObject({
+      ok: false,
+      problem: expect.stringContaining("Pair it with a code first"),
+    });
+    expect(parseConnectOutput("failed to connect to '192.168.1.20:39457': Connection refused", address)).toMatchObject({
+      ok: false,
+      problem: expect.stringContaining("Nothing answered at 192.168.1.20:39457"),
+    });
+    expect(
+      parseConnectOutput(
+        "cannot connect to 192.168.1.20:39457: A connection attempt failed because the connected party did not properly respond after a period of time (10060)",
+        address,
+      ),
+    ).toMatchObject({ ok: false, problem: expect.stringContaining("cannot reach 192.168.1.20") });
+    expect(parseConnectOutput("failed to connect to 192.168.1.20:39457: No route to host", address)).toMatchObject({
+      ok: false,
+      problem: expect.stringContaining("same Wi-Fi network"),
+    });
+  });
+
+  it("finds the connect port from adb mdns services", () => {
+    const services = parseMdnsServices(
+      [
+        "List of discovered mdns services",
+        "adb-28041FDH2000ZK-vWgJpq\t_adb-tls-connect._tcp.\t192.168.1.20:39457",
+        "adb-28041FDH2000ZK-vWgJpq\t_adb-tls-pairing._tcp.\t192.168.1.20:37123",
+        "adb-R5CT9XYZ-AbC123\t_adb-tls-connect._tcp\t192.168.1.31:41003",
+      ].join("\n"),
+    );
+    expect(services).toEqual([
+      { name: "adb-28041FDH2000ZK-vWgJpq", type: "connect", host: "192.168.1.20", port: 39_457 },
+      { name: "adb-28041FDH2000ZK-vWgJpq", type: "pairing", host: "192.168.1.20", port: 37_123 },
+      { name: "adb-R5CT9XYZ-AbC123", type: "connect", host: "192.168.1.31", port: 41_003 },
+    ]);
+    expect(connectPortFor(services, "192.168.1.99", "adb-28041FDH2000ZK-vWgJpq")).toBe(39_457);
+    expect(connectPortFor(services, "192.168.1.31", undefined)).toBe(41_003);
+    expect(connectPortFor(services, "192.168.1.40", undefined)).toBeUndefined();
   });
 });

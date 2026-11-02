@@ -34,6 +34,10 @@ export const MobileDevice = z.object({
   osVersion: z.string().max(100).optional(),
   /** adb serial while an Android device is connected. */
   serial: z.string().max(200).optional(),
+  /** How a physical Android phone reaches adb. A Wi-Fi phone can be disconnected; neither can be booted. */
+  connection: z.enum(["usb", "wifi"]).optional(),
+  /** The SSH address of the Mac a simulator runs on, when it is not this computer. */
+  host: z.string().max(253).optional(),
   lease: MobileLease.nullable(),
 });
 export type MobileDevice = z.infer<typeof MobileDevice>;
@@ -76,6 +80,8 @@ export const MobileIosStatus = z.object({
   /** idb drives taps, swipes, typing, and the accessibility tree. Without it only boot, install, launch, and screenshots work. */
   idb: MobileToolProbe,
   missing: z.array(z.string()),
+  /** The SSH address of the Mac the simulators run on, when one is set in Settings instead of this computer. */
+  host: z.string().max(253).optional(),
 });
 export type MobileIosStatus = z.infer<typeof MobileIosStatus>;
 
@@ -180,12 +186,42 @@ export const MobileAvdDeleteInput = z.object({ name: MobileAvdName });
 export type MobileAvdDeleteInput = z.infer<typeof MobileAvdDeleteInput>;
 
 /**
- * Settings the person controls. agentTools off hides the zli-mobile tools from agents and refuses their calls.
- * crashWatch reads the log of a running device for crashes.
+ * The SSH address of a Mac that runs iPhone simulators: user@host, or a host name from ~/.ssh/config. It goes
+ * on ssh's command line, so it cannot start with a dash or hold spaces or shell characters.
  */
-export const MobileSettings = z.object({ agentTools: z.boolean(), crashWatch: z.boolean() });
+export const MobileSshHost = z
+  .string()
+  .trim()
+  .min(1, "Enter the Mac's SSH address, such as you@mac-mini.local.")
+  .max(253, "Use at most 253 characters.")
+  .regex(
+    /^(?:[A-Za-z0-9_][A-Za-z0-9._-]*@)?[A-Za-z0-9_][A-Za-z0-9._-]*$/u,
+    "Use user@host or a host name from your SSH config, such as you@mac-mini.local.",
+  );
+
+/**
+ * Settings the person controls. agentTools off hides the zli-mobile tools from agents and refuses their calls.
+ * crashWatch reads the log of a running device for crashes. iosRemoteHost runs iPhone simulators on that Mac
+ * over SSH instead of this computer; empty or absent means this computer.
+ */
+export const MobileSettings = z.object({
+  agentTools: z.boolean(),
+  crashWatch: z.boolean(),
+  iosRemoteHost: z.union([MobileSshHost, z.literal("")]).optional(),
+});
 export type MobileSettings = z.infer<typeof MobileSettings>;
 export const DEFAULT_MOBILE_SETTINGS: MobileSettings = { agentTools: true, crashWatch: true };
+
+export const MobileIosHostTestInput = z.object({ host: MobileSshHost });
+export type MobileIosHostTestInput = z.infer<typeof MobileIosHostTestInput>;
+
+/** What Test connection found, in words for the person: the simulator count, or what failed and what to do. */
+export const MobileIosHostTestResult = z.object({
+  ok: z.boolean(),
+  message: z.string().max(2_000),
+  simulators: z.number().int().nonnegative().optional(),
+});
+export type MobileIosHostTestResult = z.infer<typeof MobileIosHostTestResult>;
 
 export const MobileDeviceIdInput = z.object({ deviceId: z.string().min(1).max(300) });
 export type MobileDeviceIdInput = z.infer<typeof MobileDeviceIdInput>;
@@ -282,6 +318,22 @@ export const MobilePopOutList = z.array(MobilePopOut).max(64);
 export const MobilePopOutPinInput = MobileDeviceIdInput.extend({ pinned: z.boolean() });
 export type MobilePopOutPinInput = z.infer<typeof MobilePopOutPinInput>;
 
+/** A pop-out window's position and size on the desktop, in screen points. */
+export const MobilePopOutBounds = z.object({
+  x: z.number().min(-100_000).max(100_000),
+  y: z.number().min(-100_000).max(100_000),
+  width: z.number().min(1).max(100_000),
+  height: z.number().min(1).max(100_000),
+});
+export type MobilePopOutBounds = z.infer<typeof MobilePopOutBounds>;
+
+/** What ZLI remembers about one device's window between runs. Broken bounds are dropped, the pin is kept. */
+export const MobilePopOutSaved = z.object({
+  pinned: z.boolean().catch(false),
+  bounds: MobilePopOutBounds.optional().catch(undefined),
+});
+export type MobilePopOutSaved = z.infer<typeof MobilePopOutSaved>;
+
 /**
  * The device body's width over its height, and the room the window's bars and padding take around it, so the
  * window keeps the device's shape while it is resized.
@@ -317,6 +369,7 @@ export const MOBILE_CONTROL_ACTIONS = [
   "mobilecheckpackage",
   "mobilecrashes",
   "mobilebuildbrief",
+  "mobiledevicesettings",
 ] as const;
 export const MobileControlAction = z.enum(MOBILE_CONTROL_ACTIONS);
 export type MobileControlAction = z.infer<typeof MobileControlAction>;

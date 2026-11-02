@@ -8,6 +8,7 @@ import { Icon } from "../ui/Icon.js";
 import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
 import { Switch } from "../ui/Switch.js";
 import { DeviceScreen } from "./DeviceScreen.js";
+import { DeviceSettingsDrawer } from "./dev/conditions/DeviceSettingsDrawer.js";
 import type { MobileDevContext } from "./dev/context.js";
 import { MobileDevBanners } from "./dev/MobileDevBanners.js";
 import { MobileProjectView } from "./dev/MobileProjectView.js";
@@ -27,11 +28,13 @@ import {
   expoServer,
   formatElapsed,
   leaseNotice,
+  phoneStateHint,
   pickDevice,
   type ScreenMode,
   SLOW_BOOT_MS,
   slowBootNote,
 } from "./mobile.js";
+import { PhoneConnections } from "./PhoneConnections.js";
 import { copyScreenshot, saveScreenshot } from "./screenshots.js";
 import { useClock } from "./useClock.js";
 import { useDeviceFrame } from "./useDeviceFrame.js";
@@ -45,10 +48,11 @@ import "./mobile.css";
 export type MobileReveal = { deviceId: string; key: number };
 
 const SELECTED_KEY = "zli.mobile.device.v1";
+const DEVICE_SETTINGS_KEY = "zli.mobile.device-settings.v1";
 /** How often the agent lease banner rechecks its countdown. */
 const LEASE_TICK_MS = 15_000;
 
-type Busy = "boot" | "shutdown" | "lease" | "screenshot" | "popout";
+type Busy = "boot" | "shutdown" | "lease" | "screenshot" | "popout" | "disconnect";
 
 export function MobilePane({
   reveal,
@@ -125,8 +129,8 @@ function MobilePaneBody({
   const [statusError, setStatusError] = useState<string>();
   const { settings, error: settingsError, setAgentTools } = useMobileSettings(mobile);
   const [selectedId, setSelectedIdState] = useState<string | undefined>(() => readSelected());
-  /** A view over the device: setup from the wrench or to add a virtual device, or the project check. */
-  const [setupFor, setSetupFor] = useState<"setup" | "new-device" | "project">();
+  /** A view over the device: setup from the wrench, to add a virtual device or a phone, or the project check. */
+  const [setupFor, setSetupFor] = useState<"setup" | "new-device" | "connect-phone" | "project">();
   const showSetup = setupFor !== undefined;
   const showProject = setupFor === "project";
   /** Actions still running. A set, because cancelling a boot overlaps the boot it stops. */
@@ -220,6 +224,15 @@ function MobilePaneBody({
 
   const [zoom, setZoom] = useDeviceZoom(device?.deviceId);
   const [showFrame, setShowFrame] = useDeviceFrame();
+  const [deviceSettingsOpen, setDeviceSettingsOpenState] = useState(readDeviceSettingsOpen);
+  const setDeviceSettingsOpen = (open: boolean) => {
+    setDeviceSettingsOpenState(open);
+    try {
+      window.sessionStorage.setItem(DEVICE_SETTINGS_KEY, open ? "open" : "closed");
+    } catch {
+      // Without storage the drawer starts closed next time.
+    }
+  };
   /** Devices shown in their own desktop window, which this pane then does not stream. */
   const [popOuts, setPopOuts] = useState<readonly MobilePopOut[]>([]);
   useEffect(() => {
@@ -350,6 +363,23 @@ function MobilePaneBody({
                   void refreshDevices();
                   void refreshStatus();
                 }}
+              />
+            ) : undefined
+          }
+          phones={
+            mobile.pairWifi ? (
+              <PhoneConnections
+                mobile={mobile}
+                devices={devices ?? []}
+                adbFound={status.android.adb.found}
+                focusConnect={setupFor === "connect-phone"}
+                onConnected={(result) => {
+                  setSelectedId(result.deviceId);
+                  setSetupFor(undefined);
+                  showNotice(result.message);
+                  void refreshDevices();
+                }}
+                onChanged={() => void refreshDevices()}
               />
             ) : undefined
           }
@@ -484,8 +514,8 @@ function MobilePaneBody({
       return (
         <EmptyState
           icon="shield"
-          title="Allow USB debugging on the phone"
-          detail="Unlock the phone and accept the prompt to trust this computer. The device appears here once it is allowed."
+          title={`${shown.name} is waiting for approval`}
+          detail={`${phoneStateHint(shown) ?? "Unlock the phone and accept the prompt to trust this computer."} The phone appears here once it is allowed.`}
         >
           <Button size="sm" icon="reload" loading={refreshing} onClick={() => void refreshDevices()}>
             Refresh
@@ -496,11 +526,20 @@ function MobilePaneBody({
       <EmptyState
         icon="alert"
         title={`${shown.name} is not responding`}
-        detail="adb lists it as offline. Reconnect the cable, or restart the emulator, then refresh."
+        detail={
+          shown.kind === "physical"
+            ? `adb lists it as offline. ${phoneStateHint(shown) ?? "Reconnect it, then refresh."}`
+            : "adb lists it as offline. Restart the emulator, then refresh."
+        }
       >
         <Button size="sm" icon="reload" loading={refreshing} onClick={() => void refreshDevices()}>
           Refresh
         </Button>
+        {shown.connection === "wifi" && mobile.pairWifi ? (
+          <Button size="sm" variant="ghost" onClick={() => setSetupFor("connect-phone")}>
+            Connect again
+          </Button>
+        ) : null}
       </EmptyState>
     );
   }
@@ -573,6 +612,21 @@ function MobilePaneBody({
           stopping={busy.has("shutdown")}
           onSelect={setSelectedId}
           onNewDevice={() => setSetupFor("new-device")}
+          onConnectPhone={mobile.pairWifi ? () => setSetupFor("connect-phone") : undefined}
+          disconnecting={busy.has("disconnect")}
+          onDisconnect={
+            mobile.disconnectWifi && device
+              ? () =>
+                  void run(
+                    "disconnect",
+                    async () => {
+                      await mobile.disconnectWifi?.(device.deviceId);
+                      showNotice(`Disconnected ${device.name}.`);
+                    },
+                    `${device.name} could not be disconnected.`,
+                  )
+              : undefined
+          }
           onBoot={() => device && bootDevice(device)}
           onShutdown={() =>
             device && void run("shutdown", () => mobile.shutdown(device.deviceId), `${device.name} did not shut down.`)
@@ -659,6 +713,21 @@ function MobilePaneBody({
           canRotate={android || status?.host.os === "macos"}
           showFrame={showFrame}
           onShowFrame={setShowFrame}
+          {...(mobile.dev?.conditions
+            ? { deviceSettingsOpen, onDeviceSettings: () => setDeviceSettingsOpen(!deviceSettingsOpen) }
+            : {})}
+        />
+      ) : null}
+      {device && online && !showSetup && !poppedOut && deviceSettingsOpen && mobile.dev?.conditions ? (
+        <DeviceSettingsDrawer
+          key={`settings-${device.deviceId}`}
+          conditions={mobile.dev.conditions}
+          doctor={mobile.dev.doctor}
+          worktreeId={worktreeId}
+          device={device}
+          inputBlocked={agentHolds}
+          onBlockedInput={nudgeTakeOver}
+          onClose={() => setDeviceSettingsOpen(false)}
         />
       ) : null}
       {device && online && !showSetup ? (
@@ -686,6 +755,14 @@ function MobilePaneBody({
 
 function isAndroidVirtual(device: MobileDevice): boolean {
   return device.platform === "android" && device.kind === "emulator";
+}
+
+function readDeviceSettingsOpen(): boolean {
+  try {
+    return window.sessionStorage.getItem(DEVICE_SETTINGS_KEY) === "open";
+  } catch {
+    return false;
+  }
 }
 
 function readSelected(): string | undefined {

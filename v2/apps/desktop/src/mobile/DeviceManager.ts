@@ -7,6 +7,7 @@ import {
 } from "@zli-v2/contracts";
 import type { AndroidDriver } from "./AndroidDriver.js";
 import { ANDROID_KEYCODES, reverseExtra } from "./adb.js";
+import { sshHostName } from "./CommandHost.js";
 import { DeviceLeases, type LeaseOwner } from "./DeviceLeases.js";
 import {
   type BootOptions,
@@ -287,7 +288,9 @@ export class DeviceManager {
         fallbackReason = `Live video from idb is unavailable, so the panel shows screenshots: ${cause instanceof Error ? cause.message : String(cause)}`;
       }
     } else {
-      fallbackReason = IOS_STILLS_REASON;
+      fallbackReason = device.host
+        ? `Simulators on ${sshHostName(device.host)} are shown as screenshots over SSH, about one a second, and faster for a few seconds after you use them.`
+        : IOS_STILLS_REASON;
     }
     if (stream.mode === "stills") void this.#pollStills(device, stream);
     const info = { ...this.#info(stream), ...(fallbackReason ? { fallbackReason: fallbackReason.slice(0, 500) } : {}) };
@@ -580,6 +583,11 @@ export class DeviceManager {
         `${lease.ownerLabel || "An agent"} is driving this device. Take over to use it.`,
         409,
       );
+  }
+
+  /** A running device for a panel action from a mobile dev feature, refused while an agent holds it. */
+  panelDevice(deviceId: string): Promise<{ device: MobileDevice; driver: MobileDriver }> {
+    return this.#forPanel(deviceId);
   }
 
   /** A running device for a panel action, refused while an agent holds it, like panel input. */

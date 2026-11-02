@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { AndroidDriver } from "./AndroidDriver.js";
+import { DeviceManager } from "./DeviceManager.js";
 import { createMobileDev } from "./dev/index.js";
 import { createTestDevHost } from "./dev/testHost.js";
-import { DeviceManager } from "./DeviceManager.js";
 import { FakeDriver } from "./FakeDriver.js";
 import type { MobileService } from "./MobileService.js";
 import { mobileIpcHandlers, streamViewer } from "./mobileIpc.js";
@@ -35,7 +35,8 @@ function handlers() {
     create: vi.fn(async (_input: unknown) => ({ avds: [] })),
     delete: vi.fn(async (_input: unknown) => ({ avds: [] })),
   };
-  const service = { manager, setup: {}, avds, status: async () => ({}) } as unknown as MobileService;
+  const testIosHost = vi.fn(async (host: string) => ({ ok: true, message: `Connected to ${host}.` }));
+  const service = { manager, setup: {}, avds, status: async () => ({}), testIosHost } as unknown as MobileService;
   const settings = {
     get: vi.fn(async () => ({ agentTools: true, crashWatch: true })),
     set: vi.fn(async () => ({ agentTools: false, crashWatch: true })),
@@ -46,6 +47,7 @@ function handlers() {
     logs,
     manager,
     settings,
+    testIosHost,
     handle: mobileIpcHandlers({ service: () => service, settings: () => settings }),
   };
 }
@@ -98,6 +100,38 @@ describe("mobile IPC handlers", () => {
     expect(android.actions).toEqual([]);
   });
 
+  it("checks Wi-Fi pairing input in main before adb sees it", async () => {
+    const wireless = {
+      pair: vi.fn(async () => ({ connected: true, message: "Paired and connected to Pixel 8." })),
+      connect: vi.fn(async () => ({ connected: true, message: "Connected to Pixel 8." })),
+      disconnect: vi.fn(async () => undefined),
+    };
+    const service = {
+      manager: {},
+      setup: {},
+      avds: {},
+      status: async () => ({}),
+      wireless,
+    } as unknown as MobileService;
+    const handle = mobileIpcHandlers({ service: () => service, settings: () => undefined });
+    await handle["zli:mobile:wifi-pair"]?.({ host: " 192.168.1.20 ", pairPort: 37_123, code: "123456" });
+    expect(wireless.pair).toHaveBeenCalledWith({ host: "192.168.1.20", pairPort: 37_123, code: "123456" });
+    await handle["zli:mobile:wifi-connect"]?.({ host: "192.168.1.20", port: 39_457 });
+    expect(await handle["zli:mobile:wifi-disconnect"]?.({ deviceId: "android:192.168.1.20:39457" })).toEqual({
+      accepted: true,
+    });
+    expect(wireless.disconnect).toHaveBeenCalledWith("android:192.168.1.20:39457");
+    for (const bad of [
+      { host: "192.168.1.20", pairPort: 37_123, code: "1234567" },
+      { host: "192.168.1.20 && reboot", pairPort: 37_123, code: "123456" },
+      { host: "--help", pairPort: 37_123, code: "123456" },
+      { host: "192.168.1.20", pairPort: 0, code: "123456" },
+    ])
+      expect(() => handle["zli:mobile:wifi-pair"]?.(bad)).toThrow();
+    expect(() => handle["zli:mobile:wifi-connect"]?.({ host: "192.168.1.20", port: "5555" })).toThrow();
+    expect(wireless.pair).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the existing channels, and says when the mobile service is not running", async () => {
     const { handle, settings } = handlers();
     expect(Object.keys(handle)).toEqual(
@@ -118,6 +152,23 @@ describe("mobile IPC handlers", () => {
     expect(() => stopped["zli:mobile:devices"]?.(undefined)).toThrow("ZLI's mobile service is not running.");
     expect(() => stopped["zli:mobile:settings-get"]?.(undefined)).toThrow("ZLI's mobile service is not running.");
   });
+  it("tests a Mac only with an address ssh cannot misread, and reads the devices again when the Mac changes", async () => {
+    const { handle, testIosHost, manager, settings } = handlers();
+    expect(await handle["zli:mobile:ios-host-test"]?.({ host: "dev@studio.local" })).toEqual({
+      ok: true,
+      message: "Connected to dev@studio.local.",
+    });
+    for (const host of ["-oProxyCommand=calc", "studio; reboot", ""])
+      expect(() => handle["zli:mobile:ios-host-test"]?.({ host })).toThrow();
+    expect(testIosHost).toHaveBeenCalledTimes(1);
+    const list = vi.spyOn(manager, "list");
+    await handle["zli:mobile:settings-set"]?.({ agentTools: false });
+    expect(list).not.toHaveBeenCalled();
+    await handle["zli:mobile:settings-set"]?.({ iosRemoteHost: "dev@studio.local" });
+    expect(settings.set).toHaveBeenLastCalledWith({ iosRemoteHost: "dev@studio.local" });
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
   it("serves the proposal channels, which take only an id and parse every payload", async () => {
     const host = createTestDevHost();
     const dev = createMobileDev(host);

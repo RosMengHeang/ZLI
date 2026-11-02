@@ -4,14 +4,14 @@ import { useRef, useState } from "react";
 import type { MobileBridge } from "../runtime/bridge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { MenuButton, type MenuEntry } from "../ui/Menu.js";
-import { errorText, openedNotice, sendTextInput, urlToOpen } from "./mobile.js";
+import { errorText, macName, openedNotice, sendTextInput, urlToOpen } from "./mobile.js";
 
 type Row = "type" | "url";
 
 /**
  * The bar under a running device: its system buttons, Type text, Open URL, Rotate, the screenshot, and a menu
- * with Power, Volume, Copy screenshot, and the device frame setting. Every control that sends input checks
- * inputBlocked first, so an agent's lease sends the person to Take over instead.
+ * with Power, Volume, Copy screenshot, Device settings, and the device frame setting. Every control that sends
+ * input checks inputBlocked first, so an agent's lease sends the person to Take over instead.
  */
 export function MobileControls({
   mobile,
@@ -26,6 +26,8 @@ export function MobileControls({
   canRotate,
   showFrame,
   onShowFrame,
+  deviceSettingsOpen = false,
+  onDeviceSettings,
 }: {
   mobile: Pick<MobileBridge, "input" | "openUrl">;
   device: MobileDevice;
@@ -42,6 +44,9 @@ export function MobileControls({
   onCopyScreenshot(): void;
   showFrame: boolean;
   onShowFrame(shown: boolean): void;
+  /** Whether the Device settings drawer is open. Without onDeviceSettings the menu has no such item. */
+  deviceSettingsOpen?: boolean | undefined;
+  onDeviceSettings?: (() => void) | undefined;
 }) {
   const android = device.platform === "android";
   const [row, setRow] = useState<Row>();
@@ -111,6 +116,18 @@ export function MobileControls({
       : []),
     "separator",
     { id: "copy-screenshot", label: "Copy screenshot", icon: "copy", disabled: screenshotBusy, run: onCopyScreenshot },
+    ...(onDeviceSettings
+      ? [
+          {
+            id: "device-settings",
+            label: "Device settings",
+            icon: "settings",
+            checked: deviceSettingsOpen,
+            title: "Appearance, text size, location, and app permissions",
+            run: onDeviceSettings,
+          } as const,
+        ]
+      : []),
     {
       id: "device-frame",
       label: "Show device frame",
@@ -177,7 +194,18 @@ export function MobileControls({
           {android ? <IconButton icon="square" iconSize={15} label="Recents" onClick={() => press("recents")} /> : null}
         </fieldset>
         <div className="mobile-controls-side is-end">
-          {canRotate ? <IconButton icon="rotate" size="sm" iconSize={15} label="Rotate" onClick={rotate} /> : null}
+          {device.platform === "ios" && device.host ? (
+            <IconButton
+              icon="rotate"
+              size="sm"
+              iconSize={15}
+              label="Rotate"
+              tooltip={`Rotate it in the Simulator app on ${macName(device.host)}. ZLI cannot rotate a simulator on another Mac yet.`}
+              disabled
+            />
+          ) : canRotate ? (
+            <IconButton icon="rotate" size="sm" iconSize={15} label="Rotate" onClick={rotate} />
+          ) : null}
           <IconButton
             icon="download"
             size="sm"

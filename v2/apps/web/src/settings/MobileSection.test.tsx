@@ -72,6 +72,10 @@ function createMobile(devices: MobileDevice[]) {
       settings = { ...settings, ...patch };
       return settings;
     }),
+    testIosHost: vi.fn(async (_host: string) => ({
+      ok: true,
+      message: "Connected to mac-mini.local. Found 2 simulators.",
+    })),
   };
   return {
     mobile,
@@ -158,6 +162,27 @@ describe("Settings > Mobile", () => {
     expect(fake.mobile.shutdown).toHaveBeenCalledWith("android-avd:Pixel_8");
   });
 
+  it("shows how each phone is connected, what to do when it is not ready, and disconnects a Wi-Fi phone", async () => {
+    const wifi: MobileDevice = {
+      ...phone,
+      deviceId: "android:192.168.1.20:39457",
+      name: "Pixel 8 Pro",
+      serial: "192.168.1.20:39457",
+      connection: "wifi",
+    };
+    const waiting: MobileDevice = { ...phone, state: "unauthorized", connection: "usb", osVersion: undefined };
+    const fake = createMobile([wifi, waiting]);
+    const disconnectWifi = vi.fn(async (_deviceId: string) => undefined);
+    const container = await render(bridgeWith({ ...fake.mobile, disconnectWifi }));
+    const rows = [...container.querySelectorAll<HTMLElement>(".mobile-device-row")];
+    expect(rows[0]?.textContent).toContain("Android phone, Android 14, Wi-Fi");
+    expect(rows[0]?.textContent).toContain("Ready");
+    expect(rows[1]?.textContent).toContain("Allow USB debugging on the phone, then check the prompt on its screen.");
+    expect(rows[1]?.querySelector("button")).toBeNull();
+    await act(async () => button(container, "Disconnect Pixel 8 Pro").click());
+    expect(disconnectWifi).toHaveBeenCalledWith("android:192.168.1.20:39457");
+  });
+
   it("shows where the SDK is, which tools are missing, and rechecks acceleration on request", async () => {
     const fake = createMobile([]);
     const container = await render(bridgeWith(fake.mobile));
@@ -193,5 +218,37 @@ describe("Settings > Mobile", () => {
     expect(agents.checked).toBe(true);
     await act(async () => agents.click());
     expect(fake.mobile.setSettings).toHaveBeenCalledWith({ agentTools: false });
+  });
+
+  it("saves, tests, and clears the Mac that runs iPhone simulators", async () => {
+    const fake = createMobile([]);
+    const container = await render(bridgeWith(fake.mobile));
+    const input = container.querySelector<HTMLInputElement>('input[placeholder="you@mac-mini.local"]');
+    if (!input) throw new Error("No Mac address field");
+    const type = (value: string) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+
+    await act(async () => type("me@bad host"));
+    expect(container.textContent).toContain("Test connection");
+    expect(button(container, "Save").disabled).toBe(true);
+
+    await act(async () => type("  me@mac-mini.local "));
+    await act(async () => button(container, "Save").click());
+    expect(fake.mobile.setSettings).toHaveBeenCalledWith({ iosRemoteHost: "me@mac-mini.local" });
+    expect(container.textContent).toContain("ZLI runs iPhone simulators on mac-mini.local over SSH.");
+
+    await act(async () => button(container, "Test connection").click());
+    expect(fake.mobile.testIosHost).toHaveBeenCalledWith("me@mac-mini.local");
+    expect(container.querySelector("[role=status]")?.textContent).toBe(
+      "Connected to mac-mini.local. Found 2 simulators.",
+    );
+
+    await act(async () => button(container, "Clear the Mac").click());
+    expect(fake.mobile.setSettings).toHaveBeenLastCalledWith({ iosRemoteHost: "" });
+    expect(input.value).toBe("");
+    expect(container.textContent).not.toContain("Test connection");
   });
 });

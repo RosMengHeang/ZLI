@@ -2,9 +2,29 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { MobileButton, MobileDeviceState, MobileUiNode } from "@zli-v2/contracts";
+import {
+  type DeviceAppearance,
+  type DeviceConditions,
+  type DeviceLocation,
+  type DeviceNotification,
+  type DevicePermission,
+  type DeviceTextSize,
+  deviceConditionSupport,
+  type MobileButton,
+  type MobileDeviceState,
+  type MobileUiNode,
+} from "@zli-v2/contracts";
 
 import { filterLogLines, pngSize } from "./adb.js";
+import { type CommandHost, sshHostName } from "./CommandHost.js";
+import {
+  coordinate,
+  IOS_CONTENT_SIZES,
+  IOS_PRIVACY_SERVICES,
+  parseIosAppearance,
+  parseIosContentSize,
+  pushPayload,
+} from "./deviceConditions.js";
 import { type IdbVideoSession, startIdbVideo } from "./IosVideoSource.js";
 import {
   type BootOptions,
@@ -28,6 +48,8 @@ export type IosTools = {
   readonly idb?: string;
   /** osascript, which rotates a simulator by sending the Simulator app its rotate shortcut. */
   readonly osascript?: string;
+  /** The Mac these tools are on, reached over SSH. Absent when they are on this computer. */
+  readonly host?: CommandHost;
 };
 
 export type IosDriverDeps = {
@@ -243,7 +265,8 @@ export class IosSimulatorDriver implements MobileDriver {
   async list(): Promise<DriverDevice[]> {
     const tools = await this.#deps.tools();
     if (!tools.xcrun) return [];
-    const result = await this.#runner.run(tools.xcrun, ["simctl", "list", "devices", "--json"], {
+    const remote = tools.host?.remote;
+    const result = await this.#runnerFor(tools).run(tools.xcrun, ["simctl", "list", "devices", "--json"], {
       timeoutMs: 30_000,
     });
     if (result.code !== 0) return [];
@@ -254,27 +277,28 @@ export class IosSimulatorDriver implements MobileDriver {
       name: device.name,
       state: simctlState(device.state),
       osVersion: device.osVersion,
+      ...(remote ? { host: remote } : {}),
     }));
   }
 
   /** preferredPort is an Android emulator setting, so it is ignored here. */
   async boot(device: DriverDevice, options: BootOptions): Promise<DriverDevice> {
-    const xcrun = await this.#xcrun();
+    const { xcrun, runner } = await this.#xcrun();
     const udid = udidOf(device);
     this.#orientations.delete(udid);
-    if (options.wipeData) await runChecked(this.#runner, xcrun, ["simctl", "erase", udid], { timeoutMs: 120_000 });
+    if (options.wipeData) await runChecked(runner, xcrun, ["simctl", "erase", udid], { timeoutMs: 120_000 });
     const controller = new AbortController();
     this.#booting.set(udid, controller);
     const { signal } = controller;
     try {
       if (device.state !== "online") {
-        const boot = await this.#runner.run(xcrun, ["simctl", "boot", udid], { timeoutMs: 120_000, signal });
+        const boot = await runner.run(xcrun, ["simctl", "boot", udid], { timeoutMs: 120_000, signal });
         if (signal.aborted) throw new MobileDriverError(`${device.name} was shut down while booting.`, 409);
         // simctl reports an already booted device as an error; that is the state wanted here.
         if (boot.code !== 0 && !/current state: Booted/u.test(boot.stderr))
           throw new MobileDriverError(`The simulator would not boot: ${boot.stderr.trim()}`, 500);
       }
-      await runChecked(this.#runner, xcrun, ["simctl", "bootstatus", udid, "-b"], {
+      await runChecked(runner, xcrun, ["simctl", "bootstatus", udid, "-b"], {
         timeoutMs: 300_000,
         signal,
       }).catch((cause: unknown) => {
@@ -284,8 +308,9 @@ export class IosSimulatorDriver implements MobileDriver {
     } finally {
       if (this.#booting.get(udid) === controller) this.#booting.delete(udid);
     }
+    // Over SSH this opens the Simulator app on the Mac's own screen.
     if (options.window)
-      await this.#runner.run("open", ["-a", "Simulator", "--args", "-CurrentDeviceUDID", udid], {
+      await runner.run("open", ["-a", "Simulator", "--args", "-CurrentDeviceUDID", udid], {
         timeoutMs: 30_000,
       });
     return { ...device, state: "online" };
@@ -293,9 +318,8 @@ export class IosSimulatorDriver implements MobileDriver {
 
   async shutdown(device: DriverDevice): Promise<void> {
     this.#booting.get(udidOf(device))?.abort();
-    const result = await this.#runner.run(await this.#xcrun(), ["simctl", "shutdown", udidOf(device)], {
-      timeoutMs: 60_000,
-    });
+    const { xcrun, runner } = await this.#xcrun();
+    const result = await runner.run(xcrun, ["simctl", "shutdown", udidOf(device)], { timeoutMs: 60_000 });
     if (result.code !== 0 && !/current state: Shutdown/u.test(result.stderr))
       throw new MobileDriverError(`The simulator would not shut down: ${result.stderr.trim()}`, 500);
   }
@@ -303,14 +327,22 @@ export class IosSimulatorDriver implements MobileDriver {
   async install(device: DriverDevice, path: string): Promise<string> {
     if (!/\.app\/?$/iu.test(path))
       throw new MobileDriverError("Simulator installs take a .app bundle built for the simulator, not an .ipa.");
+    const remote = (await this.#deps.tools()).host?.remote;
+    if (remote)
+      throw new MobileDriverError(
+        `ZLI cannot copy an app from this computer to a simulator on ${sshHostName(remote)} yet. Build and install it on the Mac, for example with xcrun simctl install.`,
+        501,
+      );
     await this.#simctl(device, ["install", udidOf(this.#online(device)), path], 300_000);
     return "Installed";
   }
 
   async launch(device: DriverDevice, appId: string, options: { stop?: boolean }): Promise<void> {
     const udid = udidOf(this.#online(device));
-    if (options.stop)
-      await this.#runner.run(await this.#xcrun(), ["simctl", "terminate", udid, appId], { timeoutMs: 30_000 });
+    if (options.stop) {
+      const { xcrun, runner } = await this.#xcrun();
+      await runner.run(xcrun, ["simctl", "terminate", udid, appId], { timeoutMs: 30_000 });
+    }
     await this.#simctl(device, ["launch", udid, appId], 60_000);
   }
 
@@ -367,13 +399,19 @@ export class IosSimulatorDriver implements MobileDriver {
   async rotate(device: DriverDevice, orientation: Orientation | undefined): Promise<Orientation> {
     const udid = udidOf(this.#online(device));
     const tools = await this.#deps.tools();
+    // Rotating presses keys in the Simulator app, which over SSH would need Accessibility access for sshd on the Mac.
+    if (tools.host?.remote)
+      throw new MobileDriverError(
+        `ZLI cannot rotate a simulator on ${sshHostName(tools.host.remote)} yet. Rotate it in the Simulator app on the Mac.`,
+        501,
+      );
     if (!tools.osascript) throw new MobileDriverError("Rotating a simulator needs macOS.", 501);
     const current = this.#orientations.get(udid) ?? "portrait";
     const target = orientation ?? (current.startsWith("portrait") ? "landscape" : "portrait");
     const turns = (ROTATIONS.indexOf(target) - ROTATIONS.indexOf(current) + ROTATIONS.length) % ROTATIONS.length;
     if (turns === 0) return target;
     const [key, presses] = turns === 3 ? [KEY_LEFT_ARROW, 1] : [KEY_RIGHT_ARROW, turns];
-    const result = await this.#runner.run(
+    const result = await this.#runnerFor(tools).run(
       tools.osascript,
       [...SIMULATOR_ROTATE_SCRIPT.flatMap((line) => ["-e", line]), device.name, String(key), String(presses)],
       { timeoutMs: 30_000 },
@@ -393,6 +431,11 @@ export class IosSimulatorDriver implements MobileDriver {
     handlers: { onVideo(event: VideoEvent): void; onClose(reason: string): void },
   ): Promise<IdbVideoSession> {
     const tools = await this.#deps.tools();
+    if (tools.host?.remote)
+      throw new MobileDriverError(
+        `Live video from a simulator on ${sshHostName(tools.host.remote)} is not supported yet.`,
+        501,
+      );
     if (!tools.idb) throw new MobileDriverError(IDB_MISSING, 409);
     return startIdbVideo({
       runner: this.#runner,
@@ -404,6 +447,7 @@ export class IosSimulatorDriver implements MobileDriver {
 
   async screenshot(device: DriverDevice): Promise<Screenshot> {
     const udid = udidOf(this.#online(device));
+    if ((await this.#deps.tools()).host?.remote) return this.#remoteScreenshot(device, udid);
     const dir = await mkdtemp(join(tmpdir(), "zli-sim-"));
     const file = join(dir, "screen.png");
     try {
@@ -415,6 +459,18 @@ export class IosSimulatorDriver implements MobileDriver {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  }
+
+  /** simctl writes the PNG to stdout when the file is -, so it comes back through ssh without a copy step. */
+  async #remoteScreenshot(device: DriverDevice, udid: string): Promise<Screenshot> {
+    const { xcrun, runner } = await this.#xcrun();
+    const result = await runChecked(runner, xcrun, ["simctl", "io", udid, "screenshot", "--type=png", "-"], {
+      timeoutMs: 60_000,
+      maxOutputBytes: 32 * 1024 * 1024,
+    });
+    const size = pngSize(result.stdout);
+    if (!size) throw new MobileDriverError(`${device.name} returned an unreadable screenshot over SSH.`, 502);
+    return { data: result.stdout, ...size };
   }
 
   async logs(device: DriverDevice, query: LogQuery): Promise<string[]> {
@@ -445,6 +501,60 @@ export class IosSimulatorDriver implements MobileDriver {
     return { width: shot.width, height: shot.height };
   }
 
+  async readConditions(device: DriverDevice): Promise<DeviceConditions> {
+    const udid = udidOf(this.#online(device));
+    const { xcrun, runner } = await this.#xcrun();
+    const read = async (setting: string) => {
+      const result = await runner
+        .run(xcrun, ["simctl", "ui", udid, setting], { timeoutMs: 30_000 })
+        .catch(() => undefined);
+      return result?.code === 0 ? result.stdout.toString("utf8") : "";
+    };
+    const [appearanceText, sizeText] = await Promise.all([read("appearance"), read("content_size")]);
+    const appearance = parseIosAppearance(appearanceText);
+    const textSize = parseIosContentSize(sizeText);
+    return { ...(appearance ? { appearance } : {}), ...(textSize ? { textSize } : {}) };
+  }
+
+  async setAppearance(device: DriverDevice, appearance: DeviceAppearance): Promise<void> {
+    await this.#simctl(device, ["ui", udidOf(this.#online(device)), "appearance", appearance], 30_000);
+  }
+
+  async setTextSize(device: DriverDevice, size: DeviceTextSize): Promise<void> {
+    await this.#simctl(device, ["ui", udidOf(this.#online(device)), "content_size", IOS_CONTENT_SIZES[size]], 30_000);
+  }
+
+  async setLocation(device: DriverDevice, location: DeviceLocation): Promise<void> {
+    const point = `${coordinate(location.latitude)},${coordinate(location.longitude)}`;
+    await this.#simctl(device, ["location", udidOf(this.#online(device)), "set", point], 30_000);
+  }
+
+  async clearLocation(device: DriverDevice): Promise<void> {
+    await this.#simctl(device, ["location", udidOf(this.#online(device)), "clear"], 30_000);
+  }
+
+  async setPermission(device: DriverDevice, appId: string, permission: DevicePermission, grant: boolean) {
+    const service = IOS_PRIVACY_SERVICES[permission];
+    const support = deviceConditionSupport(device).permissions[permission];
+    if (!service || !support.ok)
+      throw new MobileDriverError(support.ok ? `simctl cannot set ${permission}.` : support.reason, 409);
+    await this.#simctl(
+      device,
+      ["privacy", udidOf(this.#online(device)), grant ? "grant" : "revoke", service, appId],
+      30_000,
+    );
+  }
+
+  /** simctl push reads the payload from stdin when the file argument is "-". Over SSH, ssh forwards stdin to it. */
+  async sendNotification(device: DriverDevice, appId: string, notification: DeviceNotification): Promise<void> {
+    const udid = udidOf(this.#online(device));
+    const { xcrun, runner } = await this.#xcrun();
+    await runChecked(runner, xcrun, ["simctl", "push", udid, appId, "-"], {
+      input: pushPayload(notification),
+      timeoutMs: 30_000,
+    });
+  }
+
   async dispose(): Promise<void> {
     // Simulators belong to Xcode and keep running after ZLI quits, like they do after Xcode quits.
   }
@@ -455,14 +565,28 @@ export class IosSimulatorDriver implements MobileDriver {
     return device;
   }
 
-  async #xcrun(): Promise<string> {
+  /** Where the tools run: this computer, or the Mac over SSH. Either way without ZLI's runtime secrets. */
+  #runnerFor(tools: IosTools): ProcessRunner {
+    return tools.host?.remote ? withDefaultEnv(tools.host.runner, this.#deps.env) : this.#runner;
+  }
+
+  async #xcrun(): Promise<{ xcrun: string; runner: ProcessRunner }> {
     const tools = await this.#deps.tools();
-    if (!tools.xcrun) throw new MobileDriverError("iOS Simulator needs a Mac with Xcode installed.", 409);
-    return tools.xcrun;
+    if (!tools.xcrun) {
+      const remote = tools.host?.remote;
+      throw new MobileDriverError(
+        remote
+          ? `ZLI cannot run Xcode's simulator tools on ${sshHostName(remote)}. Test the connection in Settings > Mobile.`
+          : "iOS Simulator needs a Mac with Xcode installed.",
+        409,
+      );
+    }
+    return { xcrun: tools.xcrun, runner: this.#runnerFor(tools) };
   }
 
   async #simctl(_device: DriverDevice, args: readonly string[], timeoutMs: number): Promise<string> {
-    const result = await runChecked(this.#runner, await this.#xcrun(), ["simctl", ...args], { timeoutMs });
+    const { xcrun, runner } = await this.#xcrun();
+    const result = await runChecked(runner, xcrun, ["simctl", ...args], { timeoutMs });
     return result.stdout.toString("utf8");
   }
 
@@ -471,7 +595,7 @@ export class IosSimulatorDriver implements MobileDriver {
     if (!tools.idb) throw new MobileDriverError(IDB_MISSING, 409);
     const [group, command, ...rest] = args;
     const result = await runChecked(
-      this.#runner,
+      this.#runnerFor(tools),
       tools.idb,
       [group ?? "", command ?? "", "--udid", udidOf(this.#online(device)), ...rest],
       { timeoutMs: 60_000 },
@@ -492,7 +616,8 @@ export class IosSimulatorDriver implements MobileDriver {
       "--predicate",
       'messageType == error OR messageType == fault OR eventMessage CONTAINS "uncaught exception" OR eventMessage CONTAINS "EXC_BAD_ACCESS"',
     ];
-    return processLogStream(this.#runner.spawn(await this.#xcrun(), args));
+    const { xcrun, runner } = await this.#xcrun();
+    return processLogStream(runner.spawn(xcrun, args));
   }
 }
 

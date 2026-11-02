@@ -465,6 +465,33 @@ describe("preload mobile API", () => {
     expect(calls).toHaveLength(3);
   });
 
+  it("validates Wi-Fi pairing and connect requests before invoking main and parses their answers", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        if (channel === "zli:mobile:wifi-disconnect") return { accepted: true };
+        return { connected: true, deviceId: "android:192.168.1.20:39457", message: "Connected to Pixel 8." };
+      },
+      on: () => () => undefined,
+    });
+    const pair = { host: "192.168.1.20", pairPort: 37_123, code: "123456" };
+    expect(await api.mobile.pairWifi(pair)).toMatchObject({ connected: true });
+    await api.mobile.connectWifi({ host: "192.168.1.20", port: 39_457 });
+    await api.mobile.disconnectWifi("android:192.168.1.20:39457");
+    expect(calls).toEqual([
+      { channel: "zli:mobile:wifi-pair", payload: pair },
+      { channel: "zli:mobile:wifi-connect", payload: { host: "192.168.1.20", port: 39_457 } },
+      { channel: "zli:mobile:wifi-disconnect", payload: { deviceId: "android:192.168.1.20:39457" } },
+    ]);
+
+    await expect(api.mobile.pairWifi({ ...pair, code: "12345" })).rejects.toThrow();
+    await expect(api.mobile.pairWifi({ ...pair, host: "-s" })).rejects.toThrow();
+    await expect(api.mobile.connectWifi({ host: "192.168.1.20", port: 70_000 })).rejects.toThrow();
+    await expect(api.mobile.disconnectWifi("")).rejects.toThrow();
+    expect(calls).toHaveLength(3);
+  });
+
   it("validates virtual device names and images before invoking main and parses the device list", async () => {
     const calls: Array<{ channel: string; payload: unknown }> = [];
     const list = {

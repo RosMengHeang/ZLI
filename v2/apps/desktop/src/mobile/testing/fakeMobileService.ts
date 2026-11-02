@@ -1,4 +1,4 @@
-import { deflateSync, crc32 } from "node:zlib";
+import { crc32, deflateSync } from "node:zlib";
 
 import {
   type MobileAndroidStatus,
@@ -11,9 +11,10 @@ import {
 
 import type { AndroidDriver } from "../AndroidDriver.js";
 import type { AndroidEnvironment, AndroidSetup } from "../AndroidSetup.js";
+import { AndroidWireless } from "../AndroidWireless.js";
 import type { AvdManager } from "../AvdManager.js";
-import type { MobileDevTestOp } from "../dev/host.js";
 import { DeviceManager, type DeviceManagerEvents } from "../DeviceManager.js";
+import type { MobileDevTestOp } from "../dev/host.js";
 import type { FetchLike } from "../download.js";
 import { FakeDriver } from "../FakeDriver.js";
 import { FakeProcessRunner } from "../FakeProcessRunner.js";
@@ -133,11 +134,19 @@ export function createFakeMobileService(options: {
     setup: setup as unknown as AndroidSetup,
     environment: {} as AndroidEnvironment,
     avds: avds as unknown as AvdManager,
+    // Answers come from runner-answer, like every other command the fake service runs.
+    wireless: new AndroidWireless({
+      runner,
+      tools: async () => ({ adb: androidStatus.adb.path ?? "adb", env: {} }),
+      manager,
+      sleep: async () => undefined,
+    }),
     status: async () => ({
       host: { os: options.os, arch: options.arch },
       android: androidStatus,
       ios: { supported: false, simctl: { found: false }, idb: { found: false }, missing: ["A Mac with Xcode"] },
     }),
+    testIosHost: async () => ({ ok: false, message: "The fake mobile service has no Mac to connect to." }),
     dispose: () => manager.dispose(),
   };
 

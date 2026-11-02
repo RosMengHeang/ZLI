@@ -1,6 +1,7 @@
 import type { MobileProposal } from "@zli-v2/contracts";
 
 import type { BuildBridge } from "./build/bridge.js";
+import type { ConditionsBridge } from "./conditions/bridge.js";
 import type { CrashBridge } from "./crash/bridge.js";
 import type { DoctorBridge } from "./doctor/bridge.js";
 import type { PackagesBridge } from "./packages/bridge.js";
@@ -21,4 +22,5 @@ export type MobileDevBridge = { proposals: ProposalsBridge } & WorkspaceBridge &
   DoctorBridge &
   PackagesBridge &
   CrashBridge &
-  BuildBridge;
+  BuildBridge &
+  ConditionsBridge;

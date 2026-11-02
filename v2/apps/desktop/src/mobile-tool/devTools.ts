@@ -1,5 +1,6 @@
 import type { McpTool, ToolResult } from "../browser-tool/mcp.js";
 import { buildTools } from "./dev/build.js";
+import { conditionsTools } from "./dev/conditions.js";
 import { crashTools } from "./dev/crash.js";
 import { doctorTools } from "./dev/doctor.js";
 import { packagesTools } from "./dev/packages.js";
@@ -14,6 +15,7 @@ const MODULES: readonly MobileDevToolModule[] = [
   packagesTools,
   crashTools,
   buildTools,
+  conditionsTools,
 ];
 
 /** The tools the mobile dev features add to zli-mobile, after the device tools. */

@@ -15,6 +15,8 @@ export function useMobileSettings(mobile: MobileBridge | undefined): {
   settings: MobileSettings | undefined;
   error: string | undefined;
   setAgentTools(agentTools: boolean): void;
+  /** Saves the Mac that runs iPhone simulators, or "" for this computer. Rejects with the reason it was not saved. */
+  setIosRemoteHost(host: string): Promise<void>;
 } {
   const [settings, setSettings] = useState<MobileSettings>();
   const [error, setError] = useState<string>();
@@ -48,5 +50,13 @@ export function useMobileSettings(mobile: MobileBridge | undefined): {
     [mobile],
   );
 
-  return { settings, error, setAgentTools };
+  const setIosRemoteHost = useCallback(
+    async (host: string) => {
+      if (!mobile) return;
+      announce(await mobile.setSettings({ iosRemoteHost: host }));
+    },
+    [mobile],
+  );
+
+  return { settings, error, setAgentTools, setIosRemoteHost };
 }

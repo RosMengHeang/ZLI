@@ -25,6 +25,8 @@ import {
   MobileAvdList,
   MobileDevice,
   MobileDeviceIdInput,
+  MobileIosHostTestInput,
+  MobileIosHostTestResult,
   MobileLogLines,
   MobileOpenUrlResult,
   MobilePanelInput,
@@ -43,6 +45,9 @@ import {
   MobileSetupStatus,
   MobileStreamEvent,
   MobileStreamInfo,
+  MobileWifiConnectInput,
+  MobileWifiPairInput,
+  MobileWifiResult,
   OpenInApp,
   OpenInRequest,
   RpcRequest,
@@ -92,6 +97,15 @@ function createMobileApi(ipc: PreloadIpc) {
     shutdown: async (deviceId: string) => {
       await ipc.invoke("zli:mobile:shutdown", device(deviceId));
     },
+    /** Pairs with a phone's Wireless debugging code, then connects to it. */
+    pairWifi: async (input: MobileWifiPairInput) =>
+      MobileWifiResult.parse(await ipc.invoke("zli:mobile:wifi-pair", MobileWifiPairInput.parse(input))),
+    connectWifi: async (input: MobileWifiConnectInput) =>
+      MobileWifiResult.parse(await ipc.invoke("zli:mobile:wifi-connect", MobileWifiConnectInput.parse(input))),
+    /** Only for a phone connected over Wi-Fi. */
+    disconnectWifi: async (deviceId: string) => {
+      await ipc.invoke("zli:mobile:wifi-disconnect", device(deviceId));
+    },
     startStream: async (deviceId: string) =>
       MobileStreamInfo.parse(await ipc.invoke("zli:mobile:stream-start", device(deviceId))),
     stopStream: async (deviceId: string) => {
@@ -122,6 +136,10 @@ function createMobileApi(ipc: PreloadIpc) {
     getSettings: async () => MobileSettings.parse(await ipc.invoke("zli:mobile:settings-get")),
     setSettings: async (patch: Partial<MobileSettings>) =>
       MobileSettings.parse(await ipc.invoke("zli:mobile:settings-set", MobileSettings.partial().parse(patch))),
+    testIosHost: async (host: string) =>
+      MobileIosHostTestResult.parse(
+        await ipc.invoke("zli:mobile:ios-host-test", MobileIosHostTestInput.parse({ host })),
+      ),
     /** Fires when an agent boots or drives a device, so the renderer can show the Mobile panel with it. */
     onReveal: listenParsed(ipc, "zli:mobile:reveal", MobileRevealEvent),
     popOuts: async () => MobilePopOutList.parse(await ipc.invoke("zli:mobile:popout-list")),

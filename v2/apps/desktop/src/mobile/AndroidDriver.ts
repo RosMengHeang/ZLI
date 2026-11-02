@@ -1,4 +1,13 @@
-import type { MobileButton } from "@zli-v2/contracts";
+import {
+  DEVICE_PERMISSION_LABELS,
+  type DeviceAppearance,
+  type DeviceConditions,
+  type DeviceLocation,
+  type DevicePermission,
+  type DeviceTextSize,
+  deviceConditionSupport,
+  type MobileButton,
+} from "@zli-v2/contracts";
 import type { AvdInfo } from "./AndroidSdk.js";
 import {
   ANDROID_KEYCODES,
@@ -14,6 +23,14 @@ import {
   pngSize,
   repairScreencap,
 } from "./adb.js";
+import {
+  ANDROID_FONT_SCALES,
+  ANDROID_PERMISSIONS,
+  androidPermissionFailure,
+  coordinate,
+  parseFontScale,
+  parseNightMode,
+} from "./deviceConditions.js";
 import {
   type BootOptions,
   type DriverDevice,
@@ -77,6 +94,8 @@ export class AndroidDriver implements MobileDriver {
   readonly platform = "android" as const;
   readonly #deps: AndroidDriverDeps;
   readonly #avdNames = new Map<string, string | undefined>();
+  /** Android versions of connected phones by serial, read once per connection. */
+  readonly #osVersions = new Map<string, string>();
   readonly #started = new Map<string, RunningProcess>();
   /** The serial each emulator ZLI started will have, known before adb lists it. */
   readonly #startedSerials = new Map<string, string>();
@@ -99,13 +118,17 @@ export class AndroidDriver implements MobileDriver {
         device.emulator && device.state === "online" ? await this.#avdName(tools, device.serial) : undefined;
       if (avdName) runningAvds.add(avdName);
       const avd = avdName ? tools.avds.find((entry) => entry.name === avdName) : undefined;
+      const osVersion =
+        !device.emulator && device.state === "online" ? await this.#osVersion(tools, device.serial) : undefined;
       devices.push({
         deviceId: androidDeviceId({ ...(avdName ? { avdName } : {}), serial: device.serial }),
         platform: "android",
         kind: device.emulator ? "emulator" : "physical",
         name: avd?.displayName ?? device.model ?? device.serial,
         state: device.state,
+        ...(osVersion ? { osVersion } : {}),
         serial: device.serial,
+        ...(device.emulator ? {} : { connection: device.wifi ? ("wifi" as const) : ("usb" as const) }),
       });
     }
     for (const avd of tools.avds) {
@@ -344,6 +367,70 @@ export class AndroidDriver implements MobileDriver {
     return size;
   }
 
+  async readConditions(device: DriverDevice): Promise<DeviceConditions> {
+    const [night, scale] = await Promise.all([
+      this.#shell(device, ["cmd", "uimode", "night"]).catch(() => ""),
+      this.#shell(device, ["settings", "get", "system", "font_scale"]).catch(() => ""),
+    ]);
+    const appearance = parseNightMode(night);
+    const textSize = parseFontScale(scale);
+    return { ...(appearance ? { appearance } : {}), ...(textSize ? { textSize } : {}) };
+  }
+
+  async setAppearance(device: DriverDevice, appearance: DeviceAppearance): Promise<void> {
+    const output = await this.#shell(device, ["cmd", "uimode", "night", appearance === "dark" ? "yes" : "no"]);
+    if (/error|exception|unknown/iu.test(output))
+      throw new MobileDriverError(`${device.name} did not switch to ${appearance} mode: ${output.trim()}`, 502);
+  }
+
+  async setTextSize(device: DriverDevice, size: DeviceTextSize): Promise<void> {
+    await this.#shell(device, ["settings", "put", "system", "font_scale", ANDROID_FONT_SCALES[size]]);
+  }
+
+  /** The emulator console takes longitude before latitude. */
+  async setLocation(device: DriverDevice, location: DeviceLocation): Promise<void> {
+    const support = deviceConditionSupport(device).location;
+    if (!support.ok) throw new MobileDriverError(support.reason, 409);
+    const output = await this.#adbRun(device, [
+      "emu",
+      "geo",
+      "fix",
+      coordinate(location.longitude),
+      coordinate(location.latitude),
+    ]);
+    if (/^KO/mu.test(output))
+      throw new MobileDriverError(`The emulator did not take the location: ${output.trim()}`, 502);
+  }
+
+  async setPermission(device: DriverDevice, appId: string, permission: DevicePermission, grant: boolean) {
+    const verb = grant ? "grant" : "revoke";
+    const label = DEVICE_PERMISSION_LABELS[permission].toLowerCase();
+    let changed = 0;
+    let unknown = 0;
+    for (const name of ANDROID_PERMISSIONS[permission]) {
+      const result = await this.#shellResult(device, ["pm", verb, appId, name]);
+      if (result.code === 0 && !/Exception|Error:/u.test(result.output)) {
+        changed += 1;
+        continue;
+      }
+      const failure = androidPermissionFailure(result.output);
+      if (failure === "not-installed") throw new MobileDriverError(`${appId} is not installed on ${device.name}.`, 404);
+      if (failure === "unknown-permission") unknown += 1;
+      else if (failure === "other")
+        throw new MobileDriverError(
+          `Android did not ${verb} ${label} for ${appId}: ${pmMessage(result.output) || `pm exited with code ${result.code}`}`,
+          502,
+        );
+    }
+    if (changed > 0) return;
+    if (unknown === ANDROID_PERMISSIONS[permission].length)
+      throw new MobileDriverError(`This Android version has no ${label} permission to ${verb}.`, 409);
+    throw new MobileDriverError(
+      `${appId} does not ask for ${label} in its manifest, so Android cannot ${verb} it.`,
+      409,
+    );
+  }
+
   async dispose(): Promise<void> {
     const running = [...this.#started.values()];
     this.#started.clear();
@@ -374,6 +461,21 @@ export class AndroidDriver implements MobileDriver {
     return name;
   }
 
+  async #osVersion(tools: AndroidTools, serial: string): Promise<string | undefined> {
+    const known = this.#osVersions.get(serial);
+    if (known) return known;
+    const result = await this.#deps.runner
+      .run(this.#adb(tools), ["-s", serial, "shell", "getprop", "ro.build.version.release"], {
+        env: tools.env,
+        timeoutMs: 10_000,
+      })
+      .catch(() => undefined);
+    const version = result?.code === 0 ? result.stdout.toString("utf8").trim() : "";
+    if (!/^[\w.]{1,20}$/u.test(version)) return undefined;
+    this.#osVersions.set(serial, version);
+    return version;
+  }
+
   async #serialForAvd(tools: AndroidTools, avdName: string): Promise<string | undefined> {
     for (const device of await this.#connected(this.#adb(tools), tools.env)) {
       if (device.emulator && (await this.#avdName(tools, device.serial)) === avdName) return device.serial;
@@ -388,7 +490,12 @@ export class AndroidDriver implements MobileDriver {
 
   #serial(device: DriverDevice): string {
     if (device.state !== "online" || !device.serial)
-      throw new MobileDriverError(`${device.name} is not running. Boot it first with mobile_boot.`, 409);
+      throw new MobileDriverError(
+        device.kind === "physical"
+          ? `${device.name} is not connected and ready. ${physicalStateHint(device)}`
+          : `${device.name} is not running. Boot it first with mobile_boot.`,
+        409,
+      );
     return device.serial;
   }
 
@@ -403,6 +510,18 @@ export class AndroidDriver implements MobileDriver {
 
   #shell(device: DriverDevice, args: readonly string[]): Promise<string> {
     return this.#adbRun(device, ["shell", deviceShellCommand(args)]);
+  }
+
+  /** A shell command whose failure output the caller reads, instead of a thrown error. */
+  async #shellResult(device: DriverDevice, args: readonly string[]): Promise<{ code: number | null; output: string }> {
+    const tools = await this.#deps.tools();
+    const result = await this.#deps.runner.run(
+      this.#adb(tools),
+      ["-s", this.#serial(device), "shell", deviceShellCommand(args)],
+      { env: tools.env, timeoutMs: 60_000 },
+    );
+    if (result.timedOut) throw new MobileDriverError(`${device.name} did not answer in time.`, 504);
+    return { code: result.code, output: `${result.stdout.toString("utf8")}\n${result.stderr}`.trim() };
   }
 
   /**
@@ -428,6 +547,27 @@ export class AndroidDriver implements MobileDriver {
     ];
     return processLogStream(this.#deps.runner.spawn(this.#adb(tools), args, { env: tools.env }));
   }
+}
+
+/** The reason in pm's output, which is the message of the exception it prints before the stack trace. */
+function pmMessage(output: string): string {
+  const lines = output
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const exception = lines.map((line) => /^[\w.$]*(?:Exception|Error):\s*(.+)$/u.exec(line)?.[1]).find(Boolean);
+  return (exception ?? lines[0] ?? "").slice(0, 500);
+}
+
+/** What the person can do about a phone adb lists but cannot use yet. */
+export function physicalStateHint(device: Pick<DriverDevice, "state" | "connection">): string {
+  if (device.state === "unauthorized")
+    return device.connection === "wifi"
+      ? "Pair it again with a code from Wireless debugging on the phone."
+      : "Allow USB debugging on the phone, then check the prompt on its screen.";
+  if (device.connection === "wifi")
+    return "Check that Wireless debugging is still on and the phone is on the same Wi-Fi network, then connect again.";
+  return "Unplug the cable and plug it back in, then unlock the phone.";
 }
 
 function emulatorFailure(output: string): string {

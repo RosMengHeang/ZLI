@@ -7,6 +7,7 @@ import type {
   MobileAvdCreateInput,
   MobileAvdList,
   MobileDevice,
+  MobileIosHostTestResult,
   MobileOpenUrlResult,
   MobilePanelInput,
   MobilePopOut,
@@ -19,6 +20,9 @@ import type {
   MobileSetupStatus,
   MobileStreamEvent,
   MobileStreamInfo,
+  MobileWifiConnectInput,
+  MobileWifiPairInput,
+  MobileWifiResult,
   OpenInApp,
   RpcResponse,
   RuntimeProjection,
@@ -163,6 +167,11 @@ export type MobileBridge = {
   onDevices(listener: (devices: MobileDevice[]) => void): () => void;
   boot(deviceId: string): Promise<MobileDevice>;
   shutdown(deviceId: string): Promise<void>;
+  /** Wireless debugging for Android 11 and newer phones. Absent in test bridges without it. */
+  pairWifi?(input: MobileWifiPairInput): Promise<MobileWifiResult>;
+  connectWifi?(input: MobileWifiConnectInput): Promise<MobileWifiResult>;
+  /** Only for a phone connected over Wi-Fi. */
+  disconnectWifi?(deviceId: string): Promise<void>;
   startStream(deviceId: string): Promise<MobileStreamInfo>;
   stopStream(deviceId: string): Promise<void>;
   onStream(listener: (event: MobileStreamEvent) => void): () => void;
@@ -176,6 +185,8 @@ export type MobileBridge = {
   screenshot(deviceId: string): Promise<MobileScreenshot>;
   getSettings(): Promise<MobileSettings>;
   setSettings(patch: Partial<MobileSettings>): Promise<MobileSettings>;
+  /** Signs in to a Mac over SSH and lists its simulators. Absent in bridges without the desktop app's ssh. */
+  testIosHost?(host: string): Promise<MobileIosHostTestResult>;
   onReveal(listener: (event: MobileRevealEvent) => void): () => void;
   /** Pop-out windows exist only in the desktop app; without them the panel offers no Pop out. */
   popOuts?(): Promise<MobilePopOut[]>;
