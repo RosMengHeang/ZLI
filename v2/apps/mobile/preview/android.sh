@@ -102,7 +102,13 @@ capture() {
   local failed=0
   adb wait-for-device
   log "Installing $APK"
-  adb install -r "$APK"
+  # The package service can still drop installs for a while after the emulator reports it has booted.
+  local attempt
+  for attempt in 1 2 3 4 5 6; do
+    if adb install -r "$APK"; then break; fi
+    if [ "$attempt" -eq 6 ]; then exit 1; fi
+    sleep 15
+  done
   adb shell pm grant "$PACKAGE" android.permission.POST_NOTIFICATIONS || true
   # The emulator has no lock screen until one is turned on.
   adb shell locksettings set-disabled false || true

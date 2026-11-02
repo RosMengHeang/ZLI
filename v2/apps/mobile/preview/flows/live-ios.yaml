@@ -28,9 +28,10 @@ appId: dev.zli.remote
     duration: 500
 - waitForAnimationToEnd:
     timeout: 3000
-# iOS asks once whether to keep Live Activities on the lock screen, and the question covers the activity.
+# iOS asks whether to keep Live Activities on the lock screen, then later asks again with Always Allow, and the
+# question covers the activity.
 - tapOn:
-    text: "Allow"
+    text: "Allow|Always Allow"
     optional: true
 - waitForAnimationToEnd:
     timeout: 3000
