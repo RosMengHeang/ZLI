@@ -1,6 +1,13 @@
 import { readFile } from "node:fs/promises";
 
-import { generateKeyPair, type KeyPair, keyPairFromSecret, type RandomBytes } from "@zli-v2/remote-protocol";
+import {
+  generateKeyPair,
+  type KeyPair,
+  keyPairFromSecret,
+  PushPlatform,
+  PushToken,
+  type RandomBytes,
+} from "@zli-v2/remote-protocol";
 import { z } from "zod";
 
 import { writeJsonFile } from "../storage/writeJsonFile.js";
@@ -21,8 +28,11 @@ const StoredDevice = z.object({
   credentialHash: z.string().min(1).max(100),
   pairedAt: z.string().datetime({ offset: true }),
   lastSeenAt: z.string().datetime({ offset: true }).optional(),
+  /** Where Expo delivers push notifications for this phone, set by the phone itself. */
+  push: z.object({ token: PushToken, platform: PushPlatform }).optional(),
 });
 export type StoredDevice = z.infer<typeof StoredDevice>;
+export type DevicePush = NonNullable<StoredDevice["push"]>;
 
 const StoredSettings = z.object({
   enabled: z.boolean().default(false),
@@ -121,6 +131,19 @@ export class MobileAccessStore {
       entry.deviceId === deviceId ? { ...entry, lastSeenAt: seenAt } : entry,
     );
     await this.#save({ ...this.#settings, devices });
+  }
+
+  /** Sets or clears a phone's push token. Returns whether anything changed. */
+  async setPush(deviceId: string, push: DevicePush | undefined): Promise<boolean> {
+    const device = this.#settings.devices.find((entry) => entry.deviceId === deviceId);
+    if (!device || (device.push?.token === push?.token && device.push?.platform === push?.platform)) return false;
+    const devices = this.#settings.devices.map((entry) => {
+      if (entry.deviceId !== deviceId) return entry;
+      const { push: _old, ...rest } = entry;
+      return push ? { ...rest, push: { ...push } } : rest;
+    });
+    await this.#save({ ...this.#settings, devices });
+    return true;
   }
 
   /** Resolves once every write started so far has finished. */

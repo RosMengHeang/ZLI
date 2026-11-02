@@ -3,9 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { AppState, Linking, Platform } from "react-native";
 
 import { useLink } from "./LinkContext.js";
-import { type AgentAlert, agentAlerts, answeredAlertKeys, shouldShowAlert } from "./lib/alerts.js";
-
-const CHANNEL_ID = "agents";
+import { type AgentAlert, agentAlerts, answeredAlertKeys, isUrgentAlert, shouldShowAlert } from "./lib/alerts.js";
+import { CHANNEL_ID, ensureChannel } from "./notificationChannel.js";
 
 /** What the phone lets this app do: `blocked` means only the system settings can turn it back on. */
 export type NotificationAccess = "on" | "off" | "blocked";
@@ -18,20 +17,6 @@ Notifications.setNotificationHandler({
     shouldSetBadge: false,
   }),
 });
-
-let channelReady: Promise<unknown> | undefined;
-
-function ensureChannel(): Promise<unknown> {
-  if (Platform.OS !== "android") return Promise.resolve();
-  channelReady ??= Notifications.setNotificationChannelAsync(CHANNEL_ID, {
-    name: "Agents",
-    description: "Approvals, questions, and agents that finish, fail, or stop.",
-    importance: Notifications.AndroidImportance.HIGH,
-  }).catch(() => {
-    channelReady = undefined;
-  });
-  return channelReady;
-}
 
 function accessOf(permission: Notifications.NotificationPermissionsStatus): NotificationAccess {
   const provisional = permission.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
@@ -60,7 +45,7 @@ export function openSystemSettings(): void {
 
 async function show(alert: AgentAlert): Promise<void> {
   await ensureChannel();
-  const urgent = alert.kind === "approval" || alert.kind === "question" || alert.kind === "failed";
+  const urgent = isUrgentAlert(alert);
   await Notifications.scheduleNotificationAsync({
     identifier: alert.key,
     content: {
@@ -134,6 +119,7 @@ export function useNotificationTaps(onOpen: (threadId: string) => void): void {
 
 /** The current permission, refreshed when the person comes back from the system settings. */
 export function useNotificationAccess(): [NotificationAccess | undefined, () => Promise<void>] {
+  const link = useLink();
   const [access, setAccess] = useState<NotificationAccess>();
 
   useEffect(() => {
@@ -147,6 +133,7 @@ export function useNotificationAccess(): [NotificationAccess | undefined, () => 
 
   const ask = async () => {
     setAccess(await askForNotifications().catch(() => "blocked" as const));
+    link.refreshPush();
   };
   return [access, ask];
 }

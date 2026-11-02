@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BackHandler, View } from "react-native";
 
-import { useLinkSnapshot } from "./LinkContext.js";
+import { useLink, useLinkSnapshot } from "./LinkContext.js";
 import { type Navigation, NavigationContext, type Route } from "./navigation.js";
 import { askForNotificationsOnce, useAgentAlerts, useNotificationTaps } from "./notifications.js";
 import { AgentScreen } from "./screens/AgentScreen.js";
@@ -16,6 +16,7 @@ import { useLiveStatus } from "./useLiveStatus.js";
 /** A screen stack. The app has five screens, which does not justify a navigation library. */
 export function Navigator({ onForget }: { onForget: (notice?: string) => Promise<void> }) {
   const [stack, setStack] = useState<Route[]>([{ name: "home" }]);
+  const link = useLink();
   const snapshot = useLinkSnapshot();
   const palette = usePalette();
 
@@ -43,8 +44,10 @@ export function Navigator({ onForget }: { onForget: (notice?: string) => Promise
   useNotificationTaps(openAgent);
   useLiveStatus(openAgent);
   useEffect(() => {
-    void askForNotificationsOnce().catch(() => {});
-  }, []);
+    void askForNotificationsOnce()
+      .catch(() => {})
+      .then(() => link.refreshPush());
+  }, [link]);
 
   const depth = stack.length;
   useEffect(() => {
