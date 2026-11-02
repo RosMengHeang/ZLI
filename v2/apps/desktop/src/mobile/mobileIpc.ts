@@ -12,10 +12,11 @@ import {
   MobileSetupRunInput,
   MobileSimulatorCreateInput,
   MobileSimulatorDeleteInput,
+  MobileWifiConnectInput,
+  MobileWifiPairInput,
 } from "@zli-v2/contracts";
-
-import type { MobileDev } from "./dev/index.js";
 import { PANEL_VIEWER } from "./DeviceManager.js";
+import type { MobileDev } from "./dev/index.js";
 import type { MobileService } from "./MobileService.js";
 import type { MobileSettingsStore } from "./MobileSettingsStore.js";
 import type { PopOutWindows } from "./PopOutWindows.js";
@@ -34,7 +35,7 @@ export function streamViewer(webContentsId: number): string {
  * renderer is not trusted to have run the preload's own checks.
  */
 export function mobileIpcHandlers(deps: {
-  service(): Pick<MobileService, "manager" | "setup" | "status" | "avds" | "simulators"> | undefined;
+  service(): Pick<MobileService, "manager" | "setup" | "status" | "avds" | "simulators" | "wireless"> | undefined;
   settings(): Pick<MobileSettingsStore, "get" | "set"> | undefined;
   popOuts?(): Pick<PopOutWindows, "open" | "close" | "pin" | "setAspect" | "list"> | undefined;
   /** The mobile dev features' channels, named zli:mobile:<feature>:<verb>. Read once, when the handlers are made. */
@@ -83,6 +84,12 @@ export function mobileIpcHandlers(deps: {
     "zli:mobile:boot": (input) => manager().boot(deviceId(input)),
     "zli:mobile:shutdown": async (input) => {
       await manager().shutdown(deviceId(input));
+      return { accepted: true };
+    },
+    "zli:mobile:wifi-pair": (input) => service().wireless.pair(MobileWifiPairInput.parse(input)),
+    "zli:mobile:wifi-connect": (input) => service().wireless.connect(MobileWifiConnectInput.parse(input)),
+    "zli:mobile:wifi-disconnect": async (input) => {
+      await service().wireless.disconnect(deviceId(input));
       return { accepted: true };
     },
     "zli:mobile:stream-start": (input, context) => manager().startStream(deviceId(input), context?.viewer),

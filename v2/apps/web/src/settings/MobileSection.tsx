@@ -1,16 +1,17 @@
 import type { MobileDevice, MobileSetupStatus, MobileToolProbe } from "@zli-v2/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
-
+import { MobileDevSettingGroups } from "../mobile/dev/MobileDevSettingGroups.js";
 import {
   accelerationProblem,
+  connectionLabel,
   deviceKindLabel,
+  deviceStateLabel,
   devicesInGroups,
   errorText,
-  stateLabel,
+  phoneStateHint,
   stateTone,
   systemImageLabel,
 } from "../mobile/mobile.js";
-import { MobileDevSettingGroups } from "../mobile/dev/MobileDevSettingGroups.js";
 import { NewDeviceDialog, type NewDevicePlatform } from "../mobile/NewDeviceDialog.js";
 import { useDeviceFrame } from "../mobile/useDeviceFrame.js";
 import { useMobileSettings } from "../mobile/useMobileSettings.js";
@@ -36,7 +37,7 @@ export function MobileSection() {
   return (
     <>
       <SectionHeader title="Mobile">
-        Android emulators, USB phones, and iPhone simulators open in the Mobile panel. Show it with{" "}
+        Android emulators, Android phones on USB or Wi-Fi, and iPhone simulators open in the Mobile panel. Show it with{" "}
         <Kbd shortcut={shortcut} />.
       </SectionHeader>
       {mobile ? (
@@ -166,7 +167,7 @@ function MobileSettingsBody({ mobile }: { mobile: MobileBridge }) {
         {devices?.length === 0 ? (
           <p className="setting-placeholder">
             No devices yet. Set up the Android emulator from the Mobile panel, or connect an Android phone with USB
-            debugging turned on.
+            debugging turned on. Phones on Wi-Fi connect from Setup in the Mobile panel.
           </p>
         ) : null}
         {devices && devices.length > 0 ? (
@@ -194,9 +195,19 @@ function MobileSettingsBody({ mobile }: { mobile: MobileBridge }) {
                   onShutdown={() =>
                     void act(device, () => mobile.shutdown(device.deviceId), `${device.name} did not shut down.`)
                   }
+                  {...(mobile.disconnectWifi
+                    ? {
+                        onDisconnect: () =>
+                          void act(
+                            device,
+                            async () => mobile.disconnectWifi?.(device.deviceId),
+                            `${device.name} could not be disconnected.`,
+                          ),
+                      }
+                    : {})}
                 />
               );
-            })}
+            })}{" "}
           </ul>
         ) : null}
         {actionError ? (
@@ -294,6 +305,7 @@ function DeviceRow({
   onBoot,
   onShutdown,
   onDelete,
+  onDisconnect,
 }: {
   device: MobileDevice;
   busy: boolean;
@@ -301,9 +313,13 @@ function DeviceRow({
   onShutdown(): void;
   /** Present for a virtual device ZLI can delete. Resolves true once it is gone. */
   onDelete?(): Promise<boolean>;
+  /** Present when the bridge can disconnect a phone on Wi-Fi. */
+  onDisconnect?: () => void;
 }) {
   const virtual = device.kind !== "physical";
   const platform = device.platform === "ios" ? "iOS" : "Android";
+  const via = connectionLabel(device);
+  const hint = phoneStateHint(device);
   const [confirming, setConfirming] = useState(false);
   const deleteRef = useRef<HTMLButtonElement>(null);
   const keepRef = useRef<HTMLButtonElement>(null);
@@ -318,10 +334,12 @@ function DeviceRow({
         <span className="mobile-device-meta">
           {deviceKindLabel(device)}
           {device.osVersion ? `, ${platform} ${device.osVersion}` : ""}
+          {via ? `, ${via}` : ""}
         </span>
+        {hint ? <span className="mobile-device-meta is-warning">{hint}</span> : null}
       </span>
       <Badge tone={stateTone(device)} dot={device.state !== "booting"} spinner={device.state === "booting"}>
-        {stateLabel(device.state)}
+        {deviceStateLabel(device)}
       </Badge>
       {confirming && onDelete ? (
         <fieldset className="mobile-device-action mobile-device-confirm" aria-label={`Delete ${device.name}?`}>
@@ -379,6 +397,17 @@ function DeviceRow({
               onClick={onShutdown}
             >
               Shut down
+            </Button>
+          ) : null}
+          {device.connection === "wifi" && onDisconnect ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              loading={busy}
+              aria-label={`Disconnect ${device.name}`}
+              onClick={onDisconnect}
+            >
+              Disconnect
             </Button>
           ) : null}
         </span>

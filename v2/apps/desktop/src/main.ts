@@ -72,7 +72,7 @@ import { createMobileControlActions, isMobileControlAction } from "./mobile/Mobi
 import { createMobileService, type MobileService, type MobileServiceOptions } from "./mobile/MobileService.js";
 import { MobileSettingsStore } from "./mobile/MobileSettingsStore.js";
 import { mobileIpcHandlers, streamViewer } from "./mobile/mobileIpc.js";
-import { PopOutWindows, type PopOutWindowLike, type WindowBounds } from "./mobile/PopOutWindows.js";
+import { PopOutWindows, type PopOutWindowLike } from "./mobile/PopOutWindows.js";
 import { createNodeProcessRunner, withDefaultEnv } from "./mobile/ProcessRunner.js";
 import { createFakeMobileService } from "./mobile/testing/fakeMobileService.js";
 import type { AgentNotifier } from "./notifications/AgentNotifier.js";
@@ -230,7 +230,7 @@ async function main(): Promise<void> {
     viewerFor: streamViewer,
     stopViewer: async (deviceId, viewer) => mobile?.manager.stopStream(deviceId, viewer),
     onChange: (list) => sendToMobileWindows("zli:mobile:popouts", list),
-    onScreen: (bounds) => screen.getAllDisplays().some((display) => overlaps(display.workArea, bounds)),
+    workAreas: () => screen.getAllDisplays().map((display) => display.workArea),
     log: (message, error) => console.error(message, error),
   });
   const taskbarDetails = process.platform === "win32" ? windowsAppDetails(process.execPath, app.isPackaged) : undefined;
@@ -779,15 +779,6 @@ function zoomApp(zoom: Zoom): void {
 function sendToMobileWindows(channel: string, payload: unknown): void {
   if (mainWindow && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send(channel, payload);
   for (const target of popOuts?.targets() ?? []) target.send?.(channel, payload);
-}
-
-function overlaps(area: WindowBounds, bounds: WindowBounds): boolean {
-  return (
-    bounds.x < area.x + area.width &&
-    bounds.x + bounds.width > area.x &&
-    bounds.y < area.y + area.height &&
-    bounds.y + bounds.height > area.y
-  );
 }
 
 function installedApps(): Promise<ResolvedApp[]> {

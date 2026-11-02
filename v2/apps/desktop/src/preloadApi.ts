@@ -46,6 +46,9 @@ import {
   MobileSimulatorDeleteInput,
   MobileStreamEvent,
   MobileStreamInfo,
+  MobileWifiConnectInput,
+  MobileWifiPairInput,
+  MobileWifiResult,
   OpenInApp,
   OpenInRequest,
   RpcRequest,
@@ -101,6 +104,15 @@ function createMobileApi(ipc: PreloadIpc) {
     boot: async (deviceId: string) => MobileDevice.parse(await ipc.invoke("zli:mobile:boot", device(deviceId))),
     shutdown: async (deviceId: string) => {
       await ipc.invoke("zli:mobile:shutdown", device(deviceId));
+    },
+    /** Pairs with a phone's Wireless debugging code, then connects to it. */
+    pairWifi: async (input: MobileWifiPairInput) =>
+      MobileWifiResult.parse(await ipc.invoke("zli:mobile:wifi-pair", MobileWifiPairInput.parse(input))),
+    connectWifi: async (input: MobileWifiConnectInput) =>
+      MobileWifiResult.parse(await ipc.invoke("zli:mobile:wifi-connect", MobileWifiConnectInput.parse(input))),
+    /** Only for a phone connected over Wi-Fi. */
+    disconnectWifi: async (deviceId: string) => {
+      await ipc.invoke("zli:mobile:wifi-disconnect", device(deviceId));
     },
     startStream: async (deviceId: string) =>
       MobileStreamInfo.parse(await ipc.invoke("zli:mobile:stream-start", device(deviceId))),

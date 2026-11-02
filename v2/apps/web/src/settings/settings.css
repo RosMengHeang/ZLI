@@ -205,6 +205,7 @@
 .mobile-device-action { display: flex; min-width: 88px; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: var(--zli-space-1); }
 fieldset.mobile-device-confirm { margin: 0; padding: 0; border: 0; gap: var(--zli-space-1-5); }
 .mobile-device-confirm-text { color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.mobile-device-meta.is-warning { color: var(--zli-amber); white-space: normal; }
 .mobile-tool-state { display: inline-flex; min-width: 0; align-items: center; gap: var(--zli-space-2); }
 .mobile-tool-version { overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 

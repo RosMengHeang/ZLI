@@ -21,6 +21,9 @@ import type {
   MobileSimulatorCreateInput,
   MobileStreamEvent,
   MobileStreamInfo,
+  MobileWifiConnectInput,
+  MobileWifiPairInput,
+  MobileWifiResult,
   OpenInApp,
   RpcResponse,
   RuntimeProjection,
@@ -162,6 +165,11 @@ export type MobileBridge = {
   onDevices(listener: (devices: MobileDevice[]) => void): () => void;
   boot(deviceId: string): Promise<MobileDevice>;
   shutdown(deviceId: string): Promise<void>;
+  /** Wireless debugging for Android 11 and newer phones. Absent in test bridges without it. */
+  pairWifi?(input: MobileWifiPairInput): Promise<MobileWifiResult>;
+  connectWifi?(input: MobileWifiConnectInput): Promise<MobileWifiResult>;
+  /** Only for a phone connected over Wi-Fi. */
+  disconnectWifi?(deviceId: string): Promise<void>;
   startStream(deviceId: string): Promise<MobileStreamInfo>;
   stopStream(deviceId: string): Promise<void>;
   onStream(listener: (event: MobileStreamEvent) => void): () => void;

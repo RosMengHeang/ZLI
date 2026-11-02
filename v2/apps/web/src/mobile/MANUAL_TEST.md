@@ -99,6 +99,12 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
   Expected: the window reshapes to landscape and keeps its long side, and the frame turns with the screen. Rotating back returns it to portrait.
 - [ ] Move and resize the window, pin it, then quit and restart ZLI and pop the device out again.
   Expected: the window opens where you left it, at the same size, still pinned. If that spot is no longer on any screen (for example a display was unplugged), it opens centered on the main display instead.
+- [ ] Click Compact window (the bottom panel icon) in the window's title bar.
+  Expected: the bottom bar goes away and the window gets shorter by its height, so the device stays the same size. The button shows as pressed. Clicking it again brings the bar back and the window grows back.
+- [ ] Turn on Compact window and the pin, put the window over a chat in the main window, then close and pop the device out again.
+  Expected: it opens compact and pinned, where you left it. Another device's window still opens with its bottom bar.
+- [ ] Move the window so only a sliver of its title bar is on screen, close it, and pop the device out again.
+  Expected: it opens centered at the same size instead of at the edge where it could not be grabbed.
 - [ ] Click "Bring it back" in the panel, then pop out again and close the window with its close button.
   Expected: both ways close the window and the panel shows the live screen again. "Show the window" brings the window to the front without closing it.
 - [ ] While an agent holds the device, look at the pop-out window.
@@ -147,10 +153,24 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
 ## Android USB phone
 
 - [ ] Connect a phone with USB debugging on, before accepting the computer's key.
-  Expected: the panel shows "Allow USB debugging on the phone" and the badge reads "Waiting for approval".
+  Expected: the panel shows "<phone> is waiting for approval" with "Allow USB debugging on the phone, then check the prompt on its screen.", and the badge reads "Waiting for approval".
 - [ ] Accept the prompt on the phone, then click Refresh.
-  Expected: the phone shows as Running with its screen, and tap, swipe, wheel scroll, and typing work like the emulator. Boot and Shut down do not appear.
+  Expected: the phone shows as Ready under Phones in the device picker, with "Android <version> over USB". Its screen shows, and tap, swipe, wheel scroll, and typing work like the emulator. Boot, Shut down, and Disconnect do not appear.
 
+## Android phone over Wi-Fi (Android 11 and newer)
+
+- [ ] On the phone, turn on Developer options > Wireless debugging and tap Pair device with pairing code. In the panel, pick "Connect a phone" from the device picker.
+  Expected: Setup opens at the Phones section with the Pairing address field focused.
+- [ ] Enter the pairing address and the 6-digit code, leave Connect port empty, and click Pair and connect.
+  Expected: the panel goes back to the device view, shows the phone with "Android <version> over Wi-Fi, ready", and a notice says "Paired and connected to <phone>." If mDNS does not find the phone, an info banner asks for the port and the Connect to an address form is filled with the phone's IP address.
+- [ ] Pair again with a wrong code.
+  Expected: a red banner says the phone did not accept the code and to open the pairing dialog again.
+- [ ] Type an address without a port, a port over 65535, or a 5-digit code, and submit.
+  Expected: a warning under the field, and nothing reaches adb.
+- [ ] Click Disconnect in the toolbar.
+  Expected: the stream stops, the phone leaves the list, and "Connect to an address" with the port from the Wireless debugging screen brings it back without pairing.
+- [ ] Turn Wireless debugging off on the phone while it is connected, then click Refresh.
+  Expected: the phone shows as Offline with the hint to check Wireless debugging and the Wi-Fi network, and a Connect again button.
 ## Linux Android
 
 - [ ] Repeat setup, boot, tap, swipe, wheel scroll, type, paste, and the buttons on Linux with KVM.
