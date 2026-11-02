@@ -1,3 +1,4 @@
+import { agentTitle } from "@zli-v2/client-runtime";
 import type {
   PermissionMode,
   ProjectProjection,
@@ -5,7 +6,6 @@ import type {
   RuntimeProjection,
   TerminalProjection,
   ThreadActivityProjection,
-  ThreadMessageProjection,
   ThreadProjection,
   ThreadQueuedMessage,
   ThreadRequestProjection,
@@ -14,20 +14,10 @@ import type {
 import { worktreeHasLiveThread } from "@zli-v2/contracts";
 import { worktreeRoot } from "@zli-v2/remote-protocol";
 
+export { agentTitle, providerName, threadMessages } from "@zli-v2/client-runtime";
+
 export type Tone = "neutral" | "blue" | "green" | "amber" | "red";
 export type StatusView = { label: string; tone: Tone };
-
-export function providerName(provider: string, providers: readonly ProviderDiscovery[] | undefined): string {
-  return providers?.find((entry) => entry.provider === provider)?.displayName ?? provider;
-}
-
-/** The name the person gave the agent, or its provider's name, as the desktop shows it. */
-export function agentTitle(
-  thread: Pick<ThreadProjection, "name" | "provider">,
-  providers: readonly ProviderDiscovery[] | undefined,
-): string {
-  return thread.name?.trim() || providerName(thread.provider, providers);
-}
 
 export function threadStatus(thread: Pick<ThreadProjection, "status">, openRequests: number): StatusView {
   if (openRequests > 0 || thread.status === "waiting") return { label: "Needs you", tone: "amber" };
@@ -144,12 +134,6 @@ export function pendingRequests(projection: RuntimeProjection | undefined, threa
     const thread = projection.threads.find((candidate) => candidate.threadId === request.threadId);
     return thread ? [{ request, thread, name: agentTitle(thread, projection.providers) }] : [];
   });
-}
-
-export function threadMessages(projection: RuntimeProjection, threadId: string): ThreadMessageProjection[] {
-  return (projection.messages ?? []).filter(
-    (message) => message.threadId === threadId && (message.text.trim() || message.attachments?.length),
-  );
 }
 
 export function queuedMessages(projection: RuntimeProjection, threadId: string): ThreadQueuedMessage[] {

@@ -50,12 +50,31 @@ export const ServerWelcome = z.object({
 });
 export type ServerWelcome = z.infer<typeof ServerWelcome>;
 
+/** An Expo push token, the address Expo's push service delivers to. */
+export const PushToken = z
+  .string()
+  .max(200)
+  .regex(/^Expo(?:nent)?PushToken\[[A-Za-z0-9_-]+\]$/u);
+
+export const PushPlatform = z.enum(["ios", "android"]);
+export type PushPlatform = z.infer<typeof PushPlatform>;
+
 /** Encrypted messages from the phone that the gateway answers itself instead of passing on. */
 export const ClientControl = z.discriminatedUnion("type", [
   z.object({ type: z.literal("gateway.pair"), deviceName: DeviceName }),
   z.object({ type: z.literal("gateway.auth"), credential: Key32 }),
   /** The phone forgets this desktop and asks it to forget the phone too. */
   z.object({ type: z.literal("gateway.unpair") }),
+  /**
+   * Where the desktop sends push notifications while the phone is not connected. A null token means
+   * the phone turned notifications off, so the desktop forgets the one it had.
+   */
+  z.object({ type: z.literal("gateway.push"), token: PushToken.nullable(), platform: PushPlatform }),
+  /**
+   * The app left the screen and the system is about to suspend it, so this connection will not show
+   * alerts even though it may look open for a while longer.
+   */
+  z.object({ type: z.literal("gateway.away"), away: z.boolean() }),
 ]);
 export type ClientControl = z.infer<typeof ClientControl>;
 
@@ -68,6 +87,8 @@ export const ServerControl = z.discriminatedUnion("type", [
     /** The addresses the desktop listens on now, so the phone can follow a changed LAN address. */
     hosts: z.array(RemoteHost).max(8),
     port: z.number().int().min(1).max(65_535),
+    /** The gateway takes gateway.push and gateway.away. Older desktops close the connection on them. */
+    push: z.boolean().optional(),
   }),
 ]);
 export type ServerControl = z.infer<typeof ServerControl>;

@@ -288,6 +288,9 @@ export function MobileAccessSection() {
                 <span className="mobile-device-copy">
                   <span className="mobile-device-name">{device.name}</span>
                   <span className="mobile-device-meta">{deviceDetail(device, now)}</span>
+                  {device.push ? (
+                    <span className="mobile-device-meta">Gets alerts while ZLI Remote is closed</span>
+                  ) : null}
                 </span>
                 {device.connected ? (
                   <Badge tone="success" dot>

@@ -21,6 +21,7 @@ const pixel = {
   name: "Pixel 9",
   pairedAt: "2026-03-02T10:00:00.000Z",
   connected: false,
+  push: false,
 } as const;
 
 describe("mobile access helpers", () => {
@@ -172,6 +173,20 @@ describe("MobileAccessSection", () => {
     await act(async () => button(container, "Remove Pixel 9 for good").click());
     expect(bridge.api.revoke).toHaveBeenCalledWith("d1");
     expect(container.textContent).toContain("No phones are paired yet.");
+  });
+
+  it("says which phones get alerts while the app is closed", async () => {
+    fakeBridge({
+      enabled: true,
+      state: "listening",
+      hosts: ["10.0.0.2"],
+      port: 47321,
+      devices: [pixel, { ...pixel, deviceId: "d2", name: "iPhone", push: true }],
+    });
+    const container = await render();
+    const rows = [...container.querySelectorAll(".mobile-device-row")].map((row) => row.textContent ?? "");
+    expect(rows.find((row) => row.includes("iPhone"))).toContain("Gets alerts while ZLI Remote is closed");
+    expect(rows.find((row) => row.includes("Pixel 9"))).not.toContain("Gets alerts");
   });
 
   it("shows a load failure with a way to try again", async () => {
