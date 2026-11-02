@@ -13,6 +13,7 @@ describe("liveStatus", () => {
     expect(liveStatus(sampleProjection())).toEqual({
       threadId: ids.waiting,
       needsYou: true,
+      agent: "Claude Code",
       title: "Claude Code asks to continue",
       detail: "Run a command: rm -rf build",
       badge: "Needs you",
@@ -29,6 +30,7 @@ describe("liveStatus", () => {
     expect(liveStatus({ ...sampleProjection(), requests: [] })).toEqual({
       threadId: ids.working,
       needsYou: false,
+      agent: "Codex",
       title: "Codex is working",
       detail: "npm test",
       badge: "Working",

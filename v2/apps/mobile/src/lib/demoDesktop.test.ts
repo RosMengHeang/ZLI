@@ -35,7 +35,10 @@ describe("demo desktop", () => {
     await until(() => link.getSnapshot().state.kind === "online" && link.getSnapshot().projection !== undefined);
     const names = link.getSnapshot().projection?.threads.map((thread) => thread.name);
     expect(names).toEqual(["Fix the login form", "Clean the build output", "Update the README"]);
-    expect(liveStatus(link.getSnapshot().projection)?.title).toBe("Clean the build output asks to continue");
+    expect(liveStatus(link.getSnapshot().projection)).toMatchObject({
+      agent: "Clean the build output",
+      title: "Clean the build output asks to continue",
+    });
     link.pause();
     await link.settled();
   });
