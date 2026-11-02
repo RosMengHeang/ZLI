@@ -57,8 +57,9 @@ appId: dev.zli.remote
     visible: "Needs you"
     timeout: 30000
 - tapOn: "Shell, shell.*"
+# iOS reads the output as one element by its label, so its text is not visible to Maestro there.
 - extendedWaitUntil:
-    visible: ".*19 passed.*"
+    visible: "Terminal output|.*19 passed.*"
     timeout: 15000
 - waitForAnimationToEnd
 - takeScreenshot: terminal-${THEME}
