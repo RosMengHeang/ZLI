@@ -88,6 +88,30 @@ describe("MobileAccessStore", () => {
     expect(await store.removeDevice("d1")).toBe(true);
     expect(await store.removeDevice("d1")).toBe(false);
   });
+
+  it("keeps a phone's push token across loads and clears it on request", async () => {
+    const path = join(directory, "mobile.json");
+    const store = new MobileAccessStore(path, codec, random);
+    await store.load();
+    await store.addDevice({
+      deviceId: "d1",
+      name: "Phone",
+      publicKey: "k",
+      credentialHash: "h",
+      pairedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const push = { token: "ExponentPushToken[abc]", platform: "ios" } as const;
+    expect(await store.setPush("d1", push)).toBe(true);
+    expect(await store.setPush("d1", push)).toBe(false);
+    expect(await store.setPush("missing", push)).toBe(false);
+
+    const reloaded = new MobileAccessStore(path, codec, random);
+    await reloaded.load();
+    expect(reloaded.device("d1")?.push).toEqual(push);
+    expect(await reloaded.setPush("d1", undefined)).toBe(true);
+    expect(reloaded.device("d1")).not.toHaveProperty("push");
+    expect(await readFile(path, "utf8")).not.toContain("ExponentPushToken");
+  });
 });
 
 describe("PairingWindow", () => {

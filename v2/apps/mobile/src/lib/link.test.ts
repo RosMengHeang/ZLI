@@ -9,8 +9,9 @@ import {
 } from "@zli-v2/remote-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { RemoteLink } from "./link.js";
+import { type LinkOptions, RemoteLink } from "./link.js";
 import type { StoredPairing } from "./pairingRecord.js";
+import type { PushRegistration } from "./push.js";
 
 const environmentId = EnvironmentId.parse("6f9619ff-8b86-4d01-b42d-00cf4fc964ff");
 const key = `${"A".repeat(42)}A`;
@@ -40,7 +41,7 @@ const projection = {
 
 type FakeDesktop = { transport: RemoteTransport; sent: unknown[]; close(info: RemoteCloseInfo): void };
 
-function fakeSession(): { session: RemoteSession; desktop: FakeDesktop } {
+function fakeSession(ready: Partial<RemoteSession["ready"]> = {}): { session: RemoteSession; desktop: FakeDesktop } {
   const messageListeners = new Set<(message: unknown) => void>();
   const closeListeners = new Set<(info: RemoteCloseInfo) => void>();
   const sent: unknown[] = [];
@@ -74,13 +75,24 @@ function fakeSession(): { session: RemoteSession; desktop: FakeDesktop } {
   return {
     session: {
       transport,
-      ready: { type: "gateway.ready", desktopName: "Studio", environmentId, hosts: ["192.168.1.20"], port: 47321 },
+      ready: {
+        type: "gateway.ready",
+        desktopName: "Studio",
+        environmentId,
+        hosts: ["192.168.1.20"],
+        port: 47321,
+        ...ready,
+      },
     },
     desktop: { transport, sent, close },
   };
 }
 
-function makeLink(openSession: (url: string) => Promise<RemoteSession>, onPairingChange = vi.fn()) {
+function makeLink(
+  openSession: (url: string) => Promise<RemoteSession>,
+  onPairingChange = vi.fn(),
+  extra: Partial<LinkOptions> = {},
+) {
   return new RemoteLink({
     pairing,
     random: webCryptoRandomBytes,
@@ -90,8 +102,12 @@ function makeLink(openSession: (url: string) => Promise<RemoteSession>, onPairin
     newId: () => crypto.randomUUID(),
     onPairingChange,
     openSession: (options) => openSession(options.url),
+    ...extra,
   });
 }
+
+const controls = (sent: unknown[]) =>
+  sent.filter((message) => (message as { type: string }).type.startsWith("gateway."));
 
 async function until(check: () => boolean): Promise<void> {
   for (let index = 0; index < 200 && !check(); index += 1) await new Promise((resolve) => setTimeout(resolve, 1));
@@ -103,6 +119,60 @@ afterEach(() => {
 });
 
 describe("RemoteLink", () => {
+  it("gives a desktop that takes them the push token after each connection, and the away state", async () => {
+    const { session, desktop } = fakeSession({ push: true });
+    const token = "ExponentPushToken[abc]";
+    const pushRegistration = vi.fn(async (): Promise<PushRegistration> => ({ token, platform: "ios" }));
+    const link = makeLink(async () => session, vi.fn(), { pushRegistration });
+    link.setAway(true);
+    link.start();
+    await until(() => controls(desktop.sent).length === 2);
+    expect(controls(desktop.sent)).toEqual([
+      { type: "gateway.away", away: true },
+      { type: "gateway.push", token, platform: "ios" },
+    ]);
+    link.setAway(false);
+    link.setAway(false);
+    pushRegistration.mockResolvedValueOnce({ token: null, platform: "ios" });
+    link.refreshPush();
+    await until(() => controls(desktop.sent).length === 4);
+    expect(controls(desktop.sent).slice(2)).toEqual([
+      { type: "gateway.away", away: false },
+      { type: "gateway.push", token: null, platform: "ios" },
+    ]);
+    link.pause();
+    await link.settled();
+  });
+
+  it("sends no control messages to an older desktop, or when push is unavailable", async () => {
+    const older = fakeSession();
+    const pushRegistration = vi.fn(async () => ({ token: "ExponentPushToken[abc]", platform: "ios" as const }));
+    const link = makeLink(async () => older.session, vi.fn(), { pushRegistration });
+    link.start();
+    await until(() => link.getSnapshot().state.kind === "online");
+    link.setAway(true);
+    link.refreshPush();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(pushRegistration).not.toHaveBeenCalled();
+    expect(controls(older.desktop.sent)).toEqual([]);
+    link.pause();
+    await link.settled();
+
+    const current = fakeSession({ push: true });
+    const failing = makeLink(async () => current.session, vi.fn(), {
+      pushRegistration: async () => {
+        throw new Error("no aps-environment entitlement");
+      },
+    });
+    failing.start();
+    await until(() => failing.getSnapshot().state.kind === "online");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(controls(current.desktop.sent)).toEqual([]);
+    expect(failing.getSnapshot().state.kind).toBe("online");
+    failing.pause();
+    await failing.settled();
+  });
+
   it("connects through the first address that answers and loads the projection", async () => {
     const { session } = fakeSession();
     const urls: string[] = [];

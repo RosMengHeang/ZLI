@@ -1,18 +1,17 @@
-import { describeApproval, describeQuestions } from "@zli-v2/client-runtime";
-import type { RuntimeProjection, ThreadProjection, ThreadRequestProjection } from "@zli-v2/contracts";
+import type { AgentAlert } from "@zli-v2/client-runtime";
 
-import { agentTitle, threadMessages } from "./views.js";
-
-export type AgentAlertKind = "approval" | "question" | "finished" | "failed" | "stopped";
-
-export type AgentAlert = {
-  /** One notification per request, and one per agent for status changes, so a newer one replaces the older. */
-  key: string;
-  kind: AgentAlertKind;
-  threadId: string;
-  title: string;
-  body: string;
-};
+export {
+  type AgentAlert,
+  type AgentAlertKind,
+  agentAlerts,
+  answeredAlertKeys,
+  branchLine,
+  describeRequest,
+  isUrgentAlert,
+  lastReply,
+  requestAlertKey,
+  threadAlertKey,
+} from "@zli-v2/client-runtime";
 
 export type AlertContext = {
   /** Whether the app is on screen. */
@@ -20,127 +19,6 @@ export type AlertContext = {
   /** The agent whose conversation is open, if any. */
   openThreadId: string | undefined;
 };
-
-const BODY_LIMIT = 180;
-
-export function requestAlertKey(requestId: string): string {
-  return `request:${requestId}`;
-}
-
-export function threadAlertKey(threadId: string): string {
-  return `thread:${threadId}`;
-}
-
-function oneLine(text: string): string {
-  const line = text.replace(/\s+/gu, " ").trim();
-  return line.length > BODY_LIMIT ? `${line.slice(0, BODY_LIMIT - 1)}…` : line;
-}
-
-export function branchLine(projection: RuntimeProjection, thread: ThreadProjection): string {
-  const branch = projection.worktrees.find((worktree) => worktree.worktreeId === thread.worktreeId)?.branch;
-  return branch ? `On ${branch}` : "Open it to see what happened.";
-}
-
-export function lastReply(projection: RuntimeProjection, thread: ThreadProjection): string | undefined {
-  const reply = threadMessages(projection, thread.threadId)
-    .filter((message) => message.role === "assistant" && message.text.trim())
-    .at(-1);
-  return reply ? oneLine(reply.text) : undefined;
-}
-
-/** What an agent asks for, in one title and one line, for notifications and the live status. */
-export function describeRequest(
-  name: string,
-  thread: Pick<ThreadProjection, "provider">,
-  request: ThreadRequestProjection,
-): { kind: "approval" | "question"; title: string; body: string } {
-  if (request.kind === "approval") {
-    const view = describeApproval(thread.provider, request.payload);
-    const field = view.fields[0];
-    return {
-      kind: "approval",
-      title: `${name} asks to continue`,
-      body: oneLine(field ? `${view.title}: ${field.value}` : view.title),
-    };
-  }
-  const questions = describeQuestions(request.payload);
-  const first = questions[0]?.question ?? "The agent needs an answer";
-  return {
-    kind: "question",
-    title: `${name} has a question`,
-    body: oneLine(questions.length > 1 ? `${first} (${questions.length} questions)` : first),
-  };
-}
-
-function requestAlert(
-  projection: RuntimeProjection,
-  thread: ThreadProjection,
-  request: ThreadRequestProjection,
-): AgentAlert {
-  const described = describeRequest(agentTitle(thread, projection.providers), thread, request);
-  return { key: requestAlertKey(request.requestId), threadId: thread.threadId, ...described };
-}
-
-function statusAlert(
-  projection: RuntimeProjection,
-  before: ThreadProjection,
-  thread: ThreadProjection,
-): AgentAlert | undefined {
-  if (before.status === thread.status) return undefined;
-  const name = agentTitle(thread, projection.providers);
-  const base = { key: threadAlertKey(thread.threadId), threadId: thread.threadId };
-  if (thread.status === "failed") {
-    return {
-      ...base,
-      kind: "failed",
-      title: `${name} failed`,
-      body: thread.errorMessage ? oneLine(thread.errorMessage) : branchLine(projection, thread),
-    };
-  }
-  if (thread.status === "stopped" && before.status !== "failed") {
-    return { ...base, kind: "stopped", title: `${name} stopped`, body: branchLine(projection, thread) };
-  }
-  const asking = (projection.requests ?? []).some((request) => request.threadId === thread.threadId);
-  if (before.status === "working" && thread.status === "idle" && !asking) {
-    return {
-      ...base,
-      kind: "finished",
-      title: `${name} finished`,
-      body: lastReply(projection, thread) ?? branchLine(projection, thread),
-    };
-  }
-  return undefined;
-}
-
-/**
- * What changed between two projections that the person would want to hear about. Without a previous
- * projection there is nothing to compare, so the first one after launch only sets the baseline.
- */
-export function agentAlerts(previous: RuntimeProjection | undefined, next: RuntimeProjection): AgentAlert[] {
-  if (!previous) return [];
-  const alerts: AgentAlert[] = [];
-  const known = new Set((previous.requests ?? []).map((request) => request.requestId));
-  for (const request of next.requests ?? []) {
-    if (known.has(request.requestId)) continue;
-    const thread = next.threads.find((candidate) => candidate.threadId === request.threadId);
-    if (thread) alerts.push(requestAlert(next, thread, request));
-  }
-  for (const thread of next.threads) {
-    const before = previous.threads.find((candidate) => candidate.threadId === thread.threadId);
-    const alert = before ? statusAlert(next, before, thread) : undefined;
-    if (alert) alerts.push(alert);
-  }
-  return alerts;
-}
-
-/** Requests answered since the previous projection, on this phone or elsewhere, so their alerts can go. */
-export function answeredAlertKeys(previous: RuntimeProjection | undefined, next: RuntimeProjection): string[] {
-  if (!previous) return [];
-  const open = new Set((next.requests ?? []).map((request) => request.requestId));
-  return (previous.requests ?? [])
-    .filter((request) => !open.has(request.requestId))
-    .map((request) => requestAlertKey(request.requestId));
-}
 
 export function shouldShowAlert(alert: AgentAlert, context: AlertContext): boolean {
   if (!context.active) return true;

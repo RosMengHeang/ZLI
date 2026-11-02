@@ -15,9 +15,9 @@ export type LiveAction = { target: string; label: string; kind: "approve" | "rej
 export type LiveStatus = {
   threadId: string;
   needsYou: boolean;
-  /** The agent's name alone, for layouts that show the state apart from it. */
   agent: string;
-  title: string;
+  /** What the agent is doing or asks for, in a few words, shown beside its name. */
+  state: string;
   detail: string;
   /** A word or two for the compact Dynamic Island and the Android status bar chip. */
   badge: string;
@@ -102,7 +102,7 @@ export function liveStatus(projection: RuntimeProjection | undefined): LiveStatu
   const asked = request ? byThread(request) : undefined;
   if (request && asked) {
     const agent = agentTitle(asked, projection.providers);
-    const described = describeRequest(agent, asked, request);
+    const described = describeRequest(asked, request);
     const actions =
       described.kind === "approval"
         ? approvalChoices(asked, request).map<LiveAction>((choice) => ({
@@ -115,7 +115,7 @@ export function liveStatus(projection: RuntimeProjection | undefined): LiveStatu
       threadId: asked.threadId,
       needsYou: true,
       agent,
-      title: described.title,
+      state: described.state,
       detail: described.body,
       badge: "Needs you",
       others: othersLine(needYou.length - 1, working.length),
@@ -131,7 +131,7 @@ export function liveStatus(projection: RuntimeProjection | undefined): LiveStatu
       threadId: waiting.threadId,
       needsYou: true,
       agent,
-      title: `${agent} needs you`,
+      state: "Needs you",
       detail: lastReply(projection, waiting) ?? branchLine(projection, waiting),
       badge: "Needs you",
       others: othersLine(needYou.length - 1, working.length),
@@ -148,7 +148,7 @@ export function liveStatus(projection: RuntimeProjection | undefined): LiveStatu
     threadId: busy.threadId,
     needsYou: false,
     agent,
-    title: `${agent} is ${starting ? "starting" : "working"}`,
+    state: starting ? "Starting" : "Working",
     detail: currentActivity(projection, busy)?.title ?? lastReply(projection, busy) ?? branchLine(projection, busy),
     badge: count > 1 ? `${count} working` : starting ? "Starting" : "Working",
     others: othersLine(0, working.length - 1),

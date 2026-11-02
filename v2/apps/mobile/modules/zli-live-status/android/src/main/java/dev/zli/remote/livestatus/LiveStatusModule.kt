@@ -16,7 +16,8 @@ class LiveStatusAction : Record {
 }
 
 class LiveStatusContent : Record {
-  @Field var title: String = ""
+  @Field var agent: String = ""
+  @Field var state: String = ""
   @Field var detail: String = ""
   @Field var badge: String = ""
   @Field var others: String? = null

@@ -106,7 +106,7 @@ export function AgentScreen({ threadId }: { threadId: string }) {
   const tail = (
     <View style={local.tail}>
       {requests.map(({ request }) => (
-        <RequestCard key={request.requestId} request={request} provider={thread.provider} agentName={name} />
+        <RequestCard key={request.requestId} request={request} provider={thread.provider} />
       ))}
       {thread.errorMessage ? (
         <Notice tone="error" title="The agent reported an error" message={thread.errorMessage} />

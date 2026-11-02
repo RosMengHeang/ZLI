@@ -7,6 +7,8 @@ export const PairedPhone = z.object({
   pairedAt: z.string().datetime({ offset: true }),
   lastSeenAt: z.string().datetime({ offset: true }).optional(),
   connected: z.boolean(),
+  /** The phone gave the desktop a push token, so alerts reach it while ZLI Remote is closed. */
+  push: z.boolean().default(false),
 });
 export type PairedPhone = z.infer<typeof PairedPhone>;
 

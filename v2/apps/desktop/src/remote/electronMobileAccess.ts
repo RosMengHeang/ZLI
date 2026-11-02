@@ -9,6 +9,7 @@ import { lanAddresses } from "./lanAddresses.js";
 import { MobileAccessStore, type SecretCodec } from "./MobileAccessStore.js";
 import { DEFAULT_MOBILE_PORT, MobileGateway, type UpstreamTarget } from "./MobileGateway.js";
 import { PairingWindow } from "./PairingWindow.js";
+import { PhonePush, type PushFetch } from "./PhonePush.js";
 
 const random = (length: number) => new Uint8Array(randomBytes(length));
 
@@ -49,7 +50,10 @@ export async function registerMobileAccess(options: {
   window: BrowserWindow;
   settingsPath: string;
   upstream: () => Promise<UpstreamTarget>;
-  projection: () => Pick<RuntimeProjection, "projects" | "worktrees" | "reviews"> | undefined;
+  projection: () => RuntimeProjection | undefined;
+  subscribe: (listener: (projection: RuntimeProjection) => void) => () => void;
+  /** Reaches Expo's push service, for phones that are not connected. */
+  fetch: PushFetch;
   log?: (level: "info" | "warn" | "error", message: string, detail?: Record<string, unknown>) => void;
 }): Promise<{ stop(): Promise<void> }> {
   const { window } = options;
@@ -94,6 +98,7 @@ export async function registerMobileAccess(options: {
         pairedAt: device.pairedAt,
         ...(device.lastSeenAt ? { lastSeenAt: device.lastSeenAt } : {}),
         connected: connected.has(device.deviceId),
+        push: device.push !== undefined,
       })),
     });
   };
@@ -117,6 +122,17 @@ export async function registerMobileAccess(options: {
     onChange: publish,
     log: (message, detail) => options.log?.("info", message, detail),
   });
+
+  const push = new PhonePush({
+    store,
+    attentive: () => gateway.attentiveDeviceIds(),
+    fetch: options.fetch,
+    onChange: publish,
+    log: (message, detail) => options.log?.("warn", message, detail),
+  });
+  const initial = options.projection();
+  if (initial) push.update(initial);
+  options.subscribe((projection) => push.update(projection));
 
   const start = async () => {
     if (gateway.listening) return;

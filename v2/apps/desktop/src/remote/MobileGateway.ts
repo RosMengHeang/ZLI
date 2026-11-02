@@ -67,6 +67,8 @@ export class MobileGateway {
   readonly #limiter: AttemptLimiter;
   readonly #byDevice = new Map<string, Set<(code: number) => void>>();
   readonly #everyone = new Set<(code: number) => void>();
+  /** Connections whose app said it left the screen. They stay open but show no alerts. */
+  readonly #away = new Set<(code: number) => void>();
   #server: WebSocketServer | undefined;
   #heartbeat: NodeJS.Timeout | undefined;
   #unauthenticated = 0;
@@ -82,6 +84,15 @@ export class MobileGateway {
 
   connectedDeviceIds(): Set<string> {
     return new Set([...this.#byDevice].filter(([, closers]) => closers.size > 0).map(([deviceId]) => deviceId));
+  }
+
+  /** Phones with a connection whose app is on screen or kept running, which show their own alerts. */
+  attentiveDeviceIds(): Set<string> {
+    return new Set(
+      [...this.#byDevice]
+        .filter(([, closers]) => [...closers].some((close) => !this.#away.has(close)))
+        .map(([deviceId]) => deviceId),
+    );
   }
 
   /** Listens on every interface. Falls back to a free port when the preferred one is taken. */
@@ -171,6 +182,7 @@ export class MobileGateway {
       clearTimeout(timer);
       uncount();
       this.#everyone.delete(close);
+      this.#away.delete(close);
       if (deviceId) {
         const closers = this.#byDevice.get(deviceId);
         closers?.delete(close);
@@ -314,6 +326,7 @@ export class MobileGateway {
                 environmentId: EnvironmentId.parse(target.environmentId),
                 hosts: options.hosts(),
                 port: this.#port(),
+                push: true,
               };
               sendSealed(ready);
               return;
@@ -334,14 +347,27 @@ export class MobileGateway {
       const type = (message as { type?: unknown } | null)?.type;
       if (isControlType(type)) {
         const control = ClientControl.safeParse(message);
-        if (!control.success || control.data.type !== "gateway.unpair" || !deviceId) {
-          return close(RemoteCloseCode.protocol);
-        }
+        if (!control.success || !deviceId) return close(RemoteCloseCode.protocol);
         const id = deviceId;
-        await options.store.removeDevice(id).catch(() => undefined);
-        this.disconnect(id);
-        options.onChange();
-        return;
+        switch (control.data.type) {
+          case "gateway.unpair":
+            await options.store.removeDevice(id).catch(() => undefined);
+            this.disconnect(id);
+            options.onChange();
+            return;
+          case "gateway.push": {
+            const { token, platform } = control.data;
+            const changed = await options.store.setPush(id, token ? { token, platform } : undefined).catch(() => false);
+            if (changed) options.onChange();
+            return;
+          }
+          case "gateway.away":
+            if (control.data.away) this.#away.add(close);
+            else this.#away.delete(close);
+            return;
+          default:
+            return close(RemoteCloseCode.protocol);
+        }
       }
       if (type === "hello") {
         const parsed = ClientWireMessage.safeParse(message);

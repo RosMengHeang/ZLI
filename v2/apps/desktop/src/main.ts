@@ -273,6 +273,8 @@ async function main(): Promise<void> {
       return { url: current.url, token: current.token, environmentId };
     },
     projection: () => runtime?.projection(),
+    subscribe: (listener) => runtime?.subscribe((projection) => listener(projection)) ?? (() => undefined),
+    fetch: (url, init) => net.fetch(url, init),
     log: (level, message, detail) => desktopDiagnostics.record(level, message, { component: "mobile", ...detail }),
   }).catch((error: unknown) => {
     console.error("Phone access could not start", error);

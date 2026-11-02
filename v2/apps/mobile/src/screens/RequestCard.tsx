@@ -10,15 +10,7 @@ import { Button, Card, ChoiceRow, Field, Notice, Section } from "../ui/component
 import { Icon } from "../ui/Icon.js";
 
 /** An approval or a question from an agent, answered from the phone. */
-export function RequestCard({
-  request,
-  provider,
-  agentName,
-}: {
-  request: ThreadRequestProjection;
-  provider: string;
-  agentName: string;
-}) {
+export function RequestCard({ request, provider }: { request: ThreadRequestProjection; provider: string }) {
   const link = useLink();
   const palette = usePalette();
   const [busy, setBusy] = useState<string>();
@@ -41,7 +33,7 @@ export function RequestCard({
       <View style={local.head}>
         <Icon name={approval ? "shieldAlert" : "message"} size={20} color={palette.tones.amber.ink} />
         <Text accessibilityRole="header" style={[local.title, { color: palette.text }]}>
-          {approval ? `${agentName} asks to continue` : `${agentName} has a question`}
+          {approval ? "Asks to continue" : "Has a question"}
         </Text>
       </View>
       {approval ? (

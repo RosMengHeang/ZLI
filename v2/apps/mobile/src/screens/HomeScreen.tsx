@@ -1,10 +1,10 @@
-import { describeApproval } from "@zli-v2/client-runtime";
 import type { RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useConnectionLabel, useLink, useLinkSnapshot } from "../LinkContext.js";
+import { describeRequest } from "../lib/alerts.js";
 import { sendCommand } from "../lib/launch.js";
 import type { LinkSnapshot } from "../lib/link.js";
 import {
@@ -121,12 +121,10 @@ export function HomeScreen() {
                 <Row
                   key={request.requestId}
                   leading={<ProviderMark provider={thread.provider} size={20} color={palette.text} />}
-                  title={request.kind === "approval" ? `${name} asks to continue` : `${name} has a question`}
+                  title={name}
                   subtitle={branchOf(projection, thread.worktreeId)}
                   subtitleMono
-                  detail={
-                    request.kind === "approval" ? describeApproval(thread.provider, request.payload).title : undefined
-                  }
+                  detail={describeRequest(thread, request).body}
                   trailing={<StatusText label="Answer" tone="amber" />}
                   chevron
                   accessibilityHint="Opens the agent to answer"

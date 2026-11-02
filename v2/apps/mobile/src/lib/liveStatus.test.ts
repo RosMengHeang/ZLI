@@ -14,7 +14,7 @@ describe("liveStatus", () => {
       threadId: ids.waiting,
       needsYou: true,
       agent: "Claude Code",
-      title: "Claude Code asks to continue",
+      state: "Asks to continue",
       detail: "Run a command: rm -rf build",
       badge: "Needs you",
       others: "Also 1 working",
@@ -31,7 +31,7 @@ describe("liveStatus", () => {
       threadId: ids.working,
       needsYou: false,
       agent: "Codex",
-      title: "Codex is working",
+      state: "Working",
       detail: "npm test",
       badge: "Working",
       others: undefined,
@@ -57,7 +57,7 @@ describe("liveStatus", () => {
     ]);
     expect(liveStatus(projection)).toMatchObject({
       threadId: ids.working,
-      title: "Codex has a question",
+      state: "Has a question",
       detail: "Which port?",
       actions: [{ target: `stop/${ids.working}`, label: "Stop", kind: "stop" }],
     });
@@ -106,7 +106,7 @@ describe("liveStatus", () => {
     expect(liveStatus(projection)).toMatchObject({
       threadId: ids.waiting,
       needsYou: true,
-      title: "Claude Code needs you",
+      state: "Needs you",
       detail: "On feature/login",
       others: "Also 1 working",
     });
@@ -124,7 +124,7 @@ describe("liveStatus", () => {
     };
     expect(liveStatus(projection)).toMatchObject({
       threadId: ids.waiting,
-      title: "Claude Code is starting",
+      state: "Starting",
       badge: "2 working",
       others: "Also 1 working",
       count: 2,

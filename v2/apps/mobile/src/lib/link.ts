@@ -1,6 +1,7 @@
 import { RuntimeClient, type TerminalClientMessage } from "@zli-v2/client-runtime";
 import type { RpcResponse, RuntimeProjection } from "@zli-v2/contracts";
 import {
+  type ClientControl,
   type CreateWebSocket,
   credentialBytes,
   failureMessage,
@@ -12,10 +13,12 @@ import {
   RemoteConnectError,
   type RemoteFailure,
   type RemoteSession,
+  type RemoteTransport,
   remoteUrl,
 } from "@zli-v2/remote-protocol";
 
 import { hostsToTry, type StoredPairing, samePairing, withReady } from "./pairingRecord.js";
+import type { PushRegistration } from "./push.js";
 
 /**
  * The gateway answers the runtime hello itself and never forwards it, so the phone holds no runtime
@@ -54,6 +57,11 @@ export type LinkOptions = {
   onPairingChange?: (pairing: StoredPairing) => void;
   now?: () => number;
   openSession?: typeof openRemoteSession;
+  /**
+   * Where the desktop can push alerts while the phone is not connected. Undefined when this build
+   * cannot receive push notifications, and then nothing is sent.
+   */
+  pushRegistration?: () => Promise<PushRegistration | undefined>;
 };
 
 type Attempt =
@@ -72,6 +80,9 @@ export class RemoteLink {
   readonly #now: () => number;
   #snapshot: LinkSnapshot;
   #client: RuntimeClient | undefined;
+  /** The current connection, when its desktop takes push and away messages. */
+  #controls: RemoteTransport | undefined;
+  #away = false;
   #endConnection: (() => void) | undefined;
   #wake: (() => void) | undefined;
   #running = false;
@@ -135,6 +146,44 @@ export class RemoteLink {
 
   attachTerminal(terminalId: string, afterSequence = 0): void {
     this.#client?.attachTerminal(terminalId, afterSequence);
+  }
+
+  /**
+   * Tells the desktop the app left the screen and will be suspended, so it pushes alerts instead of
+   * waiting to notice the connection went quiet. Kept for later connections until it changes.
+   */
+  setAway(away: boolean): void {
+    if (this.#away === away) return;
+    this.#away = away;
+    if (this.#controls) this.#sendControl(this.#controls, { type: "gateway.away", away });
+  }
+
+  /** Sends the push token again, for when notification permission may have changed. */
+  refreshPush(): void {
+    if (this.#controls) void this.#sendPush(this.#controls);
+  }
+
+  #sendControl(transport: RemoteTransport, message: ClientControl): void {
+    try {
+      transport.send(message);
+    } catch {
+      // A closing connection; the next one sends its own.
+    }
+  }
+
+  async #sendPush(transport: RemoteTransport): Promise<void> {
+    const register = this.#options.pushRegistration;
+    if (!register) return;
+    let registration: PushRegistration | undefined;
+    try {
+      registration = await register();
+    } catch {
+      // Push is optional; the app works the same without it.
+      return;
+    }
+    if (registration && this.#controls === transport) {
+      this.#sendControl(transport, { type: "gateway.push", ...registration });
+    }
   }
 
   #update(patch: Partial<LinkSnapshot>): void {
@@ -278,6 +327,11 @@ export class RemoteLink {
     const pairingChanged = !samePairing(pairing, this.#snapshot.pairing);
     this.#update({ state: { kind: "online", host }, generation: this.#snapshot.generation + 1, pairing });
     if (pairingChanged) this.#options.onPairingChange?.(pairing);
+    if (session.ready.push) {
+      this.#controls = session.transport;
+      if (this.#away) this.#sendControl(session.transport, { type: "gateway.away", away: true });
+      void this.#sendPush(session.transport);
+    }
 
     return {
       kind: "online",
@@ -287,6 +341,7 @@ export class RemoteLink {
         stopTerminal();
         client.close();
         if (this.#client === client) this.#client = undefined;
+        if (this.#controls === session.transport) this.#controls = undefined;
         this.#endConnection = undefined;
         return info;
       }),
