@@ -18,7 +18,8 @@ export function Segmented<T extends string>({
   className,
 }: {
   label: string;
-  value: T;
+  /** Undefined leaves every option unpressed, for a setting whose current value is not known. */
+  value: T | undefined;
   options: readonly SegmentedOption<T>[];
   onChange(value: T): void;
   className?: string;

@@ -1,0 +1,19 @@
+/* The Device settings drawer under the device buttons, in the same strip as the logs drawer. */
+.mobile-tools { flex: 0 0 auto; border-top: 1px solid var(--zli-border); }
+.mobile-tools-head { display: flex; align-items: center; gap: var(--zli-space-1-5); height: var(--zli-control-lg); padding: 0 var(--zli-space-1) 0 var(--zli-space-3); color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.mobile-tools-title { flex: 1; min-width: 0; }
+.mobile-tools-body { display: flex; max-height: 300px; flex-direction: column; gap: var(--zli-space-2); overflow: auto; padding: 0 var(--zli-space-3) var(--zli-space-3); }
+.mobile-tools-row { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; column-gap: var(--zli-space-2); row-gap: var(--zli-space-1); }
+.mobile-tools-label { color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.mobile-tools-controls, .mobile-tools-inline { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1-5); }
+.mobile-tools-inline { flex: 1; }
+.mobile-tools-inline .input { min-width: 0; flex: 1 1 96px; }
+.mobile-tools-inline .mobile-tools-number { flex: 0 1 96px; font-variant-numeric: tabular-nums; }
+.mobile-tools-app { flex: 1; min-width: 0; font-family: var(--zli-mono); font-variant-ligatures: none; }
+.mobile-tools-permission { min-width: 128px; }
+.mobile-tools-result, .mobile-tools-note { grid-column: 2; margin: 0; font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
+.mobile-tools-result { color: var(--zli-muted); }
+.mobile-tools-result.is-error { color: var(--zli-red); }
+.mobile-tools-note { color: var(--zli-dim); }
+.mobile-tools-controls > .mobile-tools-note { flex-basis: 100%; }
+.mobile-tools > .mobile-tools-note { padding: 0 var(--zli-space-3) var(--zli-space-3); }
