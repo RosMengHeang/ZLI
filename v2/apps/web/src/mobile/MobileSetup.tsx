@@ -10,6 +10,7 @@ import {
   androidSituation,
   errorText,
   formatBytes,
+  macName,
   planDownload,
   progressPercent,
 } from "./mobile.js";
@@ -18,7 +19,8 @@ const ACCELERATION_ITEM = "Hardware acceleration for the emulator";
 
 /**
  * What this computer has for Android and iOS, and the guided Android install when something is missing.
- * iOS Simulator needs a Mac, so other hosts get one line about it instead of a section.
+ * iOS Simulator needs a Mac, so other hosts get one line about it instead of a section, unless a Mac on the
+ * network is set for it.
  */
 export function MobileSetup({
   mobile,
@@ -91,16 +93,18 @@ export function MobileSetup({
         )}
       </section>
       {virtualDevices}
-      {status.host.os === "macos" ? (
+      {status.host.os === "macos" || status.ios.host ? (
         <IosSection status={status} rechecking={rechecking} onRecheck={() => void recheck()} />
       ) : (
-        <p className="mobile-setup-ios-note">iPhone simulators need a Mac with Xcode.</p>
+        <p className="mobile-setup-ios-note">
+          iPhone simulators need a Mac with Xcode. To use one on your network, add it in Settings &gt; Mobile.
+        </p>
       )}
     </div>
   );
 }
 
-/** Only shown on macOS, the one host where the iOS Simulator runs. */
+/** Shown on macOS, the one host where the iOS Simulator runs, and wherever a Mac is set for it over SSH. */
 function IosSection({
   status,
   rechecking,
@@ -130,7 +134,9 @@ function IosSection({
       ) : (
         <p className="mobile-setup-ready">
           <Icon name="check" size={13} />
-          Ready. Simulators from Xcode appear in the device list.
+          {status.ios.host
+            ? `Ready. Simulators from Xcode on ${macName(status.ios.host)} appear in the device list.`
+            : "Ready. Simulators from Xcode appear in the device list."}
         </p>
       )}
     </section>

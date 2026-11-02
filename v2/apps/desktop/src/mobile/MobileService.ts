@@ -1,11 +1,17 @@
 import { join } from "node:path";
 
-import type { MobileIosStatus, MobileSetupProgress, MobileSetupStatus } from "@zli-v2/contracts";
+import type {
+  MobileIosHostTestResult,
+  MobileIosStatus,
+  MobileSetupProgress,
+  MobileSetupStatus,
+} from "@zli-v2/contracts";
 
 import { AndroidDriver, type AndroidTools, androidDeviceId } from "./AndroidDriver.js";
 import { avdHome, detectAndroidSdk, listAvds, toolProbe } from "./AndroidSdk.js";
 import { AndroidEnvironment, AndroidSetup, sdkToolEnv, zliSdkRoot } from "./AndroidSetup.js";
 import { AvdManager } from "./AvdManager.js";
+import { type CommandHost, findSsh, sshCommandHost } from "./CommandHost.js";
 import { DeviceManager, type DeviceManagerEvents } from "./DeviceManager.js";
 import { downloadVerified, type FetchLike } from "./download.js";
 import {
@@ -19,6 +25,7 @@ import {
 import { IosSimulatorDriver, type IosTools } from "./IosSimulatorDriver.js";
 import { iosVideoEnabled } from "./IosVideoSource.js";
 import { createNodeProcessRunner, type ProcessRunner, withDefaultEnv } from "./ProcessRunner.js";
+import { detectRemoteIosTools, testRemoteMac } from "./RemoteMac.js";
 import { SCRCPY_SERVER_SHA256, SCRCPY_SERVER_URL, SCRCPY_VERSION } from "./scrcpy/protocol.js";
 
 export type MobileServiceOptions = {
@@ -32,6 +39,8 @@ export type MobileServiceOptions = {
   readonly fs?: MobileFileSystem;
   readonly fetch?: FetchLike;
   readonly events?: DeviceManagerEvents & { setup?: (progress: MobileSetupProgress) => void };
+  /** The Mac set in Settings to run iPhone simulators over SSH, or undefined to use this computer. */
+  readonly iosHost?: () => Promise<string | undefined>;
 };
 
 /** Apps started from the macOS Finder get a short PATH, so the places Homebrew and pip put tools are searched too. */
@@ -80,12 +89,27 @@ export async function detectIosTools(options: {
   };
 }
 
+function noSsh(host: string): { tools: IosTools; status: MobileIosStatus } {
+  return {
+    tools: {},
+    status: {
+      supported: true,
+      host,
+      simctl: { found: false },
+      idb: { found: false },
+      missing: ["ssh, the OpenSSH client (on Windows, add OpenSSH Client in Settings > System > Optional features)"],
+    },
+  };
+}
+
 export type MobileService = {
   readonly manager: DeviceManager;
   readonly setup: AndroidSetup;
   readonly environment: AndroidEnvironment;
   readonly avds: AvdManager;
   status(options?: { recheckAcceleration?: boolean }): Promise<MobileSetupStatus>;
+  /** Signs in to a Mac over SSH and lists its simulators, for Test connection in Settings. */
+  testIosHost(host: string): Promise<MobileIosHostTestResult>;
   dispose(): Promise<void>;
 };
 
@@ -130,11 +154,18 @@ export function createMobileService(options: MobileServiceOptions): MobileServic
   };
 
   const iosRunner = withDefaultEnv(runner, options.env);
-  let iosTools: { at: number; value: ReturnType<typeof detectIosTools> } | undefined;
-  const resolveIos = () => {
-    if (iosTools && Date.now() - iosTools.at < TOOL_CACHE_MS * 10) return iosTools.value;
-    const value = detectIosTools({ os: options.os, env: options.env, home: options.home, fs, runner: iosRunner });
-    iosTools = { at: Date.now(), value };
+  const sshHost = async (host: string): Promise<(CommandHost & { remote: string }) | undefined> => {
+    const ssh = await findSsh(options.env, options.os, fs);
+    return ssh ? { ...sshCommandHost({ runner: iosRunner, ssh, host }), remote: host } : undefined;
+  };
+  let iosTools: { at: number; host: string | undefined; value: ReturnType<typeof detectIosTools> } | undefined;
+  const resolveIos = async () => {
+    const host = (await options.iosHost?.().catch(() => undefined)) || undefined;
+    if (iosTools && iosTools.host === host && Date.now() - iosTools.at < TOOL_CACHE_MS * 10) return iosTools.value;
+    const value = host
+      ? sshHost(host).then((remote) => (remote ? detectRemoteIosTools(remote) : noSsh(host)))
+      : detectIosTools({ os: options.os, env: options.env, home: options.home, fs, runner: iosRunner });
+    iosTools = { at: Date.now(), host, value };
     return value;
   };
 
@@ -199,6 +230,12 @@ export function createMobileService(options: MobileServiceOptions): MobileServic
     status: async (statusOptions = {}) => {
       const [android, ios] = await Promise.all([environment.inspect(statusOptions), resolveIos()]);
       return { host: { os: options.os, arch: options.arch }, android: android.status, ios: ios.status };
+    },
+    testIosHost: async (host) => {
+      const result = await testRemoteMac(await sshHost(host), host);
+      // The next status or device list asks the Mac again instead of reusing a result from before the fix.
+      if (iosTools?.host === host) iosTools = undefined;
+      return result;
     },
     dispose: async () => {
       setup.cancel();
