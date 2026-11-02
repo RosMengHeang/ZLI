@@ -1,4 +1,13 @@
-import type { MobileButton, MobilePlatform } from "@zli-v2/contracts";
+import type {
+  DeviceAppearance,
+  DeviceConditions,
+  DeviceLocation,
+  DeviceNotification,
+  DevicePermission,
+  DeviceTextSize,
+  MobileButton,
+  MobilePlatform,
+} from "@zli-v2/contracts";
 
 import type { DriverDevice, LogQuery, LogStream, MobileDriver, Orientation, Screenshot } from "./MobileDriver.js";
 import type { UiTree } from "./uiTree.js";
@@ -130,6 +139,39 @@ export class FakeDriver implements MobileDriver {
     };
     streams.add(entry);
     return { onLine: (listener) => void listeners.push(listener), stop: entry.stop, exited };
+  }
+
+  /** What readConditions answers; the setters below change it. */
+  conditions: DeviceConditions = {};
+
+  async readConditions(): Promise<DeviceConditions> {
+    return { ...this.conditions };
+  }
+
+  async setAppearance(device: DriverDevice, appearance: DeviceAppearance): Promise<void> {
+    this.actions.push(`appearance ${device.deviceId} ${appearance}`);
+    this.conditions = { ...this.conditions, appearance };
+  }
+
+  async setTextSize(device: DriverDevice, textSize: DeviceTextSize): Promise<void> {
+    this.actions.push(`text-size ${device.deviceId} ${textSize}`);
+    this.conditions = { ...this.conditions, textSize };
+  }
+
+  async setLocation(device: DriverDevice, location: DeviceLocation): Promise<void> {
+    this.actions.push(`location ${device.deviceId} ${location.latitude},${location.longitude}`);
+  }
+
+  async clearLocation(device: DriverDevice): Promise<void> {
+    this.actions.push(`clear-location ${device.deviceId}`);
+  }
+
+  async setPermission(device: DriverDevice, appId: string, permission: DevicePermission, grant: boolean) {
+    this.actions.push(`${grant ? "grant" : "revoke"} ${device.deviceId} ${appId} ${permission}`);
+  }
+
+  async sendNotification(device: DriverDevice, appId: string, notification: DeviceNotification): Promise<void> {
+    this.actions.push(`notify ${device.deviceId} ${appId} ${notification.title}|${notification.body}`);
   }
 
   /** Prints lines to every running log stream of the device. Returns how many streams got them. */

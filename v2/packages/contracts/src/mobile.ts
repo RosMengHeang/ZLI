@@ -335,6 +335,7 @@ export const MOBILE_CONTROL_ACTIONS = [
   "mobilecheckpackage",
   "mobilecrashes",
   "mobilebuildbrief",
+  "mobiledevicesettings",
 ] as const;
 export const MobileControlAction = z.enum(MOBILE_CONTROL_ACTIONS);
 export type MobileControlAction = z.infer<typeof MobileControlAction>;

@@ -1,6 +1,16 @@
 import { StringDecoder } from "node:string_decoder";
 
-import type { MobileButton, MobileDevice, MobilePlatform } from "@zli-v2/contracts";
+import type {
+  DeviceAppearance,
+  DeviceConditions,
+  DeviceLocation,
+  DeviceNotification,
+  DevicePermission,
+  DeviceTextSize,
+  MobileButton,
+  MobileDevice,
+  MobilePlatform,
+} from "@zli-v2/contracts";
 
 import type { UiTree } from "./uiTree.js";
 
@@ -48,6 +58,15 @@ export type MobileDriver = {
   dispose(): Promise<void>;
   /** Follows the device's log from now on. Rejects when the log tool is missing. */
   streamLogs(device: DriverDevice): Promise<LogStream>;
+  // Device conditions for testing an app. A driver leaves out what its platform has no command for;
+  // deviceConditionSupport says which ones apply to a given device.
+  readConditions?(device: DriverDevice): Promise<DeviceConditions>;
+  setAppearance?(device: DriverDevice, appearance: DeviceAppearance): Promise<void>;
+  setTextSize?(device: DriverDevice, size: DeviceTextSize): Promise<void>;
+  setLocation?(device: DriverDevice, location: DeviceLocation): Promise<void>;
+  clearLocation?(device: DriverDevice): Promise<void>;
+  setPermission?(device: DriverDevice, appId: string, permission: DevicePermission, grant: boolean): Promise<void>;
+  sendNotification?(device: DriverDevice, appId: string, notification: DeviceNotification): Promise<void>;
 };
 
 export class MobileDriverError extends Error {

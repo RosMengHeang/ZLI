@@ -4,6 +4,7 @@ import type { LeaseOwner } from "../DeviceLeases.js";
 import type { MobileDevAction } from "../MobileControlActions.js";
 import type { MobileIpcHandler } from "../mobileIpc.js";
 import { createBuild } from "./build/index.js";
+import { createConditions } from "./conditions/index.js";
 import { createCrash } from "./crash/index.js";
 import { createDoctor } from "./doctor/index.js";
 import type { MobileDevDecorate, MobileDevFeature, MobileDevHost, MobileDevTestOp } from "./host.js";
@@ -28,6 +29,7 @@ export function createMobileDev(host: MobileDevHost): MobileDev {
     createPackages(host),
     createCrash(host),
     createBuild(host),
+    createConditions(host),
   ]);
 }
 

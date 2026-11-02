@@ -582,6 +582,11 @@ export class DeviceManager {
       );
   }
 
+  /** A running device for a panel action from a mobile dev feature, refused while an agent holds it. */
+  panelDevice(deviceId: string): Promise<{ device: MobileDevice; driver: MobileDriver }> {
+    return this.#forPanel(deviceId);
+  }
+
   /** A running device for a panel action, refused while an agent holds it, like panel input. */
   async #forPanel(deviceId: string): Promise<{ device: MobileDevice; driver: MobileDriver }> {
     this.#refuseWhileAgentHolds(deviceId);
