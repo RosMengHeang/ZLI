@@ -29,6 +29,15 @@ describe("closeChildProcess", () => {
     expect(terminate).toHaveBeenCalledOnce();
   });
 
+  it("returns without killing a process that has already exited", async () => {
+    const child = Object.assign(new EventEmitter(), { exitCode: 0, signalCode: null });
+    const terminate = vi.fn(async () => undefined);
+
+    await closeChildProcess(async () => undefined, child, terminate, 5);
+
+    expect(terminate).not.toHaveBeenCalled();
+  });
+
   it("force-terminates when the app closes but child stdio never closes", async () => {
     const child = new EventEmitter();
     const terminate = vi.fn(async () => {

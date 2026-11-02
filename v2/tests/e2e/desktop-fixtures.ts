@@ -6,12 +6,25 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { type ElectronApplication, _electron as electron, expect, type Locator, type Page } from "@playwright/test";
+import {
+  type ElectronApplication,
+  _electron as electron,
+  expect,
+  type Locator,
+  type Page,
+  test,
+} from "@playwright/test";
 
 import { closeChildProcess } from "../closeChildProcess.js";
+import { electronChildProcess } from "../electronChildProcess.js";
 import { getProcessTreeTerminationOrder } from "../processTree.js";
 
 const execFileAsync = promisify(execFile);
+
+/** How long launch waits for the first window. A busy Windows runner sometimes never opens one. */
+const WINDOW_TIMEOUT_MS = 30_000;
+/** That wait, plus closing the process, is given back to the test so teardown still fits. */
+const RELAUNCH_BUDGET_MS = WINDOW_TIMEOUT_MS + 15_000;
 
 /**
  * The terminal draws with WebGL where the GPU allows it, which leaves no text in the page for the tests
@@ -165,10 +178,13 @@ export async function launchDesktop(
     try {
       return await launchOnce();
     } catch (error) {
-      // A busy Windows runner sometimes never opens the first window of a new process. The failed
-      // launch is already cleaned up, so starting again once is safe; any other failure is real.
+      // A busy Windows runner sometimes never opens the first window, or the process exits before
+      // it does. That launch is already closed, so one more start is safe. Any other failure is
+      // real. The wait counts against the test, so put it back or teardown crosses the limit.
       if (!(error instanceof WindowTimeout)) throw error;
       if (attempt >= 2) throw error.cause;
+      const timeout = test.info().timeout;
+      if (timeout > 0) test.setTimeout(timeout + RELAUNCH_BUDGET_MS);
     }
   }
 
@@ -177,11 +193,15 @@ export async function launchDesktop(
       args: command.args,
       ...(command.executablePath ? { executablePath: command.executablePath } : {}),
       env: command.env,
-      timeout: 30_000,
+      timeout: WINDOW_TIMEOUT_MS,
     });
+    // Taken while the connection still has the process. Once the app exits, process() throws
+    // reading '_object' and that throw would replace the window error, so the retry above never runs.
+    let child: ChildProcess | undefined;
     try {
+      child = electronChildProcess(app);
       await app.context().addInitScript({ content: DISABLE_WEBGL });
-      const page = await app.firstWindow().catch((error: unknown) => {
+      const page = await app.firstWindow({ timeout: WINDOW_TIMEOUT_MS }).catch((error: unknown) => {
         throw new WindowTimeout(error);
       });
       // The first window can start loading before the init script is registered. When that page
@@ -206,13 +226,20 @@ export async function launchDesktop(
       return { app, page, root, repo };
     } catch (error) {
       // A launched app that never showed its window would otherwise outlive the test and stall worker shutdown.
-      const child = app.process();
-      await closeChildProcess(app.close.bind(app), child, () => terminateProcessTree(child.pid)).catch(() => undefined);
-      releaseStdio(child);
+      await abandonLaunch(app, child);
       await stopDesktopDaemon(root).catch(() => undefined);
       throw error;
     }
   }
+}
+
+async function abandonLaunch(app: ElectronApplication, child: ChildProcess | undefined): Promise<void> {
+  if (!child) {
+    await app.close().catch(() => undefined);
+    return;
+  }
+  await closeChildProcess(app.close.bind(app), child, () => terminateProcessTree(child.pid)).catch(() => undefined);
+  releaseStdio(child);
 }
 
 class WindowTimeout extends Error {
