@@ -20,6 +20,7 @@ export * from "./mobileDev.js";
 export * from "./mobileDoctor.js";
 export * from "./mobileLogs.js";
 export * from "./mobilePackages.js";
+export * from "./mobileWireless.js";
 export * from "./mobileWorkspace.js";
 export * from "./openIn.js";
 export * from "./pluginCatalog.js";

@@ -5,6 +5,7 @@ import type { MobileIosStatus, MobileSetupProgress, MobileSetupStatus } from "@z
 import { AndroidDriver, type AndroidTools, androidDeviceId } from "./AndroidDriver.js";
 import { avdHome, detectAndroidSdk, listAvds, toolProbe } from "./AndroidSdk.js";
 import { AndroidEnvironment, AndroidSetup, sdkToolEnv, zliSdkRoot } from "./AndroidSetup.js";
+import { AndroidWireless } from "./AndroidWireless.js";
 import { AvdManager } from "./AvdManager.js";
 import { DeviceManager, type DeviceManagerEvents } from "./DeviceManager.js";
 import { downloadVerified, type FetchLike } from "./download.js";
@@ -85,6 +86,8 @@ export type MobileService = {
   readonly setup: AndroidSetup;
   readonly environment: AndroidEnvironment;
   readonly avds: AvdManager;
+  /** Pairs, connects, and disconnects Android phones over Wi-Fi. */
+  readonly wireless: AndroidWireless;
   status(options?: { recheckAcceleration?: boolean }): Promise<MobileSetupStatus>;
   dispose(): Promise<void>;
 };
@@ -191,11 +194,14 @@ export function createMobileService(options: MobileServiceOptions): MobileServic
     setupRunning: () => setup.running,
   });
 
+  const wireless = new AndroidWireless({ runner, tools: resolveAndroidTools, manager });
+
   return {
     manager,
     setup,
     environment,
     avds,
+    wireless,
     status: async (statusOptions = {}) => {
       const [android, ios] = await Promise.all([environment.inspect(statusOptions), resolveIos()]);
       return { host: { os: options.os, arch: options.arch }, android: android.status, ios: ios.status };
