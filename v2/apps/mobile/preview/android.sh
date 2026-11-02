@@ -43,12 +43,39 @@ shot() {
   adb exec-out screencap -p > "$OUT/$1.png"
 }
 
+unlock() {
+  adb shell input keyevent KEYCODE_WAKEUP
+  adb shell wm dismiss-keyguard
+  sleep 2
+}
+
+# Maestro keeps screenshots inside its own output folder, so they are copied out once the flow ends.
+flow() {
+  local dir="$OUT/maestro/$1-$2" status=0
+  maestro test -e THEME="$2" --test-output-dir "$dir" "$HERE/flows/$1.yaml" || status=$?
+  if [ "$status" -ne 0 ]; then adb exec-out screencap -p > "$dir/failed.png" || true; fi
+  find "$dir" -name "*-$2.png" -exec cp {} "$OUT/" \;
+  return "$status"
+}
+
+# Waits for the live status notification, which shows once the demo desktop answers.
+live_notification() {
+  local _
+  for _ in $(seq 30); do
+    if adb shell dumpsys notification --noredact | grep -q "pkg=$PACKAGE.*id=1001"; then return 0; fi
+    sleep 1
+  done
+  echo "The live status notification did not show up" >&2
+  return 1
+}
+
 live_status() {
   local theme="$1"
+  unlock
   adb shell am force-stop "$PACKAGE"
   adb shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 > /dev/null
-  # Long enough for the demo desktop to answer and the foreground service to post the notification.
-  sleep 12
+  local status=0
+  live_notification || status=1
   adb shell input keyevent KEYCODE_HOME
   sleep 3
   shot "chip-$theme"
@@ -62,8 +89,8 @@ live_status() {
   adb shell input keyevent KEYCODE_WAKEUP
   sleep 3
   shot "lock-$theme"
-  adb shell wm dismiss-keyguard
-  sleep 1
+  unlock
+  return "$status"
 }
 
 capture() {
@@ -79,12 +106,15 @@ capture() {
     log "Screens, $theme"
     if [ "$theme" = dark ]; then adb shell cmd uimode night yes; else adb shell cmd uimode night no; fi
     sleep 2
-    maestro test -e SHOTS="$OUT" -e THEME="$theme" --debug-output "$OUT/maestro-debug/screens-$theme" \
-      "$HERE/flows/screens.yaml" || failed=1
+    unlock
+    flow screens "$theme" || failed=1
     log "Live status, $theme"
     live_status "$theme" || failed=1
   done
   adb shell am force-stop "$PACKAGE" || true
+  # Uploaded with the artifact only, for when a screen or the notification goes missing.
+  adb logcat -d > "$OUT/logcat.txt" 2>&1 || true
+  adb shell dumpsys notification --noredact > "$OUT/notifications.txt" 2>&1 || true
   ls -1 "$OUT"/*.png 2>/dev/null || true
   return "$failed"
 }

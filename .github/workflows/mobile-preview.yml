@@ -132,6 +132,7 @@ jobs:
         with:
           name: preview-ios-${{ matrix.side }}
           if-no-files-found: ignore
+          include-hidden-files: true
           retention-days: 14
           path: ${{ runner.temp }}/preview
 
@@ -190,6 +191,7 @@ jobs:
         with:
           name: preview-android-${{ matrix.side }}
           if-no-files-found: ignore
+          include-hidden-files: true
           retention-days: 14
           path: ${{ runner.temp }}/preview
 
@@ -227,7 +229,7 @@ jobs:
           # Only the newest run of each pull request is kept.
           git rm -r -q --ignore-unmatch "pr/$PR"
           mkdir -p "$dest"
-          rsync -a --prune-empty-dirs --exclude 'maestro-debug/' --include '*/' --include '*.png' --exclude '*' \
+          rsync -a --prune-empty-dirs --exclude 'maestro/' --include '*/' --include '*.png' --exclude '*' \
             "$SHOTS/" "$dest/"
           git add -A
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \

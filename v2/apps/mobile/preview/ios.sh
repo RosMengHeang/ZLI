@@ -47,6 +47,15 @@ build() {
   log "Built $(cat "$OUT/app-path.txt")"
 }
 
+# Maestro keeps screenshots inside its own output folder, so they are copied out once the flow ends.
+flow() {
+  local dir="$OUT/maestro/$1-$2" status=0
+  maestro test -e THEME="$2" --test-output-dir "$dir" "$HERE/flows/$1.yaml" || status=$?
+  if [ "$status" -ne 0 ]; then xcrun simctl io booted screenshot "$dir/failed.png" > /dev/null 2>&1 || true; fi
+  find "$dir" -name "*-$2.png" -exec cp {} "$OUT/" \;
+  return "$status"
+}
+
 capture() {
   local app udid failed=0
   app="$(cat "$OUT/app-path.txt")"
@@ -72,11 +81,9 @@ capture() {
   for theme in light dark; do
     log "Screens, $theme"
     xcrun simctl ui "$udid" appearance "$theme"
-    maestro test -e SHOTS="$OUT" -e THEME="$theme" --debug-output "$OUT/maestro-debug/screens-$theme" \
-      "$HERE/flows/screens.yaml" || failed=1
+    flow screens "$theme" || failed=1
     log "Live Activity, $theme"
-    maestro test -e SHOTS="$OUT" -e THEME="$theme" --debug-output "$OUT/maestro-debug/live-$theme" \
-      "$HERE/flows/live-ios.yaml" || failed=1
+    flow live-ios "$theme" || failed=1
   done
   xcrun simctl terminate "$udid" "$BUNDLE_ID" 2>/dev/null || true
   ls -1 "$OUT"/*.png 2>/dev/null || true

@@ -1,5 +1,5 @@
 # The Live Activity outside the app on iOS: the compact and expanded Dynamic Island, then the lock
-# screen look in Notification Center. Saves ${SHOTS}/<name>-${THEME}.png.
+# screen look in Notification Center. Saves <name>-${THEME}.png in Maestro's output folder.
 appId: dev.zli.remote
 ---
 - launchApp:
@@ -13,13 +13,13 @@ appId: dev.zli.remote
 - pressKey: Home
 - waitForAnimationToEnd:
     timeout: 3000
-- takeScreenshot: ${SHOTS}/island-${THEME}
+- takeScreenshot: island-${THEME}
 
 - longPressOn:
     point: "50%, 3%"
 - waitForAnimationToEnd:
     timeout: 3000
-- takeScreenshot: ${SHOTS}/island-expanded-${THEME}
+- takeScreenshot: island-expanded-${THEME}
 - pressKey: Home
 
 - swipe:
@@ -28,7 +28,7 @@ appId: dev.zli.remote
     duration: 500
 - waitForAnimationToEnd:
     timeout: 3000
-- takeScreenshot: ${SHOTS}/lock-${THEME}
+- takeScreenshot: lock-${THEME}
 - swipe:
     start: "50%, 98%"
     end: "50%, 20%"

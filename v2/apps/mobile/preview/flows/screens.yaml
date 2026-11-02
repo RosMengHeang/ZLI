@@ -1,5 +1,5 @@
 # Walks every screen of the demo build (EXPO_PUBLIC_ZLI_DEMO=1) on iOS and Android and saves
-# ${SHOTS}/<screen>-${THEME}.png. Each screen starts from a fresh launch, so one bad step does not
+# <screen>-${THEME}.png in Maestro's output folder. Each screen starts from a fresh launch, so one bad step does not
 # leave the next screen somewhere unexpected.
 appId: dev.zli.remote
 ---
@@ -7,22 +7,25 @@ appId: dev.zli.remote
     stopApp: true
     permissions:
       notifications: allow
-# iOS asks for notifications on the first launch after pairing.
+# iOS asks for notifications once the desktop is paired, which can cover the home screen.
+- extendedWaitUntil:
+    visible: "Needs you|Allow"
+    timeout: 90000
 - tapOn:
     text: "Allow"
     optional: true
 - extendedWaitUntil:
     visible: "Needs you"
-    timeout: 60000
+    timeout: 30000
 - waitForAnimationToEnd
-- takeScreenshot: ${SHOTS}/home-${THEME}
+- takeScreenshot: home-${THEME}
 
 - tapOn: "Clean the build output asks to continue.*"
 - extendedWaitUntil:
     visible: "Approve"
     timeout: 15000
 - waitForAnimationToEnd
-- takeScreenshot: ${SHOTS}/approval-${THEME}
+- takeScreenshot: approval-${THEME}
 
 - launchApp:
     stopApp: true
@@ -34,7 +37,7 @@ appId: dev.zli.remote
     visible: ".*Running the tests now.*"
     timeout: 15000
 - waitForAnimationToEnd
-- takeScreenshot: ${SHOTS}/agent-${THEME}
+- takeScreenshot: agent-${THEME}
 
 - launchApp:
     stopApp: true
@@ -46,7 +49,7 @@ appId: dev.zli.remote
     visible: "Where it works"
     timeout: 15000
 - waitForAnimationToEnd
-- takeScreenshot: ${SHOTS}/start-${THEME}
+- takeScreenshot: start-${THEME}
 
 - launchApp:
     stopApp: true
@@ -58,7 +61,7 @@ appId: dev.zli.remote
     visible: ".*19 passed.*"
     timeout: 15000
 - waitForAnimationToEnd
-- takeScreenshot: ${SHOTS}/terminal-${THEME}
+- takeScreenshot: terminal-${THEME}
 
 - launchApp:
     stopApp: true
@@ -70,7 +73,7 @@ appId: dev.zli.remote
     visible: "Paired desktop"
     timeout: 15000
 - waitForAnimationToEnd
-- takeScreenshot: ${SHOTS}/settings-${THEME}
+- takeScreenshot: settings-${THEME}
 
 # Forgetting the demo desktop only lasts until the next launch.
 - tapOn: "Forget Studio"
@@ -79,4 +82,4 @@ appId: dev.zli.remote
     visible: "Scan pairing code"
     timeout: 15000
 - waitForAnimationToEnd
-- takeScreenshot: ${SHOTS}/pair-${THEME}
+- takeScreenshot: pair-${THEME}
