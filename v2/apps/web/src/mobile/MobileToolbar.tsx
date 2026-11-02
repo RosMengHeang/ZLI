@@ -8,6 +8,7 @@ import { Segmented } from "../ui/Segmented.js";
 import { StopButton } from "../ui/StopButton.js";
 import {
   deviceGroup,
+  deviceStateLabel,
   deviceSummary,
   devicesInGroups,
   formatElapsed,
@@ -20,6 +21,7 @@ import type { Zoom } from "./useDeviceZoom.js";
 
 /** Picker values that are not devices. Device ids always carry a platform prefix, so these never collide. */
 const NEW_DEVICE = "new-virtual-device";
+const CONNECT_PHONE = "connect-phone";
 const NO_DEVICE = "no-device";
 
 /**
@@ -40,6 +42,9 @@ export function MobileToolbar({
   onBoot,
   onShutdown,
   onCancel,
+  onConnectPhone,
+  disconnecting = false,
+  onDisconnect,
 }: {
   devices: readonly MobileDevice[];
   device: MobileDevice | undefined;
@@ -57,6 +62,11 @@ export function MobileToolbar({
   onShutdown(): void;
   /** Stops a virtual device that is still booting. */
   onCancel(): void;
+  /** Picked from the device list to pair or connect a phone. Without it the list has no such entry. */
+  onConnectPhone?: (() => void) | undefined;
+  disconnecting?: boolean;
+  /** Disconnects a phone on Wi-Fi. Without it a Wi-Fi phone shows no Disconnect. */
+  onDisconnect?: (() => void) | undefined;
 }) {
   const virtual = device ? device.kind !== "physical" : false;
   const chip = device?.state === "online" && screenMode ? screenModeChip(screenMode) : undefined;
@@ -70,6 +80,9 @@ export function MobileToolbar({
           icon: <Icon name={candidate.kind === "physical" ? "smartphone" : "appWindow"} size={14} />,
         })),
         { value: NEW_DEVICE, label: "New virtual device", icon: <Icon name="plus" size={14} /> },
+        ...(onConnectPhone
+          ? [{ value: CONNECT_PHONE, label: "Connect a phone", icon: <Icon name="smartphone" size={14} /> }]
+          : []),
       ]
     : [{ value: NO_DEVICE, label: "No devices" }];
   return (
@@ -81,7 +94,9 @@ export function MobileToolbar({
         value={device?.deviceId ?? NO_DEVICE}
         options={options}
         disabled={!device}
-        onChange={(value) => (value === NEW_DEVICE ? onNewDevice() : onSelect(value))}
+        onChange={(value) =>
+          value === NEW_DEVICE ? onNewDevice() : value === CONNECT_PHONE ? onConnectPhone?.() : onSelect(value)
+        }
       >
         <span className="picker-trigger-label">{device?.name ?? "No devices"}</span>
       </Picker>
@@ -90,11 +105,11 @@ export function MobileToolbar({
           tone={stateTone(device)}
           dot={device.state !== "booting"}
           spinner={device.state === "booting"}
-          {...(device.state === "online" ? { className: "mobile-state-badge", title: stateLabel(device.state) } : {})}
+          {...(device.state === "online" ? { className: "mobile-state-badge", title: deviceStateLabel(device) } : {})}
         >
           {device.state === "booting" && bootElapsedMs !== undefined
             ? `${stateLabel(device.state)} ${formatElapsed(bootElapsedMs)}`
-            : stateLabel(device.state)}
+            : deviceStateLabel(device)}
         </Badge>
       ) : null}
       {chip ? (
@@ -135,6 +150,17 @@ export function MobileToolbar({
           aria-busy={stopping || undefined}
           onClick={onShutdown}
         />
+      ) : null}
+      {device?.connection === "wifi" && onDisconnect ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          loading={disconnecting}
+          tooltip={`Stop reaching ${device.name} over Wi-Fi`}
+          onClick={onDisconnect}
+        >
+          Disconnect
+        </Button>
       ) : null}
     </div>
   );

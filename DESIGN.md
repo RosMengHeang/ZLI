@@ -277,6 +277,13 @@ not cover, add it to the primitives instead of styling it locally.
   like a phone's navigation bar, and Rotate, Save a screenshot, and the
   More menu on the right. Shut down is an icon button in the toolbar, and
   the reason for screenshots mode is a caption under the device.
+- A device popped out of the Mobile panel opens in its own window, so the
+  person can watch the app beside the chat. Its slim title bar holds the
+  device name, the zoom switch, Compact window (hides the bottom bar and
+  shrinks the window by its height), and Keep on top (a pin). The pin, the
+  compact choice, and the window's place and size are remembered per
+  device; a place no longer on any display is dropped and the window opens
+  centered.
 - Agents ask before they act on a mobile project. Their commands and
   AGENTS.md or CLAUDE.md changes appear as cards above the device, and
   nothing runs until the person clicks Run in terminal or Write. Those

@@ -17,6 +17,7 @@ import {
   MobilePopOutAspectInput,
   MobilePopOutList,
   MobilePopOutPinInput,
+  MobilePopOutSaved,
   MobileSetupRunInput,
 } from "./mobile.js";
 
@@ -120,5 +121,16 @@ describe("mobile contracts", () => {
     expect(
       MobilePopOutAspectInput.safeParse({ deviceId: "d", aspect: Number.NaN, extraWidth: 0, extraHeight: 0 }).success,
     ).toBe(false);
+  });
+
+  it("keeps a saved pin when the saved bounds are broken", () => {
+    expect(MobilePopOutSaved.parse({ pinned: true, bounds: { x: 10, y: 20, width: 400, height: 800 } })).toEqual({
+      pinned: true,
+      bounds: { x: 10, y: 20, width: 400, height: 800 },
+    });
+    expect(MobilePopOutSaved.parse({ pinned: true, bounds: { x: Number.POSITIVE_INFINITY, y: 0, width: 1 } })).toEqual({
+      pinned: true,
+    });
+    expect(MobilePopOutSaved.parse({ pinned: "yes" })).toEqual({ pinned: false });
   });
 });

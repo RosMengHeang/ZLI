@@ -67,13 +67,16 @@ describe("device settings contracts", () => {
     expect(emulator.notification.ok).toBe(false);
     expect(emulator.clearLocation.ok).toBe(false);
     expect(Object.values(emulator.permissions).every((entry) => entry.ok)).toBe(true);
-    expect(deviceConditionSupport({ platform: "android", kind: "physical" }).location).toMatchObject({ ok: false });
+    const phone = deviceConditionSupport({ platform: "android", kind: "physical" });
+    expect(phone.location).toMatchObject({ ok: false });
+    expect(phone.appearance.ok && phone.textSize.ok).toBe(true);
+    expect(Object.values(phone.permissions).every((entry) => entry.ok)).toBe(true);
 
     const simulator = deviceConditionSupport({ platform: "ios", kind: "simulator" });
     expect(simulator.notification.ok).toBe(true);
     expect(simulator.permissions.camera.ok).toBe(false);
     expect(simulator.permissions.photos.ok).toBe(true);
-    const phone = deviceConditionSupport({ platform: "ios", kind: "physical" });
-    expect(phone.appearance).toEqual({ ok: false, reason: "ZLI changes these settings only on iOS simulators." });
+    const iphone = deviceConditionSupport({ platform: "ios", kind: "physical" });
+    expect(iphone.appearance).toEqual({ ok: false, reason: "ZLI changes these settings only on iOS simulators." });
   });
 });

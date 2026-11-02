@@ -94,6 +94,8 @@ export class AndroidDriver implements MobileDriver {
   readonly platform = "android" as const;
   readonly #deps: AndroidDriverDeps;
   readonly #avdNames = new Map<string, string | undefined>();
+  /** Android versions of connected phones by serial, read once per connection. */
+  readonly #osVersions = new Map<string, string>();
   readonly #started = new Map<string, RunningProcess>();
   /** The serial each emulator ZLI started will have, known before adb lists it. */
   readonly #startedSerials = new Map<string, string>();
@@ -116,13 +118,17 @@ export class AndroidDriver implements MobileDriver {
         device.emulator && device.state === "online" ? await this.#avdName(tools, device.serial) : undefined;
       if (avdName) runningAvds.add(avdName);
       const avd = avdName ? tools.avds.find((entry) => entry.name === avdName) : undefined;
+      const osVersion =
+        !device.emulator && device.state === "online" ? await this.#osVersion(tools, device.serial) : undefined;
       devices.push({
         deviceId: androidDeviceId({ ...(avdName ? { avdName } : {}), serial: device.serial }),
         platform: "android",
         kind: device.emulator ? "emulator" : "physical",
         name: avd?.displayName ?? device.model ?? device.serial,
         state: device.state,
+        ...(osVersion ? { osVersion } : {}),
         serial: device.serial,
+        ...(device.emulator ? {} : { connection: device.wifi ? ("wifi" as const) : ("usb" as const) }),
       });
     }
     for (const avd of tools.avds) {
@@ -455,6 +461,21 @@ export class AndroidDriver implements MobileDriver {
     return name;
   }
 
+  async #osVersion(tools: AndroidTools, serial: string): Promise<string | undefined> {
+    const known = this.#osVersions.get(serial);
+    if (known) return known;
+    const result = await this.#deps.runner
+      .run(this.#adb(tools), ["-s", serial, "shell", "getprop", "ro.build.version.release"], {
+        env: tools.env,
+        timeoutMs: 10_000,
+      })
+      .catch(() => undefined);
+    const version = result?.code === 0 ? result.stdout.toString("utf8").trim() : "";
+    if (!/^[\w.]{1,20}$/u.test(version)) return undefined;
+    this.#osVersions.set(serial, version);
+    return version;
+  }
+
   async #serialForAvd(tools: AndroidTools, avdName: string): Promise<string | undefined> {
     for (const device of await this.#connected(this.#adb(tools), tools.env)) {
       if (device.emulator && (await this.#avdName(tools, device.serial)) === avdName) return device.serial;
@@ -469,7 +490,12 @@ export class AndroidDriver implements MobileDriver {
 
   #serial(device: DriverDevice): string {
     if (device.state !== "online" || !device.serial)
-      throw new MobileDriverError(`${device.name} is not running. Boot it first with mobile_boot.`, 409);
+      throw new MobileDriverError(
+        device.kind === "physical"
+          ? `${device.name} is not connected and ready. ${physicalStateHint(device)}`
+          : `${device.name} is not running. Boot it first with mobile_boot.`,
+        409,
+      );
     return device.serial;
   }
 
@@ -531,6 +557,17 @@ function pmMessage(output: string): string {
     .filter(Boolean);
   const exception = lines.map((line) => /^[\w.$]*(?:Exception|Error):\s*(.+)$/u.exec(line)?.[1]).find(Boolean);
   return (exception ?? lines[0] ?? "").slice(0, 500);
+}
+
+/** What the person can do about a phone adb lists but cannot use yet. */
+export function physicalStateHint(device: Pick<DriverDevice, "state" | "connection">): string {
+  if (device.state === "unauthorized")
+    return device.connection === "wifi"
+      ? "Pair it again with a code from Wireless debugging on the phone."
+      : "Allow USB debugging on the phone, then check the prompt on its screen.";
+  if (device.connection === "wifi")
+    return "Check that Wireless debugging is still on and the phone is on the same Wi-Fi network, then connect again.";
+  return "Unplug the cable and plug it back in, then unlock the phone.";
 }
 
 function emulatorFailure(output: string): string {
