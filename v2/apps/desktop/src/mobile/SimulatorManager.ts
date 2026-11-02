@@ -11,6 +11,7 @@ import {
   MobileSimulatorDeleteInput,
 } from "@zli-v2/contracts";
 
+import { sshHostName } from "./CommandHost.js";
 import type { IosTools } from "./IosSimulatorDriver.js";
 import { MobileDriverError } from "./MobileDriver.js";
 import { type ProcessRunner, runChecked, withDefaultEnv } from "./ProcessRunner.js";
@@ -135,6 +136,8 @@ export type SimulatorManagerDeps = {
   onChange(): Promise<void> | void;
 };
 
+type Simctl = { readonly xcrun: string; readonly runner: ProcessRunner };
+
 /** Creates and deletes iPhone and iPad simulators with simctl, from the models and iOS versions Xcode has. */
 export class SimulatorManager {
   readonly #deps: SimulatorManagerDeps;
@@ -147,15 +150,15 @@ export class SimulatorManager {
   }
 
   async list(): Promise<MobileSimulatorCatalog> {
-    const { xcrun } = await this.#deps.tools();
-    if (!xcrun) return { simctl: false, deviceTypes: [], runtimes: [] };
-    return { simctl: true, ...(await this.#catalog(xcrun)) };
+    const tools = await this.#deps.tools();
+    if (!tools.xcrun) return { simctl: false, deviceTypes: [], runtimes: [] };
+    return { simctl: true, ...(await this.#catalog({ xcrun: tools.xcrun, runner: this.#runnerFor(tools) })) };
   }
 
   async create(input: unknown): Promise<MobileSimulatorCreated> {
     const { name, deviceTypeId, runtimeId } = MobileSimulatorCreateInput.parse(input);
-    return this.#change(async (xcrun) => {
-      const catalog = await this.#catalog(xcrun);
+    return this.#change(async (simctl) => {
+      const catalog = await this.#catalog(simctl);
       const runtime = catalog.runtimes.find((entry) => entry.id === runtimeId);
       if (!runtime)
         throw new MobileDriverError(
@@ -168,7 +171,7 @@ export class SimulatorManager {
       // simctl allows two simulators with one name, but rotation finds the Simulator window by name.
       if ((await this.#simulators()).some((device) => device.name.toLowerCase() === name.toLowerCase()))
         throw new MobileDriverError(`A simulator named ${name} already exists.`, 409);
-      const result = await runChecked(this.#runner, xcrun, simctlCreateArgs(name, type.id, runtime.id), {
+      const result = await runChecked(simctl.runner, simctl.xcrun, simctlCreateArgs(name, type.id, runtime.id), {
         timeoutMs: 120_000,
       });
       const udid = MobileSimUdid.safeParse(result.stdout.toString("utf8").trim());
@@ -179,33 +182,47 @@ export class SimulatorManager {
 
   async delete(input: unknown): Promise<{ accepted: true }> {
     const { udid } = MobileSimulatorDeleteInput.parse(input);
-    return this.#change(async (xcrun) => {
+    return this.#change(async (simctl) => {
       const deviceId = `ios:${udid}`;
       const device = (await this.#simulators()).find(
         (entry) => entry.deviceId.toLowerCase() === deviceId.toLowerCase(),
       );
       if (!device) throw new MobileDriverError("That simulator is not on this Mac anymore.", 404);
       if (device.state !== "shutdown") throw new MobileDriverError(`Shut down ${device.name} before deleting it.`, 409);
-      await runChecked(this.#runner, xcrun, simctlDeleteArgs(udid), { timeoutMs: 60_000 });
+      await runChecked(simctl.runner, simctl.xcrun, simctlDeleteArgs(udid), { timeoutMs: 60_000 });
       return { accepted: true as const };
     });
   }
 
-  async #change<T>(work: (xcrun: string) => Promise<T>): Promise<T> {
+  async #change<T>(work: (simctl: Simctl) => Promise<T>): Promise<T> {
     if (this.#busy) throw new MobileDriverError("Another simulator change is still running.", 409);
-    const { xcrun } = await this.#deps.tools();
-    if (!xcrun) throw new MobileDriverError("iPhone simulators need a Mac with Xcode installed.", 409);
+    const tools = await this.#deps.tools();
+    if (!tools.xcrun) {
+      const remote = tools.host?.remote;
+      throw new MobileDriverError(
+        remote
+          ? `ZLI cannot run Xcode's simulator tools on ${sshHostName(remote)}. Test the connection in Settings > Mobile.`
+          : "iPhone simulators need a Mac with Xcode installed.",
+        409,
+      );
+    }
+    const simctl = { xcrun: tools.xcrun, runner: this.#runnerFor(tools) };
     this.#busy = true;
     try {
-      return await work(xcrun);
+      return await work(simctl);
     } finally {
       this.#busy = false;
       await this.#deps.onChange();
     }
   }
 
-  async #catalog(xcrun: string): Promise<Omit<MobileSimulatorCatalog, "simctl">> {
-    const result = await runChecked(this.#runner, xcrun, SIMCTL_CATALOG_ARGS, { timeoutMs: 30_000 });
+  /** Runs on the Mac over SSH when one is set, the same way the simulator driver does. */
+  #runnerFor(tools: IosTools): ProcessRunner {
+    return tools.host?.remote ? withDefaultEnv(tools.host.runner, this.#deps.env) : this.#runner;
+  }
+
+  async #catalog({ xcrun, runner }: Simctl): Promise<Omit<MobileSimulatorCatalog, "simctl">> {
+    const result = await runChecked(runner, xcrun, SIMCTL_CATALOG_ARGS, { timeoutMs: 30_000 });
     try {
       return parseSimctlCatalog(result.stdout.toString("utf8"));
     } catch {

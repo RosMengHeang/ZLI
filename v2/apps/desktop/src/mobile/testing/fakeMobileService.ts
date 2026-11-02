@@ -156,6 +156,7 @@ export function createFakeMobileService(options: {
       android: androidStatus,
       ios: { supported: false, simctl: { found: false }, idb: { found: false }, missing: ["A Mac with Xcode"] },
     }),
+    testIosHost: async () => ({ ok: false, message: "The fake mobile service has no Mac to connect to." }),
     dispose: () => manager.dispose(),
   };
 

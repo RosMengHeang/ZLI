@@ -24,6 +24,8 @@ import {
   MobileAvdList,
   MobileDevice,
   MobileDeviceIdInput,
+  MobileIosHostTestInput,
+  MobileIosHostTestResult,
   MobileLogLines,
   MobileOpenUrlResult,
   MobilePanelInput,
@@ -144,6 +146,10 @@ function createMobileApi(ipc: PreloadIpc) {
     getSettings: async () => MobileSettings.parse(await ipc.invoke("zli:mobile:settings-get")),
     setSettings: async (patch: Partial<MobileSettings>) =>
       MobileSettings.parse(await ipc.invoke("zli:mobile:settings-set", MobileSettings.partial().parse(patch))),
+    testIosHost: async (host: string) =>
+      MobileIosHostTestResult.parse(
+        await ipc.invoke("zli:mobile:ios-host-test", MobileIosHostTestInput.parse({ host })),
+      ),
     /** Fires when an agent boots or drives a device, so the renderer can show the Mobile panel with it. */
     onReveal: listenParsed(ipc, "zli:mobile:reveal", MobileRevealEvent),
     popOuts: async () => MobilePopOutList.parse(await ipc.invoke("zli:mobile:popout-list")),

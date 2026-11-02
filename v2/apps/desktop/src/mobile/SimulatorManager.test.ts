@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { sshCommandHost } from "./CommandHost.js";
 import { FakeProcessRunner } from "./FakeProcessRunner.js";
 import {
   parseSimctlCatalog,
@@ -233,5 +234,74 @@ describe("SimulatorManager", () => {
     );
     await expect(simulators.delete({ udid: "all" })).rejects.toThrow();
     expect(runner.argsOf("xcrun").filter((args) => args[1] === "delete")).toHaveLength(1);
+  });
+});
+
+describe("SimulatorManager on a Mac over SSH", () => {
+  const remote = () => {
+    const ssh = new FakeProcessRunner((_command, args) => {
+      const line = args.at(-1) ?? "";
+      if (line.endsWith("simctl list -j devicetypes runtimes")) return { stdout: JSON.stringify(CATALOG) };
+      if (line.includes(" simctl create ")) return { stdout: `${UDID}\n` };
+      return undefined;
+    });
+    const host = sshCommandHost({ runner: ssh, ssh: "C:\\Windows\\System32\\OpenSSH\\ssh.exe", host: "dev@studio" });
+    const simulators = new SimulatorManager({
+      runner: new FakeProcessRunner(() => {
+        throw new Error("a remote simulator must not run anything on this computer");
+      }),
+      env: { PATH: "/usr/bin" },
+      tools: async () => ({ xcrun: "/usr/bin/xcrun", host }),
+      devices: async () => [
+        { deviceId: `ios:${UDID}`, name: "Spare", state: "shutdown" as const, platform: "ios" as const },
+      ],
+      onChange: async () => undefined,
+    });
+    const lines = () =>
+      ssh.calls.map((call) => call.args.at(-1)?.replace("PATH=/opt/homebrew/bin:/usr/local/bin:$PATH ", ""));
+    return { ssh, simulators, lines };
+  };
+
+  it("lists, creates, and deletes through ssh, with the name quoted for the Mac's shell", async () => {
+    const { ssh, simulators, lines } = remote();
+    expect((await simulators.list()).runtimes.map((runtime) => runtime.name)).toEqual(["iOS 17.5", "iOS 18.2"]);
+    expect(
+      await simulators.create({
+        name: "Ana's iPhone (16 Pro)",
+        deviceTypeId: `${TYPE}iPhone-16-Pro`,
+        runtimeId: `${RUNTIME}iOS-18-2`,
+      }),
+    ).toEqual({ deviceId: `ios:${UDID}`, name: "Ana's iPhone (16 Pro)" });
+    await simulators.delete({ udid: UDID });
+
+    expect(ssh.calls.every((call) => call.command === "C:\\Windows\\System32\\OpenSSH\\ssh.exe")).toBe(true);
+    expect(ssh.calls[0]?.args.slice(0, 6)).toEqual([
+      "-o",
+      "BatchMode=yes",
+      "-o",
+      "ConnectTimeout=5",
+      "--",
+      "dev@studio",
+    ]);
+    expect(lines()).toEqual([
+      "/usr/bin/xcrun simctl list -j devicetypes runtimes",
+      "/usr/bin/xcrun simctl list -j devicetypes runtimes",
+      `/usr/bin/xcrun simctl create 'Ana'\\''s iPhone (16 Pro)' ${TYPE}iPhone-16-Pro ${RUNTIME}iOS-18-2`,
+      `/usr/bin/xcrun simctl delete ${UDID}`,
+    ]);
+  });
+
+  it("names the Mac when Xcode does not run there", async () => {
+    const host = sshCommandHost({ runner: new FakeProcessRunner(() => undefined), ssh: "ssh", host: "dev@studio" });
+    const simulators = new SimulatorManager({
+      runner: new FakeProcessRunner(() => undefined),
+      env: {},
+      tools: async () => ({ host }),
+      devices: async () => [],
+      onChange: async () => undefined,
+    });
+    await expect(
+      simulators.create({ name: "Phone", deviceTypeId: `${TYPE}iPhone-15`, runtimeId: `${RUNTIME}iOS-18-2` }),
+    ).rejects.toThrow("ZLI cannot run Xcode's simulator tools on studio. Test the connection in Settings > Mobile.");
   });
 });

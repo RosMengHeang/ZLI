@@ -391,6 +391,7 @@ async function startBrowserControl(databasePath: string): Promise<BrowserToolPat
       // downloading their own; only settings stay beside the throwaway database.
       mobileDir: join(defaultUserData, "mobile"),
       events: mobileEvents,
+      iosHost: async () => (await mobileSettings?.get())?.iosRemoteHost || undefined,
     });
   const settingsStore = mobileSettings;
   const liveWorktrees = () => (runtime?.projection()?.worktrees ?? []).filter((entry) => entry.status !== "cancelled");

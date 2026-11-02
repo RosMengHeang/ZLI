@@ -72,6 +72,10 @@ function createMobile(devices: MobileDevice[]) {
       settings = { ...settings, ...patch };
       return settings;
     }),
+    testIosHost: vi.fn(async (_host: string) => ({
+      ok: true,
+      message: "Connected to mac-mini.local. Found 2 simulators.",
+    })),
   };
   return {
     mobile,
@@ -256,6 +260,23 @@ describe("Settings > Mobile", () => {
     expect(container.textContent).toContain("Created iPhone 16.");
   });
 
+  it("offers an iPhone simulator on Windows when a Mac is set over SSH", async () => {
+    const devices: MobileDevice[] = [pixel];
+    const fake = createMobile(devices);
+    const mobile = withCreate(fake.mobile, devices);
+    const remote = await mobile.status();
+    remote.host = { os: "windows", arch: "x64" };
+    remote.ios = { ...remote.ios, host: "me@mac-mini.local" };
+    mobile.status.mockResolvedValue(remote);
+    const container = await render(bridgeWith(mobile));
+    await act(async () => button(container, "New device…").click());
+    const radios = [...document.querySelectorAll<HTMLInputElement>('[role="radiogroup"] input')];
+    expect(radios.map((radio) => radio.parentElement?.textContent)).toEqual(["Android emulator", "iPhone simulator"]);
+    await act(async () => radios[1]?.click());
+    expect(mobile.listSimulators).toHaveBeenCalled();
+    expect(document.querySelector<HTMLInputElement>(".new-device-form .field input")?.value).toBe("iPhone 16");
+  });
+
   it("deletes a shut down simulator or emulator only after asking in its row", async () => {
     const simulator: MobileDevice = {
       deviceId: "ios:5A3F2C1D-1111-4222-8333-944455556666",
@@ -297,6 +318,38 @@ describe("Settings > Mobile", () => {
     expect(mobile.deleteAvd).toHaveBeenCalledWith("Pixel_8");
     expect(container.querySelector('[role="alert"]')?.textContent).toBe("Shut down Pixel 8 before deleting it.");
     expect(container.querySelector('fieldset[aria-label="Delete Pixel_8?"]')).toBeNull();
+  });
+
+  it("saves, tests, and clears the Mac that runs iPhone simulators", async () => {
+    const fake = createMobile([]);
+    const container = await render(bridgeWith(fake.mobile));
+    const input = container.querySelector<HTMLInputElement>('input[placeholder="you@mac-mini.local"]');
+    if (!input) throw new Error("No Mac address field");
+    const type = (value: string) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+
+    await act(async () => type("me@bad host"));
+    expect(container.textContent).toContain("Test connection");
+    expect(button(container, "Save").disabled).toBe(true);
+
+    await act(async () => type("  me@mac-mini.local "));
+    await act(async () => button(container, "Save").click());
+    expect(fake.mobile.setSettings).toHaveBeenCalledWith({ iosRemoteHost: "me@mac-mini.local" });
+    expect(container.textContent).toContain("ZLI runs iPhone simulators on mac-mini.local over SSH.");
+
+    await act(async () => button(container, "Test connection").click());
+    expect(fake.mobile.testIosHost).toHaveBeenCalledWith("me@mac-mini.local");
+    expect([...container.querySelectorAll("[role=status]")].map((node) => node.textContent).filter(Boolean)).toEqual([
+      "Connected to mac-mini.local. Found 2 simulators.",
+    ]);
+
+    await act(async () => button(container, "Clear the Mac").click());
+    expect(fake.mobile.setSettings).toHaveBeenLastCalledWith({ iosRemoteHost: "" });
+    expect(input.value).toBe("");
+    expect(container.textContent).not.toContain("Test connection");
   });
 });
 

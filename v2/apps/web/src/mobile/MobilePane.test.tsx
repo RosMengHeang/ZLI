@@ -649,6 +649,26 @@ describe("MobilePane", () => {
     expect(() => button(container, "Home")).not.toThrow();
   });
 
+  it("shows Rotate as unavailable, with the reason, for a simulator on another Mac", async () => {
+    const simulator: MobileDevice = {
+      deviceId: "ios:UDID-1",
+      platform: "ios",
+      kind: "simulator",
+      name: "iPhone 16",
+      state: "online",
+      host: "dev@studio.local",
+      lease: null,
+    };
+    const fake = createMobile({ devices: [simulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    const rotate = button(container, "Rotate");
+    expect(rotate.disabled).toBe(true);
+    expect(rotate.dataset.tooltip).toBe(
+      "Rotate it in the Simulator app on studio.local. ZLI cannot rotate a simulator on another Mac yet.",
+    );
+    expect(container.textContent).toContain("iOS Simulator on studio.local");
+  });
+
   it("sends the person to Take over when they press Power while an agent holds the device", async () => {
     const held: MobileDevice = {
       ...emulator,
@@ -1608,7 +1628,7 @@ describe("MobilePane", () => {
     expect(container.querySelector(".mobile-setup-card")?.textContent).toContain("Android Emulator");
     expect(container.textContent).toContain("Or connect an Android phone with USB debugging turned on.");
     expect(container.querySelector(".mobile-setup-ios-note")?.textContent).toBe(
-      "iPhone simulators need a Mac with Xcode.",
+      "iPhone simulators need a Mac with Xcode. To use one on your network, add it in Settings > Mobile.",
     );
 
     const primary = [...container.querySelectorAll<HTMLButtonElement>(".mobile-setup-card .btn-primary")];
