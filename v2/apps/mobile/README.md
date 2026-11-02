@@ -32,6 +32,14 @@ The phone and the desktop need to be on the same network, and the desktop's fire
 the gateway's port (47321 unless it was taken). To remove a phone, revoke it on the desktop or
 choose Forget in the app's settings.
 
+## Notifications
+
+The app asks to send notifications the first time it opens after pairing, and Settings shows whether
+they are on. It compares each update from the desktop with the one before and alerts when an agent
+asks for approval, asks a question, finishes a turn, fails, or stops. Nothing is sent for the
+conversation already on screen, and an answered request removes its notification. Tapping one opens
+that agent.
+
 ## What it stores
 
 The pairing lives in the platform keystore through `expo-secure-store`, readable after the first
@@ -48,7 +56,8 @@ phone's own X25519 key, and the device credential the desktop issued.
 ## Limits
 
 - Local network only. There is no relay, so the phone cannot reach the desktop from elsewhere.
-- No push notifications. Approvals show up while the app is open; it disconnects in the background.
+- No push service. The phone posts its own notifications for approvals, questions, and agents that
+  finish, fail, or stop, so they only arrive while it is connected; it disconnects in the background.
 - Messages are plain text. Markdown, diffs, and attachments stay on the desktop.
 - The terminal shows recent output as text and sends typed lines and a few keys. Full-screen
   programs such as editors do not render on the phone.

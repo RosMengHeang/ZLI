@@ -3,6 +3,7 @@ import { BackHandler, View } from "react-native";
 
 import { useLinkSnapshot } from "./LinkContext.js";
 import { type Navigation, NavigationContext, type Route } from "./navigation.js";
+import { askForNotificationsOnce, useAgentAlerts, useNotificationTaps } from "./notifications.js";
 import { AgentScreen } from "./screens/AgentScreen.js";
 import { HomeScreen } from "./screens/HomeScreen.js";
 import { SettingsScreen } from "./screens/SettingsScreen.js";
@@ -25,6 +26,20 @@ export function Navigator({ onForget }: { onForget: (notice?: string) => Promise
     }),
     [],
   );
+
+  const top = stack[stack.length - 1];
+  useAgentAlerts(top?.name === "agent" ? top.threadId : undefined);
+  useNotificationTaps((threadId) =>
+    setStack((current) => {
+      const shown = current[current.length - 1];
+      return shown?.name === "agent" && shown.threadId === threadId
+        ? current
+        : [...current, { name: "agent", threadId }];
+    }),
+  );
+  useEffect(() => {
+    void askForNotificationsOnce().catch(() => {});
+  }, []);
 
   const depth = stack.length;
   useEffect(() => {

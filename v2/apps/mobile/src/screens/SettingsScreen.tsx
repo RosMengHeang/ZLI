@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useConnectionLabel, useLink, useLinkSnapshot } from "../LinkContext.js";
 import { unpairFromDesktop } from "../lib/pairing.js";
 import { useNavigation } from "../navigation.js";
+import { type NotificationAccess, openSystemSettings, useNotificationAccess } from "../notifications.js";
 import { createSocket, random } from "../platform.js";
 import { mono, space, type, usePalette } from "../theme.js";
 import { Header, Row, Section, StatusText } from "../ui/components.js";
@@ -18,6 +19,7 @@ export function SettingsScreen({ onForget }: { onForget: () => Promise<void> }) 
   const palette = usePalette();
   const insets = useSafeAreaInsets();
   const [forgetting, setForgetting] = useState(false);
+  const [access, ask] = useNotificationAccess();
   const { pairing } = snapshot;
   const address = `${pairing.lastHost ?? pairing.hosts[0] ?? ""}:${pairing.port}`;
   const online = snapshot.state.kind === "online";
@@ -84,6 +86,28 @@ export function SettingsScreen({ onForget }: { onForget: () => Promise<void> }) 
           />
         </Section>
 
+        <Section
+          title="Notifications"
+          footer={`Alerts come straight from ${pairing.desktopName} over your network, so they only arrive while ZLI Remote is connected.`}
+        >
+          <Row
+            leading={<Icon name="bell" size={20} color={palette.text} />}
+            title="Agent alerts"
+            subtitle={alertsSubtitle(access)}
+            trailing={
+              access ? (
+                <StatusText label={access === "on" ? "On" : "Off"} tone={access === "on" ? "green" : "neutral"} />
+              ) : undefined
+            }
+            chevron
+            accessibilityLabel={`Agent alerts, ${access === "on" ? "on" : "off"}`}
+            accessibilityHint={
+              access === "off" ? "Asks to allow notifications" : "Opens the system settings for this app"
+            }
+            onPress={() => (access === "off" ? void ask() : openSystemSettings())}
+          />
+        </Section>
+
         <Section footer="Removes the pairing from this phone and asks the desktop to forget the phone too.">
           <Row
             title={forgetting ? "Forgetting…" : `Forget ${pairing.desktopName}`}
@@ -96,6 +120,19 @@ export function SettingsScreen({ onForget }: { onForget: () => Promise<void> }) 
       </ScrollView>
     </View>
   );
+}
+
+function alertsSubtitle(access: NotificationAccess | undefined): string | undefined {
+  switch (access) {
+    case "on":
+      return "When an agent needs you or is done";
+    case "off":
+      return "Turn on to hear when an agent needs you";
+    case "blocked":
+      return "Turned off in the system settings";
+    case undefined:
+      return undefined;
+  }
 }
 
 function Value({ label, value, monospace = false }: { label: string; value: string; monospace?: boolean }) {
