@@ -34,6 +34,8 @@ export const MobileDevice = z.object({
   osVersion: z.string().max(100).optional(),
   /** adb serial while an Android device is connected. */
   serial: z.string().max(200).optional(),
+  /** How a physical Android phone reaches adb. A Wi-Fi phone can be disconnected; neither can be booted. */
+  connection: z.enum(["usb", "wifi"]).optional(),
   lease: MobileLease.nullable(),
 });
 export type MobileDevice = z.infer<typeof MobileDevice>;
