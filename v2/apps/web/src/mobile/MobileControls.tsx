@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import type { MobileBridge } from "../runtime/bridge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { MenuButton, type MenuEntry } from "../ui/Menu.js";
-import { errorText, openedNotice, sendTextInput, urlToOpen } from "./mobile.js";
+import { errorText, macName, openedNotice, sendTextInput, urlToOpen } from "./mobile.js";
 
 type Row = "type" | "url";
 
@@ -194,7 +194,18 @@ export function MobileControls({
           {android ? <IconButton icon="square" iconSize={15} label="Recents" onClick={() => press("recents")} /> : null}
         </fieldset>
         <div className="mobile-controls-side is-end">
-          {canRotate ? <IconButton icon="rotate" size="sm" iconSize={15} label="Rotate" onClick={rotate} /> : null}
+          {device.platform === "ios" && device.host ? (
+            <IconButton
+              icon="rotate"
+              size="sm"
+              iconSize={15}
+              label="Rotate"
+              tooltip={`Rotate it in the Simulator app on ${macName(device.host)}. ZLI cannot rotate a simulator on another Mac yet.`}
+              disabled
+            />
+          ) : canRotate ? (
+            <IconButton icon="rotate" size="sm" iconSize={15} label="Rotate" onClick={rotate} />
+          ) : null}
           <IconButton
             icon="download"
             size="sm"

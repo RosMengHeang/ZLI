@@ -1,6 +1,7 @@
 import { withoutPrivateEnv } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
+import { sshCommandHost } from "./CommandHost.js";
 import { FakeProcessRunner } from "./FakeProcessRunner.js";
 import {
   IosSimulatorDriver,
@@ -321,5 +322,163 @@ describe("iOS simulator driver", () => {
     await expect(without.startVideo(iphone, { onVideo: () => undefined, onClose: () => undefined })).rejects.toThrow(
       /needs idb/u,
     );
+  });
+});
+
+/** The first 24 bytes of a PNG: the signature and an IHDR chunk with the size. */
+function pngHeader(width: number, height: number): Buffer {
+  const data = Buffer.alloc(24);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(data, 0);
+  data.writeUInt32BE(13, 8);
+  data.write("IHDR", 12, "ascii");
+  data.writeUInt32BE(width, 16);
+  data.writeUInt32BE(height, 20);
+  return data;
+}
+
+describe("iOS simulators on a Mac over SSH", () => {
+  const remote = () => {
+    const fake = new FakeProcessRunner((_command, args) => {
+      const line = args.at(-1) ?? "";
+      if (line.endsWith("simctl list devices --json")) return { stdout: SIMCTL };
+      if (line.includes("screenshot")) return { stdout: pngHeader(1179, 2556) };
+      return undefined;
+    });
+    const host = sshCommandHost({ runner: fake, ssh: "C:\\Windows\\System32\\OpenSSH\\ssh.exe", host: "dev@studio" });
+    const ios = new IosSimulatorDriver({
+      env: TEST_ENV,
+      runner: new FakeProcessRunner(() => {
+        throw new Error("a remote simulator must not run anything on this computer");
+      }),
+      tools: async () => ({ xcrun: "/usr/bin/xcrun", idb: "/opt/homebrew/bin/idb", host }),
+    });
+    const lines = () =>
+      fake.calls.map((call) => call.args.at(-1)?.replace("PATH=/opt/homebrew/bin:/usr/local/bin:$PATH ", ""));
+    return { fake, ios, lines };
+  };
+
+  it("lists the Mac's simulators with the Mac as their host", async () => {
+    const { fake, ios } = remote();
+    const [iphone] = await ios.list();
+    expect(iphone).toEqual({
+      deviceId: "ios:AAAA-1111",
+      platform: "ios",
+      kind: "simulator",
+      name: "iPhone 15",
+      state: "online",
+      osVersion: "iOS 17.5",
+      host: "dev@studio",
+    });
+    expect(fake.calls[0]?.command).toBe("C:\\Windows\\System32\\OpenSSH\\ssh.exe");
+    expect(fake.calls[0]?.args.slice(0, 6)).toEqual([
+      "-o",
+      "BatchMode=yes",
+      "-o",
+      "ConnectTimeout=5",
+      "--",
+      "dev@studio",
+    ]);
+    expect(fake.calls[0]?.options?.env).toEqual({ PATH: "/usr/bin" });
+  });
+
+  it("boots, shuts down, opens URLs, and types through ssh with every argument quoted", async () => {
+    const { ios, lines } = remote();
+    const devices = await ios.list();
+    const ipad = devices[1];
+    const iphone = devices[0];
+    if (!ipad || !iphone) throw new Error("missing devices");
+    await ios.boot(ipad, {});
+    await ios.shutdown({ ...ipad, state: "online" });
+    await ios.openUrl(iphone, "myapp://open?a=1&b=$(reboot)");
+    await ios.type(iphone, "it's done; rm -rf ~");
+    expect(lines().slice(1)).toEqual([
+      "/usr/bin/xcrun simctl boot BBBB-2222",
+      "/usr/bin/xcrun simctl bootstatus BBBB-2222 -b",
+      "/usr/bin/xcrun simctl shutdown BBBB-2222",
+      "/usr/bin/xcrun simctl openurl AAAA-1111 'myapp://open?a=1&b=$(reboot)'",
+      `/opt/homebrew/bin/idb ui text --udid AAAA-1111 'it'\\''s done; rm -rf ~'`,
+    ]);
+  });
+
+  it("takes screenshots from simctl's stdout instead of a file", async () => {
+    const { ios, lines } = remote();
+    const [iphone] = await ios.list();
+    if (!iphone) throw new Error("missing iPhone");
+    expect(await ios.screenshot(iphone)).toMatchObject({ width: 1179, height: 2556 });
+    expect(lines().at(-1)).toBe("/usr/bin/xcrun simctl io AAAA-1111 screenshot '--type=png' -");
+  });
+
+  it("changes device settings through ssh, with the push payload on ssh's stdin", async () => {
+    const { fake, ios, lines } = remote();
+    const [iphone] = await ios.list();
+    if (!iphone) throw new Error("missing iPhone");
+    await ios.setAppearance(iphone, "dark");
+    await ios.setTextSize(iphone, "largest");
+    await ios.setLocation(iphone, { latitude: 37.33182, longitude: -122.03118 });
+    await ios.clearLocation(iphone);
+    await ios.setPermission(iphone, "com.example.app", "photos", true);
+    await ios.sendNotification(iphone, "com.example.app", { title: "It's here", body: "$(reboot)" });
+    expect(lines().slice(1)).toEqual([
+      "/usr/bin/xcrun simctl ui AAAA-1111 appearance dark",
+      "/usr/bin/xcrun simctl ui AAAA-1111 content_size extra-extra-extra-large",
+      "/usr/bin/xcrun simctl location AAAA-1111 set '37.33182,-122.03118'",
+      "/usr/bin/xcrun simctl location AAAA-1111 clear",
+      "/usr/bin/xcrun simctl privacy AAAA-1111 grant photos com.example.app",
+      "/usr/bin/xcrun simctl push AAAA-1111 com.example.app -",
+    ]);
+    const push = fake.calls.at(-1);
+    expect(push?.command).toBe("C:\\Windows\\System32\\OpenSSH\\ssh.exe");
+    const input = push?.options && "input" in push.options ? push.options.input : undefined;
+    expect(JSON.parse(String(input))).toEqual({
+      aps: { alert: { title: "It's here", body: "$(reboot)" }, sound: "default" },
+    });
+  });
+
+  it("reads the appearance and text size back from the Mac", async () => {
+    const fake = new FakeProcessRunner((_command, args) => {
+      const line = args.at(-1) ?? "";
+      if (line.endsWith("simctl list devices --json")) return { stdout: SIMCTL };
+      if (line.endsWith("ui AAAA-1111 appearance")) return { stdout: "dark\n" };
+      if (line.endsWith("ui AAAA-1111 content_size")) return { stdout: "large\n" };
+      return undefined;
+    });
+    const host = sshCommandHost({ runner: fake, ssh: "ssh", host: "dev@studio" });
+    const ios = new IosSimulatorDriver({
+      env: TEST_ENV,
+      runner: new FakeProcessRunner(),
+      tools: async () => ({ xcrun: "/usr/bin/xcrun", host }),
+    });
+    const [iphone] = await ios.list();
+    if (!iphone) throw new Error("missing iPhone");
+    expect(await ios.readConditions(iphone)).toEqual({ appearance: "dark", textSize: "default" });
+    expect(fake.calls.every((call) => call.command === "ssh")).toBe(true);
+  });
+
+  it("refuses what cannot work from another computer yet, and says why", async () => {
+    const { ios } = remote();
+    const [iphone] = await ios.list();
+    if (!iphone) throw new Error("missing iPhone");
+    await expect(ios.install(iphone, "C:\\builds\\App.app")).rejects.toThrow(
+      "ZLI cannot copy an app from this computer to a simulator on studio yet.",
+    );
+    await expect(ios.rotate(iphone, undefined)).rejects.toThrow(
+      "ZLI cannot rotate a simulator on studio yet. Rotate it in the Simulator app on the Mac.",
+    );
+    await expect(ios.startVideo(iphone, { onVideo: () => undefined, onClose: () => undefined })).rejects.toThrow(
+      "Live video from a simulator on studio is not supported yet.",
+    );
+  });
+
+  it("points to Test connection when the Mac's tools are not reachable", async () => {
+    const host = sshCommandHost({ runner: new FakeProcessRunner(), ssh: "ssh", host: "dev@studio" });
+    const ios = new IosSimulatorDriver({
+      env: TEST_ENV,
+      runner: new FakeProcessRunner(),
+      tools: async () => ({ host }),
+    });
+    expect(await ios.list()).toEqual([]);
+    await expect(
+      ios.shutdown({ deviceId: "ios:AAAA", platform: "ios", kind: "simulator", name: "iPhone", state: "online" }),
+    ).rejects.toThrow("ZLI cannot run Xcode's simulator tools on studio. Test the connection in Settings > Mobile.");
   });
 });

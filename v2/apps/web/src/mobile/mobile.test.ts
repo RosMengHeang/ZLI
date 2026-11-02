@@ -8,6 +8,7 @@ import {
   androidNeedsInstall,
   androidSituation,
   deviceGroup,
+  deviceKindLabel,
   deviceStateLabel,
   deviceSummary,
   devicesInGroups,
@@ -348,6 +349,11 @@ describe("mobile panel helpers", () => {
     expect([emulator, phone, simulator].map(deviceGroup)).toEqual(["Emulators", "Phones", "Simulators"]);
     expect(deviceSummary({ platform: "android", osVersion: "15", state: "online" })).toBe("Android 15, running");
     expect(deviceSummary({ platform: "ios", state: "shutdown" })).toBe("iOS, off");
+    expect(deviceSummary({ platform: "ios", osVersion: "18.2", state: "online", host: "dev@studio.local" })).toBe(
+      "iOS 18.2 on studio.local, running",
+    );
+    expect(deviceKindLabel({ platform: "ios", kind: "simulator", host: "studio" })).toBe("iOS Simulator on studio");
+    expect(deviceKindLabel({ platform: "ios", kind: "simulator" })).toBe("iOS Simulator");
     expect(deviceSummary({ ...phone, osVersion: "15", connection: "wifi" })).toBe("Android 15 over Wi-Fi, ready");
   });
 

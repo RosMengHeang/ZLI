@@ -72,9 +72,17 @@ export function stateTone(device: Pick<MobileDevice, "state">): BadgeTone {
       return "warning";
   }
 }
-export function deviceKindLabel(device: Pick<MobileDevice, "platform" | "kind">): string {
+export function deviceKindLabel(
+  device: Pick<MobileDevice, "platform" | "kind"> & Partial<Pick<MobileDevice, "host">>,
+): string {
   if (device.kind === "physical") return device.platform === "ios" ? "iPhone" : "Android phone";
-  return device.platform === "ios" ? "iOS Simulator" : "Android Emulator";
+  if (device.platform !== "ios") return "Android Emulator";
+  return device.host ? `iOS Simulator on ${macName(device.host)}` : "iOS Simulator";
+}
+
+/** The Mac's name from an SSH address, without the user name: you@mac-mini.local is mac-mini.local. */
+export function macName(host: string): string {
+  return host.slice(host.lastIndexOf("@") + 1);
 }
 
 export type DeviceGroup = "Emulators" | "Phones" | "Simulators";
@@ -93,11 +101,13 @@ export function devicesInGroups(devices: readonly MobileDevice[]): MobileDevice[
 
 /** The platform, version, and state under a device's name in the picker, for example "Android 15, running". */
 export function deviceSummary(
-  device: Pick<MobileDevice, "platform" | "osVersion" | "state"> & Partial<Pick<MobileDevice, "kind" | "connection">>,
+  device: Pick<MobileDevice, "platform" | "osVersion" | "state"> &
+    Partial<Pick<MobileDevice, "kind" | "connection" | "host">>,
 ): string {
   const platform = device.platform === "ios" ? "iOS" : "Android";
   const via = connectionLabel(device);
-  return `${platform}${device.osVersion ? ` ${device.osVersion}` : ""}${via ? ` over ${via}` : ""}, ${deviceStateLabel(device).toLowerCase()}`;
+  const where = device.host ? ` on ${macName(device.host)}` : via ? ` over ${via}` : "";
+  return `${platform}${device.osVersion ? ` ${device.osVersion}` : ""}${where}, ${deviceStateLabel(device).toLowerCase()}`;
 }
 /** Under this much time left, the agent banner counts down instead of naming the time. */
 const LEASE_COUNTDOWN_MS = 2 * 60_000;

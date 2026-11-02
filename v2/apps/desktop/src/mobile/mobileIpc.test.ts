@@ -35,7 +35,8 @@ function handlers() {
     create: vi.fn(async (_input: unknown) => ({ avds: [] })),
     delete: vi.fn(async (_input: unknown) => ({ avds: [] })),
   };
-  const service = { manager, setup: {}, avds, status: async () => ({}) } as unknown as MobileService;
+  const testIosHost = vi.fn(async (host: string) => ({ ok: true, message: `Connected to ${host}.` }));
+  const service = { manager, setup: {}, avds, status: async () => ({}), testIosHost } as unknown as MobileService;
   const settings = {
     get: vi.fn(async () => ({ agentTools: true, crashWatch: true })),
     set: vi.fn(async () => ({ agentTools: false, crashWatch: true })),
@@ -46,6 +47,7 @@ function handlers() {
     logs,
     manager,
     settings,
+    testIosHost,
     handle: mobileIpcHandlers({ service: () => service, settings: () => settings }),
   };
 }
@@ -150,6 +152,23 @@ describe("mobile IPC handlers", () => {
     expect(() => stopped["zli:mobile:devices"]?.(undefined)).toThrow("ZLI's mobile service is not running.");
     expect(() => stopped["zli:mobile:settings-get"]?.(undefined)).toThrow("ZLI's mobile service is not running.");
   });
+  it("tests a Mac only with an address ssh cannot misread, and reads the devices again when the Mac changes", async () => {
+    const { handle, testIosHost, manager, settings } = handlers();
+    expect(await handle["zli:mobile:ios-host-test"]?.({ host: "dev@studio.local" })).toEqual({
+      ok: true,
+      message: "Connected to dev@studio.local.",
+    });
+    for (const host of ["-oProxyCommand=calc", "studio; reboot", ""])
+      expect(() => handle["zli:mobile:ios-host-test"]?.({ host })).toThrow();
+    expect(testIosHost).toHaveBeenCalledTimes(1);
+    const list = vi.spyOn(manager, "list");
+    await handle["zli:mobile:settings-set"]?.({ agentTools: false });
+    expect(list).not.toHaveBeenCalled();
+    await handle["zli:mobile:settings-set"]?.({ iosRemoteHost: "dev@studio.local" });
+    expect(settings.set).toHaveBeenLastCalledWith({ iosRemoteHost: "dev@studio.local" });
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
   it("serves the proposal channels, which take only an id and parse every payload", async () => {
     const host = createTestDevHost();
     const dev = createMobileDev(host);

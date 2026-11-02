@@ -8,6 +8,7 @@ import {
   deviceStateLabel,
   devicesInGroups,
   errorText,
+  macName,
   phoneStateHint,
   stateTone,
   systemImageLabel,
@@ -23,6 +24,7 @@ import { Icon } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
 import { Switch } from "../ui/Switch.js";
 import { useAppSettings } from "./appSettings.js";
+import { RemoteMacRows } from "./RemoteMacRows.js";
 import { SectionHeader, SettingGroup, SettingRow } from "./SectionHeader.js";
 
 /** Phone simulation: the devices on this computer, how their screens show, and what the emulator needs. */
@@ -57,7 +59,7 @@ function MobileSettingsBody({ mobile }: { mobile: MobileBridge }) {
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const [actionError, setActionError] = useState<string>();
   const [showFrame, setShowFrame] = useDeviceFrame();
-  const { settings: agentSettings, error: agentError, setAgentTools } = useMobileSettings(mobile);
+  const { settings: agentSettings, error: agentError, setAgentTools, setIosRemoteHost } = useMobileSettings(mobile);
 
   const refreshDevices = useCallback(async () => {
     try {
@@ -213,7 +215,21 @@ function MobileSettingsBody({ mobile }: { mobile: MobileBridge }) {
 
       {status ? (
         <SettingGroup title="iPhone simulator">
-          {status.ios.supported ? (
+          {status.ios.host ? (
+            <>
+              <ToolRow
+                label="Simulator tools"
+                detail={`simctl, from Xcode on ${macName(status.ios.host)}`}
+                probe={status.ios.simctl}
+              />
+              <ToolRow
+                label="idb"
+                detail="Needed for taps, swipes, and typing. Without it the panel shows screenshots only."
+                probe={status.ios.idb}
+                optional
+              />
+            </>
+          ) : status.ios.supported ? (
             <>
               <ToolRow label="Simulator tools" detail="simctl, from Xcode" probe={status.ios.simctl} />
               <ToolRow
@@ -228,6 +244,17 @@ function MobileSettingsBody({ mobile }: { mobile: MobileBridge }) {
               <Badge tone="quiet">Not on this computer</Badge>
             </SettingRow>
           )}
+          <RemoteMacRows
+            mobile={mobile}
+            saved={agentSettings ? (agentSettings.iosRemoteHost ?? "") : undefined}
+            macHere={status.host.os === "macos"}
+            problem={status.ios.host && !status.ios.simctl.found ? status.ios.missing[0] : undefined}
+            save={setIosRemoteHost}
+            onSaved={() => {
+              void check();
+              void refreshDevices();
+            }}
+          />
         </SettingGroup>
       ) : null}
     </>

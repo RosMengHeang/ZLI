@@ -6,6 +6,7 @@ import type {
   MobileAvdCreateInput,
   MobileAvdList,
   MobileDevice,
+  MobileIosHostTestResult,
   MobileOpenUrlResult,
   MobilePanelInput,
   MobilePopOut,
@@ -175,6 +176,8 @@ export type MobileBridge = {
   screenshot(deviceId: string): Promise<MobileScreenshot>;
   getSettings(): Promise<MobileSettings>;
   setSettings(patch: Partial<MobileSettings>): Promise<MobileSettings>;
+  /** Signs in to a Mac over SSH and lists its simulators. Absent in bridges without the desktop app's ssh. */
+  testIosHost?(host: string): Promise<MobileIosHostTestResult>;
   onReveal(listener: (event: MobileRevealEvent) => void): () => void;
   /** Pop-out windows exist only in the desktop app; without them the panel offers no Pop out. */
   popOuts?(): Promise<MobilePopOut[]>;
